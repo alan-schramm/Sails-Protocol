@@ -81,6 +81,7 @@ enum EscrowStatus {
   CREATED
   FUNDS_LOCKED
   PAYMENT_PENDING
+  PENDING_BANK_SETTLEMENT  // RFC-007 D3 — payment initiated but held/processing at the financial institution
   COMPLETED
   DISPUTED
   REFUNDED
@@ -249,12 +250,13 @@ model Escrow {
 not the database):**
 
 ```
-CREATED         → FUNDS_LOCKED, REFUNDED
-FUNDS_LOCKED    → PAYMENT_PENDING, DISPUTED, REFUNDED
-PAYMENT_PENDING → COMPLETED, DISPUTED
-COMPLETED       → (terminal)
-DISPUTED        → COMPLETED, REFUNDED
-REFUNDED        → (terminal)
+CREATED                  → FUNDS_LOCKED, REFUNDED
+FUNDS_LOCKED             → PAYMENT_PENDING, DISPUTED, REFUNDED
+PAYMENT_PENDING          → PENDING_BANK_SETTLEMENT, COMPLETED, DISPUTED
+PENDING_BANK_SETTLEMENT  → COMPLETED, DISPUTED     (RFC-007 D3)
+COMPLETED                → (terminal)
+DISPUTED                 → COMPLETED, REFUNDED
+REFUNDED                 → (terminal)
 ```
 
 ### `EscrowEvent` — audit log, owned by `opensettlement`
@@ -326,6 +328,15 @@ model ReputationEvent {
 `@@unique([tradeId, raterId])` is a deliberate anti-abuse constraint — one
 participant can only rate a given trade once.
 
+**RFC-007 D8 note:** `ReputationEvent` rows remain the persisted record of
+`rate()` calls, but as of RFC-007 they are informational feedback only —
+no aggregate reputation-score computation reads `ReputationEvent.score`
+directly. `ReputationScore` is computed exclusively from `SettlementOutcome`
+events (via the `EscrowEvent` trail above and an internal `OutcomeEngine`,
+not a new table — it's a computation over existing rows, not new state).
+A `CancelledByAgreement` trade outcome always classifies `NEUTRAL` and can
+never reduce the counterparty's score.
+
 ---
 
 ### `Claim`, `Proof`, `EvidenceVerification` — owned by no single module (RFC-003)
@@ -355,7 +366,9 @@ model Proof {
   evidence    Json     // opaque — signature, receipt image ref, oracle payload
   submittedAt DateTime @default(now())
 
-  verifications EvidenceVerification[]
+  verifications      EvidenceVerification[]
+  evidenceReferences EvidenceReference[]   // RFC-007 D2 — back-relation for EvidenceReference below
+  fingerprint        ProofFingerprint?     // RFC-007 D1 — back-relation for ProofFingerprint below
   @@map("proofs")
 }
 
@@ -375,6 +388,80 @@ model EvidenceVerification {
 Named `EvidenceVerification` here (not `Verification`) only to avoid a
 reserved-word collision in some ORMs — the primitive itself is still
 called `Verification` in `PROTOCOL_SPECIFICATION.md` §1.8.
+
+### `EvidenceReference`, `ProofFingerprint` — owned by `openproof` (RFC-007 D1/D2)
+
+```prisma
+model EvidenceReference {
+  id         String   @id @default(uuid())
+  proofId    String
+  proof      Proof    @relation(fields: [proofId], references: [id])
+  provider   String   // 'nostr.build' | 's3' | 'r2' | 'ipfs' | 'arweave' | ...
+  uri        String
+  sha256     String
+  mimeType   String   // 'image' | 'video' | 'document' | 'ocr' | 'external_reference'
+  signature  String   // signed by the submitting participant's key
+  createdAt  DateTime @default(now())
+
+  @@map("evidence_references")
+}
+
+model ProofFingerprint {
+  id          String   @id @default(uuid())
+  proofId     String   @unique
+  proof       Proof    @relation(fields: [proofId], references: [id])
+  fingerprint String   // content/perceptual hash from ProofRegistry.fingerprint()
+  intentId    String
+  createdAt   DateTime @default(now())
+
+  @@index([fingerprint])
+  @@map("proof_fingerprints")
+}
+```
+
+The protocol never stores the media itself — `EvidenceReference` is a
+signed pointer into whichever `EvidenceProvider` the submitting Reference
+Implementation configured. `ProofFingerprint.fingerprint` is indexed so
+`ProofRegistry.findDuplicates()` (RFC-007 D1) can detect the same evidence
+reused across different `intentId`s without re-fetching the media.
+
+**`EvidenceBundle` (RFC-007 D6) is not a table.** It is a query
+(`OpenProofService.getEvidenceBundle(intentId)`) that joins `Claim`,
+`Proof`, `EvidenceVerification`, `EvidenceReference`, and the Timeline
+projection (below) by `intentId` — consistent with RFC-007 rejecting it
+as a primitive with its own persisted lifecycle.
+
+### `Timeline` — not a table (RFC-007 D5)
+
+`Timeline.getEvents(intentId)` is a read projection over events already
+persisted by each module's own audit trail (e.g. `EscrowEvent` above,
+`ReputationEvent`, future `DisputeEvent`), ordered by `createdAt` and
+filtered to one `intentId`/`tradeId`. No new table — adding one would
+duplicate state that already exists per-module, which is exactly the
+outcome RFC-007's primitive-rejection reasoning was written to avoid.
+
+### `OperationalProfileGrant` — owned by `openidentity` (RFC-007 D8/D11)
+
+```prisma
+model OperationalProfileGrant {
+  id              String    @id @default(uuid())
+  participantId   String    // a User.id — see RFC-001
+  profile         String    // 'regular_trader' | 'liquidity_provider' | 'merchant' | 'arbitrator' | 'agent'
+  grantedBy       String    // an application identifier, via Policy Engine — not protocol-level KYC
+  criteria        Json?     // e.g. { minScore: 95, minTrades: 1000, noRecentDisputes: true }
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+
+  @@map("operational_profile_grants")
+}
+```
+
+Mirrors `CapabilityGrant` below in shape and intent — `OperationalProfile`
+is a scope a `CapabilityGrant` can reference (RFC-005), not a separate
+permission mechanism. A `liquidity_provider` profile unlocks
+Policy-Engine-gated behavior (e.g. `trustedSettlementAcceleration` on
+`PENDING_BANK_SETTLEMENT`, section above) — never a fixed protocol
+privilege.
 
 ### `Capability`, `CapabilityGrant` — Core components, not module-owned (RFC-005)
 

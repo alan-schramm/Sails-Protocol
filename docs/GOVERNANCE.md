@@ -95,11 +95,14 @@ decision (OpenProof's module status and the Package/Capability
 distinction) reached the same way — through review, not invented here.
 Every architectural decision from this point forward
 that changes a primitive, adds an interface, or alters an Adapter pattern
-follows this same numbered sequence — `RFC-007` is next, whenever the next
-such decision arises, not before. (`RFC-006` — OpenProof module and
-Package terminology — was that "next decision" as of this writing; this
-sentence is updated each time, not left pointing at an RFC that already
-exists.)
+follows this same numbered sequence — `RFC-008` is next, whenever the next
+such decision arises, not before. (`RFC-007` — Real-World P2P
+Requirements, drafted from operator interviews rather than the Protocol
+Quality Review — was accepted by direct CTO directive rather than through
+the open Discussion window described in section 5 below; this is recorded
+explicitly in the RFC itself, not treated as a silent exception to the
+process. This sentence is updated each time, not left pointing at an RFC
+that already exists.)
 
 1. **Draft** — write the proposal as a markdown file following the
    template in section 6. Reference which primitive(s) it uses or extends
