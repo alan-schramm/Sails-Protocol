@@ -48,8 +48,20 @@ interface SailsClient {
   // conventional values include 'payment_sent', 'invoice_paid',
   // 'oracle_verified', 'kyc_verified', 'collateral_held'. The SDK and Core
   // never special-case any of these; a new claimType needs no protocol change.
+  // Media evidence attached via submitProof() is stored through an
+  // EvidenceProvider (RFC-007) the Reference Implementation configures —
+  // the SDK/Core never receive or hold the raw media, only the resulting
+  // signed EvidenceReference. See the proof: namespace below for reading
+  // that evidence back.
   releaseAsset(intentId: string): Promise<Settlement>
+  // Settlement status may pass through PENDING_BANK_SETTLEMENT (RFC-007 D3)
+  // before COMPLETED — represents a payment held/processing at the payer's
+  // financial institution, not yet a failure state.
   dispute(intentId: string, reason: string): Promise<Dispute>
+  // Escalation order (RFC-007 D4): Policy Engine → OpenAgents → a Trusted
+  // Arbitrator via ArbitrationProvider → Settlement. Human arbitration is
+  // the last stage, not the first — most disputes are expected to resolve
+  // before ever reaching an ArbitrationProvider.
 
   // Sails OpenIdentity
   identity: {
@@ -61,7 +73,14 @@ interface SailsClient {
   // Sails OpenReputation
   reputation: {
     get(participantId: string): Promise<ReputationScore>
+    // ReputationScore (RFC-007 D8) is computed exclusively from
+    // recordOutcome() / SettlementOutcome events — rate() below never
+    // feeds into it, and a CancelledByAgreement outcome always classifies
+    // Neutral, never Negative.
     rate(tradeId: string, score: 1 | 2 | 3 | 4 | 5): Promise<void>
+    // Informational feedback only as of RFC-007 — stored, displayed, but
+    // does not alter ReputationScore. Do not build UI that implies this
+    // is "leaving a rating that affects reputation."
     leaderboard(): Promise<ReputationScore[]>
   }
 
@@ -89,6 +108,18 @@ interface SailsClient {
     trade(offerId: string): Promise<Trade>
     chat(tradeId: string): WebSocketChannel
     getMessages(tradeId: string): Promise<Message[]>
+  }
+
+  // Sails OpenProof (RFC-006, RFC-007) — advanced/direct use; submitProof()
+  // above is the path most applications should use to write evidence, this
+  // namespace is for reading it back
+  proof: {
+    getEvidenceBundle(intentId: string): Promise<EvidenceBundle>
+    // Aggregates that Intent's Claims/Proofs/Verifications/Timeline/
+    // external references (RFC-007 D6) — a read model, not a lifecycle
+    // verb, which is why it lives here and not in the six-method facade
+    // above. What a dispute UI or an ArbitrationProvider implementation
+    // calls instead of re-collecting evidence by hand.
   }
 }
 ```
@@ -126,6 +157,12 @@ Full definitions of `PaymentIntent`, `LoanIntent`, `SwapIntent`,
 `EarnIntent`, `AgentIntent` payloads are in `PROTOCOL_SPECIFICATION.md`
 section on the Intent Engine — copy them from there verbatim when
 implementing the SDK types, do not redefine them independently.
+
+`EvidenceBundle`, `EvidenceReference`, `Timeline`/`TimelineEntry`,
+`ArbitrationProvider`, and `OperationalProfileGrant` (RFC-007,
+`rfcs/RFC-007-real-world-p2p-requirements.md`) follow the same rule — copy
+their shapes from `PROTOCOL_SPECIFICATION.md` §1.1/1.8/1.9 verbatim, they
+are not redefined here.
 
 ---
 

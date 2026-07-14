@@ -39,6 +39,7 @@ backlog) and a Network Simulation exercise within Resilience Reviews.
 | Transport Provider | RFC-002, §4B | 🟡 Low-risk — `pear.service.ts` already implements the real logic; needs wrapping behind the `TransportProvider` interface, not rebuilding |
 | Negotiation State Machine + Channel | RFC-004, §1.4 | 🟢 **First real implementation exists** — `negotiation.service.ts`'s `HumanChatChannel` built on the real `pearNodeRegistry`. Not yet wired to HTTP/WebSocket routes (routes still don't exist) |
 | Event Bus update | RFC-003 + RFC-004, `TODO.md` §6B | ✅ **Done** — `claim.*`/`proof.*`/`verification.*`/`dispute.*`/`negotiation.*` events all added and typed |
+| Timeline read-model *(new — RFC-007 D5)* | §1.9, RFC-007 | 🔲 Not started — a per-`intentId` ordered projection over the Event Bus above; no new write path, blocks Evidence Bundle (P2) and the Social Engineering Agent (P3) |
 
 ## P1 — First Proven Module + SDK Core
 
@@ -52,9 +53,14 @@ backlog) and a Network Simulation exercise within Resilience Reviews.
 | Item | RFC / Spec | Current Status |
 |---|---|---|
 | Sails OpenSettlement | §1.5, §4B | 🟢 **Most complete module today** — `escrow.service.ts` is real, reviewed, and decoupled correctly (`ARCHITECTURE.md` §5's fix already applied). Remaining: real `LightningHodlProvider`/`LiquidCovenantProvider` (both currently throw "not implemented"), and wiring `DisputeResolutionProvider` (RFC-003's Verification) |
+| `PendingBankSettlement` status *(new — RFC-007 D3)* | §1.5, RFC-007 | 🟡 Smallest RFC-007 item and the only one touching live code — one `EscrowStatus` enum value + one `assertTransition()` edge in `escrow.service.ts`, additive, no data migration |
+| Dispute escalation order + `ArbitrationProvider` *(new — RFC-007 D4)* | §1.9, RFC-007 | 🔲 Not started — depends on Evidence Bundle (below) existing first; introduces the new `ArbitrationProvider` adapter interface, registered per application (not a protocol role) |
 | Sails OpenIdentity | §1.1, RFC-001 | 🟡 Module itself still not built, but **the highest-priority security item is closed**: `common/middleware/auth.ts` implements real Ed25519 challenge-response (`RED_TEAM_REVIEW.md` RT-002). Not yet wired into any route — routes don't exist yet — but the middleware is real, not a stub |
+| Operational Profiles *(new — RFC-007 D8/D11)* | §1.1, RFC-007 | 🔲 Not started — additive OpenIdentity attribute (`OperationalProfileGrant`), blocked on OpenIdentity module itself |
 | Sails OpenReputation | §1.6 | 🔲 Not started |
+| Outcome Engine + `rate()` demotion *(new — RFC-007 D8/D9)* | §1.6, RFC-007 | 🔲 Not started — bundle with OpenReputation's first service layer; makes `recordOutcome()` the sole score input, `rate()` informational only, `CancelledByAgreement` always Neutral |
 | **Sails OpenProof** *(new — RFC-006)* | §1.8, RFC-003, RFC-006 | 🟡 **Data model already real** — `Claim`/`Proof`/`EvidenceVerification` tables in `DATABASE.md`, TypeScript interfaces in `common/types`. Remaining: `modules/open-proof/proof.service.ts` — the actual `assertClaim()`/`submitProof()`/`verify()` service logic doesn't exist yet |
+| Proof Registry, `EvidenceProvider`, Evidence Bundle *(new — RFC-007 D1/D2/D6)* | §1.8, RFC-007 | 🔲 Not started — scope these into OpenProof's first service layer alongside `proof.service.ts` above rather than as a later addition (per RFC-007's own Reference Implementation Plan) |
 
 ## P3 — Advanced / Aspirational Modules
 
@@ -63,6 +69,7 @@ backlog) and a Network Simulation exercise within Resilience Reviews.
 | Sails OpenLiquidity | §1.3, §4B | 🟢 **Second most complete module** — `liquidity.service.ts` is real, deduplicated (`ARCHITECTURE.md` §5). Remaining: real HodlHodl integration (currently stubbed, `isAvailable()` returns `false`) |
 | Sails OpenFinance | §4B, `REFERENCE_IMPLEMENTATIONS.md` §3 | 🔲 Not started — blocked on real external adapters (Morpho, etc.) |
 | Sails OpenAgents | §1.7 (includes the `learn()` step) | 🔲 Not started — blocked on QVAC integration, which is at 0% per `TETHER_DUE_DILIGENCE_REPORT.md` finding 12 |
+| Social Engineering Agent *(new — RFC-007 D7)* | §1.7, RFC-007 | 🔲 Not started — blocked on OpenAgents itself and on the Timeline read-model (P0) it reads from |
 
 ---
 

@@ -114,6 +114,30 @@ valid forever; DID, Credentials, and Trust Graph are optional layers a
 Reference Implementation can build on top, none of which require changing
 what `Identity` fundamentally is.
 
+**Operational Profiles (RFC-007, `rfcs/RFC-007-real-world-p2p-requirements.md`).**
+A further additive, OpenIdentity-module-level attribute, orthogonal to the
+Keys/DID/Credentials/Trust Graph growth path above and to `Identity`'s core
+contract, which is unchanged:
+
+```typescript
+type OperationalProfile =
+  | 'regular_trader' | 'liquidity_provider' | 'merchant' | 'arbitrator' | 'agent'
+
+interface OperationalProfileGrant {
+  participantId: string
+  profile: OperationalProfile
+  grantedBy: string          // an application, via Policy Engine — not protocol-level KYC
+  criteria?: Record<string, unknown>
+}
+```
+
+An Operational Profile is not identity verification and grants no
+protocol-level privilege by itself — it is a `CapabilityGrant` (section
+1.10, RFC-005) scope that the Policy Engine reads to activate
+module-specific behavior (e.g. accelerated settlement for a qualifying
+`liquidity_provider`, see section 1.5's `PendingBankSettlement` note and
+RFC-007 decision D8).
+
 ### 1.2 Intent Primitive
 
 **Responsibility:** express a participant's desired outcome without
@@ -289,6 +313,24 @@ interface Settlement {
   triggers a Reputation update. Fulfills the Intent.
 - **Implemented by:** Sails OpenSettlement
 
+**`PendingBankSettlement` (RFC-007, decision D3).** `SettlementStatus`
+gains a state representing payment that has left the payer (e.g. a PIX or
+bank transfer initiated) but is held or still processing at the financial
+institution before it actually clears — distinct from a status meaning
+the payer has not yet acted:
+
+```
+PAYMENT_PENDING → PENDING_BANK_SETTLEMENT → COMPLETED
+                                          ↘ DISPUTED
+```
+
+This adds one enum value and one transition edge; `Settlement`'s fields
+are unchanged. A Liquidity Provider with a qualifying `OperationalProfile`
+(section 1.1) may be granted a Policy Engine rule
+(`trustedSettlementAcceleration`) that triggers `release()` on reaching
+this state without waiting for the counterparty's manual confirmation —
+policy-gated, not a protocol-level permission.
+
 ### 1.6 Reputation Primitive
 
 **Responsibility:** aggregate historical behavior into a portable trust
@@ -297,8 +339,8 @@ signal tied to Identity, not to any module or platform.
 ```typescript
 interface ReputationContract {
   get(participantId: string): Promise<ReputationScore>
-  recordOutcome(event: SettlementOutcome): Promise<void>
-  rate(negotiationId: string, raterId: string, score: number): Promise<void>
+  recordOutcome(event: SettlementOutcome): Promise<void>   // sole ReputationScore input (RFC-007)
+  rate(negotiationId: string, raterId: string, score: number): Promise<void>  // informational only (RFC-007) — never alters ReputationScore
 }
 ```
 
@@ -307,6 +349,18 @@ interface ReputationContract {
 - **Relationships:** reads Settlement outcomes to compute score. Feeds
   Discovery's ranking. Tied to Identity, not to any application.
 - **Implemented by:** Sails OpenReputation
+
+**Outcome-based Reputation (RFC-007, decision D8).** `recordOutcome()` is
+the only input to `ReputationScore`; `rate()` is retained purely as
+feedback attached to the negotiation's history and never modifies the
+score — closing an abuse pattern operators reported where a party who
+cancels in bad faith could still leave a punitive rating. An internal
+`OutcomeEngine` component of OpenReputation (not a primitive — same
+relationship as `ProofRegistry` to OpenProof, section 1.8) classifies each
+`SettlementOutcome` as `POSITIVE` / `NEUTRAL` / `NEGATIVE`, configurable
+via Policy Engine. `CancelledByAgreement` always classifies as `NEUTRAL`
+by construction — a cancellation can never automatically produce a
+negative reputation impact on the counterparty.
 
 ### 1.7 Agent Primitive
 
@@ -364,6 +418,14 @@ tracked under Sails OpenAgents (`ROADMAP.md` Meses 7-9) — no learning
 mechanism exists in code today, and none should be implemented before
 `AgentScope`'s spend/approval boundaries (section 1.7 above) are enforced
 first.
+
+**Social Engineering Agent (RFC-007, decision D7).** A specialized
+OpenAgents behavior, not a new primitive: it evaluates each Timeline entry
+(section 1.9) for known fraud-precursor patterns (off-channel migration
+requests, unexpected payment-instruction changes, other configurable
+patterns) and emits a `RiskSignal` for the Policy Engine to act on — the
+agent detects, it never acts unilaterally. Runs on-device under the same
+`AgentGrant`/`AgentScope` boundaries as every other Agent behavior.
 
 ### 1.8 Proof Primitive
 
@@ -430,6 +492,35 @@ interface Verification {
   `Proof`, and `Verification` are shared structures any module can
   populate, and any module (or arbiter, or QVAC agent) can evaluate.
 
+**Proof Registry, `EvidenceProvider`, and Evidence Bundle (RFC-007,
+`rfcs/RFC-007-real-world-p2p-requirements.md`, decisions D1/D2/D6).** Three
+additions to OpenProof, none of which change `Claim`/`Proof`/`Verification`'s
+shape above:
+
+- **`ProofRegistry`** — an internal OpenProof component that fingerprints
+  submitted evidence and detects reuse of the same proof across different
+  Intents (e.g. a payment screenshot submitted against two separate
+  disputes), surfaced as a `proof.duplicate_detected` event rather than a
+  silent block — OpenProof flags reuse, the Dispute primitive (section 1.9)
+  and Policy Engine decide what to do about it.
+- **`EvidenceProvider`** — a new Adapter interface (`SettlementProvider`/
+  `TransportProvider` pattern, section 4B below), because the protocol
+  never stores media (`PRINCIPLES.md` principles 3 and 6). Each
+  implementation (Nostr.build, S3, R2, IPFS, Arweave, or a Reference
+  Implementation's own infrastructure) stores the media; OpenProof
+  persists only a signed, hashed `EvidenceReference` pointer, which
+  populates `Proof.evidence` for media-backed claims without changing
+  `Proof`'s type (`evidence: unknown` already accommodates it).
+- **`EvidenceBundle`** — considered as a candidate 10th primitive in
+  RFC-007 and explicitly rejected (see that RFC's "Primitives Used or
+  Extended" section — it fails the irreducibility test the same way
+  `Offer`, section 1.11, already did). Decision: an OpenProof-owned query
+  aggregate — `getEvidenceBundle(intentId)` composes that Intent's
+  `Claim[]`, `Proof[]`, `Verification[]`, Timeline entries (section 1.9),
+  and `EvidenceReference[]` into one read model. It has no lifecycle of
+  its own; it is a projection, not a new domain object participants
+  transact around.
+
 ### 1.9 Dispute Primitive
 
 **Responsibility:** formally resolve a disagreement between counterparties
@@ -464,6 +555,41 @@ interface Dispute {
   Dispute resolution (e.g., an insurance-backed resolver for loan
   defaults) without changing this primitive's contract — the same way
   different `SettlementProvider`s coexist.
+
+**Escalation order and `ArbitrationProvider` (RFC-007, decision D4).**
+`Dispute.status`'s progression is now explicit rather than jumping
+straight to arbitration:
+
+```
+Evidence collected (OpenProof's EvidenceBundle, section 1.8)
+  ↓
+Policy Engine  — checks configured auto-resolution rules
+  ↓
+OpenAgents      — attempts automated resolution from policy + evidence
+  ↓
+Trusted Arbitrator (via ArbitrationProvider) — only if the above do not resolve it
+  ↓
+Settlement — release / refund / split
+```
+
+`ArbitrationProvider` is a new Adapter interface, registered per
+application (not a protocol-native role) — deliberately not called
+"Guardian" or any term implying the protocol itself governs or controls
+arbitration outcomes, which would risk both a technical and a regulatory
+misreading of a neutral coordination layer. `Dispute.arbiterId` and
+`ruling` are populated via `ArbitrationProvider.assign()` /
+`.rule()`; `Dispute`'s fields are unchanged — this formalizes how they get
+set, not their shape.
+
+**Timeline (RFC-007, decision D5).** Also considered as a candidate
+primitive in RFC-007 and rejected, on the same grounds section 1.11
+already rejected `Event`: it is the existing Event Bus's mechanism made
+queryable in order for one Intent, not a new domain concept participants
+transact around. Decision: a Core-level, per-`intentId` read projection
+(`Timeline.getEvents()`) over events already emitted under sections
+1.2-1.9's event lists — no new write path, not owned by any single
+module. Both the Evidence Bundle (section 1.8) and the Social Engineering
+Agent (section 1.7) read from it.
 
 ### 1.10 Capability and Policy — Why They Are Core Components, Not Primitives
 
@@ -549,13 +675,14 @@ primitives; they are not primitives themselves.
 
 | Module | Primitives it implements/consumes |
 |---|---|
-| **Core** (not a module) | Hosts the Capability Registry and Policy/Rules Engine that every primitive below relies on — see `ARCHITECTURE.md`. |
-| OpenIdentity | Implements: Identity. Consumed by every other module. |
-| OpenReputation | Implements: Reputation. Consumes: Settlement (outcomes), Identity, Proof (evidence of claimed history). |
-| OpenSettlement | Implements: Settlement, Dispute. Consumes: Negotiation (AgreedTerms), Proof (dispute evidence), Reputation (arbiter bonding). |
+| **Core** (not a module) | Hosts the Capability Registry, Policy/Rules Engine, and (RFC-007) the per-Intent Timeline read-model over the Event Bus that every primitive below relies on — see `ARCHITECTURE.md`. |
+| OpenIdentity | Implements: Identity, incl. Operational Profiles (RFC-007, module growth-path addition). Consumed by every other module. |
+| OpenReputation | Implements: Reputation, incl. Outcome Engine (RFC-007) — `recordOutcome()` is the sole score input, `rate()` is informational only. Consumes: Settlement (outcomes), Identity, Proof (evidence of claimed history). |
+| OpenSettlement | Implements: Settlement (incl. `PendingBankSettlement`, RFC-007), Dispute (incl. escalation order + `ArbitrationProvider`, RFC-007). Consumes: Negotiation (AgreedTerms), Proof (dispute evidence), Reputation (arbiter bonding). |
 | OpenLiquidity | Implements: Discovery. Consumes: Intent, Reputation (ranking), Identity. |
 | OpenP2P | Implements: Negotiation. Orchestrates: Intent → Discovery → Negotiation → Settlement using the modules above. Produces Proof (payment confirmation) during Negotiation. |
-| OpenAgents | Implements: Agent. Consumes: Intent (creates on behalf of Identity), Capability (delegation scope, via Core), all others via delegation. |
+| OpenAgents | Implements: Agent, incl. Social Engineering Agent (RFC-007). Consumes: Intent (creates on behalf of Identity), Capability (delegation scope, via Core), Timeline (RFC-007), all others via delegation. |
+| OpenProof | Implements: Proof, incl. Proof Registry, `EvidenceProvider`, and Evidence Bundle (RFC-007, RFC-006). Consumes: Timeline (RFC-007) to compose the Evidence Bundle. |
 | OpenFinance | Future application module. Reuses Discovery, Negotiation, Settlement, Reputation, Dispute, Proof (collateral/income verification) — adds new Intent types. |
 | Sails SDK | Implements no primitive — wraps every module's interface into `SailsClient`. |
 

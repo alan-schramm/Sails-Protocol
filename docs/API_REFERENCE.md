@@ -44,6 +44,15 @@ protocol.cancelIntent(intent.id)
 | `releaseAsset` | `POST /v1/settlement/escrow/:id/release` | Settlement (§1.5) |
 | `dispute` | `POST /v1/settlement/escrow/:id/dispute` | Dispute (§1.9) |
 
+**RFC-007 note:** an escrow's status may pass through
+`PENDING_BANK_SETTLEMENT` between `payment-sent` and `release` (§4 below)
+— a payment held/processing at the payer's financial institution, not a
+failure state. `dispute` now resolves through an explicit escalation
+order (Policy Engine → OpenAgents → a Trusted Arbitrator via
+`ArbitrationProvider` → Settlement) before ever reaching human
+arbitration — the verb and its route are unchanged, only what happens
+internally after the call.
+
 **Revision note (Protocol Freeze, v8.3):** this verb table used to have
 `confirmFiat`, hardcoding one specific `claimType` (`payment_sent`) into
 the top-level API surface — a P2P-trading-specific leak into what's
@@ -119,9 +128,14 @@ Legacy equivalents: `POST /offers`, `GET /offers`, `GET
 | GET | `/v1/settlement/escrow/:id` | Escrow detail + event history |
 | POST | `/v1/settlement/escrow/:id/lock` | `CREATED → FUNDS_LOCKED` |
 | POST | `/v1/settlement/escrow/:id/payment-sent` | `FUNDS_LOCKED → PAYMENT_PENDING` |
-| POST | `/v1/settlement/escrow/:id/release` | `→ COMPLETED` |
+| POST | `/v1/settlement/escrow/:id/release` | `PAYMENT_PENDING` or `PENDING_BANK_SETTLEMENT → COMPLETED` |
 | POST | `/v1/settlement/escrow/:id/dispute` | `→ DISPUTED` |
 | POST | `/v1/settlement/escrow/:id/refund` | `→ REFUNDED` |
+
+`PENDING_BANK_SETTLEMENT` (RFC-007 D3, `DATABASE.md`'s `EscrowStatus`) is
+an additive status between `PAYMENT_PENDING` and `COMPLETED` — no new
+route, existing `release`/`dispute` routes already handle it as a valid
+source state (see `DATABASE.md`'s updated transition table).
 
 Legacy equivalents: `POST /escrow/create`, `GET /escrow/:id`, `GET
 /escrow/trade/:tradeId`, `POST /escrow/lock`, `POST /escrow/payment-sent`,
@@ -182,6 +196,13 @@ ERROR
 Legacy equivalents: `GET /reputation/:userId`, `GET
 /reputation/leaderboard`, `POST /reputation/rate`.
 
+**RFC-007 note:** `POST /rate` is informational feedback only as of
+RFC-007 — it no longer feeds the score `GET /:participantId` returns.
+`ReputationScore` is computed exclusively from `recordOutcome()` /
+`SettlementOutcome` events (`PROTOCOL_SPECIFICATION.md` §1.6). A trade
+cancelled by agreement always classifies Neutral and can never reduce the
+counterparty's score, regardless of any `rate()` call made against it.
+
 ---
 
 ## 7. P2P Transport (Infrastructure — Pears/HyperDHT) — `/v1/peers/`
@@ -222,6 +243,7 @@ openp2p.message.sent
 settlement.escrow.created
 settlement.escrow.locked
 settlement.escrow.payment_pending
+settlement.escrow.pending_bank_settlement  # RFC-007 D3
 settlement.escrow.released
 settlement.escrow.disputed
 settlement.escrow.refunded
@@ -232,6 +254,13 @@ reputation.score.updated
 # Sails OpenLiquidity
 liquidity.offer.created
 liquidity.offer.status_changed
+
+# Sails OpenProof (RFC-007 addition; claim.*/proof.*/verification.*
+# already exist per RFC-003/BACKLOG.md P0 but are not yet listed in this
+# catalog — a pre-existing gap in this doc, not introduced by RFC-007)
+proof.duplicate_detected  # RFC-007 D1 — ProofRegistry found the same
+                           # fingerprint on a different intentId; a flag
+                           # for Dispute/Policy Engine, not an auto-block
 
 # Cross-module (P2P transport)
 peer.connected
