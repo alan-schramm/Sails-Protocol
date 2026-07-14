@@ -1,0 +1,163 @@
+import { AssetType, TradeSide } from '../../common/types'
+import { prisma } from '../../common/database'
+
+/**
+ * Sails OpenLiquidity — Reference Implementation
+ *
+ * MOVED from src/modules/routing/routing.service.ts (folder name "routing"
+ * did not match any of the 8 official module names in MASTER_COORDINATION.md).
+ *
+ * Fix applied: getOffers() and matchOrder() previously duplicated the same
+ * 8-field object-literal mapping from a Prisma Offer row to a LiquidityOffer.
+ * Extracted into mapOfferToLiquidityOffer() below — one source of truth for
+ * that shape, so changing the LiquidityOffer contract only requires editing
+ * one place instead of two (and future providers only implement the same
+ * helper pattern instead of re-deriving the mapping).
+ */
+
+// ─── Protocol interface (Sails Protocol Spec — LiquidityProvider) ─────────────
+export interface LiquidityOffer {
+  id: string
+  source: 'internal' | 'hodlhodl' | 'robosats' | string
+  asset: AssetType
+  side: TradeSide
+  priceUsd: number
+  minAmount: number
+  maxAmount: number
+  paymentMethods: string[]
+  traderReputation?: number
+}
+
+export interface LiquidityProvider {
+  name: string
+  isAvailable(): Promise<boolean>
+  getOffers(asset: AssetType, side: TradeSide): Promise<LiquidityOffer[]>
+  matchOrder(asset: AssetType, side: TradeSide, amount: number): Promise<LiquidityOffer | null>
+}
+
+// ─── Shared mapping helper (was duplicated in getOffers + matchOrder) ────────
+type OfferRow = {
+  id: string
+  asset: string
+  side: string
+  priceUsd: number
+  minAmount: number
+  maxAmount: number
+  paymentMethod: string
+  user: { reputationScore: number }
+}
+
+function mapOfferToLiquidityOffer(offer: OfferRow): LiquidityOffer {
+  return {
+    id: offer.id,
+    source: 'internal',
+    asset: offer.asset as AssetType,
+    side: offer.side as TradeSide,
+    priceUsd: offer.priceUsd,
+    minAmount: offer.minAmount,
+    maxAmount: offer.maxAmount,
+    paymentMethods: [offer.paymentMethod],
+    traderReputation: offer.user.reputationScore,
+  }
+}
+
+// ─── Internal P2P Order Book ──────────────────────────────────────────────────
+class InternalOrderBook implements LiquidityProvider {
+  name = 'internal'
+
+  async isAvailable() {
+    return true
+  }
+
+  async getOffers(asset: AssetType, side: TradeSide): Promise<LiquidityOffer[]> {
+    const offers = await prisma.offer.findMany({
+      where: { asset, side, status: 'ACTIVE' },
+      orderBy: { priceUsd: side === 'SELL' ? 'asc' : 'desc' },
+      take: 10,
+      include: { user: { select: { reputationScore: true } } },
+    })
+    return offers.map(mapOfferToLiquidityOffer)
+  }
+
+  async matchOrder(asset: AssetType, side: TradeSide, amount: number): Promise<LiquidityOffer | null> {
+    const counterSide: TradeSide = side === 'BUY' ? 'SELL' : 'BUY'
+
+    const offer = await prisma.offer.findFirst({
+      where: {
+        asset,
+        side: counterSide,
+        status: 'ACTIVE',
+        minAmount: { lte: amount },
+        maxAmount: { gte: amount },
+      },
+      orderBy: { priceUsd: counterSide === 'SELL' ? 'asc' : 'desc' },
+      include: { user: { select: { reputationScore: true } } },
+    })
+
+    return offer ? mapOfferToLiquidityOffer(offer) : null
+  }
+}
+
+// ─── HodlHodl Abstraction (stub — disabled until API key configured) ─────────
+class HodlHodlProvider implements LiquidityProvider {
+  name = 'hodlhodl'
+
+  async isAvailable() {
+    // TODO(roadmap Meses 1-3): ping HodlHodl API health endpoint
+    return false
+  }
+
+  async getOffers(asset: AssetType, _side: TradeSide): Promise<LiquidityOffer[]> {
+    // TODO(roadmap Meses 1-3): GET https://hodlhodl.com/api/v1/offers
+    //   ?filters[currency_code]=BRL&filters[asset]=BTC
+    console.log(`[HodlHodl] getOffers for ${asset} — not yet implemented`)
+    return []
+  }
+
+  async matchOrder(_asset: AssetType, _side: TradeSide, _amount: number): Promise<LiquidityOffer | null> {
+    return null
+  }
+}
+
+// ─── Router: tries providers in order, aggregates and ranks ──────────────────
+export class LiquidityRouter {
+  private providers: LiquidityProvider[]
+
+  constructor() {
+    this.providers = [new InternalOrderBook(), new HodlHodlProvider()]
+  }
+
+  async getAggregatedOffers(asset: AssetType, side: TradeSide): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
+    const all: LiquidityOffer[] = []
+    const sources: string[] = []
+
+    for (const provider of this.providers) {
+      try {
+        if (!(await provider.isAvailable())) continue
+        const offers = await provider.getOffers(asset, side)
+        all.push(...offers)
+        sources.push(provider.name)
+      } catch (err) {
+        console.error(`[Router] Provider ${provider.name} failed:`, err)
+      }
+    }
+
+    const sorted = all.sort((a, b) => (side === 'BUY' ? a.priceUsd - b.priceUsd : b.priceUsd - a.priceUsd))
+    return { offers: sorted, sources }
+  }
+
+  async findBestMatch(asset: AssetType, side: TradeSide, amount: number): Promise<LiquidityOffer | null> {
+    for (const provider of this.providers) {
+      try {
+        if (!(await provider.isAvailable())) continue
+        const match = await provider.matchOrder(asset, side, amount)
+        if (match) return match
+      } catch (err) {
+        console.error(`[Router] matchOrder failed on ${provider.name}:`, err)
+      }
+    }
+    return null
+  }
+}
+
+export const liquidityRouter = new LiquidityRouter()
