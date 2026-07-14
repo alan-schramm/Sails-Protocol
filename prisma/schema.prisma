@@ -1,0 +1,232 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AssetType {
+  BTC
+  USDT_ERC20
+  USDT_TRC20
+  USDT_LIQUID
+  USDT_LIGHTNING
+  LN_BTC
+  LIQUID_BTC
+  SPARK
+  STACKS
+  RSK_BTC
+}
+
+enum TradeSide {
+  BUY
+  SELL
+}
+
+enum OfferStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum TradeStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  DISPUTED
+  CANCELLED
+}
+
+enum EscrowType {
+  MULTISIG
+  LIGHTNING_HODL
+  LIQUID_COVENANT
+  MOCK
+}
+
+enum EscrowStatus {
+  CREATED
+  FUNDS_LOCKED
+  PAYMENT_PENDING
+  COMPLETED
+  DISPUTED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  PIX
+  TED
+  BANK_TRANSFER
+  CRYPTO_DIRECT
+  LIGHTNING_DIRECT
+  CASH
+  OTHER
+}
+
+// moduleId/protocolVersion below: mandated by MASTER_COORDINATION.md so that
+// future modules (Sails OpenFinance, Sails OpenAgents) can coexist in the
+// same tables without ambiguity about which module owns which row, and so
+// the protocol version an entity was created under is always traceable.
+
+model User {
+  id              String   @id @default(uuid())
+  publicKey       String   @unique
+  displayName     String?
+  peerId          String?  @unique
+  reputationScore Float    @default(0)
+  totalTrades     Int      @default(0)
+  disputeCount    Int      @default(0)
+  totalVolumeBtc  Float    @default(0)
+  verified        Boolean  @default(false)
+  moduleId        String   @default("openidentity")
+  protocolVersion String   @default("0.1")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  offers             Offer[]
+  buyerTrades        Trade[]           @relation("BuyerTrades")
+  sellerTrades       Trade[]           @relation("SellerTrades")
+  sentMessages       Message[]
+  reputationGiven    ReputationEvent[] @relation("RaterEvents")
+  reputationReceived ReputationEvent[] @relation("RatedEvents")
+
+  @@map("users")
+}
+
+model Offer {
+  id             String        @id @default(uuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id])
+  asset          AssetType
+  side           TradeSide
+  priceUsd       Float
+  priceBrl       Float?
+  minAmount      Float
+  maxAmount      Float
+  paymentMethod  PaymentMethod
+  paymentDetails String?
+  status         OfferStatus   @default(ACTIVE)
+  network        String?
+  description    String?
+  requiresKyc    Boolean       @default(false)
+  moduleId       String        @default("openliquidity")
+  protocolVersion String       @default("0.1")
+  intentType     String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  trades Trade[]
+
+  @@index([asset, side, status])
+  @@index([userId])
+  @@map("offers")
+}
+
+model Trade {
+  id          String      @id @default(uuid())
+  offerId     String
+  offer       Offer       @relation(fields: [offerId], references: [id])
+  buyerId     String
+  buyer       User        @relation("BuyerTrades", fields: [buyerId], references: [id])
+  sellerId    String
+  seller      User        @relation("SellerTrades", fields: [sellerId], references: [id])
+  asset       AssetType
+  amount      Float
+  priceUsd    Float
+  totalUsd    Float
+  status      TradeStatus @default(PENDING)
+  escrowId    String?     @unique
+  escrow      Escrow?
+  network     String?
+  moduleId    String      @default("openp2p")
+  protocolVersion String  @default("0.1")
+  intentType  String      @default("TradeIntent")
+  completedAt DateTime?
+  cancelledAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  messages         Message[]
+  reputationEvents ReputationEvent[]
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+  @@map("trades")
+}
+
+model Escrow {
+  id           String       @id @default(uuid())
+  tradeId      String       @unique
+  trade        Trade        @relation(fields: [tradeId], references: [id])
+  type         EscrowType   @default(MOCK)
+  status       EscrowStatus @default(CREATED)
+  lockedAmount Float
+  asset        AssetType
+  network      String?
+  multisigAddr String?
+  redeemScript String?
+  txLockId     String?
+  txReleaseId  String?
+  timelockHours Int         @default(24)
+  moduleId     String       @default("opensettlement")
+  protocolVersion String    @default("0.1")
+  lockedAt     DateTime?
+  expiresAt    DateTime?
+  releasedAt   DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  events EscrowEvent[]
+
+  @@map("escrows")
+}
+
+model EscrowEvent {
+  id          String       @id @default(uuid())
+  escrowId    String
+  escrow      Escrow       @relation(fields: [escrowId], references: [id])
+  fromStatus  EscrowStatus
+  toStatus    EscrowStatus
+  triggeredBy String
+  note        String?
+  createdAt   DateTime     @default(now())
+
+  @@map("escrow_events")
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  tradeId   String
+  trade     Trade    @relation(fields: [tradeId], references: [id])
+  senderId  String
+  sender    User     @relation(fields: [senderId], references: [id])
+  content   String
+  msgType   String   @default("TEXT")
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([tradeId])
+  @@map("messages")
+}
+
+model ReputationEvent {
+  id        String   @id @default(uuid())
+  tradeId   String
+  trade     Trade    @relation(fields: [tradeId], references: [id])
+  raterId   String
+  rater     User     @relation("RaterEvents", fields: [raterId], references: [id])
+  ratedId   String
+  rated     User     @relation("RatedEvents", fields: [ratedId], references: [id])
+  score     Int
+  comment   String?
+  moduleId  String   @default("openreputation")
+  protocolVersion String @default("0.1")
+  createdAt DateTime @default(now())
+
+  @@unique([tradeId, raterId])
+  @@map("reputation_events")
+}
