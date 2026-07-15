@@ -21,7 +21,7 @@
     "@prisma/client": "^5.10.0",
     "b4a": "^1.8.1",
     "dotenv": "^16.4.5",
-    "fastify": "^4.26.2",
+    "fastify": "^5.8.5",
     "fastify-plugin": "^4.5.1",
     "hyperdht": "^6.32.0",
     "hyperswarm": "^4.17.0",
