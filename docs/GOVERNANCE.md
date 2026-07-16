@@ -95,7 +95,7 @@ decision (OpenProof's module status and the Package/Capability
 distinction) reached the same way — through review, not invented here.
 Every architectural decision from this point forward
 that changes a primitive, adds an interface, or alters an Adapter pattern
-follows this same numbered sequence — `RFC-011` is next, whenever the next
+follows this same numbered sequence — `RFC-012` is next, whenever the next
 such decision arises, not before. (`RFC-007` — Real-World P2P
 Requirements, drafted from operator interviews rather than the Protocol
 Quality Review — was accepted by direct CTO directive rather than through
@@ -113,7 +113,10 @@ field type. `RFC-010` — Durable Event Store and Mandatory correlationId —
 originated from the same audit, refined by a second external review that
 correctly flagged the original recommendation (Redis Streams/BullMQ) as an
 implementation choice that must not be named at protocol level; introduces
-the `EventStore` Adapter and mandatory `correlationId`. This sentence is
+the `EventStore` Adapter and mandatory `correlationId`. `RFC-011` — P2P
+Reconciliation on Peer Reconnect — the same audit's third finding,
+resolved without new P2P protocol messages by reconciling against
+Postgres (already the authoritative source) on `peer.connected`. This sentence is
 updated each time, not left pointing at an RFC that already exists.)
 
 1. **Draft** — write the proposal as a markdown file following the

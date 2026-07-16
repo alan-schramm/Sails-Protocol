@@ -186,11 +186,18 @@ export class PearNode extends EventEmitter {
         this.peers.set(remotePeerId, peer)
         this.userPeerMap.set(msg.userId, remotePeerId)
         console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] Peer identified: user ${msg.userId.slice(0, 8)} → ${remotePeerId.slice(0, 16)}`)
-        // correlationId = userId (RFC-010). Not awaited — this is a plain
-        // (non-async) socket callback, matching the fire-and-forget pattern
-        // eventBus.on() already uses for its own async listener errors.
-        eventBus.emit('peer.connected', { userId: msg.userId, peerId: remotePeerId, publicKey: remotePeerId }, msg.userId)
-          .catch((err) => console.error('[Pear] Failed to publish peer.connected:', err))
+        // correlationId = userId (RFC-010). localUserId (RFC-011) is set
+        // here — this is a real two-party handshake, unlike the
+        // self-node-start peer.connected above — so handlers.ts can look up
+        // shared active trades between these two specific users and
+        // reconcile them. Not awaited — this is a plain (non-async) socket
+        // callback, matching the fire-and-forget pattern eventBus.on()
+        // already uses for its own async listener errors.
+        eventBus.emit(
+          'peer.connected',
+          { userId: msg.userId, peerId: remotePeerId, publicKey: remotePeerId, localUserId: this.ownerUserId },
+          msg.userId
+        ).catch((err) => console.error('[Pear] Failed to publish peer.connected:', err))
         return
       }
 

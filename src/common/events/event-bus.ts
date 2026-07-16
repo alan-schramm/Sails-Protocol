@@ -90,6 +90,12 @@ export interface PeerConnectedEvent {
   userId: string
   peerId: string
   publicKey: string
+  // The local node's own owner (RFC-011) — set only when this event
+  // represents a real two-party handshake (pear.service.ts's
+  // handleNewConnection), not the self-node-start event a user's own
+  // PearNode emits on `start()`. Lets a global handler know BOTH sides
+  // of a connection, needed to look up shared active trades.
+  localUserId?: string
 }
 
 export interface PeerDisconnectedEvent {
@@ -139,6 +145,19 @@ export interface NegotiationAbandonedEvent {
   by: string
 }
 
+// ─── Reconciliation event — RFC-011, rfcs/RFC-011-p2p-reconciliation.md ──────
+// Emitted when a peer reconnect triggers a catch-up against Postgres (the
+// authoritative source — every Message/Trade/Escrow write already lands
+// there regardless of whether the P2P/HyperDHT delivery to the counterparty
+// succeeded). Not a replacement for Timeline (RFC-008 D5) once that's
+// built — see RFC-011's Reference Implementation Plan for the migration path.
+export interface NegotiationReconciledEvent {
+  tradeId: string
+  currentTradeStatus: string
+  currentEscrowStatus: string | null
+  missedMessageCount: number
+}
+
 // ─── Event Map — canonical namespace {module}.{entity}.{action} ──────────────
 export interface SailsEventMap {
   // Sails OpenP2P — trade lifecycle
@@ -181,6 +200,7 @@ export interface SailsEventMap {
   'negotiation.event_received': NegotiationEventReceivedEvent
   'negotiation.terms_agreed': NegotiationTermsAgreedEvent
   'negotiation.abandoned': NegotiationAbandonedEvent
+  'negotiation.reconciled': NegotiationReconciledEvent
 
   // Cross-module — P2P transport (Pears/HyperDHT)
   'peer.connected': PeerConnectedEvent
