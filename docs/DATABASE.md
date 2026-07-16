@@ -271,6 +271,8 @@ model EscrowEvent {
   triggeredBy String
   note        String?
   createdAt   DateTime     @default(now())
+  entryHash   String?      // RFC-008 D2 — sha256(fields + prevHash), null on pre-RFC-008 rows
+  prevHash    String?      // RFC-008 D2 — prior EscrowEvent.entryHash for this tradeId/intentId; 'genesis' for the first chained entry
 
   @@map("escrow_events")
 }
@@ -278,6 +280,12 @@ model EscrowEvent {
 
 Every escrow state transition writes a row here — this is the append-only
 audit trail used for dispute resolution (see `SECURITY_MODEL.md`).
+`entryHash`/`prevHash` (RFC-008 D2, `rfcs/RFC-008-verifiable-timestamps-and-chained-timeline.md`)
+are computed once, at write time, by the same code path that writes this
+row — never recomputed at read time, or they prove nothing. Nullable so
+existing rows are unaffected; `Timeline.verifyChain()` treats a `null`
+`entryHash` as a chain-start boundary, not a break, so the tamper-evidence
+guarantee only covers entries written after this RFC ships.
 
 ### `Message` — owned by `openp2p` (Negotiation primitive / Secretstream chat)
 
@@ -319,6 +327,8 @@ model ReputationEvent {
   moduleId        String   @default("openreputation")
   protocolVersion String   @default("0.1")
   createdAt       DateTime @default(now())
+  entryHash       String?  // RFC-008 D2 — same chaining rule as EscrowEvent above
+  prevHash        String?  // RFC-008 D2
 
   @@unique([tradeId, raterId])
   @@map("reputation_events")
@@ -389,19 +399,22 @@ Named `EvidenceVerification` here (not `Verification`) only to avoid a
 reserved-word collision in some ORMs — the primitive itself is still
 called `Verification` in `PROTOCOL_SPECIFICATION.md` §1.8.
 
-### `EvidenceReference`, `ProofFingerprint` — owned by `openproof` (RFC-007 D1/D2)
+### `EvidenceReference`, `ProofFingerprint` — owned by `openproof` (RFC-007 D1/D2, RFC-008 D1)
 
 ```prisma
 model EvidenceReference {
-  id         String   @id @default(uuid())
-  proofId    String
-  proof      Proof    @relation(fields: [proofId], references: [id])
-  provider   String   // 'nostr.build' | 's3' | 'r2' | 'ipfs' | 'arweave' | ...
-  uri        String
-  sha256     String
-  mimeType   String   // 'image' | 'video' | 'document' | 'ocr' | 'external_reference'
-  signature  String   // signed by the submitting participant's key
-  createdAt  DateTime @default(now())
+  id           String   @id @default(uuid())
+  proofId      String
+  proof        Proof    @relation(fields: [proofId], references: [id])
+  provider     String   // 'nostr.build' | 's3' | 'r2' | 'ipfs' | 'arweave' | ...
+  uri          String
+  sha256       String
+  mimeType     String   // 'image' | 'video' | 'document' | 'ocr' | 'external_reference'
+  signature    String   // signed by the submitting participant's key
+  createdAt    DateTime @default(now())
+  anchorType   String?  // RFC-008 D1 — 'opentimestamps' | 'rfc3161' | ..., set only when Policy required it
+  anchorData   Json?    // RFC-008 D1 — opaque: .ots file bytes, TSA token, etc.
+  anchoredAt   DateTime? // RFC-008 D1 — set once the anchor is confirmed (e.g. OTS Bitcoin confirmation)
 
   @@map("evidence_references")
 }
@@ -439,6 +452,11 @@ persisted by each module's own audit trail (e.g. `EscrowEvent` above,
 filtered to one `intentId`/`tradeId`. No new table — adding one would
 duplicate state that already exists per-module, which is exactly the
 outcome RFC-007's primitive-rejection reasoning was written to avoid.
+**RFC-008 D2** adds `entryHash`/`prevHash` columns directly to those same
+per-module tables (see `EscrowEvent`/`ReputationEvent` above) rather than
+a separate chain-ledger table — still no new table, but a real (nullable,
+backward-compatible) schema change RFC-007's original "no new write path"
+framing didn't anticipate.
 
 ### `OperationalProfileGrant` — owned by `openidentity` (RFC-007 D8/D11)
 

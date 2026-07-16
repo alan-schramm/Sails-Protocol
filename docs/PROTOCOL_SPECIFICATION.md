@@ -511,6 +511,13 @@ shape above:
   persists only a signed, hashed `EvidenceReference` pointer, which
   populates `Proof.evidence` for media-backed claims without changing
   `Proof`'s type (`evidence: unknown` already accommodates it).
+  **RFC-008 addition:** `EvidenceReference.timestamp` is self-declared by
+  the submitting Participant's own signature — it proves *assertion*, not
+  *existence-at-a-time*. RFC-008 (`rfcs/RFC-008-verifiable-timestamps-and-chained-timeline.md`)
+  adds an optional `anchorProof?: AnchorProof` field, populated via a new
+  `TimestampAnchor` Adapter (OpenTimestamps/Bitcoin-anchored by default,
+  RFC 3161 optionally), policy-gated rather than mandatory — for disputes
+  where provable non-repudiation matters more than the cost of anchoring.
 - **`EvidenceBundle`** — considered as a candidate 10th primitive in
   RFC-007 and explicitly rejected (see that RFC's "Primitives Used or
   Extended" section — it fails the irreducibility test the same way
@@ -590,6 +597,19 @@ transact around. Decision: a Core-level, per-`intentId` read projection
 1.2-1.9's event lists — no new write path, not owned by any single
 module. Both the Evidence Bundle (section 1.8) and the Social Engineering
 Agent (section 1.7) read from it.
+
+**Hash-chained (RFC-008, decision D2).** A flat, unlinked Timeline is
+tamper-*visible* to no one — an entry can be inserted, reordered, or
+deleted with nothing to detect it. RFC-008 gives each `TimelineEntry` an
+`entryHash`/`prevHash` pair, computed and persisted once at the moment the
+underlying event is first written (not derivable at read-time, or it
+proves nothing), and adds `Timeline.verifyChain()`. This is a hash chain,
+not a blockchain — no consensus, same technique Certificate Transparency
+and Secure Scuttlebutt use. Correction to RFC-007 D5's original framing:
+this does add a small write-path change — `EscrowEvent` and
+`ReputationEvent` (`DATABASE.md`) each gain two nullable columns — RFC-007
+D5's "no new write path" held for the read-projection itself, not for
+this later chaining requirement.
 
 ### 1.10 Capability and Policy — Why They Are Core Components, Not Primitives
 
