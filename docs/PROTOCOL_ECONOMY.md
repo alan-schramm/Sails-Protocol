@@ -22,7 +22,9 @@
 > redefined. **Section 3C** (Partner Neutrality) was added in a follow-up
 > pass, not part of the original directive — see that section for why it
 > is documented here rather than as a new numbered principle in
-> `PRINCIPLES.md`.
+> `PRINCIPLES.md`. The Sails Foundation concept (a further follow-up) is
+> primarily documented in `GOVERNANCE.md` §2B, cross-referenced from
+> sections 3 and 4.3 here rather than duplicated.
 
 ---
 
@@ -204,6 +206,15 @@ fee-parameter and treasury governance to a broader body once the protocol
 had enough real usage to make that governance meaningful rather than
 theoretical.
 
+**Concrete entity structure for "Governance Layer v1":** `GOVERNANCE.md`
+§2B names this — Satsails plays the Morpho-Labs/Fedi role (the company
+that builds); a future **Sails Foundation** (working name, not yet a
+formed legal entity) is intended to play the Morpho-Association/Fedimint
+role (the nonprofit that stewards the protocol and, once it exists,
+administers the Developer/Treasury Fund below). See `GOVERNANCE.md` §2B
+for what is and isn't true about this today — the intent is documented
+now, the entity itself is not yet formed.
+
 ---
 
 ## 3B. Wallets Are Partners, Not Clients
@@ -358,7 +369,10 @@ Three tiers of answer, matched to the roadmap:
   the roadmap schedule can fund its own development and contribute it back).
 - This is structurally identical to how the Uniswap Foundation or Ethereum
   Foundation fund ongoing ecosystem development from protocol
-  revenue/foundation treasury rather than ongoing token emission.
+  revenue/foundation treasury rather than ongoing token emission — and,
+  once it exists, is intended to be administered by the Sails Foundation
+  rather than Satsails directly (`GOVERNANCE.md` §2B), the same separation
+  those two foundations maintain from their respective founding companies.
 
 ### 4.4 Arbitrators (dispute resolution — see `SECURITY_MODEL.md` section 3)
 
