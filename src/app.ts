@@ -10,7 +10,6 @@ import { connectDatabase } from './common/database'
 import { connectRedis } from './common/redis'
 import { AppError } from './common/errors'
 import { registerEventHandlers } from './common/events/handlers'
-import { registerLightsparkHandlers } from './modules/open-settlement/lightspark.service'
 import { intentRoutes } from './routes/intentRoutes'
 
 // ── NOTE (code review, this pass) ──────────────────────────────────────────
@@ -140,7 +139,6 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // ── Register event handlers (Coordination Protocol) ──────────────────────
   registerEventHandlers()
-  registerLightsparkHandlers()
 
   // NOTE: route registration for identity/marketplace/chat/reputation is
   // intentionally omitted here — see the import comment above. Registering

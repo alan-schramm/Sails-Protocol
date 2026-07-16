@@ -281,11 +281,7 @@ src/
 │                                         actually registered in app.ts)
 └── modules/
     ├── open-settlement/
-    │   ├── escrow.service.ts           (Escrow state machine, SettlementProvider)
-    │   └── lightspark.service.ts       (event wiring real; StubLightsparkClient
-    │                                     throws "not yet implemented" — no
-    │                                     real Lightspark API access to verify
-    │                                     against)
+    │   └── escrow.service.ts           (Escrow state machine, SettlementProvider)
     ├── open-liquidity/
     │   └── liquidity.service.ts        (LiquidityRouter, InternalOrderBook,
     │                                     HodlHodl stub)
