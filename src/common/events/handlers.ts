@@ -1,5 +1,6 @@
 import { prisma } from '../database'
 import { eventBus } from './event-bus'
+import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
 
 /**
  * Sails Protocol — Coordination Protocol (Event Handlers)
@@ -14,6 +15,11 @@ import { eventBus } from './event-bus'
  *                                   OpenReputation reacts (increment stats)
  *   - settlement.escrow.disputed  → OpenP2P reacts (Trade.status = DISPUTED)
  *   - settlement.escrow.refunded  → OpenP2P reacts (Trade.status = CANCELLED)
+ *   - peer.connected              → OpenP2P reacts (RFC-011: reconcile every
+ *                                   active trade shared with the peer that
+ *                                   just (re)connected against Postgres, the
+ *                                   authoritative source a dropped P2P
+ *                                   message never actually lost data from)
  *
  * NOTE: In this reference implementation, OpenP2P and OpenReputation do not
  * yet have their own dedicated service files in this fragment of the
@@ -92,5 +98,23 @@ export function registerEventHandlers(): void {
       where: { id: trade.sellerId },
       data: { disputeCount: { increment: 1 } },
     })
+  })
+
+  // ── Sails OpenP2P reacts to a peer reconnecting (RFC-011) ──────────────────
+  eventBus.on('peer.connected', async (payload) => {
+    // Only a real two-party handshake (pear.service.ts's handleNewConnection)
+    // carries localUserId — the self-node-start peer.connected has no
+    // counterparty to reconcile against.
+    if (!payload.localUserId) return
+
+    const results = await reconciliationService.reconcilePeerPair(payload.localUserId, payload.userId)
+    for (const result of results) {
+      await eventBus.emit('negotiation.reconciled', {
+        tradeId: result.tradeId,
+        currentTradeStatus: result.currentTradeStatus,
+        currentEscrowStatus: result.currentEscrowStatus,
+        missedMessageCount: result.missedMessages.length,
+      }, result.tradeId)   // correlationId (RFC-010)
+    }
   })
 }

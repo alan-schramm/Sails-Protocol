@@ -202,7 +202,7 @@ Full detail (responsibilities, interfaces, event namespaces) is in
 
 | Module | Responsibility | Status |
 |---|---|---|
-| **Sails OpenP2P** | Orchestrates the Trade Lifecycle (9 states, see `PROTOCOL_SPECIFICATION.md`) using the five cross-module services above. Owns the Secretstream chat / negotiation channel. | ✅ Proven |
+| **Sails OpenP2P** | Orchestrates the Trade Lifecycle (9 states, see `PROTOCOL_SPECIFICATION.md`) using the five cross-module services above. Owns the Secretstream chat / negotiation channel. Reconciles against Postgres on peer reconnect (RFC-011) — a dropped HyperDHT/Pears message never actually lost data (every send already persists to `Message` first), it only lost real-time notification, which `ReconciliationService` catches back up on `peer.connected`. | ✅ Proven |
 | **Sails OpenAgents** | QVAC integration as a cross-cutting SDK. Any module can request matching, fraud detection, or risk analysis locally, without cloud dependency. Includes a Social Engineering Agent (RFC-007) that watches the Timeline for fraud-precursor patterns (off-channel migration, unexpected payment-instruction changes) and raises a risk signal to the Policy Engine — detection only, never unilateral action. | 📋 Aspirational |
 | **Sails OpenFinance** | Future financial modules: `LoanIntent`, `SwapIntent`, `EarnIntent`. Reuses OpenSettlement, OpenLiquidity, OpenReputation without duplicating logic. | 📋 Aspirational |
 | **Sails SDK** | `@sails/sdk` — a TypeScript wrapper (`SailsClient`) around every module's API, for integrators. Adds no new logic — pure interface encapsulation. | 📋 Aspirational (spec only, see `SDK_GUIDE.md`) |
