@@ -95,13 +95,18 @@ decision (OpenProof's module status and the Package/Capability
 distinction) reached the same way — through review, not invented here.
 Every architectural decision from this point forward
 that changes a primitive, adds an interface, or alters an Adapter pattern
-follows this same numbered sequence — `RFC-008` is next, whenever the next
+follows this same numbered sequence — `RFC-009` is next, whenever the next
 such decision arises, not before. (`RFC-007` — Real-World P2P
 Requirements, drafted from operator interviews rather than the Protocol
 Quality Review — was accepted by direct CTO directive rather than through
 the open Discussion window described in section 5 below; this is recorded
 explicitly in the RFC itself, not treated as a silent exception to the
-process. This sentence is updated each time, not left pointing at an RFC
+process. `RFC-008` — Verifiable Timestamps and a Hash-Chained Timeline,
+amending two constructs RFC-007 introduced — originated from a design
+critique raised during RFC-007's own review, not a CTO directive, and was
+accepted by the repository owner after a technical review pass; its own
+Status section records this distinction rather than reusing RFC-007's
+framing. This sentence is updated each time, not left pointing at an RFC
 that already exists.)
 
 1. **Draft** — write the proposal as a markdown file following the

@@ -39,7 +39,8 @@ backlog) and a Network Simulation exercise within Resilience Reviews.
 | Transport Provider | RFC-002, §4B | 🟡 Low-risk — `pear.service.ts` already implements the real logic; needs wrapping behind the `TransportProvider` interface, not rebuilding |
 | Negotiation State Machine + Channel | RFC-004, §1.4 | 🟢 **First real implementation exists** — `negotiation.service.ts`'s `HumanChatChannel` built on the real `pearNodeRegistry`. Not yet wired to HTTP/WebSocket routes (routes still don't exist) |
 | Event Bus update | RFC-003 + RFC-004, `TODO.md` §6B | ✅ **Done** — `claim.*`/`proof.*`/`verification.*`/`dispute.*`/`negotiation.*` events all added and typed |
-| Timeline read-model *(new — RFC-007 D5)* | §1.9, RFC-007 | 🔲 Not started — a per-`intentId` ordered projection over the Event Bus above; no new write path, blocks Evidence Bundle (P2) and the Social Engineering Agent (P3) |
+| Timeline read-model *(new — RFC-007 D5)* | §1.9, RFC-007 | 🔲 Not started — a per-`intentId` ordered projection over the Event Bus above; blocks Evidence Bundle (P2) and the Social Engineering Agent (P3) |
+| Timeline hash-chaining *(new — RFC-008 D2)* | §1.9, RFC-008 | 🔲 Not started — `entryHash`/`prevHash` columns on `EscrowEvent`/`ReputationEvent`, computed at write time; build alongside the Timeline read-model above, not as a separate pass |
 
 ## P1 — First Proven Module + SDK Core
 
@@ -61,6 +62,7 @@ backlog) and a Network Simulation exercise within Resilience Reviews.
 | Outcome Engine + `rate()` demotion *(new — RFC-007 D8/D9)* | §1.6, RFC-007 | 🔲 Not started — bundle with OpenReputation's first service layer; makes `recordOutcome()` the sole score input, `rate()` informational only, `CancelledByAgreement` always Neutral |
 | **Sails OpenProof** *(new — RFC-006)* | §1.8, RFC-003, RFC-006 | 🟡 **Data model already real** — `Claim`/`Proof`/`EvidenceVerification` tables in `DATABASE.md`, TypeScript interfaces in `common/types`. Remaining: `modules/open-proof/proof.service.ts` — the actual `assertClaim()`/`submitProof()`/`verify()` service logic doesn't exist yet |
 | Proof Registry, `EvidenceProvider`, Evidence Bundle *(new — RFC-007 D1/D2/D6)* | §1.8, RFC-007 | 🔲 Not started — scope these into OpenProof's first service layer alongside `proof.service.ts` above rather than as a later addition (per RFC-007's own Reference Implementation Plan) |
+| `TimestampAnchor` (`anchorProof` on `EvidenceReference`) *(new — RFC-008 D1)* | §1.8, RFC-008 | 🔲 Not started — scope alongside `EvidenceProvider` above; first implementation should be `opentimestamps` (Bitcoin-anchored), not `rfc3161`, per RFC-008's own Reference Implementation Plan |
 
 ## P3 — Advanced / Aspirational Modules
 

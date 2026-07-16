@@ -83,11 +83,17 @@ Coordination Engine   → receives Intent + Policy + Capability + Events,
 Event Bus             → namespaced {module}.{entity}.{action} events.
                         Exposes a per-Intent Timeline read projection
                         (RFC-007, rfcs/RFC-007-real-world-p2p-requirements.md,
-                        decision D5) — ordered events for one intentId, no
-                        new write path. Considered and rejected as a 10th
-                        primitive in that RFC; it lives here instead,
-                        consistent with Event itself never being a
-                        primitive (PROTOCOL_SPECIFICATION.md section 1.11).
+                        decision D5) — ordered events for one intentId.
+                        Considered and rejected as a 10th primitive in
+                        that RFC; it lives here instead, consistent with
+                        Event itself never being a primitive
+                        (PROTOCOL_SPECIFICATION.md section 1.11).
+                        RFC-008 (rfcs/RFC-008-verifiable-timestamps-and-
+                        chained-timeline.md) hash-chains each
+                        TimelineEntry (entryHash/prevHash, persisted on
+                        EscrowEvent/ReputationEvent) so tampering is
+                        detectable — this is the one place D5's original
+                        "no new write path" claim was later corrected.
 State Machine          → the canonical Intent lifecycle (9 states)
 Capability Registry    → tracks which Capability (functional category,
                         e.g. trade-coordination) each moduleId implements,
@@ -180,7 +186,7 @@ Full detail (responsibilities, interfaces, event namespaces) is in
 | **Sails OpenReputation** | Portable score tied to the keypair, not to any platform. Any module can read or write reputation. Outcome-based (RFC-007): `recordOutcome()` is the sole `ReputationScore` input via an internal Outcome Engine; star ratings (`rate()`) are informational feedback only and never move the score. A cancelled-by-agreement trade always classifies Neutral, never Negative. |
 | **Sails OpenSettlement** | Abstract escrow via the `SettlementProvider` interface. Pluggable: Mock → Multisig 2-of-3 → Lightning HODL → Liquid Covenant. Settlement status gains `PendingBankSettlement` (RFC-007) for payment held/processing at a financial institution before it clears. Also implements Dispute, with an explicit escalation order — Policy Engine → OpenAgents → Trusted Arbitrator (via the new `ArbitrationProvider` interface) → Settlement — before falling back to human arbitration (RFC-007). |
 | **Sails OpenLiquidity** | Discovery and routing of liquidity. The order book (the `Offer` entity) belongs here, not to OpenP2P — this is what lets OpenFinance reuse the same discovery mechanism in the future without duplicating it. |
-| **Sails OpenProof** | Standardizes `Claim` → `Proof` → `Verification` (RFC-003) for every other module — Dispute evidence, Negotiation payment proof, future OpenFinance underwriting all consume this instead of each building their own evidence format. Added as the 8th module by RFC-006. RFC-007 adds a Proof Registry (fingerprints evidence, flags reuse across Intents), an `EvidenceProvider` adapter interface (Nostr.build/S3/R2/IPFS/Arweave — the protocol never hosts media itself), and `getEvidenceBundle(intentId)`, a read aggregate over Claims/Proofs/Verifications/Timeline/external references for one Intent. |
+| **Sails OpenProof** | Standardizes `Claim` → `Proof` → `Verification` (RFC-003) for every other module — Dispute evidence, Negotiation payment proof, future OpenFinance underwriting all consume this instead of each building their own evidence format. Added as the 8th module by RFC-006. RFC-007 adds a Proof Registry (fingerprints evidence, flags reuse across Intents), an `EvidenceProvider` adapter interface (Nostr.build/S3/R2/IPFS/Arweave — the protocol never hosts media itself), and `getEvidenceBundle(intentId)`, a read aggregate over Claims/Proofs/Verifications/Timeline/external references for one Intent. RFC-008 adds an optional `TimestampAnchor` adapter (OpenTimestamps/RFC 3161) so evidence timestamps can be proven, not just self-declared — policy-gated, not mandatory. |
 
 ### Application modules (build on the above)
 
