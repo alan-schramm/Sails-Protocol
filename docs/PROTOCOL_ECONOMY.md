@@ -11,6 +11,15 @@
 >
 > Read `PROTOCOL_SPECIFICATION.md` first — the fee mechanisms described
 > here attach to the Settlement and Reputation primitives defined there.
+>
+> **Expanded following an external economic-model review** ("Architecture
+> Directive — Economic Model & Adoption Strategy"): sections 1B, 1C, 2B,
+> 3B, 4.7, 5B, and 8B are new; 4.5 and 6.2 were extended in place. This
+> document is not a technical specification — per that review's own
+> instruction, economic architecture and protocol specification are kept
+> deliberately separate; where a mechanism here depends on a technical
+> primitive or Adapter interface, it is cross-referenced by name, never
+> redefined.
 
 ---
 
@@ -40,6 +49,66 @@ settlement asset instead.
 
 ---
 
+## 1B. Value Capture Principle: Infrastructure, Not Users
+
+**Added following an external economic-model review (Architecture
+Directive — Economic Model & Adoption Strategy) — this section makes
+explicit a rule the fee mechanics in section 6 already implied but never
+stated as its own principle.**
+
+**The protocol does not monetize users. The protocol monetizes operations
+executed through the infrastructure it coordinates.**
+
+This is a real distinction, not a rephrasing:
+
+- A user who never trades, never negotiates, never settles costs the
+  protocol nothing and owes it nothing — there is no per-account fee,
+  no subscription, no cost to simply holding a `Participant` identity
+  (`PROTOCOL_SPECIFICATION.md` §1.1).
+- The Protocol Fee (section 6) only ever attaches to a completed
+  `Settlement` — a real operation that used the Intent → Discovery →
+  Negotiation → Settlement pipeline the protocol actually built and
+  coordinated.
+- This is the same reasoning that separates Morpho, Hyperliquid, Uniswap,
+  and Aave from a platform that charges for access or accounts: value
+  capture is tied to *coordinating* an operation, not to *controlling*
+  who may participate (`PRINCIPLES.md` principle 7, "Open Integrations" —
+  no approval process gates who may build against the protocol).
+
+**Why this matters for the wallet-adoption argument (1C below):** it is
+what makes the rebate model in section 4.5/4.7 sustainable rather than
+extractive — a wallet integrating the SDK is not paying the protocol to
+access users, it is sharing in fee revenue generated only when its users
+actually transact through the infrastructure the protocol provides.
+
+## 1C. The Wallet Economy — Why This Section of the Document Exists
+
+**Added following the same review.** Any wallet founder evaluating the
+Sails SDK asks one question in the first thirty seconds: *"Why would I
+integrate the Sails Protocol if I already have a working wallet?"* If the
+honest answer is "because it's an elegant architecture," nobody integrates
+— elegance doesn't pay engineering salaries. The answer this document has
+to make true is: **"because your wallet gains new, low-effort revenue
+streams it would otherwise have to build (or forgo) entirely."**
+
+**Today, most non-custodial wallets monetize very little.** Revenue
+typically comes from swap spreads, on/off-ramp fees, affiliate referrals,
+donations, and hardware-wallet sales — the wallet itself is close to a
+free product, a cost center the rest of the business subsidizes.
+
+**With the Sails Protocol, a wallet stops being just a wallet.** It
+becomes a financial application that earns revenue by participating in
+the ecosystem — without building marketplace, reputation, escrow,
+mediation, settlement, agent, or liquidity infrastructure itself. Section
+4.5, 4.7, and 6.2 below specify exactly how; this section exists only to
+name the strategic reason those mechanisms matter: **a protocol only
+reaches network-effect scale when the technical architecture and the
+economic architecture evolve together.** A well-designed protocol with no
+incentive for a third party to integrate it stays a single company's
+internal tool, no matter how sound the engineering is.
+
+---
+
 ## 2. How the Protocol Sustains Itself Financially
 
 Four revenue mechanisms, all denominated in existing settlement assets or
@@ -58,6 +127,44 @@ sustainability engine and the only one analyzed at the fee-flow level in
 section 6. The other three are reference-implementation/business-layer
 revenue (Satsails' business model, not the protocol's), included here for
 completeness because they fund the same ecosystem.
+
+## 2B. Future Revenue Sources (architecture-ready, not implemented)
+
+**Added following the same review — explicitly not a commitment to build
+any of these now.** The point of naming them here is the same discipline
+`PROTOCOL_SPECIFICATION.md` §4B already applies to Settlement/OpenFinance/
+Transport Adapters: the architecture must stay capable of supporting a
+future source of value capture without a redesign, even while nothing
+below is scheduled:
+
+- **Marketplace P2P** — today's mechanism (section 6), already live in
+  principle via `Sails OpenP2P`.
+- **Settlement** — direct fees on future `SettlementAdapter` (§4B)
+  implementations beyond today's escrow flow (e.g. Lightning HODL,
+  Liquid Covenant, once real).
+- **Liquidity Routing** — a fee on `Sails OpenLiquidity`'s aggregation
+  across multiple `LiquidityProvider`s (`liquidity.service.ts`'s
+  `LiquidityRouter`) once external providers (HodlHodl, RoboSats) are
+  real, not stubbed.
+- **OpenFinance** — `LoanIntent`/`SwapIntent`/`EarnIntent` (§2.3,
+  `PROTOCOL_SPECIFICATION.md`) each carry the same Protocol Fee mechanism
+  as `TradeIntent` once implemented — no new fee design needed, the
+  existing Settlement-attached fee already generalizes.
+- **Agent Marketplace** — a future fee or revenue-share on `Sails
+  OpenAgents`/QVAC-mediated automated trading, matching/negotiation, or
+  risk analysis performed on a Participant's behalf (§1.7).
+- **Enterprise Services** — expands section 2's existing Enterprise
+  Licensing row (white-label, dedicated support, SLA).
+- **Commercial APIs** — expands section 2's existing API/SDK Usage Tiers
+  row for higher-volume or higher-guarantee integrators.
+- **Premium Infrastructure** — e.g. priority routing, dedicated node
+  capacity, or enhanced `EventStore` durability (RFC-010) tiers for
+  integrators who need stronger guarantees than the open default.
+
+None of these change section 1's no-token constraint or section 1B's
+infrastructure-not-users principle — every one of them, if and when built,
+is a fee on a real operation executed through real protocol
+infrastructure, paid in an existing settlement asset or fiat.
 
 ---
 
@@ -93,6 +200,42 @@ initial concentrated funding/control to bootstrap an ecosystem, then handed
 fee-parameter and treasury governance to a broader body once the protocol
 had enough real usage to make that governance meaningful rather than
 theoretical.
+
+---
+
+## 3B. Wallets Are Partners, Not Clients
+
+**Added following the same review — this is the framing principle the
+stakeholder-by-stakeholder design in section 4 is built on, stated
+explicitly rather than left implicit.**
+
+A wallet integrating `@sails/sdk` is not a consumer of a hosted service —
+it is a participant in the protocol's economy, the same category as a
+Liquidity Provider or an Arbitrator (section 4). Two consequences follow
+directly:
+
+1. **Wallets earn, they don't just pay.** Section 4.5/4.7 and section 6.2
+   exist because an integration that only costs a wallet engineering time
+   and offers nothing back does not scale past whichever wallet builds it
+   first for its own reasons (Satsails). A wallet that earns a rebate on
+   every operation it originates has a durable, ongoing reason to keep
+   integrating deeper.
+2. **Neutrality is not optional.** The protocol never favors one wallet
+   over another. Every wallet that correctly implements the SDK has
+   access to *exactly* the same economic opportunities — same rebate
+   mechanism, same fee-discount tiers (section 4.1), same eligibility for
+   the Node Operator Pool (section 4.2) if it also runs infrastructure.
+   This is `PRINCIPLES.md` principle 1 (Protocol First) and principle 7
+   (Open Integrations) applied specifically to economics, not just to
+   technical access: an open protocol whose economic layer quietly
+   privileges its own reference implementation is not actually neutral,
+   regardless of how open its SDK's source code is.
+
+**What this changes in practice:** wallets stop competing for who builds
+the best internal P2P/escrow/reputation stack, and start competing purely
+on user experience — the infrastructure underneath is shared. Section 5B
+develops why this produces a network effect rather than a race to the
+bottom.
 
 ---
 
@@ -191,6 +334,31 @@ prose, before either primitive existed in this form.
   how some DEX aggregators share a cut of fees with the front-end that
   originated the trade. This directly rewards wallets for integrating
   deeply and promoting usage, without requiring a token.
+- **The rebate is per-side, not per-trade, which is what makes it work
+  across different wallets (added following the external review):**
+  because a `TradeIntent` has a buyer and a seller (`PROTOCOL_SPECIFICATION.md`
+  §1.2), and each independently originates from whichever wallet they're
+  using, the Wallet Rebate bucket (section 6.2) splits by origin, not by
+  trade. Concretely:
+
+  ```
+  User A (Satsails Wallet)  buys USDT  from  User B (Rumble Wallet)
+
+  Protocol Fee (e.g. 0.20% of trade value)
+    ├── Satsails Wallet  ← rebate for originating User A's side
+    ├── Rumble Wallet    ← rebate for originating User B's side
+    └── Treasury/other buckets (section 6.2)
+  ```
+
+  When both sides happen to use the same wallet, that wallet simply
+  receives both origination rebates. When they differ — the common case
+  once multiple wallets integrate — **both wallets are paid for the same
+  trade**, neither one having to be the "primary" integration. This is the
+  mechanism that makes section 3B's neutrality principle concrete rather
+  than aspirational: Rumble Wallet earns exactly as much for originating
+  its side of this trade as Satsails does for originating the other, with
+  no dependency on which wallet the Reference Implementation happens to
+  be.
 
 ### 4.6 Integrators (fintechs, ERPs, enterprise apps beyond wallets)
 
@@ -199,6 +367,30 @@ prose, before either primitive existed in this form.
   white-label branding, dedicated support, or an SLA beyond the open SDK —
   this is Satsails' reference-implementation business model layered on top
   of the open protocol, not a protocol-level fee.
+
+### 4.7 Infrastructure Provider Economy (added following the external review)
+
+Sections 4.1 and 4.4 already establish that Liquidity Providers and
+Arbitrators are economically incentivized, not free labor — this section
+names the pattern explicitly and extends it to two roles the original
+stakeholder list didn't yet cover, so "who gets paid for running Sails
+infrastructure" has one answer instead of being scattered across the
+document:
+
+| Role | Protocol interface | Incentive | Detail |
+|---|---|---|---|
+| **Liquidity Provider** | `LiquidityProvider` (`liquidity.service.ts`, `PROTOCOL_SPECIFICATION.md` §1.3) | Spread + volume-tiered fee discounts | Section 4.1 |
+| **Arbitration Provider** | `ArbitrationProvider` (RFC-007, `rfcs/RFC-007-real-world-p2p-requirements.md`, decision D4) | Arbitration fee from the losing party + reputation bond | Section 4.4. RFC-007 registers arbitrators per application ("Trusted Arbitrators"), not as a protocol-native role — the fee mechanism here is what makes filling that role economically worthwhile, not just a trust obligation. |
+| **Agent Provider (QVAC / Sails OpenAgents)** | `AgentGrant`/`AgentScope` (`PROTOCOL_SPECIFICATION.md` §1.7) | 📋 Future — see section 2B's "Agent Marketplace" | Not yet monetized in this document prior to this review. An entity running QVAC-backed matching, fraud detection (RFC-007 D7's Social Engineering Agent), or risk analysis on behalf of Participants is providing real infrastructure, and section 2B commits the architecture to eventually pricing that the same way as every other role here — paid in settlement assets, never a token. |
+| **Settlement Provider** | `SettlementProvider`/`SettlementAdapter` (`PROTOCOL_SPECIFICATION.md` §1.5, §4B) | Node Operator Pool share (section 4.2) today; a direct per-settlement fee is one of section 2B's named future sources | A future `SettlementAdapter` beyond Mock/Multisig/Lightning HODL/Liquid Covenant (e.g. a specialized custody/covenant provider) is exactly the kind of infrastructure role this economy is designed to extend to without a redesign — the Adapter pattern already makes "add a new implementation" a non-event architecturally; this table makes it a non-event economically too. |
+
+**Why this table matters strategically:** it is the answer to "the
+protocol doesn't just pay whoever builds a wallet — it creates an economy
+around every role that sustains the ecosystem," which is the distinction
+between a protocol with one sponsor (rebates only) and a protocol with a
+genuine open economy (rebates *and* infrastructure incentives, matching
+how Lightning Network routing nodes and Ethereum validators are both
+paid, not just wallet front-ends).
 
 ---
 
@@ -224,6 +416,50 @@ layer — which is precisely why it doesn't need a token either.**
 
 ---
 
+## 5B. Network Effects & Why Wallets Collaborate Instead of Compete
+
+**Added following the external economic-model review.** Morpho's
+integrators (custodial and non-custodial wallets, aggregators, other
+protocols) all earn from routing volume through Morpho rather than
+building their own lending engine — the same effect this section claims
+for Sails, cited directly because it's the closest real precedent for
+"a neutral coordination layer makes competitors into co-beneficiaries."
+
+**Without a shared protocol**, wallets compete for the same finite pool of
+users by each building isolated, non-interoperable P2P infrastructure —
+duplicated engineering cost across every wallet, and each wallet's
+liquidity and reputation data trapped inside its own walls.
+
+**With the Sails Protocol**, cross-wallet trades (section 4.5's example)
+mean liquidity and reputation are shared resources, not competitive
+moats:
+
+```
+More wallets integrate
+  ↓
+More liquidity visible to Discovery (§1.3)
+  ↓
+More successful matches, more settlement volume
+  ↓
+More Protocol Fee revenue split across every originating wallet (§6.2)
+  ↓
+Stronger incentive for the next wallet to integrate
+```
+
+This is a real network effect, not a marketing claim: each additional
+wallet makes the protocol more valuable to every wallet already
+integrated, because `Sails OpenLiquidity`'s Discovery primitive
+aggregates across all of them (`liquidity.service.ts`'s `LiquidityRouter`
+already aggregates multiple `LiquidityProvider`s by design — the same
+mechanism, extended to more integrators, is exactly what compounds this
+effect). Wallets stop competing on "who has better P2P infrastructure"
+(the infrastructure is now shared and identical for everyone, per 3B's
+neutrality principle) and compete purely on user experience, support, and
+distribution — which is a healthier, more differentiable axis of
+competition for the wallet businesses themselves.
+
+---
+
 ## 6. Fee Mechanics — Exact Flow
 
 ### 6.1 Who pays
@@ -244,11 +480,18 @@ Protocol Fee (100%)
   ├── 40% → Node Operator Pool        (infrastructure providers, section 4.2)
   ├── 30% → Developer/Treasury Fund    (ongoing protocol development, section 4.3)
   ├── 20% → Originating Wallet/Integrator Rebate  (section 4.5/4.6)
+  │           split per-side (section 4.5) — e.g. 10% to the buyer-side
+  │           wallet's origination, 10% to the seller-side wallet's, or
+  │           the full 20% to one wallet when both sides use it
   └── 10% → Arbitrator Reserve         (pre-funds dispute resolution, section 4.4)
 ```
 
 These percentages are a proposed starting allocation, not fixed forever —
-see section 7 on how they're governed and changed over time.
+see section 7 on how they're governed and changed over time. The
+buyer-side/seller-side split *within* the 20% bucket (section 4.5) is
+likewise illustrative, not fixed — the architectural commitment is that
+the split is per-originating-side, so a trade between two different
+wallets pays both, never just one.
 
 ### 6.3 How distributed
 
@@ -339,3 +582,40 @@ than theoretical.
 
 Every row is satisfied without introducing a Sails-native token — the
 constraint from section 1 holds across the entire design.
+
+**Not exhaustive as of section 4.7's addition:** this table predates the
+external economic-model review and covers the six stakeholder groups with
+a concrete, largely-active incentive mechanism today. Section 4.7 adds two
+more infrastructure-provider roles — Agent Providers and Settlement
+Providers beyond today's Mock/Multisig — both still 📋 Future rather than
+active, which is why they're documented there rather than folded into
+this table as a seventh and eighth row that would overstate how built-out
+they are.
+
+---
+
+## 8B. Why Any Wallet Should Integrate (added following the external review)
+
+By the end of this document, any wallet founder should be able to answer,
+concretely, the question opened in section 1C:
+
+> **"Why would I integrate the Sails Protocol if I already have a working
+> wallet?"**
+
+**Because integrating turns a cost center into a revenue participant,
+without building the infrastructure yourself.** Instead of engineering a
+marketplace, reputation system, escrow, dispute mediation, settlement
+logic, agent integration, and liquidity discovery independently — the
+`@sails/sdk` (`SDK_GUIDE.md`) provides all of it — a wallet integrates the
+SDK and starts earning a rebate (section 4.5) on every operation its users
+originate, with exactly the same economic opportunity as every other
+wallet in the ecosystem (section 3B), and its earning surface grows every
+time another wallet joins (section 5B) rather than shrinking.
+
+> "The Sails Protocol turns wallets from cost centers into participants
+> in an open economy of financial infrastructure."
+
+This sentence is the one-line version of sections 1B through 8 above —
+useful for a pitch deck or a first integration conversation, but every
+claim in it traces back to a specific, non-speculative mechanism
+documented in this file, not to a marketing promise.
