@@ -126,14 +126,16 @@ export class EscrowService {
     await prisma.escrowEvent.create({
       data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note },
     })
-    eventBus.emit(eventName as any, {
+    // correlationId = tradeId (RFC-010) — stand-in for intentId until Intent
+    // persistence exists; Trade already IS the concrete TradeIntent (§2.3).
+    await eventBus.emit(eventName as any, {
       escrowId,
       tradeId,
       from,
       to,
       triggeredBy,
       ...eventExtra,
-    })
+    }, tradeId)
   }
 
   private assertTransition(current: string, next: string) {
@@ -167,13 +169,13 @@ export class EscrowService {
       },
     })
 
-    eventBus.emit('settlement.escrow.created', {
+    await eventBus.emit('settlement.escrow.created', {
       escrowId: escrow.id,
       tradeId: escrow.tradeId,
       type: escrow.type,
       lockedAmount: escrow.lockedAmount.toString(),   // RFC-009 — Decimal -> decimal string at the event boundary
       asset: escrow.asset,
-    })
+    }, escrow.tradeId)   // correlationId = tradeId (RFC-010)
 
     return escrow
   }

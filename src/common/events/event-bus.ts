@@ -1,4 +1,5 @@
-import { EventEmitter } from 'events'
+import type { EventStore } from './event-store'
+import { InMemoryEventStore } from './event-store'
 
 /**
  * Sails Protocol — Event Contract
@@ -188,45 +189,48 @@ export interface SailsEventMap {
 
 export type SailsEventName = keyof SailsEventMap
 
-// ─── Typed Event Bus ──────────────────────────────────────────────────────────
-class SailsEventBus extends EventEmitter {
-  emit<K extends SailsEventName>(event: K, payload: SailsEventMap[K]): boolean {
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[EventBus] ${event}`, JSON.stringify(payload, null, 2))
-    }
-    return super.emit(event, payload)
+// ─── Typed Event Bus (RFC-010 — delegates to a pluggable EventStore) ─────────
+// Previously extended EventEmitter directly (in-memory only, no durability,
+// no correlationId). Now wraps an EventStore (InMemoryEventStore by default)
+// so a durable backend can be swapped in via the constructor without any
+// eventBus.emit()/on() call site changing — see event-store.ts.
+class SailsEventBus {
+  constructor(private readonly store: EventStore = new InMemoryEventStore()) {}
+
+  get storeName(): string {
+    return this.store.storeName
   }
 
+  get durable(): boolean {
+    return this.store.durable
+  }
+
+  // correlationId is mandatory (RFC-010) — every event now carries the id
+  // that ties it to Timeline (RFC-008), logs, Proofs, Settlement, and
+  // Dispute. Today: tradeId for trade/negotiation/settlement events, userId
+  // for peer/transport events (see DurableEvent's correlationId doc in
+  // event-store.ts for the full rule).
+  async emit<K extends SailsEventName>(
+    event: K,
+    payload: SailsEventMap[K],
+    correlationId: string
+  ): Promise<void> {
+    await this.store.publish(event, payload, correlationId)
+  }
+
+  // Handler signature is unchanged from pre-RFC-010 (still receives the bare
+  // payload) — this is what let every existing eventBus.on(...) call site in
+  // handlers.ts stay untouched. correlationId is available on the event as
+  // published (DurableEvent), not threaded into the handler signature, since
+  // no handler in this codebase needs it inside the handler body today.
   on<K extends SailsEventName>(
     event: K,
     listener: (payload: SailsEventMap[K]) => void | Promise<void>
-  ): this {
-    return super.on(event, (payload) => {
-      const result = listener(payload)
-      if (result instanceof Promise) {
-        result.catch((err) => {
-          console.error(`[EventBus] Async listener error on "${event}":`, err)
-        })
-      }
-    })
-  }
-
-  once<K extends SailsEventName>(
-    event: K,
-    listener: (payload: SailsEventMap[K]) => void | Promise<void>
-  ): this {
-    return super.once(event, listener)
-  }
-
-  off<K extends SailsEventName>(
-    event: K,
-    listener: (payload: SailsEventMap[K]) => void | Promise<void>
-  ): this {
-    return super.off(event, listener)
+  ): void {
+    this.store.subscribe(event, (durableEvent) => listener(durableEvent.payload))
   }
 }
 
 // Singleton — shared across all modules. This IS the "zero coupling" mechanism:
 // modules never import each other, they only import this bus and react to events.
 export const eventBus = new SailsEventBus()
-eventBus.setMaxListeners(50)

@@ -51,12 +51,12 @@ export function registerEventHandlers(): void {
       data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: trade.amount } },
     })
 
-    eventBus.emit('openp2p.trade.completed', {
+    await eventBus.emit('openp2p.trade.completed', {
       tradeId: payload.tradeId,
       from: 'ACTIVE',
       to: 'COMPLETED',
       triggeredBy: payload.triggeredBy,
-    })
+    }, payload.tradeId)   // correlationId (RFC-010)
   })
 
   eventBus.on('settlement.escrow.disputed', async (payload) => {
@@ -65,12 +65,12 @@ export function registerEventHandlers(): void {
       data: { status: 'DISPUTED' },
     })
 
-    eventBus.emit('openp2p.trade.disputed', {
+    await eventBus.emit('openp2p.trade.disputed', {
       tradeId: payload.tradeId,
       from: 'ACTIVE',
       to: 'DISPUTED',
       triggeredBy: payload.triggeredBy,
-    })
+    }, payload.tradeId)   // correlationId (RFC-010)
   })
 
   eventBus.on('settlement.escrow.refunded', async (payload) => {
