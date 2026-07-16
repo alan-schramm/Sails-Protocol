@@ -19,7 +19,10 @@
 > instruction, economic architecture and protocol specification are kept
 > deliberately separate; where a mechanism here depends on a technical
 > primitive or Adapter interface, it is cross-referenced by name, never
-> redefined.
+> redefined. **Section 3C** (Partner Neutrality) was added in a follow-up
+> pass, not part of the original directive — see that section for why it
+> is documented here rather than as a new numbered principle in
+> `PRINCIPLES.md`.
 
 ---
 
@@ -236,6 +239,66 @@ the best internal P2P/escrow/reputation stack, and start competing purely
 on user experience — the infrastructure underneath is shared. Section 5B
 develops why this produces a network effect rather than a race to the
 bottom.
+
+## 3C. Partner Neutrality — Avoiding Single-Ecosystem-Partner Concentration
+
+**Added following a follow-up discussion after the external economic-model
+review, not present in the original directive — a real gap identified by
+checking this document and `PRINCIPLES.md`/`GOVERNANCE.md` for existing
+coverage before assuming one was needed.**
+
+Section 3B's neutrality principle protects against the protocol favoring
+one *wallet* over another. It says nothing about a different, real risk:
+`ARCHITECTURE.md` §1C's four-layer diagram places **Tether Ecosystem** as
+the foundational layer beneath the Open Infrastructure Stack (WDK + Pears
++ QVAC) that Sails Protocol coordinates on top of. That's an accurate
+description of where the project's infrastructure comes from today — but
+if USDT/Tether-originated liquidity comes to dominate real settlement
+volume, the protocol can be *technically* chain-agnostic
+(`PRINCIPLES.md` principle 6, Infrastructure Neutral) while still being
+*perceived and functionally treated* as "the Tether P2P protocol" by the
+market. That perception alone is enough to make a competing stablecoin
+issuer, or a wallet that doesn't want to be read as Tether-aligned,
+hesitate to integrate — undermining exactly the neutrality section 3B
+exists to guarantee, through a channel neither section 3B nor principle 6
+was written to cover.
+
+**The distinction that matters:** principle 6 (Infrastructure Neutral)
+protects against *technical* lock-in — no fixed chain, custody
+technology, or transport. This section protects against *ecosystem*
+lock-in — no single backer, issuer, or strategic partner the protocol
+becomes functionally synonymous with, even while remaining technically
+neutral on paper. A protocol can pass every test of principle 6 and still
+fail this one.
+
+**What this means in practice, stated as a standing goal, not a
+restriction on any current relationship:**
+
+- Tether/WDK is correctly the **first** major ecosystem partner and
+  infrastructure provider — nothing here suggests reducing or
+  deprioritizing that relationship, which is real, valuable, and already
+  load-bearing in the architecture.
+- The protocol should actively pursue integration with **additional**
+  large liquidity sources, stablecoin issuers, and infrastructure
+  partners over time, the same way it pursues additional wallets (section
+  3B) and additional `SettlementAdapter`/`LiquidityProvider`
+  implementations (section 4.7) — partner diversity is success, not
+  disloyalty to the first partner.
+- Economic mechanisms in this document (the fee model, section 6; the
+  rebate model, section 4.5) must stay identically available to volume
+  originating from any settlement asset or backing partner — the same
+  "no favoritism" commitment section 3B makes for wallets, extended to
+  partners.
+
+**Not yet a formal Principle 10.** Per `GOVERNANCE.md` §3, changes to
+`PRINCIPLES.md` require Governance Layer v1, which does not exist during
+the current bootstrap phase (Months 1-12) — this section is recorded here,
+in the economic-architecture document, as the reasoned case for it, not as
+an unauthorized edit to the frozen 9-principle list. Once Governance Layer
+v1 exists, formally elevating "Partner Neutrality" to a numbered principle
+in `PRINCIPLES.md` should go through the same RFC process
+(`GOVERNANCE.md` §5) as any other principle change — this section is the
+proposal that RFC would draw on, not a substitute for it.
 
 ---
 
