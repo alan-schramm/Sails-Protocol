@@ -198,6 +198,58 @@ model EscrowEvent {
   @@map("escrow_events")
 }
 
+// Intent persistence — PROTOCOL_SPECIFICATION.md §2 (Intent Engine), §2.6.
+// Was "not yet implemented" per that section; this is the first real
+// implementation, built for the MVP happy path (03-implementation_plan.md,
+// approved by CISO + CTO).
+model Intent {
+  id             String    @id @default(uuid())
+  type           String    // IntentType (common/types/intent.ts)
+  version        String    @default("1.0")
+  participantId  String
+  agentId        String?
+  parentIntentId String?
+  moduleId       String
+  payload        Json
+  status         String    // IntentStatus (core/state-machine.ts)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  expiresAt      DateTime?
+  fulfilledBy    String?
+  metadata       Json      @default("{}")
+
+  events IntentEvent[]
+
+  @@index([participantId])
+  @@index([status])
+  @@map("intents")
+}
+
+// IntentEvent is Intent's own audit trail — the same per-module-owned-table
+// pattern EscrowEvent/ReputationEvent already established, not a second
+// "Timeline" table (RFC-008 D5 already rejected a dedicated Timeline table
+// in favor of per-module event tables Timeline projects over — this is one
+// more of those, not a competing design). entryHash/prevHash are RFC-008
+// D2's hash-chaining design (rfcs/RFC-008-verifiable-timestamps-and-chained-timeline.md)
+// implemented here first — EscrowEvent/ReputationEvent still don't have it
+// (BACKLOG.md: 🔲 Not started), this table picks that design up rather than
+// inventing an unlinked event log the same gap RFC-008 already diagnosed.
+model IntentEvent {
+  id          String   @id @default(uuid())
+  intentId    String
+  intent      Intent   @relation(fields: [intentId], references: [id])
+  fromStatus  String?
+  toStatus    String
+  triggeredBy String
+  note        String?
+  createdAt   DateTime @default(now())
+  entryHash   String?  // sha256(fromStatus+toStatus+triggeredBy+prevHash), computed at write time
+  prevHash    String?  // prior IntentEvent.entryHash for this intentId; 'genesis' for the first
+
+  @@index([intentId])
+  @@map("intent_events")
+}
+
 model Message {
   id        String   @id @default(uuid())
   tradeId   String

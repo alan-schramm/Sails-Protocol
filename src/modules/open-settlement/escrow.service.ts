@@ -4,7 +4,7 @@ import { AssetType } from '../../common/types'
 import { EscrowStatus, EscrowType } from '../../common/types/trade'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID as uuidv4 } from 'crypto'
 
 /**
  * Sails OpenSettlement — Reference Implementation

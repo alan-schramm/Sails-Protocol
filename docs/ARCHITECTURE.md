@@ -217,46 +217,95 @@ and liquidity discovery too, someday, without rebuilding it from scratch.
 
 ## 4. Actual Code Inventory (verified against the filesystem — do not assume more exists)
 
-As of this handoff, the following files exist in the reference
-implementation fragment:
+**Refreshed against the real filesystem (03-implementation_plan.md MVP
+pass) — the version of this section before this pass was itself stale,
+listing several files (`common/database/index.ts`, `common/errors/index.ts`,
+`common/redis/index.ts`, `config/index.ts`) as "missing" that already
+existed by the time RFC-007 through RFC-011 were written. This is what's
+actually on disk today:**
 
 ```
 src/
-├── app.ts                              (Fastify app bootstrap — PARTIAL,
-│                                         several route imports are commented
-│                                         out because those files are missing)
+├── app.ts                              (Fastify bootstrap — real, but still
+│                                         PARTIAL: identity/marketplace/chat/
+│                                         reputation routes remain commented
+│                                         out, those files still don't exist)
+├── types.d.ts
 ├── common/
+│   ├── database/index.ts               (Prisma client singleton)
+│   ├── errors/index.ts                 (AppError, NotFoundError, ValidationError,
+│   │                                     EscrowError, AuthError, ForbiddenError)
+│   ├── redis/index.ts                  (ioredis client — cache/pub-sub, not
+│   │                                     protocol-mandated, DATABASE.md §4)
+│   ├── middleware/auth.ts              (real Ed25519 challenge-response,
+│   │                                     RED_TEAM_REVIEW.md RT-002 — not yet
+│   │                                     wired into any route)
+│   ├── types/                          (intent.ts, capability.ts, trade.ts,
+│   │                                     index.ts — shared TS interfaces)
 │   └── events/
-│       ├── event-bus.ts                (typed event bus, namespaced events)
+│       ├── event-bus.ts                (typed event map + SailsEventBus,
+│       │                                 RFC-010 — delegates to EventStore)
+│       ├── event-store.ts              (EventStore/DurableEvent, RFC-010 —
+│       │                                 InMemoryEventStore real,
+│       │                                 RedisStreamsEventStore a stub)
 │       └── handlers.ts                 (Coordination Protocol — cross-module
 │                                         reactions to events)
+├── core/                                (6 formal Core components, §1B —
+│                                         intent-engine.ts is the first one
+│                                         with a real implementation, not a
+│                                         stub; the other 5 still throw
+│                                         "Not yet implemented")
+│   ├── intent-engine.ts                (real — create/cancel/transition,
+│                                         03-implementation_plan.md MVP)
+│   ├── policy-engine.ts                (validateFinancialSanity real; the
+│   │                                     get/propose/activate governed-policy
+│   │                                     interface is still a stub)
+│   ├── state-machine.ts                (real — assertValidTransition,
+│   │                                     isExpired hard-timeout check)
+│   ├── coordination-engine.ts          (stub)
+│   └── capability-registry.ts          (stub)
 ├── infrastructure/
 │   └── p2p/
-│       └── pear.service.ts             (PearNode + PearNodeRegistry —
-│                                         HyperDHT/Hyperswarm transport)
+│       ├── pear.service.ts             (PearNode + PearNodeRegistry —
+│       │                                 HyperDHT/Hyperswarm transport)
+│       ├── transport-provider.ts       (TransportProvider interface per
+│       │                                 RFC-002, PearsTransportProvider,
+│       │                                 FallbackTransportProvider — real,
+│       │                                 not yet wired to a route)
+│       └── websocket-relay.service.ts  (WebSocketRelayTransportProvider —
+│                                         blind relay, CISO Privacy Rule;
+│                                         real, not yet wired to a route)
+├── routes/
+│   └── intentRoutes.ts                 (POST/DELETE /api/v1/intents — the
+│                                         first route in this codebase
+│                                         actually registered in app.ts)
 └── modules/
     ├── open-settlement/
-    │   └── escrow.service.ts           (Escrow state machine, SettlementProvider)
-    └── open-liquidity/
-        └── liquidity.service.ts        (LiquidityRouter, InternalOrderBook,
-                                          HodlHodl stub)
+    │   ├── escrow.service.ts           (Escrow state machine, SettlementProvider)
+    │   └── lightspark.service.ts       (event wiring real; StubLightsparkClient
+    │                                     throws "not yet implemented" — no
+    │                                     real Lightspark API access to verify
+    │                                     against)
+    ├── open-liquidity/
+    │   └── liquidity.service.ts        (LiquidityRouter, InternalOrderBook,
+    │                                     HodlHodl stub)
+    └── open-p2p/
+        ├── negotiation.service.ts      (HumanChatChannel, real, built on
+        │                                 pearNodeRegistry)
+        └── reconciliation.service.ts   (ReconciliationService, RFC-011)
+
+tests/
+├── intentFlow.test.ts                  (Intent Engine happy path + CISO
+│                                         Byzantine/Economic rules)
+└── transportFallback.test.ts           (FallbackTransportProvider,
+                                          WebSocketRelayTransportProvider)
 ```
 
-**Missing from this environment** (referenced by `app.ts` but not present —
-recover from an earlier build or rewrite from the specs in this handoff):
-
-- `config/index.ts` — environment variable loading
-- `common/database/index.ts` — Prisma client singleton
-- `common/redis/index.ts` — Redis client
-- `common/errors/index.ts` — `AppError`, `NotFoundError`, `EscrowError` classes
-- `modules/open-identity/` — identity routes + service (Ed25519 auth,
-  challenge-response)
-- `modules/open-p2p/` — trade routes, chat routes/service (Secretstream
-  negotiation channel)
-- `modules/open-reputation/` — reputation routes + service
-- All `*.routes.ts` files for every module (only service-layer files survived)
-- `prisma/schema.prisma` — **this one does exist** and was updated with
-  `moduleId`/`protocolVersion` fields; see `DATABASE.md`
+**Still missing** (referenced by `app.ts`'s own comments but not present):
+`modules/open-identity/` (routes + service), `modules/open-p2p/`'s trade
+and chat *routes* (the negotiation *service* above is real), 
+`modules/open-reputation/` (routes + service), and every other
+`*.routes.ts` file besides `intentRoutes.ts`.
 
 If you're rebuilding these, follow the naming and event conventions in this
 handoff exactly — do not reintroduce the old unnamespaced patterns (see

@@ -145,6 +145,30 @@ export interface NegotiationAbandonedEvent {
   by: string
 }
 
+// ─── Intent Engine events — PROTOCOL_SPECIFICATION.md §2.5 ───────────────────
+// Namespace `intent.*` — cross-cutting Core infrastructure, not owned by any
+// single module (§2.5's own note). First real emitter: core/intent-engine.ts
+// (03-implementation_plan.md MVP work — Intent persistence was "not yet
+// implemented" per §2.6 before this). correlationId (RFC-010) = intentId for
+// every event here — exactly the "once Intent persistence ships" case
+// RFC-010/011 already anticipated.
+export interface IntentCreatedEvent {
+  intentId: string
+  type: string
+  participantId: string
+  moduleId: string
+  parentIntentId?: string
+}
+export interface IntentDiscoveringEvent { intentId: string }
+export interface IntentMatchedEvent { intentId: string; candidateIds: string[] }
+export interface IntentNegotiatingEvent { intentId: string; negotiationId: string }
+export interface IntentCommittedEvent { intentId: string; settlementId: string; terms: unknown }
+export interface IntentSettlingEvent { intentId: string; settlementId: string }
+export interface IntentFulfilledEvent { intentId: string; settlementId: string; outcome: unknown }
+export interface IntentExpiredEvent { intentId: string; reason: string }
+export interface IntentCancelledEvent { intentId: string; cancelledBy: string }
+export interface IntentFailedEvent { intentId: string; reason: string }
+
 // ─── Reconciliation event — RFC-011, rfcs/RFC-011-p2p-reconciliation.md ──────
 // Emitted when a peer reconnect triggers a catch-up against Postgres (the
 // authoritative source — every Message/Trade/Escrow write already lands
@@ -160,6 +184,18 @@ export interface NegotiationReconciledEvent {
 
 // ─── Event Map — canonical namespace {module}.{entity}.{action} ──────────────
 export interface SailsEventMap {
+  // Intent Engine — §2.5, cross-cutting Core, not module-owned
+  'intent.created': IntentCreatedEvent
+  'intent.discovering': IntentDiscoveringEvent
+  'intent.matched': IntentMatchedEvent
+  'intent.negotiating': IntentNegotiatingEvent
+  'intent.committed': IntentCommittedEvent
+  'intent.settling': IntentSettlingEvent
+  'intent.fulfilled': IntentFulfilledEvent
+  'intent.expired': IntentExpiredEvent
+  'intent.cancelled': IntentCancelledEvent
+  'intent.failed': IntentFailedEvent
+
   // Sails OpenP2P — trade lifecycle
   'openp2p.trade.created': OpenP2PTradeCreatedEvent
   'openp2p.trade.status_changed': OpenP2PTradeStatusChangedEvent
