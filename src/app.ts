@@ -98,10 +98,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     app.log.error(error)
+    const message = error instanceof Error ? error.message : String(error)
     return reply.code(500).send({
       success: false,
       error: 'INTERNAL_ERROR',
-      message: config.app.env === 'development' ? error.message : 'Internal server error',
+      message: config.app.env === 'development' ? message : 'Internal server error',
     })
   })
 
