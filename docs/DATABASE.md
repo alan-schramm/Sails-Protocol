@@ -287,6 +287,61 @@ existing rows are unaffected; `Timeline.verifyChain()` treats a `null`
 `entryHash` as a chain-start boundary, not a break, so the tamper-evidence
 guarantee only covers entries written after this RFC ships.
 
+### `Intent`, `IntentEvent` — Core, first implementation (03-implementation_plan.md MVP)
+
+```prisma
+model Intent {
+  id             String    @id @default(uuid())
+  type           String
+  version        String    @default("1.0")
+  participantId  String
+  agentId        String?
+  parentIntentId String?
+  moduleId       String
+  payload        Json
+  status         String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  expiresAt      DateTime?
+  fulfilledBy    String?
+  metadata       Json      @default("{}")
+
+  events IntentEvent[]
+
+  @@index([participantId])
+  @@index([status])
+  @@map("intents")
+}
+
+model IntentEvent {
+  id          String   @id @default(uuid())
+  intentId    String
+  intent      Intent   @relation(fields: [intentId], references: [id])
+  fromStatus  String?
+  toStatus    String
+  triggeredBy String
+  note        String?
+  createdAt   DateTime @default(now())
+  entryHash   String?
+  prevHash    String?
+
+  @@index([intentId])
+  @@map("intent_events")
+}
+```
+
+Real implementation, unlike `EscrowEvent`'s `entryHash`/`prevHash` above
+(documented per RFC-008 D2 but still 🔲 in `BACKLOG.md`) —
+`core/intent-engine.ts`'s `transition()` actually computes and writes them
+on every `IntentEvent` row, `sha256(fromStatus|toStatus|triggeredBy|prevHash)`,
+`'genesis'` for an Intent's first event. `payload` is intentionally opaque
+`Json` — a new `IntentType` (e.g. `LoanIntent`) needs zero migration here,
+only application-level TypeScript/Zod validation for its shape.
+Deliberately 2 tables, not the 3 `PROTOCOL_SPECIFICATION.md` §2.6
+originally sketched — see that section for why the `intent_payloads` split
+turned out to add a join without adding any real flexibility once this
+became a real Prisma model instead of a paper design.
+
 ### `Message` — owned by `openp2p` (Negotiation primitive / Secretstream chat)
 
 ```prisma

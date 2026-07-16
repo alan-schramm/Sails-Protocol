@@ -31,3 +31,30 @@ export function assertValidTransition(from: IntentStatus, to: IntentStatus): voi
     throw new Error(`Invalid Intent transition: ${from} → ${to}`)
   }
 }
+
+// Terminal states an expired Intent could still be in — expiry only applies
+// to an Intent still mid-flight.
+const EXPIRABLE_STATES: readonly IntentStatus[] = [
+  'CREATED', 'DISCOVERING', 'MATCHED', 'NEGOTIATING', 'COMMITTED', 'SETTLING',
+]
+
+// Hard timeout enforcement — CISO Byzantine Rule (03-implementation_plan.md):
+// "Se a contraparte não liquidar dentro da janela estipulada, forçar
+// expiração (EXPIRED) para neutralizar ataques de Free Option" — a
+// counterparty who commits to a trade and then simply never settles,
+// holding the other side's terms open indefinitely for free while markets
+// move, must not be able to do that past `expiresAt`.
+//
+// This is a pure, lazily-evaluated check — called wherever an Intent's
+// status is read or acted on (core/intent-engine.ts), not a background
+// sweeper. A proactive sweeper (setInterval/cron forcing expiry on Intents
+// nobody is actively querying) is real future work, not built here — see
+// BACKLOG.md. Lazy evaluation is correct for every path that matters today
+// (no route/handler acts on an Intent without reading it first) but does
+// not, by itself, guarantee an abandoned Intent flips to EXPIRED the
+// instant its window closes if nothing ever reads it again.
+export function isExpired(intent: { status: IntentStatus; expiresAt?: Date | null }): boolean {
+  if (!EXPIRABLE_STATES.includes(intent.status)) return false
+  if (!intent.expiresAt) return false
+  return intent.expiresAt.getTime() <= Date.now()
+}

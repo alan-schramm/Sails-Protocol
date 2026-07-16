@@ -874,22 +874,35 @@ intent.cancelled     { intentId, cancelledBy }
 intent.failed        { intentId, reason }
 ```
 
-### 2.6 Persistence Design (not yet implemented — see `TODO.md`)
+### 2.6 Persistence Design (first implementation — 03-implementation_plan.md MVP)
 
-Three tables, deliberately separating the generic Core from module-specific
-payload data:
+**Implemented as 2 tables, not the 3 originally sketched here** — the
+`intent_payloads` split was designed to let a new Intent type ship with
+"zero migration to the `intents` table," but a `payload Json` column
+embedded directly on `Intent` already gives that same guarantee (a JSONB
+column's shape isn't schema-enforced either way) without the extra join.
+Simplified once this stopped being a paper design and became real Prisma
+models — deviation noted here rather than left silent:
 
-- **`intents`** (Core) — `id, type, version, participantId, agentId,
-  parentIntentId, moduleId, status, createdAt, updatedAt, expiresAt,
-  fulfilledBy`
-- **`intent_payloads`** — `intentId, payload (JSONB)`. The payload is opaque
-  JSON at the database level, validated only in application code against
-  the TypeScript/Zod schema for that `IntentType`. **This is what lets a new
-  Intent type (e.g. `LoanIntent`) be added tomorrow with zero migration to
-  the `intents` table** — only the JSONB shape changes.
-- **`intent_transitions`** (event-sourced, append-only) — `intentId,
-  fromStatus, toStatus, triggeredBy, reason, timestamp`. Full audit trail:
-  useful for dispute resolution, replay, and compliance.
+- **`Intent`** (Core, `prisma/schema.prisma`) — `id, type, version,
+  participantId, agentId, parentIntentId, moduleId, payload (Json),
+  status, createdAt, updatedAt, expiresAt, fulfilledBy, metadata`
+- **`IntentEvent`** (event-sourced, append-only — Core's own audit trail,
+  the same per-module-owned-table pattern `EscrowEvent`/`ReputationEvent`
+  already established) — `intentId, fromStatus, toStatus, triggeredBy,
+  note, createdAt, entryHash, prevHash`. `entryHash`/`prevHash` are RFC-008
+  D2's hash-chaining design (`rfcs/RFC-008-verifiable-timestamps-and-chained-timeline.md`)
+  — implemented here first, ahead of `EscrowEvent`/`ReputationEvent`
+  picking it up (still 🔲 in `BACKLOG.md`), since `IntentEvent` was being
+  built from scratch rather than retrofitted onto existing rows.
+
+First real implementation: `core/intent-engine.ts`'s `create()`/`cancel()`/
+`transition()`. `registerHandler`'s plugin pattern (§2.7 below) is
+implemented but only one real `IntentHandler` exists — none yet, actually;
+`TradeIntent` validation is inlined in `intent-engine.ts` directly rather
+than registered as a separate handler, since OpenP2P doesn't have its own
+`IntentHandler` module file yet. Migrating that inline validation into a
+real `openp2p` `IntentHandler` is natural follow-up work, not done here.
 
 ### 2.7 Integration Pattern (plugin architecture)
 

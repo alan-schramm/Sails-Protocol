@@ -10,6 +10,8 @@ import { connectDatabase } from './common/database'
 import { connectRedis } from './common/redis'
 import { AppError } from './common/errors'
 import { registerEventHandlers } from './common/events/handlers'
+import { registerLightsparkHandlers } from './modules/open-settlement/lightspark.service'
+import { intentRoutes } from './routes/intentRoutes'
 
 // ── NOTE (code review, this pass) ──────────────────────────────────────────
 // Only the routes/services below have corresponding files in this snapshot
@@ -64,6 +66,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         version: '0.1.0',
       },
       tags: [
+        { name: 'intent', description: 'Intent Engine — cross-cutting Core, §2' },
         { name: 'open-identity', description: 'Sails OpenIdentity — auth & keypair identity' },
         { name: 'open-liquidity', description: 'Sails OpenLiquidity — offers & discovery' },
         { name: 'open-settlement', description: 'Sails OpenSettlement — escrow state machine' },
@@ -90,11 +93,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
 
     if (error instanceof AppError) {
-      return reply.code(error.statusCode).send({
-        success: false,
-        error: error.code,
-        message: error.message,
-      })
+      // AppError.toResponse() already builds this shape, including
+      // `details` — found while testing intentRoutes.ts (this handler
+      // reconstructed the response by hand and silently dropped `details`,
+      // making ValidationError's whole point of returning *why* a request
+      // was rejected invisible to the caller). Not a change in behavior
+      // for AppError subclasses that never set `details` (defaults to []
+      // either way) — only for the ones that do, like ValidationError.
+      return reply.code(error.statusCode).send(error.toResponse())
     }
 
     app.log.error(error)
@@ -130,8 +136,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   }))
 
   // ── Routes ─────────────────────────────────────────────────────────────────
+  await app.register(intentRoutes)
+
   // ── Register event handlers (Coordination Protocol) ──────────────────────
   registerEventHandlers()
+  registerLightsparkHandlers()
 
   // NOTE: route registration for identity/marketplace/chat/reputation is
   // intentionally omitted here — see the import comment above. Registering

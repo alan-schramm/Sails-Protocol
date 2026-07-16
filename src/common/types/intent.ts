@@ -53,8 +53,15 @@ export interface IntentHandler<T extends IntentPayload = IntentPayload> {
 export interface TradeIntentPayload extends IntentPayload {
   asset: string
   side: 'BUY' | 'SELL'
-  maxValue?: number
-  minValue?: number
+  // maxValue/minValue: decimal strings, never number (RFC-009,
+  // rfcs/RFC-009-decimal-precision-for-financial-fields.md §2.3's own
+  // forward-looking convention for financial amount fields, applied here
+  // as of the 03-implementation_plan.md MVP work — this is the first real
+  // Intent persistence implementation, so it's the first point these
+  // fields cross into a Prisma-backed JSON payload where the convention
+  // matters). Was `number` before this pass.
+  maxValue?: string
+  minValue?: string
   currency?: string
   fiatMethod?: string
   network?: string
