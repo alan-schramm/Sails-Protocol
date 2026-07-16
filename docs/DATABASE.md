@@ -119,7 +119,7 @@ model User {
   reputationScore Float    @default(0)
   totalTrades     Int      @default(0)
   disputeCount    Int      @default(0)
-  totalVolumeBtc  Float    @default(0)
+  totalVolumeBtc  Decimal  @default(0) @db.Decimal(24, 8)  // RFC-009 — was Float
   verified        Boolean  @default(false)
   moduleId        String   @default("openidentity")
   protocolVersion String   @default("0.1")
@@ -154,10 +154,10 @@ model Offer {
   user            User          @relation(fields: [userId], references: [id])
   asset           AssetType
   side            TradeSide
-  priceUsd        Float
-  priceBrl        Float?
-  minAmount       Float
-  maxAmount       Float
+  priceUsd        Decimal       @db.Decimal(24, 8)  // RFC-009 — was Float
+  priceBrl        Decimal?      @db.Decimal(24, 8)  // RFC-009 — was Float?
+  minAmount       Decimal       @db.Decimal(24, 8)  // RFC-009 — was Float
+  maxAmount       Decimal       @db.Decimal(24, 8)  // RFC-009 — was Float
   paymentMethod   PaymentMethod
   paymentDetails  String?
   status          OfferStatus   @default(ACTIVE)
@@ -190,9 +190,9 @@ model Trade {
   sellerId        String
   seller          User        @relation("SellerTrades", fields: [sellerId], references: [id])
   asset           AssetType
-  amount          Float
-  priceUsd        Float
-  totalUsd        Float
+  amount          Decimal     @db.Decimal(24, 8)  // RFC-009 — was Float
+  priceUsd        Decimal     @db.Decimal(24, 8)  // RFC-009 — was Float
+  totalUsd        Decimal     @db.Decimal(24, 8)  // RFC-009 — was Float
   status          TradeStatus @default(PENDING)
   escrowId        String?     @unique
   escrow          Escrow?
@@ -224,7 +224,7 @@ model Escrow {
   trade           Trade        @relation(fields: [tradeId], references: [id])
   type            EscrowType   @default(MOCK)
   status          EscrowStatus @default(CREATED)
-  lockedAmount    Float
+  lockedAmount    Decimal      @db.Decimal(24, 8)  // RFC-009 — was Float
   asset           AssetType
   network         String?
   multisigAddr    String?

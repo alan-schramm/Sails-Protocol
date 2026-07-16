@@ -1,5 +1,6 @@
 import { AssetType, TradeSide } from '../../common/types'
 import { prisma } from '../../common/database'
+import type { Prisma } from '@prisma/client'
 
 /**
  * Sails OpenLiquidity — Reference Implementation
@@ -21,9 +22,9 @@ export interface LiquidityOffer {
   source: 'internal' | 'hodlhodl' | 'robosats' | string
   asset: AssetType
   side: TradeSide
-  priceUsd: number
-  minAmount: number
-  maxAmount: number
+  priceUsd: string    // decimal string — RFC-009, never a JS number
+  minAmount: string    // decimal string — RFC-009
+  maxAmount: string    // decimal string — RFC-009
   paymentMethods: string[]
   traderReputation?: number
 }
@@ -32,17 +33,21 @@ export interface LiquidityProvider {
   name: string
   isAvailable(): Promise<boolean>
   getOffers(asset: AssetType, side: TradeSide): Promise<LiquidityOffer[]>
-  matchOrder(asset: AssetType, side: TradeSide, amount: number): Promise<LiquidityOffer | null>
+  matchOrder(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null>
 }
 
 // ─── Shared mapping helper (was duplicated in getOffers + matchOrder) ────────
+// priceUsd/minAmount/maxAmount are Prisma.Decimal here (internal, module-local
+// shape reading straight off a query result) — converted to decimal string
+// only where they cross into the protocol-level LiquidityOffer shape below,
+// per RFC-009.
 type OfferRow = {
   id: string
   asset: string
   side: string
-  priceUsd: number
-  minAmount: number
-  maxAmount: number
+  priceUsd: Prisma.Decimal
+  minAmount: Prisma.Decimal
+  maxAmount: Prisma.Decimal
   paymentMethod: string
   user: { reputationScore: number }
 }
@@ -53,9 +58,9 @@ function mapOfferToLiquidityOffer(offer: OfferRow): LiquidityOffer {
     source: 'internal',
     asset: offer.asset as AssetType,
     side: offer.side as TradeSide,
-    priceUsd: offer.priceUsd,
-    minAmount: offer.minAmount,
-    maxAmount: offer.maxAmount,
+    priceUsd: offer.priceUsd.toString(),
+    minAmount: offer.minAmount.toString(),
+    maxAmount: offer.maxAmount.toString(),
     paymentMethods: [offer.paymentMethod],
     traderReputation: offer.user.reputationScore,
   }
@@ -79,7 +84,7 @@ class InternalOrderBook implements LiquidityProvider {
     return offers.map(mapOfferToLiquidityOffer)
   }
 
-  async matchOrder(asset: AssetType, side: TradeSide, amount: number): Promise<LiquidityOffer | null> {
+  async matchOrder(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null> {
     const counterSide: TradeSide = side === 'BUY' ? 'SELL' : 'BUY'
 
     const offer = await prisma.offer.findFirst({
@@ -114,7 +119,7 @@ class HodlHodlProvider implements LiquidityProvider {
     return []
   }
 
-  async matchOrder(_asset: AssetType, _side: TradeSide, _amount: number): Promise<LiquidityOffer | null> {
+  async matchOrder(_asset: AssetType, _side: TradeSide, _amount: string): Promise<LiquidityOffer | null> {
     return null
   }
 }
@@ -142,11 +147,16 @@ export class LiquidityRouter {
       }
     }
 
-    const sorted = all.sort((a, b) => (side === 'BUY' ? a.priceUsd - b.priceUsd : b.priceUsd - a.priceUsd))
+    // Number() coercion here is intentional and safe — a sort comparator only
+    // needs correct relative order, not exact arithmetic, so float precision
+    // is immaterial (unlike a stored/computed amount). See RFC-009.
+    const sorted = all.sort((a, b) =>
+      side === 'BUY' ? Number(a.priceUsd) - Number(b.priceUsd) : Number(b.priceUsd) - Number(a.priceUsd)
+    )
     return { offers: sorted, sources }
   }
 
-  async findBestMatch(asset: AssetType, side: TradeSide, amount: number): Promise<LiquidityOffer | null> {
+  async findBestMatch(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null> {
     for (const provider of this.providers) {
       try {
         if (!(await provider.isAvailable())) continue

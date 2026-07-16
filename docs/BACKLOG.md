@@ -53,7 +53,8 @@ backlog) and a Network Simulation exercise within Resilience Reviews.
 
 | Item | RFC / Spec | Current Status |
 |---|---|---|
-| Sails OpenSettlement | §1.5, §4B | 🟢 **Most complete module today** — `escrow.service.ts` is real, reviewed, and decoupled correctly (`ARCHITECTURE.md` §5's fix already applied). Remaining: real `LightningHodlProvider`/`LiquidCovenantProvider` (both currently throw "not implemented"), and wiring `DisputeResolutionProvider` (RFC-003's Verification) |
+| Sails OpenSettlement | §1.5, §4B | 🟢 **Most complete module today** — `escrow.service.ts` is real, reviewed, and decoupled correctly (`ARCHITECTURE.md` §5's fix already applied). `lockedAmount` moved `Float` → `Decimal` (RFC-009). Remaining: real `LightningHodlProvider`/`LiquidCovenantProvider` (both currently throw "not implemented"), and wiring `DisputeResolutionProvider` (RFC-003's Verification) |
+| `Float` → `Decimal` schema migration *(new — RFC-009)* | §1.5, RFC-009 | 🟡 Schema/code fixed in this repo; **migration not yet applied to any live database** — no Postgres reachable in the environment this was done in. Whoever has a connected DB must run `npx prisma migrate dev` before this takes effect anywhere real |
 | `PendingBankSettlement` status *(new — RFC-007 D3)* | §1.5, RFC-007 | 🟡 Smallest RFC-007 item and the only one touching live code — one `EscrowStatus` enum value + one `assertTransition()` edge in `escrow.service.ts`, additive, no data migration |
 | Dispute escalation order + `ArbitrationProvider` *(new — RFC-007 D4)* | §1.9, RFC-007 | 🔲 Not started — depends on Evidence Bundle (below) existing first; introduces the new `ArbitrationProvider` adapter interface, registered per application (not a protocol role) |
 | Sails OpenIdentity | §1.1, RFC-001 | 🟡 Module itself still not built, but **the highest-priority security item is closed**: `common/middleware/auth.ts` implements real Ed25519 challenge-response (`RED_TEAM_REVIEW.md` RT-002). Not yet wired into any route — routes don't exist yet — but the middleware is real, not a stub |
@@ -68,7 +69,7 @@ backlog) and a Network Simulation exercise within Resilience Reviews.
 
 | Item | RFC / Spec | Current Status |
 |---|---|---|
-| Sails OpenLiquidity | §1.3, §4B | 🟢 **Second most complete module** — `liquidity.service.ts` is real, deduplicated (`ARCHITECTURE.md` §5). Remaining: real HodlHodl integration (currently stubbed, `isAvailable()` returns `false`) |
+| Sails OpenLiquidity | §1.3, §4B | 🟢 **Second most complete module** — `liquidity.service.ts` is real, deduplicated (`ARCHITECTURE.md` §5). `priceUsd`/`minAmount`/`maxAmount` moved `Float` → `Decimal` (RFC-009). Remaining: real HodlHodl integration (currently stubbed, `isAvailable()` returns `false`) |
 | Sails OpenFinance | §4B, `REFERENCE_IMPLEMENTATIONS.md` §3 | 🔲 Not started — blocked on real external adapters (Morpho, etc.) |
 | Sails OpenAgents | §1.7 (includes the `learn()` step) | 🔲 Not started — blocked on QVAC integration, which is at 0% per `TETHER_DUE_DILIGENCE_REPORT.md` finding 12 |
 | Social Engineering Agent *(new — RFC-007 D7)* | §1.7, RFC-007 | 🔲 Not started — blocked on OpenAgents itself and on the Timeline read-model (P0) it reads from |

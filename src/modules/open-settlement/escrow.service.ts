@@ -25,7 +25,7 @@ type EscrowRecord = {
   tradeId: string
   type: string
   status: string
-  lockedAmount: number
+  lockedAmount: string   // decimal string — RFC-009, never a JS number
   asset: string
   network: string | null
   multisigAddr: string | null
@@ -101,7 +101,7 @@ const PROVIDERS: Record<string, SettlementProvider> = {
 export interface CreateEscrowInput {
   tradeId: string
   type?: EscrowType
-  lockedAmount: number
+  lockedAmount: string   // decimal string — RFC-009, never a JS number
   asset: AssetType
   network?: string
   timelockHours?: number
@@ -171,7 +171,7 @@ export class EscrowService {
       escrowId: escrow.id,
       tradeId: escrow.tradeId,
       type: escrow.type,
-      lockedAmount: escrow.lockedAmount,
+      lockedAmount: escrow.lockedAmount.toString(),   // RFC-009 — Decimal -> decimal string at the event boundary
       asset: escrow.asset,
     })
 

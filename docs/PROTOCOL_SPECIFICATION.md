@@ -303,7 +303,8 @@ interface Settlement {
   negotiationId: string
   type: SettlementType   // MOCK | MULTISIG | LIGHTNING_HODL | LIQUID_COVENANT
   status: SettlementStatus
-  amount: number
+  amount: string   // decimal string (RFC-009) — never a JS number; JSON numbers
+                     // are IEEE754 by spec, only strings preserve exact decimals
 }
 ```
 
@@ -807,6 +808,19 @@ interface AgentIntentPayload {
   expiresAt: Timestamp
 }
 ```
+
+**Convention for future implementation (RFC-009).** The `number`-typed
+amount fields above (`maxValue`/`minValue`, `amount`,
+`collateralAmount`/`borrowAmount`, `maxAmount`) belong to Intent types
+that are 📋 future / not yet implemented in any Reference Implementation.
+They are **not** updated here retroactively — there is no live code to
+fix — but RFC-009 (`rfcs/RFC-009-decimal-precision-for-financial-fields.md`)
+establishes the rule any implementation of these payloads must follow:
+financial amount fields are decimal strings (`string`), never `number`,
+for the same reason `Settlement.amount` (§1.5) was corrected. Whoever
+implements `PaymentIntent`, `SwapIntent`, `LoanIntent`, or `EarnIntent`
+should apply this convention at build time rather than reintroducing the
+bug RFC-009 fixed elsewhere.
 
 ### 2.4 Lifecycle (canonical states)
 

@@ -20,8 +20,8 @@ export interface OpenP2PTradeCreatedEvent {
   buyerId: string
   sellerId: string
   asset: string
-  amount: number
-  priceUsd: number
+  amount: string    // decimal string — RFC-009, never a JS number
+  priceUsd: string   // decimal string — RFC-009
 }
 
 export interface OpenP2PTradeStatusChangedEvent {
@@ -45,7 +45,7 @@ export interface SettlementEscrowCreatedEvent {
   escrowId: string
   tradeId: string
   type: string
-  lockedAmount: number
+  lockedAmount: string   // decimal string — RFC-009, never a JS number
   asset: string
 }
 
@@ -74,7 +74,7 @@ export interface LiquidityOfferCreatedEvent {
   userId: string
   asset: string
   side: string
-  priceUsd: number
+  priceUsd: string   // decimal string — RFC-009, never a JS number
 }
 
 export interface LiquidityOfferStatusChangedEvent {
