@@ -692,6 +692,13 @@ primitives; they are not primitives themselves.
   the same line — Logs live inside the "Receipt" primitive; the
   event-emission mechanism itself isn't a separate primitive.
 
+  **RFC-010** (`rfcs/RFC-010-durable-event-store.md`) strengthens this
+  mechanism's contract without promoting it to a primitive: every event
+  now requires durability-capability (via a new `EventStore` Adapter —
+  same category as `SettlementProvider`, never naming a specific backend)
+  and a mandatory `correlationId` (`tradeId` today, `intentId` once Intent
+  persistence exists — §2.6). Still a mechanism, just a stronger one.
+
 ### 1.12 How Each Module Uses the Primitives (summary table)
 
 | Module | Primitives it implements/consumes |

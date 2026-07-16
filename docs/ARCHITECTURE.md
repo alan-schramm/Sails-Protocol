@@ -94,6 +94,16 @@ Event Bus             → namespaced {module}.{entity}.{action} events.
                         EscrowEvent/ReputationEvent) so tampering is
                         detectable — this is the one place D5's original
                         "no new write path" claim was later corrected.
+                        RFC-010 (rfcs/RFC-010-durable-event-store.md)
+                        makes durability pluggable via a new EventStore
+                        Adapter (protocol says "must be durable and
+                        correlated," never names a backend — Redis
+                        Streams/BullMQ stays a Reference Implementation
+                        choice) and requires every event to carry a
+                        correlationId (tradeId today, intentId once
+                        Intent persistence exists; userId for
+                        peer/transport events with no trade to correlate
+                        to).
 State Machine          → the canonical Intent lifecycle (9 states)
 Capability Registry    → tracks which Capability (functional category,
                         e.g. trade-coordination) each moduleId implements,

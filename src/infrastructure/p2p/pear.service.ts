@@ -97,7 +97,9 @@ export class PearNode extends EventEmitter {
     await prisma.user.update({ where: { id: this.ownerUserId }, data: { peerId } })
     await this.joinTopic('marketplace')
 
-    eventBus.emit('peer.connected', { userId: this.ownerUserId, peerId, publicKey: peerId })
+    // correlationId = userId (RFC-010) — no trade to correlate a connectivity
+    // event to; userId is the most specific trace identifier available.
+    await eventBus.emit('peer.connected', { userId: this.ownerUserId, peerId, publicKey: peerId }, this.ownerUserId)
     console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] Node started. PeerId: ${peerId.slice(0, 16)}...`)
     return peerId
   }
@@ -112,10 +114,10 @@ export class PearNode extends EventEmitter {
     this.peers.clear()
     this.topicAnnouncements.clear()
 
-    eventBus.emit('peer.disconnected', {
+    await eventBus.emit('peer.disconnected', {
       userId: this.ownerUserId,
       peerId: this.keyPair?.publicKey.toString('hex') ?? '',
-    })
+    }, this.ownerUserId)   // correlationId = userId (RFC-010)
     console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] Node stopped`)
   }
 
@@ -184,7 +186,11 @@ export class PearNode extends EventEmitter {
         this.peers.set(remotePeerId, peer)
         this.userPeerMap.set(msg.userId, remotePeerId)
         console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] Peer identified: user ${msg.userId.slice(0, 8)} → ${remotePeerId.slice(0, 16)}`)
-        eventBus.emit('peer.connected', { userId: msg.userId, peerId: remotePeerId, publicKey: remotePeerId })
+        // correlationId = userId (RFC-010). Not awaited — this is a plain
+        // (non-async) socket callback, matching the fire-and-forget pattern
+        // eventBus.on() already uses for its own async listener errors.
+        eventBus.emit('peer.connected', { userId: msg.userId, peerId: remotePeerId, publicKey: remotePeerId }, msg.userId)
+          .catch((err) => console.error('[Pear] Failed to publish peer.connected:', err))
         return
       }
 
@@ -200,7 +206,8 @@ export class PearNode extends EventEmitter {
       if (peer) {
         this.peers.delete(remotePeerId)
         this.userPeerMap.delete(peer.userId)
-        eventBus.emit('peer.disconnected', { userId: peer.userId, peerId: remotePeerId })
+        eventBus.emit('peer.disconnected', { userId: peer.userId, peerId: remotePeerId }, peer.userId)   // correlationId = userId (RFC-010)
+          .catch((err) => console.error('[Pear] Failed to publish peer.disconnected:', err))
       }
     })
 

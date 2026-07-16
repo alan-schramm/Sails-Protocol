@@ -59,15 +59,15 @@ export class HumanChatChannel implements NegotiationChannel {
         msgType: event.type === 'MESSAGE_EXCHANGED' ? 'TEXT' : 'SYSTEM',
       },
     })
-    eventBus.emit('openp2p.message.sent', {
+    await eventBus.emit('openp2p.message.sent', {
       messageId: this.tradeId, // placeholder until Message model exposes its own id here
       tradeId: this.tradeId,
       senderId: this.localUserId,
       content: event.type === 'MESSAGE_EXCHANGED' ? event.content : JSON.stringify(event),
       msgType: event.type,
       timestamp: event.at,
-    })
-    eventBus.emit('negotiation.event_received', { tradeId: this.tradeId, eventType: event.type })
+    }, this.tradeId)   // correlationId (RFC-010)
+    await eventBus.emit('negotiation.event_received', { tradeId: this.tradeId, eventType: event.type }, this.tradeId)
     if (!delivered) {
       console.warn(`[Negotiation] ${this.remoteUserId} not connected — event persisted, will be visible on their next sync`)
     }
@@ -97,10 +97,10 @@ export class NegotiationService {
     if (!trade) throw new NotFoundError('Trade', tradeId)
 
     this.status.set(tradeId, 'CREATED')
-    eventBus.emit('negotiation.opened', { tradeId, buyerId, sellerId })
-    eventBus.emit('openp2p.trade.status_changed', {
+    await eventBus.emit('negotiation.opened', { tradeId, buyerId, sellerId }, tradeId)
+    await eventBus.emit('openp2p.trade.status_changed', {
       tradeId, from: 'PENDING', to: 'NEGOTIATING', triggeredBy: buyerId,
-    })
+    }, tradeId)
     this.status.set(tradeId, 'NEGOTIATING')
 
     // Both directions — buyer's view of the channel and seller's view are
@@ -112,13 +112,13 @@ export class NegotiationService {
     return this.status.get(tradeId) ?? 'CREATED'
   }
 
-  markAgreed(tradeId: string): void {
+  async markAgreed(tradeId: string): Promise<void> {
     // Boundary held per the v8.7 revision note: this stops at TERMS_AGREED.
     // AwaitingSettlement/Settled/Completed are Settlement's states
     // (escrow.service.ts), not Negotiation's — see
     // PROTOCOL_SPECIFICATION.md §3.1 for why that line is deliberate.
     this.status.set(tradeId, 'TERMS_AGREED')
-    eventBus.emit('negotiation.terms_agreed', { tradeId })
+    await eventBus.emit('negotiation.terms_agreed', { tradeId }, tradeId)
   }
 }
 
