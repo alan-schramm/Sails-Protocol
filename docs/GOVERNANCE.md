@@ -48,6 +48,72 @@ for the canonical description — but extends its scope explicitly to cover:
   the broadest consensus, since every other governed decision is checked
   against these principles
 
+## 2B. The Sails Foundation — Concrete Entity Structure for Governance Layer v1
+
+**Added following a discussion on protocol stewardship structure —
+"Governance Layer v1" (section 2) has always been the mechanism; this
+section names what it concretely becomes as an organization, following
+the closest real precedents.**
+
+### The precedent, stated precisely
+
+Two protocols were raised as models, and it matters to get their actual
+structure right rather than an approximation:
+
+- **Morpho** — **Morpho Labs SAS** is the company that does engineering
+  work. **Morpho Association**, a Swiss nonprofit, is the entity that
+  actually stewards the protocol, holds protocol-level governance
+  authority, and is where protocol-level value (not Morpho Labs' own
+  commercial revenue) accrues. These are two separate legal entities —
+  the company builds; the association governs.
+- **Fedimint / Fedi** — the same split: **Fedimint** is the open protocol,
+  stewarded by a foundation-structured nonprofit ecosystem body. **Fedi**
+  is a company that builds one commercial product (a wallet) on top of
+  Fedimint, the same relationship Satsails has to Sails Protocol.
+
+**The pattern in both cases: the company that builds the first product is
+not the same legal entity as the body that governs the protocol
+long-term.** This document's existing Months-1-12-to-Governance-Layer-v1
+transition (section 2) already points at this outcome — this section
+gives it a name and a shape instead of leaving "a multi-stakeholder body"
+undefined.
+
+### What this means for Sails Protocol
+
+- **Satsails (the company) is the Morpho-Labs/Fedi equivalent** — the
+  first Reference Implementation, the initial engineering team, and (per
+  `PROTOCOL_ECONOMY.md` section 3) the party proposing default economic
+  parameters during the bootstrap phase. This role does not change.
+- **A future "Sails Foundation" (working name, not yet a formed legal
+  entity) is the Morpho-Association/Fedimint-foundation equivalent** —
+  the eventual steward of `@sails/protocol-spec`, the Developer/Treasury
+  Fund (`PROTOCOL_ECONOMY.md` section 4.3), and the RFC approval process
+  itself (section 5 below), once Governance Layer v1 forms.
+- This is the concrete answer to `PROTOCOL_ECONOMY.md` section 6.4's
+  existing rule that fee revenue is never held by "Sails Inc. (or any
+  company)" — the Foundation, not Satsails, is intended to be the entity
+  through which the Developer/Treasury Fund and other governed buckets
+  are ultimately administered once it exists.
+
+### What is and isn't true today (stated plainly, not implied)
+
+- **True today:** the *intent* to separate company-that-builds from
+  entity-that-governs is now documented, here and cross-referenced from
+  `PROTOCOL_ECONOMY.md`.
+- **Not true today:** no such foundation has been legally formed. This
+  section describes the target structure this project is documented as
+  working toward — it is not a claim that a "Sails Foundation" currently
+  exists, holds any assets, or has any legal authority. Actually
+  incorporating it (jurisdiction, board, statutes — matching how Morpho
+  Association and Fedimint's foundation structure were each real legal
+  formations, not just naming exercises) is a legal/organizational
+  decision for Satsails' leadership to pursue outside of what any
+  documentation change accomplishes.
+- **The trigger, not a date:** per section 2, this transition is tied to
+  Governance Layer v1 actually shipping (`ROADMAP.md`, targeted Meses
+  10-12) — a functioning multi-stakeholder governance mechanism, not a
+  calendar date passing on its own.
+
 ## 3. What Requires an RFC
 
 | Change type | Requires RFC? |
