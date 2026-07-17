@@ -180,6 +180,20 @@ makes the same point in more detail.
       (`BACKLOG.md` P0). This is 2 tables, not the 3 originally sketched
       in `PROTOCOL_SPECIFICATION.md` §2.6 — that section explains why a
       separate `intent_payloads` table wasn't needed.
+- [x] `core/coordination-engine.ts`'s stub is resolved — `decide()` is now
+      real (RFC-012, `rfcs/RFC-012-intent-validation-and-coordination.md`).
+      `intent-engine.ts`'s `create()` runs `CREATED → VALIDATED →
+      COORDINATED` through the existing hash-chained `transition()`
+      mechanism, so `create()` now returns an Intent in `COORDINATED`
+      status rather than `CREATED`. `IntentStatus` also had a duplicate
+      declaration (`common/types/intent.ts` and `core/state-machine.ts`
+      each defined their own) — fixed as part of the same RFC:
+      `common/types/intent.ts` is now the single source of truth,
+      `state-machine.ts` imports and re-exports it. `policy-engine.ts`'s
+      governed-policy interface and `capability-registry.ts` remain
+      untouched stubs — `coordinationEngine.decide()` does not consult
+      either, a deliberate scope decision documented in RFC-012's
+      Alternatives Considered.
 - [ ] **Still open:** `IntentHandler` plugin registration pattern (§2.7 of
       `PROTOCOL_SPECIFICATION.md`) is fully specified but has zero code.
 

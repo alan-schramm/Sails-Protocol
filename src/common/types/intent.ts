@@ -1,9 +1,18 @@
 /**
  * Intent types — PROTOCOL_SPECIFICATION.md §1.2 and §2 (Intent Engine).
  * Frozen shape (Protocol Freeze, v8.8). Do not change without RFC-006+.
+ * IntentStatus specifically: RFC-012 (rfcs/RFC-012-intent-validation-and-
+ * coordination.md) added VALIDATED/COORDINATED — the RFC process this
+ * comment already asked for, not a silent edit.
  *
  * This file was missing — referenced by src/core/intent-engine.ts but
  * never created. Found during a verification pass before dev handoff.
+ *
+ * IntentStatus is the single declaration as of RFC-012 — it used to be
+ * independently re-declared in core/state-machine.ts too (identical
+ * today by coincidence, not by shared reference, a real drift risk if
+ * one had ever been edited without the other). state-machine.ts imports
+ * it from here now.
  */
 
 export type IntentType =
@@ -14,9 +23,13 @@ export type IntentType =
   | 'EarnIntent'     // Sails OpenFinance — 📋 future
   | 'AgentIntent'    // Sails OpenAgents — 📋 future, can spawn sub-intents
 
+// VALIDATED/COORDINATED sit between CREATED and DISCOVERING — RFC-012.
+// See core/state-machine.ts's VALID_TRANSITIONS for the enforced order;
+// this is only the vocabulary, not the transition rules.
 export type IntentStatus =
-  | 'CREATED' | 'DISCOVERING' | 'MATCHED' | 'NEGOTIATING'
-  | 'COMMITTED' | 'SETTLING' | 'FULFILLED' | 'EXPIRED' | 'CANCELLED' | 'FAILED'
+  | 'CREATED' | 'VALIDATED' | 'COORDINATED' | 'DISCOVERING' | 'MATCHED'
+  | 'NEGOTIATING' | 'COMMITTED' | 'SETTLING' | 'FULFILLED' | 'EXPIRED'
+  | 'CANCELLED' | 'FAILED'
 
 export interface IntentPayload {
   [key: string]: unknown

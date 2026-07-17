@@ -1,15 +1,23 @@
 /**
  * Coordination Engine — Sails Protocol Core Component
- * ARCHITECTURE.md section 1B, MASTER_COORDINATION.md v7.1
+ * ARCHITECTURE.md section 1B; first real implementation via RFC-012
+ * (rfcs/RFC-012-intent-validation-and-coordination.md).
  *
- * STUB — not yet implemented. This is the formalized "brain": today,
- * cross-module reactions live in common/events/handlers.ts as flat,
- * independent eventBus.on(...) listeners. This engine is the same idea
- * with real decision inputs (Policy + Capability, not just the event
- * payload) — see TODO.md for the migration plan.
+ * Real, not a stub. Deliberately minimal: `decide()` resolves the target
+ * module from the Intent's own `moduleId` (already set at creation time
+ * by `core/intent-engine.ts`'s `create()`) and returns a
+ * `CoordinationDecision` — formalizing that routing choice as an
+ * explicit, auditable step instead of an implicit hardcoded value. Does
+ * NOT yet consult the Policy Engine's governed-policy store
+ * (`policy-engine.ts`'s `get`/`propose`/`activate`, still a stub) or the
+ * Capability Registry (`capability-registry.ts`, still a stub) — RFC-012's
+ * own Alternatives Considered explains why folding those in was out of
+ * scope for that RFC. A governed, policy-gated routing decision is real
+ * future work, tracked in `BACKLOG.md`, not silently implied as already
+ * done by this file existing.
  */
-import { capabilityRegistry } from './capability-registry'
-import { policyEngine } from './policy-engine'
+import { prisma } from '../common/database'
+import { NotFoundError } from '../common/errors'
 
 export interface CoordinationDecision {
   action: string
@@ -21,7 +29,10 @@ export interface CoordinationEngine {
   decide(intentId: string): Promise<CoordinationDecision>
 }
 
-// TODO(Meses 1-3): implement — migrate logic from common/events/handlers.ts
 export const coordinationEngine: CoordinationEngine = {
-  async decide() { throw new Error('Not yet implemented — see TODO.md') },
+  async decide(intentId: string): Promise<CoordinationDecision> {
+    const record = await prisma.intent.findUnique({ where: { id: intentId } })
+    if (!record) throw new NotFoundError('Intent', intentId)
+    return { action: 'route', targetModule: record.moduleId, payload: record.payload }
+  },
 }
