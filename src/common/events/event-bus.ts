@@ -179,6 +179,10 @@ export interface IntentCreatedEvent {
   parentIntentId?: string
   agentId?: string
 }
+// RFC-012 (rfcs/RFC-012-intent-validation-and-coordination.md) — the two
+// new lifecycle events between intent.created and intent.discovering.
+export interface IntentValidatedEvent { intentId: string; participantId: string }
+export interface IntentCoordinatedEvent { intentId: string; targetModule: string }
 export interface IntentDiscoveringEvent { intentId: string }
 export interface IntentMatchedEvent { intentId: string; candidateIds: string[] }
 export interface IntentNegotiatingEvent { intentId: string; negotiationId: string }
@@ -206,6 +210,8 @@ export interface NegotiationReconciledEvent {
 export interface SailsEventMap {
   // Intent Engine — §2.5, cross-cutting Core, not module-owned
   'intent.created': IntentCreatedEvent
+  'intent.validated': IntentValidatedEvent     // RFC-012
+  'intent.coordinated': IntentCoordinatedEvent // RFC-012
   'intent.discovering': IntentDiscoveringEvent
   'intent.matched': IntentMatchedEvent
   'intent.negotiating': IntentNegotiatingEvent

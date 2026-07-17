@@ -44,13 +44,19 @@ jest.mock('../src/common/events/event-bus', () => ({
 const { intentEngine } = require('../src/core/intent-engine')
 
 describe('State Machine (pure functions, no mocking needed)', () => {
-  it('allows CREATED -> DISCOVERING -> MATCHED -> NEGOTIATING -> COMMITTED -> SETTLING -> FULFILLED', () => {
-    expect(() => assertValidTransition('CREATED', 'DISCOVERING')).not.toThrow()
+  it('allows CREATED -> VALIDATED -> COORDINATED -> DISCOVERING -> MATCHED -> NEGOTIATING -> COMMITTED -> SETTLING -> FULFILLED (RFC-012)', () => {
+    expect(() => assertValidTransition('CREATED', 'VALIDATED')).not.toThrow()
+    expect(() => assertValidTransition('VALIDATED', 'COORDINATED')).not.toThrow()
+    expect(() => assertValidTransition('COORDINATED', 'DISCOVERING')).not.toThrow()
     expect(() => assertValidTransition('DISCOVERING', 'MATCHED')).not.toThrow()
     expect(() => assertValidTransition('MATCHED', 'NEGOTIATING')).not.toThrow()
     expect(() => assertValidTransition('NEGOTIATING', 'COMMITTED')).not.toThrow()
     expect(() => assertValidTransition('COMMITTED', 'SETTLING')).not.toThrow()
     expect(() => assertValidTransition('SETTLING', 'FULFILLED')).not.toThrow()
+  })
+
+  it('rejects skipping VALIDATED/COORDINATED directly from CREATED to DISCOVERING (RFC-012)', () => {
+    expect(() => assertValidTransition('CREATED', 'DISCOVERING')).toThrow(/Invalid Intent transition/)
   })
 
   it('rejects an invalid transition (e.g. skipping straight to FULFILLED)', () => {
@@ -101,23 +107,46 @@ describe('Intent Engine — happy path (IntentEngine -> PolicyEngine -> StateMac
       payload: { asset: 'BTC', side: 'BUY', maxValue: '0.5', minValue: '0.01' },
     })
     mockIntentEventFindFirst.mockResolvedValue(null) // no prior event -> prevHash = 'genesis'
+    // RFC-012: create() now calls transition() twice more (CREATED ->
+    // VALIDATED -> COORDINATED), each of which re-reads the Intent from
+    // Postgres first — real DB state would show the status the *previous*
+    // step just wrote, so the mock returns that in the same order:
+    // findUnique #1 (transition to VALIDATED) sees CREATED, #2
+    // (coordinationEngine.decide) sees VALIDATED, #3 (transition to
+    // COORDINATED) also sees VALIDATED (decide() doesn't mutate anything).
+    mockIntentFindUnique
+      .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', moduleId: 'openp2p', payload: { asset: 'BTC' } })
+      .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload: { asset: 'BTC' } })
+      .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload: { asset: 'BTC' } })
+    mockIntentUpdate.mockResolvedValue({ id: 'intent-1', status: 'COORDINATED' })
 
     const payload = { asset: 'BTC', side: 'BUY' as const, maxValue: '0.5', minValue: '0.01' }
     const intent = await intentEngine.create('TradeIntent', payload, 'user-1')
 
     expect(intent.id).toBe('intent-1')
+    // RFC-012: create() now returns the Intent in COORDINATED status, not CREATED
+    expect(intent.status).toBe('COORDINATED')
     // CISO Byzantine + Economic rules both ran and passed *before* persistence
     expect(mockIntentCreate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ type: 'TradeIntent', status: 'CREATED' }) })
     )
-    // Timeline/audit write (IntentEvent) happened
+    // Timeline/audit write (IntentEvent) happened for CREATED...
     expect(mockIntentEventCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ intentId: 'intent-1', toStatus: 'CREATED', prevHash: 'genesis' }),
       })
     )
-    // correlationId (RFC-010) = intentId
+    // ...and for the two new RFC-012 transitions
+    expect(mockIntentEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ intentId: 'intent-1', toStatus: 'VALIDATED' }) })
+    )
+    expect(mockIntentEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ intentId: 'intent-1', toStatus: 'COORDINATED' }) })
+    )
+    // correlationId (RFC-010) = intentId, for all three lifecycle events
     expect(mockEmit).toHaveBeenCalledWith('intent.created', expect.objectContaining({ intentId: 'intent-1' }), 'intent-1')
+    expect(mockEmit).toHaveBeenCalledWith('intent.validated', expect.objectContaining({ intentId: 'intent-1' }), 'intent-1')
+    expect(mockEmit).toHaveBeenCalledWith('intent.coordinated', expect.objectContaining({ intentId: 'intent-1', targetModule: 'openp2p' }), 'intent-1')
   })
 
   it('rejects a malformed Intent (missing side) before ever calling Prisma — CISO Byzantine Rule', async () => {

@@ -867,6 +867,10 @@ bug RFC-009 fixed elsewhere.
 ```
 CREATED       — Intent published, not yet processed
      ↓
+VALIDATED     — structural + financial sanity checks passed (RFC-012)
+     ↓
+COORDINATED   — routed to its owning module via the Coordination Engine (RFC-012)
+     ↓
 DISCOVERING   — active search for counterparty/liquidity (via OpenLiquidity)
      ↓
 MATCHED       — candidate(s) found, awaiting negotiation
@@ -885,6 +889,13 @@ Branches (from any active state):
   → FAILED     (settlement failed — unresolved dispute)
 ```
 
+`VALIDATED` and `COORDINATED` (added by
+`rfcs/RFC-012-intent-validation-and-coordination.md`) formalize checks the
+Reference Implementation already performed before persistence — they do
+not introduce new validation logic, only make an existing gate an
+observable, audited state. Both are recorded through the same
+hash-chained IntentEvent mechanism (§2.6) as every other transition.
+
 Not every Intent type passes through every state — an `EarnIntent` might
 skip `NEGOTIATING` if the rate is protocol-fixed. Each module declares its
 own valid-transition table rather than the Core hardcoding assumptions.
@@ -896,6 +907,8 @@ not owned by any single module).
 
 ```
 intent.created       { intentId, type, participantId, moduleId, parentIntentId? }
+intent.validated     { intentId, participantId }                    — RFC-012
+intent.coordinated   { intentId, targetModule }                     — RFC-012
 intent.discovering   { intentId }
 intent.matched       { intentId, candidateIds: string[] }
 intent.negotiating   { intentId, negotiationId }
@@ -1024,6 +1037,7 @@ explicit here so no future reader has to reverse-engineer it:
 | Intent Engine (generic, section 2.4) | Trade Lifecycle (OpenP2P-specific, above) |
 |---|---|
 | `CREATED` | 01 OFFER CREATED |
+| `VALIDATED`, `COORDINATED` (RFC-012) | (transition — no OpenP2P-visible state yet; Core-only, ahead of HyperDHT search) |
 | `DISCOVERING` | (transition — HyperDHT search happening) |
 | `MATCHED` | 02 COUNTERPARTY FOUND |
 | `NEGOTIATING` | 03 CHAT OPEN, 04 AGREEMENT CONFIRMED |

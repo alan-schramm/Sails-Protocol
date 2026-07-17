@@ -19,6 +19,7 @@ import { eventBus } from '../common/events/event-bus'
 import type { SailsEventName, SailsEventMap } from '../common/events/event-bus'
 import { assertValidTransition, isExpired, type IntentStatus } from './state-machine'
 import { validateFinancialSanity } from './policy-engine'
+import { coordinationEngine } from './coordination-engine'
 import type {
   Intent, IntentType, IntentHandler, IntentPayload, TradeIntentPayload,
 } from '../common/types/intent'
@@ -171,10 +172,33 @@ export const intentEngine: IntentEngine = {
       agentId,
     }, record.id) // correlationId = intentId (RFC-010)
 
-    const handler = handlers.get(type)
-    if (handler) await handler.onCreated(record as unknown as Intent)
+    // RFC-012 (rfcs/RFC-012-intent-validation-and-coordination.md):
+    // CREATED -> VALIDATED -> COORDINATED, formal transitions recorded
+    // through the same hash-chained transition() mechanism cancel() uses
+    // below — not a bare status overwrite. Deterministic today: the CISO
+    // Byzantine/Economic checks above already gated persistence, so a
+    // persisted CREATED row has, by construction, already passed them —
+    // VALIDATED formalizes that as an observable, audited state instead
+    // of an implicit pre-persistence gate. This is also the receive path
+    // for an agent-generated Intent (modules/open-agents/buyer-agent.ts's
+    // QVAC-produced TradeIntentPayload) — agentId, threaded through
+    // above, needs no special-cased handling here: it's just data that
+    // flows through the same validate/coordinate pipeline every Intent does.
+    const validated = await transition(
+      record.id, 'VALIDATED', participantId, 'intent.validated',
+      { intentId: record.id, participantId }
+    )
 
-    return record as unknown as Intent<T>
+    const decision = await coordinationEngine.decide(record.id)
+    const handler = handlers.get(type)
+    if (handler) await handler.onCreated(validated as unknown as Intent)
+
+    const coordinated = await transition(
+      record.id, 'COORDINATED', participantId, 'intent.coordinated',
+      { intentId: record.id, targetModule: decision.targetModule }
+    )
+
+    return coordinated as unknown as Intent<T>
   },
 
   async cancel(intentId) {

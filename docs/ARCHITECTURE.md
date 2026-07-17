@@ -104,7 +104,9 @@ Event Bus             → namespaced {module}.{entity}.{action} events.
                         Intent persistence exists; userId for
                         peer/transport events with no trade to correlate
                         to).
-State Machine          → the canonical Intent lifecycle (9 states)
+State Machine          → the canonical Intent lifecycle (11 states as of
+                        RFC-012, rfcs/RFC-012-intent-validation-and-
+                        coordination.md, which added VALIDATED/COORDINATED)
 Capability Registry    → tracks which Capability (functional category,
                         e.g. trade-coordination) each moduleId implements,
                         and issues/checks CapabilityGrants (permissions) —
@@ -292,18 +294,31 @@ src/
 │       └── handlers.ts                 (Coordination Protocol — cross-module
 │                                         reactions to events)
 ├── core/                                (6 formal Core components, §1B —
-│                                         intent-engine.ts is the first one
-│                                         with a real implementation, not a
-│                                         stub; the other 5 still throw
+│                                         intent-engine.ts, policy-engine.ts
+│                                         [partially], state-machine.ts, and
+│                                         coordination-engine.ts now real;
+│                                         capability-registry.ts still throws
 │                                         "Not yet implemented")
-│   ├── intent-engine.ts                (real — create/cancel/transition,
-│                                         03-implementation_plan.md MVP)
+│   ├── intent-engine.ts                (real — create/cancel/transition;
+│                                         create() now runs CREATED ->
+│                                         VALIDATED -> COORDINATED via
+│                                         RFC-012, rfcs/RFC-012-intent-
+│                                         validation-and-coordination.md)
 │   ├── policy-engine.ts                (validateFinancialSanity real; the
 │   │                                     get/propose/activate governed-policy
 │   │                                     interface is still a stub)
 │   ├── state-machine.ts                (real — assertValidTransition,
-│   │                                     isExpired hard-timeout check)
-│   ├── coordination-engine.ts          (stub)
+│   │                                     isExpired hard-timeout check;
+│   │                                     IntentStatus now imported from
+│   │                                     common/types/intent.ts, single
+│   │                                     source of truth per RFC-012)
+│   ├── coordination-engine.ts          (real as of RFC-012 — decide()
+│   │                                     resolves an Intent's targetModule;
+│   │                                     does not yet consult Policy Engine
+│   │                                     or Capability Registry, both still
+│   │                                     stubs — deliberately out of scope,
+│   │                                     see that RFC's Alternatives
+│   │                                     Considered)
 │   └── capability-registry.ts          (stub)
 ├── infrastructure/
 │   └── p2p/
