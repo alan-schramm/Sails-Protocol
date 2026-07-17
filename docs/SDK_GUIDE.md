@@ -1,13 +1,25 @@
 # SDK_GUIDE.md
 ### Sails Protocol — Engineering Handoff · Document 5 of 20
 
-> **Status: 📋 Aspirational.** The `@sails/sdk` package does not exist yet.
-> This document is the interface specification the future implementation
-> must satisfy — written now so that the internal APIs (`API_REFERENCE.md`)
-> are built in a way that naturally supports this SDK later, without
-> requiring a rewrite. Its MVP release is branded **Sails P2P Trading
-> SDK** — same package, scoped to what's actually being built first (P2P
-> trading); see `PROJECT_CONTEXT.md` section 3 for the naming rule.
+> **Status: 🟢 v0.1 real, partial** *(2026-07-17)*. `@sails/sdk`
+> (`packages/sails-sdk`) now exists as a real npm workspace package —
+> this document is no longer purely aspirational, it is the spec a real
+> implementation is checked against. `SailsClient`'s Protocol SDK layer
+> (`identity`, `reputation`, `liquidity`, `openp2p`, `settlement`,
+> `peers`) is genuinely implemented against the reference
+> implementation's real, tested HTTP/WS routes (verified route-by-route
+> against each `*.routes.ts` file directly, not assumed from this doc's
+> prose — see this file's own section 2 note on `createIntent`/`trade()`
+> deviations found that way). Of the six-verb Intent facade,
+> `createIntent`/`cancelIntent` are real; `negotiate`/`submitProof`/
+> `releaseAsset`/`dispute` throw `SailsNotImplementedError` with a
+> specific reason and, where one exists, a real working alternative
+> (`packages/sails-sdk/src/intent-facade.ts`'s own header has the full
+> explanation — the blocker is server-side: no Intent -> Trade -> Escrow
+> linkage, and the Proof primitive has zero routes yet). Its MVP release
+> is branded **Sails P2P Trading SDK** — same package, scoped to what's
+> actually being built first (P2P trading); see `PROJECT_CONTEXT.md`
+> section 3 for the naming rule.
 
 The SDK is where the developer diagram (`PROJECT_CONTEXT.md` section 3,
 "The developer diagram") lands in code — `SailsClient` is what sits at the
@@ -154,6 +166,16 @@ interface SailsClient {
 }
 ```
 
+**Deviations found while implementing v0.1, not silently matched** (both
+because the real route requires a field this section's literal signature
+omits — a two-arg call would just 400 at runtime):
+- `createIntent(payload)` → real signature is `createIntent(type,
+  payload, participantId, agentId?)` — `POST /api/v1/intents`'s body
+  requires `participantId` explicitly; there's no session-based
+  resolution for this specific route today.
+- `openp2p.trade(offerId)` → real signature is `trade(offerId, amount)`
+  — `POST /v1/openp2p/trades`'s body requires `amount`.
+
 ## 3. Fundamental Protocol Types (also part of `@sails/protocol-spec`)
 
 ```typescript
@@ -269,10 +291,23 @@ need zero changes. This is the same "additive, never breaking" discipline
 ## 5. Build Plan (roadmap-linked — see `ROADMAP.md` for exact timing)
 
 1. **Meses 1-3**: `@sails/protocol-spec` npm package published — just the
-   types and interfaces above, zero implementation.
+   types and interfaces above, zero implementation. **Still not started**
+   — `packages/sails-sdk/src/types.ts` currently defines its own response
+   types locally (that file's own header explains why: reconciling them
+   with `@sails/p2p-schemas`'s differently-shaped `OfferSchema` is real,
+   separate follow-up work, not done silently as part of v0.1).
 2. **Meses 4-6**: `@sails/sdk` v1.0 — a real HTTP/WebSocket client
    implementing `SailsClient` against the namespaced `/v1/{module}/` API
-   described in `API_REFERENCE.md`.
+   described in `API_REFERENCE.md`. **v0.1 landed 2026-07-17**, ahead of
+   this doc's own roadmap timing — Transport + Protocol SDK layers are
+   real and tested (`packages/sails-sdk/tests/`, 33 tests: real
+   `tweetnacl` Ed25519 signing verified against `auth.ts`'s exact byte
+   encoding, every module's request shape checked against its real
+   route). Intent facade is partial (see section 2's note above and
+   `intent-facade.ts`'s header) — reaching v1.0 needs the Proof primitive
+   built and an Intent -> Trade -> Escrow linkage to exist server-side,
+   neither of which this SDK pass added (SDK_GUIDE.md section 1: "no new
+   business logic" — that linkage is Core/module work, not SDK work).
 3. **Meses 7-9 / 10-12**: SDK support for `AgentIntent` (OpenAgents) and
    `LoanIntent`/`SwapIntent`/`EarnIntent` (OpenFinance) as those modules
    ship specs.
