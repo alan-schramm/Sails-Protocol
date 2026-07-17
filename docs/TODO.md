@@ -75,12 +75,27 @@ makes the same point in more detail.
 
 ## 4. Settlement Providers Beyond Mock
 
+- [x] **`WDK_USDT_EVM`** *(new — QVAC/WDK MVP pass, 2026-07-17)* — real,
+      not a stub: `wdk-settlement.provider.ts` uses
+      `@tetherto/wdk-wallet-evm` for lock/release/refund, all real
+      on-chain testnet transfers with real transaction hashes. Only
+      active when `MOCK_ESCROW=false` and `WDK_SEED_PHRASE`/
+      `WDK_USDT_CONTRACT` are set (`.env.example`) — inert otherwise, per
+      RED_TEAM_REVIEW.md RT-001's existing gate. **Honest limitation, not
+      hidden:** single-seed, two-hop escrow (one seed controls treasury
+      + every per-trade escrow sub-account) — a real step up from `MOCK`,
+      not yet a trustless multisig. `toBaseUnits()`/`escrowIndexFor()`
+      (the pure, deterministic parts) are unit-tested in
+      `tests/wdkSettlementProvider.test.ts`; the live wallet calls need a
+      funded testnet key to verify, which wasn't available in this
+      environment — same "cannot verify without live infrastructure"
+      limitation the items below already have.
 - [ ] `LightningHodlProvider` — currently throws `EscrowError('not yet
       implemented')` for every method. Needs a real LND/CLN integration.
 - [ ] `LiquidCovenantProvider` — does not exist yet at all, only referenced
       as an `EscrowType` enum value.
-- [ ] Real Multisig 2-of-3 Bitcoin escrow — not implemented; only `MOCK` is
-      functional today.
+- [ ] Real Multisig 2-of-3 Bitcoin escrow — not implemented; only `MOCK`
+      and now `WDK_USDT_EVM` are functional today.
 
 ## 5. Liquidity Providers Beyond Internal
 
@@ -88,6 +103,35 @@ makes the same point in more detail.
       integration is a stub. Real implementation needs to call
       `https://hodlhodl.com/api/v1/offers` per the TODO comments already in
       `liquidity.service.ts`.
+
+## 5B. OpenAgents — QVAC Risk Service *(new section — QVAC/WDK MVP pass, 2026-07-17)*
+
+- [x] `modules/open-agents/qvac-risk.service.ts` — OpenAgents' first real
+      capability, previously 📋 Aspirational with zero code
+      (`PROJECT_CONTEXT.md` §4). Uses the real `@qvac/sdk` (local LLM
+      inference, `loadModel`/`completion`/`unloadModel`, no cloud
+      dependency) to produce a structured risk read (`risk`/`reasoning`/
+      `recommendation`) on a `TradeIntent`'s shape, matching
+      `ARCHITECTURE.md`'s "risk analysis locally, without cloud
+      dependency" description of the module. Live-verified in this
+      environment: first call downloaded the model (~737MB, ~167s);
+      cached, a second call completed in ~8.7s with coherent output.
+- [ ] **Still open:** this is one narrow capability
+      (structural-shape risk on an Intent before negotiation), not the
+      full OpenAgents module. RFC-007 D7's Social Engineering Agent
+      (watches the Timeline for fraud-precursor patterns, raises a
+      signal to the Policy Engine — BACKLOG.md P3) is unrelated,
+      unbuilt work. No HTTP route exists for this service either — it's
+      called directly from `src/demo/pix-to-usdt-flow.ts`, not exposed
+      over `/v1/agents/*` yet.
+- [ ] **Model output quality caveat, observed directly, not theorized:**
+      the smallest model in QVAC's registry (`LLAMA_3_2_1B_INST_Q4_0`,
+      1B params) occasionally produces internally inconsistent output
+      (e.g. `risk: "high"` paired with `recommendation: "proceed"`) —
+      expected behavior for a model this small, not a bug in the
+      integration. A production deployment gating real money movement
+      on this signal should evaluate a larger model before trusting the
+      `recommendation` field over the raw `risk`/`reasoning`.
 
 ## 6. Rate Limiting & API Keys
 
@@ -275,6 +319,17 @@ makes the same point in more detail.
       `refunded` reactions, dispute-aware (checks for a resolved Dispute
       to tell a happy-path completion apart from a RELEASE/REFUND
       ruling) — see `tests/reputationOutcome.test.ts`.
+- [x] **QVAC + WDK MVP pass** *(new — 2026-07-17)* — see section 4's
+      `WDK_USDT_EVM` entry and section 5B for the two real integrations,
+      and `src/demo/pix-to-usdt-flow.ts` (`npm run demo:pix-to-usdt`) for
+      the end-to-end script tying them to the already-real Intent/
+      OpenP2P/OpenSettlement pieces: Comprador PIX ➡️ Vendedor USDT.
+      **Not run live in this pass** — needs a reachable Postgres/Redis,
+      not available in this environment; each individual piece it calls
+      is real and, where the environment allowed, live-verified on its
+      own (QVAC directly; WDK's pure helpers via
+      `tests/wdkSettlementProvider.test.ts`, the live wallet calls not
+      verifiable without a funded testnet key).
 
 ---
 

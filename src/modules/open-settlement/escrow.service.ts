@@ -5,6 +5,7 @@ import { EscrowStatus, EscrowType } from '../../common/types/trade'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
 import { randomUUID as uuidv4 } from 'crypto'
+import { wdkSettlementProvider } from './wdk-settlement.provider'
 
 /**
  * Sails OpenSettlement — Reference Implementation
@@ -96,6 +97,10 @@ class LightningHodlProvider implements SettlementProvider {
 const PROVIDERS: Record<string, SettlementProvider> = {
   MOCK: new MockSettlementProvider(),
   LIGHTNING_HODL: new LightningHodlProvider(),
+  // Real @tetherto/wdk-wallet-evm USDT settlement — wdk-settlement.provider.ts's
+  // own doc comment has the full custody-model caveat (single-seed
+  // two-hop escrow, testnet only).
+  WDK_USDT_EVM: wdkSettlementProvider,
 }
 
 export interface CreateEscrowInput {

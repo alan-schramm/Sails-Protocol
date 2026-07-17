@@ -106,6 +106,18 @@ jest.mock('../src/infrastructure/p2p/pear.service', () => ({
   },
 }))
 
+// @tetherto/wdk-wallet-evm ships pure ESM (no CJS build) — Jest's default
+// transform doesn't touch node_modules, so requiring it as-is throws
+// "Unexpected token 'export'". None of these route tests exercise
+// wdk-settlement.provider.ts's real wallet calls (no route triggers
+// EscrowType.WDK_USDT_EVM here), so it's mocked out entirely — same
+// reasoning as pear.service.ts above (hyperdht/hyperswarm can't be
+// verified without a live network either).
+jest.mock('@tetherto/wdk-wallet-evm', () => ({
+  __esModule: true,
+  default: class FakeWalletManagerEvm {},
+}))
+
 // Imported after the mocks above so every route file picks up the mocked
 // dependencies, not the real Prisma/Redis/eventBus/pearNodeRegistry.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
