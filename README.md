@@ -17,7 +17,7 @@ production. It is one implementation of the spec, not the spec itself
                     Wallet
                        │
                        ▼
-                  Sails SDK
+            Sails P2P Trading SDK
                        │
    ════════════════════════════════════
               Sails Protocol
@@ -31,6 +31,12 @@ production. It is one implementation of the spec, not the spec itself
    ════════════════════════════════════
    Bitcoin · Liquid · Lightning · USDT
 ```
+
+**Sails P2P Trading SDK** is the MVP's product name — the concrete,
+installable release of the Sails SDK package (`@sails/sdk`), scoped to
+what's actually being built first: P2P trading. See
+`docs/PROJECT_CONTEXT.md` section 3 for why it's scoped that way instead
+of the full long-term Marketplace breadth.
 
 **Core** (protocol, technology-agnostic): Intent, Timeline, Events,
 Capability, Policy, Proof, Identity, Settlement, Reputation.
@@ -81,9 +87,11 @@ npx prisma migrate dev
 npm run dev
 ```
 
-See `docs/DEPLOYMENT.md` for the full setup, including known blockers
-(some bootstrap files are real now — `config/`, `common/database/`,
-`common/redis/`, `common/errors/` — but routes still don't exist yet).
+See `docs/DEPLOYMENT.md` for the full setup. `docs/TODO.md` (re-audited
+2026-07-16) has the exact current gap list — the server boots and the
+Intent API route is real; most other module routes (open-identity,
+open-p2p trade/chat, open-settlement, open-liquidity, open-reputation)
+still don't exist yet, even though their service layers mostly do.
 
 ## Before you touch anything architectural
 

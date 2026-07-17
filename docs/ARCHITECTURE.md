@@ -209,7 +209,7 @@ full technical detail and is unchanged.
 | **Sails OpenP2P** | Coordinates negotiation between participants. | Orchestrates the Trade Lifecycle (9 states, see `PROTOCOL_SPECIFICATION.md`) using the five cross-module services above. Owns the Secretstream chat / negotiation channel. Reconciles against Postgres on peer reconnect (RFC-011) — a dropped HyperDHT/Pears message never actually lost data (every send already persists to `Message` first), it only lost real-time notification, which `ReconciliationService` catches back up on `peer.connected`. | ✅ Proven |
 | **Sails OpenAgents** | Runs automation, fraud prevention, risk analysis, and mediation assistance. | QVAC integration as a cross-cutting SDK. Any module can request matching, fraud detection, or risk analysis locally, without cloud dependency. Includes a Social Engineering Agent (RFC-007) that watches the Timeline for fraud-precursor patterns (off-channel migration, unexpected payment-instruction changes) and raises a risk signal to the Policy Engine — detection only, never unilateral action. | 📋 Aspirational |
 | **Sails OpenFinance** | Stays ready for future expansion, out of scope for the MVP. | Future financial modules: `LoanIntent`, `SwapIntent`, `EarnIntent`. Reuses OpenSettlement, OpenLiquidity, OpenReputation without duplicating logic. | 📋 Aspirational |
-| **Sails SDK** | The single interface a wallet integrates to get the whole Marketplace. | `@sails/sdk` — a TypeScript wrapper (`SailsClient`) around every module's API, for integrators. Adds no new logic — pure interface encapsulation. | 📋 Aspirational (spec only, see `SDK_GUIDE.md`) |
+| **Sails SDK** (MVP release: **Sails P2P Trading SDK**) | The single interface a wallet integrates to get the whole Marketplace. | `@sails/sdk` — a TypeScript wrapper (`SailsClient`) around every module's API, for integrators. Adds no new logic — pure interface encapsulation. | 📋 Aspirational (spec only, see `SDK_GUIDE.md`) |
 
 **Why the OpenP2P/OpenLiquidity split matters:** a common mistake is putting
 the `Offer` entity inside the OpenP2P module because "that's where trading
@@ -395,8 +395,12 @@ the same rule to the newer diagram below:
   8 modules → SDK → Applications → Reference Implementations) — for
   strategic, grant, and partnership context, answering "where does Sails
   sit in the Tether ecosystem."
-- **Developer diagram** (Wallet → Sails SDK → Sails Protocol → 8 modules →
-  WDK/Pears/QVAC → Bitcoin·Liquid·Lightning·USDT) — for `README.md`,
-  `SDK_GUIDE.md`, and onboarding material, answering "what does a
-  developer actually build on." This is also the diagram used in
-  `DEVELOPER_JOURNEY.md`.
+- **Developer diagram** (Wallet → Sails P2P Trading SDK → Sails Protocol →
+  8 modules → WDK/Pears/QVAC → Bitcoin·Liquid·Lightning·USDT) — for
+  `README.md`, `SDK_GUIDE.md`, and onboarding material, answering "what
+  does a developer actually build on." This is also the diagram used in
+  `DEVELOPER_JOURNEY.md`. "Sails P2P Trading SDK" is the MVP's branded
+  release name for the Sails SDK module row below — see
+  `PROJECT_CONTEXT.md` section 3 for the naming rule (developer-facing
+  material uses the MVP name, architecture/spec tables below keep the
+  generic "Sails SDK").
