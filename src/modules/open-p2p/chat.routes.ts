@@ -24,6 +24,7 @@ import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { redis } from '../../common/redis'
+import { requireAuth } from '../../common/middleware/auth'
 
 const SESSION_PREFIX = 'auth:session:'
 
@@ -181,10 +182,22 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     })
   })
 
+  // requireAuth + participant check — found while writing tests for this
+  // route: it had no auth at all, while the WS side (JOIN_TRADE/
+  // SEND_MESSAGE above) already restricts a trade's room to its two
+  // parties. Leaving this REST read open would have made negotiation
+  // content readable by anyone who guessed a tradeId.
   app.get('/v1/openp2p/chat/:tradeId/messages', {
+    preHandler: requireAuth,
     schema: { tags: ['open-p2p'] },
   }, async (request, reply) => {
     const { tradeId } = z.object({ tradeId: z.string().min(1) }).parse(request.params)
+    const participantId = (request as any).participantId as string
+    const trade = await prisma.trade.findUnique({ where: { id: tradeId } })
+    if (!trade) throw new NotFoundError('Trade', tradeId)
+    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
+      throw new ForbiddenError(`${participantId} is not a party to trade ${tradeId}`)
+    }
     const messages = await prisma.message.findMany({
       where: { tradeId },
       orderBy: { createdAt: 'asc' },
