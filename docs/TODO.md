@@ -104,34 +104,67 @@ makes the same point in more detail.
       `https://hodlhodl.com/api/v1/offers` per the TODO comments already in
       `liquidity.service.ts`.
 
-## 5B. OpenAgents — QVAC Risk Service *(new section — QVAC/WDK MVP pass, 2026-07-17)*
+## 5B. OpenAgents — QvacAgentProvider + BuyerAgent/SellerAgent *(section added QVAC/WDK MVP pass 2026-07-17, consolidated same day)*
 
-- [x] `modules/open-agents/qvac-risk.service.ts` — OpenAgents' first real
-      capability, previously 📋 Aspirational with zero code
-      (`PROJECT_CONTEXT.md` §4). Uses the real `@qvac/sdk` (local LLM
-      inference, `loadModel`/`completion`/`unloadModel`, no cloud
-      dependency) to produce a structured risk read (`risk`/`reasoning`/
-      `recommendation`) on a `TradeIntent`'s shape, matching
-      `ARCHITECTURE.md`'s "risk analysis locally, without cloud
-      dependency" description of the module. Live-verified in this
-      environment: first call downloaded the model (~737MB, ~167s);
-      cached, a second call completed in ~8.7s with coherent output.
-- [ ] **Still open:** this is one narrow capability
-      (structural-shape risk on an Intent before negotiation), not the
-      full OpenAgents module. RFC-007 D7's Social Engineering Agent
-      (watches the Timeline for fraud-precursor patterns, raises a
-      signal to the Policy Engine — BACKLOG.md P3) is unrelated,
-      unbuilt work. No HTTP route exists for this service either — it's
-      called directly from `src/demo/pix-to-usdt-flow.ts`, not exposed
-      over `/v1/agents/*` yet.
+- [x] `modules/open-agents/qvac-agent.provider.ts` (`QvacAgentProvider`) —
+      OpenAgents' first real capability, previously 📋 Aspirational with
+      zero code (`PROJECT_CONTEXT.md` §4). Uses the real `@qvac/sdk`
+      (local LLM inference, `loadModel`/`completion`/`unloadModel`, no
+      cloud dependency), matching `ARCHITECTURE.md`'s "risk analysis
+      locally, without cloud dependency" description of the module.
+      **Consolidated from an earlier, narrower `qvac-risk.service.ts`**
+      (same day, follow-up pass) into one class every agent capability
+      shares a model load/dispose cycle through — `assessIntentRisk()`
+      (unchanged behavior, moved here), plus two new structured-generation
+      capabilities: `generateTradeIntent()` and `generateOfferIntent()`.
+      Live-verified in this environment: first call downloaded the model
+      (LLAMA_3_2_1B_INST_Q4_0, ~737MB, ~167s); cached, later calls run in
+      ~7-9s with coherent output.
+- [x] `modules/open-agents/wallet-agent.ts` + `buyer-agent.ts` +
+      `seller-agent.ts` — two local agents simulating two Satsails Wallet
+      instances, each holding a real `participantId` and a stable
+      `agentId` (distinct identifiers — `Intent.agentId` records *which
+      agent* acted, `Intent.participantId` records *for whom*).
+      `BuyerAgent.requestUsdtViaPix()` autonomously generates a real
+      `TradeIntentPayload` (`common/types/intent.ts`, frozen since
+      Protocol Freeze v8.8) from a plain-language goal — live-verified:
+      `{"asset":"USDT_ERC20","side":"BUY","maxValue":"20.5","minValue":"0","currency":"BRL","fiatMethod":"PIX"}`,
+      structurally valid against `core/intent-engine.ts`'s own
+      `validateStructure()`. `SellerAgent.offerUsdtForPix()` is the
+      symmetric capability for `liquidity.service.ts`'s offer shape
+      (minus `priceUsd`, deliberately not QVAC's to decide — no live
+      price feed, see that file's own doc comment). 5 tests in
+      `tests/walletAgents.test.ts` (mocked `@qvac/sdk` — re-running the
+      real ~737MB model on every `npm test` would make CI unusable; the
+      live run above already proved the real SDK path works).
+      `core/intent-engine.ts`'s `create()` now threads `agentId` through
+      (the field already existed in `Intent`'s frozen shape and the
+      Prisma schema, just was never wired to the one function that
+      creates Intents — filling in already-specified surface, not new
+      protocol surface, no RFC needed).
+- [ ] **Still open:** these are narrow capabilities (structural-shape
+      risk assessment, and turning a stated goal into a valid payload
+      shape) — not the full OpenAgents module. RFC-007 D7's Social
+      Engineering Agent (watches the Timeline for fraud-precursor
+      patterns, raises a signal to the Policy Engine — BACKLOG.md P3) is
+      unrelated, unbuilt work. No HTTP route exists for any of this
+      either — it's called directly from `src/demo/pix-to-usdt-flow.ts`
+      and the agent classes, not exposed over `/v1/agents/*` yet.
 - [ ] **Model output quality caveat, observed directly, not theorized:**
       the smallest model in QVAC's registry (`LLAMA_3_2_1B_INST_Q4_0`,
-      1B params) occasionally produces internally inconsistent output
-      (e.g. `risk: "high"` paired with `recommendation: "proceed"`) —
-      expected behavior for a model this small, not a bug in the
-      integration. A production deployment gating real money movement
-      on this signal should evaluate a larger model before trusting the
-      `recommendation` field over the raw `risk`/`reasoning`.
+      1B params) occasionally produces internally inconsistent or
+      degenerate output — `risk: "high"` paired with
+      `recommendation: "proceed"` in one risk-assessment run;
+      `minValue: "0"` and a `SellerAgent` offer with
+      `minAmount === maxAmount` in the live BuyerAgent/SellerAgent run
+      above. Expected behavior for a model this small, not a bug in the
+      integration — every one of these outputs is still structurally
+      valid JSON matching the requested schema, just not always a
+      *sensible* value. A production deployment gating real money
+      movement on agent-generated amounts should evaluate a larger model
+      and/or add explicit range sanity checks before trusting these
+      values, beyond the structural validation `intent-engine.ts` already
+      does.
 
 ## 6. Rate Limiting & API Keys
 

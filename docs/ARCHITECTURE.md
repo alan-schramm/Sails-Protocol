@@ -232,13 +232,21 @@ current through that work). Only the additions below are guaranteed
 accurate as of this note; treat the rest of the tree as a lower-confidence
 snapshot until someone re-audits the whole section against the filesystem.
 
-**New this pass (QVAC/WDK MVP):**
+**New this pass (QVAC/WDK MVP, consolidated same day):**
 
 ```
 src/modules/open-agents/
-└── qvac-risk.service.ts                (real @qvac/sdk local LLM
-                                          inference — OpenAgents' first
-                                          real capability, live-verified)
+├── qvac-agent.provider.ts              (QvacAgentProvider — real @qvac/sdk
+│                                         local LLM inference, OpenAgents'
+│                                         first real capability, live-
+│                                         verified; risk assessment +
+│                                         structured Intent/offer generation)
+├── wallet-agent.ts                     (WalletAgent base class)
+├── buyer-agent.ts                      (BuyerAgent — autonomously
+│                                         generates a real TradeIntentPayload
+│                                         via QVAC, live-verified)
+└── seller-agent.ts                     (SellerAgent — symmetric offer
+                                          generation)
 src/modules/open-settlement/
 └── wdk-settlement.provider.ts          (WDK_USDT_EVM — real
                                           @tetherto/wdk-wallet-evm calls,

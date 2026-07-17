@@ -25,7 +25,13 @@ import type {
 
 export interface IntentEngine {
   registerHandler<T extends IntentPayload>(handler: IntentHandler<T>): void
-  create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string): Promise<Intent<T>>
+  // agentId is optional and was already part of Intent's frozen shape
+  // (common/types/intent.ts, Protocol Freeze v8.8) but never threaded
+  // through create() until modules/open-agents/wallet-agent.ts's
+  // BuyerAgent/SellerAgent needed to record which agent produced an
+  // Intent on a participant's behalf — filling in an already-specified
+  // field, not introducing new protocol surface.
+  create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string, agentId?: string): Promise<Intent<T>>
   cancel(intentId: string): Promise<void>
   // Advances an Intent's status, writing the hash-chained audit trail and
   // emitting the caller-supplied typed event — the generic mechanism
@@ -133,7 +139,7 @@ export const intentEngine: IntentEngine = {
     }
   },
 
-  async create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string) {
+  async create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string, agentId?: string) {
     const structural = validateStructure(type, payload)
     if (!structural.valid) {
       throw new ValidationError('Malformed Intent rejected at entry boundary', structural.errors)
@@ -148,6 +154,7 @@ export const intentEngine: IntentEngine = {
       data: {
         type,
         participantId,
+        agentId,
         moduleId: 'openp2p', // TradeIntent's owning module — generalize once other IntentTypes are real
         payload: payload as object,
         status: 'CREATED' satisfies IntentStatus,
@@ -161,6 +168,7 @@ export const intentEngine: IntentEngine = {
       type,
       participantId,
       moduleId: record.moduleId,
+      agentId,
     }, record.id) // correlationId = intentId (RFC-010)
 
     const handler = handlers.get(type)
