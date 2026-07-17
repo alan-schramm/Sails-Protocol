@@ -14,9 +14,13 @@
 ## The Developer Journey (v1 Positioning Freeze target — 5 steps to a working Marketplace)
 
 ```
-Install SDK → Create Wallet → Enable OpenP2P → Enable Settlement →
-Enable Reputation → Working Marketplace
+Install Sails P2P Trading SDK → Create Wallet → Enable OpenP2P →
+Enable Settlement → Enable Reputation → Working Marketplace
 ```
+
+"Sails P2P Trading SDK" is the MVP's product name for the `@sails/sdk`
+package — see `PROJECT_CONTEXT.md` section 3 for why it's scoped that
+way rather than the long-term "Sails SDK."
 
 This is the same shape as the developer diagram in `PROJECT_CONTEXT.md`
 section 3, walked one layer at a time. Each step below adds exactly one
@@ -26,7 +30,7 @@ this without reading `PROTOCOL_SPECIFICATION.md`.
 
 ---
 
-### Step 1 — Install the SDK
+### Step 1 — Install the Sails P2P Trading SDK
 
 **Status: 📋 Aspirational.** `@sails/sdk` does not exist yet — see
 `SDK_GUIDE.md`'s own status banner. When it does, this is the entire

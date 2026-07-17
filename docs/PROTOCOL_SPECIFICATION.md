@@ -745,7 +745,7 @@ primitives; they are not primitives themselves.
 | OpenAgents | Implements: Agent, incl. Social Engineering Agent (RFC-007). Consumes: Intent (creates on behalf of Identity), Capability (delegation scope, via Core), Timeline (RFC-007), all others via delegation. |
 | OpenProof | Implements: Proof, incl. Proof Registry, `EvidenceProvider`, and Evidence Bundle (RFC-007, RFC-006). Consumes: Timeline (RFC-007) to compose the Evidence Bundle. |
 | OpenFinance | Future application module. Reuses Discovery, Negotiation, Settlement, Reputation, Dispute, Proof (collateral/income verification) — adds new Intent types. |
-| Sails SDK | Implements no primitive — wraps every module's interface into `SailsClient`. |
+| Sails SDK (MVP release: Sails P2P Trading SDK) | Implements no primitive — wraps every module's interface into `SailsClient`. |
 
 ---
 

@@ -155,6 +155,7 @@ LEVEL 2 — OFFICIAL MODULES (8 total, see PROTOCOL_SPECIFICATION.md)
     → "application modules" — build on top of the cross-module services
   Sails SDK
     → developer-facing wrapper around all modules
+    → MVP release name: Sails P2P Trading SDK (section 3 below has why)
 
 LEVEL 3 — REFERENCE IMPLEMENTATIONS (concrete code, concrete tech choices)
   Satsails Wallet   → first reference implementation (implements OpenP2P)
@@ -311,7 +312,7 @@ strategic/grant/partnership context, not developer onboarding)
                     Wallet
                        │
                        ▼
-                  Sails SDK
+            Sails P2P Trading SDK
                        │
    ════════════════════════════════════
               Sails Protocol
@@ -331,6 +332,25 @@ infrastructure → protocol → modules → SDK → your wallet), or top-to-bott
 for "what do I integrate" (your wallet → one SDK call → the protocol
 coordinates everything below it). Both readings are intentional — that's
 the point of the shape.
+
+**"Sails P2P Trading SDK" is the MVP's product name (decided when the
+project moved into MVP implementation) — not a different package from
+"Sails SDK" above.** Same npm package (`@sails/sdk`), same `SailsClient`
+interface (`SDK_GUIDE.md`), same relationship the ecosystem diagram's
+generic "Sails SDK (@sails/sdk)" label describes. The MVP release is
+scoped to P2P trading specifically — OpenP2P, OpenSettlement,
+OpenReputation, OpenIdentity — because that's the one module with real
+code (`✅ Proven`, section 4 below); "Sails P2P Trading SDK" says exactly
+that, honestly, instead of promising the full Marketplace breadth
+(OpenFinance's `LoanIntent`/`SwapIntent`/`EarnIntent`) before it exists.
+As those modules ship, later releases of the same package drop the
+"P2P Trading" qualifier and go back to plain "Sails SDK" — the developer
+diagram will be updated to match at that point, not before. Use "Sails
+P2P Trading SDK" in developer-facing material (this diagram, `README.md`,
+`DEVELOPER_JOURNEY.md`, `SDK_GUIDE.md`); use generic "Sails SDK" when the
+discussion is genuinely about the long-term, full-scope interface (the
+ecosystem diagram above, `ARCHITECTURE.md`'s module table,
+`PROTOCOL_SPECIFICATION.md`'s primitive table).
 
 ---
 
@@ -355,7 +375,7 @@ Use this status legend everywhere — it is mandatory, not optional:
 | Sails OpenLiquidity | 🏗️ Specified — `LiquidityProvider` interface + Internal order book implemented |
 | Sails OpenAgents | 📋 Aspirational |
 | Sails OpenFinance | 📋 Aspirational |
-| Sails SDK | 📋 Aspirational — interface fully specified, zero implementation |
+| Sails SDK (MVP release: Sails P2P Trading SDK) | 📋 Aspirational — interface fully specified, zero implementation |
 
 ### What actually exists in the codebase right now
 
@@ -383,6 +403,8 @@ building on any assumption.
 | **Sails Finance**, **SailsPay** | Future reference implementations by the same team, targeting future modules. |
 | **Intent** | The universal primitive — every interaction in the protocol starts as an Intent (TradeIntent, PaymentIntent, LoanIntent, etc.) |
 | **Reference Implementation** | A concrete piece of software that implements the protocol spec using specific technology choices. |
+| **Sails SDK** (`@sails/sdk`) | The developer-facing wrapper module, long-term/full scope — see `SDK_GUIDE.md`. |
+| **Sails P2P Trading SDK** | The MVP's branded release of Sails SDK — same package, scoped to P2P trading (OpenP2P/OpenSettlement/OpenReputation/OpenIdentity), the one part with real code. Use this name in developer-facing material; "Sails SDK" is for the long-term, full-scope discussion. See section 3 above. |
 | **Cross-module service** | A protocol module used by multiple application modules (OpenIdentity, OpenReputation, OpenSettlement, OpenLiquidity). |
 | **Application module** | A protocol module that builds on cross-module services to deliver a use case (OpenP2P, OpenFinance). |
 | **moduleId** | A database field present on every entity, identifying which module owns that row (e.g. `"openp2p"`, `"opensettlement"`). |

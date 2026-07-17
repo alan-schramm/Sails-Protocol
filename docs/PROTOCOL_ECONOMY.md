@@ -89,8 +89,10 @@ actually transact through the infrastructure the protocol provides.
 ## 1C. The Wallet Economy — Why This Section of the Document Exists
 
 **Added following the same review.** Any wallet founder evaluating the
-Sails SDK asks one question in the first thirty seconds: *"Why would I
-integrate the Sails Protocol if I already have a working wallet?"* If the
+Sails P2P Trading SDK (the MVP's branded release of `@sails/sdk` — see
+`PROJECT_CONTEXT.md` section 3) asks one question in the first thirty
+seconds: *"Why would I integrate the Sails Protocol if I already have a
+working wallet?"* If the
 honest answer is "because it's an elegant architecture," nobody integrates
 — elegance doesn't pay engineering salaries. The answer this document has
 to make true is: **"because your wallet gains new, low-effort revenue

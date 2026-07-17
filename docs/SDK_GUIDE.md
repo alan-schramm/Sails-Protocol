@@ -5,18 +5,20 @@
 > This document is the interface specification the future implementation
 > must satisfy — written now so that the internal APIs (`API_REFERENCE.md`)
 > are built in a way that naturally supports this SDK later, without
-> requiring a rewrite.
+> requiring a rewrite. Its MVP release is branded **Sails P2P Trading
+> SDK** — same package, scoped to what's actually being built first (P2P
+> trading); see `PROJECT_CONTEXT.md` section 3 for the naming rule.
 
 The SDK is where the developer diagram (`PROJECT_CONTEXT.md` section 3,
 "The developer diagram") lands in code — `SailsClient` is what sits at the
-"Sails SDK" layer, the one thing a wallet imports to get every module
-below it:
+"Sails P2P Trading SDK" layer, the one thing a wallet imports to get every
+module below it:
 
 ```
                     Wallet
                        │
                        ▼
-                  Sails SDK          ← SailsClient, this document
+            Sails P2P Trading SDK   ← SailsClient, this document
                        │
    ════════════════════════════════════
               Sails Protocol
