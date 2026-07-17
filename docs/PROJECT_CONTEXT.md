@@ -96,12 +96,35 @@ one-line description, used verbatim across every document in this
 project:
 
 > **"Sails Protocol doesn't operate a P2P exchange — it's the
-> infrastructure any wallet uses to build one."**
+> infrastructure that lets any wallet become an interoperable P2P
+> Financial Marketplace."**
 
 This preserves what the retired sentence was actually protecting
 (Principle 1, Protocol First: Sails itself never becomes a business
 running a marketplace, never custodies funds, never owns an order book)
 while aligning with the positioning above instead of contradicting it.
+
+**Revised again (GPT/CTO persona's re-analysis of the DeepSeek review,
+same week):** the version above previously ended "...it's the
+infrastructure any wallet uses to build one" — correct, but it silently
+dropped "interoperable," the one word doing the most work in the One
+Sentence Test's own tagline (section 1). "Build one" also implied each
+wallet constructs a separate, siloed marketplace; "become an
+interoperable P2P Financial Marketplace" says what's actually true
+architecturally — a wallet that integrates Sails becomes a participant
+in one shared, interoperable network, not the operator of its own
+isolated instance. Small wording change, but it closes a real gap
+between this sentence and the tagline it's supposed to restate.
+
+**The value contrast, added the same pass:** Bisq is an application — a
+product a user installs and trades directly on. Sails Protocol is
+infrastructure a wallet integrates so that *it* becomes the application.
+Bisq ships a marketplace; Sails ships what any wallet needs to become
+one. `PROTOCOL_ECONOMY.md` section 5 has the detailed tokenomics
+comparison against Bisq (and Morpho, HodlHodl, Lightning) — that table
+stays as-is, technical comparison is the right register there; this
+paragraph is the plain-language version of the same distinction for
+positioning material.
 
 ### What the protocol is NOT
 
