@@ -13,6 +13,12 @@
  * only Prisma/eventBus/reconciliationService are mocked, matching the
  * other suites' pattern.
  */
+export {} // forces this file to be an ES module — without any top-level
+// import/export, TS treats it as a script and its top-level `const`s leak
+// into the global scope, colliding with reputationOutcome.test.ts's
+// identically-named mocks (found via `--detectOpenHandles`, which runs
+// jest in a mode that surfaced the resulting "cannot redeclare" error).
+
 const mockUserUpdate = jest.fn().mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
 
 jest.mock('../src/common/database', () => ({
