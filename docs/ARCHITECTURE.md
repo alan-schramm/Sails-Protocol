@@ -323,11 +323,24 @@ src/
 ├── infrastructure/
 │   └── p2p/
 │       ├── pear.service.ts             (PearNode + PearNodeRegistry —
-│       │                                 HyperDHT/Hyperswarm transport)
+│       │                                 HyperDHT/Hyperswarm transport;
+│       │                                 getKeyPair()/getConnectedPeerId()
+│       │                                 added for payload-crypto.ts)
 │       ├── transport-provider.ts       (TransportProvider interface per
 │       │                                 RFC-002, PearsTransportProvider,
 │       │                                 FallbackTransportProvider — real,
-│       │                                 not yet wired to a route)
+│       │                                 not yet wired to a route.
+│       │                                 PearsTransportProvider.sendIntentToPeer()
+│       │                                 — real, direct, encrypted,
+│       │                                 server-free Intent delivery over
+│       │                                 Hyperswarm/HyperDHT, a Pears-only
+│       │                                 extension beyond the shared
+│       │                                 interface)
+│       ├── payload-crypto.ts           (real libsodium sealed-box
+│       │                                 encryption for P2P payloads —
+│       │                                 Ed25519→Curve25519 conversion of
+│       │                                 each PearNode's real identity
+│       │                                 keypair, `sodium-native`)
 │       └── websocket-relay.service.ts  (WebSocketRelayTransportProvider —
 │                                         blind relay, CISO Privacy Rule;
 │                                         real, not yet wired to a route)

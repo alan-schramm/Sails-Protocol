@@ -273,6 +273,24 @@ export class PearNode extends EventEmitter {
   isRunning(): boolean {
     return this.isStarted
   }
+
+  // This node's own real Ed25519 identity keypair (HyperDHT.keyPair()'s
+  // output shape) — payload-crypto.ts's decryptFromPeer() needs it to open
+  // a sealed box addressed to this node. Never exposes the connection
+  // object or anything beyond the keypair itself.
+  getKeyPair(): { publicKey: Buffer; secretKey: Buffer } | null {
+    return this.keyPair
+  }
+
+  // The Ed25519 public key (hex) of a peer this node has already directly
+  // handshaked with over Hyperswarm — the strongest source for
+  // "encrypt for this specific peer" since it's proven reachable, not just
+  // looked up from a directory. Returns undefined if no handshake with
+  // this userId has completed yet (transport-provider.ts falls back to the
+  // Postgres-stored `User.peerId` directory in that case).
+  getConnectedPeerId(userId: string): string | undefined {
+    return this.userPeerMap.get(userId)
+  }
 }
 
 // ─── PearNodeRegistry — the ONE process-wide singleton ────────────────────────
