@@ -48,7 +48,7 @@ export async function issueChallenge(publicKeyHex: string): Promise<{ challenge:
 export async function verifySignedChallenge(
   publicKeyHex: string,
   signatureHex: string
-): Promise<{ verified: boolean; participantId?: string; reason?: string }> {
+): Promise<{ verified: boolean; participantId?: string; sessionToken?: string; reason?: string }> {
   const storedChallenge = await redis.get(`${CHALLENGE_PREFIX}${publicKeyHex}`)
   if (!storedChallenge) {
     return { verified: false, reason: 'No challenge issued, or it expired — request a new one' }
@@ -88,7 +88,12 @@ export async function verifySignedChallenge(
     config.auth.sessionTtlSeconds
   )
 
-  return { verified: true, participantId: user.id }
+  // Bug fix (found while wiring identity.routes.ts): this function
+  // generated and stored sessionToken above but never returned it, so a
+  // caller had no way to learn the bearer token requireAuth() expects on
+  // every subsequent request — the challenge-response flow was unusable
+  // end-to-end despite verifying correctly.
+  return { verified: true, participantId: user.id, sessionToken }
 }
 
 /**

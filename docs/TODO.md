@@ -19,6 +19,12 @@
 > other. If you find them disagreeing again, trust the filesystem, fix
 > both, and don't leave the fix to whoever notices next.
 
+> **Updated same day, route-restoration pass.** Section 1's biggest gap —
+> HTTP routes for open-identity, open-p2p, open-settlement, and
+> open-liquidity — is now closed. Only open-reputation (routes *and*
+> service, genuinely not started) remains. `npm run build` and `npm test`
+> both pass with the new routes registered in `app.ts`.
+
 ---
 
 ## 1. Missing Files (referenced by `app.ts` but not present in this environment)
@@ -26,26 +32,16 @@
 `config/index.ts`, `common/database/index.ts`, `common/redis/index.ts`,
 and `common/errors/index.ts` — all previously listed here as missing —
 **now exist and are imported directly (uncommented) at the top of
-`app.ts`.** See section 13. What's actually still missing:
+`app.ts`.** See section 13. Route wiring is also done now — see 13 for
+each module. What's actually still missing:
 
-- [ ] `modules/open-identity/` — full module: identity routes (challenge,
-      authenticate, create), Ed25519 signature verification middleware
-      wired to routes. **Note:** the middleware itself (`common/middleware/
-      auth.ts`, real Ed25519 challenge-response) already exists — see
-      section 3. What's missing is the module's routes and service layer
-      around it, not the crypto.
-- [ ] `modules/open-p2p/` — trade routes, chat routes (Secretstream
-      negotiation channel wired to WebSocket). **Note:** the service layer
-      (`negotiation.service.ts`'s `HumanChatChannel`, `reconciliation.service.ts`)
-      already exists and is real — see `BACKLOG.md` P0. Only the HTTP/WS
-      route wiring is missing.
 - [ ] `modules/open-reputation/` — reputation routes + service (score
       calculation, leaderboard, rating submission) — genuinely not started,
-      neither routes nor service exist yet.
-- [ ] `*.routes.ts` for `open-settlement` and `open-liquidity` — their
-      service layers (`escrow.service.ts`, `dispute.service.ts`,
-      `arbitration-provider.ts`, `liquidity.service.ts`) are real and
-      reviewed (`BACKLOG.md` P2/P3), but still have no HTTP route wiring.
+      neither routes nor service exist yet. The one module in this section
+      that's more than route wiring — needs a real service layer built
+      first (`recordOutcome()`/`rate()` per RFC-007 D8/D9,
+      `PROTOCOL_SPECIFICATION.md` §1.6), not just an HTTP shell around
+      something that already exists.
 
 ## 2. Immediate Priority — Restore a Runnable Server
 
@@ -62,17 +58,20 @@ the OpenP2P negotiation channel are actually reachable over HTTP/WS —
 see `BACKLOG.md`'s "Why the Order Differs From Pure Priority" note, which
 makes the same point in more detail.
 
-## 3. Auth Middleware (status changed — partially closed)
+## 3. Auth Middleware (status changed — closed)
 
 - [x] Ed25519 signature verification middleware — `common/middleware/
       auth.ts` implements real challenge-response auth, closing
       `RED_TEAM_REVIEW.md` RT-002 (previously the highest-priority open
       security item here). See `BACKLOG.md` P2, "Sails OpenIdentity" row.
-- [ ] **Still open:** the middleware is not wired into any route, because
-      the routes it would protect (section 1's `open-identity`/`open-p2p`/
-      etc.) don't exist yet. Do not expose any restored route publicly
-      without confirming this middleware is actually applied to it — a
-      route file existing is not the same as it being authenticated.
+- [x] **Now wired.** Every write-side route added in the route-restoration
+      pass (identity, peers, liquidity offers, trades, settlement/dispute)
+      uses `requireAuth` as a `preHandler` and reads `request.participantId`
+      — never a bare `userId`/`participantId` from the request body. Fixed
+      a real bug found while wiring this: `verifySignedChallenge()`
+      generated and stored a session token but never returned it to the
+      caller, so the challenge-response flow was unusable end-to-end
+      despite verifying correctly — see `common/middleware/auth.ts`.
 
 ## 4. Settlement Providers Beyond Mock
 
@@ -178,7 +177,34 @@ makes the same point in more detail.
 - [x] `packages/sails-p2p-schemas` workspace package — see section 9
 - [x] Jest test framework + 3 real test suites — see section 10
 - [x] Ed25519 challenge-response auth middleware (`common/middleware/
-      auth.ts`) — built, not yet wired to routes (see section 3)
+      auth.ts`) — built and wired to every write-side route (see section 3)
+- [x] `modules/open-identity/identity.routes.ts` + `identity.service.ts` —
+      register/challenge/authenticate/get participant, per
+      `API_REFERENCE.md` §2
+- [x] `infrastructure/p2p/pear.routes.ts` — start/stop/status/join-topic/
+      join-trade/broadcast-offer, wrapping `pearNodeRegistry` only, per
+      `API_REFERENCE.md` §7
+- [x] `modules/open-liquidity/liquidity.routes.ts` — list/publish/order
+      book/status/match, per `API_REFERENCE.md` §3. Added
+      `createOffer()`/`updateOfferStatus()`/`getOrderBook()` to
+      `liquidity.service.ts`'s `LiquidityRouter` — only read/match methods
+      existed before
+- [x] `modules/open-p2p/trade.routes.ts` + new `trade.service.ts` — start
+      trade from offer/detail/status, per `API_REFERENCE.md` §5.
+      `negotiation.service.ts` already owned the negotiation channel but
+      nothing created the `Trade` row it assumes exists — that was the gap
+- [x] `modules/open-p2p/chat.routes.ts` — WebSocket negotiation channel +
+      message history, per `API_REFERENCE.md` §5. Scope note: this is the
+      browser-facing WS transport, a separate path from
+      `HumanChatChannel`'s direct Pears relay — both persist to the same
+      `Message` table, but this route doesn't itself relay onto Pears (see
+      the file's own comment; unifying the two remains open, tracked
+      alongside the existing `FallbackTransportProvider` gap in
+      `BACKLOG.md` P0)
+- [x] `modules/open-settlement/settlement.routes.ts` — escrow
+      create/lock/payment-sent/release/dispute/refund + a new dispute
+      resolve route, per `API_REFERENCE.md` §4 (updated alongside this to
+      document the resolve route, which wasn't listed there before)
 
 ---
 

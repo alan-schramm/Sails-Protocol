@@ -129,8 +129,9 @@ Legacy equivalents: `POST /offers`, `GET /offers`, `GET
 | POST | `/v1/settlement/escrow/:id/lock` | `CREATED → FUNDS_LOCKED` |
 | POST | `/v1/settlement/escrow/:id/payment-sent` | `FUNDS_LOCKED → PAYMENT_PENDING` |
 | POST | `/v1/settlement/escrow/:id/release` | `PAYMENT_PENDING` or `PENDING_BANK_SETTLEMENT → COMPLETED` |
-| POST | `/v1/settlement/escrow/:id/dispute` | `→ DISPUTED` |
+| POST | `/v1/settlement/escrow/:id/dispute` | `→ DISPUTED`. Delegates to `dispute.service.ts`'s `raiseDispute()` (persists a `Dispute` row + assigns an arbiter), not `escrow.service.ts`'s `openDispute()` directly — that's the lower-level transition `raiseDispute()` calls as its first step. |
 | POST | `/v1/settlement/escrow/:id/refund` | `→ REFUNDED` |
+| POST | `/v1/settlement/disputes/:id/resolve` | Only the assigned arbiter (RFC-007 D4) may call this. `ruling`: `RELEASE` (releases to `releaseToAddress`, required for this ruling), `REFUND`, or `SPLIT` (recorded, moves no funds — `SettlementProvider` has no split operation yet, `BACKLOG.md` P2). Requires `TRUSTED_ARBITRATORS` configured (`.env.example`) — returns a config error otherwise, not a boot failure. |
 
 `PENDING_BANK_SETTLEMENT` (RFC-007 D3, `DATABASE.md`'s `EscrowStatus`) is
 an additive status between `PAYMENT_PENDING` and `COMPLETED` — no new
@@ -141,11 +142,12 @@ Legacy equivalents: `POST /escrow/create`, `GET /escrow/:id`, `GET
 /escrow/trade/:tradeId`, `POST /escrow/lock`, `POST /escrow/payment-sent`,
 `POST /escrow/release`, `POST /escrow/dispute`, `POST /escrow/refund`.
 
-**Note:** the current `escrow.service.ts` implementation exposes these as
-class methods (`createEscrow`, `lockFunds`, `markPaymentSent`,
-`releaseFunds`, `openDispute`, `refundFunds`, `getEscrow`,
-`getEscrowByTrade`) — the HTTP routes wrapping them do not exist in this
-environment yet and need to be written (see `TODO.md`).
+**Note:** these routes exist now (`modules/open-settlement/settlement.routes.ts`),
+wrapping `escrow.service.ts`'s class methods (`createEscrow`, `lockFunds`,
+`markPaymentSent`, `releaseFunds`, `refundFunds`, `getEscrow`,
+`getEscrowByTrade`) and `dispute.service.ts`'s `raiseDispute()`/
+`resolveDispute()` directly — this was previously the gap `TODO.md`
+tracked; see that file's "Resolved Items" section.
 
 ---
 

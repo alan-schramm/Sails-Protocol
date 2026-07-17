@@ -63,6 +63,17 @@ export const config = {
   trade: {
     defaultTimelockHours: parseInt(process.env.DEFAULT_TIMELOCK_HOURS ?? '24', 10),
   },
+
+  settlement: {
+    // RFC-007 D4 — "each wallet/application registers its own Trusted
+    // Arbitrators," not a protocol-wide list. Empty by default — dispute
+    // routes surface a clear config error rather than the app refusing to
+    // boot, since a reference deployment with no disputes yet is valid.
+    trustedArbitrators: (process.env.TRUSTED_ARBITRATORS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
 }
 
 // RT-001's fix, made structural instead of relying on someone remembering
