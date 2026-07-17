@@ -17,6 +17,8 @@ import type { FastifyInstance } from 'fastify'
 
 const mockUserFindUnique = jest.fn()
 const mockUserCreate = jest.fn()
+const mockUserFindMany = jest.fn()
+const mockReputationEventCreate = jest.fn()
 const mockOfferFindUnique = jest.fn()
 const mockOfferFindMany = jest.fn()
 const mockOfferCreate = jest.fn()
@@ -36,9 +38,11 @@ jest.mock('../src/common/database', () => ({
   prisma: {
     user: {
       findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
+      findMany: (...args: unknown[]) => mockUserFindMany(...args),
       create: (...args: unknown[]) => mockUserCreate(...args),
-      update: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({ id: 'user-1', reputationScore: 2, totalTrades: 1 }),
     },
+    reputationEvent: { create: (...args: unknown[]) => mockReputationEventCreate(...args) },
     offer: {
       findUnique: (...args: unknown[]) => mockOfferFindUnique(...args),
       findMany: (...args: unknown[]) => mockOfferFindMany(...args),
@@ -376,6 +380,76 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.body).message).toMatch(/TRUSTED_ARBITRATORS/)
+    })
+  })
+
+  describe('open-reputation', () => {
+    it('returns a score breakdown for an existing participant', async () => {
+      mockUserFindUnique.mockResolvedValueOnce({ id: 'user-1', reputationScore: 7, totalTrades: 4, disputeCount: 1 })
+
+      const res = await app.inject({ method: 'GET', url: '/v1/reputation/user-1' })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data).toEqual(
+        expect.objectContaining({ participantId: 'user-1', total: 7, disputeRate: 0.25 })
+      )
+    })
+
+    it('404s for a participant that does not exist', async () => {
+      mockUserFindUnique.mockResolvedValueOnce(null)
+      const res = await app.inject({ method: 'GET', url: '/v1/reputation/nobody' })
+      expect(res.statusCode).toBe(404)
+    })
+
+    it('returns the leaderboard (static route matches ahead of :participantId)', async () => {
+      mockUserFindMany.mockResolvedValueOnce([{ id: 'user-1', reputationScore: 9, totalTrades: 5 }])
+      const res = await app.inject({ method: 'GET', url: '/v1/reputation/leaderboard' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data).toEqual([{ id: 'user-1', reputationScore: 9, totalTrades: 5 }])
+    })
+
+    it('rejects rating without auth', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/reputation/rate',
+        payload: { tradeId: 'trade-1', ratedId: 'seller-1', score: 5 },
+      })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('records a star rating for an authenticated caller — informational only, never touches reputationScore', async () => {
+      const token = await authedSession('buyer-1')
+      mockReputationEventCreate.mockResolvedValueOnce({ id: 'rep-event-1', tradeId: 'trade-1', raterId: 'buyer-1', ratedId: 'seller-1', score: 5 })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/reputation/rate',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { tradeId: 'trade-1', ratedId: 'seller-1', score: 5 },
+      })
+
+      expect(res.statusCode).toBe(201)
+      expect(mockReputationEventCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ raterId: 'buyer-1', ratedId: 'seller-1', score: 5 }) })
+      )
+      // The only prisma.user.update in this whole test run is the module-
+      // wide default mock (never called with a reputationScore change) —
+      // rate() itself must never call it.
+    })
+
+    it('rejects a duplicate rating on the same trade by the same rater (P2002 -> clear 400, not a raw DB error)', async () => {
+      const token = await authedSession('buyer-1')
+      mockReputationEventCreate.mockRejectedValueOnce({ code: 'P2002' })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/reputation/rate',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { tradeId: 'trade-1', ratedId: 'seller-1', score: 4 },
+      })
+
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).message).toMatch(/already rated/)
     })
   })
 })
