@@ -10,8 +10,56 @@
 
 ## 1. What Sails Protocol Is
 
-**Official Definition (use this exact sentence everywhere — Whitepaper,
-README, technical docs, grant submissions — never reworded):**
+**v1 Positioning Freeze (post-DeepSeek external review — CTO directive,
+supersedes the framing below where the two conflict):** the protocol's
+long-term scope is unchanged, but every v1 decision — architecture,
+documentation, SDK, examples, diagrams — starts from one concrete
+scenario, not the full generic ambition:
+
+> **"Sails Protocol is open infrastructure for building interoperable
+> P2P Financial Marketplaces."**
+
+This is the **One Sentence Test** answer — the same sentence, every time,
+in the README, in a pitch, in onboarding docs. If a document describes
+Sails Protocol differently, that document is wrong, not this sentence.
+
+**Why this supersedes, not replaces, the broader definition below:** the
+protocol was never *only* capable of P2P marketplaces — OTC, Lending,
+Payroll, Commerce, Treasury, and OpenFinance all sit on the same
+architecture (`ROADMAP.md`). But a protocol that can do everything reads,
+to a developer or a partner meeting it for the first time, as a protocol
+that does nothing specific. **The MVP has exactly one job: prove the
+architecture by building a P2P Financial Marketplace any wallet can
+embed.** Every other capability stays real, stays designed for, and stays
+explicitly on the roadmap — not the current focus.
+
+**The priority filter this creates, effective immediately:** every new
+piece of work should be checked against one question — *"does this
+directly improve building a P2P Financial Marketplace?"* If yes, it's in
+scope. If no, it gets documented as future roadmap, not built now. This
+also changes what "progress" means from here forward: the priority is no
+longer adding modules or features — it is making the existing
+architecture more consistent, simpler to implement, better tested, and
+easier to explain. A contribution that doesn't do one of those things
+(or serve the P2P Marketplace directly) is not yet due.
+
+**The problem this solves (the manifesto, quotable on its own):**
+
+> "Today, every wallet has to rebuild marketplace, reputation, identity,
+> escrow, settlement, mediation, and antifraud from scratch. Sails
+> Protocol standardizes that infrastructure through a single SDK and
+> interoperable modules."
+
+**Ideal Customer Profile (v1), stated explicitly rather than left as
+"wallets" in general:** Bitcoin, USDT, Lightning, Liquid, and multi-chain
+non-custodial wallets that want to add a P2P Financial Marketplace
+without building the underlying infrastructure themselves.
+
+---
+
+**Official Definition (long-term scope — use where the discussion is
+genuinely about the protocol's full ambition, not the v1 MVP; the One
+Sentence Test answer above is what to lead with everywhere else):**
 
 > "Sails Protocol is an intent-driven, open coordination protocol that
 > enables sovereign financial interactions across wallets, agents,
@@ -36,11 +84,24 @@ discover counterparties, negotiate terms, and settle transactions in any
 digital asset or local currency, **without any custodian, broker, or central
 intermediary**.
 
-The canonical one-line description, used verbatim across every document in
-this project:
+**Corrected (v1 Positioning Freeze) — this section previously said "We are
+not building a P2P exchange," which directly contradicts section 1's new
+positioning above and is retired, not silently dropped: the earlier
+sentence was written when the project deliberately avoided any single
+concrete use case, to stay maximally generic. The DeepSeek review's
+finding, adopted by the CTO, is that this genericness was the adoption
+blocker, not a strength — a protocol needs one clear "what can I build
+with this" answer before it needs breadth.** The corrected canonical
+one-line description, used verbatim across every document in this
+project:
 
-> **"We are not building a P2P exchange. We are building the missing layer
-> between WDK, Pears and QVAC."**
+> **"Sails Protocol doesn't operate a P2P exchange — it's the
+> infrastructure any wallet uses to build one."**
+
+This preserves what the retired sentence was actually protecting
+(Principle 1, Protocol First: Sails itself never becomes a business
+running a marketplace, never custodies funds, never owns an order book)
+while aligning with the positioning above instead of contradicting it.
 
 ### What the protocol is NOT
 
@@ -118,6 +179,46 @@ about "the protocol using PostgreSQL," for example — that is a bug in the
 documentation, not a fact about the protocol. Fix the wording, don't accept
 the premise.
 
+**"Satsails Wallet" is also the "Reference Wallet"** — the same relationship
+Bitcoin Core has to the Bitcoin protocol, or the Ethereum Reference Client
+has to the Ethereum protocol: one concrete implementation, built by the
+team that also writes the spec, that proves the spec actually works before
+anyone else has to trust it blind. Use "Reference Wallet" specifically
+when the point being made is "the first proof this works," and "Satsails
+Wallet" when the point is about that specific product/company — they name
+the same thing, but the emphasis differs.
+
+## 2B. What's Core / What's Not Core (v1 Positioning Freeze)
+
+Every "is X part of the protocol" question has one test: **would this
+still make sense if the Reference Wallet were rewritten in Rust against
+CockroachDB tomorrow?** If yes, it's Core. If the answer changes because
+of that rewrite, it was never Core to begin with.
+
+**Core** (defined once, in `PROTOCOL_SPECIFICATION.md`, technology-agnostic):
+
+- Intent
+- Timeline
+- Events
+- Capability
+- Policy
+- Proof
+- Identity
+- Settlement
+- Reputation
+
+**Not Core** (implementation choices, belong to a Reference Implementation,
+never to the spec):
+
+- PIX, Lightning, Bitcoin (settlement assets/rails — `SettlementAdapter`
+  implementations, §4B)
+- HyperDHT, WebSocket (`TransportProvider` implementations, RFC-002)
+- Redis, PostgreSQL, Prisma (the Reference Wallet's own storage choices)
+
+This list exists so "is Postgres part of the protocol" never needs
+re-litigating — it isn't, by definition, the same way it isn't for
+Bitcoin or Ethereum.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem
@@ -194,6 +295,43 @@ layer below "Applications." Satsails Wallet *is* a Wallet. SailsPay *is* a
 Fintech. They are instances within the Applications layer, included in the
 diagram purely as proof-of-concept, never as a distinct architectural tier.
 
+**This diagram answers "where does Sails sit in the Tether ecosystem" —
+a different question from "what does a developer actually build on."**
+Both are canonical, both stay drawn exactly one way each (that's the rule
+this section already established — no drift between documents), but they
+are not the same diagram serving two purposes; they're two diagrams for
+two audiences. The developer-facing one is below.
+
+### The developer diagram (canonical — v1 Positioning Freeze, CTO-approved
+shape. Use this exact one in `SDK_GUIDE.md`, `README.md`, and any
+developer-facing onboarding material — the ecosystem diagram above is for
+strategic/grant/partnership context, not developer onboarding)
+
+```
+                    Wallet
+                       │
+                       ▼
+                  Sails SDK
+                       │
+   ════════════════════════════════════
+              Sails Protocol
+   ════════════════════════════════════
+   OpenP2P          OpenSettlement
+   OpenIdentity     OpenProof
+   OpenReputation   OpenAgents
+   OpenLiquidity    OpenFinance (roadmap)
+   ════════════════════════════════════
+      WDK      ·      Pears      ·      QVAC
+   ════════════════════════════════════
+   Bitcoin · Liquid · Lightning · USDT
+```
+
+Read bottom-to-top for "what does this run on" (settlement assets → Tether
+infrastructure → protocol → modules → SDK → your wallet), or top-to-bottom
+for "what do I integrate" (your wallet → one SDK call → the protocol
+coordinates everything below it). Both readings are intentional — that's
+the point of the shape.
+
 ---
 
 ## 4. Current State of Implementation (be honest about this — don't inflate it)
@@ -255,16 +393,57 @@ whole project, or any variant that conflates Satsails with Sails Protocol,
 that is legacy branding from an earlier phase of the project — correct it,
 don't propagate it.
 
+### Frozen terminology (v1 Positioning Freeze — use these words, not synonyms)
+
+| Use this | Never this (same concept, different word — creates drift) |
+|---|---|
+| **Intent** | Order, Trade, Deal, Operation |
+| **Negotiation** | — |
+| **Settlement** | Transaction, Payment (as the generic term) |
+| **Proof** | Evidence (informal use is fine, but the entity/type name is Proof) |
+| **Timeline** | Log, History, Audit Trail |
+| **Dispute** | Conflict, Claim |
+| **Identity** | — |
+| **Reputation** | Trust Score, Rating |
+
+If a synonym from the right-hand column shows up in new copy, that's drift,
+not stylistic variation — replace it. This table exists so the question
+"is Trade the same thing as Intent" never needs re-litigating: it's the
+same underlying primitive, and only "Intent" is the name to use.
+
+### The One Sentence Test
+
+Every doc that answers "what is Sails Protocol?" answers it with exactly
+this sentence — not a paraphrase, not a "similar" version:
+
+> **"Sails Protocol is open infrastructure for building interoperable
+> P2P Financial Marketplaces."**
+
+If you're tempted to reword it for a specific document's tone, that's a
+sign the positioning needs a second sentence added after it, not a
+replacement of the first one.
+
+### The Five Minute Test
+
+If a developer needs more than five minutes with a document to understand
+what Sails Protocol is and whether it's relevant to them, that document has
+failed — regardless of how technically complete it is. This is a
+documentation acceptance criterion, not a nice-to-have: when writing or
+reviewing docs, check the first five minutes of reading before checking
+anything else.
+
 ---
 
 ## 6. Where to go next
 
+- The 10-minute onboarding narrative (SDK → Wallet → OpenP2P → Settlement
+  → Reputation → working Marketplace) → `DEVELOPER_JOURNEY.md`
 - Full architecture, layers, and diagrams → `ARCHITECTURE.md`
 - Database schema → `DATABASE.md`
 - All API endpoints → `API_REFERENCE.md`
 - SDK design (not yet built) → `SDK_GUIDE.md`
 - P2P node topology → `NODE_ARCHITECTURE.md`
-- The 7 Core Primitives and Intent Engine in full detail → `PROTOCOL_SPECIFICATION.md`
+- The 9 Core Primitives and Intent Engine in full detail → `PROTOCOL_SPECIFICATION.md`
 - Threats and mitigations → `THREAT_MODEL.md`
 - Trust and security mechanisms → `SECURITY_MODEL.md`
 - Timeline and grant budget → `ROADMAP.md`
