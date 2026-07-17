@@ -7,6 +7,34 @@
 > are built in a way that naturally supports this SDK later, without
 > requiring a rewrite.
 
+The SDK is where the developer diagram (`PROJECT_CONTEXT.md` section 3,
+"The developer diagram") lands in code — `SailsClient` is what sits at the
+"Sails SDK" layer, the one thing a wallet imports to get every module
+below it:
+
+```
+                    Wallet
+                       │
+                       ▼
+                  Sails SDK          ← SailsClient, this document
+                       │
+   ════════════════════════════════════
+              Sails Protocol
+   ════════════════════════════════════
+   OpenP2P          OpenSettlement
+   OpenIdentity     OpenProof
+   OpenReputation   OpenAgents
+   OpenLiquidity    OpenFinance (roadmap)
+   ════════════════════════════════════
+      WDK      ·      Pears      ·      QVAC
+   ════════════════════════════════════
+   Bitcoin · Liquid · Lightning · USDT
+```
+
+See `docs/DEVELOPER_JOURNEY.md` for this same shape walked step by step,
+with each step's real status called out (only OpenP2P is `✅ Proven` today
+— everything below is this document's spec, not running code).
+
 ---
 
 ## 1. Why the SDK exists
