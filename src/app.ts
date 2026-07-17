@@ -11,30 +11,21 @@ import { connectRedis } from './common/redis'
 import { AppError } from './common/errors'
 import { registerEventHandlers } from './common/events/handlers'
 import { intentRoutes } from './routes/intentRoutes'
+import { identityRoutes } from './modules/open-identity/identity.routes'
+import { liquidityRoutes } from './modules/open-liquidity/liquidity.routes'
+import { tradeRoutes } from './modules/open-p2p/trade.routes'
+import { chatRoutes } from './modules/open-p2p/chat.routes'
+import { settlementRoutes } from './modules/open-settlement/settlement.routes'
+import { peerRoutes } from './infrastructure/p2p/pear.routes'
 
-// ── NOTE (code review, this pass) ──────────────────────────────────────────
-// Only the routes/services below have corresponding files in this snapshot
-// of the codebase: open-settlement (escrow), open-liquidity (routing).
-// identity.routes, pear.routes, marketplace.routes, chat.routes and
-// reputation.routes are referenced by the ORIGINAL app.ts but their source
-// files are not present in this environment — they exist in an earlier,
-// inaccessible session (per Context Document v6, section 8, these describe
-// 35+ endpoints across 6 modules). Do not assume they still match this
-// file's structure without re-reading them first. Imports below are
-// commented out rather than deleted, so restoring them is a one-line
-// uncomment once those files are recovered — and each will need the same
-// open-{module} rename + event-namespace fixes applied in this pass.
+// ── NOTE (route-restoration pass, TODO.md §1) ───────────────────────────────
+// open-reputation is the one module still genuinely missing both routes
+// and a service — TODO.md deliberately scopes it separately (bigger than
+// wiring, since the service layer doesn't exist yet either). Not wired
+// here; do not add a route file that reaches into Prisma directly to fake
+// it — build the real reputation.service.ts first, per CONTRIBUTING.md §6.
 //
-// import { identityRoutes } from './modules/open-identity/identity.routes'
-// import { marketplaceRoutes } from './modules/open-liquidity/marketplace.routes'
-// import { chatRoutes } from './modules/open-p2p/chat.routes'
 // import { reputationRoutes } from './modules/open-reputation/reputation.routes'
-// import { pearNodeRegistry } from './infrastructure/p2p/pear.service'
-// ^ not imported directly here — it will be used once pear.routes.ts
-//   (POST /peer/start, /peer/stop, /peer/status) is recovered/rewritten
-//   against the new PearNodeRegistry API. Importing it unused here would
-//   just be a different flavor of the same "pretend it's wired up" problem
-//   this review was asked to fix.
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -136,18 +127,19 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // ── Routes ─────────────────────────────────────────────────────────────────
   await app.register(intentRoutes)
+  await app.register(identityRoutes)
+  await app.register(peerRoutes)
+  await app.register(liquidityRoutes)
+  await app.register(tradeRoutes)
+  await app.register(chatRoutes)
+  await app.register(settlementRoutes)
 
   // ── Register event handlers (Coordination Protocol) ──────────────────────
   registerEventHandlers()
 
-  // NOTE: route registration for identity/marketplace/chat/reputation is
-  // intentionally omitted here — see the import comment above. Registering
-  // routes for files that do not exist in this snapshot would make `buildApp`
-  // throw at startup, which is worse than an honest gap. Restore these lines
-  // once the corresponding *.routes.ts files are recovered:
-  //   await app.register(identityRoutes)
-  //   await app.register(marketplaceRoutes)
-  //   await app.register(chatRoutes)
+  // reputationRoutes intentionally not registered — see the import comment
+  // above. open-reputation needs a real service built first, not just
+  // route wiring; restore this line once that exists:
   //   await app.register(reputationRoutes)
 
   return app

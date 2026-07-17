@@ -1,5 +1,7 @@
-import { AssetType, TradeSide } from '../../common/types'
+import { AssetType, TradeSide, PaymentMethod, OfferStatus } from '../../common/types'
 import { prisma } from '../../common/database'
+import { NotFoundError, ForbiddenError } from '../../common/errors'
+import { eventBus } from '../../common/events/event-bus'
 import type { Prisma } from '@prisma/client'
 
 /**
@@ -124,12 +126,99 @@ class HodlHodlProvider implements LiquidityProvider {
   }
 }
 
+// ─── Offer creation/lifecycle — local to the Internal Order Book, since only
+// internal offers can be created/paused/cancelled through this reference
+// implementation (HodlHodl offers are theirs to manage, read-only here) ──────
+export interface CreateOfferInput {
+  userId: string
+  asset: AssetType
+  side: TradeSide
+  priceUsd: string
+  priceBrl?: string
+  minAmount: string
+  maxAmount: string
+  paymentMethod: PaymentMethod
+  paymentDetails?: string
+  network?: string
+  description?: string
+  requiresKyc?: boolean
+}
+
 // ─── Router: tries providers in order, aggregates and ranks ──────────────────
 export class LiquidityRouter {
   private providers: LiquidityProvider[]
 
   constructor() {
     this.providers = [new InternalOrderBook(), new HodlHodlProvider()]
+  }
+
+  async createOffer(input: CreateOfferInput) {
+    const offer = await prisma.offer.create({
+      data: {
+        userId: input.userId,
+        asset: input.asset as any,
+        side: input.side as any,
+        priceUsd: input.priceUsd,
+        priceBrl: input.priceBrl,
+        minAmount: input.minAmount,
+        maxAmount: input.maxAmount,
+        paymentMethod: input.paymentMethod as any,
+        paymentDetails: input.paymentDetails,
+        network: input.network,
+        description: input.description,
+        requiresKyc: input.requiresKyc,
+      },
+    })
+
+    await eventBus.emit('liquidity.offer.created', {
+      offerId: offer.id,
+      userId: offer.userId,
+      asset: offer.asset,
+      side: offer.side,
+      priceUsd: offer.priceUsd.toString(),   // RFC-009 — Decimal -> decimal string at the event boundary
+    }, offer.id)   // correlationId (RFC-010) — no tradeId exists yet for an offer
+
+    return offer
+  }
+
+  async updateOfferStatus(offerId: string, status: OfferStatus, triggeredBy: string) {
+    const offer = await prisma.offer.findUnique({ where: { id: offerId } })
+    if (!offer) throw new NotFoundError('Offer', offerId)
+    if (offer.userId !== triggeredBy) {
+      throw new ForbiddenError(`${triggeredBy} does not own offer ${offerId}`)
+    }
+
+    const updated = await prisma.offer.update({ where: { id: offerId }, data: { status } })
+
+    await eventBus.emit('liquidity.offer.status_changed', {
+      offerId,
+      from: offer.status,
+      to: status,
+      triggeredBy,
+    }, offerId)
+
+    return updated
+  }
+
+  async getOrderBook(asset: AssetType): Promise<{
+    asset: AssetType
+    bids: LiquidityOffer[]
+    asks: LiquidityOffer[]
+    spread: string | null
+  }> {
+    const [bids, asks] = await Promise.all([
+      this.getAggregatedOffers(asset, 'BUY'),
+      this.getAggregatedOffers(asset, 'SELL'),
+    ])
+
+    const bestBid = bids.offers[0]?.priceUsd
+    const bestAsk = asks.offers[0]?.priceUsd
+    // Number() coercion here is display-only (the spread shown in an order
+    // book response), same justification as the sort comparator above —
+    // never used for a stored/computed amount. See RFC-009.
+    const spread = bestBid && bestAsk ? (Number(bestAsk) - Number(bestBid)).toFixed(8) : null
+
+    return { asset, bids: bids.offers, asks: asks.offers, spread }
   }
 
   async getAggregatedOffers(asset: AssetType, side: TradeSide): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
