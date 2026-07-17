@@ -589,6 +589,25 @@ misreading of a neutral coordination layer. `Dispute.arbiterId` and
 `.rule()`; `Dispute`'s fields are unchanged — this formalizes how they get
 set, not their shape.
 
+**First implementation (dispute-flow work, post-RFC-011):** the `Dispute`
+primitive is now persisted (`DATABASE.md`'s `disputes` table) and
+`modules/open-settlement/dispute.service.ts` implements
+`raiseDispute()`/`resolveDispute()` — freeze via the existing Escrow
+`DISPUTED` transition, arbiter assignment via `ArbitrationProvider`
+(`arbitration-provider.ts`, `TrustedArbitratorProvider`), notification via
+`dispute.opened`/`dispute.resolved` on the Event Bus (RFC-010,
+correlationId = tradeId). One interface refinement made in
+implementation: RFC-007 D4's `rule(disputeId, arbiterId):
+Promise<Dispute['ruling']>` implied the provider *computes* a ruling, but
+a Trusted Arbitrator's ruling is a human decision — an external input.
+`rule()` is dropped from the implemented interface;
+`resolveDispute(disputeId, arbiterId, ruling)` takes the ruling as a
+parameter instead. The Policy Engine → OpenAgents auto-resolution stages
+of the escalation order above remain unimplemented (they depend on the
+Evidence Bundle, section 1.8) — today every dispute goes straight to the
+assigned Trusted Arbitrator, which is the escalation order's *last* stage
+implemented first, not a different order.
+
 **Timeline (RFC-007, decision D5).** Also considered as a candidate
 primitive in RFC-007 and rejected, on the same grounds section 1.11
 already rejected `Event`: it is the existing Event Bus's mechanism made

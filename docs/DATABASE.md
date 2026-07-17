@@ -287,6 +287,56 @@ existing rows are unaffected; `Timeline.verifyChain()` treats a `null`
 `entryHash` as a chain-start boundary, not a break, so the tamper-evidence
 guarantee only covers entries written after this RFC ships.
 
+### `Dispute` — owned by `opensettlement`, first implementation of §1.9's primitive
+
+```prisma
+enum DisputeStatus {
+  OPENED
+  EVIDENCE_SUBMITTED
+  ARBITRATED
+  RESOLVED
+}
+
+enum DisputeRuling {
+  RELEASE // buyer wins — "dispute_resolved_buyer" in @sails/p2p-schemas' TradeState vocabulary
+  REFUND  // seller wins — "dispute_resolved_seller"
+  SPLIT   // §1.9's third option — recorded, but no automated settlement action exists for it yet
+}
+
+model Dispute {
+  id         String         @id @default(uuid())
+  tradeId    String
+  trade      Trade          @relation(fields: [tradeId], references: [id])
+  escrowId   String
+  escrow     Escrow         @relation(fields: [escrowId], references: [id])
+  openedBy   String         // participantId — must be the trade's buyer or seller, enforced in dispute.service.ts
+  reason     String
+  evidence   Json           @default("[]") // EvidenceDescriptor[] (@sails/p2p-schemas)
+  arbiterId  String?        // populated by ArbitrationProvider.assign() (RFC-007 D4)
+  status     DisputeStatus  @default(OPENED)
+  ruling     DisputeRuling?
+  resolvedAt DateTime?
+  moduleId   String         @default("opensettlement")
+  protocolVersion String    @default("0.1")
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@index([tradeId])
+  @@index([escrowId])
+  @@index([status])
+  @@map("disputes")
+}
+```
+
+The Dispute *primitive* (`PROTOCOL_SPECIFICATION.md` §1.9) predates this
+table — this is its first persistence, added by the dispute-flow work
+(`modules/open-settlement/dispute.service.ts`: `raiseDispute()` freezes
+the escrow via the existing `escrowService.openDispute()` transition,
+assigns an arbiter via `ArbitrationProvider` (RFC-007 D4's first real
+implementation, `arbitration-provider.ts`), and notifies via
+`dispute.opened` on the Event Bus; `resolveDispute()` maps
+`RELEASE`/`REFUND` onto the existing escrow release/refund paths).
+
 ### `Intent`, `IntentEvent` — Core, first implementation (03-implementation_plan.md MVP)
 
 ```prisma

@@ -281,7 +281,14 @@ src/
 │                                         actually registered in app.ts)
 └── modules/
     ├── open-settlement/
-    │   └── escrow.service.ts           (Escrow state machine, SettlementProvider)
+    │   ├── escrow.service.ts           (Escrow state machine, SettlementProvider)
+    │   ├── arbitration-provider.ts     (ArbitrationProvider — RFC-007 D4's
+    │   │                                 first real implementation;
+    │   │                                 TrustedArbitratorProvider, per-app
+    │   │                                 trusted-arbiter list)
+    │   └── dispute.service.ts          (raiseDispute/resolveDispute — first
+    │                                     persistence of the Dispute
+    │                                     primitive, §1.9)
     ├── open-liquidity/
     │   └── liquidity.service.ts        (LiquidityRouter, InternalOrderBook,
     │                                     HodlHodl stub)
@@ -290,11 +297,23 @@ src/
         │                                 pearNodeRegistry)
         └── reconciliation.service.ts   (ReconciliationService, RFC-011)
 
+packages/                                (npm workspaces — first workspace
+│                                         package; root package.json gained
+│                                         a `workspaces` field)
+└── sails-p2p-schemas/                  (@sails/p2p-schemas — types-only
+    └── src/                              domain contracts: OfferSchema,
+        ├── offer.ts                      TradeState/deriveTradeState,
+        ├── trade.ts                      DisputeSchema. The 'contrato
+        └── dispute.ts                    social' layer any wallet
+                                          integration shares)
+
 tests/
 ├── intentFlow.test.ts                  (Intent Engine happy path + CISO
 │                                         Byzantine/Economic rules)
-└── transportFallback.test.ts           (FallbackTransportProvider,
-                                          WebSocketRelayTransportProvider)
+├── transportFallback.test.ts           (FallbackTransportProvider,
+│                                         WebSocketRelayTransportProvider)
+└── disputeFlow.test.ts                 (raiseDispute/resolveDispute,
+                                          deriveTradeState, toOfferSchema)
 ```
 
 **Still missing** (referenced by `app.ts`'s own comments but not present):

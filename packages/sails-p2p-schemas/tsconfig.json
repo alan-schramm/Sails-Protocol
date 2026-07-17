@@ -6,12 +6,8 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "outDir": "dist",
-    "baseUrl": ".",
-    "paths": {
-      "@sails/p2p-schemas": ["packages/sails-p2p-schemas/src/index.ts"]
-    }
+    "declaration": true,
+    "outDir": "dist"
   },
   "include": ["src/**/*.ts"]
 }
