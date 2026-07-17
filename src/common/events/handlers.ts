@@ -2,6 +2,7 @@ import { prisma } from '../database'
 import { eventBus } from './event-bus'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
 import { reputationService } from '../../modules/open-reputation/reputation.service'
+import { broadcastToTrade } from '../../modules/open-p2p/chat-room-registry'
 
 /**
  * Sails Protocol — Coordination Protocol (Event Handlers)
@@ -24,6 +25,15 @@ import { reputationService } from '../../modules/open-reputation/reputation.serv
  *                                   just (re)connected against Postgres, the
  *                                   authoritative source a dropped P2P
  *                                   message never actually lost data from)
+ *   - openp2p.message.sent        → OpenP2P reacts (pushes NEW_MESSAGE to
+ *                                   every WS-connected chat-room member for
+ *                                   that trade — chat-unification pass, see
+ *                                   chat-room-registry.ts's doc comment.
+ *                                   Both chat.routes.ts's WS route and
+ *                                   negotiation.service.ts's HumanChatChannel
+ *                                   emit this same event after persisting a
+ *                                   Message, so this is the one place either
+ *                                   transport's messages reach WS clients)
  *
  * RFC-007 D8/D9's Outcome Engine, applied at the settlement.escrow.released/
  * refunded handlers below: the same fund movement (release or refund) means
@@ -156,5 +166,16 @@ export function registerEventHandlers(): void {
         missedMessageCount: result.missedMessages.length,
       }, result.tradeId)   // correlationId (RFC-010)
     }
+  })
+
+  // ── Sails OpenP2P: chat transport unification ──────────────────────────────
+  // The single place NEW_MESSAGE reaches WS-connected clients, regardless of
+  // whether the message was sent via chat.routes.ts's WS route or via
+  // negotiation.service.ts's HumanChatChannel over Pears — both emit this
+  // same event after persisting to Message. See chat-room-registry.ts's doc
+  // comment for what this does NOT cover (WS-origin messages aren't relayed
+  // onto Pears — that direction stays HumanChatChannel-only).
+  eventBus.on('openp2p.message.sent', (payload) => {
+    broadcastToTrade(payload.tradeId, { type: 'NEW_MESSAGE', payload })
   })
 }

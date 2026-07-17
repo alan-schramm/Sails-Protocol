@@ -2,60 +2,35 @@
  * Sails OpenP2P chat routes — API_REFERENCE.md section 5 (WebSocket
  * protocol) + the message-history GET route.
  *
- * Scope decision (documented, not silently narrowed): this is the
- * browser-facing chat channel — a client connects once over WebSocket to
- * this app server and joins/leaves trade rooms over that single
- * connection, per API_REFERENCE.md's protocol. It is a *different*
- * transport path from negotiation.service.ts's HumanChatChannel, which
- * relays over Pears/HyperDHT directly between two peers' own nodes.
- * Both paths persist to the same `Message` table (the shared source of
- * truth, per RFC-011), so a message sent through either transport is
- * visible through the other — but this route does not itself relay onto
- * Pears, and HumanChatChannel does not itself push onto this WS. Unifying
- * the two into one unconditional fan-out is the still-open
- * `FallbackTransportProvider`/`/ws/relay` work BACKLOG.md's P0 already
- * flags as "not yet wired to an actual HTTP/WS route" — a separate task,
- * not silently done here.
+ * Unified with negotiation.service.ts's HumanChatChannel (the Pears
+ * transport) as of the chat-unification pass: this route no longer
+ * broadcasts NEW_MESSAGE itself after a SEND_MESSAGE — it only persists
+ * the Message and emits openp2p.message.sent, same as HumanChatChannel
+ * already did. common/events/handlers.ts's single reaction to that event
+ * is what pushes NEW_MESSAGE to every WS-connected room member, so a
+ * message sent via Pears (HumanChatChannel) now reaches WS clients
+ * watching that trade too — see chat-room-registry.ts's doc comment for
+ * what's still one-directional (WS-origin messages aren't relayed onto
+ * Pears; that stays HumanChatChannel-only).
  */
 import type { FastifyInstance } from 'fastify'
-import type { WebSocket } from 'ws'
 import { z } from 'zod'
 import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { redis } from '../../common/redis'
 import { requireAuth } from '../../common/middleware/auth'
+import { joinRoom, leaveRoom, broadcastToTrade, type RoomMember } from './chat-room-registry'
 
 const SESSION_PREFIX = 'auth:session:'
-
-interface RoomMember {
-  socket: WebSocket
-  participantId: string
-}
-
-// Module-scoped room registry — one process's view of who's actively
-// watching which trade over this WS transport. Same "in-memory today"
-// scope as pearNodeRegistry and EventStore's InMemoryEventStore default;
-// a multi-instance deployment needs a shared pub/sub backend for this,
-// not yet built (matches the FallbackTransportProvider gap noted above).
-const rooms = new Map<string, Set<RoomMember>>()
-
-function broadcastToTrade(tradeId: string, payload: Record<string, unknown>, exclude?: WebSocket) {
-  const members = rooms.get(tradeId)
-  if (!members) return
-  const msg = JSON.stringify(payload)
-  for (const member of members) {
-    if (member.socket === exclude) continue
-    if (member.socket.readyState === member.socket.OPEN) {
-      member.socket.send(msg)
-    }
-  }
-}
 
 // Auto-push escrow/trade status changes to whoever's currently watching
 // that trade's room — API_REFERENCE.md's TRADE_STATUS_UPDATE/
 // ESCROW_STATUS_UPDATE server messages. Registered once at module load,
-// not per-connection.
+// not per-connection. (NEW_MESSAGE's equivalent registration lives in
+// common/events/handlers.ts now, alongside the rest of the Outcome
+// Engine / cross-module reactions, not here — see this file's own doc
+// comment above for why.)
 eventBus.on('openp2p.trade.status_changed', (payload) => {
   broadcastToTrade(payload.tradeId, { type: 'TRADE_STATUS_UPDATE', payload })
 })
@@ -112,9 +87,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             throw new ForbiddenError(`${participantId} is not a party to trade ${tradeId}`)
           }
 
-          if (!rooms.has(tradeId)) rooms.set(tradeId, new Set())
           const member: RoomMember = { socket, participantId }
-          rooms.get(tradeId)!.add(member)
+          joinRoom(tradeId, member)
           joined.add(tradeId)
           broadcastToTrade(tradeId, { type: 'USER_ONLINE', payload: { tradeId, participantId } }, socket)
           return
@@ -122,12 +96,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
         if (msg.type === 'LEAVE_TRADE') {
           const { tradeId } = joinTradeSchema.parse(msg.payload)
-          const members = rooms.get(tradeId)
-          if (members) {
-            for (const member of members) {
-              if (member.socket === socket) members.delete(member)
-            }
-          }
+          leaveRoom(tradeId, socket)
           joined.delete(tradeId)
           broadcastToTrade(tradeId, { type: 'USER_OFFLINE', payload: { tradeId, participantId } })
           return
@@ -150,6 +119,10 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             },
           })
 
+          // No direct broadcastToTrade() call here anymore — handlers.ts's
+          // reaction to this same event is now the single place NEW_MESSAGE
+          // gets pushed, so a message sent via this route and one sent via
+          // HumanChatChannel/Pears both reach WS room members the same way.
           await eventBus.emit('openp2p.message.sent', {
             messageId: message.id,
             tradeId: body.tradeId,
@@ -158,8 +131,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             msgType: body.msgType,
             timestamp: message.createdAt.toISOString(),
           }, body.tradeId)
-
-          broadcastToTrade(body.tradeId, { type: 'NEW_MESSAGE', payload: message })
           return
         }
 
@@ -172,11 +143,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     socket.on('close', () => {
       for (const tradeId of joined) {
-        const members = rooms.get(tradeId)
-        if (!members) continue
-        for (const member of members) {
-          if (member.socket === socket) members.delete(member)
-        }
+        leaveRoom(tradeId, socket)
         broadcastToTrade(tradeId, { type: 'USER_OFFLINE', payload: { tradeId, participantId } })
       }
     })
