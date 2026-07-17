@@ -92,7 +92,7 @@ function step(n: number, total: number, label: string) {
   console.log(`\n[${n}/${total}] ${label}`)
 }
 
-async function main() {
+export async function main() {
   console.log('=== Sails Protocol — Emulação: Comprador PIX ➡️ Vendedor USDT ===')
 
   await connectDatabase()
@@ -202,7 +202,13 @@ async function main() {
   process.exit(0)
 }
 
-main().catch((err) => {
-  console.error('\n[demo] Falhou:', err)
-  process.exit(1)
-})
+// Guarded so importing `main` for reuse (root-level demo-satsails-qvac.ts)
+// doesn't also trigger this file's own standalone run as a side effect of
+// module import — only run automatically when this file is the actual
+// entrypoint (`npm run demo:pix-to-usdt`).
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('\n[demo] Falhou:', err)
+    process.exit(1)
+  })
+}

@@ -273,7 +273,27 @@ src/modules/open-settlement/
 src/demo/
 └── pix-to-usdt-flow.ts                 (Intent → Negotiation (Pears) →
                                           QVAC risk → Settlement (WDK)
-                                          end-to-end script)
+                                          end-to-end script; `main()` now
+                                          exported, guarded behind
+                                          `require.main === module`, so
+                                          demo-satsails-qvac.ts can reuse
+                                          it without double-running it)
+demo-satsails-qvac.ts                   (repo root — the discoverable
+                                          "boot the whole ecosystem"
+                                          entrypoint: QVAC agents → Pears
+                                          P2P → Sails Protocol state
+                                          machine → WDK signing. Delegates
+                                          to pix-to-usdt-flow.ts's `main()`
+                                          rather than duplicating it —
+                                          `npm run demo:qvac`)
+src/main.ts                              (server entrypoint — found
+                                          genuinely missing while
+                                          verifying `npm run dev`, not
+                                          previously created despite
+                                          `package.json` referencing it
+                                          since before this pass; thin
+                                          wrapper around app.ts's
+                                          `startServer()`)
 ```
 
 **Refreshed against the real filesystem (03-implementation_plan.md MVP
