@@ -151,6 +151,7 @@ model Trade {
 
   messages         Message[]
   reputationEvents ReputationEvent[]
+  disputes         Dispute[]
 
   @@index([buyerId])
   @@index([sellerId])
@@ -180,9 +181,52 @@ model Escrow {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  events EscrowEvent[]
+  events   EscrowEvent[]
+  disputes Dispute[]
 
   @@map("escrows")
+}
+
+// Dispute primitive — PROTOCOL_SPECIFICATION.md §1.9. First real
+// implementation (04-Deepseek Review.md's raiseDispute()/resolveDispute()
+// task) — the primitive itself isn't new, only its persistence.
+// resolution maps directly to escrow release/refund: RELEASE -> buyer
+// wins (asset released to them), REFUND -> seller wins (asset returned).
+enum DisputeStatus {
+  OPENED
+  EVIDENCE_SUBMITTED
+  ARBITRATED
+  RESOLVED
+}
+
+enum DisputeRuling {
+  RELEASE // buyer wins — "dispute_resolved_buyer"
+  REFUND  // seller wins — "dispute_resolved_seller"
+  SPLIT   // §1.9's third option — no direct buyer/seller equivalent, kept as-is
+}
+
+model Dispute {
+  id         String         @id @default(uuid())
+  tradeId    String
+  trade      Trade          @relation(fields: [tradeId], references: [id])
+  escrowId   String
+  escrow     Escrow         @relation(fields: [escrowId], references: [id])
+  openedBy   String         // participantId who raised the dispute
+  reason     String
+  evidence   Json           @default("[]") // array of evidence descriptors
+  arbiterId  String?        // populated by ArbitrationProvider.assign()
+  status     DisputeStatus  @default(OPENED)
+  ruling     DisputeRuling?
+  resolvedAt DateTime?
+  moduleId   String         @default("opensettlement")
+  protocolVersion String    @default("0.1")
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@index([tradeId])
+  @@index([escrowId])
+  @@index([status])
+  @@map("disputes")
 }
 
 model EscrowEvent {

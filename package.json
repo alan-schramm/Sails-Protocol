@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "description": "Non-Custodial Multi-Asset P2P Marketplace Protocol",
   "main": "dist/main.js",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build -w @sails/p2p-schemas && tsc",
     "start": "node dist/main.js",
     "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "db:migrate": "npx prisma migrate dev",
@@ -14,6 +17,7 @@
     "test": "jest --runInBand"
   },
   "dependencies": {
+    "@sails/p2p-schemas": "^0.1.0",
     "@fastify/cors": "^11.3.0",
     "@fastify/swagger": "^9.8.1",
     "@fastify/swagger-ui": "^6.1.0",

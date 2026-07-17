@@ -127,6 +127,25 @@ export interface DisputeEvent {
   triggeredBy: string
 }
 
+// dispute.opened's real payload — first real emitter is dispute.service.ts
+// (04-Deepseek Review.md's raiseDispute()). Extends DisputeEvent with the
+// assigned arbiter, since "notify the arbitrator" (the task's own words)
+// needs the arbiter to be identifiable from the event itself, not just
+// implied.
+export interface DisputeOpenedEvent extends DisputeEvent {
+  tradeId: string
+  arbiterId: string | null
+  reason: string
+}
+
+// dispute.resolved's real payload — was sharing the generic DisputeEvent
+// shape, which had no ruling field; a resolution notification with no
+// ruling in it isn't useful to anyone listening.
+export interface DisputeResolvedEvent extends DisputeEvent {
+  tradeId: string
+  ruling: 'RELEASE' | 'REFUND' | 'SPLIT'
+}
+
 // ─── Negotiation primitive events — PROTOCOL_SPECIFICATION.md §1.4 ───────────
 export interface NegotiationOpenedEvent {
   tradeId: string
@@ -226,10 +245,10 @@ export interface SailsEventMap {
   'verification.rejected': VerificationEvent
 
   // Dispute primitive
-  'dispute.opened': DisputeEvent
+  'dispute.opened': DisputeOpenedEvent
   'dispute.evidence_submitted': DisputeEvent
   'dispute.arbitrated': DisputeEvent
-  'dispute.resolved': DisputeEvent
+  'dispute.resolved': DisputeResolvedEvent
 
   // Negotiation primitive — RFC-004
   'negotiation.opened': NegotiationOpenedEvent
