@@ -128,10 +128,19 @@ makes the same point in more detail.
 ## 10. Tests (status changed — no longer zero)
 
 - [x] `tests/intentFlow.test.ts`, `tests/transportFallback.test.ts`,
-      `tests/disputeFlow.test.ts` exist and pass — 18+10 tests across the
+      `tests/disputeFlow.test.ts` exist and pass — 28 tests across the
       Intent Engine, transport fallback, and dispute flow. `jest`/`ts-jest`
       are real dependencies now, not just a `package.json` script pointing
       at nothing.
+- [x] `tests/routes.test.ts` *(new — route-restoration pass, 2026-07-16)*
+      — 20 `app.inject()` HTTP round-trip tests through the real routes
+      added in this pass (identity, peers, liquidity, trade, chat,
+      settlement), Prisma/Redis/eventBus/`pearNodeRegistry` mocked, same
+      pattern as the other suites. Caught two real bugs before they
+      shipped: `verifySignedChallenge()` not returning its session token
+      (see section 3), and the chat message-history route having no auth
+      at all while the WebSocket side already restricted it to the
+      trade's two parties — both fixed, not just found.
 - [ ] **Still open, in the priority order `BACKLOG.md` P0/P2 imply:**
       escrow state machine transitions beyond what `disputeFlow.test.ts`
       already covers, liquidity matching (`open-liquidity`), and event bus
