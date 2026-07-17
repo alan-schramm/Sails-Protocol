@@ -177,6 +177,7 @@ export interface IntentCreatedEvent {
   participantId: string
   moduleId: string
   parentIntentId?: string
+  agentId?: string
 }
 export interface IntentDiscoveringEvent { intentId: string }
 export interface IntentMatchedEvent { intentId: string; candidateIds: string[] }
