@@ -63,6 +63,20 @@ export function escrowIndexFor(tradeId: string): number {
   return hash.readUInt32BE(0) % 0x7fffffff
 }
 
+// Same derivation shape as escrowIndexFor, distinct salt (`buyer:` prefix)
+// so a buyer's receiving-address index and a trade's escrow-account index
+// never collide even for coincidentally-equal input strings. Stands in for
+// real per-user EVM address onboarding, which doesn't exist yet in this
+// reference implementation (this provider's own header comment) — a
+// deterministic per-buyer top-level account at least means different
+// buyers get different, stable addresses, not the same hardcoded demo
+// address every time settlement-orchestrator.ts's auto-settle handler
+// (common/events/handlers.ts) releases funds.
+export function buyerIndexFor(buyerId: string): number {
+  const hash = createHash('sha256').update(`buyer:${buyerId}`).digest()
+  return hash.readUInt32BE(0) % 0x7fffffff
+}
+
 export class WdkSettlementProvider implements SettlementProvider {
   name = 'WDK_USDT_EVM'
 

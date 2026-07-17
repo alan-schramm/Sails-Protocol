@@ -250,10 +250,26 @@ src/modules/open-agents/
 └── seller-agent.ts                     (SellerAgent — symmetric offer
                                           generation)
 src/modules/open-settlement/
-└── wdk-settlement.provider.ts          (WDK_USDT_EVM — real
-                                          @tetherto/wdk-wallet-evm calls,
-                                          testnet, single-seed custody —
-                                          see that file's own caveat)
+├── wdk-settlement.provider.ts          (WDK_USDT_EVM — real
+│                                         @tetherto/wdk-wallet-evm calls,
+│                                         testnet, single-seed custody —
+│                                         see that file's own caveat.
+│                                         buyerIndexFor() added — deterministic
+│                                         per-buyer receiving-address
+│                                         derivation for the auto-settle path)
+└── settlement-orchestrator.ts          (executeSettlement() — real
+                                          orchestration: createEscrow ->
+                                          lockFunds (real signed WDK
+                                          transfer) -> markPaymentSent ->
+                                          emulated PIX-receipt confirmation
+                                          (explicitly labeled, not a real
+                                          OpenProof integration) ->
+                                          releaseFunds (real signed WDK
+                                          transfer). Wired to
+                                          openp2p.trade.created via
+                                          common/events/handlers.ts, gated
+                                          behind config.features.autoSettleOnMatch
+                                          — default false)
 src/demo/
 └── pix-to-usdt-flow.ts                 (Intent → Negotiation (Pears) →
                                           QVAC risk → Settlement (WDK)

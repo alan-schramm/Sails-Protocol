@@ -19,7 +19,7 @@ jest.mock('@tetherto/wdk-wallet-evm', () => ({
   default: class FakeWalletManagerEvm {},
 }))
 
-import { toBaseUnits, escrowIndexFor } from '../src/modules/open-settlement/wdk-settlement.provider'
+import { toBaseUnits, escrowIndexFor, buyerIndexFor } from '../src/modules/open-settlement/wdk-settlement.provider'
 
 describe('toBaseUnits (decimal string -> on-chain integer, USDT 6 decimals)', () => {
   it('converts a whole-number amount', () => {
@@ -59,6 +59,31 @@ describe('escrowIndexFor (deterministic per-trade escrow account derivation)', (
   it('always stays within the valid BIP-44 non-hardened index range', () => {
     for (const tradeId of ['t1', 'a-very-long-trade-id-uuid-like-string-1234567890', '']) {
       const index = escrowIndexFor(tradeId)
+      expect(index).toBeGreaterThanOrEqual(0)
+      expect(index).toBeLessThan(0x80000000)
+    }
+  })
+})
+
+describe('buyerIndexFor (deterministic per-buyer receiving-address derivation)', () => {
+  it('is deterministic — same buyerId always derives the same index', () => {
+    expect(buyerIndexFor('buyer-1')).toBe(buyerIndexFor('buyer-1'))
+  })
+
+  it('produces different indexes for different buyers', () => {
+    expect(buyerIndexFor('buyer-1')).not.toBe(buyerIndexFor('buyer-2'))
+  })
+
+  it('never collides with escrowIndexFor for the same raw id (distinct salt)', () => {
+    // Same input string used as both a tradeId and a buyerId would derive
+    // from genuinely different byte sequences (the buyer: prefix), not
+    // just coincidentally different hashes of the same bytes.
+    expect(buyerIndexFor('shared-id')).not.toBe(escrowIndexFor('shared-id'))
+  })
+
+  it('always stays within the valid BIP-44 non-hardened index range', () => {
+    for (const buyerId of ['u1', 'a-very-long-user-id-uuid-like-string-1234567890', '']) {
+      const index = buyerIndexFor(buyerId)
       expect(index).toBeGreaterThanOrEqual(0)
       expect(index).toBeLessThan(0x80000000)
     }

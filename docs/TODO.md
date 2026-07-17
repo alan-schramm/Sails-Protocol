@@ -90,6 +90,33 @@ makes the same point in more detail.
       funded testnet key to verify, which wasn't available in this
       environment — same "cannot verify without live infrastructure"
       limitation the items below already have.
+- [x] **`executeSettlement()`** *(new — same day, follow-up pass)* —
+      `settlement-orchestrator.ts`'s real entrypoint: createEscrow ->
+      lockFunds (real signed WDK collateral) -> markPaymentSent ->
+      emulated seller PIX-receipt confirmation (`pixConfirmation.emulated:
+      true`, explicitly labeled — Sails OpenProof, RFC-003, is still 📋
+      future, this does not pretend to have built it) -> releaseFunds
+      (real signed WDK USDT transfer). Reuses the existing
+      `escrowService.releaseFunds()` -> `WdkSettlementProvider` ->
+      `@tetherto/wdk-wallet-evm` signing path rather than adding a second
+      WDK integration — checked against the real npm registry first:
+      `@tetherto/wdk-core` does not exist as a package; the actual
+      multi-chain umbrella package is `@tetherto/wdk`, a different thing
+      from the chain-specific `@tetherto/wdk-wallet-evm` this codebase
+      already correctly uses. Wired to `openp2p.trade.created`
+      (`common/events/handlers.ts`) — this codebase's real stand-in for
+      "the P2P engine gives Match," since the Intent Engine's own
+      `MATCHED` state has no real matching engine wired to it — gated
+      behind `config.features.autoSettleOnMatch` (default `false`,
+      `AUTO_SETTLE_ON_MATCH` env var): that event fires for every real
+      trade, not only demo/agent-driven ones, so autonomous fund release
+      with no dispute-window step is not a safe unconditional default.
+      `src/demo/pix-to-usdt-flow.ts`'s steps 8-9 now call this single
+      function instead of re-implementing the sequence inline. Tested in
+      `tests/settlementOrchestrator.test.ts` (6 tests, mocked
+      `escrow.service.ts`) and `tests/autoSettleHandler.test.ts` (3 tests
+      — confirms the flag actually gates it, and that a settlement
+      failure doesn't crash the event dispatcher).
 - [ ] `LightningHodlProvider` — currently throws `EscrowError('not yet
       implemented')` for every method. Needs a real LND/CLN integration.
 - [ ] `LiquidCovenantProvider` — does not exist yet at all, only referenced

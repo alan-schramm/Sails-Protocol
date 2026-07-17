@@ -58,6 +58,19 @@ export const config = {
     // in this file. Left true, "escrow" is theater — see escrow.service.ts.
     mockEscrow: process.env.MOCK_ESCROW !== 'false',
     mockSettlement: process.env.MOCK_SETTLEMENT !== 'false',
+    // Gates common/events/handlers.ts's reaction to openp2p.trade.created,
+    // which calls settlement-orchestrator.ts's executeSettlement() —
+    // creates escrow, locks funds, and (once PIX is emulated as received)
+    // releases a real signed WDK transfer, with no human/dispute-window
+    // step in between. Default false deliberately: openp2p.trade.created
+    // fires for every real HTTP-driven trade in this codebase, not only
+    // agent-driven demo trades, so auto-firing full fund release
+    // unconditionally the instant two parties match would silently bypass
+    // the negotiation/dispute-window design (Escrow.timelockHours) this
+    // protocol otherwise relies on. Same "off by default, explicit opt-in"
+    // shape as mockEscrow/mockSettlement above, for the same reason:
+    // moving funds automatically is not a safe default.
+    autoSettleOnMatch: process.env.AUTO_SETTLE_ON_MATCH === 'true',
   },
 
   trade: {
