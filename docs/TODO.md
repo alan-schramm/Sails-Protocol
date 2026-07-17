@@ -246,14 +246,44 @@ makes the same point in more detail.
 - [ ] **Still open:** `IntentHandler` plugin registration pattern (§2.7 of
       `PROTOCOL_SPECIFICATION.md`) is fully specified but has zero code.
 
-## 8. SDK — Entirely Unbuilt
+## 8. SDK (status changed — v0.1 real, partial) *(2026-07-17)*
 
-- [ ] `@sails/sdk` package does not exist. See `SDK_GUIDE.md` for the full
-      interface spec it must satisfy, and `docs/DEVELOPER_JOURNEY.md` for
-      the onboarding flow it's meant to support once built.
-- [ ] `@sails/protocol-spec` package does not exist either — the TypeScript
-      interfaces in `PROTOCOL_SPECIFICATION.md` need to be extracted into a
-      real, published npm package.
+- [x] `@sails/sdk` (`packages/sails-sdk`) now exists — real npm workspace
+      package, wired into root `package.json`'s `workspaces`/`build`
+      scripts. `SailsClient`'s Transport layer (real `fetch`/`WebSocket`,
+      no Node-only dependency — works in both Node and browser per
+      `SDK_GUIDE.md` §6) and Protocol SDK layer (`identity`,
+      `reputation`, `liquidity`, `openp2p`, `settlement`, `peers`) are
+      genuinely implemented against the reference implementation's real,
+      tested routes — each verified against its actual `*.routes.ts`
+      file, not assumed from `API_REFERENCE.md`'s prose (found and
+      documented two real deviations that way: `createIntent` needs an
+      explicit `participantId`, `openp2p.trade()` needs `amount` — see
+      `SDK_GUIDE.md` §2's note). `identity.authenticate()`'s Ed25519
+      signing (`tweetnacl`, pure JS) was checked byte-for-byte against
+      `src/common/middleware/auth.ts`'s exact verification logic (a
+      subtle double-hex-encoding quirk) and confirmed to actually work
+      against the real server-side verify function, not just assumed
+      compatible — `packages/sails-sdk/tests/identity.test.ts` asserts
+      this directly. 33 tests total across 4 files, all mocking only the
+      network boundary (`fetchImpl`/`webSocketImpl` injection, no global
+      mocking) — `npm run build`/`npm test` both verified clean (16
+      suites, 131 tests project-wide).
+- [ ] **Still genuinely unbuilt/partial**, honestly, not silently
+      claimed: of the six-verb Intent facade (`SDK_GUIDE.md` §2),
+      `negotiate`/`submitProof`/`releaseAsset`/`dispute` throw
+      `SailsNotImplementedError` — `intent-facade.ts`'s own header
+      explains exactly why (no server-side Intent -> Trade -> Escrow
+      linkage; the Proof primitive has zero routes at all). Closing this
+      needs Core/module work (a real linkage path, and a first Proof
+      primitive implementation, §7's own still-open item), not more SDK
+      code — SDK_GUIDE.md §1's "no new business logic" rule means the
+      SDK correctly cannot paper over a gap that belongs server-side.
+      `@sails/protocol-spec` also still does not exist — v0.1 defines its
+      own local response types (`packages/sails-sdk/src/types.ts`)
+      rather than reconciling with `@sails/p2p-schemas`'s differently-
+      shaped `OfferSchema`, a documented, deliberate deferral (that
+      file's own header), not an oversight.
 
 ## 9. Monorepo Structure (status changed — first package landed)
 

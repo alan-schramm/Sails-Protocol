@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @sails/p2p-schemas && tsc",
+    "build": "npm run build -w @sails/p2p-schemas && npm run build -w @sails/sdk && tsc",
     "start": "node dist/src/main.js",
     "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "db:migrate": "npx prisma migrate dev",

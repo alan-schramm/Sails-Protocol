@@ -402,15 +402,27 @@ src/
         │                                 pearNodeRegistry)
         └── reconciliation.service.ts   (ReconciliationService, RFC-011)
 
-packages/                                (npm workspaces — first workspace
-│                                         package; root package.json gained
-│                                         a `workspaces` field)
-└── sails-p2p-schemas/                  (@sails/p2p-schemas — types-only
-    └── src/                              domain contracts: OfferSchema,
-        ├── offer.ts                      TradeState/deriveTradeState,
-        ├── trade.ts                      DisputeSchema. The 'contrato
-        └── dispute.ts                    social' layer any wallet
-                                          integration shares)
+packages/                                (npm workspaces — root package.json's
+│                                         `workspaces` field)
+├── sails-p2p-schemas/                   (@sails/p2p-schemas — types-only
+│   └── src/                               domain contracts: OfferSchema,
+│       ├── offer.ts                       TradeState/deriveTradeState,
+│       ├── trade.ts                       DisputeSchema. The 'contrato
+│       └── dispute.ts                     social' layer any wallet
+│                                         integration shares)
+└── sails-sdk/                           (@sails/sdk — Sails P2P Trading
+    └── src/                               SDK, SDK_GUIDE.md. v0.1 real:
+        ├── client.ts                      SailsClient assembles Transport
+        ├── transport.ts                   + Protocol SDK (identity/
+        ├── errors.ts                      reputation/liquidity/openp2p/
+        ├── intent-facade.ts                settlement/peers, each verified
+        ├── encoding.ts                     against its real route) + the
+        ├── types.ts                        Intent facade (createIntent/
+        └── modules/                        cancelIntent real;
+            (identity, reputation,          negotiate/submitProof/
+             liquidity, openp2p,            releaseAsset/dispute throw
+             settlement, peers)             SailsNotImplementedError —
+                                            see intent-facade.ts's header)
 
 tests/
 ├── intentFlow.test.ts                  (Intent Engine happy path + CISO
