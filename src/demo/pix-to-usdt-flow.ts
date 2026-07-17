@@ -24,15 +24,33 @@
  * resulting Trade → OpenSettlement escrow lifecycle → WDK USDT
  * settlement (real @tetherto/wdk-wallet-evm calls when configured).
  *
- * Requires a reachable Postgres/Redis (DATABASE_URL/REDIS_URL) — this
- * script exercises the real service layer, not a mock of it, so it has
- * the same infrastructure requirement `npm run dev` does. Not run live
- * as part of this pass — no Postgres/Redis reachable in the environment
- * this was written in (same limitation TODO.md documents everywhere
- * else in this project). Each individual piece it calls into is already
- * built and, where the environment allowed it, live-tested — see
- * tests/wdkSettlementProvider.test.ts and qvac-agent.provider.ts's own
- * live smoke-test note.
+ * Step 6 (negotiation) sends the buyer's actual Intent directly to the
+ * seller's node over Hyperswarm/HyperDHT — real keypairs (`HyperDHT.keyPair()`,
+ * the same call `pear.service.ts`'s `PearNode` makes), a real trade-scoped
+ * topic join (`PearsTransportProvider.sendIntentToPeer`,
+ * infrastructure/p2p/transport-provider.ts), and a real libsodium sealed
+ * box (`infrastructure/p2p/payload-crypto.ts`) addressed to the seller's
+ * actual identity key — not a Postgres write standing in for that
+ * handoff. `tradeService.createTrade()` still runs alongside it: that's
+ * the durability/audit record (RFC-008's hash-chained Timeline), a
+ * different concern from the real-time P2P delivery, not a substitute
+ * for it.
+ *
+ * Requires a reachable Postgres/Redis (DATABASE_URL/REDIS_URL) *and* a
+ * reachable HyperDHT bootstrap network for step 6 — this script exercises
+ * the real service and infrastructure layers, not mocks of them, so it
+ * has the same requirements `npm run dev` plus a live P2P network would.
+ * Not run live as part of this pass — neither Postgres/Redis nor a real
+ * P2P network is reachable in the environment this was written in (same
+ * limitation TODO.md documents everywhere else in this project). Each
+ * individual piece it calls into is already built and, where the
+ * environment allowed it, verified for real — see
+ * tests/wdkSettlementProvider.test.ts, qvac-agent.provider.ts's own live
+ * smoke-test note, and tests/payloadCrypto.test.ts /
+ * tests/intentTransport.test.ts (the sealed-box math and the
+ * sendIntentToPeer composition logic, both verified without needing a
+ * live network — only the actual hole-punched connection itself can't be
+ * exercised here).
  *
  * WDK USDT settlement is only real when MOCK_ESCROW=false and
  * WDK_SEED_PHRASE/WDK_USDT_CONTRACT are set (.env.example) — otherwise
@@ -49,6 +67,7 @@
  * common/database's User model). A real deployment would ask the buyer
  * for their own address here instead.
  */
+import HyperDHT from 'hyperdht'
 import { config } from '../config'
 import { connectDatabase } from '../common/database'
 import { connectRedis } from '../common/redis'
@@ -61,6 +80,8 @@ import { qvacAgentProvider } from '../modules/open-agents/qvac-agent.provider'
 import { BuyerAgent } from '../modules/open-agents/buyer-agent'
 import { SellerAgent } from '../modules/open-agents/seller-agent'
 import { intentEngine } from '../core/intent-engine'
+import { pearsTransportProvider } from '../infrastructure/p2p/transport-provider'
+import { decryptFromPeer } from '../infrastructure/p2p/payload-crypto'
 
 const BUYER_DEMO_ACCOUNT_INDEX = 1 // treasury is account 0 — see wdk-settlement.provider.ts
 
@@ -110,6 +131,27 @@ async function main() {
   const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: offer.minAmount.toString() })
   console.log(`   Trade: ${trade.id} — ${trade.amount} ${trade.asset}`)
 
+  console.log('   Abrindo nós P2P reais (HyperDHT/Hyperswarm) para Comprador e Vendedor...')
+  const sellerKeyPair = HyperDHT.keyPair()
+  const buyerKeyPair = HyperDHT.keyPair()
+  await pearsTransportProvider.start(seller.id, sellerKeyPair.secretKey.toString('base64'))
+  await pearsTransportProvider.start(buyer.id, buyerKeyPair.secretKey.toString('base64'))
+
+  let receivedIntentPlaintext: unknown = null
+  pearsTransportProvider.onMessage(seller.id, (_peerId, message) => {
+    const m = message as { type?: string; ciphertext?: string }
+    if (m.type === 'INTENT' && m.ciphertext) {
+      receivedIntentPlaintext = decryptFromPeer(m.ciphertext, sellerKeyPair)
+    }
+  })
+
+  console.log('   Comprador envia o Intent criptografado diretamente ao nó do Vendedor (hole-punching via Hyperswarm, sem servidor central)...')
+  const delivered = await pearsTransportProvider.sendIntentToPeer(buyer.id, seller.id, intent, trade.id)
+  console.log(`   Entrega P2P direta: ${delivered ? 'confirmada' : 'não confirmada (par ainda não conectado/alcançável)'}`)
+  if (receivedIntentPlaintext) {
+    console.log(`   Vendedor decifrou o Intent recebido via Pears: ${JSON.stringify(receivedIntentPlaintext)}`)
+  }
+
   step(7, TOTAL, 'QVAC avalia risco do Trade resultante (Sails OpenAgents)...')
   const risk = await qvacAgentProvider.assessIntentRisk({
     asset: trade.asset,
@@ -156,6 +198,8 @@ async function main() {
 
   console.log('\n=== Fluxo completo: Agentes (QVAC) → Intent/Oferta → Negociação (Pears) → Risco (QVAC) → Settlement (WDK) → Liberação ===')
 
+  await pearsTransportProvider.stop(buyer.id)
+  await pearsTransportProvider.stop(seller.id)
   await qvacAgentProvider.dispose()
   process.exit(0)
 }

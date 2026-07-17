@@ -22,8 +22,19 @@
  * existing one.
  * - `PeerHandle` is given a concrete minimal shape (`{ peerId: string }`)
  * since RFC-002 named the return type without defining its fields.
+ *
+ * `PearsTransportProvider.sendIntentToPeer()` (added alongside this note)
+ * is a deliberate, documented extension beyond the shared `TransportProvider`
+ * interface, not a change to it — RFC-002's own Backward Compatibility
+ * section already scopes this file to "existing, unchanged behavior" for
+ * the interface; encryption is keyed to a real HyperDHT/Hyperswarm Ed25519
+ * identity (payload-crypto.ts), which `WebSocketRelayTransportProvider` has
+ * no equivalent of, so this capability is Pears-specific by construction,
+ * not something `FallbackTransportProvider` needs to arbitrate between.
  */
 import { pearNodeRegistry } from './pear.service'
+import { prisma } from '../../common/database'
+import { encryptForPeer } from './payload-crypto'
 
 export interface PeerHandle {
   peerId: string
@@ -84,6 +95,56 @@ export class PearsTransportProvider implements TransportProvider {
 
   isConnected(participantId: string): boolean {
     return pearNodeRegistry.isRunning(participantId)
+  }
+
+  // Direct, encrypted, server-free Intent delivery: the sending
+  // participant's node joins the trade-scoped topic (`PearNode.joinTradeTopic`,
+  // real Hyperswarm/HyperDHT discovery — the DHT + swarm perform NAT
+  // hole-punching automatically as part of `swarm.join(topic,
+  // {server:true, client:true})`; no separate "listen for hole-punching"
+  // step exists or is needed in the Hyperswarm API), resolves the
+  // recipient's real Ed25519 identity key, encrypts the Intent payload so
+  // only that key can read it (payload-crypto.ts), and hands the
+  // ciphertext to sendToPeer — which travels over the direct Hyperswarm
+  // connection between these two specific nodes. No Postgres write is
+  // required for the delivery itself; `intentEngine.create()` already
+  // persisted the Intent for durability/audit (RFC-008's hash-chained
+  // IntentEvent) before this is ever called — that's a separate concern
+  // (audit trail) from this one (real-time handoff to the counterparty),
+  // not a substitute for it.
+  async sendIntentToPeer(
+    participantId: string,
+    targetParticipantId: string,
+    intent: unknown,
+    tradeId: string
+  ): Promise<boolean> {
+    const node = pearNodeRegistry.get(participantId)
+    if (!node) {
+      throw new Error(`PearsTransportProvider: no active node for ${participantId} — call start() first`)
+    }
+
+    await node.joinTradeTopic(tradeId)
+
+    // Prefer a peerId proven reachable by an already-completed handshake;
+    // fall back to the Postgres-stored `User.peerId` directory (written by
+    // PearNode.start() the first time that user ever started a node) —
+    // this is a public-key lookup, not a stand-in for the P2P delivery
+    // itself, the same role a known_hosts file or DNS TXT record plays
+    // for other systems. If neither resolves, there is no key to encrypt
+    // against and no meaningful way to proceed.
+    const targetPeerId =
+      node.getConnectedPeerId(targetParticipantId) ??
+      (await prisma.user.findUnique({ where: { id: targetParticipantId } }))?.peerId
+
+    if (!targetPeerId) {
+      return false
+    }
+
+    const ciphertext = encryptForPeer(intent, targetPeerId)
+    // never assumes continuous connectivity (RFC-002 v8.7 amendment) —
+    // `false` here is `sendToPeer`'s normal "not currently reachable"
+    // outcome, not an error the caller needs to catch.
+    return node.sendToPeer(targetParticipantId, { type: 'INTENT', ciphertext })
   }
 }
 

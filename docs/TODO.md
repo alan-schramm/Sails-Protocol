@@ -261,6 +261,19 @@ makes the same point in more detail.
       `const mockUserUpdate`/`handlers` collided under some jest
       invocations (`--detectOpenHandles` surfaced it, plain `npm test`
       didn't). Fixed with a top-level `export {}` in both files.
+- [x] `tests/payloadCrypto.test.ts` + `tests/intentTransport.test.ts`
+      *(new — direct P2P Intent delivery pass, 2026-07-17)* — 8 tests
+      total. `payloadCrypto.test.ts` (4) is real cryptography end to end:
+      real `HyperDHT.keyPair()` keypairs, real Ed25519→Curve25519
+      conversion, real libsodium sealed-box round-trip, plus wrong-key and
+      tampered-ciphertext rejection — none of this needs a live network,
+      so none of it is mocked. `intentTransport.test.ts` (4) verifies
+      `PearsTransportProvider.sendIntentToPeer()`'s composition logic
+      (topic join, connected-peer-first / Postgres-directory-fallback
+      resolution, no-peerId-found short-circuit) with `pear.service.ts`
+      and Postgres mocked — same discipline `transportFallback.test.ts`
+      already established for anything that would otherwise need a real
+      P2P network to verify.
 - [ ] **Still open, in the priority order `BACKLOG.md` P0/P2 imply:**
       escrow state machine transitions beyond what `disputeFlow.test.ts`
       already covers, and liquidity matching (`open-liquidity`) — no

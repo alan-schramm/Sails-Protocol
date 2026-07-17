@@ -4,13 +4,27 @@
  *
  * Activates only when PearsTransportProvider doesn't connect within the
  * fallback timeout (see FallbackTransportProvider, transport-provider.ts).
- * Payloads are opaque to this relay — Secretstream/E2E encryption already
- * happens above this layer (PRINCIPLES.md principle 8, Privacy Preserving;
- * SECURITY_MODEL.md "Privacy by Design"). This class never inspects,
- * decrypts, or logs payload contents — it forwards whatever bytes it's
- * given, verbatim, to the target participant's registered socket. If a
- * future caller needs to *read* a payload here to make a routing decision,
- * that is exactly the violation this rule exists to prevent.
+ * This class never inspects, decrypts, or logs payload contents — it
+ * forwards whatever bytes it's given, verbatim, to the target
+ * participant's registered socket (PRINCIPLES.md principle 8, Privacy
+ * Preserving; SECURITY_MODEL.md "Privacy by Design"). If a future caller
+ * needs to *read* a payload here to make a routing decision, that is
+ * exactly the violation this rule exists to prevent.
+ *
+ * Accuracy note (found while wiring `PearsTransportProvider.sendIntentToPeer`,
+ * transport-provider.ts): this class previously claimed app-layer
+ * "Secretstream/E2E encryption already happens above this layer" as a
+ * blanket statement. That's now true specifically for Intent payloads sent
+ * via `sendIntentToPeer` (real libsodium sealed-box encryption,
+ * `payload-crypto.ts`) — it was never true for chat/negotiation messages
+ * (`chat.routes.ts`, `negotiation.service.ts`'s `HumanChatChannel`), which
+ * still send plain JSON. Both cases DO get Hyperswarm's own Noise-handshake
+ * transport encryption when routed via Pears (real, inherent to
+ * `hyperswarm`/`hyperdht`, not this class's concern) — but this relay has
+ * no such transport-level encryption of its own, so an unencrypted
+ * chat/negotiation payload really is only as private as this WebSocket
+ * connection (TLS in front of it, in a real deployment). Not fixed here —
+ * flagged, same as every other gap found this way in this codebase.
  *
  * Connection registration is asymmetric from PearsTransportProvider by
  * necessity: HyperDHT connections are peer-initiated (PearNode.start()
