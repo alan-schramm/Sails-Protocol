@@ -51,7 +51,7 @@ export class HumanChatChannel implements NegotiationChannel {
     // RFC-002's amendment: the protocol never assumes continuous
     // connectivity. A failed send is persisted for redelivery — not
     // silently dropped, and not treated as a hard failure.
-    await prisma.message.create({
+    const message = await prisma.message.create({
       data: {
         tradeId: this.tradeId,
         senderId: this.localUserId,
@@ -59,13 +59,18 @@ export class HumanChatChannel implements NegotiationChannel {
         msgType: event.type === 'MESSAGE_EXCHANGED' ? 'TEXT' : 'SYSTEM',
       },
     })
+    // messageId used to be a placeholder equal to tradeId — the created
+    // row was discarded (await ... with no assignment). Fixed as part of
+    // the chat-unification pass: every message now has its own real id,
+    // which matters once WS clients are keying NEW_MESSAGE pushes by it
+    // regardless of which transport the message actually arrived on.
     await eventBus.emit('openp2p.message.sent', {
-      messageId: this.tradeId, // placeholder until Message model exposes its own id here
+      messageId: message.id,
       tradeId: this.tradeId,
       senderId: this.localUserId,
       content: event.type === 'MESSAGE_EXCHANGED' ? event.content : JSON.stringify(event),
       msgType: event.type,
-      timestamp: event.at,
+      timestamp: message.createdAt.toISOString(),
     }, this.tradeId)   // correlationId (RFC-010)
     await eventBus.emit('negotiation.event_received', { tradeId: this.tradeId, eventType: event.type }, this.tradeId)
     if (!delivered) {

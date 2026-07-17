@@ -147,6 +147,14 @@ makes the same point in more detail.
       RELEASE dispute ruling, plain refund vs. a REFUND dispute ruling.
       Confirms the "winner gets Positive, loser gets Negative, no dispute
       means Neutral" rule actually holds, not just that the code compiles.
+- [x] `tests/chatUnification.test.ts` *(new — chat-unification pass)* —
+      3 tests confirming a message "arriving" via either transport
+      (simulated `HumanChatChannel`/Pears emit, or the WS route's own
+      emit) reaches every WS room member for that trade, and that
+      broadcasting to a trade nobody's watching doesn't throw. Uses the
+      real `chat-room-registry.ts`, not a mock, so this is exercising the
+      actual join/broadcast code, not just asserting a function was
+      called.
 - [ ] **Still open, in the priority order `BACKLOG.md` P0/P2 imply:**
       escrow state machine transitions beyond what `disputeFlow.test.ts`
       already covers, and liquidity matching (`open-liquidity`) — no
@@ -208,13 +216,22 @@ makes the same point in more detail.
       `negotiation.service.ts` already owned the negotiation channel but
       nothing created the `Trade` row it assumes exists — that was the gap
 - [x] `modules/open-p2p/chat.routes.ts` — WebSocket negotiation channel +
-      message history, per `API_REFERENCE.md` §5. Scope note: this is the
-      browser-facing WS transport, a separate path from
-      `HumanChatChannel`'s direct Pears relay — both persist to the same
-      `Message` table, but this route doesn't itself relay onto Pears (see
-      the file's own comment; unifying the two remains open, tracked
-      alongside the existing `FallbackTransportProvider` gap in
-      `BACKLOG.md` P0)
+      message history, per `API_REFERENCE.md` §5.
+- [x] **Chat transport unification** *(new — same day, chat-unification
+      pass)* — `chat-room-registry.ts` (new) holds the WS room registry;
+      `common/events/handlers.ts` reacts to `openp2p.message.sent` and
+      pushes `NEW_MESSAGE` to every WS-connected room member for that
+      trade, regardless of whether the message was sent via
+      `chat.routes.ts`'s WS route or `negotiation.service.ts`'s
+      `HumanChatChannel` over Pears — both emit that same event after
+      persisting to `Message`. Fixed a real bug found in the process:
+      `HumanChatChannel.sendEvent()` discarded the created `Message` row
+      and emitted a placeholder `messageId` equal to `tradeId`; every
+      message now carries its own real id. **Still one-directional:** a
+      message sent via the WS route is not relayed onto Pears — that
+      remains `HumanChatChannel`-only, tracked alongside the
+      `FallbackTransportProvider`/`/ws/relay` gap in `BACKLOG.md` P0,
+      which is the bigger piece of work actually closing it would need.
 - [x] `modules/open-settlement/settlement.routes.ts` — escrow
       create/lock/payment-sent/release/dispute/refund + a new dispute
       resolve route, per `API_REFERENCE.md` §4 (updated alongside this to
