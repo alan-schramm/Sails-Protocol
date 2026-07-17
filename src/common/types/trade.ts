@@ -4,7 +4,7 @@
  * escrow.service.ts is the only current consumer — matches the file
  * layout TODO.md already documented as expected.
  */
-export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'MOCK'
+export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM' | 'MOCK'
 
 export type EscrowStatus =
   | 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED'

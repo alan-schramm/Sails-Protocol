@@ -44,6 +44,7 @@ enum EscrowType {
   MULTISIG
   LIGHTNING_HODL
   LIQUID_COVENANT
+  WDK_USDT_EVM // real @tetherto/wdk-wallet-evm USDT (ERC-20) settlement — see wdk-settlement.provider.ts
   MOCK
 }
 

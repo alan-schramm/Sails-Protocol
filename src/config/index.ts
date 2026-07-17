@@ -74,6 +74,19 @@ export const config = {
       .map((s) => s.trim())
       .filter(Boolean),
   },
+
+  // WDK_USDT_EVM SettlementProvider (wdk-settlement.provider.ts) — real
+  // @tetherto/wdk-wallet-evm calls against a public EVM testnet. Empty
+  // seed phrase by default, same "surface a clear config error, don't
+  // refuse to boot" pattern as settlement.trustedArbitrators above.
+  // Sepolia + a placeholder token address are safe, inert defaults — the
+  // provider still requires an explicit funded seed before it will send
+  // a real (testnet) transaction.
+  wdk: {
+    seedPhrase: process.env.WDK_SEED_PHRASE ?? '',
+    rpcUrl: process.env.WDK_RPC_URL ?? 'https://sepolia.drpc.org',
+    usdtContract: process.env.WDK_USDT_CONTRACT ?? '',
+  },
 }
 
 // RT-001's fix, made structural instead of relying on someone remembering

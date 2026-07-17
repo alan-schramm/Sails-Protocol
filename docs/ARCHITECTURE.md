@@ -221,6 +221,35 @@ and liquidity discovery too, someday, without rebuilding it from scratch.
 
 ## 4. Actual Code Inventory (verified against the filesystem — do not assume more exists)
 
+**Known stale below 2026-07-17 (QVAC/WDK MVP pass) — not a full rewrite in
+this pass, flagged rather than silently left wrong:** the tree and the
+"Still missing" note at the end of this section predate the
+route-restoration, open-reputation, and chat-unification work done
+earlier the same day — `modules/open-identity/`, the `open-p2p` trade/chat
+routes, and `modules/open-reputation/` all exist and are real now (see
+`TODO.md` §1 and `BACKLOG.md`'s P0-P2 tables, both of which were kept
+current through that work). Only the additions below are guaranteed
+accurate as of this note; treat the rest of the tree as a lower-confidence
+snapshot until someone re-audits the whole section against the filesystem.
+
+**New this pass (QVAC/WDK MVP):**
+
+```
+src/modules/open-agents/
+└── qvac-risk.service.ts                (real @qvac/sdk local LLM
+                                          inference — OpenAgents' first
+                                          real capability, live-verified)
+src/modules/open-settlement/
+└── wdk-settlement.provider.ts          (WDK_USDT_EVM — real
+                                          @tetherto/wdk-wallet-evm calls,
+                                          testnet, single-seed custody —
+                                          see that file's own caveat)
+src/demo/
+└── pix-to-usdt-flow.ts                 (Intent → Negotiation (Pears) →
+                                          QVAC risk → Settlement (WDK)
+                                          end-to-end script)
+```
+
 **Refreshed against the real filesystem (03-implementation_plan.md MVP
 pass) — the version of this section before this pass was itself stale,
 listing several files (`common/database/index.ts`, `common/errors/index.ts`,

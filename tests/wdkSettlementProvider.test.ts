@@ -1,0 +1,66 @@
+/**
+ * WdkSettlementProvider — the pure, deterministic helpers.
+ *
+ * The real wallet calls (lockFunds/releaseFunds/refundFunds/verifyLock)
+ * need a live testnet + a funded seed to verify for real — the same
+ * "cannot be verified without live infrastructure" limitation this
+ * codebase already declines to fake for PearsTransportProvider and
+ * RedisStreamsEventStore. What IS safely, fully verifiable without any
+ * of that: toBaseUnits() (decimal-string -> on-chain integer conversion)
+ * and escrowIndexFor() (deterministic per-trade account derivation) —
+ * both pure functions, tested directly here.
+ *
+ * @tetherto/wdk-wallet-evm ships pure ESM with no CJS build, so it's
+ * mocked out the same way tests/routes.test.ts already does — this file
+ * never needs the real wallet class to test the pure helpers below.
+ */
+jest.mock('@tetherto/wdk-wallet-evm', () => ({
+  __esModule: true,
+  default: class FakeWalletManagerEvm {},
+}))
+
+import { toBaseUnits, escrowIndexFor } from '../src/modules/open-settlement/wdk-settlement.provider'
+
+describe('toBaseUnits (decimal string -> on-chain integer, USDT 6 decimals)', () => {
+  it('converts a whole-number amount', () => {
+    expect(toBaseUnits('5', 6)).toBe(5_000_000n)
+  })
+
+  it('converts a fractional amount', () => {
+    expect(toBaseUnits('0.01', 6)).toBe(10_000n)
+  })
+
+  it('converts an amount with no leading whole part', () => {
+    expect(toBaseUnits('.5', 6)).toBe(500_000n)
+  })
+
+  it('truncates (never rounds up) precision beyond the token decimals — schema.prisma stores 8 decimals, USDT only has 6', () => {
+    // 0.0000001234 truncated to 6 decimals is 0.000000 — must not round to 0.000001
+    expect(toBaseUnits('0.0000001234', 6)).toBe(0n)
+    expect(toBaseUnits('1.1234567', 6)).toBe(1_123_456n) // 7th digit (7) dropped, not rounded
+  })
+
+  it('handles a plain integer with no decimal point at all', () => {
+    expect(toBaseUnits('1000', 6)).toBe(1_000_000_000n)
+  })
+})
+
+describe('escrowIndexFor (deterministic per-trade escrow account derivation)', () => {
+  it('is deterministic — same tradeId always derives the same index', () => {
+    const a = escrowIndexFor('trade-abc-123')
+    const b = escrowIndexFor('trade-abc-123')
+    expect(a).toBe(b)
+  })
+
+  it('produces different indexes for different trades (no accidental collision on these inputs)', () => {
+    expect(escrowIndexFor('trade-1')).not.toBe(escrowIndexFor('trade-2'))
+  })
+
+  it('always stays within the valid BIP-44 non-hardened index range', () => {
+    for (const tradeId of ['t1', 'a-very-long-trade-id-uuid-like-string-1234567890', '']) {
+      const index = escrowIndexFor(tradeId)
+      expect(index).toBeGreaterThanOrEqual(0)
+      expect(index).toBeLessThan(0x80000000)
+    }
+  })
+})

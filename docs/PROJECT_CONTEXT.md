@@ -398,9 +398,17 @@ own.
 
 ## 4. Current State of Implementation (be honest about this — don't inflate it)
 
-As of this handoff, exactly **one module has real code**: Sails OpenP2P, via
+**Updated 2026-07-17 (QVAC/WDK MVP pass) — the "exactly one module" framing
+below predates the route-restoration and QVAC/WDK work and is stale; kept
+struck-through rather than silently rewritten, so the drift is visible:**
+~~As of this handoff, exactly one module has real code: Sails OpenP2P, via
 the Satsails Wallet reference implementation. Everything else is specified
-(interfaces, events, data model) but not built.
+(interfaces, events, data model) but not built.~~ Five modules have real
+routes and a real service layer today (OpenP2P, OpenIdentity,
+OpenSettlement, OpenLiquidity, OpenReputation — see `BACKLOG.md`'s P0-P2
+tables for exactly what's real in each), and OpenAgents has its first
+real capability (below). Only OpenFinance and the SDK remain genuinely
+unbuilt.
 
 Use this status legend everywhere — it is mandatory, not optional:
 
@@ -413,9 +421,9 @@ Use this status legend everywhere — it is mandatory, not optional:
 | Sails OpenP2P | ✅ Proven (Satsails Wallet) |
 | Sails OpenIdentity | 🏗️ Specified — embedded inside OpenP2P today |
 | Sails OpenReputation | 🏗️ Specified — embedded inside OpenP2P today |
-| Sails OpenSettlement | 🏗️ Specified — `SettlementProvider` interface + Mock provider implemented |
+| Sails OpenSettlement | 🏗️ Specified — `SettlementProvider` interface + Mock provider + a real `WDK_USDT_EVM` provider (`@tetherto/wdk-wallet-evm`, testnet, single-seed custody — see that file's own caveat) implemented |
 | Sails OpenLiquidity | 🏗️ Specified — `LiquidityProvider` interface + Internal order book implemented |
-| Sails OpenAgents | 📋 Aspirational |
+| Sails OpenAgents | 🏗️ Specified — first real capability: `qvac-risk.service.ts` (real `@qvac/sdk` local LLM inference, live-verified in this pass). RFC-007 D7's Social Engineering Agent and Timeline-watching are still not built |
 | Sails OpenFinance | 📋 Aspirational |
 | Sails SDK (MVP release: Sails P2P Trading SDK) | 📋 Aspirational — interface fully specified, zero implementation |
 
