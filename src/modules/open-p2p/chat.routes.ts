@@ -9,9 +9,27 @@
  * already did. common/events/handlers.ts's single reaction to that event
  * is what pushes NEW_MESSAGE to every WS-connected room member, so a
  * message sent via Pears (HumanChatChannel) now reaches WS clients
- * watching that trade too — see chat-room-registry.ts's doc comment for
- * what's still one-directional (WS-origin messages aren't relayed onto
- * Pears; that stays HumanChatChannel-only).
+ * watching that trade too.
+ *
+ * WS -> Pears relay (added this pass, best-effort, not full symmetry —
+ * documented, not silently claimed as complete): `sendToPeer()` only
+ * exists on the *sending* identity's own PearNode — there is no way to
+ * transmit "over Pears" on behalf of a participant who never called
+ * `POST /v1/peers/start`, the same way you can't send an email as
+ * someone whose mail server you don't control. So relaying here is only
+ * possible, and only attempted, when the WS-connected sender *also*
+ * happens to have an active PearNode (mirrors exactly what
+ * `HumanChatChannel.sendEvent()` already does). If they don't, there is
+ * genuinely nothing to relay — not a bug, a structural limit of
+ * peer-to-peer transports.
+ *
+ * A deeper, separate gap found while investigating this: incoming Pears
+ * messages have no consumer at all today — `HumanChatChannel.onEvent()`
+ * is defined but never called anywhere in this codebase, for either
+ * transport's messages. Not fixed in this pass (it needs a live
+ * two-node Pears/HyperDHT setup to verify against, the same limitation
+ * `PearsTransportProvider`'s own tests already decline to fake) — see
+ * `BACKLOG.md` P0's Transport Provider row and `TODO.md` §1.
  */
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -21,6 +39,7 @@ import { eventBus } from '../../common/events/event-bus'
 import { redis } from '../../common/redis'
 import { requireAuth } from '../../common/middleware/auth'
 import { joinRoom, leaveRoom, broadcastToTrade, type RoomMember } from './chat-room-registry'
+import { pearNodeRegistry } from '../../infrastructure/p2p/pear.service'
 
 const SESSION_PREFIX = 'auth:session:'
 
@@ -131,6 +150,23 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
             msgType: body.msgType,
             timestamp: message.createdAt.toISOString(),
           }, body.tradeId)
+
+          // Best-effort WS -> Pears relay — see this file's own doc comment
+          // for why this only fires when the sender has an active PearNode,
+          // and why that's the actual boundary of what's possible here, not
+          // an arbitrary restriction. Never awaited into the response —
+          // Pears delivery is fire-and-forget everywhere else in this
+          // codebase (RFC-002's "never assumes continuous connectivity"),
+          // and a WS client shouldn't wait on it either.
+          const senderNode = pearNodeRegistry.get(participantId)
+          if (senderNode) {
+            const recipientId = participantId === trade.buyerId ? trade.sellerId : trade.buyerId
+            senderNode.sendToPeer(recipientId, {
+              kind: 'negotiation_event',
+              tradeId: body.tradeId,
+              event: { type: 'MESSAGE_EXCHANGED', by: participantId, content: body.content, at: message.createdAt.toISOString() },
+            })
+          }
           return
         }
 

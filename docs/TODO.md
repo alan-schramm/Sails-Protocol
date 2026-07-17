@@ -155,6 +155,21 @@ makes the same point in more detail.
       real `chat-room-registry.ts`, not a mock, so this is exercising the
       actual join/broadcast code, not just asserting a function was
       called.
+- [x] 2 more cases added to `tests/routes.test.ts` *(WS → Pears
+      follow-up pass)* — first real use of `app.injectWS()` in this
+      codebase's test suite, a genuine WS round-trip through
+      `chat.routes.ts`'s route (not a mock of the handler). Found and
+      fixed a real test-infra issue along the way, not a product bug:
+      `ws.close()` on the injected client left a pending close-handshake
+      handle that made `jest --runInBand` (this repo's actual `npm test`
+      command) hang past its 1s exit check; `ws.terminate()` (immediate
+      teardown, appropriate for tests) fixed it. Also found that
+      `chatUnification.test.ts` and `reputationOutcome.test.ts` had no
+      top-level `import`/`export`, making TypeScript treat them as
+      scripts sharing the global scope — their identically-named
+      `const mockUserUpdate`/`handlers` collided under some jest
+      invocations (`--detectOpenHandles` surfaced it, plain `npm test`
+      didn't). Fixed with a top-level `export {}` in both files.
 - [ ] **Still open, in the priority order `BACKLOG.md` P0/P2 imply:**
       escrow state machine transitions beyond what `disputeFlow.test.ts`
       already covers, and liquidity matching (`open-liquidity`) — no
@@ -227,11 +242,25 @@ makes the same point in more detail.
       persisting to `Message`. Fixed a real bug found in the process:
       `HumanChatChannel.sendEvent()` discarded the created `Message` row
       and emitted a placeholder `messageId` equal to `tradeId`; every
-      message now carries its own real id. **Still one-directional:** a
-      message sent via the WS route is not relayed onto Pears — that
-      remains `HumanChatChannel`-only, tracked alongside the
-      `FallbackTransportProvider`/`/ws/relay` gap in `BACKLOG.md` P0,
-      which is the bigger piece of work actually closing it would need.
+      message now carries its own real id.
+- [x] **WS → Pears best-effort relay** *(new — same day, follow-up pass)*
+      — `chat.routes.ts`'s `SEND_MESSAGE` handler now attempts
+      `pearNodeRegistry.get(senderId)?.sendToPeer(recipientId, ...)`
+      after persisting, when the WS-connected sender also has an active
+      PearNode. Verified in `tests/routes.test.ts` via
+      `app.injectWS()` — a real WS round-trip through the actual route,
+      not just a unit-level assertion. **Not full symmetry, and can't
+      be:** `sendToPeer()` only exists on the sending identity's own
+      node — a sender with no PearNode at all has nothing to relay from,
+      a structural limit of peer-to-peer transports, not a missing
+      wiring step.
+- [ ] **Deeper gap found while investigating the above, not fixed:**
+      `HumanChatChannel.onEvent()` — the handler for messages *arriving*
+      via Pears — is defined (`negotiation.service.ts`) but never called
+      anywhere in this codebase, for either transport's messages. Needs
+      a live two-node Pears/HyperDHT setup to build and verify against —
+      the same limitation `PearsTransportProvider`'s own tests already
+      decline to fake (see `tests/transportFallback.test.ts`'s comment).
 - [x] `modules/open-settlement/settlement.routes.ts` — escrow
       create/lock/payment-sent/release/dispute/refund + a new dispute
       resolve route, per `API_REFERENCE.md` §4 (updated alongside this to

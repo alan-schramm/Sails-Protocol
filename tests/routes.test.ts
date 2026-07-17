@@ -95,11 +95,13 @@ jest.mock('../src/common/events/event-bus', () => ({
   },
 }))
 
+const mockPearNodeGet = jest.fn().mockReturnValue(undefined)
+const mockSendToPeer = jest.fn().mockReturnValue(true)
 jest.mock('../src/infrastructure/p2p/pear.service', () => ({
   pearNodeRegistry: {
     start: jest.fn().mockResolvedValue('fake-peer-id'),
     stop: jest.fn().mockResolvedValue(undefined),
-    get: jest.fn().mockReturnValue(undefined),
+    get: (...args: unknown[]) => mockPearNodeGet(...args),
     getStatus: jest.fn().mockReturnValue({ userId: 'u', started: false, peerId: null, connectedPeers: 0, activeTopics: [], peers: [] }),
   },
 }))
@@ -335,6 +337,41 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body).data).toEqual([{ id: 'msg-1', content: 'hi' }])
+    })
+  })
+
+  describe('open-p2p — chat WS best-effort Pears relay (chat-unification follow-up)', () => {
+    it('relays a WS-sent message onto Pears when the sender has an active PearNode', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      mockPearNodeGet.mockReturnValueOnce({ sendToPeer: mockSendToPeer })
+
+      const ws = await app.injectWS(`/v1/openp2p/chat?token=${token}`)
+      ws.send(JSON.stringify({ type: 'SEND_MESSAGE', payload: { tradeId: 'trade-1', content: 'sending payment now' } }))
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      ws.terminate()
+
+      expect(mockSendToPeer).toHaveBeenCalledWith(
+        'seller-1',
+        expect.objectContaining({
+          kind: 'negotiation_event',
+          tradeId: 'trade-1',
+          event: expect.objectContaining({ type: 'MESSAGE_EXCHANGED', by: 'buyer-1', content: 'sending payment now' }),
+        })
+      )
+    })
+
+    it('attempts no relay when the sender has no active PearNode (nothing to relay from)', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      // mockPearNodeGet's default (no active node) applies — no override here.
+
+      const ws = await app.injectWS(`/v1/openp2p/chat?token=${token}`)
+      ws.send(JSON.stringify({ type: 'SEND_MESSAGE', payload: { tradeId: 'trade-1', content: 'hi' } }))
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      ws.terminate()
+
+      expect(mockSendToPeer).not.toHaveBeenCalled()
     })
   })
 

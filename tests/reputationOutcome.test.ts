@@ -7,6 +7,11 @@
  * disputeFlow.test.ts verifies dispute.service.ts's own branching rather
  * than only exercising it through an HTTP round-trip.
  */
+export {} // forces this file to be an ES module — see chatUnification.test.ts's
+// identical comment for why this matters (no top-level import/export
+// otherwise means top-level `const`s leak into the global scope and can
+// collide with another require()-only test file's identically-named ones).
+
 const mockTradeUpdate = jest.fn()
 const mockDisputeFindFirst = jest.fn()
 const mockUserUpdate = jest.fn()
