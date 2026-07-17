@@ -43,10 +43,32 @@ and `common/errors/index.ts` — all previously listed here as missing —
 module including `open-reputation` — see 13 for each. **This section is
 now fully closed.**
 
+- [x] **`src/main.ts` itself — found genuinely missing, fixed** *(new —
+      root-level demo-satsails-qvac.ts pass, 2026-07-17)*. This section's
+      "the server boots" claim below was never actually verified end to
+      end: `package.json`'s `dev`/`start` scripts both referenced
+      `src/main.ts`, but the file did not exist anywhere in the repo —
+      confirmed by actually running `npm run dev`
+      (`Error: Cannot find module 'src/main.ts'`), not assumed. Fixed
+      with a thin entrypoint that calls `app.ts`'s already-real, complete
+      `startServer()`. Also found and fixed along the way:
+      `package.json`'s `"start"`/`"main"` pointed at `dist/main.js`, but
+      `tsc`'s actual output lands at `dist/src/main.js` — `tsconfig.json`
+      has no explicit `rootDir`, and the `@sails/p2p-schemas` path
+      mapping (`paths` → `packages/sails-p2p-schemas/src/index.ts`) pulls
+      that file directly into the same compiled program, shifting the
+      inferred common root up to the repo root. Both scripts now point
+      at the real `dist/src/main.js`. Verified: `npm run dev` and
+      `npm start` both now resolve and run cleanly up to the expected,
+      already-documented "no live Postgres/Redis in this environment"
+      failure point — no more `MODULE_NOT_FOUND`.
+
 ## 2. Immediate Priority — Restore a Runnable Server
 
-**Resolved.** `config/index.ts`, `common/database/index.ts`,
-`common/redis/index.ts`, `common/errors/index.ts` all exist, and
+**Resolved, and now actually verified (previously an unverified claim —
+see section 1's new note above).** `config/index.ts`,
+`common/database/index.ts`, `common/redis/index.ts`,
+`common/errors/index.ts`, and `main.ts` all exist, and
 `routes/intentRoutes.ts` is registered in `app.ts` — the server boots
 (given a reachable Postgres/Redis) and serves a real, tested route today.
 This section previously blocked "almost everything else" per the closing
