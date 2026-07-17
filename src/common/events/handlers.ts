@@ -3,6 +3,9 @@ import { eventBus } from './event-bus'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
 import { reputationService } from '../../modules/open-reputation/reputation.service'
 import { broadcastToTrade } from '../../modules/open-p2p/chat-room-registry'
+import { executeSettlement } from '../../modules/open-settlement/settlement-orchestrator'
+import { wdkSettlementProvider, buyerIndexFor } from '../../modules/open-settlement/wdk-settlement.provider'
+import { config } from '../../config'
 
 /**
  * Sails Protocol — Coordination Protocol (Event Handlers)
@@ -34,6 +37,17 @@ import { broadcastToTrade } from '../../modules/open-p2p/chat-room-registry'
  *                                   emit this same event after persisting a
  *                                   Message, so this is the one place either
  *                                   transport's messages reach WS clients)
+ *   - openp2p.trade.created        → OpenSettlement reacts, ONLY when
+ *                                   config.features.autoSettleOnMatch is
+ *                                   true (default false — see config's own
+ *                                   comment): calls settlement-orchestrator.ts's
+ *                                   executeSettlement(), the real end-to-end
+ *                                   escrow-lock -> emulated-PIX-receipt ->
+ *                                   signed-WDK-release sequence. This is
+ *                                   "the P2P engine giving Match" in this
+ *                                   codebase's actually-built code — the
+ *                                   Intent Engine's own MATCHED state has
+ *                                   no real matching engine wired to it yet.
  *
  * RFC-007 D8/D9's Outcome Engine, applied at the settlement.escrow.released/
  * refunded handlers below: the same fund movement (release or refund) means
@@ -177,5 +191,23 @@ export function registerEventHandlers(): void {
   // onto Pears — that direction stays HumanChatChannel-only).
   eventBus.on('openp2p.message.sent', (payload) => {
     broadcastToTrade(payload.tradeId, { type: 'NEW_MESSAGE', payload })
+  })
+
+  // ── Sails OpenSettlement reacts to a Match (openp2p.trade.created) ────────
+  // Off by default (config.features.autoSettleOnMatch) — this event fires
+  // for every real trade in this codebase, not only agent-driven demo
+  // trades, so unconditional auto-release would silently bypass the
+  // negotiation/dispute-window design (Escrow.timelockHours). Deliberately
+  // not awaited into the emit() call site in trade.service.ts — a
+  // settlement failure here must not make Trade creation itself fail.
+  eventBus.on('openp2p.trade.created', async (payload) => {
+    if (!config.features.autoSettleOnMatch) return
+
+    try {
+      const buyerAddress = await wdkSettlementProvider.getAccountAddress(buyerIndexFor(payload.buyerId))
+      await executeSettlement({ tradeId: payload.tradeId, buyerReceivingAddress: buyerAddress })
+    } catch (err) {
+      console.error(`[handlers] autoSettleOnMatch failed for trade ${payload.tradeId}:`, err instanceof Error ? err.message : err)
+    }
   })
 }

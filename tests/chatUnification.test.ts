@@ -43,6 +43,16 @@ jest.mock('../src/modules/open-p2p/reconciliation.service', () => ({
   reconciliationService: { reconcilePeerPair: jest.fn().mockResolvedValue([]) },
 }))
 
+// @tetherto/wdk-wallet-evm ships pure ESM (no CJS build) — handlers.ts now
+// transitively imports it via settlement-orchestrator.ts/escrow.service.ts/
+// wdk-settlement.provider.ts (executeSettlement()'s auto-settle-on-match
+// wiring). None of this suite's tests trigger openp2p.trade.created, so
+// it's mocked out entirely, same reasoning as routes.test.ts.
+jest.mock('@tetherto/wdk-wallet-evm', () => ({
+  __esModule: true,
+  default: class FakeWalletManagerEvm {},
+}))
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { registerEventHandlers } = require('../src/common/events/handlers')
 // eslint-disable-next-line @typescript-eslint/no-var-requires

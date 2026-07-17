@@ -52,8 +52,11 @@
  * live network — only the actual hole-punched connection itself can't be
  * exercised here).
  *
- * WDK USDT settlement is only real when MOCK_ESCROW=false and
- * WDK_SEED_PHRASE/WDK_USDT_CONTRACT are set (.env.example) — otherwise
+ * Steps 8-9 (escrow lock, emulated PIX receipt, USDT release) are a
+ * single call to `settlement-orchestrator.ts`'s `executeSettlement()` —
+ * the real orchestration function, not this script re-implementing the
+ * sequence inline. WDK USDT settlement is only real when MOCK_ESCROW=false
+ * and WDK_SEED_PHRASE/WDK_USDT_CONTRACT are set (.env.example) — otherwise
  * escrow.service.ts's own config gate (RT-001) silently uses
  * MockSettlementProvider, same as every other escrow flow in this repo.
  * This script never assumes real funds moved; it reports which provider
@@ -74,7 +77,7 @@ import { connectRedis } from '../common/redis'
 import { identityService } from '../modules/open-identity/identity.service'
 import { liquidityRouter } from '../modules/open-liquidity/liquidity.service'
 import { tradeService } from '../modules/open-p2p/trade.service'
-import { escrowService } from '../modules/open-settlement/escrow.service'
+import { executeSettlement } from '../modules/open-settlement/settlement-orchestrator'
 import { wdkSettlementProvider } from '../modules/open-settlement/wdk-settlement.provider'
 import { qvacAgentProvider } from '../modules/open-agents/qvac-agent.provider'
 import { BuyerAgent } from '../modules/open-agents/buyer-agent'
@@ -172,29 +175,24 @@ async function main() {
     console.log('   (QVAC sinalizou "reject" — em produção isso vai para o Policy Engine decidir, não é bloqueado aqui automaticamente. Prosseguindo.)')
   }
 
-  step(8, TOTAL, 'Vendedor cria e trava o escrow (Sails OpenSettlement)...')
-  const escrow = await escrowService.createEscrow({
-    tradeId: trade.id,
-    type: 'WDK_USDT_EVM',
-    lockedAmount: trade.amount.toString(),
-    asset: 'USDT_ERC20',
-  })
-  const locked = await escrowService.lockFunds(escrow.id, seller.id)
+  step(8, TOTAL, 'executeSettlement(): escrow travado, PIX (emulado) confirmado pelo Vendedor, USDT liberado...')
   const usingRealWdk = !config.features.mockEscrow && Boolean(config.wdk.seedPhrase)
-  console.log(`   Escrow: ${locked.id} — status ${locked.status} (provider: ${usingRealWdk ? 'WDK_USDT_EVM real (testnet)' : 'MOCK — MOCK_ESCROW/WDK_SEED_PHRASE não configurados para real'})`)
-  console.log(`   Tx de lock: ${locked.txLockId}`)
-
-  console.log('\n   Comprador paga PIX (fora do protocolo — fiat nunca é intermediado, PROJECT_CONTEXT.md §1)...')
-  await escrowService.markPaymentSent(escrow.id, buyer.id)
-  console.log('   Pagamento PIX marcado como enviado (uma prova real viria via Sails OpenProof em produção — RFC-003)')
-
-  step(9, TOTAL, 'Vendedor libera USDT para o Comprador...')
   const buyerAddress = usingRealWdk
     ? await wdkSettlementProvider.getAccountAddress(BUYER_DEMO_ACCOUNT_INDEX)
     : 'mock-buyer-address'
-  const released = await escrowService.releaseFunds(escrow.id, buyerAddress, seller.id)
+
+  const settlement = await executeSettlement({
+    tradeId: trade.id,
+    buyerReceivingAddress: buyerAddress,
+    sellerAgentId: sellerAgent.agentId,
+  })
+  console.log(`   Escrow: ${settlement.escrowId} (provider: ${usingRealWdk ? 'WDK_USDT_EVM real (testnet)' : 'MOCK — MOCK_ESCROW/WDK_SEED_PHRASE não configurados para real'})`)
+  console.log(`   Tx de lock: ${settlement.lockTxId}`)
+  console.log(`   PIX confirmado por ${settlement.pixConfirmation.confirmedBy} (emulado — ref ${settlement.pixConfirmation.reference}; uma prova real viria via Sails OpenProof em produção, RFC-003)`)
+
+  step(9, TOTAL, 'Vendedor liberou USDT para o Comprador...')
   console.log(`   Liberado para ${buyerAddress}`)
-  console.log(`   Tx de release: ${released.txReleaseId}`)
+  console.log(`   Tx de release: ${settlement.releaseTxId}`)
 
   console.log('\n=== Fluxo completo: Agentes (QVAC) → Intent/Oferta → Negociação (Pears) → Risco (QVAC) → Settlement (WDK) → Liberação ===')
 
