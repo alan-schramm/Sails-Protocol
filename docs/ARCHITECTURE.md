@@ -399,8 +399,9 @@ the same rule to the newer diagram below:
   8 modules → WDK/Pears/QVAC → Bitcoin·Liquid·Lightning·USDT) — for
   `README.md`, `SDK_GUIDE.md`, and onboarding material, answering "what
   does a developer actually build on." This is also the diagram used in
-  `DEVELOPER_JOURNEY.md`. "Sails P2P Trading SDK" is the MVP's branded
-  release name for the Sails SDK module row below — see
-  `PROJECT_CONTEXT.md` section 3 for the naming rule (developer-facing
-  material uses the MVP name, architecture/spec tables below keep the
-  generic "Sails SDK").
+  `DEVELOPER_JOURNEY.md`. "Sails P2P Trading SDK" is the first named
+  release under the Named-SDK Rule (`PROJECT_CONTEXT.md` section 3) —
+  permanent, not an MVP placeholder that reverts to generic "Sails SDK"
+  once other modules ship. Developer-facing material uses the concrete
+  name; architecture/spec tables below keep the generic "Sails SDK" as
+  the underlying package/interface family name only.
