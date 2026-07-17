@@ -21,9 +21,16 @@
 
 > **Updated same day, route-restoration pass.** Section 1's biggest gap —
 > HTTP routes for open-identity, open-p2p, open-settlement, and
-> open-liquidity — is now closed. Only open-reputation (routes *and*
-> service, genuinely not started) remains. `npm run build` and `npm test`
-> both pass with the new routes registered in `app.ts`.
+> open-liquidity — is now closed. `npm run build` and `npm test` both pass
+> with the new routes registered in `app.ts`.
+
+> **Updated again same day — open-reputation built.** The one module this
+> file flagged as more than route wiring (needed a real service layer,
+> not just an HTTP shell) is now done: `reputation.service.ts` +
+> `reputation.routes.ts`, with `recordOutcome()` wired dispute-aware into
+> `common/events/handlers.ts`. Section 1 is now fully closed — every
+> module has both routes and a real service layer. `npm run build`/
+> `npm test` pass at 58 tests, 5 suites.
 
 ---
 
@@ -32,16 +39,9 @@
 `config/index.ts`, `common/database/index.ts`, `common/redis/index.ts`,
 and `common/errors/index.ts` — all previously listed here as missing —
 **now exist and are imported directly (uncommented) at the top of
-`app.ts`.** See section 13. Route wiring is also done now — see 13 for
-each module. What's actually still missing:
-
-- [ ] `modules/open-reputation/` — reputation routes + service (score
-      calculation, leaderboard, rating submission) — genuinely not started,
-      neither routes nor service exist yet. The one module in this section
-      that's more than route wiring — needs a real service layer built
-      first (`recordOutcome()`/`rate()` per RFC-007 D8/D9,
-      `PROTOCOL_SPECIFICATION.md` §1.6), not just an HTTP shell around
-      something that already exists.
+`app.ts`.** See section 13. Route wiring is also done now, for every
+module including `open-reputation` — see 13 for each. **This section is
+now fully closed.**
 
 ## 2. Immediate Priority — Restore a Runnable Server
 
@@ -133,19 +133,24 @@ makes the same point in more detail.
       are real dependencies now, not just a `package.json` script pointing
       at nothing.
 - [x] `tests/routes.test.ts` *(new — route-restoration pass, 2026-07-16)*
-      — 20 `app.inject()` HTTP round-trip tests through the real routes
+      — 26 `app.inject()` HTTP round-trip tests through the real routes
       added in this pass (identity, peers, liquidity, trade, chat,
-      settlement), Prisma/Redis/eventBus/`pearNodeRegistry` mocked, same
-      pattern as the other suites. Caught two real bugs before they
-      shipped: `verifySignedChallenge()` not returning its session token
-      (see section 3), and the chat message-history route having no auth
-      at all while the WebSocket side already restricted it to the
-      trade's two parties — both fixed, not just found.
+      settlement, reputation), Prisma/Redis/eventBus/`pearNodeRegistry`
+      mocked, same pattern as the other suites. Caught two real bugs
+      before they shipped: `verifySignedChallenge()` not returning its
+      session token (see section 3), and the chat message-history route
+      having no auth at all while the WebSocket side already restricted
+      it to the trade's two parties — both fixed, not just found.
+- [x] `tests/reputationOutcome.test.ts` *(new — open-reputation pass)* —
+      4 tests verifying the RFC-007 D8/D9 dispute-aware branching in
+      `common/events/handlers.ts` directly: happy-path completion vs. a
+      RELEASE dispute ruling, plain refund vs. a REFUND dispute ruling.
+      Confirms the "winner gets Positive, loser gets Negative, no dispute
+      means Neutral" rule actually holds, not just that the code compiles.
 - [ ] **Still open, in the priority order `BACKLOG.md` P0/P2 imply:**
       escrow state machine transitions beyond what `disputeFlow.test.ts`
-      already covers, liquidity matching (`open-liquidity`), and event bus
-      dispatch (`common/events`) — none of these have dedicated test files
-      yet.
+      already covers, and liquidity matching (`open-liquidity`) — no
+      dedicated test files yet.
 
 ## 11. Frontend
 
@@ -214,14 +219,27 @@ makes the same point in more detail.
       create/lock/payment-sent/release/dispute/refund + a new dispute
       resolve route, per `API_REFERENCE.md` §4 (updated alongside this to
       document the resolve route, which wasn't listed there before)
+- [x] `modules/open-reputation/reputation.service.ts` +
+      `reputation.routes.ts` *(open-reputation pass)* — the module's
+      first service layer, not just routes: `recordOutcome()` (RFC-007
+      D8's sole score-mutating entrypoint), `rate()` (informational only,
+      never touches `reputationScore`), `getScore()`, `getLeaderboard()`,
+      per `API_REFERENCE.md` §6. `recordOutcome()` wired into
+      `common/events/handlers.ts`'s `settlement.escrow.released`/
+      `refunded` reactions, dispute-aware (checks for a resolved Dispute
+      to tell a happy-path completion apart from a RELEASE/REFUND
+      ruling) — see `tests/reputationOutcome.test.ts`.
 
 ---
 
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority
-overrides it — section 1 ("Missing Files," the route wiring) is now the
-highest-leverage remaining gap, since the server itself boots and the
-service layers behind most of those routes already exist. Update the
-checkboxes in this file as you go; don't let this document drift out of
-sync with reality the way this version did before the 2026-07-16 re-audit.
+overrides it. Section 1 ("Missing Files," the route wiring) is now fully
+closed — every module has both a real service layer and HTTP routes.
+What's left is genuinely lower-leverage: production-grade Settlement/
+Liquidity providers (sections 4-5), rate limiting (6), remaining test
+coverage (10), and the CRDT-free `FallbackTransportProvider`/`/ws/relay`
+gap `BACKLOG.md` P0 tracks. Update the checkboxes in this file as you go;
+don't let this document drift out of sync with reality the way this
+version did before the 2026-07-16 re-audit.

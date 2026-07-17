@@ -16,17 +16,18 @@ Checked directly against the CTO's proposed 6-stage schedule, not assumed:
 | Stage | Status |
 |---|---|
 | 1. Protocol Freeze | ✅ **Done** — `PROTOCOL_FREEZE_REPORT.md`, confirmed "Sails Protocol v1.0 — Architecture Frozen" |
-| 2. Implementation Review | 🔲 **Not started** — this backlog is the entry point |
+| 2. Implementation Review | 🟡 **Substantially in progress** *(updated 2026-07-16, open-reputation pass)* — every P0 item is done or explicitly scoped-out; every one of the 5 application/cross-module services (OpenIdentity, OpenLiquidity, OpenP2P, OpenSettlement, OpenReputation) now has both a real service layer and HTTP routes, `API_REFERENCE.md`-conformant, tested via `app.inject()`. Genuinely remaining: production-grade Settlement/Liquidity providers beyond Mock/Internal, OpenProof's service layer, and OpenAgents/OpenFinance (both explicitly blocked on external dependencies, not on this backlog's own pace) |
 | 3. Economic Model & Governance | 🟡 **Substantially already done** — `PROTOCOL_ECONOMY.md` (8 sections) and `GOVERNANCE.md` already cover fees, incentives, value capture, neutrality, RFC approval, module registration. One genuine gap (formal version-stability criteria) is correctly deferred to the future "RFC de Operação" phase, not blocking here. |
 | 4. Resilience Reviews | 🟡 **Partially done** — `RED_TEAM_REVIEW.md` already covers several attack scenarios that overlap with "Economic Attack" (RT-003, wash-trading reputation laundering) and "Protocol Resilience" (RT-005, governance capture during bootstrap; RT-006/007, name-squatting and arbitration griefing at scale). No dedicated Network Simulation exercise exists yet — genuinely not started. |
 | 5. Release Candidate 1 (RC1) | 🔲 **Not started** — blocked on Implementation Review |
 | 6. Grant Submission | 🔲 **Not started** — blocked on RC1 |
 
 **The project is not in "ideation" by any reasonable reading of the above
-— Protocol Freeze is complete, and two of the four remaining stages
-before RC1 are already partially or substantially satisfied by existing
-documents.** What's genuinely ahead is Implementation Review (this
-backlog) and a Network Simulation exercise within Resilience Reviews.
+— Protocol Freeze is complete, and three of the four remaining stages
+before RC1 are already partially or substantially satisfied.** What's
+genuinely ahead: finishing Implementation Review's remaining P2/P3 items
+(production Settlement/Liquidity providers, OpenProof's service layer),
+a Network Simulation exercise within Resilience Reviews, and RC1 itself.
 
 ---
 
@@ -69,8 +70,8 @@ backlog) and a Network Simulation exercise within Resilience Reviews.
 | Participant payout address | §1.1 | 🔲 Not started — `resolveDispute(RELEASE)` requires the caller to pass `releaseToAddress` because no schema field models a participant's payout address; a real gap surfaced by the dispute work |
 | Sails OpenIdentity | §1.1, RFC-001 | 🟢 **Routes now real** *(route-restoration pass, 2026-07-16)* — `identity.routes.ts` + new `identity.service.ts` (register/challenge/authenticate/get participant, `API_REFERENCE.md` §2). `common/middleware/auth.ts`'s Ed25519 challenge-response (`RED_TEAM_REVIEW.md` RT-002) is now actually wired as `requireAuth` on every write-side route across identity/peers/liquidity/p2p/settlement. Fixed a real bug found in the process: `verifySignedChallenge()` never returned the session token it generated, so authentication verified but produced no usable credential — see `TODO.md` §3. Remaining: Growth path beyond Level-0 Keys (DID/Credentials/Trust Graph, `PROTOCOL_SPECIFICATION.md` §1.1) and Operational Profiles, below |
 | Operational Profiles *(new — RFC-007 D8/D11)* | §1.1, RFC-007 | 🔲 Not started — additive OpenIdentity attribute (`OperationalProfileGrant`), blocked on OpenIdentity module itself |
-| Sails OpenReputation | §1.6 | 🔲 Not started |
-| Outcome Engine + `rate()` demotion *(new — RFC-007 D8/D9)* | §1.6, RFC-007 | 🔲 Not started — bundle with OpenReputation's first service layer; makes `recordOutcome()` the sole score input, `rate()` informational only, `CancelledByAgreement` always Neutral |
+| Sails OpenReputation | §1.6 | 🟢 **First service layer + routes, done and tested** *(open-reputation pass, 2026-07-16)* — `reputation.service.ts` + `reputation.routes.ts`, `API_REFERENCE.md` §6. `User.reputationScore` (single `Float`) stands in for `ReputationScore`'s full `{tradeScore, volumeScore, settlementScore, disputeRate}` breakdown — a documented simplification, not silently narrowed; `total`/`disputeRate` are real, the sub-scores report zero. See the Outcome Engine row directly below for the score-mutation half |
+| Outcome Engine + `rate()` demotion *(new — RFC-007 D8/D9)* | §1.6, RFC-007 | ✅ **Done, verified** — `recordOutcome()` is the sole `reputationScore` input (asymmetric +2/-5, a disputed loss costs more than a clean trade earns); `rate()` (`POST /v1/reputation/rate`) is informational only, never calls it, one rating per `(tradeId, raterId)` enforced by the schema's `@@unique`. Wired dispute-aware into `common/events/handlers.ts`'s `settlement.escrow.released`/`refunded` reactions: a plain completion/refund is Positive/Neutral for both parties, but a RELEASE/REFUND dispute ruling means one party won and the other lost — the handler checks for a resolved `Dispute` row to tell the two apart, since the escrow event payload alone doesn't carry that context. `CancelledByAgreement` (no dispute ever raised) always classifies Neutral, never Negative, per RFC-007 D9. 4 tests in `tests/reputationOutcome.test.ts` verify all four branches directly, not just through an HTTP round-trip |
 | **Sails OpenProof** *(new — RFC-006)* | §1.8, RFC-003, RFC-006 | 🟡 **Data model already real** — `Claim`/`Proof`/`EvidenceVerification` tables in `DATABASE.md`, TypeScript interfaces in `common/types`. Remaining: `modules/open-proof/proof.service.ts` — the actual `assertClaim()`/`submitProof()`/`verify()` service logic doesn't exist yet |
 | Proof Registry, `EvidenceProvider`, Evidence Bundle *(new — RFC-007 D1/D2/D6)* | §1.8, RFC-007 | 🔲 Not started — scope these into OpenProof's first service layer alongside `proof.service.ts` above rather than as a later addition (per RFC-007's own Reference Implementation Plan) |
 | `TimestampAnchor` (`anchorProof` on `EvidenceReference`) *(new — RFC-008 D1)* | §1.8, RFC-008 | 🔲 Not started — scope alongside `EvidenceProvider` above; first implementation should be `opentimestamps` (Bitcoin-anchored), not `rfc3161`, per RFC-008's own Reference Implementation Plan |

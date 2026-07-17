@@ -1,6 +1,7 @@
 import { prisma } from '../database'
 import { eventBus } from './event-bus'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
+import { reputationService } from '../../modules/open-reputation/reputation.service'
 
 /**
  * Sails Protocol — Coordination Protocol (Event Handlers)
@@ -12,24 +13,33 @@ import { reconciliationService } from '../../modules/open-p2p/reconciliation.ser
  * Ownership map (who reacts to what, and why):
  *   - settlement.escrow.locked    → OpenP2P reacts (Trade.status = ACTIVE)
  *   - settlement.escrow.released  → OpenP2P reacts (Trade.status = COMPLETED)
- *                                   OpenReputation reacts (increment stats)
+ *                                   OpenReputation reacts (increment stats,
+ *                                   recordOutcome() — dispute-aware, see below)
  *   - settlement.escrow.disputed  → OpenP2P reacts (Trade.status = DISPUTED)
  *   - settlement.escrow.refunded  → OpenP2P reacts (Trade.status = CANCELLED)
+ *                                   OpenReputation reacts (recordOutcome() —
+ *                                   dispute-aware, see below)
  *   - peer.connected              → OpenP2P reacts (RFC-011: reconcile every
  *                                   active trade shared with the peer that
  *                                   just (re)connected against Postgres, the
  *                                   authoritative source a dropped P2P
  *                                   message never actually lost data from)
  *
- * NOTE: In this reference implementation, OpenP2P and OpenReputation do not
- * yet have their own dedicated service files in this fragment of the
- * codebase (only OpenSettlement, OpenIdentity/Pears transport and
- * OpenLiquidity are present). The reactions below are written as this
- * dispatcher's own responsibility for now. When trade.service.ts and
- * reputation.service.ts are restored, move the Prisma calls below into
- * those services and have this file call `tradeService.markActive(...)`
- * etc. instead of touching Prisma directly — that is the correct end
- * state per the Protocol Spec vs Reference Implementation separation.
+ * RFC-007 D8/D9's Outcome Engine, applied at the settlement.escrow.released/
+ * refunded handlers below: the same fund movement (release or refund) means
+ * something different depending on how the trade got there. A plain happy-
+ * path completion/cancellation is Positive/Neutral for both parties; a
+ * dispute RELEASE/REFUND ruling means one party won and the other lost —
+ * checked here via a resolved Dispute row for the trade, since the escrow
+ * event payload itself doesn't carry that context.
+ *
+ * NOTE: In this reference implementation, OpenP2P's Trade-status writes
+ * below still happen directly in this dispatcher rather than through a
+ * `tradeService.markActive()`-style call — trade.service.ts (added in the
+ * route-restoration pass) owns Trade *creation*, not yet these reactive
+ * status transitions. Moving them there is a clean, low-risk follow-up,
+ * not done in this pass to keep the diff scoped to what OpenReputation
+ * actually needed.
  */
 
 export function registerEventHandlers(): void {
@@ -63,6 +73,21 @@ export function registerEventHandlers(): void {
       to: 'COMPLETED',
       triggeredBy: payload.triggeredBy,
     }, payload.tradeId)   // correlationId (RFC-010)
+
+    // RFC-007 D8 Outcome Engine — dispute-aware, per this file's own doc
+    // comment above. A RELEASE ruling means the buyer won and the seller
+    // lost, even though funds moved the exact same way a happy-path
+    // completion does.
+    const resolvedRelease = await prisma.dispute.findFirst({
+      where: { tradeId: payload.tradeId, status: 'RESOLVED', ruling: 'RELEASE' },
+    })
+    if (resolvedRelease) {
+      await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'POSITIVE')
+      await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEGATIVE')
+    } else {
+      await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'POSITIVE')
+      await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'POSITIVE')
+    }
   })
 
   eventBus.on('settlement.escrow.disputed', async (payload) => {
@@ -80,10 +105,25 @@ export function registerEventHandlers(): void {
   })
 
   eventBus.on('settlement.escrow.refunded', async (payload) => {
-    await prisma.trade.update({
+    const trade = await prisma.trade.update({
       where: { id: payload.tradeId },
       data: { status: 'CANCELLED', cancelledAt: new Date() },
     })
+
+    // Same dispute-aware check as settlement.escrow.released above. A
+    // REFUND ruling means the seller won and the buyer lost; a plain
+    // refund with no dispute ever raised is a mutual cancellation —
+    // RFC-007 D9's rule: always Neutral, never Negative, for either party.
+    const resolvedRefund = await prisma.dispute.findFirst({
+      where: { tradeId: payload.tradeId, status: 'RESOLVED', ruling: 'REFUND' },
+    })
+    if (resolvedRefund) {
+      await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'POSITIVE')
+      await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEGATIVE')
+    } else {
+      await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEUTRAL')
+      await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEUTRAL')
+    }
   })
 
   // ── Sails OpenReputation reacts to disputes (penalize dispute count) ───────

@@ -17,15 +17,7 @@ import { tradeRoutes } from './modules/open-p2p/trade.routes'
 import { chatRoutes } from './modules/open-p2p/chat.routes'
 import { settlementRoutes } from './modules/open-settlement/settlement.routes'
 import { peerRoutes } from './infrastructure/p2p/pear.routes'
-
-// ── NOTE (route-restoration pass, TODO.md §1) ───────────────────────────────
-// open-reputation is the one module still genuinely missing both routes
-// and a service — TODO.md deliberately scopes it separately (bigger than
-// wiring, since the service layer doesn't exist yet either). Not wired
-// here; do not add a route file that reaches into Prisma directly to fake
-// it — build the real reputation.service.ts first, per CONTRIBUTING.md §6.
-//
-// import { reputationRoutes } from './modules/open-reputation/reputation.routes'
+import { reputationRoutes } from './modules/open-reputation/reputation.routes'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -133,14 +125,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(tradeRoutes)
   await app.register(chatRoutes)
   await app.register(settlementRoutes)
+  await app.register(reputationRoutes)
 
   // ── Register event handlers (Coordination Protocol) ──────────────────────
   registerEventHandlers()
-
-  // reputationRoutes intentionally not registered — see the import comment
-  // above. open-reputation needs a real service built first, not just
-  // route wiring; restore this line once that exists:
-  //   await app.register(reputationRoutes)
 
   return app
 }
