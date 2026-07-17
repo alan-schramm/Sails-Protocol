@@ -173,6 +173,11 @@ mapping a Prisma `Offer` row into a `LiquidityOffer`. Extracted into
 7. Add your module's routes to `API_REFERENCE.md` under
    `/v1/{yourmodule}/`.
 8. Update the module status table in `PROJECT_CONTEXT.md` (✅/🏗️/📋).
+9. If this module ships its own SDK-facing surface, name it per the
+   Named-SDK Rule (`PROJECT_CONTEXT.md` section 3) — a specific,
+   concrete, use-case name (like `Sails P2P Trading SDK`), never an
+   extension of generic "Sails SDK." Do this at design time, not as a
+   rename after the fact.
 
 ---
 
