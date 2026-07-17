@@ -1,10 +1,45 @@
-# Sails Protocol — Reference Implementation
+# Sails Protocol
 
-Non-custodial, intent-driven coordination protocol. This is Satsails'
-reference implementation — the first proof that Sails Protocol works in
-production, not the protocol specification itself.
+**Open infrastructure for interoperable P2P Financial Marketplaces.**
 
-**Read `docs/PROJECT_CONTEXT.md` first if you're new here.**
+Today, every wallet has to rebuild marketplace, reputation, identity,
+escrow, settlement, mediation, and antifraud from scratch. Sails Protocol
+standardizes that infrastructure through a single SDK and interoperable
+modules — non-custodial, intent-driven, built for Bitcoin, USDT, Lightning,
+Liquid, and multi-chain wallets.
+
+This repository is the **Reference Wallet implementation** — Satsails'
+own integration, the first concrete proof that the protocol works in
+production. It is one implementation of the spec, not the spec itself
+(the same relationship Bitcoin Core has to the Bitcoin protocol).
+
+```
+                    Wallet
+                       │
+                       ▼
+                  Sails SDK
+                       │
+   ════════════════════════════════════
+              Sails Protocol
+   ════════════════════════════════════
+   OpenP2P          OpenSettlement
+   OpenIdentity     OpenProof
+   OpenReputation   OpenAgents
+   OpenLiquidity    OpenFinance (roadmap)
+   ════════════════════════════════════
+      WDK      ·      Pears      ·      QVAC
+   ════════════════════════════════════
+   Bitcoin · Liquid · Lightning · USDT
+```
+
+**Core** (protocol, technology-agnostic): Intent, Timeline, Events,
+Capability, Policy, Proof, Identity, Settlement, Reputation.
+**Not Core** (implementation choices, belong here in the Reference Wallet,
+never to the spec): PIX, Lightning, Bitcoin as settlement rails; HyperDHT,
+WebSocket as transport; Redis, PostgreSQL, Prisma as storage.
+
+**Read `docs/PROJECT_CONTEXT.md` first if you're new here** — it has the
+full positioning, the Ideal Customer Profile, and the Developer Journey.
 
 ## Status
 

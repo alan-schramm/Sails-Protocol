@@ -114,6 +114,20 @@ valid forever; DID, Credentials, and Trust Graph are optional layers a
 Reference Implementation can build on top, none of which require changing
 what `Identity` fundamentally is.
 
+**Portable Identity Layer, not "the DID layer" (v1 Positioning Freeze).**
+"DID" in the diagram above is one illustrative interoperability format, not
+a commitment of the protocol to the W3C DID specification specifically. The
+Core contract only requires that whatever sits above Level-0 Keys be
+*portable* — usable across wallets and applications without re-registering
+identity from scratch. A Reference Implementation is free to satisfy that
+with W3C DID, a Nostr keypair/NIP-05 identifier, a bare Ed25519 key plus an
+attestation format, or something not yet invented — the protocol has no
+opinion, the same way it has none on Postgres vs. CockroachDB (section
+2B of `PROJECT_CONTEXT.md`). When describing this primitive in
+positioning material, "Portable Identity Layer" is the technology-neutral
+term to use; "DID" is only correct when the discussion is genuinely about
+that one specific format choice.
+
 **Operational Profiles (RFC-007, `rfcs/RFC-007-real-world-p2p-requirements.md`).**
 A further additive, OpenIdentity-module-level attribute, orthogonal to the
 Keys/DID/Credentials/Trust Graph growth path above and to `Identity`'s core
