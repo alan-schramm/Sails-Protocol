@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 20.x matches the @types/node version already pinned in
+        # package.json; 22.x is included because the SDK
+        # (packages/sails-sdk) relies on the global fetch/WebSocket APIs
+        # that only became stable across both Node LTS lines recently —
+        # this catches a regression in either before it reaches main.
+        node-version: [20.x, 22.x]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      # npm ci also runs @prisma/client's own postinstall hook, which
+      # generates the Prisma client from prisma/schema.prisma — no
+      # separate `prisma generate` step needed (verified locally: a
+      # plain install populates node_modules/.prisma/client on its own).
+      - name: Install dependencies
+        run: npm ci
+
+      # Builds every workspace package (@sails/p2p-schemas, @sails/sdk)
+      # plus the root server — see package.json's "build" script.
+      - name: Build
+        run: npm run build
+
+      # No live Postgres/Redis/P2P network required — every test in this
+      # repo mocks its own network/database boundary (see tests/*.test.ts
+      # and packages/sails-sdk/tests/*.test.ts's own header comments for
+      # why that's the deliberate, established pattern here).
+      - name: Test
+        run: npm test

@@ -52,6 +52,27 @@ documents, and explains why a few filenames cited inside them
 evaluation docs) don't resolve to a file in this repo — that's
 deliberate (`docs/GOVERNANCE.md` §6C), not a broken link.
 
+## The three technologies Sails Protocol coordinates
+
+The bottom row of the diagram above — **WDK**, **Pears**, **QVAC** — are
+three separate, independently-developed technologies this codebase does
+**not** reimplement. Sails Protocol's actual job is coordinating them: it
+takes an AI agent's decision (QVAC), lets it reach a counterparty with no
+central server (Pears), and settles the resulting trade with a real,
+digitally signed transaction (WDK) — the same real, orchestrated sequence
+`npm run demo:qvac` runs end to end (`demo-satsails-qvac.ts`,
+`src/core/intent-engine.ts`, `src/modules/open-settlement/settlement-orchestrator.ts`).
+If any of the three names below aren't familiar yet, that's expected —
+read their docs before the rest of this codebase, since `src/infrastructure/`,
+`src/modules/open-agents/`, and `src/modules/open-settlement/` all wrap
+their real, official SDKs directly, not an abstraction invented here.
+
+| Technology | What it provides | Official docs |
+|---|---|---|
+| **WDK** (Tether's Wallet Development Kit) | Real, non-custodial key derivation and transaction signing — `@tetherto/wdk-wallet-evm` is what actually signs the USDT transfer in `wdk-settlement.provider.ts`. Sails Protocol never touches a private key directly; it only tells WDK *when* to sign, via `executeSettlement()`. | https://docs.wdk.tether.io/ |
+| **Pears** (Holepunch's P2P stack — HyperDHT/Hyperswarm) | Serverless peer discovery and direct, NAT-traversed (hole-punched) connections between two nodes — `pear.service.ts`/`transport-provider.ts` wrap the real `hyperdht`/`hyperswarm` packages. Sails Protocol never runs its own DHT or discovery server; it only decides *what* gets sent once Pears has two peers connected. | https://docs.pears.com/ |
+| **QVAC** (Tether's local-inference AI SDK) | An LLM that runs entirely on-device (llama.cpp, GPU-accelerated, no cloud API) — `qvac-agent.provider.ts` is what actually loads the model and generates the structured `TradeIntentPayload`/offer/risk-assessment JSON. Sails Protocol never builds or trains a model; it only validates what QVAC produces before trusting it (the CISO Byzantine/Economic rules in `intent-engine.ts`). | https://docs.qvac.tether.io/ |
+
 ## Status
 
 This is a partial, actively-developed reference implementation.
