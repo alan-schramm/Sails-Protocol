@@ -139,12 +139,34 @@ makes the same point in more detail.
       `escrow.service.ts`) and `tests/autoSettleHandler.test.ts` (3 tests
       — confirms the flag actually gates it, and that a settlement
       failure doesn't crash the event dispatcher).
+- [x] **Two-person control on release** *(new — RFC-015,
+      `rfcs/RFC-015-dual-authorization-escrow-release.md`, 2026-07-18)* —
+      a real, application-layer mitigation for the single-seed custody
+      gap named above, not a claim of real multisig (checked and
+      rejected for this pass: `@tetherto/wdk-wallet-evm-erc-4337` is
+      single-owner-only against its real compiled types).
+      `escrow.service.ts`'s `releaseFunds()` — the one real choke point
+      for every release, across all three of its real callers — now
+      requires both `Trade.buyerId` and `sellerId` to have separately
+      called `POST /v1/settlement/escrow/:id/approve-release` before a
+      normal (non-disputed) release proceeds, behind
+      `config.features.requireDualApprovalForRelease`
+      (`REQUIRE_DUAL_APPROVAL_RELEASE`, default `false` — turning it on
+      changes `executeSettlement()`'s calling pattern, see the RFC's
+      Decision §5). Also fixed a real gap found while building this:
+      RFC-014's capability check had shipped inside
+      `settlement-orchestrator.ts` only, missing the direct release route
+      and the arbitrated-dispute release path — both checks now live
+      inside `releaseFunds()` itself. 13 new tests
+      (`tests/escrowReleaseControls.test.ts`).
 - [ ] `LightningHodlProvider` — currently throws `EscrowError('not yet
       implemented')` for every method. Needs a real LND/CLN integration.
 - [ ] `LiquidCovenantProvider` — does not exist yet at all, only referenced
       as an `EscrowType` enum value.
 - [ ] Real Multisig 2-of-3 Bitcoin escrow — not implemented; only `MOCK`
-      and now `WDK_USDT_EVM` are functional today.
+      and now `WDK_USDT_EVM` are functional today. RFC-015's two-person
+      control (above) is a real mitigation for *who may trigger* a
+      release, not a substitute for this.
 
 ## 5. Liquidity Providers Beyond Internal
 
@@ -271,20 +293,23 @@ makes the same point in more detail.
       the 6 formal Core components.
 - [x] **Capability Registry actually has real callers now** *(new —
       RFC-014, `rfcs/RFC-014-capability-registry-enforcement.md`,
-      2026-07-18)* — the "nothing calls it yet" half of the gap above.
+      2026-07-18; relocated by RFC-015 the same day — see next item)* —
+      the "nothing calls it yet" half of the gap above.
       `intentEngine.create()` (TradeIntent) and
-      `settlement-orchestrator.ts`'s `executeSettlement()` (immediately
-      before the real USDT release, the highest-stakes line in that file)
-      both check `capabilityRegistry.check()` now, behind a new
-      `config.features.enforceCapabilities` flag (`ENFORCE_CAPABILITIES`,
-      default `false` — same off-by-default precedent as
-      `AUTO_SETTLE_ON_MATCH`, since no deployment or test in this repo has
-      ever issued a `CapabilityGrant`). `npm run demo:qvac` issues the two
-      grants it needs unconditionally, so it works either way the flag is
-      set. Still open: `coordinationEngine.decide()` itself doesn't
-      consult the registry (unchanged from RFC-012's scope cut); no
-      route/CLI for an operator to issue grants in bulk (still one
-      self-issued `POST /v1/capabilities/register` call at a time).
+      `escrow.service.ts`'s `releaseFunds()` (immediately before the real
+      USDT release, the highest-stakes line in that file — originally
+      checked inside `settlement-orchestrator.ts`, moved into
+      `releaseFunds()` itself once RFC-015 found that location missed two
+      of its three real callers) both check `capabilityRegistry.check()`
+      now, behind a new `config.features.enforceCapabilities` flag
+      (`ENFORCE_CAPABILITIES`, default `false` — same off-by-default
+      precedent as `AUTO_SETTLE_ON_MATCH`, since no deployment or test in
+      this repo has ever issued a `CapabilityGrant`). `npm run demo:qvac`
+      issues the two grants it needs unconditionally, so it works either
+      way the flag is set. Still open: `coordinationEngine.decide()`
+      itself doesn't consult the registry (unchanged from RFC-012's scope
+      cut); no route/CLI for an operator to issue grants in bulk (still
+      one self-issued `POST /v1/capabilities/register` call at a time).
 - [ ] **Still open:** `IntentHandler` plugin registration pattern (§2.7 of
       `PROTOCOL_SPECIFICATION.md`) is fully specified but has zero code.
 

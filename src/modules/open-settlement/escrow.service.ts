@@ -1,11 +1,12 @@
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError } from '../../common/errors'
 import { AssetType } from '../../common/types'
 import { EscrowStatus, EscrowType } from '../../common/types/trade'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
 import { randomUUID as uuidv4 } from 'crypto'
 import { wdkSettlementProvider } from './wdk-settlement.provider'
+import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 
 /**
  * Sails OpenSettlement — Reference Implementation
@@ -235,6 +236,47 @@ export class EscrowService {
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     this.assertTransition(escrow.status, 'COMPLETED')
 
+    // RFC-014: the real capability check. Lives here, not in
+    // settlement-orchestrator.ts (where it originally shipped) — found
+    // while implementing RFC-015 that this is the actual single choke
+    // point every real release goes through (settlement-orchestrator.ts's
+    // executeSettlement(), settlement.routes.ts's direct
+    // POST /v1/settlement/escrow/:id/release, and dispute.service.ts's
+    // arbitrated resolveDispute()); a check placed only in the
+    // orchestrator silently missed the other two. Off by default
+    // (config.features.enforceCapabilities) — see that flag's own doc
+    // comment in config/index.ts.
+    if (config.features.enforceCapabilities) {
+      const capabilityName = CAPABILITY_IMPLEMENTATIONS.opensettlement
+      const allowed = await capabilityRegistry.check(triggeredBy, capabilityName, 'settlement.escrow.released')
+      if (!allowed) {
+        throw new ForbiddenError(
+          `${triggeredBy} has no active '${capabilityName}' capability grant covering 'settlement.escrow.released'`
+        )
+      }
+    }
+
+    // RFC-015: two-person control. Only on the normal (non-disputed)
+    // path — escrow.status is still the pre-transition value here
+    // (PAYMENT_PENDING for a normal release, DISPUTED for an arbitrated
+    // one, both allowed by assertTransition above). An arbitrated release
+    // already went through dispute.service.ts's own authorization
+    // (only the assigned, TRUSTED_ARBITRATORS-configured arbiter may
+    // call resolveDispute()) — requiring the original two counterparties
+    // to *also* agree would defeat the point of arbitration existing at
+    // all (if they could still agree, there'd be no dispute). Off by
+    // default (config.features.requireDualApprovalForRelease) — see that
+    // flag's own doc comment in config/index.ts.
+    if (config.features.requireDualApprovalForRelease && escrow.status === 'PAYMENT_PENDING') {
+      const dual = await this.hasDualApproval(escrowId)
+      if (!dual) {
+        throw new EscrowError(
+          `Release blocked: both counterparties must call POST /v1/settlement/escrow/${escrowId}/approve-release ` +
+          'before funds can be released (RFC-015 two-person control).'
+        )
+      }
+    }
+
     const provider = this.getProvider(escrow.type)
     const result = await provider.releaseFunds(escrow as unknown as EscrowRecord, toAddress)
 
@@ -293,6 +335,43 @@ export class EscrowService {
     })
 
     return updated
+  }
+
+  // RFC-015 — the two-person control's write path. Reads Trade only to
+  // validate the approver is actually one of this trade's own two
+  // counterparties (the same "read is fine, write is not" boundary
+  // createEscrow() above already relies on) — never writes to it.
+  // Idempotent: the same approver calling twice just returns the
+  // existing row rather than erroring, since re-confirming isn't
+  // meaningfully different from confirming once.
+  async approveRelease(escrowId: string, approverId: string) {
+    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    if (!escrow) throw new NotFoundError('Escrow', escrowId)
+
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+
+    if (approverId !== trade.buyerId && approverId !== trade.sellerId) {
+      throw new ForbiddenError(`${approverId} is not a counterparty (buyer or seller) of trade ${trade.id}`)
+    }
+
+    return prisma.escrowReleaseApproval.upsert({
+      where: { escrowId_approverId: { escrowId, approverId } },
+      update: {},
+      create: { escrowId, approverId },
+    })
+  }
+
+  async getReleaseApprovals(escrowId: string) {
+    return prisma.escrowReleaseApproval.findMany({ where: { escrowId }, orderBy: { approvedAt: 'asc' } })
+  }
+
+  // Distinct-approver count >= 2 — the @@unique([escrowId, approverId])
+  // constraint (schema.prisma) already guarantees no approver is counted
+  // twice, so a plain count is sufficient.
+  async hasDualApproval(escrowId: string): Promise<boolean> {
+    const count = await prisma.escrowReleaseApproval.count({ where: { escrowId } })
+    return count >= 2
   }
 
   async getEscrow(escrowId: string) {

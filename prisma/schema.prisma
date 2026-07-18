@@ -351,3 +351,25 @@ model CapabilityGrant {
   @@index([capabilityName])
   @@map("capability_grants")
 }
+
+// Two-Person Control for Escrow Release — rfcs/RFC-015-dual-authorization-escrow-release.md.
+// Application-layer maker-checker control, NOT on-chain multisig: WDK's
+// real package (@tetherto/wdk-wallet-evm-erc-4337) is single-owner-only
+// (checked against its actual compiled types before choosing this design,
+// see that RFC's Motivation) — one seed still signs the eventual transfer.
+// What this table adds is a real, persisted gate *before* that seed is
+// ever asked to sign: both of a trade's own two counterparties
+// (Trade.buyerId, Trade.sellerId) must independently record approval
+// before escrow.service.ts's releaseFunds() will proceed on the normal
+// (non-disputed) path. Arbitrated releases (Escrow.status === 'DISPUTED')
+// intentionally bypass this — see that RFC's Decision §3.
+model EscrowReleaseApproval {
+  id         String   @id @default(uuid())
+  escrowId   String
+  approverId String   // must equal the trade's buyerId or sellerId — enforced in escrow.service.ts, not by a DB constraint
+  approvedAt DateTime @default(now())
+
+  @@unique([escrowId, approverId])
+  @@index([escrowId])
+  @@map("escrow_release_approvals")
+}

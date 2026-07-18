@@ -96,6 +96,22 @@ export const config = {
     // issued) — flipping this to true with no grants issued would reject
     // every TradeIntent and settlement, not fail safe silently.
     enforceCapabilities: process.env.ENFORCE_CAPABILITIES === 'true',
+    // RFC-015: application-layer two-person control on escrow.service.ts's
+    // releaseFunds() — NOT on-chain multisig (WDK's real package is
+    // single-owner only, checked before choosing this design). When on,
+    // the normal (non-disputed) release path requires both of the
+    // trade's own two counterparties (Trade.buyerId, Trade.sellerId) to
+    // have separately called POST /v1/settlement/escrow/:id/approve-release
+    // first. Default false for the same reason every other
+    // behavior-changing flag in this file is: turning it on changes the
+    // required calling pattern (the atomic executeSettlement() convenience
+    // function will start failing at its release step, by design, since
+    // no approval can exist yet within that same synchronous call — see
+    // RFC-015's Alternatives Considered). Arbitrated releases
+    // (Escrow.status === 'DISPUTED') always bypass this check, regardless
+    // of this flag — a dispute existing already means the two-party
+    // agreement this control is meant to enforce didn't happen.
+    requireDualApprovalForRelease: process.env.REQUIRE_DUAL_APPROVAL_RELEASE === 'true',
   },
 
   trade: {

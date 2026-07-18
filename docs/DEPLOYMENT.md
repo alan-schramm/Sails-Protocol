@@ -159,6 +159,24 @@ required for local development.
 - [x] **Ed25519 auth middleware is in place** — real challenge-response
       (`common/middleware/auth.ts`), not a placeholder. There is no
       `JWT_SECRET` to configure; nothing here needs one.
+- [x] **Capability Registry has real enforcement callers** (RFC-014,
+      `ENFORCE_CAPABILITIES`) and **escrow release has a two-person
+      control option** (RFC-015, `REQUIRE_DUAL_APPROVAL_RELEASE`) — both
+      real, both off by default (no `CapabilityGrant`/approval exists
+      anywhere by default, so enforcing unconditionally would reject
+      everything). Turning `REQUIRE_DUAL_APPROVAL_RELEASE` on changes the
+      required calling pattern for a release — read RFC-015's Decision §5
+      before enabling it, it is not a drop-in flag flip.
+- [ ] Custody is still single-seed, not real multisig —
+      `WDK_SEED_PHRASE` controls the treasury account and every per-trade
+      escrow sub-account (two-hop derivation, not independent keys; see
+      `wdk-settlement.provider.ts`'s own doc comment). RFC-015's
+      two-person control is a real, application-layer mitigation for
+      *who may trigger* a release, not a replacement for real on-chain
+      multisig — that remains future work (RFC-015's Alternatives
+      Considered #1: `@tetherto/wdk-wallet-evm-erc-4337` is
+      single-owner-only, checked against its real compiled types before
+      choosing this pass's design).
 - [ ] A real Postgres migration run (`npm run db:migrate`) against
       production infra — every schema change in this repo so far has
       only been verified via `prisma generate` (client types) in an
