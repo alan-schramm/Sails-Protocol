@@ -20,6 +20,14 @@ export type PaymentMethod =
 
 export type OfferStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'
 
+// UI-side generalization of a real, narrower backend field: Offer.priceBrl
+// (prisma/schema.prisma) is the only local-fiat price the real schema
+// models today — BRL specifically, nothing else. This type/field exists
+// so the Marketplace filter can offer "choose your fiat" the way real
+// P2P platforms do, but it's presentation-only until the backend grows
+// a genuine multi-fiat price field — see mock.ts's own comment on Offer.
+export type FiatCurrency = 'BRL' | 'USD' | 'EUR' | 'GBP' | 'ARS' | 'MXN' | 'NGN' | 'INR'
+
 export type TradeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DISPUTED' | 'CANCELLED'
 
 // Only MOCK and WDK_USDT_EVM are real settlement providers as of this
@@ -63,8 +71,9 @@ export interface Offer {
   user: User
   asset: AssetType
   side: TradeSide
-  priceUsd: number
-  priceBrl: number | null
+  priceUsd: number // always real (Offer.priceUsd, required in the real schema)
+  fiatCurrency: FiatCurrency // generalizes the real Offer.priceBrl field — see this type's own comment above
+  priceFiat: number
   minAmount: number
   maxAmount: number
   paymentMethod: PaymentMethod
@@ -73,6 +82,9 @@ export interface Offer {
   network?: string
   description?: string
   requiresKyc: boolean
+  country: string // ISO 3166-1 alpha-2 — UI-only field for the country/region filter, not in the real schema yet
+  tradedWithCurrentUser: boolean // UI-only demonstration flag for the "already traded with" filter — a real version needs a real trade-history join
+  blockedRelationship: boolean // UI-only demonstration flag for "apenas anúncios negociáveis" — a real version needs a real block-list model, which doesn't exist in the backend yet either
   createdAt: string
 }
 
@@ -149,4 +161,36 @@ export interface Dispute {
   status: DisputeStatus
   openedAt: string
   openedBy: string
+}
+
+export type PaymentTimeLimit = 'Todos' | '15' | '30' | '45' | '60' | '24h'
+export type MarketplaceSort = 'price' | 'trades' | 'reputation'
+
+// Advanced filter state — Binance P2P-style, requested directly.
+// negotiableOnly/highReputationOnly/previouslyTradedOnly filter against
+// the UI-only demonstration fields on Offer (see that type's own
+// comments) — a real implementation needs a real block-list and a real
+// trade-history join, neither of which exist in the backend yet.
+export interface MarketplaceFilters {
+  saveForNext: boolean
+  negotiableOnly: boolean
+  highReputationOnly: boolean
+  previouslyTradedOnly: boolean
+  amount: string
+  paymentTimeLimit: PaymentTimeLimit
+  paymentMethods: PaymentMethod[]
+  country: string // 'Todos' or a COUNTRIES code (data/mock.ts)
+  sortBy: MarketplaceSort
+}
+
+export const DEFAULT_FILTERS: MarketplaceFilters = {
+  saveForNext: false,
+  negotiableOnly: false,
+  highReputationOnly: false,
+  previouslyTradedOnly: false,
+  amount: '',
+  paymentTimeLimit: 'Todos',
+  paymentMethods: [],
+  country: 'Todos',
+  sortBy: 'price',
 }

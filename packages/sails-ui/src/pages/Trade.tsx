@@ -75,14 +75,14 @@ export function Trade() {
   return (
     <div>
       <div className="flex items-center gap-3">
-        <Link to="/" className="text-sm text-gray-500 hover:text-gray-800">←</Link>
-        <span className="font-mono text-sm text-gray-500">Trade #{id?.slice(0, 8)}</span>
+        <Link to="/" className="text-sm text-brand-text-secondary hover:text-brand-text">←</Link>
+        <span className="font-mono text-sm text-brand-text-muted">Trade #{id?.slice(0, 8)}</span>
         <TradeStatusBadge status={trade.status} />
       </div>
 
       <div className="mt-4 grid lg:grid-cols-[380px_1fr] gap-4">
         <div>
-          <div className="bg-white border border-gray-200 rounded-xl p-4 divide-y divide-gray-100">
+          <div className="card p-4 divide-y divide-brand-border">
             <Row label="Ativo" value={trade.asset} />
             <Row label="Quantidade" value={String(trade.amount)} />
             <Row label="Total" value={formatBrl(trade.totalBrl)} />
@@ -91,7 +91,7 @@ export function Trade() {
 
           <TradeParties buyer={trade.buyer} seller={trade.seller} currentUserId={user?.id} />
 
-          <div className="bg-white border border-gray-200 rounded-xl p-5 mt-3">
+          <div className="card p-5 mt-3">
             <EscrowStateMachine status={escrowStatus} />
 
             {!showDisputeForm ? (
@@ -110,31 +110,31 @@ export function Trade() {
                   value={disputeReason}
                   onChange={(e) => setDisputeReason(e.target.value)}
                   placeholder="Descreva o motivo da disputa..."
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="input-field w-full"
                   rows={3}
                 />
                 <div className="flex gap-2 mt-2">
-                  <button onClick={handleOpenDispute} className="flex-1 bg-red-600 text-white rounded-lg py-2 text-sm font-semibold">Confirmar Disputa</button>
-                  <button onClick={() => setShowDisputeForm(false)} className="flex-1 border border-gray-300 rounded-lg py-2 text-sm">Cancelar</button>
+                  <button onClick={handleOpenDispute} className="flex-1 bg-red-600 hover:bg-red-500 text-white rounded-lg py-2 text-sm font-semibold transition-colors">Confirmar Disputa</button>
+                  <button onClick={() => setShowDisputeForm(false)} className="flex-1 btn-ghost py-2 text-sm">Cancelar</button>
                 </div>
               </div>
             )}
 
             {!isBuyer && !isSeller && user && (
-              <p className="text-xs text-gray-400 mt-3">Você não é parte deste trade — ações desabilitadas.</p>
+              <p className="text-xs text-brand-text-muted mt-3">Você não é parte deste trade — ações desabilitadas.</p>
             )}
-            {!user && <p className="text-xs text-gray-400 mt-3">Conecte sua carteira para agir neste trade.</p>}
+            {!user && <p className="text-xs text-brand-text-muted mt-3">Conecte sua carteira para agir neste trade.</p>}
           </div>
 
-          <details className="mt-3 bg-white border border-gray-200 rounded-xl p-4">
-            <summary className="text-xs font-semibold text-gray-500 cursor-pointer">Histórico de eventos</summary>
+          <details className="mt-3 card p-4">
+            <summary className="text-xs font-semibold text-brand-text-muted cursor-pointer">Histórico de eventos</summary>
             <div className="mt-2 space-y-1.5">
               {events.map((e, i) => (
                 <div key={i} className="flex gap-3 text-xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 mt-1 shrink-0" />
-                  <span className="font-medium">{e.status}</span>
-                  <span className="text-gray-400">{e.actor}</span>
-                  <span className="text-gray-300 ml-auto">{formatDateTime(e.timestamp)}</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-text-muted mt-1 shrink-0" />
+                  <span className="font-medium text-brand-text-secondary">{e.status}</span>
+                  <span className="text-brand-text-muted">{e.actor}</span>
+                  <span className="text-brand-text-muted ml-auto">{formatDateTime(e.timestamp)}</span>
                 </div>
               ))}
             </div>
@@ -150,8 +150,8 @@ export function Trade() {
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex justify-between items-center py-2.5 text-sm">
-      <span className="text-gray-500">{label}</span>
-      <span className="font-medium">{value}</span>
+      <span className="text-brand-text-muted">{label}</span>
+      <span className="font-medium text-brand-text">{value}</span>
     </div>
   )
 }

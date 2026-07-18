@@ -36,45 +36,67 @@ export const CURRENT_USER = MOCK_USERS[1]
 export const MOCK_OFFERS: Offer[] = [
   {
     id: 'o1', userId: 'u1', user: MOCK_USERS[0],
-    asset: 'BTC', side: 'SELL', priceUsd: 67500, priceBrl: 340000,
+    asset: 'BTC', side: 'SELL', priceUsd: 67500, fiatCurrency: 'BRL', priceFiat: 340000,
     minAmount: 0.001, maxAmount: 0.05, paymentMethod: 'PIX', status: 'ACTIVE',
     network: 'bitcoin', description: 'Fast PIX settlement. No KYC < 0.01 BTC. Online 24/7.',
     requiresKyc: false, createdAt: '2026-07-01T00:00:00Z',
+    country: 'BR', tradedWithCurrentUser: true, blockedRelationship: false,
   },
   {
     id: 'o2', userId: 'u2', user: MOCK_USERS[1],
-    asset: 'BTC', side: 'BUY', priceUsd: 66800, priceBrl: 336000,
+    asset: 'BTC', side: 'BUY', priceUsd: 66800, fiatCurrency: 'BRL', priceFiat: 336000,
     minAmount: 0.001, maxAmount: 0.02, paymentMethod: 'PIX', status: 'ACTIVE',
     network: 'bitcoin', description: 'Looking for BTC. Instant PIX payment.',
     requiresKyc: false, createdAt: '2026-07-02T00:00:00Z',
+    country: 'BR', tradedWithCurrentUser: false, blockedRelationship: false,
   },
   {
     id: 'o3', userId: 'u1', user: MOCK_USERS[0],
-    asset: 'LN_BTC', side: 'SELL', priceUsd: 67200, priceBrl: 338000,
+    asset: 'LN_BTC', side: 'SELL', priceUsd: 67200, fiatCurrency: 'BRL', priceFiat: 338000,
     minAmount: 0.0001, maxAmount: 0.005, paymentMethod: 'PIX', status: 'ACTIVE',
     network: 'lightning', description: 'Lightning sats via PIX. Instant settlement.',
     requiresKyc: false, createdAt: '2026-07-03T00:00:00Z',
+    country: 'BR', tradedWithCurrentUser: true, blockedRelationship: false,
   },
   {
     id: 'o4', userId: 'u3', user: MOCK_USERS[2],
-    asset: 'USDT_LIQUID', side: 'SELL', priceUsd: 1.0, priceBrl: 5.05,
+    asset: 'USDT_LIQUID', side: 'SELL', priceUsd: 1.0, fiatCurrency: 'BRL', priceFiat: 5.05,
     minAmount: 50, maxAmount: 5000, paymentMethod: 'PIX', status: 'ACTIVE',
     network: 'liquid', description: 'USDT on Liquid Network. PIX BRL.',
     requiresKyc: false, createdAt: '2026-07-04T00:00:00Z',
+    country: 'BR', tradedWithCurrentUser: false, blockedRelationship: false,
   },
   {
     id: 'o5', userId: 'u2', user: MOCK_USERS[1],
-    asset: 'USDT_ERC20', side: 'BUY', priceUsd: 0.99, priceBrl: 4.99,
+    asset: 'USDT_ERC20', side: 'BUY', priceUsd: 0.99, fiatCurrency: 'USD', priceFiat: 0.99,
     minAmount: 100, maxAmount: 10000, paymentMethod: 'TED', status: 'ACTIVE',
-    network: 'ethereum', description: 'Buying USDT ERC20. TED bank transfer.',
+    network: 'ethereum', description: 'Buying USDT ERC20. Bank transfer (USD).',
     requiresKyc: false, createdAt: '2026-07-05T00:00:00Z',
+    country: 'US', tradedWithCurrentUser: false, blockedRelationship: false,
   },
   {
     id: 'o6', userId: 'u3', user: MOCK_USERS[2],
-    asset: 'LIQUID_BTC', side: 'SELL', priceUsd: 67100, priceBrl: 337500,
+    asset: 'LIQUID_BTC', side: 'SELL', priceUsd: 67100, fiatCurrency: 'BRL', priceFiat: 337500,
     minAmount: 0.005, maxAmount: 0.1, paymentMethod: 'CRYPTO_DIRECT', status: 'ACTIVE',
     network: 'liquid', description: 'L-BTC on Liquid Network.',
     requiresKyc: false, createdAt: '2026-07-06T00:00:00Z',
+    country: 'BR', tradedWithCurrentUser: false, blockedRelationship: true,
+  },
+  {
+    id: 'o7', userId: 'u1', user: MOCK_USERS[0],
+    asset: 'USDT_TRC20', side: 'SELL', priceUsd: 1.0, fiatCurrency: 'EUR', priceFiat: 0.92,
+    minAmount: 50, maxAmount: 8000, paymentMethod: 'BANK_TRANSFER', status: 'ACTIVE',
+    network: 'tron', description: 'USDT TRC20 for EUR bank transfer.',
+    requiresKyc: false, createdAt: '2026-07-07T00:00:00Z',
+    country: 'DE', tradedWithCurrentUser: false, blockedRelationship: false,
+  },
+  {
+    id: 'o8', userId: 'u3', user: MOCK_USERS[2],
+    asset: 'STACKS', side: 'BUY', priceUsd: 1.8, fiatCurrency: 'BRL', priceFiat: 9.1,
+    minAmount: 100, maxAmount: 20000, paymentMethod: 'PIX', status: 'ACTIVE',
+    network: 'stacks', description: 'Comprando STX. PIX apenas.',
+    requiresKyc: false, createdAt: '2026-07-08T00:00:00Z',
+    country: 'BR', tradedWithCurrentUser: false, blockedRelationship: false,
   },
 ]
 
@@ -149,5 +171,26 @@ export const CHART_DATA = Array.from({ length: 30 }, (_, i) => {
   }
 })
 
+// The real AssetType enum (prisma/schema.prisma) — not a fictional
+// list. When the backend supports more assets (ETH, USDC, SOL, etc. —
+// none exist in the real schema today), they get added here and the
+// AssetPicker's search already scales to it with no logic change; that
+// scalability is the actual point of using a search picker instead of
+// a lateral pill row, even with only 10 assets today.
 export const ASSETS = ['BTC', 'LN_BTC', 'LIQUID_BTC', 'USDT_ERC20', 'USDT_TRC20', 'USDT_LIQUID', 'USDT_LIGHTNING', 'SPARK', 'STACKS', 'RSK_BTC'] as const
 export const PAYMENT_METHODS = ['PIX', 'TED', 'BANK_TRANSFER', 'CRYPTO_DIRECT', 'LIGHTNING_DIRECT', 'CASH', 'OTHER'] as const
+
+export const COUNTRIES: { code: string; label: string }[] = [
+  { code: 'BR', label: 'Brasil' },
+  { code: 'US', label: 'Estados Unidos' },
+  { code: 'DE', label: 'Alemanha' },
+  { code: 'AR', label: 'Argentina' },
+  { code: 'MX', label: 'México' },
+  { code: 'NG', label: 'Nigéria' },
+  { code: 'IN', label: 'Índia' },
+  { code: 'PT', label: 'Portugal' },
+]
+
+// Threshold for the "somente comerciantes com alta reputação" filter —
+// illustrative, not derived from any real scoring rubric.
+export const HIGH_REPUTATION_THRESHOLD = 90

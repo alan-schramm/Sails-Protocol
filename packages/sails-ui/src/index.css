@@ -2,7 +2,99 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * Satsails brand identity — black + orange, light and dark. Orange
+ * (--color-orange) is the one constant across both themes; everything
+ * else flips. `.dark` is toggled on <html> by ThemeContext
+ * (src/context/ThemeContext.tsx), defaulting to the visitor's system
+ * preference, overridable and persisted to localStorage.
+ */
+/* "R G B" triplets, not hex — required for Tailwind's opacity-modifier
+   syntax (bg-brand-orange/15) to work with a CSS-var-backed color, see
+   tailwind.config.js's own comment. */
+:root {
+  --color-bg: 250 250 250;           /* #fafafa */
+  --color-surface: 255 255 255;      /* #ffffff */
+  --color-elevated: 245 245 245;     /* #f5f5f5 */
+  --color-border: 229 229 229;       /* #e5e5e5 */
+  --color-border-hover: 212 212 212; /* #d4d4d4 */
+  --color-text: 10 10 10;            /* #0a0a0a */
+  --color-text-secondary: 82 82 82;  /* #525252 */
+  --color-text-muted: 163 163 163;   /* #a3a3a3 */
+
+  --color-orange: 249 115 22;       /* #f97316 */
+  --color-orange-hover: 234 88 12;  /* #ea580c */
+  --color-orange-subtle: rgba(249, 115, 22, 0.08);
+  --color-orange-border: rgba(249, 115, 22, 0.25);
+}
+
+:root.dark {
+  --color-bg: 5 5 5;                 /* #050505 */
+  --color-surface: 15 15 15;         /* #0f0f0f */
+  --color-elevated: 22 22 22;        /* #161616 */
+  --color-border: 36 36 36;          /* #242424 */
+  --color-border-hover: 56 56 56;    /* #383838 */
+  --color-text: 250 250 250;         /* #fafafa */
+  --color-text-secondary: 163 163 163; /* #a3a3a3 */
+  --color-text-muted: 82 82 82;      /* #525252 */
+
+  --color-orange: 249 115 22;       /* #f97316 */
+  --color-orange-hover: 251 146 60; /* #fb923c */
+  --color-orange-subtle: rgba(249, 115, 22, 0.12);
+  --color-orange-border: rgba(249, 115, 22, 0.3);
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: rgb(var(--color-bg));
+  color: rgb(var(--color-text));
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
+
+/* Component classes — the same shapes the pasted design brief described
+   (Card padrão, Botão primário, Botão ghost, Input) as real Tailwind
+   utility bundles instead of copy-pasted class strings, so retheming
+   later means editing these ~8 rules, not every component file. */
+@layer components {
+  .card {
+    @apply bg-brand-surface border border-brand-border rounded-xl;
+  }
+  .card-hover {
+    @apply card transition-colors;
+  }
+  .card-hover:hover {
+    border-color: var(--color-orange-border);
+  }
+  .btn-primary {
+    @apply bg-brand-orange hover:bg-brand-orange-hover text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply bg-transparent border border-brand-border text-brand-text-secondary hover:border-brand-border-hover hover:text-brand-text rounded-lg transition-colors;
+  }
+  .btn-dark {
+    @apply bg-brand-text text-brand-bg hover:opacity-85 font-semibold rounded-lg transition-opacity;
+  }
+  .input-field {
+    @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-orange transition-colors;
+  }
+  .pill {
+    @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors;
+  }
+  .pill-active {
+    @apply pill bg-brand-orange/10 border-brand-orange/30 text-brand-orange;
+  }
+  .pill-inactive {
+    @apply pill bg-brand-elevated border-brand-border text-brand-text-secondary hover:border-brand-border-hover;
+  }
+}
+
+::selection {
+  background: var(--color-orange-subtle);
+  color: rgb(var(--color-orange));
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgb(var(--color-border)); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--color-border-hover)); }
