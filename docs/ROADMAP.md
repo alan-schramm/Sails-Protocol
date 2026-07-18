@@ -65,6 +65,12 @@
 - Protocol governance layer v1
 - Monorepo (`packages/protocol-spec`, `packages/sdk`,
   `apps/satsails-reference`) fully published
+- `SDK_usecases.md` — the "family of named SDKs" (Trading, Settlement,
+  Liquidity, Reputation, Policy, Agent — Breez-style, `PROJECT_CONTEXT.md`
+  §3's Named-SDK Rule) this phase would actually justify shipping.
+  Written down now as a vision document, not built now — see that file
+  for exactly what's real today vs. what this phase would need to build
+  first (the Policy Engine's governed-rule system, most notably).
 
 ---
 
