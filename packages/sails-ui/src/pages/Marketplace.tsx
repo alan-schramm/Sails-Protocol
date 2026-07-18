@@ -4,6 +4,7 @@ import { OfferCard } from '../components/marketplace/OfferCard'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
 import { FilterPanel } from '../components/marketplace/FilterPanel'
+import { AgentIntentionPanel } from '../components/agent/AgentIntentionPanel'
 import type { AssetType, FiatCurrency, MarketplaceFilters, TradeSide } from '../types'
 import { DEFAULT_FILTERS } from '../types'
 
@@ -74,7 +75,11 @@ export function Marketplace() {
       <h1 className="text-2xl font-black tracking-tight text-brand-text">Marketplace P2P</h1>
       <p className="text-sm text-brand-text-muted mt-1">{offers.length} ofertas disponíveis · Non-custodial · Powered by Pears</p>
 
-      <div className="mt-6 flex flex-wrap gap-2 items-center">
+      <div className="mt-4">
+        <AgentIntentionPanel />
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-2 items-center">
         <AssetPicker assets={ASSETS} value={asset} onChange={setAsset} />
         <CurrencyPicker value={currency} onChange={setCurrency} />
 

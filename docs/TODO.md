@@ -482,6 +482,26 @@ makes the same point in more detail.
       `previouslyTradedOnly`) run against UI-only demonstration fields
       on `Offer` — a real version needs a real block-list and
       trade-history join, neither exists in the backend yet.
+- [x] **Agent QVAC interaction reflected in the UI + chat image/video
+      attach** *(same day, requested directly)* — `AgentIntentionPanel`
+      (Marketplace) and `AgentRiskCard` (Trade) mock the shape of the
+      real `QvacAgentProvider`/`BuyerAgent`/`SellerAgent`
+      (`src/modules/open-agents/*.ts` — a real local LLM via `@qvac/sdk`,
+      no cloud dependency) since no HTTP route exposes that code to a
+      browser yet; today it only runs in the demo script and
+      `intent-engine.ts`'s own validation. `ChatWindow`'s new 📎 button
+      lets a user attach an image/video, rendered inline in
+      `ChatMessage` — a local `URL.createObjectURL()` blob only, nothing
+      is transmitted. Real wiring needs: an agent HTTP route wrapping
+      `qvacAgentProvider`'s methods; and, for media, an upload/storage
+      step (`Message.content` is Postgres text, unsuited to a raw video
+      blob — `msgType` itself needs no migration, it's already a
+      free-form `String`) plus a Pears event kind carrying a media
+      reference (today's WS→Pears relay in `chat.routes.ts` only
+      forwards plain text). See `packages/sails-ui/README.md` for detail
+      and the real bug found while building this (an `InfoTooltip`
+      button nested inside another button — invalid HTML, caught by a
+      browser console warning, not `tsc`).
 
 ## 12. Deployment
 

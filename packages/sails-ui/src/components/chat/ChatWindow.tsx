@@ -7,20 +7,41 @@
  * import of `pear.service.ts` (that's Node-only, hyperdht/hyperswarm —
  * a browser cannot run it, and it would mean shipping server-only P2P
  * code into a client bundle either way).
+ *
+ * Image/video attach: `handleFileSelect` below creates a local
+ * `URL.createObjectURL(file)` blob — the file never leaves this browser
+ * tab. What a real "send image/video via Pears" would need, concretely:
+ * (1) `Message.msgType` on the real backend is already a free String
+ * (prisma/schema.prisma) so `IMAGE`/`VIDEO` need no migration; (2) an
+ * actual upload/storage step first — `Message.content` is Postgres text,
+ * not a place for a raw binary blob, and chat.routes.ts's SEND_MESSAGE
+ * schema (`content: z.string()`) has no size ceiling suited to a video;
+ * (3) the WS->Pears relay in that same route only ever forwards a plain
+ * text `content` inside a `MESSAGE_EXCHANGED` event — carrying a media
+ * reference through `PearNode.sendToPeer()` is structurally possible
+ * (its payload is arbitrary JSON, sealed with libsodium in
+ * `payload-crypto.ts`) but no one has wired that event shape yet. None
+ * of that exists today, so this is UI-only, not a claim any of it works
+ * end-to-end.
  */
 import { useEffect, useRef, useState } from 'react'
-import type { Message } from '../../types'
+import { toast } from 'sonner'
+import type { Message, MessageType } from '../../types'
 import { ChatMessage } from './ChatMessage'
+
+const MAX_MEDIA_BYTES = 15 * 1024 * 1024 // 15MB — arbitrary client-side guard, not a backend limit (none exists yet)
 
 interface Props {
   messages: Message[]
   currentUserId?: string
   onSend: (content: string) => void
+  onSendMedia: (media: { url: string; fileName: string; type: MessageType }) => void
 }
 
-export function ChatWindow({ messages, currentUserId, onSend }: Props) {
+export function ChatWindow({ messages, currentUserId, onSend, onSendMedia }: Props) {
   const [input, setInput] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -30,6 +51,26 @@ export function ChatWindow({ messages, currentUserId, onSend }: Props) {
     if (!input.trim()) return
     onSend(input.trim())
     setInput('')
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+
+    if (file.size > MAX_MEDIA_BYTES) {
+      toast.error('Arquivo muito grande (máx. 15MB nesta demonstração)')
+      return
+    }
+    const isImage = file.type.startsWith('image/')
+    const isVideo = file.type.startsWith('video/')
+    if (!isImage && !isVideo) {
+      toast.error('Envie apenas imagem ou vídeo')
+      return
+    }
+
+    const url = URL.createObjectURL(file)
+    onSendMedia({ url, fileName: file.name, type: isImage ? 'IMAGE' : 'VIDEO' })
   }
 
   return (
@@ -49,6 +90,21 @@ export function ChatWindow({ messages, currentUserId, onSend }: Props) {
       </div>
 
       <div className="border-t border-brand-border p-3 flex gap-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          className="hidden"
+          onChange={handleFileSelect}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          title="Enviar imagem ou vídeo"
+          aria-label="Enviar imagem ou vídeo"
+          className="btn-ghost px-3 text-sm"
+        >
+          📎
+        </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}

@@ -109,7 +109,15 @@ export interface Escrow {
   events: EscrowEvent[]
 }
 
-export type MessageType = 'TEXT' | 'SYSTEM' | 'PAYMENT_PROOF'
+// IMAGE/VIDEO added directly on top of the real backend's Message.msgType
+// (prisma/schema.prisma) — that field is a free String, so no migration
+// would be needed to accept these values server-side. What IS still
+// missing on the real backend is everything around the value: an upload/
+// storage endpoint (Message.content is unbounded Postgres text, not a
+// place to put a raw video blob) and a Pears event kind carrying media
+// (chat.routes.ts's WS->Pears relay only ever sends a MESSAGE_EXCHANGED
+// event with plain text `content` today). See ChatWindow's own comment.
+export type MessageType = 'TEXT' | 'SYSTEM' | 'PAYMENT_PROOF' | 'IMAGE' | 'VIDEO'
 
 export interface Message {
   id: string
@@ -117,6 +125,8 @@ export interface Message {
   sender: User | null
   content: string
   type: MessageType
+  mediaUrl?: string // local blob: URL only in this UI — see ChatWindow's comment
+  mediaFileName?: string
   createdAt: string
 }
 

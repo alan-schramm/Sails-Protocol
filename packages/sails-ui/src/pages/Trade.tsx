@@ -2,13 +2,14 @@ import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { MOCK_TRADE } from '../data/mock'
-import type { EscrowStatus, Message } from '../types'
+import type { EscrowStatus, Message, MessageType } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/Badge'
 import { EscrowStateMachine } from '../components/trade/EscrowStateMachine'
 import { EscrowActions } from '../components/trade/EscrowActions'
 import { TradeParties } from '../components/trade/TradeParties'
 import { ChatWindow } from '../components/chat/ChatWindow'
+import { AgentRiskCard } from '../components/agent/AgentRiskCard'
 import { formatBrl, formatDateTime } from '../lib/format'
 
 let msgCounter = 100
@@ -72,6 +73,13 @@ export function Trade() {
     setMessages((m) => [...m, { id: `m-${msgCounter++}`, senderId: user?.id ?? null, sender: user, content, type: 'TEXT', createdAt: new Date().toISOString() }])
   }
 
+  const handleSendMedia = (media: { url: string; fileName: string; type: MessageType }) => {
+    setMessages((m) => [
+      ...m,
+      { id: `m-${msgCounter++}`, senderId: user?.id ?? null, sender: user, content: '', type: media.type, mediaUrl: media.url, mediaFileName: media.fileName, createdAt: new Date().toISOString() },
+    ])
+  }
+
   return (
     <div>
       <div className="flex items-center gap-3">
@@ -90,6 +98,8 @@ export function Trade() {
           </div>
 
           <TradeParties buyer={trade.buyer} seller={trade.seller} currentUserId={user?.id} />
+
+          <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={trade.totalUsd} minValue={trade.totalUsd} />
 
           <div className="card p-5 mt-3">
             <EscrowStateMachine status={escrowStatus} />
@@ -141,7 +151,7 @@ export function Trade() {
           </details>
         </div>
 
-        <ChatWindow messages={messages} currentUserId={user?.id} onSend={handleSend} />
+        <ChatWindow messages={messages} currentUserId={user?.id} onSend={handleSend} onSendMedia={handleSendMedia} />
       </div>
     </div>
   )

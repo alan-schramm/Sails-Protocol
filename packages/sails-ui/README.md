@@ -42,6 +42,31 @@ P2P-style advanced filter system, requested directly —
   version needs a real block-list and trade-history join, neither built
   in the backend yet; flagged in `types.ts`'s own comments, not hidden.
 
+**Agent QVAC surface** (`src/components/agent/`, `src/lib/qvacAgent.ts`):
+reflects the real `QvacAgentProvider`/`BuyerAgent`/`SellerAgent`
+(`src/modules/open-agents/*.ts`) — a real local LLM (`@qvac/sdk`,
+llama.cpp, no cloud dependency) that today only runs inside the demo
+script and `core/intent-engine.ts`'s own validation. No HTTP route
+exposes it to a browser yet, so this is honestly mocked (latency +
+heuristic parsing, not a live model call) — see `qvacAgent.ts`'s own
+comment for exactly what a real route would need to wrap.
+- `AgentIntentionPanel` (Marketplace): natural-language goal → mocked
+  structured trade intent, reflecting `BuyerAgent.requestTradeIntent()`/
+  `SellerAgent.proposeOffer()`.
+- `AgentRiskCard` (Trade page): mocked risk assessment reflecting
+  `qvacAgentProvider.assessIntentRisk()`, the real step that runs before
+  Intent coordination (RFC-012).
+
+**Chat image/video attach** (`ChatWindow`/`ChatMessage`): the 📎 button
+creates a local `URL.createObjectURL()` blob — the file never leaves the
+browser tab, nothing is sent "via Pears" yet. `ChatWindow.tsx`'s own
+comment spells out what's actually missing on the real backend: an
+upload/storage step (`Message.content` is Postgres text, not a place for
+a raw video blob) and a Pears event kind carrying media (today's
+WS→Pears relay in `chat.routes.ts` only forwards plain text). `msgType`
+itself needs no migration — it's already a free-form `String` in
+`prisma/schema.prisma`.
+
 ## What this is not
 
 - **Not wired to the real backend.** Every screen reads `src/data/mock.ts`.
@@ -69,6 +94,15 @@ uses for the same reason (see its own comment). `npm run build`
 effect-ordering issues, found by actually clicking through the app in a
 browser, not by the type checker.
 
+A second one, found the same way while adding the Agent QVAC panel:
+`AgentIntentionPanel`'s collapsible header was a `<button>` wrapping an
+`InfoTooltip`, which renders its own `<button>` — invalid HTML (a button
+can't contain a button) and a real interaction bug, since clicking the
+info icon would bubble up and also toggle the whole panel closed. The
+browser's console flagged it as a React DOM-nesting warning; `tsc` had
+no opinion, since it's valid TypeScript. Fixed by pulling `InfoTooltip`
+out to be a sibling of the toggle button instead of a descendant.
+
 ## Running it
 
 ```bash
@@ -95,3 +129,10 @@ require touching `vite.config.ts`.
    other than illustrative numbers.
 5. A real block-list model and trade-history join to back
    `negotiableOnly`/`previouslyTradedOnly` for real.
+6. A real `POST /v1/agents/...` route wrapping
+   `qvacAgentProvider.generateTradeIntent()`/`.generateOfferIntent()`/
+   `.assessIntentRisk()`, to back `AgentIntentionPanel`/`AgentRiskCard`
+   with an actual local LLM call instead of `qvacAgent.ts`'s heuristic mock.
+7. Real media messages: an upload/storage endpoint plus a Pears event
+   kind carrying a media reference, to back the chat's 📎 attach button
+   with something beyond a local, never-transmitted blob URL.

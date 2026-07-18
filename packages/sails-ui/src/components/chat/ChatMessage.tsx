@@ -11,6 +11,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
   }
 
   const isProof = message.type === 'PAYMENT_PROOF'
+  const isMedia = message.type === 'IMAGE' || message.type === 'VIDEO'
 
   return (
     <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
@@ -24,10 +25,19 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
             : isMine
               ? 'bg-brand-orange text-white rounded-br-sm'
               : 'bg-brand-elevated text-brand-text rounded-bl-sm'
-        }`}
+        } ${isMedia ? 'p-1.5' : ''}`}
       >
         {isProof && <div className="text-xs font-semibold text-green-500 mb-1">🧾 Comprovante de Pagamento</div>}
-        {message.content}
+        {message.type === 'IMAGE' && message.mediaUrl && (
+          <img src={message.mediaUrl} alt={message.mediaFileName ?? 'Imagem enviada'} className="max-w-[240px] max-h-[240px] rounded-xl object-cover" />
+        )}
+        {message.type === 'VIDEO' && message.mediaUrl && (
+          <video src={message.mediaUrl} controls className="max-w-[240px] max-h-[240px] rounded-xl" />
+        )}
+        {!isMedia && message.content}
+        {isMedia && message.content && (
+          <div className={`text-xs px-1.5 pt-1 ${isMine ? 'text-white/80' : 'text-brand-text-muted'}`}>{message.content}</div>
+        )}
       </div>
       <span className="text-[10px] text-brand-text-muted mt-0.5">{formatTime(message.createdAt)}</span>
     </div>
