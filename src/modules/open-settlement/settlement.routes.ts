@@ -104,6 +104,32 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send({ success: true, data: escrow })
   })
 
+  // RFC-015 — two-person control. Records the calling participant's
+  // approval; releaseFunds() above checks escrowService.hasDualApproval()
+  // itself (gated behind config.features.requireDualApprovalForRelease)
+  // rather than this route enforcing anything directly — this route's
+  // only job is recording "who approved," not deciding when release is
+  // allowed to proceed.
+  app.post('/v1/settlement/escrow/:id/approve-release', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const participantId = (request as any).participantId as string
+    const approval = await escrowService.approveRelease(id, participantId)
+    const readyToRelease = await escrowService.hasDualApproval(id)
+    return reply.code(200).send({ success: true, data: { ...approval, readyToRelease } })
+  })
+
+  app.get('/v1/settlement/escrow/:id/release-approvals', {
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const approvals = await escrowService.getReleaseApprovals(id)
+    const readyToRelease = await escrowService.hasDualApproval(id)
+    return reply.code(200).send({ success: true, data: { approvals, readyToRelease } })
+  })
+
   // Delegates to dispute.service.ts's raiseDispute (persists a Dispute
   // row + assigns an arbiter + notifies), not escrowService.openDispute
   // directly — that's the lower-level state transition raiseDispute

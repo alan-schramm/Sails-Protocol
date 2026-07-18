@@ -44,13 +44,11 @@
  * Claim/Proof/Verification), still 📋 future — this orchestrator does not
  * pretend to have built that.
  */
-import { config } from '../../config'
 import { prisma } from '../../common/database'
-import { NotFoundError, ForbiddenError } from '../../common/errors'
+import { NotFoundError } from '../../common/errors'
 import type { AssetType } from '../../common/types'
 import type { EscrowType } from '../../common/types/trade'
 import { escrowService } from './escrow.service'
-import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 
 export interface ExecuteSettlementInput {
   tradeId: string
@@ -130,29 +128,20 @@ export async function executeSettlement(input: ExecuteSettlementInput): Promise<
   // integration — see this file's header comment.
   const pixConfirmation = emulateSellerPixReceipt(sellerTriggeredBy)
 
-  // RFC-014: the highest-stakes point in this whole file to leave
-  // unenforced — this is the line that actually moves real (testnet)
-  // funds. Off by default (config.features.enforceCapabilities), same
-  // reasoning as intent-engine.ts's own RFC-014 check: a reference
-  // deployment with no CapabilityGrants issued yet is valid today, so
-  // flipping this on with none issued would reject every settlement, not
-  // fail safe. Checked against whoever is about to trigger the release
-  // (sellerTriggeredBy — the agent if one is acting, else the seller
-  // themself), not the buyer: releaseFunds() below is the seller's action.
-  if (config.features.enforceCapabilities) {
-    const capabilityName = CAPABILITY_IMPLEMENTATIONS.opensettlement
-    const allowed = await capabilityRegistry.check(sellerTriggeredBy, capabilityName, 'settlement.escrow.released')
-    if (!allowed) {
-      throw new ForbiddenError(
-        `${sellerTriggeredBy} has no active '${capabilityName}' capability grant covering 'settlement.escrow.released'`
-      )
-    }
-  }
-
   // The seller's agent triggers the real, digitally signed USDT release —
   // escrowService.releaseFunds() -> WdkSettlementProvider.releaseFunds()
   // -> WalletAccountEvm.transfer() (@tetherto/wdk-wallet-evm), a genuine
   // on-chain transaction with a real, checkable hash (testnet).
+  //
+  // RFC-014's capability check and RFC-015's two-person control both live
+  // inside releaseFunds() itself (escrow.service.ts), not here — found
+  // while implementing RFC-015 that this orchestrator is not the only
+  // real caller of releaseFunds(): settlement.routes.ts's direct
+  // POST /v1/settlement/escrow/:id/release and dispute.service.ts's
+  // arbitrated resolveDispute() both call it too, and a check placed only
+  // here (RFC-014's original location) silently missed both. Both flags
+  // (config.features.enforceCapabilities, requireDualApprovalForRelease)
+  // default false — see their own doc comments in config/index.ts.
   const released = await escrowService.releaseFunds(locked.id, input.buyerReceivingAddress, sellerTriggeredBy)
 
   return {

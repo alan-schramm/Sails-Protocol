@@ -1,0 +1,215 @@
+/**
+ * escrow.service.ts's releaseFunds() — the real single choke point every
+ * fund release goes through (settlement-orchestrator.ts's
+ * executeSettlement(), settlement.routes.ts's direct release route, and
+ * dispute.service.ts's arbitrated resolveDispute()). Two real,
+ * config-gated controls live here:
+ *
+ * - RFC-014's capability check — originally shipped inside
+ *   settlement-orchestrator.ts, relocated here once RFC-015's work
+ *   surfaced that the orchestrator wasn't the only real caller (see
+ *   escrow.service.ts's own comment on releaseFunds() for the full
+ *   explanation).
+ * - RFC-015's two-person control (application-layer, not on-chain
+ *   multisig — WDK's real package is single-owner-only) — requires both
+ *   of a trade's own two counterparties to approve before a normal
+ *   (non-disputed) release proceeds.
+ *
+ * capabilityRegistry.check() is exercised for real here (not mocked) —
+ * only prisma.capabilityGrant is mocked, the same "mock the boundary,
+ * test what's actually new" discipline this suite already follows
+ * elsewhere (tests/capabilityRegistry.test.ts). @tetherto/wdk-wallet-evm
+ * is mocked because it ships pure ESM (same reasoning as
+ * tests/routes.test.ts) — none of these tests exercise the real WDK path
+ * since config.features.mockEscrow stays true throughout, routing every
+ * release through the real, harmless MockSettlementProvider instead.
+ */
+export {} // see chatUnification.test.ts's identical comment
+
+let enforceCapabilities = false
+let requireDualApprovalForRelease = false
+jest.mock('../src/config', () => ({
+  get config() {
+    return {
+      features: { mockEscrow: true, enforceCapabilities, requireDualApprovalForRelease },
+      trade: { defaultTimelockHours: 24 },
+    }
+  },
+}))
+
+jest.mock('@tetherto/wdk-wallet-evm', () => ({
+  __esModule: true,
+  default: class FakeWalletManagerEvm {},
+}))
+
+const mockEscrowFindUnique = jest.fn()
+const mockEscrowUpdate = jest.fn()
+const mockEscrowCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn()
+const mockTradeFindUnique = jest.fn()
+const mockCapabilityGrantFindMany = jest.fn()
+const mockApprovalUpsert = jest.fn()
+const mockApprovalFindMany = jest.fn()
+const mockApprovalCount = jest.fn()
+
+jest.mock('../src/common/database', () => ({
+  prisma: {
+    escrow: {
+      findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
+      update: (...args: unknown[]) => mockEscrowUpdate(...args),
+      create: (...args: unknown[]) => mockEscrowCreate(...args),
+    },
+    escrowEvent: { create: (...args: unknown[]) => mockEscrowEventCreate(...args) },
+    trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
+    capabilityGrant: { findMany: (...args: unknown[]) => mockCapabilityGrantFindMany(...args) },
+    escrowReleaseApproval: {
+      upsert: (...args: unknown[]) => mockApprovalUpsert(...args),
+      findMany: (...args: unknown[]) => mockApprovalFindMany(...args),
+      count: (...args: unknown[]) => mockApprovalCount(...args),
+    },
+  },
+}))
+
+jest.mock('../src/common/events/event-bus', () => ({
+  eventBus: { emit: jest.fn().mockResolvedValue(undefined) },
+}))
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { escrowService } = require('../src/modules/open-settlement/escrow.service')
+
+const baseEscrow = {
+  id: 'escrow-1', tradeId: 'trade-1', type: 'MOCK', status: 'PAYMENT_PENDING',
+  lockedAmount: '20.5', asset: 'USDT_ERC20', timelockHours: 24,
+}
+
+describe('escrowService.releaseFunds — RFC-014 capability check (relocated from the orchestrator)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    enforceCapabilities = false
+    requireDualApprovalForRelease = false
+    mockEscrowFindUnique.mockResolvedValue(baseEscrow)
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
+  })
+
+  it('releases without ever querying CapabilityGrant when enforceCapabilities is false (the default)', async () => {
+    await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
+    expect(mockCapabilityGrantFindMany).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).toHaveBeenCalled()
+  })
+
+  it('rejects with ForbiddenError, before ever moving funds, when enforcement is on and no grant covers it', async () => {
+    enforceCapabilities = true
+    mockCapabilityGrantFindMany.mockResolvedValue([])
+
+    await expect(escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')).rejects.toThrow(
+      /no active 'settlement' capability grant/
+    )
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
+  })
+
+  it('releases normally when enforcement is on and an active grant covers it', async () => {
+    enforceCapabilities = true
+    mockCapabilityGrantFindMany.mockResolvedValue([
+      { id: 'g1', grantedTo: 'seller-1', capabilityName: 'settlement', scope: ['settlement.escrow.released'], constraints: null, issuedBy: 'seller-1' },
+    ])
+
+    const result = await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
+    expect(result.status).toBe('COMPLETED')
+  })
+
+  it('is exercised by the direct release path too, not just an orchestrator-level shortcut — same call, no special-casing needed', async () => {
+    // settlement.routes.ts's POST /v1/settlement/escrow/:id/release calls
+    // escrowService.releaseFunds() with exactly this shape — no
+    // orchestrator involved. Proves the check protects that path now.
+    enforceCapabilities = true
+    mockCapabilityGrantFindMany.mockResolvedValue([])
+    await expect(escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')).rejects.toThrow(/ForbiddenError|no active/)
+  })
+})
+
+describe('escrowService — RFC-015 two-person control', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    enforceCapabilities = false
+    requireDualApprovalForRelease = false
+    mockEscrowFindUnique.mockResolvedValue(baseEscrow)
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+  })
+
+  describe('approveRelease', () => {
+    it('rejects an approver who is neither the buyer nor the seller of the trade', async () => {
+      await expect(escrowService.approveRelease('escrow-1', 'stranger-1')).rejects.toThrow(
+        /not a counterparty/
+      )
+      expect(mockApprovalUpsert).not.toHaveBeenCalled()
+    })
+
+    it('upserts an approval for the buyer', async () => {
+      mockApprovalUpsert.mockResolvedValue({ id: 'appr-1', escrowId: 'escrow-1', approverId: 'buyer-1' })
+      await escrowService.approveRelease('escrow-1', 'buyer-1')
+      expect(mockApprovalUpsert).toHaveBeenCalledWith({
+        where: { escrowId_approverId: { escrowId: 'escrow-1', approverId: 'buyer-1' } },
+        update: {},
+        create: { escrowId: 'escrow-1', approverId: 'buyer-1' },
+      })
+    })
+
+    it('upserts an approval for the seller', async () => {
+      mockApprovalUpsert.mockResolvedValue({ id: 'appr-2', escrowId: 'escrow-1', approverId: 'seller-1' })
+      await escrowService.approveRelease('escrow-1', 'seller-1')
+      expect(mockApprovalUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({ create: { escrowId: 'escrow-1', approverId: 'seller-1' } })
+      )
+    })
+  })
+
+  describe('hasDualApproval', () => {
+    it('is false with fewer than 2 recorded approvals', async () => {
+      mockApprovalCount.mockResolvedValue(1)
+      expect(await escrowService.hasDualApproval('escrow-1')).toBe(false)
+    })
+
+    it('is true with 2 or more recorded approvals', async () => {
+      mockApprovalCount.mockResolvedValue(2)
+      expect(await escrowService.hasDualApproval('escrow-1')).toBe(true)
+    })
+  })
+
+  describe('releaseFunds gate', () => {
+    it('releases without checking approvals when requireDualApprovalForRelease is false (the default)', async () => {
+      requireDualApprovalForRelease = false
+      await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
+      expect(mockApprovalCount).not.toHaveBeenCalled()
+      expect(mockEscrowUpdate).toHaveBeenCalled()
+    })
+
+    it('blocks a normal (PAYMENT_PENDING) release with only 1 approval', async () => {
+      requireDualApprovalForRelease = true
+      mockApprovalCount.mockResolvedValue(1)
+
+      await expect(escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')).rejects.toThrow(
+        /Release blocked.*both counterparties.*approve-release/
+      )
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    })
+
+    it('releases a normal (PAYMENT_PENDING) escrow once both counterparties have approved', async () => {
+      requireDualApprovalForRelease = true
+      mockApprovalCount.mockResolvedValue(2)
+
+      const result = await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
+      expect(result.status).toBe('COMPLETED')
+    })
+
+    it('bypasses the approval count entirely for an arbitrated (DISPUTED) release, even with zero approvals', async () => {
+      requireDualApprovalForRelease = true
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
+      mockApprovalCount.mockResolvedValue(0)
+
+      const result = await escrowService.releaseFunds('escrow-1', '0xbuyer', 'arbiter-1')
+      expect(mockApprovalCount).not.toHaveBeenCalled()
+      expect(result.status).toBe('COMPLETED')
+    })
+  })
+})

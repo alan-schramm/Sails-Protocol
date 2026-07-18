@@ -287,6 +287,34 @@ existing rows are unaffected; `Timeline.verifyChain()` treats a `null`
 `entryHash` as a chain-start boundary, not a break, so the tamper-evidence
 guarantee only covers entries written after this RFC ships.
 
+### `EscrowReleaseApproval` — owned by `opensettlement` (RFC-015)
+
+```prisma
+model EscrowReleaseApproval {
+  id         String   @id @default(uuid())
+  escrowId   String
+  approverId String   // must equal Trade.buyerId or Trade.sellerId
+  approvedAt DateTime @default(now())
+
+  @@unique([escrowId, approverId])
+  @@map("escrow_release_approvals")
+}
+```
+
+RFC-015's two-person control — application-layer, not on-chain multisig
+(`@tetherto/wdk-wallet-evm-erc-4337` is single-owner-only, checked
+against its real compiled types before choosing this design; the
+underlying blockchain transaction is still signed by one key regardless
+of how many approvals this table has). Only meaningful when
+`REQUIRE_DUAL_APPROVAL_RELEASE=true` (default `false`) — `escrow.service.ts`'s
+`releaseFunds()` refuses to proceed on a normal (`PAYMENT_PENDING`)
+release until both `Trade.buyerId` and `Trade.sellerId` have a row here
+for that `escrowId`. Arbitrated releases (`Escrow.status === 'DISPUTED'`)
+always bypass this table entirely, regardless of the flag — see that
+RFC's Decision §3 for why re-requiring the two counterparties' agreement
+after a dispute has already been raised would defeat arbitration's
+purpose.
+
 ### `Dispute` — owned by `opensettlement`, first implementation of §1.9's primitive
 
 ```prisma
