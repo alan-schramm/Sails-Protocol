@@ -370,7 +370,12 @@ makes the same point in more detail.
 
 - [ ] `docker-compose.yml` referenced in `DEPLOYMENT.md` does not exist in
       this environment and needs to be (re)created.
-- [ ] No CI/CD pipeline exists.
+- [x] **CI/CD pipeline** *(new — handoff-readiness pass, 2026-07-17)* —
+      `.github/workflows/ci.yml` runs `npm run build` + `npm test` on
+      every push/PR to `main`, Node 20.x/22.x matrix. `.github/dependabot.yml`
+      opens weekly dependency-update PRs. Neither needs live
+      Postgres/Redis — every test in this repo mocks its own network/
+      database boundary already.
 
 ## 13. Resolved Items (do not redo these — verify they're intact, don't rebuild)
 
