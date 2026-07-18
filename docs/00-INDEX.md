@@ -44,6 +44,12 @@ exactly what changes — with real example HTTP calls — when RFC-014's
 capability check and RFC-015's two-person release control are both
 turned on. Added specifically so this doesn't stay scattered across a
 dozen files' own doc comments.
+[SDK_usecases.md](SDK_usecases.md) — a vision/roadmap document, not a
+spec: how the real core (Capability Registry, OpenReputation, Pears
+`peerId`, QVAC) could extend into future named SDKs (Breez-style, one
+brand per sharply-scoped product — `PROJECT_CONTEXT.md` §3's Named-SDK
+Rule). Does **not** change today's actual scope — that's still exactly
+one shipping product, the Sails P2P Trading SDK.
 
 **Not in this repository, by design:** `docs/GOVERNANCE.md` §6C
 ("Publication Discipline") keeps strategic evaluation documents —
