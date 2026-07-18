@@ -50,7 +50,8 @@ full positioning, the Ideal Customer Profile, and the Developer Journey.
 documents, and explains why a few filenames cited inside them
 (`MASTER_COORDINATION.md`, `RED_TEAM_REVIEW.md`, and similar internal
 evaluation docs) don't resolve to a file in this repo — that's
-deliberate (`docs/GOVERNANCE.md` §6C), not a broken link.
+deliberate (`docs/GOVERNANCE.md` §6C), not a broken link. Picking this
+project up from someone else? Start with `docs/HANDOFF.md` instead.
 
 ## The three technologies Sails Protocol coordinates
 

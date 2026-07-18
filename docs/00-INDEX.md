@@ -33,6 +33,10 @@
 **Not numbered, added later:** [DEVELOPER_JOURNEY.md](DEVELOPER_JOURNEY.md)
 — the same protocol-to-code shape as `SDK_GUIDE.md` section 1's diagram,
 walked step by step with each step's real status called out.
+[HANDOFF.md](HANDOFF.md) — short, practical brief for whoever picks this
+repo up next: `demo-satsails-qvac.ts`'s current state, exact WDK/Pears/
+QVAC dependency versions, and `TODO.md`'s items ranked by what to attack
+first.
 
 **Not in this repository, by design:** `docs/GOVERNANCE.md` §6C
 ("Publication Discipline") keeps strategic evaluation documents —
