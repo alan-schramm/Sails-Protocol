@@ -2,8 +2,11 @@
   "name": "@sails/ui",
   "version": "0.0.1",
   "private": true,
-  "description": "Sails P2P Trading SDK reference UI — a functional prototype (mocked data, plain Tailwind, no final visual identity yet) proving the trading loop's navigation and state flow before a themed pass. Not published, not the SDK itself — see docs/TODO.md section 11 and this package's own README.",
+  "description": "Sails P2P Trading SDK reference UI — mocked data, real black+orange brand identity (light/dark), Binance P2P-style Marketplace filters. Not published, not the SDK itself — see docs/TODO.md section 11 and this package's own README.",
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -20,11 +23,11 @@
   "devDependencies": {
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.4.2",
-    "vite": "^5.3.1"
+    "vite": "^8.1.5"
   }
 }
