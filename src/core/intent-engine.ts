@@ -35,7 +35,13 @@ export interface IntentEngine {
   // Intent on a participant's behalf — filling in an already-specified
   // field, not introducing new protocol surface.
   create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string, agentId?: string): Promise<Intent<T>>
-  cancel(intentId: string): Promise<void>
+  // cancelledBy added during a gap audit: this previously took only
+  // intentId, with no check that the caller cancelling an Intent was the
+  // participant who created it — any caller (via the equally-unauthenticated
+  // DELETE /api/v1/intents/:id, see intentRoutes.ts's own fix) could
+  // cancel anyone's Intent. Required, not optional, so no call site can
+  // silently skip the check by omitting it.
+  cancel(intentId: string, cancelledBy: string): Promise<void>
   // Advances an Intent's status, writing the hash-chained audit trail and
   // emitting the caller-supplied typed event — the generic mechanism
   // create()/cancel() below both use, and what modules reacting to an
@@ -237,9 +243,18 @@ export const intentEngine: IntentEngine = {
     return coordinated as unknown as Intent<T>
   },
 
-  async cancel(intentId) {
+  async cancel(intentId, cancelledBy) {
     const record = await prisma.intent.findUnique({ where: { id: intentId } })
     if (!record) throw new NotFoundError('Intent', intentId)
+
+    // Gap-audit fix: only the participant who created this Intent may
+    // cancel it — checked before anything else (including the expiry
+    // branch below), so a non-owner gets a clean 403 regardless of the
+    // Intent's current state, rather than silently triggering a
+    // system-driven expiry transition on someone else's Intent.
+    if (record.participantId !== cancelledBy) {
+      throw new ForbiddenError(`${cancelledBy} does not own Intent ${intentId}`)
+    }
 
     if (isExpired({ status: record.status as IntentStatus, expiresAt: record.expiresAt })) {
       await transition(intentId, 'EXPIRED', 'system:expiry-check', 'intent.expired', {
@@ -249,9 +264,9 @@ export const intentEngine: IntentEngine = {
       return
     }
 
-    await transition(intentId, 'CANCELLED', record.participantId, 'intent.cancelled', {
+    await transition(intentId, 'CANCELLED', cancelledBy, 'intent.cancelled', {
       intentId,
-      cancelledBy: record.participantId,
+      cancelledBy,
     })
   },
 

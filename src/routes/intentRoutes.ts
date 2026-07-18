@@ -11,6 +11,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { intentEngine } from '../core/intent-engine'
+import { requireAuth } from '../common/middleware/auth'
 import type { IntentType, TradeIntentPayload } from '../common/types/intent'
 
 const tradeIntentPayloadSchema = z.object({
@@ -34,38 +35,58 @@ const tradeIntentPayloadSchema = z.object({
 const createIntentSchema = z.object({
   type: z.literal('TradeIntent'), // only IntentType with a registered handler today (§2.3)
   payload: tradeIntentPayloadSchema,
-  participantId: z.string().min(1),
+  agentId: z.string().optional(),
 })
 
 export async function intentRoutes(app: FastifyInstance): Promise<void> {
+  // Gap-audit fix: this route previously took `participantId` directly
+  // from the request body with no auth at all — the exact RT-002
+  // vulnerability auth.ts's own doc comment warns against
+  // ("a route that reads req.body.userId directly instead of
+  // req.participantId set by this middleware is exactly the RT-002
+  // vulnerability again"), reintroduced here specifically. Anyone could
+  // previously create a TradeIntent attributed to any participantId with
+  // no proof they controlled that identity. participantId is now derived
+  // from the authenticated session only, never trusted from the body —
+  // same pattern every other mutating route in this codebase already
+  // uses (liquidity.routes.ts, trade.routes.ts, settlement.routes.ts).
   app.post('/api/v1/intents', {
+    preHandler: requireAuth,
     schema: {
       tags: ['intent'],
       body: {
         type: 'object',
-        required: ['type', 'payload', 'participantId'],
+        required: ['type', 'payload'],
         properties: {
           type: { type: 'string' },
           payload: { type: 'object' },
-          participantId: { type: 'string' },
+          agentId: { type: 'string' },
         },
       },
     },
   }, async (request, reply) => {
     const body = createIntentSchema.parse(request.body)
+    const participantId = (request as any).participantId as string
     const intent = await intentEngine.create<TradeIntentPayload>(
       body.type as IntentType,
       body.payload,
-      body.participantId
+      participantId,
+      body.agentId
     )
     return reply.code(201).send({ success: true, data: intent })
   })
 
+  // Gap-audit fix: same RT-002-class issue as above, plus no ownership
+  // check at all — any caller could cancel any Intent by id.
+  // intentEngine.cancel() now requires cancelledBy and verifies it
+  // against the Intent's own participantId.
   app.delete('/api/v1/intents/:id', {
+    preHandler: requireAuth,
     schema: { tags: ['intent'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } } },
   }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
-    await intentEngine.cancel(id)
+    const participantId = (request as any).participantId as string
+    await intentEngine.cancel(id, participantId)
     return reply.code(200).send({ success: true })
   })
 }

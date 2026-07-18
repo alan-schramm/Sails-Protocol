@@ -89,6 +89,22 @@ break; do not delete the legacy path until a deprecation window has passed.
 
 ---
 
+## 1B. Intent Engine — `/api/v1/intents` (Core, not a module — deliberately
+outside the `/v1/{module}` convention above, since Intent is a
+cross-cutting Core primitive `intent-engine.ts` owns, not any one
+module's resource)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/intents` | `{ type: 'TradeIntent', payload, agentId? }`. Requires auth — `participantId` is derived from the session (`requireAuth`), never accepted from the body. Runs the full `CREATED → VALIDATED → COORDINATED` lifecycle (RFC-012) before returning. |
+| DELETE | `/api/v1/intents/:id` | Requires auth. Only the Intent's own `participantId` may cancel it — `403` otherwise. |
+
+Not documented here until a gap audit found `POST`/`DELETE` had no auth
+at all (`THREAT_MODEL.md` §4) — added alongside that fix rather than
+left undocumented once it was corrected.
+
+---
+
 ## 2. Sails OpenIdentity — `/v1/identity/`
 
 | Method | Path | Description |

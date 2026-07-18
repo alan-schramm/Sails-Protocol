@@ -45,22 +45,28 @@ export class SailsIntentFacade {
   constructor(private readonly transport: SailsTransport) {}
 
   /**
-   * `participantId` is required by the real route body
-   * (`src/routes/intentRoutes.ts`) — a deviation from SDK_GUIDE.md's
-   * one-argument signature, noted rather than silently hidden. Pass the
-   * id returned by `identity.authenticate()`/`identity.create()`.
+   * `participantId` used to be a required third argument here — a
+   * deviation from `SDK_GUIDE.md`'s one-argument signature, noted
+   * rather than silently hidden. Removed as the SDK-side fix for a real
+   * gap found during a codebase audit: the real route
+   * (`src/routes/intentRoutes.ts`) accepted `participantId` straight
+   * from the request body with no authentication at all, and this SDK
+   * method sent no auth header either. The route now derives
+   * `participantId` from the authenticated session (`requireAuth`) —
+   * call `identity.authenticate()` first (or `client.setSessionToken()`)
+   * so `this.transport`'s stored session token is set; `agentId` is
+   * still optional and still yours to supply.
    */
   async createIntent(
     type: 'TradeIntent',
     payload: TradeIntentPayload,
-    participantId: string,
     agentId?: string
   ): Promise<Intent<TradeIntentPayload>> {
-    return this.transport.post<Intent<TradeIntentPayload>>('/api/v1/intents', { type, payload, participantId, agentId })
+    return this.transport.post<Intent<TradeIntentPayload>>('/api/v1/intents', { type, payload, agentId }, true)
   }
 
   async cancelIntent(intentId: string): Promise<void> {
-    await this.transport.delete(`/api/v1/intents/${intentId}`)
+    await this.transport.delete(`/api/v1/intents/${intentId}`, true)
   }
 
   async negotiate(_intentId: string, _event: NegotiationEvent): Promise<void> {
