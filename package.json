@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Non-Custodial Multi-Asset P2P Marketplace Protocol",
   "main": "dist/src/main.js",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alan-schramm/Sails-Protocol.git"
+  },
   "workspaces": [
     "packages/*"
   ],
