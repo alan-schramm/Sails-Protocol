@@ -83,6 +83,7 @@ import { qvacAgentProvider } from '../modules/open-agents/qvac-agent.provider'
 import { BuyerAgent } from '../modules/open-agents/buyer-agent'
 import { SellerAgent } from '../modules/open-agents/seller-agent'
 import { intentEngine } from '../core/intent-engine'
+import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../core/capability-registry'
 import { pearsTransportProvider } from '../infrastructure/p2p/transport-provider'
 import { decryptFromPeer } from '../infrastructure/p2p/payload-crypto'
 
@@ -109,6 +110,28 @@ export async function main() {
 
   const sellerAgent = new SellerAgent(qvacAgentProvider, { participantId: seller.id, label: 'seller-wallet' })
   const buyerAgent = new BuyerAgent(qvacAgentProvider, { participantId: buyer.id, label: 'buyer-wallet' })
+
+  // RFC-014: capability-registry.ts's enforcement is off by default
+  // (config.features.enforceCapabilities) precisely because a reference
+  // deployment with no grants issued is valid today — but that also means
+  // no script in this repo ever exercised the registry's real issue/check
+  // path end to end. Issuing these two grants here costs nothing when
+  // enforcement stays off (an unused grant just sits in the table) and
+  // means this demo keeps working, unmodified, the moment someone sets
+  // ENFORCE_CAPABILITIES=true — rather than leaving that flag's first real
+  // test to be whichever production deployment flips it on first.
+  await capabilityRegistry.grant({
+    grantedTo: buyer.id,
+    capabilityName: CAPABILITY_IMPLEMENTATIONS.openp2p, // 'trade-coordination'
+    scope: ['intent.created'],
+    issuedBy: buyer.id, // self-issued — RFC-013's own MVP scope cut, not a new one here
+  })
+  await capabilityRegistry.grant({
+    grantedTo: sellerAgent.agentId, // matches settlement-orchestrator.ts's sellerTriggeredBy
+    capabilityName: CAPABILITY_IMPLEMENTATIONS.opensettlement, // 'settlement'
+    scope: ['settlement.escrow.released'],
+    issuedBy: seller.id,
+  })
 
   step(2, TOTAL, 'Agente Vendedor gera a oferta autonomamente via QVAC (inferência local — primeira chamada baixa ~737MB)...')
   const proposedOffer = await sellerAgent.offerUsdtForPix()

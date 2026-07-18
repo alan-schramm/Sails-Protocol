@@ -85,6 +85,17 @@ export const config = {
     // shape as mockEscrow/mockSettlement above, for the same reason:
     // moving funds automatically is not a safe default.
     autoSettleOnMatch: process.env.AUTO_SETTLE_ON_MATCH === 'true',
+    // RFC-014: capability-registry.ts (real since RFC-013) had zero real
+    // callers anywhere in the money-moving path — a working permission
+    // system nothing ever consults. This flag turns on the two real
+    // enforcement points RFC-014 adds (intentEngine.create() for
+    // TradeIntent, executeSettlement() before the USDT release). Default
+    // false for the same reason autoSettleOnMatch is: a reference
+    // deployment with no CapabilityGrants issued yet is a valid,
+    // pre-existing state (every test/demo in this repo runs with none
+    // issued) — flipping this to true with no grants issued would reject
+    // every TradeIntent and settlement, not fail safe silently.
+    enforceCapabilities: process.env.ENFORCE_CAPABILITIES === 'true',
   },
 
   trade: {

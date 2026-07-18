@@ -264,10 +264,27 @@ makes the same point in more detail.
       `POST /v1/capabilities/:grantId/revoke`) *(new — RFC-013,
       `rfcs/RFC-013-capability-registry-and-wallet-adapter.md`,
       2026-07-18)*. `coordinationEngine.decide()` still doesn't consult it
-      (RFC-012's scope cut, unrevisited) — this closes the "the registry
+      (RFC-012's scope cut, unrevisited) — this closed the "the registry
       itself doesn't exist" half of that gap, not the "nothing calls it
-      yet" half. `policy-engine.ts`'s governed-policy interface remains
-      the one still-untouched stub among the 6 formal Core components.
+      yet" half (that half closed by RFC-014 below). `policy-engine.ts`'s
+      governed-policy interface remains the one still-untouched stub among
+      the 6 formal Core components.
+- [x] **Capability Registry actually has real callers now** *(new —
+      RFC-014, `rfcs/RFC-014-capability-registry-enforcement.md`,
+      2026-07-18)* — the "nothing calls it yet" half of the gap above.
+      `intentEngine.create()` (TradeIntent) and
+      `settlement-orchestrator.ts`'s `executeSettlement()` (immediately
+      before the real USDT release, the highest-stakes line in that file)
+      both check `capabilityRegistry.check()` now, behind a new
+      `config.features.enforceCapabilities` flag (`ENFORCE_CAPABILITIES`,
+      default `false` — same off-by-default precedent as
+      `AUTO_SETTLE_ON_MATCH`, since no deployment or test in this repo has
+      ever issued a `CapabilityGrant`). `npm run demo:qvac` issues the two
+      grants it needs unconditionally, so it works either way the flag is
+      set. Still open: `coordinationEngine.decide()` itself doesn't
+      consult the registry (unchanged from RFC-012's scope cut); no
+      route/CLI for an operator to issue grants in bulk (still one
+      self-issued `POST /v1/capabilities/register` call at a time).
 - [ ] **Still open:** `IntentHandler` plugin registration pattern (§2.7 of
       `PROTOCOL_SPECIFICATION.md`) is fully specified but has zero code.
 

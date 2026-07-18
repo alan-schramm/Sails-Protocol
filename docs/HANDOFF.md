@@ -1,9 +1,15 @@
 # HANDOFF.md
-### Sails Protocol — Technical Handoff (2026-07-17)
+### Sails Protocol — Technical Handoff (2026-07-17, updated 2026-07-18)
 
 > Short, practical brief for whoever is picking this repo up next. Not a
 > replacement for `docs/00-INDEX.md`'s full 20-document reading order —
 > this is "what to run, what's real, what to attack first."
+>
+> **Updated 2026-07-18** — items 2, 6, and 7 in section 3 below were
+> closed since this doc was first written (rate limiting, Capability
+> Registry enforcement, `docker-compose.yml`); struck through rather than
+> deleted so the history of what was actually attacked, and in what order,
+> stays visible.
 
 ## 1. `demo-satsails-qvac.ts` — current state
 
@@ -32,16 +38,24 @@ runs, in order:
 
 **What's verified vs. not, honestly:**
 - ✅ Compiles clean (`npm run build`), every individual piece has its
-  own passing tests (131 total, `npm test`) — QVAC's real LLM path was
+  own passing tests (166 total, `npm test`, up from 131 as of this doc's
+  original writing — rate limiting and RFC-014's capability enforcement
+  each added their own suites since) — QVAC's real LLM path was
   live-smoke-tested once this session (~737MB model download, ~7-9s per
   call after caching); the Ed25519/libsodium crypto is unit-tested for
   real, not mocked.
-- ❌ **The full `demo-satsails-qvac.ts` run has never completed
+- ❌ **The full `demo-satsails-qvac.ts` run has still never completed
   end-to-end in this environment** — no reachable Postgres/Redis, no
   live P2P bootstrap network, no funded WDK testnet key here. It has
   only been run up to the expected `Postgres unreachable` failure point.
-  **This should be your first real test**: `docker-compose`/local
-  Postgres+Redis, `npm run demo:qvac`, watch it all the way through.
+  **This should be your first real test**: `docker-compose.yml` now
+  exists at the repo root (`docker compose up -d` — Postgres 16 + Redis
+  7, healthchecked, matches `.env.example` exactly, see
+  `docs/DEPLOYMENT.md`) — it just hasn't been exercised against real
+  Docker anywhere in this project's history, since none was reachable in
+  any environment this was built in. Run `npm run demo:qvac` against it
+  and watch it all the way through — that's still the single most
+  valuable thing an incoming dev can do here.
 
 ## 2. Installed WDK / Pears / QVAC dependencies (exact versions)
 
@@ -64,9 +78,13 @@ each one actually does in this codebase).
 1. **Run the full demo against real local infra** (section 1 above) —
    nothing else on this list matters until you've confirmed the happy
    path actually completes outside a sandboxed environment.
-2. **Rate limiting** (`TODO.md` §6) — zero mitigation exists anywhere.
-   `THREAT_MODEL.md` already flags this as unmitigated; add
-   `@fastify/rate-limit` per IP/API key before any public exposure.
+2. ~~**Rate limiting** — zero mitigation exists anywhere.~~ **Closed.**
+   `@fastify/rate-limit` is real: a general per-IP ceiling on every route
+   plus a tighter tier on `/v1/identity/challenge`/`authenticate`
+   specifically (`RED_TEAM_REVIEW.md` RT-002's own named target).
+   `TODO.md` §6, `THREAT_MODEL.md` §4. Still open: no per-API-key tier,
+   and `trustProxy` needs setting explicitly if this ever sits behind a
+   reverse proxy (not yet done — no proxy exists yet either).
 3. **Proof primitive** (`BACKLOG.md` P0) — zero routes, zero tables. This
    is what's blocking two real gaps at once: `submitProof()`/`dispute()`
    in `@sails/sdk`'s Intent facade (currently throw
@@ -83,12 +101,24 @@ each one actually does in this codebase).
    `HumanChatChannel` still send plain JSON. `websocket-relay.service.ts`'s
    own doc comment used to claim otherwise everywhere — now corrected to
    say precisely where it's true.
-6. **Capability Registry + Policy Engine's governed-policy interface**
-   (`ARCHITECTURE.md` §1B) — both still stubs; `coordination-engine.ts`'s
-   `decide()` deliberately doesn't consult either yet (RFC-012's own
-   Alternatives Considered explains why that was kept out of scope).
-7. **`docker-compose.yml`** referenced by `DEPLOYMENT.md` doesn't exist —
-   needed for #1 above and for anyone else's local onboarding.
+6. ~~**Capability Registry** — still a stub, zero real callers.~~
+   **Closed, in two RFCs.** RFC-013 made `capability-registry.ts` real
+   (persisted `CapabilityGrant`, `grant()`/`check()`/`revoke()`); at that
+   point it still had no real caller anywhere in the money-moving path —
+   RFC-014 closed that specifically: `intentEngine.create()` and
+   `executeSettlement()` both check it now, behind
+   `config.features.enforceCapabilities` (`ENFORCE_CAPABILITIES`, default
+   `false` — no grant has ever been issued in this repo's history outside
+   the demo script, so enforcing unconditionally would reject everything).
+   **Still a real stub:** `policy-engine.ts`'s governed-policy interface
+   (`ARCHITECTURE.md` §1B) — `coordination-engine.ts`'s `decide()`
+   deliberately doesn't consult it (RFC-012's own Alternatives Considered
+   explains why that was kept out of scope, and it still is).
+7. ~~**`docker-compose.yml`** referenced by `DEPLOYMENT.md` doesn't
+   exist.~~ **Closed.** It exists at the repo root now — Postgres 16 +
+   Redis 7, healthchecked, matches `.env.example` exactly. Still not
+   exercised against real Docker anywhere in this project's history (see
+   section 1's note above) — that verification is still yours to do.
 
 Lower priority but real: `LightningHodlProvider`/`LiquidCovenantProvider`
 still throw "not implemented" (only `MOCK`/`WDK_USDT_EVM` settle for
