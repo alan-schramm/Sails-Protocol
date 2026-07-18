@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sails-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "@sails/ui"],
+      "port": 5173
+    }
+  ]
+}

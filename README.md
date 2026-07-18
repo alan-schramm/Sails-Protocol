@@ -115,12 +115,17 @@ src/
 
 packages/              npm workspaces
 ├── sails-p2p-schemas/  @sails/p2p-schemas — types-only domain contracts
-└── sails-sdk/          @sails/sdk — the Sails P2P Trading SDK
-                        (SDK_GUIDE.md). v0.1: Transport + Protocol SDK
-                        layers (identity, reputation, liquidity, openp2p,
-                        settlement, peers) are real, verified against
-                        actual routes. Intent facade partial — see its
-                        own src/intent-facade.ts
+├── sails-sdk/          @sails/sdk — the Sails P2P Trading SDK
+│                       (SDK_GUIDE.md). v0.1: Transport + Protocol SDK
+│                       layers (identity, reputation, liquidity, openp2p,
+│                       settlement, peers) are real, verified against
+│                       actual routes. Intent facade partial — see its
+│                       own src/intent-facade.ts
+└── sails-ui/           @sails/ui — reference UI, 9 navigable screens,
+                        structural skeleton only (mocked data, plain
+                        Tailwind — no visual identity yet, that's a
+                        deliberate later pass). `npm run dev:ui`. See
+                        its own README.md for the real-vs-mocked split.
 
 docs/                   Full engineering handoff — architecture, protocol
                         spec, database schema, API reference, SDK guide,
