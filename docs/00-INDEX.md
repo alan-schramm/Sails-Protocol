@@ -36,7 +36,14 @@ walked step by step with each step's real status called out.
 [HANDOFF.md](HANDOFF.md) — short, practical brief for whoever picks this
 repo up next: `demo-satsails-qvac.ts`'s current state, exact WDK/Pears/
 QVAC dependency versions, and `TODO.md`'s items ranked by what to attack
-first.
+first. [TRANSACTION_WALKTHROUGH.md](TRANSACTION_WALKTHROUGH.md) — **read
+this if you want to see one real P2P trade move through every piece at
+once** (QVAC → Pears → Intent Engine → Capability check → OpenSettlement
+→ WDK release), what's genuinely real vs. emulated at each step, and
+exactly what changes — with real example HTTP calls — when RFC-014's
+capability check and RFC-015's two-person release control are both
+turned on. Added specifically so this doesn't stay scattered across a
+dozen files' own doc comments.
 
 **Not in this repository, by design:** `docs/GOVERNANCE.md` §6C
 ("Publication Discipline") keeps strategic evaluation documents —

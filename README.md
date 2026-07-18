@@ -46,8 +46,14 @@ WebSocket as transport; Redis, PostgreSQL, Prisma as storage.
 
 **Read `docs/PROJECT_CONTEXT.md` first if you're new here** — it has the
 full positioning, the Ideal Customer Profile, and the Developer Journey.
-`docs/00-INDEX.md` has the full reading order for all 20 handoff
-documents, and explains why a few filenames cited inside them
+**Want to see one real trade move through every piece below, end to
+end — QVAC, Pears, Intent Engine, Capability checks, escrow, the WDK
+release, including exactly what changes when the two-person release
+control is turned on? Read `docs/TRANSACTION_WALKTHROUGH.md`** — every
+file/function it names was checked against the actual code, not written
+from memory of what should be there. `docs/00-INDEX.md` has the full
+reading order for all 20 handoff documents, and explains why a few
+filenames cited inside them
 (`MASTER_COORDINATION.md`, `RED_TEAM_REVIEW.md`, and similar internal
 evaluation docs) don't resolve to a file in this repo — that's
 deliberate (`docs/GOVERNANCE.md` §6C), not a broken link. Picking this
@@ -67,6 +73,8 @@ If any of the three names below aren't familiar yet, that's expected —
 read their docs before the rest of this codebase, since `src/infrastructure/`,
 `src/modules/open-agents/`, and `src/modules/open-settlement/` all wrap
 their real, official SDKs directly, not an abstraction invented here.
+**`docs/TRANSACTION_WALKTHROUGH.md` narrates exactly how these three
+coordinate for one real trade, step by step, file by file.**
 
 | Technology | What it provides | Official docs |
 |---|---|---|
