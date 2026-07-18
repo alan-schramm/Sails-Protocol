@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    # Groups workspace packages' updates with the root's own, since
+    # package-lock.json is shared across the whole npm workspace
+    # (root + packages/sails-p2p-schemas + packages/sails-sdk) — separate
+    # per-directory Dependabot configs for each workspace would each try
+    # to update the same lockfile independently.
+    groups:
+      dependencies:
+        patterns:
+          - "*"

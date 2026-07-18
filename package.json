@@ -8,6 +8,9 @@
     "type": "git",
     "url": "https://github.com/alan-schramm/Sails-Protocol.git"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "workspaces": [
     "packages/*"
   ],
