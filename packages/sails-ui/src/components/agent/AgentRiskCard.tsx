@@ -44,7 +44,7 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
     <div className="card p-4 mt-3">
       <div className="flex items-center gap-2 text-sm font-semibold text-brand-text mb-2">
         🧠 Avaliação de risco do Agente QVAC
-        <InfoTooltip text="Reflete o passo real de assessIntentRisk() do backend (QvacAgentProvider, LLM local via @qvac/sdk) que roda antes da coordenação de um Intent (RFC-012). Nesta interface o resultado é simulado — ainda não existe rota HTTP conectando o navegador a essa avaliação real." />
+        <InfoTooltip text="Reflete o passo real de assessIntentRisk() do backend (QvacAgentProvider, LLM local via @qvac/sdk) que roda antes da coordenação de um Intent (RFC-012). Analisa apenas dados do ativo/trade — o agente é Crypto-Native (RFC-016), sem qualquer acesso a contas bancárias ou trilhos fiat. Nesta interface o resultado é simulado — ainda não existe rota HTTP conectando o navegador a essa avaliação real." />
       </div>
 
       {loading ? (

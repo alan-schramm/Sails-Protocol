@@ -502,6 +502,27 @@ makes the same point in more detail.
       and the real bug found while building this (an `InfoTooltip`
       button nested inside another button — invalid HTML, caught by a
       browser console warning, not `tsc`).
+- [x] **RFC-016 (Crypto-Native Agent boundary) + "AI Negotiator" mandate
+      UI** *(same day, direct owner instruction: "O QVAC nunca deve
+      tocar em PIX. Essa decisão precisa ser arquitetural")* — formalizes
+      an invariant already true by construction (no code in this repo
+      has ever called a banking API) as an explicit RFC
+      (`docs/rfcs/RFC-016-qvac-crypto-native-agent-boundary.md`):
+      QVAC/`BuyerAgent`/`SellerAgent` only act on digital assets via WDK,
+      never on fiat rails; conversion is a regulated on/off-ramp
+      provider's job, outside Sails Protocol's scope. Propagated into
+      `PROJECT_CONTEXT.md`, `ARCHITECTURE.md`, `SDK_usecases.md`, and
+      code comments in `qvac-agent.provider.ts`/`buyer-agent.ts`.
+      `AgentIntentionPanel` renamed to lead with "🤖 AI Negotiator" and
+      gained a bounded delegation mandate (quantity, limit price,
+      deadline, tolerance, Negotiation Profile —
+      Conservative/Balanced/Aggressive/Instant,
+      `packages/sails-ui/src/lib/aiNegotiator.ts`) plus a mocked live
+      negotiation view (status timeline, Agent Strategy panel) with a
+      permanent "🛑 Parar Agente / Assumir Controle" stop control —
+      verified in browser including mid-run interruption. Still a
+      client-side simulation only; no backend accepts a mandate shaped
+      like this yet (`packages/sails-ui/README.md` "Next steps").
 
 ## 12. Deployment
 
