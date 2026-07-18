@@ -9,7 +9,12 @@
 > closed since this doc was first written (rate limiting, Capability
 > Registry enforcement, `docker-compose.yml`); struck through rather than
 > deleted so the history of what was actually attacked, and in what order,
-> stays visible.
+> stays visible. Also added the same day, item 8: a real two-person
+> release control (RFC-015), and — read this one first if you only read
+> one thing —
+> **[`docs/TRANSACTION_WALKTHROUGH.md`](TRANSACTION_WALKTHROUGH.md)**,
+> tracing one real trade through every piece named in this document at
+> once, including exactly what changes with both custody controls on.
 
 ## 1. `demo-satsails-qvac.ts` — current state
 
@@ -105,8 +110,9 @@ each one actually does in this codebase).
    **Closed, in two RFCs.** RFC-013 made `capability-registry.ts` real
    (persisted `CapabilityGrant`, `grant()`/`check()`/`revoke()`); at that
    point it still had no real caller anywhere in the money-moving path —
-   RFC-014 closed that specifically: `intentEngine.create()` and
-   `executeSettlement()` both check it now, behind
+   RFC-014 closed that specifically: `intentEngine.create()` and (as of
+   RFC-015, which found the check needed to move) `escrow.service.ts`'s
+   `releaseFunds()` both check it now, behind
    `config.features.enforceCapabilities` (`ENFORCE_CAPABILITIES`, default
    `false` — no grant has ever been issued in this repo's history outside
    the demo script, so enforcing unconditionally would reject everything).
@@ -114,6 +120,21 @@ each one actually does in this codebase).
    (`ARCHITECTURE.md` §1B) — `coordination-engine.ts`'s `decide()`
    deliberately doesn't consult it (RFC-012's own Alternatives Considered
    explains why that was kept out of scope, and it still is).
+8. ~~**Custody is single-seed, no defense against a single compromised
+   release trigger.**~~ **Real, application-layer mitigation added
+   (RFC-015) — not on-chain multisig.** `@tetherto/wdk-wallet-evm-erc-4337`
+   was checked and found single-owner-only (its real compiled types),
+   so one WDK seed still signs the eventual transfer regardless. What's
+   real: `escrow.service.ts`'s `releaseFunds()` now requires both a
+   trade's buyer and seller to have independently approved
+   (`POST /v1/settlement/escrow/:id/approve-release`) before a normal
+   release proceeds, behind `config.features.requireDualApprovalForRelease`
+   (`REQUIRE_DUAL_APPROVAL_RELEASE`, default `false`). See
+   `docs/TRANSACTION_WALKTHROUGH.md` §3 for the concrete request sequence
+   and exactly what this does and doesn't protect against. **Still open:**
+   real on-chain multisig (deferred, RFC-015's Alternatives Considered #1);
+   binding an approval to the exact release terms rather than a bare
+   per-escrow checkbox.
 7. ~~**`docker-compose.yml`** referenced by `DEPLOYMENT.md` doesn't
    exist.~~ **Closed.** It exists at the repo root now — Postgres 16 +
    Redis 7, healthchecked, matches `.env.example` exactly. Still not
