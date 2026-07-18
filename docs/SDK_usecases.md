@@ -140,6 +140,16 @@ document.
   producing signals that feed a Capability/Policy check rather than
   acting unilaterally (RFC-007 D7 — an agent proposes, it doesn't decide
   alone).
+- **Architectural boundary (RFC-016,
+  `docs/rfcs/RFC-016-qvac-crypto-native-agent-boundary.md`):** this is a
+  **Crypto-Native Agent**, never a "PIX Agent" or "Banking Agent." It
+  only ever acts on digital assets already in the user's non-custodial
+  wallet, via WDK — negotiating, creating/accepting offers, moving
+  BTC/USDT/DePix/USDC, locking/releasing escrow. It never calls a
+  banking API and never touches PIX or any other fiat rail. Any future
+  "Sails Agent SDK" surface, and the negotiation-delegation concept
+  prototyped (mocked) in `packages/sails-ui`, is scoped inside this
+  boundary from the start, not retrofitted onto it later.
 
 ## Comparison table
 

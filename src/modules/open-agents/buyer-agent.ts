@@ -35,6 +35,13 @@ export class BuyerAgent extends WalletAgent {
   // USDT enviando um PIX" — pre-filled as a goal, still fully autonomous:
   // QVAC decides the actual amount range and side from the prompt, this
   // method doesn't hardcode a TradeIntentPayload and ask QVAC to rubber-stamp it.
+  //
+  // "ViaPix" in this method's name describes the *counterparty's expected
+  // settlement method* — a label the human buyer will act on manually by
+  // sending a real PIX transfer outside this protocol, exactly like every
+  // other PaymentMethod value in prisma/schema.prisma. This method never
+  // calls a banking API and never touches PIX itself (RFC-016, Crypto-
+  // Native Agent boundary, rfcs/RFC-016-qvac-crypto-native-agent-boundary.md).
   async requestUsdtViaPix(maxBrl: string, onProgress?: (p: unknown) => void): Promise<TradeIntentPayload> {
     const goal =
       `Quero comprar USDT (rede ERC20) pagando via PIX em reais (BRL). ` +

@@ -267,6 +267,17 @@ variation, across any document describing the ecosystem):**
 | **Pears** (Holepunch) | P2P communication — HyperDHT peer discovery, Hyperswarm, Secretstream E2E channels | Sails uses Pears as its transport layer — never builds its own networking stack |
 | **QVAC** (Tether) | Local AI agent intelligence — Agent Infrastructure | Sails' future OpenAgents module is a thin integration layer on top of QVAC |
 
+**Crypto-Native Agent corollary (RFC-016, `docs/rfcs/RFC-016-qvac-crypto-native-agent-boundary.md`):**
+extends this section's own fiat model statement below to QVAC/OpenAgents
+specifically — QVAC and any agent built on it (`BuyerAgent`/`SellerAgent`)
+only ever act on digital assets already in the user's non-custodial
+wallet, via WDK. They never call a banking API and never touch PIX or
+any other fiat rail. Converting fiat into a digital asset is a regulated
+on/off-ramp provider's job (Reference Wallet-level, Level 3, out of
+Sails Protocol's scope), entirely before an asset reaches a wallet QVAC
+ever operates on. Use "Crypto-Native Agent" for QVAC/OpenAgents in any
+document — never "PIX Agent" or "Banking Agent."
+
 The canonical phrase that must appear in any strategic or architecture
 document:
 

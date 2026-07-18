@@ -34,6 +34,17 @@
  * persisted — an LLM producing a malformed or financially insane payload
  * gets rejected at that boundary the same way a malicious or buggy human
  * client would be, not specially trusted because an "agent" produced it.
+ *
+ * Crypto-Native Agent boundary (RFC-016,
+ * rfcs/RFC-016-qvac-crypto-native-agent-boundary.md, architectural, not a
+ * Satsails-only choice): this class and everything built on it only ever
+ * produces structured data about digital assets (asset/side/amount/
+ * currency labels) — it never calls a banking API and never touches PIX
+ * or any other fiat rail. `fiatMethod` values like `'PIX'` below are
+ * opaque labels describing what a human counterparty is expected to do
+ * outside this protocol, the same as every other `PaymentMethod` value
+ * in `prisma/schema.prisma` — never an instruction this code executes
+ * against a bank.
  */
 import { loadModel, completion, unloadModel, LLAMA_3_2_1B_INST_Q4_0 } from '@qvac/sdk'
 

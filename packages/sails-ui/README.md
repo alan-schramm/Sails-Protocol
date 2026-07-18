@@ -50,12 +50,32 @@ script and `core/intent-engine.ts`'s own validation. No HTTP route
 exposes it to a browser yet, so this is honestly mocked (latency +
 heuristic parsing, not a live model call) — see `qvacAgent.ts`'s own
 comment for exactly what a real route would need to wrap.
-- `AgentIntentionPanel` (Marketplace): natural-language goal → mocked
-  structured trade intent, reflecting `BuyerAgent.requestTradeIntent()`/
-  `SellerAgent.proposeOffer()`.
+- `AgentIntentionPanel` (Marketplace, now "🤖 AI Negotiator"): natural-
+  language goal → mocked structured trade intent, reflecting
+  `BuyerAgent.requestTradeIntent()`/`SellerAgent.proposeOffer()`. Once
+  generated, the panel exposes a bounded delegation mandate (quantity,
+  limit price, deadline, tolerance, and a Negotiation Profile —
+  Conservative/Balanced/Aggressive/Instant, `src/lib/aiNegotiator.ts`) —
+  the user always hands the agent a mandate, never open-ended control.
+  "Delegar para IA" starts a client-side simulation of the negotiation
+  (status timeline, an "Agent Strategy" readout, a converging "Melhor
+  oferta"), with a permanent "🛑 Parar Agente / Assumir Controle" button
+  that halts it at the current step — the user can always take back
+  control. This is a UI simulation only: no backend accepts a mandate
+  shaped like this yet (see Next steps).
 - `AgentRiskCard` (Trade page): mocked risk assessment reflecting
   `qvacAgentProvider.assessIntentRisk()`, the real step that runs before
   Intent coordination (RFC-012).
+
+**Crypto-Native Agent boundary (RFC-016,
+`docs/rfcs/RFC-016-qvac-crypto-native-agent-boundary.md`):** both
+components' `InfoTooltip` copy states this directly — QVAC only ever
+acts on digital assets already in the wallet, via WDK. It never calls a
+banking API and never touches PIX or any other fiat rail; that
+conversion is a regulated on/off-ramp provider's job, entirely outside
+this protocol. The one negotiation step that names a fiat action
+("Aguardando pagamento") is always something the human counterparty
+does — the agent only waits for and observes it.
 
 **Chat image/video attach** (`ChatWindow`/`ChatMessage`): the 📎 button
 creates a local `URL.createObjectURL()` blob — the file never leaves the
@@ -136,3 +156,7 @@ require touching `vite.config.ts`.
 7. Real media messages: an upload/storage endpoint plus a Pears event
    kind carrying a media reference, to back the chat's 📎 attach button
    with something beyond a local, never-transmitted blob URL.
+8. A real `NegotiationIntent`-accepting backend for the AI Negotiator's
+   delegation mandate — today `src/lib/aiNegotiator.ts`'s status
+   timeline and Strategy panel are a client-side simulation with no
+   agent actually running.
