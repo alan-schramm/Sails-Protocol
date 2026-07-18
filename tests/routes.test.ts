@@ -37,9 +37,23 @@ const mockCapabilityGrantCreate = jest.fn()
 const mockCapabilityGrantFindMany = jest.fn()
 const mockCapabilityGrantFindUnique = jest.fn()
 const mockCapabilityGrantUpdate = jest.fn()
+const mockIntentCreate = jest.fn()
+const mockIntentFindUnique = jest.fn()
+const mockIntentUpdate = jest.fn()
+const mockIntentEventCreate = jest.fn()
+const mockIntentEventFindFirst = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
+    intent: {
+      create: (...args: unknown[]) => mockIntentCreate(...args),
+      findUnique: (...args: unknown[]) => mockIntentFindUnique(...args),
+      update: (...args: unknown[]) => mockIntentUpdate(...args),
+    },
+    intentEvent: {
+      create: (...args: unknown[]) => mockIntentEventCreate(...args),
+      findFirst: (...args: unknown[]) => mockIntentEventFindFirst(...args),
+    },
     user: {
       findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
       findMany: (...args: unknown[]) => mockUserFindMany(...args),
@@ -498,6 +512,9 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('records a star rating for an authenticated caller — informational only, never touches reputationScore', async () => {
       const token = await authedSession('buyer-1')
+      // Gap-audit fix: rate() now verifies raterId/ratedId are the
+      // trade's own two counterparties before persisting.
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
       mockReputationEventCreate.mockResolvedValueOnce({ id: 'rep-event-1', tradeId: 'trade-1', raterId: 'buyer-1', ratedId: 'seller-1', score: 5 })
 
       const res = await app.inject({
@@ -518,6 +535,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('rejects a duplicate rating on the same trade by the same rater (P2002 -> clear 400, not a raw DB error)', async () => {
       const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
       mockReputationEventCreate.mockRejectedValueOnce({ code: 'P2002' })
 
       const res = await app.inject({
@@ -589,7 +607,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('revokes a grant for an authenticated caller', async () => {
       const token = await authedSession('buyer-1')
-      mockCapabilityGrantFindUnique.mockResolvedValueOnce({ id: 'grant-1' })
+      mockCapabilityGrantFindUnique.mockResolvedValueOnce({ id: 'grant-1', grantedTo: 'buyer-1' })
       mockCapabilityGrantUpdate.mockResolvedValueOnce({})
 
       const res = await app.inject({
@@ -604,6 +622,20 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       )
     })
 
+    it('rejects revoking a grant that belongs to someone else (gap-audit fix)', async () => {
+      const token = await authedSession('buyer-1')
+      mockCapabilityGrantFindUnique.mockResolvedValueOnce({ id: 'grant-1', grantedTo: 'someone-else' })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/grant-1/revoke',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(403)
+      expect(mockCapabilityGrantUpdate).not.toHaveBeenCalled()
+    })
+
     it('404s revoking a grant that does not exist', async () => {
       const token = await authedSession('buyer-1')
       mockCapabilityGrantFindUnique.mockResolvedValueOnce(null)
@@ -615,6 +647,92 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
 
       expect(res.statusCode).toBe(404)
+    })
+  })
+
+  // Gap-audit fix: POST /api/v1/intents and DELETE /api/v1/intents/:id
+  // previously had NO auth at all — participantId came straight from the
+  // request body, the exact RT-002 vulnerability auth.ts's own doc
+  // comment warns against. Never had HTTP-level test coverage before —
+  // only intentEngine.create() itself was tested directly
+  // (tests/intentFlow.test.ts), which is why this went unnoticed.
+  describe('Intent API (gap-audit fix — requireAuth added)', () => {
+    const payload = { asset: 'BTC', side: 'BUY' as const, maxValue: '0.5', minValue: '0.01' }
+
+    it('rejects creating an Intent without auth', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/intents',
+        payload: { type: 'TradeIntent', payload },
+      })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('creates an Intent for the authenticated caller, deriving participantId from the session — a body-supplied participantId is ignored', async () => {
+      const token = await authedSession('buyer-1')
+      mockIntentEventFindFirst.mockResolvedValue(null)
+      mockIntentCreate.mockResolvedValueOnce({
+        id: 'intent-1', type: 'TradeIntent', participantId: 'buyer-1', moduleId: 'openp2p', status: 'CREATED', payload,
+      })
+      mockIntentFindUnique
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', moduleId: 'openp2p', payload })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload })
+      mockIntentUpdate.mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED' })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/intents',
+        headers: { authorization: `Bearer ${token}` },
+        // A malicious/stale caller-supplied participantId in the body is
+        // exactly what the fix ignores — the real check is that
+        // mockIntentCreate below was called with 'buyer-1' (the session),
+        // not 'someone-else'.
+        payload: { type: 'TradeIntent', payload, participantId: 'someone-else' },
+      })
+
+      expect(res.statusCode).toBe(201)
+      expect(mockIntentCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ participantId: 'buyer-1' }) })
+      )
+    })
+
+    it('rejects cancelling an Intent without auth', async () => {
+      const res = await app.inject({ method: 'DELETE', url: '/api/v1/intents/intent-1' })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('rejects cancelling an Intent that belongs to someone else', async () => {
+      const token = await authedSession('buyer-1')
+      mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', participantId: 'someone-else', expiresAt: null })
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/api/v1/intents/intent-1',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(403)
+      expect(mockIntentUpdate).not.toHaveBeenCalled()
+    })
+
+    it("cancels the caller's own Intent", async () => {
+      const token = await authedSession('buyer-1')
+      // Two resolved values: cancel()'s own ownership-check fetch, then
+      // transition()'s separate internal re-fetch of the same Intent.
+      mockIntentFindUnique
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', participantId: 'buyer-1', expiresAt: null })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', participantId: 'buyer-1', expiresAt: null })
+      mockIntentEventFindFirst.mockResolvedValueOnce(null)
+      mockIntentUpdate.mockResolvedValueOnce({ id: 'intent-1', status: 'CANCELLED' })
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/api/v1/intents/intent-1',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(200)
     })
   })
 })

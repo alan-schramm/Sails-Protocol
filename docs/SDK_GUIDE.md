@@ -182,13 +182,20 @@ interface SailsClient {
 }
 ```
 
-**Deviations found while implementing v0.1, not silently matched** (both
-because the real route requires a field this section's literal signature
-omits — a two-arg call would just 400 at runtime):
+**Deviations found while implementing v0.1, not silently matched:**
 - `createIntent(payload)` → real signature is `createIntent(type,
-  payload, participantId, agentId?)` — `POST /api/v1/intents`'s body
-  requires `participantId` explicitly; there's no session-based
-  resolution for this specific route today.
+  payload, agentId?)` — `type` is required since more than one
+  `IntentType` exists in the frozen shape even though only `TradeIntent`
+  has a registered handler today; `agentId` is optional. **Closed since
+  this section was first written:** a gap audit found `POST
+  /api/v1/intents` accepted a bare `participantId` in the body with zero
+  authentication — the route now derives it from the authenticated
+  session (`requireAuth`) instead, the same pattern every other mutating
+  route in this codebase uses, so `participantId` is no longer a caller
+  argument at all. `createIntent()`/`cancelIntent()` both now send the
+  real auth header — call `identity.authenticate()` (or
+  `client.setSessionToken()`) first, same requirement every other
+  authenticated SDK call already has.
 - `openp2p.trade(offerId)` → real signature is `trade(offerId, amount)`
   — `POST /v1/openp2p/trades`'s body requires `amount`.
 

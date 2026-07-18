@@ -556,6 +556,50 @@ makes the same point in more detail.
       `tests/wdkSettlementProvider.test.ts`, the live wallet calls not
       verifiable without a funded testnet key).
 
+## 14. Gap Audit — Authorization/IDOR Fixes *(new — 2026-07-18)*
+
+Requested directly by the project owner ("faça uma auditoria geral antes
+para identificar furos") as a general sweep for the same class of gap
+RFC-014/RFC-015's own work had just surfaced (a check that existed but
+didn't cover every real caller). Found four real, previously-untested
+authorization gaps — not from an external report, from a systematic
+pass over every route/service checking who's actually allowed to call
+what. All four fixed the same day; full detail in `THREAT_MODEL.md` §4
+(each entry there struck through and marked Resolved, not deleted, so
+the history stays visible):
+
+- [x] **Intent API had zero authentication** — `POST /api/v1/intents`/
+      `DELETE /api/v1/intents/:id` accepted `participantId` straight
+      from the request body, the exact RT-002 vulnerability
+      `auth.ts`'s own doc comment warns against. Fixed: `requireAuth`
+      added, `participantId` now session-derived only;
+      `intentEngine.cancel()` gained an ownership check it never had.
+      `@sails/sdk`'s `createIntent()`/`cancelIntent()` updated to send
+      real auth and dropped `participantId` as a caller argument
+      (closing a previously-noted `SDK_GUIDE.md` deviation as a side
+      effect). Zero HTTP-level test coverage existed for this route
+      before this pass — that's exactly why it went unnoticed; now
+      covered in `tests/routes.test.ts`.
+- [x] **No escrow mutation checked the caller was a party to the
+      trade** — `lockFunds()`/`markPaymentSent()`/`releaseFunds()`/
+      `refundFunds()`/`openDispute()` in `escrow.service.ts` all trusted
+      `triggeredBy` with no ownership check; any authenticated
+      participant could mutate any other trade's escrow via
+      `settlement.routes.ts`'s direct routes. Fixed with real checks
+      (seller/seller-agent, buyer/buyer-agent, or the dispute's assigned
+      arbiter, as appropriate per method) — 11 new tests in
+      `tests/escrowReleaseControls.test.ts`.
+- [x] **Capability grant revoke had no ownership check** — any
+      authenticated participant could revoke any other participant's
+      grant. Fixed: `capabilityRegistry.revoke()` now verifies
+      `grantedTo` matches the caller.
+- [x] **Reputation `rate()` never verified the rater/rated were actual
+      trade counterparties** — lower severity (informational only, never
+      touches `reputationScore`), but a real spam/abuse vector. Fixed:
+      verifies `raterId`/`ratedId` against the trade's real buyer/seller.
+
+Verified: `npm run build` clean, `npm test` 21/21 suites, 193/193 tests.
+
 ---
 
 ## How to Use This List

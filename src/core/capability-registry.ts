@@ -20,7 +20,7 @@
  * to code that never actually ran (the stub only ever threw).
  */
 import { prisma } from '../common/database'
-import { NotFoundError } from '../common/errors'
+import { NotFoundError, ForbiddenError } from '../common/errors'
 import type { CapabilityGrant } from '../common/types/capability'
 
 // RFC-005's own module <-> Capability mapping table, illustrative but
@@ -41,7 +41,11 @@ export const CAPABILITY_IMPLEMENTATIONS: Record<string, string> = {
 export interface CapabilityRegistry {
   grant(input: Omit<CapabilityGrant, 'grantId'>): Promise<CapabilityGrant>
   check(grantedTo: string, capabilityName: string, requiredScope: string): Promise<boolean>
-  revoke(grantId: string): Promise<void>
+  // requestedBy added during a gap audit: this previously took only
+  // grantId, with no check that the caller revoking a grant actually
+  // owned it — any authenticated participant could revoke any other
+  // participant's CapabilityGrant. Required, not optional.
+  revoke(grantId: string, requestedBy: string): Promise<void>
   listGrants(grantedTo: string): Promise<CapabilityGrant[]>
 }
 
@@ -91,9 +95,15 @@ export const capabilityRegistry: CapabilityRegistry = {
     })
   },
 
-  async revoke(grantId) {
+  async revoke(grantId, requestedBy) {
     const existing = await prisma.capabilityGrant.findUnique({ where: { id: grantId } })
     if (!existing) throw new NotFoundError('CapabilityGrant', grantId)
+    // Gap-audit fix: only the grant's own holder may revoke it — grants
+    // are self-issued only in this pass (RFC-013's own scope cut,
+    // grantedTo === issuedBy), so checking grantedTo covers both.
+    if (existing.grantedTo !== requestedBy) {
+      throw new ForbiddenError(`${requestedBy} does not own CapabilityGrant ${grantId}`)
+    }
     await prisma.capabilityGrant.update({ where: { id: grantId }, data: { revokedAt: new Date() } })
   },
 

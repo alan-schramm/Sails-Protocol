@@ -11,35 +11,47 @@ function fakeFetch(status: number, body: unknown): jest.Mock {
 }
 
 describe('SailsClient — Intent facade', () => {
-  it('createIntent() calls the real POST /api/v1/intents route', async () => {
+  it('createIntent() calls the real POST /api/v1/intents route with a real auth header, no participantId in the body', async () => {
+    // Gap-audit fix: this call used to send participantId in the body
+    // with no auth header at all — the exact RT-002 vulnerability
+    // reintroduced. It's now authenticated and the server derives
+    // participantId from the session instead of trusting the body.
     const fetchImpl = fakeFetch(201, {
       success: true,
       data: { id: 'intent-1', type: 'TradeIntent', status: 'COORDINATED' },
     })
     const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-token-1')
 
-    const intent = await client.createIntent('TradeIntent', { asset: 'BTC', side: 'BUY' }, 'user-1', 'agent-1')
+    const intent = await client.createIntent('TradeIntent', { asset: 'BTC', side: 'BUY' }, 'agent-1')
 
     expect(intent.id).toBe('intent-1')
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/api/v1/intents')
+    expect(init.headers.authorization).toBe('Bearer session-token-1')
     expect(JSON.parse(init.body)).toEqual({
       type: 'TradeIntent',
       payload: { asset: 'BTC', side: 'BUY' },
-      participantId: 'user-1',
       agentId: 'agent-1',
     })
   })
 
-  it('cancelIntent() calls the real DELETE /api/v1/intents/:id route', async () => {
+  it('createIntent() throws before making a request when no session token is set — auth is not optional anymore', async () => {
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch })
+    await expect(client.createIntent('TradeIntent', { asset: 'BTC', side: 'BUY' })).rejects.toThrow(/requires authentication/)
+  })
+
+  it('cancelIntent() calls the real DELETE /api/v1/intents/:id route with a real auth header', async () => {
     const fetchImpl = fakeFetch(200, { success: true, data: {} })
     const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-token-1')
 
     await client.cancelIntent('intent-1')
 
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/api/v1/intents/intent-1')
     expect(init.method).toBe('DELETE')
+    expect(init.headers.authorization).toBe('Bearer session-token-1')
   })
 
   it('negotiate() throws SailsNotImplementedError and points to openp2p.chat()', async () => {

@@ -51,6 +51,7 @@ const mockCapabilityGrantFindMany = jest.fn()
 const mockApprovalUpsert = jest.fn()
 const mockApprovalFindMany = jest.fn()
 const mockApprovalCount = jest.fn()
+const mockDisputeFindFirst = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -67,6 +68,7 @@ jest.mock('../src/common/database', () => ({
       findMany: (...args: unknown[]) => mockApprovalFindMany(...args),
       count: (...args: unknown[]) => mockApprovalCount(...args),
     },
+    dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
   },
 }))
 
@@ -89,6 +91,10 @@ describe('escrowService.releaseFunds — RFC-014 capability check (relocated fro
     requireDualApprovalForRelease = false
     mockEscrowFindUnique.mockResolvedValue(baseEscrow)
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
+    // Gap-audit ownership check runs before the capability check — every
+    // test in this block acts as 'seller-1', so the trade's sellerId
+    // must match for these tests to exercise the capability check itself.
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
   })
 
   it('releases without ever querying CapabilityGrant when enforceCapabilities is false (the default)', async () => {
@@ -206,10 +212,120 @@ describe('escrowService — RFC-015 two-person control', () => {
       requireDualApprovalForRelease = true
       mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
       mockApprovalCount.mockResolvedValue(0)
+      // Gap-audit ownership check: 'arbiter-1' isn't the seller, so it
+      // must be the assigned arbiter of an open dispute on this trade
+      // for the release to be authorized at all.
+      mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
 
       const result = await escrowService.releaseFunds('escrow-1', '0xbuyer', 'arbiter-1')
       expect(mockApprovalCount).not.toHaveBeenCalled()
       expect(result.status).toBe('COMPLETED')
+    })
+  })
+})
+
+// Gap audit (not tied to any single RFC): none of lockFunds/markPaymentSent/
+// releaseFunds/refundFunds/openDispute verified `triggeredBy` was actually
+// a party to the trade before this fix — any authenticated participant on
+// the platform could mutate any other trade's escrow (an IDOR, the same
+// class of bug RT-002 already fixed once for raw-userId-in-body, one layer
+// deeper at the service boundary). releaseFunds' own ownership check is
+// exercised above via the RFC-014/015 describe blocks; this block covers
+// the other four methods, which had zero prior test coverage.
+describe('escrowService — ownership/IDOR checks (gap audit)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    enforceCapabilities = false
+    requireDualApprovalForRelease = false
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+  })
+
+  describe('lockFunds', () => {
+    beforeEach(() => {
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'CREATED' })
+      mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+    })
+
+    it('rejects a caller who is not the trade\'s seller', async () => {
+      await expect(escrowService.lockFunds('escrow-1', 'buyer-1')).rejects.toThrow(/not the seller/)
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    })
+
+    it('allows the seller', async () => {
+      const result = await escrowService.lockFunds('escrow-1', 'seller-1')
+      expect(result.status).toBe('FUNDS_LOCKED')
+    })
+
+    it("allows an agent acting on the seller's behalf (agent:{label}:{sellerId})", async () => {
+      const result = await escrowService.lockFunds('escrow-1', 'agent:seller-wallet:seller-1')
+      expect(result.status).toBe('FUNDS_LOCKED')
+    })
+  })
+
+  describe('markPaymentSent', () => {
+    beforeEach(() => {
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+      mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'PAYMENT_PENDING' })
+    })
+
+    it('rejects a caller who is not the trade\'s buyer', async () => {
+      await expect(escrowService.markPaymentSent('escrow-1', 'seller-1')).rejects.toThrow(/not the buyer/)
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    })
+
+    it('allows the buyer', async () => {
+      const result = await escrowService.markPaymentSent('escrow-1', 'buyer-1')
+      expect(result.status).toBe('PAYMENT_PENDING')
+    })
+  })
+
+  describe('refundFunds', () => {
+    beforeEach(() => {
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+      mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
+    })
+
+    it('rejects a caller who is neither the seller nor an assigned arbiter', async () => {
+      mockDisputeFindFirst.mockResolvedValue(null)
+      await expect(escrowService.refundFunds('escrow-1', 'buyer-1')).rejects.toThrow(
+        /neither the seller.*nor its assigned dispute arbiter/
+      )
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    })
+
+    it('allows the seller (e.g. a trade cancelled before payment, collateral returned)', async () => {
+      const result = await escrowService.refundFunds('escrow-1', 'seller-1')
+      expect(result.status).toBe('REFUNDED')
+    })
+
+    it('allows the assigned arbiter of an open dispute on this trade', async () => {
+      mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+      const result = await escrowService.refundFunds('escrow-1', 'arbiter-1')
+      expect(result.status).toBe('REFUNDED')
+    })
+  })
+
+  describe('openDispute', () => {
+    beforeEach(() => {
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+      mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
+    })
+
+    it('rejects a caller who is not a party to the trade', async () => {
+      await expect(escrowService.openDispute('escrow-1', 'stranger-1', 'reason')).rejects.toThrow(
+        /not a party to trade/
+      )
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    })
+
+    it('allows the buyer', async () => {
+      const result = await escrowService.openDispute('escrow-1', 'buyer-1', 'reason')
+      expect(result.status).toBe('DISPUTED')
+    })
+
+    it('allows the seller', async () => {
+      const result = await escrowService.openDispute('escrow-1', 'seller-1', 'reason')
+      expect(result.status).toBe('DISPUTED')
     })
   })
 })

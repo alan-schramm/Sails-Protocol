@@ -113,10 +113,40 @@ export interface CreateEscrowInput {
   timelockHours?: number
 }
 
+// Found during a general gap audit (not tied to any single RFC): none of
+// this class's mutating methods verified `triggeredBy` was actually a
+// party to the trade before this fix — any authenticated participant on
+// the platform could lock/confirm/release/refund/dispute *any* other
+// trade's escrow, not just their own (an IDOR, the same class of bug
+// RT-002 already fixed once for raw-userId-in-body — this was the same
+// gap one layer deeper, at the service boundary rather than the auth
+// boundary). `triggeredBy` may be a participant's own id, or an agent
+// acting on their behalf (`agent:{label}:{participantId}`,
+// `wallet-agent.ts`) — that string shape only ever originates from
+// trusted internal callers (settlement-orchestrator.ts), never from an
+// HTTP request body, so accepting it here doesn't reopen the hole this
+// fix closes.
+function isPartyOrAgent(triggeredBy: string, participantId: string): boolean {
+  return triggeredBy === participantId || new RegExp(`^agent:[^:]+:${participantId}$`).test(triggeredBy)
+}
+
 export class EscrowService {
   private getProvider(type: string): SettlementProvider {
     if (config.features.mockEscrow || type === 'MOCK') return PROVIDERS['MOCK']
     return PROVIDERS[type] ?? PROVIDERS['MOCK']
+  }
+
+  // Shared by releaseFunds()/refundFunds() below — both are legitimately
+  // triggered by either the seller (the normal path) or the arbiter
+  // assigned to an open dispute on this trade (dispute.service.ts's
+  // resolveDispute(), which validates the arbiter match itself *before*
+  // calling into this class — this is a second, defense-in-depth check,
+  // not the only one). Only queries Dispute when the cheaper seller
+  // check already failed.
+  private async isSellerOrAssignedArbiter(tradeId: string, sellerId: string, triggeredBy: string): Promise<boolean> {
+    if (isPartyOrAgent(triggeredBy, sellerId)) return true
+    const dispute = await prisma.dispute.findFirst({ where: { tradeId, arbiterId: triggeredBy } })
+    return dispute !== null
   }
 
   private async transition(
@@ -191,6 +221,14 @@ export class EscrowService {
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     this.assertTransition(escrow.status, 'FUNDS_LOCKED')
 
+    // Locking collateral is the seller's own action — see this file's
+    // isPartyOrAgent() doc comment for why an IDOR check was missing here.
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+    if (!isPartyOrAgent(triggeredBy, trade.sellerId)) {
+      throw new ForbiddenError(`${triggeredBy} is not the seller of trade ${trade.id} — only the seller may lock escrow funds`)
+    }
+
     const provider = this.getProvider(escrow.type)
     const result = await provider.lockFunds(escrow as unknown as EscrowRecord)
 
@@ -217,6 +255,13 @@ export class EscrowService {
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     this.assertTransition(escrow.status, 'PAYMENT_PENDING')
 
+    // Claiming fiat was sent is the buyer's own claim — see isPartyOrAgent()'s doc comment.
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+    if (!isPartyOrAgent(triggeredBy, trade.buyerId)) {
+      throw new ForbiddenError(`${triggeredBy} is not the buyer of trade ${trade.id} — only the buyer may confirm payment sent`)
+    }
+
     const updated = await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'PAYMENT_PENDING' } })
 
     await this.transition(
@@ -235,6 +280,15 @@ export class EscrowService {
     const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     this.assertTransition(escrow.status, 'COMPLETED')
+
+    // Gap-audit fix: the seller (normal path) or the assigned arbiter of
+    // an open dispute (dispute.service.ts's resolveDispute()) — see
+    // isPartyOrAgent()/isSellerOrAssignedArbiter()'s doc comments above.
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+    if (!(await this.isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
+      throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
+    }
 
     // RFC-014: the real capability check. Lives here, not in
     // settlement-orchestrator.ts (where it originally shipped) — found
@@ -301,6 +355,17 @@ export class EscrowService {
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     this.assertTransition(escrow.status, 'DISPUTED')
 
+    // Defense in depth: dispute.service.ts's raiseDispute() already makes
+    // this exact check before ever calling here (its only real caller
+    // today) — kept here too so this method is safe to call directly if
+    // a second caller is ever added, consistent with the "the real check
+    // belongs at the actual choke point" lesson from RFC-014/015.
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+    if (!isPartyOrAgent(triggeredBy, trade.buyerId) && !isPartyOrAgent(triggeredBy, trade.sellerId)) {
+      throw new ForbiddenError(`${triggeredBy} is not a party to trade ${trade.id}`)
+    }
+
     const updated = await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'DISPUTED' } })
 
     await this.transition(
@@ -321,6 +386,17 @@ export class EscrowService {
     const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     this.assertTransition(escrow.status, 'REFUNDED')
+
+    // Same shape as releaseFunds() above: the seller getting their own
+    // collateral back (the normal, non-disputed path — REFUNDED is
+    // reachable directly from CREATED/FUNDS_LOCKED, e.g. a trade
+    // cancelled before payment) or the assigned arbiter of an open
+    // dispute (dispute.service.ts's resolveDispute() with a REFUND ruling).
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+    if (!(await this.isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
+      throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
+    }
 
     const provider = this.getProvider(escrow.type)
     const result = await provider.refundFunds(escrow as unknown as EscrowRecord)

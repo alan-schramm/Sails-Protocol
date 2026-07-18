@@ -58,7 +58,8 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-agents'] },
   }, async (request, reply) => {
     const { grantId } = z.object({ grantId: z.string().min(1) }).parse(request.params)
-    await capabilityRegistry.revoke(grantId)
+    const participantId = (request as any).participantId as string
+    await capabilityRegistry.revoke(grantId, participantId)
     return reply.code(200).send({ success: true })
   })
 }

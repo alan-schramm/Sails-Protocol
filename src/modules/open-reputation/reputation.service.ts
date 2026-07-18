@@ -23,7 +23,7 @@
  * in this codebase actually tracks separately yet.
  */
 import { prisma } from '../../common/database'
-import { NotFoundError, ValidationError } from '../../common/errors'
+import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 
 export type ReputationOutcome = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL'
@@ -63,6 +63,25 @@ export class ReputationService {
     if (score < 1 || score > 5) {
       throw new ValidationError(`score must be between 1 and 5, got ${score}`)
     }
+
+    // Gap-audit fix: this previously created a ReputationEvent for any
+    // (tradeId, raterId, ratedId) triple with no check that either
+    // party was actually involved in that trade — an authenticated
+    // participant could rate a trade they had nothing to do with, or
+    // attribute a rating to an arbitrary ratedId. Lower severity than
+    // the escrow/Intent findings (this is informational only, per this
+    // file's own header comment — it never touches reputationScore),
+    // but still a real spam/abuse vector worth closing.
+    const trade = await prisma.trade.findUnique({ where: { id: tradeId } })
+    if (!trade) throw new NotFoundError('Trade', tradeId)
+    if (raterId !== trade.buyerId && raterId !== trade.sellerId) {
+      throw new ForbiddenError(`${raterId} is not a party to trade ${tradeId}`)
+    }
+    const expectedRatedId = raterId === trade.buyerId ? trade.sellerId : trade.buyerId
+    if (ratedId !== expectedRatedId) {
+      throw new ValidationError(`ratedId must be the other party to trade ${tradeId} (expected ${expectedRatedId})`)
+    }
+
     try {
       return await prisma.reputationEvent.create({
         data: { tradeId, raterId, ratedId, score, comment },

@@ -78,6 +78,56 @@ failure modes:
   no per-API-key tier (only per-IP), and a deployment behind a reverse
   proxy needs Fastify's `trustProxy` option configured separately for
   `request.ip` to reflect the real client.
+- ~~The Intent API (`POST /api/v1/intents`, `DELETE /api/v1/intents/:id`)
+  had no authentication at all~~ **Resolved** *(2026-07-18)* — found
+  during a general gap audit (not a report from an external party):
+  `participantId` was accepted directly from the request body with zero
+  proof of ownership, the exact RT-002 vulnerability
+  `common/middleware/auth.ts`'s own doc comment specifically warns
+  against ("a route that reads `req.body.userId` directly instead of
+  `req.participantId` set by this middleware is exactly the RT-002
+  vulnerability again") — reintroduced in this one route, which predates
+  the auth middleware and was never retrofitted. Both routes now require
+  `requireAuth`; `participantId` is derived from the session only.
+  `intentEngine.cancel()` also had no ownership check at all — any caller
+  could cancel any Intent by id — now requires and verifies
+  `cancelledBy` matches the Intent's own `participantId`. `@sails/sdk`'s
+  `createIntent()`/`cancelIntent()` updated to send real auth headers;
+  `participantId` dropped as a caller-supplied argument entirely (closing
+  a previously-noted `SDK_GUIDE.md` deviation as a side effect — the SDK
+  now matches its documented one-argument-plus-payload shape). Verified
+  in `tests/routes.test.ts`'s new "Intent API" block and
+  `packages/sails-sdk/tests/client.test.ts`.
+- ~~No escrow mutation verified the caller was actually a party to the
+  trade~~ **Resolved** *(2026-07-18)* — same audit, a deeper instance of
+  the same class of bug: `escrow.service.ts`'s `lockFunds()`/
+  `markPaymentSent()`/`releaseFunds()`/`refundFunds()`/`openDispute()`
+  all trusted `triggeredBy` at face value with no check it was the
+  trade's actual buyer/seller (or, for release/refund, the dispute's
+  assigned arbiter) — any authenticated participant on the platform could
+  lock, confirm, release, refund, or dispute *any other trade's* escrow
+  via `settlement.routes.ts`'s direct routes. `dispute.service.ts`'s own
+  `raiseDispute()`/`resolveDispute()` already validated their own callers
+  correctly and were not the gap; the lower-level `EscrowService` methods
+  they call into (and that other routes call into directly) were. Fixed
+  with real ownership checks in every method, verified in the new
+  `tests/escrowReleaseControls.test.ts` "ownership/IDOR checks" block (11
+  new tests covering all five methods, including that a dispute arbiter
+  is still correctly authorized to release/refund).
+- ~~`POST /v1/capabilities/:grantId/revoke` let any authenticated
+  participant revoke any grant, not just their own~~ **Resolved**
+  *(2026-07-18)* — `capabilityRegistry.revoke()` now verifies the caller
+  is the grant's own `grantedTo` (self-issued grants only in this pass,
+  RFC-013's own scope cut — `grantedTo === issuedBy` always holds today).
+- ~~`POST /v1/reputation/rate` never verified the rater/rated were
+  actual trade counterparties~~ **Resolved** *(2026-07-18)* — lower
+  severity than the findings above (ratings are informational only,
+  `reputation.service.ts`'s own header comment — never touch
+  `reputationScore`), but still a real spam/abuse vector: an
+  authenticated participant could rate a trade they had nothing to do
+  with, attributed to an arbitrary `ratedId`. `rate()` now verifies
+  `raterId` is the trade's buyer or seller and `ratedId` is specifically
+  the *other* party.
 - **No production security audit has been performed.** The roadmap
   (`ROADMAP.md`) allocates 20% of grant funding specifically to third-party
   audits, scoped initially to OpenP2P + OpenSettlement (the two modules with
