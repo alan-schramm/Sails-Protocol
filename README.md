@@ -131,23 +131,27 @@ docs/rfcs/              Every structural decision, numbered, including
 ## Setup
 
 ```bash
-cp .env.example .env    # edit DATABASE_URL / REDIS_URL
+cp .env.example .env    # defaults already match docker-compose.yml
+docker compose up -d    # real local Postgres + Redis
 npm install
-npx prisma generate
-npx prisma migrate dev
-npm run dev              # server — needs Postgres/Redis reachable
+npm run db:migrate
+npm run dev              # server — http://localhost:3000
 npm run demo:qvac         # full QVAC + Pears + Intent Engine + WDK flow
-npm test                  # 131 tests, no external infra needed
+npm test                  # 159 tests, no external infra needed
 ```
 
-See `docs/DEPLOYMENT.md` for the full setup. `docs/TODO.md` has the exact
-current gap list — the server boots and every module's routes are real
-and tested (identity, peers, liquidity, open-p2p trade/chat, settlement,
-reputation, the Intent API). What's still genuinely open: real
+See `docs/DEPLOYMENT.md` for the full setup and `docs/HANDOFF.md` for
+what's actually been verified live vs. only against mocks so far.
+`docs/TODO.md` has the exact current gap list — the server boots and
+every module's routes are real and tested (identity, peers, liquidity,
+open-p2p trade/chat, settlement, reputation, the Intent API, and now
+capability grants — RFC-013). What's still genuinely open: real
 `LightningHodlProvider`/`LiquidCovenantProvider` (only `MOCK` and
 `WDK_USDT_EVM` settle for real today), the Proof primitive (zero routes
-yet), and the Capability Registry (still a stub) — `docs/TODO.md` and
-`docs/BACKLOG.md` are both audited against the actual code, not a
+yet), and the Capability Registry not yet being *consulted* anywhere in
+the actual settlement path (the registry itself is real; nothing calls
+`check()` yet) — `docs/TODO.md` and `docs/BACKLOG.md` are both audited
+against the actual code, not a
 wishlist.
 
 ## Before you touch anything architectural
