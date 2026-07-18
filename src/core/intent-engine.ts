@@ -68,6 +68,19 @@ function validateStructure(type: IntentType, payload: IntentPayload): { valid: b
   if (p.side !== 'BUY' && p.side !== 'SELL') errors.push("side must be 'BUY' or 'SELL'")
   if (p.maxValue !== undefined && typeof p.maxValue !== 'string') errors.push('maxValue must be a decimal string, not a number (RFC-009)')
   if (p.minValue !== undefined && typeof p.minValue !== 'string') errors.push('minValue must be a decimal string, not a number (RFC-009)')
+  // RFC-013 — minReputationRating mirrors ReputationScore's 0-5 scale
+  // (reputation.service.ts), not a decimal string: it's a threshold, not
+  // a transferred amount, so RFC-009's decimal-string rule doesn't apply.
+  if (p.minReputationRating !== undefined) {
+    if (typeof p.minReputationRating !== 'number' || !Number.isFinite(p.minReputationRating)) {
+      errors.push('minReputationRating must be a finite number')
+    } else if (p.minReputationRating < 0 || p.minReputationRating > 5) {
+      errors.push('minReputationRating must be between 0 and 5')
+    }
+  }
+  if (p.kycRequired !== undefined && typeof p.kycRequired !== 'boolean') {
+    errors.push('kycRequired must be a boolean')
+  }
 
   return errors.length === 0 ? { valid: true } : { valid: false, errors }
 }

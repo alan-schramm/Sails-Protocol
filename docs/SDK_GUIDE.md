@@ -152,6 +152,22 @@ interface SailsClient {
     getMessages(tradeId: string): Promise<Message[]>
   }
 
+  // Capability declaration/grants — RFC-005 (rfcs/RFC-005-capability-model.md),
+  // real as of RFC-013 (rfcs/RFC-013-capability-registry-and-wallet-adapter.md).
+  // Self-issued grants only today — a caller declares and grants
+  // themselves scope over their own declared capabilities; a real
+  // multi-party issuance flow (a module operator granting scope to an
+  // agent it doesn't control) is separate follow-up work.
+  capabilities: {
+    register(input: { capabilityName: string; scope: string[]; constraints?: Record<string, unknown> }): Promise<CapabilityGrant>
+    list(participantId: string): Promise<CapabilityGrant[]>
+    revoke(grantId: string): Promise<void>
+    // Convenience: derives scope directly from a WalletAdapter's own
+    // getCapabilities() declaration instead of the caller re-assembling
+    // it into a register() call by hand.
+    registerFromWallet(wallet: WalletAdapter): Promise<CapabilityGrant>
+  }
+
   // Sails OpenProof (RFC-006, RFC-007) — advanced/direct use; submitProof()
   // above is the path most applications should use to write evidence, this
   // namespace is for reading it back
@@ -191,9 +207,45 @@ interface TradeIntent {
   fiatMethod?: FiatMethod
   network?: Network
   slippageTolerance?: number
+  // RFC-013 (rfcs/RFC-013-capability-registry-and-wallet-adapter.md) —
+  // additive counterparty-matching constraints, not yet enforced during
+  // matching (OpenLiquidity follow-up work) — this is the vocabulary.
+  minReputationRating?: number // 0-5, mirrors ReputationScore's scale
+  kycRequired?: boolean
 }
 
 type SettlementType = 'MOCK' | 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT'
+
+// RFC-005 (rfcs/RFC-005-capability-model.md) — the permission-grant side
+// of the Capability model; real as of RFC-013.
+interface CapabilityGrant {
+  grantId: string
+  grantedTo: string
+  capabilityName: string
+  scope: string[]
+  constraints?: Record<string, unknown>
+  issuedBy: string
+}
+
+// RFC-013 — optional `SailsClient` constructor argument. Lets a wallet's
+// own signing/balance/address logic plug into the SDK; deliberately
+// transport- and chain-agnostic (asset is a string key, tx/signedTx are
+// unknown), same discipline SettlementProvider/TransportProvider already
+// use server-side. `getPeerId()`, not `getNodeId()` — matches this
+// codebase's own existing vocabulary (User.peerId, pearNodeRegistry).
+interface WalletAdapter {
+  getPeerId(): Promise<string>
+  getAddress(asset: string): Promise<string>
+  getBalance(asset: string): Promise<string>
+  signTransaction(asset: string, tx: unknown): Promise<unknown>
+  broadcastTransaction(asset: string, signedTx: unknown): Promise<string>
+  getCapabilities(): Promise<{
+    assets: string[]
+    fiatRails: string[]
+    supportsP2PTrading: boolean
+    supportsOnchainSettlement: boolean
+  }>
+}
 
 interface ReputationScore {
   participantId: string

@@ -33,6 +33,10 @@ const mockEscrowEventCreate = jest.fn()
 const mockMessageFindMany = jest.fn()
 const mockDisputeCreate = jest.fn()
 const mockDisputeUpdate = jest.fn()
+const mockCapabilityGrantCreate = jest.fn()
+const mockCapabilityGrantFindMany = jest.fn()
+const mockCapabilityGrantFindUnique = jest.fn()
+const mockCapabilityGrantUpdate = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -69,6 +73,12 @@ jest.mock('../src/common/database', () => ({
       create: (...args: unknown[]) => mockDisputeCreate(...args),
       findUnique: jest.fn(),
       update: (...args: unknown[]) => mockDisputeUpdate(...args),
+    },
+    capabilityGrant: {
+      create: (...args: unknown[]) => mockCapabilityGrantCreate(...args),
+      findMany: (...args: unknown[]) => mockCapabilityGrantFindMany(...args),
+      findUnique: (...args: unknown[]) => mockCapabilityGrantFindUnique(...args),
+      update: (...args: unknown[]) => mockCapabilityGrantUpdate(...args),
     },
   },
 }))
@@ -450,6 +460,26 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(404)
     })
 
+    it('resolves a score by peerId (RFC-013 — Pears identity is the portable substrate, not a reputation source itself)', async () => {
+      mockUserFindUnique
+        .mockResolvedValueOnce({ id: 'user-1', peerId: 'abc123peer' }) // peerId -> user lookup
+        .mockResolvedValueOnce({ id: 'user-1', reputationScore: 7, totalTrades: 4, disputeCount: 1 }) // getScore's own lookup
+
+      const res = await app.inject({ method: 'GET', url: '/v1/reputation/peer/abc123peer' })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data).toEqual(
+        expect.objectContaining({ participantId: 'user-1', total: 7 })
+      )
+      expect(mockUserFindUnique).toHaveBeenNthCalledWith(1, { where: { peerId: 'abc123peer' } })
+    })
+
+    it('404s a peerId with no registered participant', async () => {
+      mockUserFindUnique.mockResolvedValueOnce(null)
+      const res = await app.inject({ method: 'GET', url: '/v1/reputation/peer/nobody-peer' })
+      expect(res.statusCode).toBe(404)
+    })
+
     it('returns the leaderboard (static route matches ahead of :participantId)', async () => {
       mockUserFindMany.mockResolvedValueOnce([{ id: 'user-1', reputationScore: 9, totalTrades: 5 }])
       const res = await app.inject({ method: 'GET', url: '/v1/reputation/leaderboard' })
@@ -499,6 +529,92 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.body).message).toMatch(/already rated/)
+    })
+  })
+
+  describe('open-agents — capabilities (RFC-013)', () => {
+    it('rejects registration without auth', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/register',
+        payload: { capabilityName: 'trade-coordination', scope: ['openp2p.trade.created'] },
+      })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('registers a self-issued capability grant for an authenticated caller', async () => {
+      const token = await authedSession('buyer-1')
+      mockCapabilityGrantCreate.mockResolvedValueOnce({
+        id: 'grant-1',
+        grantedTo: 'buyer-1',
+        capabilityName: 'trade-coordination',
+        scope: ['openp2p.trade.created'],
+        constraints: null,
+        issuedBy: 'buyer-1',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/register',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { capabilityName: 'trade-coordination', scope: ['openp2p.trade.created'] },
+      })
+
+      expect(res.statusCode).toBe(201)
+      expect(JSON.parse(res.body).data).toEqual(
+        expect.objectContaining({ grantId: 'grant-1', grantedTo: 'buyer-1', issuedBy: 'buyer-1' })
+      )
+      expect(mockCapabilityGrantCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ grantedTo: 'buyer-1', issuedBy: 'buyer-1', capabilityName: 'trade-coordination' }),
+        })
+      )
+    })
+
+    it('lists active grants for a participant, no auth required', async () => {
+      mockCapabilityGrantFindMany.mockResolvedValueOnce([
+        { id: 'grant-1', grantedTo: 'buyer-1', capabilityName: 'trade-coordination', scope: ['a'], constraints: null, issuedBy: 'buyer-1' },
+      ])
+
+      const res = await app.inject({ method: 'GET', url: '/v1/capabilities/buyer-1' })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data).toHaveLength(1)
+    })
+
+    it('rejects revoke without auth', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/capabilities/grant-1/revoke' })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('revokes a grant for an authenticated caller', async () => {
+      const token = await authedSession('buyer-1')
+      mockCapabilityGrantFindUnique.mockResolvedValueOnce({ id: 'grant-1' })
+      mockCapabilityGrantUpdate.mockResolvedValueOnce({})
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/grant-1/revoke',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(mockCapabilityGrantUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'grant-1' } })
+      )
+    })
+
+    it('404s revoking a grant that does not exist', async () => {
+      const token = await authedSession('buyer-1')
+      mockCapabilityGrantFindUnique.mockResolvedValueOnce(null)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/nope/revoke',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(404)
     })
   })
 })

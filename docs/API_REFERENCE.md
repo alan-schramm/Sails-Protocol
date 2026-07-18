@@ -192,6 +192,7 @@ ERROR
 | Method | Path | Description |
 |---|---|---|
 | GET | `/v1/reputation/:participantId` | Full score breakdown |
+| GET | `/v1/reputation/peer/:peerId` | Same score breakdown, looked up by portable Pears identity (RFC-013) instead of internal `participantId` |
 | GET | `/v1/reputation/leaderboard` | Top participants by score |
 | POST | `/v1/reputation/rate` | Rate a completed trade (score 1-5) |
 
@@ -204,6 +205,12 @@ RFC-007 — it no longer feeds the score `GET /:participantId` returns.
 `SettlementOutcome` events (`PROTOCOL_SPECIFICATION.md` §1.6). A trade
 cancelled by agreement always classifies Neutral and can never reduce the
 counterparty's score, regardless of any `rate()` call made against it.
+
+**RFC-013 note:** `GET /v1/reputation/peer/:peerId` resolves
+`User.peerId` → `participantId`, then returns the exact same
+`ReputationScore` shape — no new scoring logic. `peerId` (Pears' real
+contribution — a portable Ed25519 public key) is the identity substrate;
+the score itself remains exclusively computed and stored by this module.
 
 ---
 
@@ -223,6 +230,27 @@ counterparty's score, regardless of any `rate()` call made against it.
 instantiate `PearNode` directly. This was a specific architectural fix
 applied during code review to correctly support multiple concurrent users
 in a single server process.
+
+---
+
+## 7B. Sails OpenAgents — Capability Registry — `/v1/capabilities/`
+
+*(new — RFC-013, `rfcs/RFC-013-capability-registry-and-wallet-adapter.md`)*
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/v1/capabilities/register` | Self-issued `CapabilityGrant` — the caller declares and grants themselves scope over their own capabilities |
+| GET | `/v1/capabilities/:participantId` | List active (non-revoked) grants |
+| POST | `/v1/capabilities/:grantId/revoke` | Revoke a grant |
+
+**RFC-013 note:** this is the real implementation of RFC-005's
+`CapabilityGrant` (`PROTOCOL_SPECIFICATION.md` §1.10) — a Core component
+(`core/capability-registry.ts`), not an OpenAgents-owned resource; the
+routes live here because capability declaration maps onto RFC-005's own
+`agent-delegation` capability, the closest existing module owner. Only
+self-issued grants exist today — a real multi-party issuance flow (a
+module operator granting scope to an agent it doesn't control) is
+separate follow-up work, not claimed done here.
 
 ---
 

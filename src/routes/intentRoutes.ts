@@ -22,6 +22,13 @@ const tradeIntentPayloadSchema = z.object({
   fiatMethod: z.string().optional(),
   network: z.string().optional(),
   slippageTolerance: z.number().optional(),
+  // RFC-013 — zod's default z.object() strips unrecognized keys rather
+  // than rejecting them, so these need to be listed explicitly here or
+  // they'd be silently dropped before ever reaching intent-engine.ts's
+  // own bounds check, for every caller of this route (including
+  // @sails/sdk's createIntent()).
+  minReputationRating: z.number().optional(),
+  kycRequired: z.boolean().optional(),
 })
 
 const createIntentSchema = z.object({

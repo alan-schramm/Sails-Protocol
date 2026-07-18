@@ -172,6 +172,11 @@ export interface TradeIntentPayload {
   fiatMethod?: string
   network?: string
   slippageTolerance?: number
+  // RFC-013 (rfcs/RFC-013-capability-registry-and-wallet-adapter.md) —
+  // counterparty-matching constraints, not yet enforced during matching
+  // (that's OpenLiquidity follow-up work) — this is the vocabulary.
+  minReputationRating?: number // 0-5, mirrors ReputationScore's scale
+  kycRequired?: boolean
 }
 
 export interface PeerStatus {
@@ -181,4 +186,15 @@ export interface PeerStatus {
   connectedPeers: number
   activeTopics: string[]
   peers: Array<{ userId: string; peerId: string; connectedAt: string }>
+}
+
+// RFC-005 (rfcs/RFC-005-capability-model.md) — the permission-grant side
+// of the Capability model; RFC-013 gives it a real backing route.
+export interface CapabilityGrant {
+  grantId: string
+  grantedTo: string
+  capabilityName: string
+  scope: string[]
+  constraints?: Record<string, unknown>
+  issuedBy: string
 }
