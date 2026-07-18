@@ -215,12 +215,26 @@ makes the same point in more detail.
       values, beyond the structural validation `intent-engine.ts` already
       does.
 
-## 6. Rate Limiting & API Keys
+## 6. Rate Limiting & API Keys (status changed — per-IP resolved)
 
-- [ ] No rate limiting exists anywhere in the current code. Add
-      `@fastify/rate-limit` per IP and per API key before any public
-      exposure. See `THREAT_MODEL.md` — this is currently an unmitigated
-      Low-severity item that becomes higher severity at scale.
+- [x] `@fastify/rate-limit` is real *(2026-07-18)* — global default
+      (`config.rateLimit.max`/`timeWindow`, 100/min per IP) plus a
+      tighter, independently-tracked override on the two identity
+      challenge/authenticate routes (`config.rateLimit.authMax`/
+      `authTimeWindow`, 10/min per IP each — the routes a credential-
+      stuffing attempt actually hits, RED_TEAM_REVIEW.md RT-002). Found
+      and fixed a real bug while wiring this: `app.ts`'s error handler
+      previously flattened every non-`ZodError`/non-`AppError` to a
+      generic 500, silently turning the rate-limit plugin's real 429
+      into a misleading one — now any error carrying its own valid
+      4xx/5xx `statusCode` is respected. Verified in
+      `tests/rateLimit.test.ts` (4 tests, isolated `buildApp()` instance
+      so its deliberately-exceeded limits don't pollute `routes.test.ts`'s
+      shared counter) — 159 tests project-wide, all passing.
+- [ ] **Still open:** per-API-key tiers (only per-IP exists today); a
+      deployment behind a reverse proxy needs Fastify's own `trustProxy`
+      option configured separately for `request.ip` to reflect the real
+      client, not the proxy.
 
 ## 7. Intent Engine Tables (status changed — mostly resolved)
 

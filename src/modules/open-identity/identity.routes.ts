@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { identityService } from './identity.service'
 import { issueChallenge, verifySignedChallenge, requireAuth } from '../../common/middleware/auth'
+import { config } from '../../config'
 
 const registerSchema = z.object({
   publicKey: z.string().min(1),
@@ -43,7 +44,12 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send({ success: true, data: participant })
   })
 
+  // Tighter, dedicated limit than the global default (app.ts) — these two
+  // routes are exactly what a credential-stuffing/brute-force attempt
+  // would hit (RED_TEAM_REVIEW.md RT-002), so they get their own ceiling
+  // rather than sharing the general API's more permissive ones.
   app.post('/v1/identity/challenge', {
+    config: { rateLimit: { max: config.rateLimit.authMax, timeWindow: config.rateLimit.authTimeWindow } },
     schema: { tags: ['open-identity'] },
   }, async (request, reply) => {
     const body = challengeSchema.parse(request.body)
@@ -52,6 +58,7 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.post('/v1/identity/authenticate', {
+    config: { rateLimit: { max: config.rateLimit.authMax, timeWindow: config.rateLimit.authTimeWindow } },
     schema: { tags: ['open-identity'] },
   }, async (request, reply) => {
     const body = authenticateSchema.parse(request.body)

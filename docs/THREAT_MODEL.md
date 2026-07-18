@@ -66,8 +66,18 @@ failure modes:
 
 ## 4. What Is NOT Yet Mitigated (be honest about current gaps)
 
-- **No rate limiting exists in the current code fragment** — `TODO.md` has
-  this as an open item.
+- ~~No rate limiting exists in the current code fragment~~ **Resolved**
+  *(2026-07-18)* — `@fastify/rate-limit` is real, registered globally
+  (`config.rateLimit.max`/`timeWindow`, default 100/minute per IP) with a
+  tighter, independently-tracked override on `/v1/identity/challenge` and
+  `/v1/identity/authenticate` (`config.rateLimit.authMax`/`authTimeWindow`,
+  default 10/minute per IP each — RT-002's own "this is the field that
+  matters most" note), verified in `tests/rateLimit.test.ts`. Not pooled
+  across the two auth routes into one shared budget — a deliberate
+  simplification (`app.ts`'s own comment), not an oversight. Still open:
+  no per-API-key tier (only per-IP), and a deployment behind a reverse
+  proxy needs Fastify's `trustProxy` option configured separately for
+  `request.ip` to reflect the real client.
 - **No production security audit has been performed.** The roadmap
   (`ROADMAP.md`) allocates 20% of grant funding specifically to third-party
   audits, scoped initially to OpenP2P + OpenSettlement (the two modules with

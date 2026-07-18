@@ -53,6 +53,20 @@ export const config = {
       .filter(Boolean),
   },
 
+  // THREAT_MODEL.md — "no rate limiting exists anywhere" was an explicit,
+  // named unmitigated gap (Low severity, becomes higher at scale) until
+  // this pass. Two tiers: a general per-IP ceiling for every route, and a
+  // much tighter one for the identity challenge/authenticate routes
+  // specifically (RED_TEAM_REVIEW.md RT-002's own "this is the field that
+  // matters most" — those two routes are what a credential-stuffing/
+  // brute-force attempt would actually hit).
+  rateLimit: {
+    max: parseInt(process.env.RATE_LIMIT_MAX ?? '100', 10),
+    timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
+    authMax: parseInt(process.env.RATE_LIMIT_AUTH_MAX ?? '10', 10),
+    authTimeWindow: process.env.RATE_LIMIT_AUTH_WINDOW ?? '1 minute',
+  },
+
   features: {
     // RED_TEAM_REVIEW.md RT-001: this is the single most important line
     // in this file. Left true, "escrow" is theater — see escrow.service.ts.

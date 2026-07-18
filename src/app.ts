@@ -1,5 +1,6 @@
 import Fastify, { FastifyInstance } from 'fastify'
 import cors from '@fastify/cors'
+import rateLimit from '@fastify/rate-limit'
 import websocket from '@fastify/websocket'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
@@ -35,6 +36,25 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  })
+
+  // THREAT_MODEL.md's previously-unmitigated gap (config's own doc
+  // comment has the full reasoning). Global default here; the identity
+  // challenge/authenticate routes below layer a much tighter per-route
+  // override via `config: { rateLimit: {...} }` — those two are what a
+  // credential-stuffing attempt actually hits (RED_TEAM_REVIEW.md RT-002).
+  // Each overridden route tracks its own budget independently (verified
+  // in tests/rateLimit.test.ts) — /challenge and /authenticate do NOT
+  // share one pooled counter, a deliberate simplification for this pass
+  // rather than adding a custom shared keyGenerator/store; still a real
+  // improvement over no rate limiting at all. Keyed by request.ip by
+  // default — a deployment behind a reverse proxy needs Fastify's own
+  // `trustProxy` option set separately before that IP reflects the real
+  // client, not the proxy.
+  await app.register(rateLimit, {
+    global: true,
+    max: config.rateLimit.max,
+    timeWindow: config.rateLimit.timeWindow,
   })
 
   await app.register(websocket, {
@@ -85,6 +105,25 @@ export async function buildApp(): Promise<FastifyInstance> {
       // for AppError subclasses that never set `details` (defaults to []
       // either way) — only for the ones that do, like ValidationError.
       return reply.code(error.statusCode).send(error.toResponse())
+    }
+
+    // A well-behaved Fastify plugin error (e.g. @fastify/rate-limit's 429)
+    // carries its own real statusCode — found while wiring rate limiting:
+    // this handler previously flattened every non-ZodError/non-AppError
+    // to 500 unconditionally, silently turning a correct 429 into a
+    // misleading 500. Only trust statusCodes in the real 4xx/5xx range
+    // (guards against a plugin/library setting something nonsensical);
+    // anything else still falls through to the generic 500 below.
+    const pluginError = error as { statusCode?: unknown; message?: unknown }
+    if (typeof pluginError.statusCode === 'number' && pluginError.statusCode >= 400 && pluginError.statusCode < 600) {
+      const statusCode = pluginError.statusCode
+      app.log.warn(error)
+      return reply.code(statusCode).send({
+        success: false,
+        error: statusCode === 429 ? 'RATE_LIMIT_EXCEEDED' : 'REQUEST_ERROR',
+        message: typeof pluginError.message === 'string' ? pluginError.message : 'Request error',
+        details: [],
+      })
     }
 
     app.log.error(error)
