@@ -79,4 +79,16 @@ export interface TradeIntentPayload extends IntentPayload {
   fiatMethod?: string
   network?: string
   slippageTolerance?: number
+  // RFC-013 (rfcs/RFC-013-capability-registry-and-wallet-adapter.md) —
+  // additive counterparty-matching constraints. minReputationRating
+  // mirrors ReputationScore's 0-5 scale (reputation.service.ts); a plain
+  // number, not a decimal string, since it's a threshold/filter value,
+  // never summed or transferred the way maxValue/minValue are.
+  // kycRequired declares whether the counterparty must have passed KYC.
+  // Neither is enforced against a real counterparty yet — OpenLiquidity
+  // reading these during matching is separate follow-up work (that RFC's
+  // Reference Implementation Plan); this only adds the vocabulary and its
+  // structural bounds check (intent-engine.ts's validateStructure()).
+  minReputationRating?: number
+  kycRequired?: boolean
 }

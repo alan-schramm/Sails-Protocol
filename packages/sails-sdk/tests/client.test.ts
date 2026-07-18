@@ -73,6 +73,25 @@ describe('SailsClient — module assembly', () => {
     expect(client.openp2p).toBeDefined()
     expect(client.settlement).toBeDefined()
     expect(client.peers).toBeDefined()
+    expect(client.capabilities).toBeDefined() // RFC-013
+  })
+
+  it('leaves client.wallet undefined when no WalletAdapter is supplied (RFC-013 — optional, v0.1 surface unaffected)', () => {
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch })
+    expect(client.wallet).toBeUndefined()
+  })
+
+  it('exposes the WalletAdapter passed at construction as client.wallet', () => {
+    const wallet = {
+      getPeerId: async () => 'peer-1',
+      getAddress: async () => '0xabc',
+      getBalance: async () => '0',
+      signTransaction: async (_asset: string, tx: unknown) => tx,
+      broadcastTransaction: async () => 'txid',
+      getCapabilities: async () => ({ assets: [], fiatRails: [], supportsP2PTrading: true, supportsOnchainSettlement: true }),
+    }
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch, wallet })
+    expect(client.wallet).toBe(wallet)
   })
 
   it('setSessionToken()/getSessionToken() escape hatch reaches the same transport every module shares', async () => {

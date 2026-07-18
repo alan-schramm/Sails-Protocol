@@ -111,7 +111,13 @@ Capability Registry    → tracks which Capability (functional category,
                         e.g. trade-coordination) each moduleId implements,
                         and issues/checks CapabilityGrants (permissions) —
                         two related interfaces per RFC-005
-                        (rfcs/RFC-005-capability-model.md), not one
+                        (rfcs/RFC-005-capability-model.md), not one.
+                        CapabilityGrant issuance/checking is real as of
+                        RFC-013 (rfcs/RFC-013-capability-registry-and-
+                        wallet-adapter.md, `core/capability-registry.ts`);
+                        the module<->Capability mapping stays a static
+                        in-code table (RFC-005's own table, verbatim),
+                        not a second persisted store
 Policy / Rules Engine  → FeePolicy, TrustPolicy, RoutingPolicy — consulted
                         by the Coordination Engine, never read directly
                         by a module. This is what turns PROTOCOL_ECONOMY.md's
@@ -331,10 +337,11 @@ src/
 │                                         reactions to events)
 ├── core/                                (6 formal Core components, §1B —
 │                                         intent-engine.ts, policy-engine.ts
-│                                         [partially], state-machine.ts, and
-│                                         coordination-engine.ts now real;
-│                                         capability-registry.ts still throws
-│                                         "Not yet implemented")
+│                                         [partially], state-machine.ts,
+│                                         coordination-engine.ts, and
+│                                         capability-registry.ts now real;
+│                                         only policy-engine.ts's governed-
+│                                         policy interface remains a stub)
 │   ├── intent-engine.ts                (real — create/cancel/transition;
 │                                         create() now runs CREATED ->
 │                                         VALIDATED -> COORDINATED via
@@ -351,11 +358,19 @@ src/
 │   ├── coordination-engine.ts          (real as of RFC-012 — decide()
 │   │                                     resolves an Intent's targetModule;
 │   │                                     does not yet consult Policy Engine
-│   │                                     or Capability Registry, both still
-│   │                                     stubs — deliberately out of scope,
-│   │                                     see that RFC's Alternatives
-│   │                                     Considered)
-│   └── capability-registry.ts          (stub)
+│   │                                     or Capability Registry — RFC-012's
+│   │                                     own scope cut, unrevisited by
+│   │                                     RFC-013)
+│   └── capability-registry.ts          (real as of RFC-013,
+│                                         rfcs/RFC-013-capability-registry-
+│                                         and-wallet-adapter.md —
+│                                         grant/check/revoke/listGrants
+│                                         against a real `CapabilityGrant`
+│                                         Prisma table; CAPABILITY_IMPLEMENTATIONS
+│                                         is RFC-005's own module<->Capability
+│                                         table, kept as a static in-code
+│                                         map deliberately, not a second
+│                                         table with no real write path)
 ├── infrastructure/
 │   └── p2p/
 │       ├── pear.service.ts             (PearNode + PearNodeRegistry —

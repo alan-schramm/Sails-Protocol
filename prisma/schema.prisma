@@ -327,3 +327,27 @@ model ReputationEvent {
   @@unique([tradeId, raterId])
   @@map("reputation_events")
 }
+
+// Capability Registry — PROTOCOL_SPECIFICATION.md §1.10,
+// rfcs/RFC-005-capability-model.md (CapabilityGrant shape),
+// rfcs/RFC-013-capability-registry-and-wallet-adapter.md (this table,
+// first real persistence — core/capability-registry.ts was a stub with
+// no table before this). Only CapabilityGrant (the permission side) is
+// persisted here; Capability/CapabilityImplementation (the static
+// moduleId <-> capabilityName mapping, RFC-005's own illustrative table)
+// stays an in-code map in capability-registry.ts, per that RFC's
+// Alternatives Considered — no real write path exists for it yet.
+model CapabilityGrant {
+  id             String    @id @default(uuid())
+  grantedTo      String    // a Participant or Agent id (RFC-001)
+  capabilityName String    // e.g. 'trade-coordination' (RFC-005's table)
+  scope          String[]  // subset of that capability's events/API
+  constraints    Json?     // e.g. { maxValue, expiresAt }
+  issuedBy       String
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([grantedTo])
+  @@index([capabilityName])
+  @@map("capability_grants")
+}

@@ -30,12 +30,15 @@ export { SailsLiquidityModule, type PublishOfferInput, type OrderBook, type Matc
 export { SailsOpenP2PModule, WebSocketChannel, type ChatFrame } from './modules/openp2p'
 export { SailsSettlementModule, type CreateEscrowInput } from './modules/settlement'
 export { SailsPeersModule, type StaticTopic } from './modules/peers'
+export { SailsCapabilitiesModule, type RegisterCapabilityInput } from './modules/capabilities'
 
 export {
   SailsIntentFacade,
   type NegotiationEvent,
   type ProofSubmission,
 } from './intent-facade'
+
+export type { WalletAdapter, WalletCapabilitiesDeclaration } from './wallet-adapter'
 
 export type {
   AssetType,
@@ -58,4 +61,5 @@ export type {
   Intent,
   TradeIntentPayload,
   PeerStatus,
+  CapabilityGrant,
 } from './types'

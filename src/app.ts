@@ -18,6 +18,7 @@ import { chatRoutes } from './modules/open-p2p/chat.routes'
 import { settlementRoutes } from './modules/open-settlement/settlement.routes'
 import { peerRoutes } from './infrastructure/p2p/pear.routes'
 import { reputationRoutes } from './modules/open-reputation/reputation.routes'
+import { capabilityRoutes } from './modules/open-agents/capability.routes'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -54,6 +55,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         { name: 'open-settlement', description: 'Sails OpenSettlement — escrow state machine' },
         { name: 'open-p2p', description: 'Sails OpenP2P — trades & chat' },
         { name: 'open-reputation', description: 'Sails OpenReputation — reputation system' },
+        { name: 'open-agents', description: 'Sails OpenAgents — capability declaration & grants (RFC-013)' },
       ],
     },
   })
@@ -126,6 +128,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(chatRoutes)
   await app.register(settlementRoutes)
   await app.register(reputationRoutes)
+  await app.register(capabilityRoutes)
 
   // ── Register event handlers (Coordination Protocol) ──────────────────────
   registerEventHandlers()

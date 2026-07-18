@@ -243,6 +243,17 @@ makes the same point in more detail.
       untouched stubs — `coordinationEngine.decide()` does not consult
       either, a deliberate scope decision documented in RFC-012's
       Alternatives Considered.
+- [x] `core/capability-registry.ts`'s stub is resolved — real
+      `grant()`/`check()`/`revoke()`/`listGrants()` against a new
+      `CapabilityGrant` Prisma table, plus real routes
+      (`POST /v1/capabilities/register`, `GET /v1/capabilities/:participantId`,
+      `POST /v1/capabilities/:grantId/revoke`) *(new — RFC-013,
+      `rfcs/RFC-013-capability-registry-and-wallet-adapter.md`,
+      2026-07-18)*. `coordinationEngine.decide()` still doesn't consult it
+      (RFC-012's scope cut, unrevisited) — this closes the "the registry
+      itself doesn't exist" half of that gap, not the "nothing calls it
+      yet" half. `policy-engine.ts`'s governed-policy interface remains
+      the one still-untouched stub among the 6 formal Core components.
 - [ ] **Still open:** `IntentHandler` plugin registration pattern (§2.7 of
       `PROTOCOL_SPECIFICATION.md`) is fully specified but has zero code.
 
@@ -269,6 +280,20 @@ makes the same point in more detail.
       network boundary (`fetchImpl`/`webSocketImpl` injection, no global
       mocking) — `npm run build`/`npm test` both verified clean (16
       suites, 131 tests project-wide).
+- [x] **`WalletAdapter` + `client.capabilities`** *(new — RFC-013,
+      `rfcs/RFC-013-capability-registry-and-wallet-adapter.md`,
+      2026-07-18)* — `packages/sails-sdk/src/wallet-adapter.ts`: an
+      optional constructor argument (`SailsClientOptions.wallet`) so a
+      wallet's own signing/balance/address logic can plug into the SDK,
+      which v0.1 had no such layer for at all (every v0.1 module only
+      ever made HTTP/WS calls). `getPeerId()`, not `getNodeId()` — matches
+      this codebase's own existing vocabulary instead of introducing a
+      synonym. `client.capabilities.registerFromWallet(wallet)` derives
+      a `trade-coordination` grant's scope directly from
+      `wallet.getCapabilities()`. 7 new tests
+      (`packages/sails-sdk/tests/capabilities.test.ts` +
+      `client.test.ts` additions) — 40 SDK tests total, 155
+      project-wide.
 - [ ] **Still genuinely unbuilt/partial**, honestly, not silently
       claimed: of the six-verb Intent facade (`SDK_GUIDE.md` §2),
       `negotiate`/`submitProof`/`releaseAsset`/`dispute` throw

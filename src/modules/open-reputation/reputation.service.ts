@@ -90,6 +90,20 @@ export class ReputationService {
     }
   }
 
+  // RFC-013 (rfcs/RFC-013-capability-registry-and-wallet-adapter.md) —
+  // reputation addressable by a participant's portable Pears identity
+  // (User.peerId, set the first time their PearNode starts), not only
+  // the internal participantId. No new scoring logic: this resolves
+  // peerId -> participantId, then delegates to the same getScore() path
+  // above — the correction that RFC establishes is that Pears provides
+  // the portable identity substrate, not the reputation computation
+  // itself, which stays exclusively this service's job.
+  async getScoreByPeerId(peerId: string) {
+    const user = await prisma.user.findUnique({ where: { peerId } })
+    if (!user) throw new NotFoundError('Participant with peerId', peerId)
+    return this.getScore(user.id)
+  }
+
   async getLeaderboard(limit = 20) {
     return prisma.user.findMany({
       orderBy: { reputationScore: 'desc' },

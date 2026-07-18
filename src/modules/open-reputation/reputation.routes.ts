@@ -25,6 +25,18 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send({ success: true, data: leaderboard })
   })
 
+  // Registered before /:participantId below — different segment count
+  // than that route (two path segments vs. one), so there's no routing
+  // ambiguity for Fastify to resolve either way; kept in this order for
+  // readability, matching the leaderboard route's own comment above.
+  app.get('/v1/reputation/peer/:peerId', {
+    schema: { tags: ['open-reputation'] },
+  }, async (request, reply) => {
+    const { peerId } = z.object({ peerId: z.string().min(1) }).parse(request.params)
+    const score = await reputationService.getScoreByPeerId(peerId)
+    return reply.code(200).send({ success: true, data: score })
+  })
+
   app.get('/v1/reputation/:participantId', {
     schema: { tags: ['open-reputation'] },
   }, async (request, reply) => {
