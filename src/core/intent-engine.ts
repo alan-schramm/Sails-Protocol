@@ -13,13 +13,15 @@
  * protocol specification until it goes through Protocol Freeze + RFC.
  */
 import { createHash } from 'crypto'
+import { config } from '../config'
 import { prisma } from '../common/database'
-import { ValidationError, NotFoundError } from '../common/errors'
+import { ValidationError, NotFoundError, ForbiddenError } from '../common/errors'
 import { eventBus } from '../common/events/event-bus'
 import type { SailsEventName, SailsEventMap } from '../common/events/event-bus'
 import { assertValidTransition, isExpired, type IntentStatus } from './state-machine'
 import { validateFinancialSanity } from './policy-engine'
 import { coordinationEngine } from './coordination-engine'
+import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from './capability-registry'
 import type {
   Intent, IntentType, IntentHandler, IntentPayload, TradeIntentPayload,
 } from '../common/types/intent'
@@ -164,12 +166,33 @@ export const intentEngine: IntentEngine = {
       throw new ValidationError('Intent failed financial sanity check', sanity.errors)
     }
 
+    const moduleId = 'openp2p' // TradeIntent's owning module — generalize once other IntentTypes are real
+
+    // RFC-014: capability-registry.ts (real since RFC-013) had no real
+    // caller anywhere in this codebase until this check. Off by default
+    // (config.features.enforceCapabilities) — see that flag's own doc
+    // comment in config/index.ts for why. CAPABILITY_IMPLEMENTATIONS maps
+    // moduleId -> the RFC-005 Capability name this module implements
+    // ('openp2p' -> 'trade-coordination'); the required scope is the real
+    // event name this action produces (event-bus.ts's 'intent.created'),
+    // matching RFC-013's own example grant shape rather than inventing a
+    // parallel scope vocabulary.
+    if (config.features.enforceCapabilities) {
+      const capabilityName = CAPABILITY_IMPLEMENTATIONS[moduleId]
+      const allowed = await capabilityRegistry.check(participantId, capabilityName, 'intent.created')
+      if (!allowed) {
+        throw new ForbiddenError(
+          `${participantId} has no active '${capabilityName}' capability grant covering 'intent.created'`
+        )
+      }
+    }
+
     const record = await prisma.intent.create({
       data: {
         type,
         participantId,
         agentId,
-        moduleId: 'openp2p', // TradeIntent's owning module — generalize once other IntentTypes are real
+        moduleId,
         payload: payload as object,
         status: 'CREATED' satisfies IntentStatus,
         metadata: {},
