@@ -33,10 +33,10 @@ export function ChatWindow({ messages, currentUserId, onSend }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-[520px] bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-        <span className="text-sm font-semibold">Chat P2P</span>
-        <span className="text-xs text-green-600 flex items-center gap-1">
+    <div className="flex flex-col h-[520px] card overflow-hidden">
+      <div className="px-4 py-3 border-b border-brand-border flex items-center justify-between">
+        <span className="text-sm font-semibold text-brand-text">Chat P2P</span>
+        <span className="text-xs text-green-500 flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Conectado via Pears
         </span>
       </div>
@@ -48,15 +48,15 @@ export function ChatWindow({ messages, currentUserId, onSend }: Props) {
         <div ref={endRef} />
       </div>
 
-      <div className="border-t border-gray-100 p-3 flex gap-2">
+      <div className="border-t border-brand-border p-3 flex gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
           placeholder="Digite uma mensagem..."
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          className="input-field flex-1"
         />
-        <button onClick={handleSend} className="bg-gray-900 text-white rounded-lg px-4 text-sm font-semibold hover:bg-gray-700">
+        <button onClick={handleSend} className="btn-primary px-4 text-sm">
           Enviar
         </button>
       </div>

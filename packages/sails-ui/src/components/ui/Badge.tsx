@@ -1,8 +1,8 @@
 /**
- * Small badge/pill primitives. Plain, functional colors only (green/red/
- * gray semantics that are universal, not brand-specific) — the WDK/
- * Binance-inspired dark+orange design system is a deliberate later pass,
- * not this one (see this package's README / docs/TODO.md section 11).
+ * Small badge/pill primitives. Semantic colors (green/red/yellow/blue)
+ * are universal conventions, not brand decisions — orange is reserved
+ * for the brand accent (primary actions, active states), never reused
+ * here for a status meaning.
  */
 import type { AssetType, TradeSide, PaymentMethod, TradeStatus, EscrowStatus, OfferStatus } from '../../types'
 
@@ -15,30 +15,30 @@ function Pill({ children, className = '' }: { children: React.ReactNode; classNa
 }
 
 export function AssetBadge({ asset }: { asset: AssetType }) {
-  return <Pill className="border-gray-300 bg-gray-100 text-gray-700 font-mono">{asset}</Pill>
+  return <Pill className="border-brand-border bg-brand-elevated text-brand-text-secondary font-mono">{asset}</Pill>
 }
 
 export function SideBadge({ side }: { side: TradeSide }) {
   return side === 'BUY' ? (
-    <Pill className="border-green-300 bg-green-50 text-green-700">COMPRAR</Pill>
+    <Pill className="border-green-500/25 bg-green-500/10 text-green-500">COMPRAR</Pill>
   ) : (
-    <Pill className="border-red-300 bg-red-50 text-red-700">VENDER</Pill>
+    <Pill className="border-red-500/25 bg-red-500/10 text-red-500">VENDER</Pill>
   )
 }
 
 export function PaymentBadge({ method }: { method: PaymentMethod }) {
-  return <Pill className="border-blue-300 bg-blue-50 text-blue-700">{method}</Pill>
+  return <Pill className="border-blue-500/25 bg-blue-500/10 text-blue-500">{method}</Pill>
 }
 
 const TRADE_STATUS_LABEL: Record<TradeStatus, string> = {
   PENDING: 'Pendente', ACTIVE: 'Ativo', COMPLETED: 'Concluído', DISPUTED: 'Em disputa', CANCELLED: 'Cancelado',
 }
 const TRADE_STATUS_COLOR: Record<TradeStatus, string> = {
-  PENDING: 'border-yellow-300 bg-yellow-50 text-yellow-700',
-  ACTIVE: 'border-blue-300 bg-blue-50 text-blue-700',
-  COMPLETED: 'border-green-300 bg-green-50 text-green-700',
-  DISPUTED: 'border-red-300 bg-red-50 text-red-700',
-  CANCELLED: 'border-gray-300 bg-gray-100 text-gray-500',
+  PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-500',
+  ACTIVE: 'border-blue-500/25 bg-blue-500/10 text-blue-500',
+  COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-500',
+  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-500',
+  CANCELLED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
 }
 export function TradeStatusBadge({ status }: { status: TradeStatus }) {
   return <Pill className={TRADE_STATUS_COLOR[status]}>{TRADE_STATUS_LABEL[status]}</Pill>
@@ -49,12 +49,12 @@ const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
   COMPLETED: 'Concluído', DISPUTED: 'Em disputa', REFUNDED: 'Reembolsado',
 }
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
-  CREATED: 'border-gray-300 bg-gray-100 text-gray-600',
-  FUNDS_LOCKED: 'border-blue-300 bg-blue-50 text-blue-700',
-  PAYMENT_PENDING: 'border-yellow-300 bg-yellow-50 text-yellow-700',
-  COMPLETED: 'border-green-300 bg-green-50 text-green-700',
-  DISPUTED: 'border-red-300 bg-red-50 text-red-700',
-  REFUNDED: 'border-gray-300 bg-gray-100 text-gray-500',
+  CREATED: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
+  FUNDS_LOCKED: 'border-blue-500/25 bg-blue-500/10 text-blue-500',
+  PAYMENT_PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-500',
+  COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-500',
+  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-500',
+  REFUNDED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
 }
 export function EscrowStatusBadge({ status }: { status: EscrowStatus }) {
   return <Pill className={ESCROW_STATUS_COLOR[status]}>{ESCROW_STATUS_LABEL[status]}</Pill>
@@ -64,6 +64,6 @@ const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
   ACTIVE: 'Ativa', PAUSED: 'Pausada', COMPLETED: 'Concluída', CANCELLED: 'Cancelada',
 }
 export function OfferStatusBadge({ status }: { status: OfferStatus }) {
-  const color = status === 'ACTIVE' ? 'border-green-300 bg-green-50 text-green-700' : 'border-gray-300 bg-gray-100 text-gray-500'
+  const color = status === 'ACTIVE' ? 'border-green-500/25 bg-green-500/10 text-green-500' : 'border-brand-border bg-brand-elevated text-brand-text-muted'
   return <Pill className={color}>{OFFER_STATUS_LABEL[status]}</Pill>
 }

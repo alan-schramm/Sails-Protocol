@@ -439,20 +439,16 @@ makes the same point in more detail.
       already covers, and liquidity matching (`open-liquidity`) — no
       dedicated test files yet.
 
-## 11. Frontend (status changed — structural skeleton landed) *(2026-07-18)*
+## 11. Frontend (status changed — skeleton + real brand identity landed) *(2026-07-18)*
 
 - [x] **`packages/@sails/ui`** *(new)* — a real, navigable 9-screen React
-      + Vite + TypeScript + React Router skeleton (Marketplace, Offer
-      Detail, Trade with chat + escrow state machine, Login, Profile,
-      Trade History, Admin Dashboard, Manage Offers, Disputes). Explicit
-      two-phase plan (see the package's own `README.md`): this pass is
-      structure/flow only, plain Tailwind, no brand identity — a themed
-      pass (WDK/Binance-inspired dark+orange) is deliberate follow-up
-      work, not done here, so a design change never risks the trading
-      logic underneath it. Every screen reads `src/data/mock.ts` — no
-      `@sails/sdk` call happens anywhere in this package yet; every read
-      site has a `// TODO: replace with @sails/sdk ...` comment naming
-      the real method. Manually verified in a real browser (not just
+      + Vite + TypeScript + React Router app (Marketplace, Offer Detail,
+      Trade with chat + escrow state machine, Login, Profile, Trade
+      History, Admin Dashboard, Manage Offers, Disputes). Every screen
+      reads `src/data/mock.ts` — no `@sails/sdk` call happens anywhere
+      in this package yet; every read site has a
+      `// TODO: replace with @sails/sdk ...` comment naming the real
+      method. Manually verified in a real browser (not just
       `npm run build`) — found and fixed one real bug this way: an
       effect-ordering race in `AuthContext` that bounced a logged-in
       session back to `/login` on a hard navigation to `/profile`
@@ -461,6 +457,31 @@ makes the same point in more detail.
       "redirect if no user" effect — fixed with a lazy `useState`
       initializer instead, which `tsc`/build type-checking alone would
       never have caught).
+- [x] **Real black + orange brand identity, light and dark theme**
+      *(same day, requested directly)* — `src/index.css`'s CSS custom
+      properties define the full palette for both themes (`:root`/
+      `:root.dark`), toggled by `ThemeContext` (defaults to system
+      preference, persisted to `localStorage`, same lazy-`useState`
+      pattern `AuthContext` uses for the same effect-ordering reason).
+      Orange (`#f97316`) stays constant across both themes. A handful of
+      component classes (`.card`, `.btn-primary`, `.input-field`, etc.,
+      `@layer components`) centralize the theme so a white-label partner
+      edits ~8 rules later, not every file — see the package's own
+      `README.md`.
+- [x] **Binance P2P-style Marketplace filters** *(same day)* —
+      `AssetPicker` (search-based, replacing a lateral pill row that
+      doesn't scale past a handful of assets), `CurrencyPicker`
+      (BRL/USD/EUR/... — generalizes the real but narrower
+      `Offer.priceBrl` field, honestly flagged as presentation-layer in
+      `types.ts`'s own comment), and `FilterPanel` (a drawer with the
+      exact requested option set — save filter, negotiable-only,
+      high-reputation-only, previously-traded, amount presets by
+      currency, payment time limit, payment method, country/region, sort
+      by — each with an "i" `InfoTooltip`). Three of the filter
+      predicates (`negotiableOnly`/`highReputationOnly`/
+      `previouslyTradedOnly`) run against UI-only demonstration fields
+      on `Offer` — a real version needs a real block-list and
+      trade-history join, neither exists in the backend yet.
 
 ## 12. Deployment
 

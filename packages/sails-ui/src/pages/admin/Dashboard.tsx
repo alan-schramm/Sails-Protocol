@@ -9,7 +9,7 @@ export function Dashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-black tracking-tight">Painel do Operador</h1>
+      <h1 className="text-2xl font-black tracking-tight text-brand-text">Painel do Operador</h1>
 
       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Ofertas Ativas" value={activeOffers} />
@@ -18,29 +18,29 @@ export function Dashboard() {
         <StatCard label="Disputas Abertas" value={openDisputes} tone={openDisputes > 0 ? 'danger' : 'default'} />
       </div>
 
-      <div className="mt-6 bg-white border border-gray-200 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-gray-500 mb-3">Volume diário (30 dias) — mockado</h3>
+      <div className="mt-6 card p-5">
+        <h3 className="text-sm font-semibold text-brand-text-muted mb-3">Volume diário (30 dias) — mockado</h3>
         <ResponsiveContainer width="100%" height={220}>
           <LineChart data={CHART_DATA}>
-            <CartesianGrid stroke="#f1f1f1" />
-            <XAxis dataKey="date" stroke="#9ca3af" tick={{ fontSize: 10 }} interval={4} />
-            <YAxis stroke="#9ca3af" tick={{ fontSize: 10 }} />
-            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-            <Line type="monotone" dataKey="volume" stroke="#111827" strokeWidth={2} dot={false} />
+            <CartesianGrid stroke="rgb(var(--color-border))" />
+            <XAxis dataKey="date" stroke="rgb(var(--color-text-muted))" tick={{ fontSize: 10, fill: 'rgb(var(--color-text-muted))' }} interval={4} />
+            <YAxis stroke="rgb(var(--color-text-muted))" tick={{ fontSize: 10, fill: 'rgb(var(--color-text-muted))' }} />
+            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, background: 'rgb(var(--color-surface))', border: '1px solid rgb(var(--color-border))', color: 'rgb(var(--color-text))' }} />
+            <Line type="monotone" dataKey="volume" stroke="rgb(var(--color-orange))" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-6 bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+      <div className="mt-6 card overflow-hidden">
+        <div className="px-5 py-3 border-b border-brand-border text-xs font-semibold text-brand-text-muted uppercase tracking-wider">
           Trades recentes
         </div>
         {MOCK_TRADE_HISTORY.map((t) => (
-          <div key={t.id} className="px-5 py-3 border-b border-gray-50 last:border-0 flex items-center gap-4 text-sm">
-            <span className="font-mono text-xs text-gray-400 w-24">{t.tradeId}</span>
+          <div key={t.id} className="px-5 py-3 border-b border-brand-border last:border-0 flex items-center gap-4 text-sm">
+            <span className="font-mono text-xs text-brand-text-muted w-24">{t.tradeId}</span>
             <AssetBadge asset={t.asset} />
-            <span className="text-gray-600">{t.counterpart}</span>
-            <span className="ml-auto font-medium">{formatBrl(t.totalBrl)}</span>
+            <span className="text-brand-text-secondary">{t.counterpart}</span>
+            <span className="ml-auto font-medium text-brand-text">{formatBrl(t.totalBrl)}</span>
             <TradeStatusBadge status={t.status} />
           </div>
         ))}
@@ -51,9 +51,9 @@ export function Dashboard() {
 
 function StatCard({ label, value, tone = 'default' }: { label: string; value: string | number; tone?: 'default' | 'danger' }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
-      <div className={`text-2xl font-black ${tone === 'danger' ? 'text-red-600' : 'text-gray-900'}`}>{value}</div>
-      <div className="text-xs text-gray-400 mt-1">{label}</div>
+    <div className="card p-4">
+      <div className={`text-2xl font-black ${tone === 'danger' ? 'text-red-500' : 'text-brand-text'}`}>{value}</div>
+      <div className="text-xs text-brand-text-muted mt-1">{label}</div>
     </div>
   )
 }
