@@ -340,6 +340,27 @@ need zero changes. This is the same "additive, never breaking" discipline
 `moduleId`/`protocolVersion` enforces at the database level
 (`DATABASE.md` section 1), applied to the SDK's own internal structure.
 
+## 4C. Wallet Stack Compatibility (illustrative — WalletAdapter is real, most rows below are not)
+
+`WalletAdapter` (section 3, real as of RFC-013,
+`rfcs/RFC-013-capability-registry-and-wallet-adapter.md`) is deliberately
+transport- and chain-agnostic, so it can sit in front of any wallet's own
+signing stack. This table is a roadmap/positioning reference for what
+that looks like across common wallet toolkits — **only the interface
+itself and the reference implementation's own WDK-based usage are real
+today; every other row is an unimplemented compatibility target, not a
+built adapter.** Do not cite this table as evidence that BDK/LDK/mobile
+integrations exist in this repository — they don't.
+
+| SDK Toolkit | Primary Language | Asset Focus | Typical Fit | Status |
+|---|---|---|---|---|
+| WDK (Tether Wallet Development Kit) | TypeScript/JS | BTC, stablecoins, EVM assets | Corporate/consumer wallets, agent-driven automation | 🟢 Reference implementation (`wdk-settlement.provider.ts`, real signed testnet transfers) |
+| BDK (Bitcoin Dev Kit) | Rust | Bitcoin on-chain | Security-focused/multisig wallets | 📋 Compatible in principle — no `WalletAdapter` implementation exists yet |
+| LDK (Lightning Dev Kit) | Rust/C++ | Bitcoin Lightning | Instant/micro payments | 📋 Compatible in principle — Lightning would be exposed as a `WalletAdapter`-declared capability, not built |
+| EVM wallet SDKs | TypeScript/Solidity | ERC-20 tokens | Web3/DApp wallets | 📋 Compatible in principle — `WalletAdapter`'s `asset`/`signTransaction` are already chain-agnostic, no EVM-specific adapter built beyond the WDK one above |
+| Mobile SDKs | Kotlin/Swift | Whatever the host wallet supports | Consumer mobile wallets | 📋 Compatible in principle — `@sails/sdk` itself is JS/TS only (SDK_GUIDE.md section 6); a mobile wallet would bridge to it, not run it natively |
+| Custodial APIs | Any | Custodial assets | Fintechs, OTCs, banks | 📋 Compatible in principle — a custodial `WalletAdapter` would need its own `CapabilityGrant` constraints (RFC-013) marking custody, not modeled yet |
+
 ## 5. Build Plan (roadmap-linked — see `ROADMAP.md` for exact timing)
 
 1. **Meses 1-3**: `@sails/protocol-spec` npm package published — just the
