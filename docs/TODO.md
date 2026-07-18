@@ -439,13 +439,28 @@ makes the same point in more detail.
       already covers, and liquidity matching (`open-liquidity`) — no
       dedicated test files yet.
 
-## 11. Frontend
+## 11. Frontend (status changed — structural skeleton landed) *(2026-07-18)*
 
-- [ ] No frontend code exists in this environment. Prior sessions
-      referenced a Lovable-generated React/Vite frontend and an HTML/JSX
-      operator dashboard — neither is present here. Check with the project
-      owner before rebuilding; there may be a Lovable project already
-      exported elsewhere.
+- [x] **`packages/@sails/ui`** *(new)* — a real, navigable 9-screen React
+      + Vite + TypeScript + React Router skeleton (Marketplace, Offer
+      Detail, Trade with chat + escrow state machine, Login, Profile,
+      Trade History, Admin Dashboard, Manage Offers, Disputes). Explicit
+      two-phase plan (see the package's own `README.md`): this pass is
+      structure/flow only, plain Tailwind, no brand identity — a themed
+      pass (WDK/Binance-inspired dark+orange) is deliberate follow-up
+      work, not done here, so a design change never risks the trading
+      logic underneath it. Every screen reads `src/data/mock.ts` — no
+      `@sails/sdk` call happens anywhere in this package yet; every read
+      site has a `// TODO: replace with @sails/sdk ...` comment naming
+      the real method. Manually verified in a real browser (not just
+      `npm run build`) — found and fixed one real bug this way: an
+      effect-ordering race in `AuthContext` that bounced a logged-in
+      session back to `/login` on a hard navigation to `/profile`
+      (React runs effects child-to-parent on mount; a `useEffect`-based
+      localStorage read lost that race against `Profile`'s own
+      "redirect if no user" effect — fixed with a lazy `useState`
+      initializer instead, which `tsc`/build type-checking alone would
+      never have caught).
 
 ## 12. Deployment
 

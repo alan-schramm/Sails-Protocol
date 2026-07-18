@@ -24,7 +24,9 @@
     "db:studio": "npx prisma studio",
     "demo:pix-to-usdt": "ts-node --transpile-only src/demo/pix-to-usdt-flow.ts",
     "demo:qvac": "ts-node --transpile-only demo-satsails-qvac.ts",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "dev:ui": "npm run dev -w @sails/ui",
+    "build:ui": "npm run build -w @sails/ui"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
