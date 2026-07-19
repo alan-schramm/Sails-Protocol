@@ -185,6 +185,32 @@ real gaps, both fixed:
   `tests/reputationOutcome.test.ts` (`Trade.escrowId` persistence).
   `npm run build` clean, `npm test` 216/216.
 
+**Third pass, same day (2026-07-19)** — RFC-018's validation pass was
+approved; the CTO-role follow-up asked to validate the complete
+end-to-end flow with real persistence and provider integration. Real
+Postgres/live-network validation still could not be executed here (same
+constraint as the first pass above). Built instead:
+`tests/fullTradeLifecycle.test.ts` — unlike every other test file in this
+suite (each mocks at one service boundary), this one chains the REAL
+service layer — `liquidityRouter`, `tradeService`, `escrowService`,
+`dispute.service.ts`, `settlement-orchestrator.ts`'s `executeSettlement()`
+— with the REAL `eventBus` (`InMemoryEventStore`) actually dispatching to
+the REAL `registerEventHandlers()` reactions, only Prisma (an in-memory
+fake) and the external WDK/HyperDHT providers mocked. Two tests: a full
+Intent→Offer→discovery→Trade→escrow→settlement→reputation happy path, and
+a dispute raised after escrow locks (proving the `Trade.escrowId` fix
+above holds through the real chain, not just at the handler level).
+Caught a real bug neither fix above did: `dispute.service.ts`'s
+`resolveDispute()` moved funds via `escrowService.releaseFunds()`/
+`refundFunds()` **before** marking the `Dispute` row `RESOLVED` — the
+event those calls emit is exactly what `common/events/handlers.ts`'s
+RFC-007 D8/D9 dispute-aware reputation branch reacts to, and its
+`status: 'RESOLVED'` query always raced this function's own not-yet-run
+update and lost. Every disputed resolution was silently scored as a
+plain no-dispute outcome. Fixed by marking `RESOLVED` first, with a
+revert-on-failure path if the fund movement then fails. `npm run build`
+clean, `npm test` 218/218.
+
 **Core RFC Review Checklist** (`GOVERNANCE.md` §6A):
 
 - [x] `PROTOCOL_SPECIFICATION.md` — updated (§1.11's `Offer` entry,
