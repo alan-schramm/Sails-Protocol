@@ -349,9 +349,13 @@ makes the same point in more detail.
       such in that section, not the current implementation. Closing this
       means routing offer/trade creation through the Intent Engine for
       real (`Offer`/`Trade` gaining an `intentId` FK, or equivalent) —
-      real, scoped engineering work, not a documentation fix. See
-      `PROTOCOL_SPECIFICATION.md` §1.11 and §1.12's footnote for the full
-      annotation.
+      real, scoped engineering work, not a documentation fix.
+      **RFC-018** (`docs/rfcs/RFC-018-intent-as-canonical-trade-entry-point.md`,
+      accepted 2026-07-19, CTO-role review approved as P0) registers the
+      target architecture and a 3-phase migration plan — not implemented
+      yet, per the review's own instruction to register and plan before
+      building. See `PROTOCOL_SPECIFICATION.md` §1.11 and §1.12's
+      footnote for the doc-side annotation.
 - [ ] **Related, more severe finding from the same audit — a real
       Constitutional Invariant violation, not a documentation gap:** the
       one real, tested `SettlementProvider` (`WdkSettlementProvider`,
@@ -372,7 +376,15 @@ makes the same point in more detail.
       not represent `WDK_USDT_EVM` as satisfying the protocol's
       non-custodial invariant until a real multisig/threshold-signature
       `SettlementProvider` for EVM exists, or scope `WDK_USDT_EVM`
-      explicitly to testnet/demo use only.
+      explicitly to testnet/demo use only. **RFC-019**
+      (`docs/rfcs/RFC-019-settlement-custody-reference-vs-normative.md`,
+      accepted 2026-07-19, CTO-role review approved as P0/blocking)
+      registers this reclassification and a 2-phase migration plan —
+      Phase 1 (custody-model flag + boot warning + doc pointers) is
+      low-risk and not yet implemented; Phase 2 (a real non-custodial
+      settlement path) is unscoped, unstarted, no committed date, per
+      the review's explicit "não implementar soluções provisórias...
+      apenas registrar e planejar" instruction.
 
 ## 8. SDK (status changed — v0.1 real, partial) *(2026-07-17)*
 

@@ -226,8 +226,12 @@ that can lock funds can also move them anywhere."*
 **Not fixed here.** Closing this gap means building a real multisig or
 threshold-signature `SettlementProvider` for EVM (or restricting
 `WDK_USDT_EVM` to demo/testnet use only, never production, until one
-exists) — real engineering work, not a documentation correction.
-Tracked as a blocking production-readiness item in `TODO.md`.
+exists) — real engineering work, not a documentation correction. **RFC-019**
+(`rfcs/RFC-019-settlement-custody-reference-vs-normative.md`) is the
+accepted, registered plan: reclassifies this implementation as
+reference-only, specifies the non-custodial target architecture, and
+lays out an incremental migration without committing to a build date.
+Also tracked as a blocking production-readiness item in `TODO.md`.
 
 ---
 

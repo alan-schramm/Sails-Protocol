@@ -86,9 +86,10 @@ history.
    Never Custodies Assets") **in the one real settlement path this
    codebase ships today** — not a documentation phrasing issue, a real
    custody gap. It is explicitly disclosed at the code level (not
-   hidden), is testnet-only, and is tracked as a blocking
-   production-readiness item in `TODO.md` — see `CRYPTOGRAPHIC_MODEL.md`
-   §6 for the full technical detail. The `MOCK` `SettlementProvider`
+   hidden), is testnet-only, and **RFC-019**
+   (`rfcs/RFC-019-settlement-custody-reference-vs-normative.md`) is the
+   accepted, registered migration plan — see `CRYPTOGRAPHIC_MODEL.md`
+   §5 for the full technical detail. The `MOCK` `SettlementProvider`
    (the only other implementation) and the protocol's own design
    (multisig 2-of-3, per §1.1 above) are unaffected — this is specific
    to `WDK_USDT_EVM`'s current implementation, not a design flaw.

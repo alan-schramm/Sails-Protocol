@@ -836,9 +836,11 @@ rules this table's CANNOT column restates concretely.
   two uncorrelated rows with no foreign key between them. This sentence's
   claim is the intended target architecture, not the current
   implementation — closing the gap (making offer/trade creation actually
-  route through the Intent Engine) is real, scoped engineering work,
-  tracked in `TODO.md`, not something a documentation pass can silently
-  assert into existence.
+  route through the Intent Engine) is real, scoped engineering work, not
+  something a documentation pass can silently assert into existence.
+  **RFC-018** (`rfcs/RFC-018-intent-as-canonical-trade-entry-point.md`)
+  is the accepted, registered plan for closing it — also tracked in
+  `TODO.md`.
 - **Event** — proposed as a primitive. Rejected on a category distinction:
   Identity through Dispute (above) are *domain concepts* the protocol
   coordinates. Event is the *mechanism* by which any of their state
