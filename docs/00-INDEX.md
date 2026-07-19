@@ -15,7 +15,7 @@
 | 4 | [API_REFERENCE.md](API_REFERENCE.md) | Every HTTP/WebSocket route, the Intent-oriented canonical verbs, error response shape |
 | 5 | [SDK_GUIDE.md](SDK_GUIDE.md) | `@sails/sdk` (`packages/sails-sdk`) interface spec — what's real in v0.1 vs. still aspirational |
 | 6 | [NODE_ARCHITECTURE.md](NODE_ARCHITECTURE.md) | P2P transport layer (Pears/HyperDHT/Hyperswarm), infrastructure operation |
-| 7 | [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md) | The frozen v1.0 spec itself — every primitive, in full |
+| 7 | [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md) | The frozen v1.0 spec itself — every primitive, in full. The only document in this handoff using RFC 2119 (MUST/SHOULD/MAY) normative language (§0), with a consolidated conformance checklist at §6 |
 | 8 | [THREAT_MODEL.md](THREAT_MODEL.md) | Protocol-level security properties every integrator inherits |
 | 9 | [SECURITY_MODEL.md](SECURITY_MODEL.md) | Trust mechanisms between strangers, dispute resolution |
 | 10 | [ROADMAP.md](ROADMAP.md) | Grant-relative timeline (Months 1-12), not fixed calendar dates |
@@ -73,7 +73,9 @@ that reads as a live vulnerability disclosure without the context of
 what's since been fixed. Several of the 20 documents above cite these by
 name (`MASTER_COORDINATION.md`, `PROTOCOL_FREEZE_REPORT.md`,
 `RED_TEAM_REVIEW.md`, `TETHER_DUE_DILIGENCE_REPORT.md`,
-`LONG_TERM_VISION.md`) as historical evidence for decisions already
-reflected in the numbered docs and RFCs themselves — a citation to one of
-these that doesn't resolve to a file in this repo is expected, not a
-broken link to chase down.
+`LONG_TERM_VISION.md`, and — added to this list 2026-07-19 after a
+consolidation audit found them cited but unlisted —
+`03-implementation_plan.md` and `04-Deepseek Review.md`) as historical
+evidence for decisions already reflected in the numbered docs and RFCs
+themselves — a citation to one of these that doesn't resolve to a file
+in this repo is expected, not a broken link to chase down.

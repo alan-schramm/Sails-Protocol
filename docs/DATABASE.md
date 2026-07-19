@@ -74,6 +74,7 @@ enum EscrowType {
   MULTISIG
   LIGHTNING_HODL
   LIQUID_COVENANT
+  WDK_USDT_EVM  // real @tetherto/wdk-wallet-evm USDT (ERC-20) settlement — see wdk-settlement.provider.ts. Missing here until a 2026-07-19 consolidation audit caught this file drifting from the real schema.
   MOCK
 }
 
@@ -81,11 +82,25 @@ enum EscrowStatus {
   CREATED
   FUNDS_LOCKED
   PAYMENT_PENDING
-  PENDING_BANK_SETTLEMENT  // RFC-007 D3 — payment initiated but held/processing at the financial institution
   COMPLETED
   DISPUTED
   REFUNDED
 }
+```
+
+**`PENDING_BANK_SETTLEMENT` (RFC-007 D3) is designed, not implemented.**
+A 2026-07-19 consolidation audit found this file — along with
+`PROTOCOL_SPECIFICATION.md`, `API_REFERENCE.md`, and `SDK_GUIDE.md` —
+documenting `PENDING_BANK_SETTLEMENT` as a real `EscrowStatus` value,
+attributed to RFC-007 D3. It is not: the actual `prisma/schema.prisma`
+enum (above, corrected) never gained this value — the RFC decided it,
+nothing ever migrated it in. The only place it survives in real code is
+a stale comment in `packages/sails-sdk/src/modules/settlement.ts:48`.
+Whoever picks up RFC-007 D3 for real needs a migration adding this enum
+value plus the `PAYMENT_PENDING → PENDING_BANK_SETTLEMENT → COMPLETED`/
+`DISPUTED` transition edges — not just a doc update.
+
+```prisma
 
 enum PaymentMethod {
   PIX
@@ -252,12 +267,16 @@ not the database):**
 ```
 CREATED                  → FUNDS_LOCKED, REFUNDED
 FUNDS_LOCKED             → PAYMENT_PENDING, DISPUTED, REFUNDED
-PAYMENT_PENDING          → PENDING_BANK_SETTLEMENT, COMPLETED, DISPUTED
-PENDING_BANK_SETTLEMENT  → COMPLETED, DISPUTED     (RFC-007 D3)
+PAYMENT_PENDING          → COMPLETED, DISPUTED
 COMPLETED                → (terminal)
 DISPUTED                 → COMPLETED, REFUNDED
 REFUNDED                 → (terminal)
 ```
+
+*(`PAYMENT_PENDING → PENDING_BANK_SETTLEMENT → COMPLETED`/`DISPUTED` is
+RFC-007 D3's designed-but-not-migrated extra state — see the note above
+`EscrowStatus`'s definition. Once that migration lands, this table gains
+the two edges back.)*
 
 ### `EscrowEvent` — audit log, owned by `opensettlement`
 
@@ -574,17 +593,29 @@ reused across different `intentId`s without re-fetching the media.
 **`EvidenceBundle` (RFC-007 D6) is not a table.** It is a query
 (`OpenProofService.getEvidenceBundle(intentId)`) that joins `Claim`,
 `Proof`, `EvidenceVerification`, `EvidenceReference`, and the Timeline
-projection (below) by `intentId` — consistent with RFC-007 rejecting it
-as a primitive with its own persisted lifecycle.
+projection (below) by `correlationId` — consistent with RFC-007 rejecting
+it as a primitive with its own persisted lifecycle.
 
-### `Timeline` — not a table (RFC-007 D5)
+### `Timeline` — not a table (RFC-007 D5, corrected by RFC-017)
 
-`Timeline.getEvents(intentId)` is a read projection over events already
-persisted by each module's own audit trail (e.g. `EscrowEvent` above,
-`ReputationEvent`, future `DisputeEvent`), ordered by `createdAt` and
-filtered to one `intentId`/`tradeId`. No new table — adding one would
-duplicate state that already exists per-module, which is exactly the
-outcome RFC-007's primitive-rejection reasoning was written to avoid.
+**Corrected 2026-07-19** (a consolidation-audit catch): RFC-007 D5
+originally keyed this by `intentId`. RFC-017
+(`rfcs/RFC-017-timeline-and-social-engineering-agent.md`) found that the
+real events a Timeline consumer actually needs (chat, escrow,
+negotiation) carry `tradeId` as their `correlationId` (RFC-010) today,
+not `intentId` — no Intent-to-Trade persistence link exists yet to make
+`intentId` the right key. `core/timeline.ts`'s real, shipped
+`getTimeline(correlationId)` reflects RFC-017's correction; this section
+previously still described RFC-007's original, superseded shape.
+
+`Timeline.getEvents(correlationId)` is a read projection over events
+already persisted by each module's own audit trail (e.g. `EscrowEvent`
+above, `ReputationEvent`, future `DisputeEvent`), ordered by `createdAt`
+and filtered to one `correlationId` (`tradeId` today; `intentId` once
+Intent persistence exists — RFC-010's own convention). No new table —
+adding one would duplicate state that already exists per-module, which
+is exactly the outcome RFC-007's primitive-rejection reasoning was
+written to avoid.
 **RFC-008 D2** adds `entryHash`/`prevHash` columns directly to those same
 per-module tables (see `EscrowEvent`/`ReputationEvent` above) rather than
 a separate chain-ledger table — still no new table, but a real (nullable,
@@ -616,24 +647,22 @@ privilege.
 
 ### `Capability`, `CapabilityGrant` — Core components, not module-owned (RFC-005)
 
+**Corrected 2026-07-19** (a consolidation-audit catch): this section
+previously showed `Capability` as a persisted Prisma model alongside
+`CapabilityGrant`. It was never that — RFC-013
+(`rfcs/RFC-013-capability-registry-and-wallet-adapter.md`) explicitly
+considered and rejected a `Capability`/`CapabilityImplementation` table
+("a table with zero real write path") in favor of a static in-code map
+(`capability-registry.ts`'s `CAPABILITY_IMPLEMENTATIONS`). `Capability`
+is the abstract TypeScript interface (`PROTOCOL_SPECIFICATION.md`
+§1.10) any module implements — never a database row. Only
+`CapabilityGrant`, the actual permission record, is persisted:
+
 ```prisma
-model Capability {
-  id             String   @id @default(uuid())
-  capabilityName String   @unique  // 'trade-coordination', 'settlement', ...
-  version        String
-  events         String[] // {module}.{entity}.{action} namespace this owns
-  states         String[]
-  requiredGrants String[]
-  api            String[]
-  moduleId       String   // which module implements this capability
-
-  @@map("capabilities")
-}
-
 model CapabilityGrant {
   id             String    @id @default(uuid())
   grantedTo      String    // a participantId or an Agent identifier
-  capabilityName String
+  capabilityName String    // references the in-code Capability map, not a foreign key
   scope          String[]
   constraints    Json?
   issuedBy       String

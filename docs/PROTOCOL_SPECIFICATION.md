@@ -9,6 +9,43 @@
 
 ---
 
+## 0. Normative Language
+
+*(Added 2026-07-19, relaying a CTO-role architectural review — "a
+documentação deve evoluir para uma linguagem normativa consistente."
+Scoped to this document only: the rest of the 20-document Engineering
+Handoff series is written for engineers understanding the system, not
+implementers conforming to it, and stays in its existing narrative
+style — see `TODO.md`'s consolidation-pass entry for why the scope was
+drawn here specifically.)*
+
+The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and
+**MAY** in this document are to be interpreted as described in
+[RFC 2119](https://www.ietf.org/rfc/rfc2119.txt):
+
+- **MUST** / **MUST NOT** — an absolute requirement / prohibition. An
+  implementation that violates one is not a conforming implementation
+  of Sails Protocol, full stop — the same bar `PROTOCOL_INVARIANTS.md`
+  applies to its own rules, expressed here per-primitive instead of as
+  a standalone constitution.
+- **SHOULD** / **SHOULD NOT** — a strong recommendation. There may be
+  valid reasons in particular circumstances to ignore it, but the full
+  implications need to be understood and weighed before doing so.
+- **MAY** — genuinely optional. One implementation may include it,
+  another may omit it, and both remain equally conforming.
+
+These keywords apply only where they appear in a **Conformance**
+context — inline within a primitive's own description, or in the
+consolidated §6 summary. The surrounding narrative prose (rationale,
+revision history, "why" explanations) is exactly as before this
+section was added: informative, not normative. Where §6's summary and
+a section's own inline requirement ever disagree, the inline
+requirement is authoritative — §6 is a convenience index, not a second
+source of truth (the same discipline this consolidation pass applied
+everywhere else: one definition, everything else references it).
+
+---
+
 ## 1. Core Primitives — the Fundamental Vocabulary
 
 Modules (`ARCHITECTURE.md` section 3) are service *boundaries*. Primitives
@@ -346,6 +383,12 @@ are unchanged. A Liquidity Provider with a qualifying `OperationalProfile`
 this state without waiting for the counterparty's manual confirmation —
 policy-gated, not a protocol-level permission.
 
+**Status note (added 2026-07-19, consolidation audit):** this decision
+is designed, not yet migrated — the real `EscrowStatus` enum
+(`prisma/schema.prisma`, `DATABASE.md`) does not have this value today.
+Several docs (including this one) previously read as if it were already
+live; `DATABASE.md` now flags it explicitly as the gap it is.
+
 ### 1.6 Reputation Primitive
 
 **Responsibility:** aggregate historical behavior into a portable trust
@@ -622,15 +665,23 @@ Evidence Bundle, section 1.8) — today every dispute goes straight to the
 assigned Trusted Arbitrator, which is the escalation order's *last* stage
 implemented first, not a different order.
 
-**Timeline (RFC-007, decision D5).** Also considered as a candidate
-primitive in RFC-007 and rejected, on the same grounds section 1.11
-already rejected `Event`: it is the existing Event Bus's mechanism made
-queryable in order for one Intent, not a new domain concept participants
-transact around. Decision: a Core-level, per-`intentId` read projection
-(`Timeline.getEvents()`) over events already emitted under sections
-1.2-1.9's event lists — no new write path, not owned by any single
-module. Both the Evidence Bundle (section 1.8) and the Social Engineering
-Agent (section 1.7) read from it.
+**Timeline (RFC-007, decision D5; key corrected by RFC-017).** Also
+considered as a candidate primitive in RFC-007 and rejected, on the same
+grounds section 1.11 already rejected `Event`: it is the existing Event
+Bus's mechanism made queryable in order, not a new domain concept
+participants transact around. Decision: a Core-level, per-`correlationId`
+read projection (`Timeline.getEvents()`) over events already emitted
+under sections 1.2-1.9's event lists — no new write path, not owned by
+any single module. Both the Evidence Bundle (section 1.8) and the Social
+Engineering Agent (section 1.7) read from it. **Corrected 2026-07-19:**
+this originally read "per-`intentId`," matching RFC-007 D5's first
+draft — RFC-017 (`rfcs/RFC-017-timeline-and-social-engineering-agent.md`)
+found the real events a Timeline consumer needs (chat, escrow,
+negotiation) carry `tradeId` as their `correlationId` (RFC-010) today,
+no Intent-to-Trade persistence link existing yet to make `intentId` the
+right key. The shipped `core/timeline.ts` implements RFC-017's
+correction; this section had not been updated to match until this
+consolidation pass.
 
 **Hash-chained (RFC-008, decision D2).** A flat, unlinked Timeline is
 tamper-*visible* to no one — an entry can be inserted, reordered, or
@@ -691,6 +742,22 @@ its own participant-facing lifecycle, cross-cutting):
 
   `AgentScope` (section 1.7) and `verificationLevel` (section 1.1) are
   both concrete uses of `CapabilityGrant`, unified under one mechanism.
+
+  **Spec-vs-implementation drift found 2026-07-19 (consolidation
+  audit):** the interface above — RFC-005's own design, `grantId` —
+  disagrees with what actually shipped. The real Prisma model
+  (`DATABASE.md`, `prisma/schema.prisma`) and the real
+  `GET`/`POST /v1/capabilities` routes
+  (`capability.routes.ts`) both name this field `id`, not `grantId`; the
+  SDK's `CapabilityGrant` type (`SDK_GUIDE.md`, `packages/sails-sdk/src/types.ts`)
+  copied the design interface's `grantId` rather than the real API
+  response shape it actually receives. **Callers integrating against the
+  real API today should expect `id`, not `grantId`, on every
+  `CapabilityGrant` response** until this is reconciled one way or the
+  other (renaming the live column and every consumer, or updating this
+  interface and the SDK type to match reality) — tracked in `TODO.md`'s
+  consolidation-pass entry rather than silently fixed here, since it's a
+  real API contract, not a documentation phrasing choice.
 - **Policy** is declarative configuration (fee rates, trust-limit tables,
   routing weights), not something created/negotiated/settled between
   parties. It lives in the **Policy / Rules Engine**, another named Core
@@ -1252,3 +1319,105 @@ Go, Java, or C#, choosing MongoDB instead of PostgreSQL, and it would be an
 equally valid Sails Protocol implementation. If any document or code
 comment implies the protocol "uses PostgreSQL" or "is written in
 TypeScript," that phrasing is wrong — fix it.
+
+---
+
+## 6. Conformance Requirements — Normative Summary (RFC 2119)
+
+*(Added 2026-07-19 — see §0 for how MUST/SHOULD/MAY are to be read.)*
+Every requirement below already appears, in prose, somewhere in sections
+1-4B — this section adds no new rule, it collects the ones with real
+teeth into one checklist an implementer can check against without
+re-reading the whole document. **If this summary and its cited section
+ever disagree, the cited section is authoritative — that means this
+summary has gone stale and needs fixing, not that the disagreement is
+intentional.**
+
+**Identity / Participant (§1.1)**
+- The Core MUST reference the abstract `Participant` interface, MUST NOT
+  reference `Identity`'s concrete Ed25519 shape directly.
+- An `Agent` implementation MUST NOT implement `Participant` directly.
+- A Reference Implementation MUST NOT require DID, Credentials, or Trust
+  Graph (the growth path above Level-0 Keys) for base-level
+  participation — each MAY be added without changing `Identity`'s core
+  contract.
+
+**Intent (§1.2, §2)**
+- A participant-initiated action MUST be expressed as an Intent, never as
+  a direct, action-specific API call.
+- Intent creation MUST accept a client-supplied idempotency key (§2.8).
+- Every Intent status transition MUST be recorded through the
+  hash-chained `IntentEvent` mechanism (§2.6); `entryHash`/`prevHash`
+  MUST be computed and persisted at write time, MUST NOT be derived at
+  read time (§1.9, RFC-008 D2).
+- A module MAY skip Intent Engine states that don't apply to its Intent
+  type, but MUST NOT invent a state outside the canonical set (§2.4).
+
+**Discovery (§1.3)**
+- Discovery MUST NOT depend on a central order-book authority.
+
+**Negotiation (§1.4)**
+- A `NegotiationChannel` implementation MUST carry `NegotiationEvent`s;
+  it MUST NOT assume the counterparty is a human typing into a chat
+  interface.
+- `Negotiation.status` MUST NOT be extended to describe post-negotiation
+  states — those belong to Settlement's own state machine (§3.1).
+
+**Settlement (§1.5)**
+- `Settlement.amount`, and every other financial amount field, MUST be a
+  decimal string, MUST NOT be a JS `number` (RFC-009).
+- A `SettlementProvider` MUST NOT grant the protocol, or any
+  Sails-operated account, custody of the underlying asset.
+- Auto-release behavior (`trustedSettlementAcceleration`) MAY be enabled
+  per qualifying `OperationalProfile`, but MUST remain Policy Engine
+  -gated — MUST NOT be a protocol-level default.
+
+**Reputation (§1.6)**
+- `ReputationScore` MUST be mutated only via `recordOutcome()`; `rate()`
+  MUST NOT alter it.
+- A `CancelledByAgreement` outcome MUST always classify as `NEUTRAL` — it
+  MUST NOT be capable of producing a negative reputation impact.
+
+**Agent (§1.7)**
+- An Agent MUST operate strictly within its `AgentGrant.scope`.
+- An Agent MUST NOT hold a signing key of its own — signing MUST be
+  performed by the delegating Identity's key.
+- Every Agent action MUST be attributed back to its delegating
+  Participant for Reputation purposes.
+- A fraud/risk-detection Agent behavior (e.g. the Social Engineering
+  Agent) MUST NOT act unilaterally — it MAY only emit a signal for the
+  Policy Engine or a human to act on.
+
+**Proof (§1.8)**
+- The protocol MUST NOT store evidence media directly — an
+  `EvidenceProvider` implementation stores it; OpenProof persists only a
+  signed, hashed `EvidenceReference`.
+- A self-declared `EvidenceReference.timestamp` MUST NOT be treated as
+  proof of existence-at-a-time — only a populated `anchorProof` (RFC-008)
+  provides that guarantee.
+
+**Dispute (§1.9)**
+- A resolved Dispute MUST always resolve back into a Settlement state
+  transition (release, refund, or split).
+- `ArbitrationProvider` MUST be registered per application — MUST NOT be
+  treated as a protocol-native role.
+
+**Capability (§1.10, §1.10.1)**
+- A Capability Registry MUST deny any action outside a
+  `CapabilityGrant.scope` — grants MUST be allow-listed, never
+  deny-listed.
+- An Agent's `CapabilityGrant` MUST NOT include any fiat-rail scope,
+  ever (Constitutional Invariant 3, `PROTOCOL_INVARIANTS.md`).
+
+**Fiat Settlement (§4)**
+- The protocol MUST NOT receive, process, or hold fiat funds at any
+  point. Fiat settlement MUST happen directly between participants.
+
+**Adapters (§4B)**
+- Core logic MUST NOT hardcode a specific blockchain, wallet provider,
+  custody scheme, or P2P transport — `SettlementAdapter` /
+  `OpenFinanceAdapter` / `TransportProvider` interfaces MUST be used
+  instead.
+- A `TransportProvider` MAY be store-and-forward or tolerate
+  intermittent connectivity; the protocol MUST NOT assume continuous
+  connectivity.

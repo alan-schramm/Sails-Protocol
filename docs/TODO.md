@@ -734,6 +734,65 @@ makes the same point in more detail.
         being explicit about which are unconditional vs. gated behind
         an off-by-default feature flag (dual-approval release,
         social-engineering detection).
+- [x] **Duplication/drift audit + RFC 2119 normative language**
+      *(2026-07-19, direct owner instruction relaying a CTO-role
+      follow-up: "não criar documentos duplicados... consolidar...
+      tornar a documentação normativa... faça tudo")* — two pieces:
+      1. **`PROTOCOL_SPECIFICATION.md` gained RFC 2119 language** (§0
+         defines MUST/SHOULD/MAY; §6 is a consolidated conformance
+         checklist), scoped to this one document deliberately — the
+         other 19 handoff docs stay in their existing narrative style,
+         which serves a different audience (engineers understanding the
+         system, not implementers conforming to a spec) and was itself
+         praised as a strength in the CTO review that requested this
+         work. No prose in sections 1-5 was rewritten; §0/§6 are pure
+         additions.
+      2. **A systematic audit for repeated/divergent concepts across
+         all 20 docs + 17 RFCs found 6 real issues, all fixed:**
+         - `DATABASE.md` documented a `Capability` Prisma model that
+           was never real — `prisma/schema.prisma`'s own comment and
+           RFC-013 both say only `CapabilityGrant` is persisted.
+           Corrected to show only the real model.
+         - `Timeline`'s key: RFC-017 corrected it from `intentId` to
+           `correlationId` months ago (`core/timeline.ts` ships the
+           correction), but `DATABASE.md`, `PROTOCOL_SPECIFICATION.md`,
+           and `ARCHITECTURE.md` still described the superseded
+           `intentId` version — worse, `ARCHITECTURE.md` contradicted
+           itself between two nearby lines. All three corrected.
+         - `SECURITY_MODEL.md`/`NODE_ARCHITECTURE.md` still described
+           dispute arbiters as "bonded community volunteers" — the
+           actually-accepted-and-implemented model (RFC-007 D4) is
+           application-registered Trusted Arbitrators via
+           `ArbitrationProvider`, explicitly *not* a protocol-native
+           role. Corrected, with the reputation-as-bond mechanism that
+           replaced literal bonding made explicit.
+         - `EscrowStatus.PENDING_BANK_SETTLEMENT` (RFC-007 D3) was
+           documented as live in four files (`DATABASE.md`,
+           `PROTOCOL_SPECIFICATION.md`, `API_REFERENCE.md`,
+           `SDK_GUIDE.md`) but was never actually migrated into
+           `prisma/schema.prisma` — designed, not built. All four now
+           say so; a real migration is still needed for RFC-007 D3 to
+           actually land, not just a doc fix.
+         - `EscrowType` was missing `WDK_USDT_EVM` — a real, tested,
+           live settlement provider — from its independently-spelled-out
+           listing in `DATABASE.md` and `SDK_GUIDE.md`.
+         - `CapabilityGrant.grantId` vs. the real API's `id`: RFC-005's
+           own design interface (copied verbatim into
+           `PROTOCOL_SPECIFICATION.md` and `SDK_GUIDE.md`) names the
+           field `grantId`; the real Prisma model and the real
+           `capability.routes.ts` both call it `id`. **Not silently
+           renamed** — flagged in both docs as a live spec-vs-
+           implementation drift needing a real decision (rename the
+           column, or update the interface/SDK type), not something a
+           documentation pass should resolve unilaterally.
+         - `00-INDEX.md`'s "expected not to resolve" citation list was
+           missing two internal-planning documents (
+           `03-implementation_plan.md`, `04-Deepseek Review.md`) cited
+           by name in several docs — added to the list.
+      No false positives from the audit were "fixed" — `PRINCIPLES.md`/
+      `PHILOSOPHY.md`/`PROTOCOL_INVARIANTS.md`'s three-tier layering and
+      `THREAT_MODEL.md`/`SECURITY_MODEL.md`'s complementary scope were
+      both confirmed intentional, not duplication, and left untouched.
 - [x] `modules/open-settlement/settlement.routes.ts` — escrow
       create/lock/payment-sent/release/dispute/refund + a new dispute
       resolve route, per `API_REFERENCE.md` §4 (updated alongside this to

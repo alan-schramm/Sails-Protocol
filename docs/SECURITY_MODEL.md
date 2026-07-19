@@ -107,17 +107,31 @@ non-payment pattern is logged to the reputation system.
 
 ### Scenario C: Disputed payment proof
 
-A third-party arbiter — a community volunteer holding a reputation bond —
-reviews the evidence in the chat history. Their decision triggers the
-multisig 2-of-3 release. The arbiter's fee is drawn from a bonded
-collateral, giving them economic skin in a fair outcome.
+A **Trusted Arbitrator** — assigned via `ArbitrationProvider`, registered
+per application (never a protocol-native role, per RFC-007 D4 and
+`PROTOCOL_SPECIFICATION.md` §1.9's own explicit reasoning: this
+deliberately avoids implying the protocol itself governs or controls
+arbitration outcomes) — reviews the evidence in the chat history. Their
+decision triggers the multisig 2-of-3 release, recorded as the `Dispute`
+primitive's `ruling`. **Corrected 2026-07-19 (consolidation audit):**
+this scenario previously described a permissionless "community volunteer
+holding a reputation bond, fee drawn from bonded collateral" model — an
+earlier vision that RFC-007 D4 replaced with the application-registered
+Trusted Arbitrator model actually implemented
+(`open-settlement/arbitration-provider.ts`'s `TrustedArbitratorProvider`,
+`API_REFERENCE.md`'s `TRUSTED_ARBITRATORS` config). No bonding/collateral
+mechanism exists in code; an arbiter's incentive today is their own
+`ReputationScore`, publicly and permanently damaged by a ruling the
+network judges unfair (`THREAT_MODEL.md`'s "Malicious Arbiter Collusion"
+entry) — reputation-as-bond, not collateral-as-bond.
 
 ### Resolution Principles
 
 - QVAC assists analysis locally and privately — no cloud dependency (future)
 - Multisig 2-of-3 prevents any unilateral fund release
 - Reputation penalties apply to bad-faith disputes
-- Bonded arbiters have economic stake in fair outcomes
+- A Trusted Arbitrator's own reputation is the incentive for a fair
+  ruling — a bad ruling is visible and permanent, not just a lost fee
 - Timelock fallbacks handle no-response scenarios automatically
 - Dispute history is public on the reputation layer — repeat bad actors
   become visible to the whole network, not just one counterparty

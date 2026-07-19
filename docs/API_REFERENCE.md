@@ -44,11 +44,13 @@ protocol.cancelIntent(intent.id)
 | `releaseAsset` | `POST /v1/settlement/escrow/:id/release` | Settlement (§1.5) |
 | `dispute` | `POST /v1/settlement/escrow/:id/dispute` | Dispute (§1.9) |
 
-**RFC-007 note:** an escrow's status may pass through
-`PENDING_BANK_SETTLEMENT` between `payment-sent` and `release` (§4 below)
-— a payment held/processing at the payer's financial institution, not a
-failure state. `dispute` now resolves through an explicit escalation
-order (Policy Engine → OpenAgents → a Trusted Arbitrator via
+**RFC-007 note:** an escrow's status is *designed* to eventually pass
+through `PENDING_BANK_SETTLEMENT` between `payment-sent` and `release`
+(§4 below) — a payment held/processing at the payer's financial
+institution, not a failure state — but this value has not actually been
+migrated into the real `EscrowStatus` enum yet (`DATABASE.md`, noted
+2026-07-19). `dispute` now resolves through an explicit escalation order
+(Policy Engine → OpenAgents → a Trusted Arbitrator via
 `ArbitrationProvider` → Settlement) before ever reaching human
 arbitration — the verb and its route are unchanged, only what happens
 internally after the call.
@@ -144,17 +146,19 @@ Legacy equivalents: `POST /offers`, `GET /offers`, `GET
 | GET | `/v1/settlement/escrow/:id` | Escrow detail + event history |
 | POST | `/v1/settlement/escrow/:id/lock` | `CREATED → FUNDS_LOCKED` |
 | POST | `/v1/settlement/escrow/:id/payment-sent` | `FUNDS_LOCKED → PAYMENT_PENDING` |
-| POST | `/v1/settlement/escrow/:id/release` | `PAYMENT_PENDING` or `PENDING_BANK_SETTLEMENT → COMPLETED`. When `ENFORCE_CAPABILITIES=true` (RFC-014) and/or `REQUIRE_DUAL_APPROVAL_RELEASE=true` (RFC-015, both default `false`), `escrow.service.ts`'s `releaseFunds()` — the single real choke point this route, `executeSettlement()`, and arbitrated `resolveDispute()` all funnel through — checks a capability grant and/or (on the non-disputed path only) two recorded counterparty approvals before proceeding. |
+| POST | `/v1/settlement/escrow/:id/release` | `PAYMENT_PENDING → COMPLETED` (the `PENDING_BANK_SETTLEMENT` source state below is designed, not yet a real starting point — see the note below the table). When `ENFORCE_CAPABILITIES=true` (RFC-014) and/or `REQUIRE_DUAL_APPROVAL_RELEASE=true` (RFC-015, both default `false`), `escrow.service.ts`'s `releaseFunds()` — the single real choke point this route, `executeSettlement()`, and arbitrated `resolveDispute()` all funnel through — checks a capability grant and/or (on the non-disputed path only) two recorded counterparty approvals before proceeding. |
 | POST | `/v1/settlement/escrow/:id/approve-release` | RFC-015 two-person control. Records the caller as having approved this escrow's release — only `Trade.buyerId`/`sellerId` may call it, `403` otherwise. Idempotent (calling twice is a no-op). Response includes `readyToRelease` (`true` once both counterparties have approved). Has no effect unless `REQUIRE_DUAL_APPROVAL_RELEASE=true`. |
 | GET | `/v1/settlement/escrow/:id/release-approvals` | Lists recorded approvals for an escrow plus `readyToRelease`. |
 | POST | `/v1/settlement/escrow/:id/dispute` | `→ DISPUTED`. Delegates to `dispute.service.ts`'s `raiseDispute()` (persists a `Dispute` row + assigns an arbiter), not `escrow.service.ts`'s `openDispute()` directly — that's the lower-level transition `raiseDispute()` calls as its first step. |
 | POST | `/v1/settlement/escrow/:id/refund` | `→ REFUNDED` |
 | POST | `/v1/settlement/disputes/:id/resolve` | Only the assigned arbiter (RFC-007 D4) may call this. `ruling`: `RELEASE` (releases to `releaseToAddress`, required for this ruling), `REFUND`, or `SPLIT` (recorded, moves no funds — `SettlementProvider` has no split operation yet, `BACKLOG.md` P2). Requires `TRUSTED_ARBITRATORS` configured (`.env.example`) — returns a config error otherwise, not a boot failure. |
 
-`PENDING_BANK_SETTLEMENT` (RFC-007 D3, `DATABASE.md`'s `EscrowStatus`) is
-an additive status between `PAYMENT_PENDING` and `COMPLETED` — no new
-route, existing `release`/`dispute` routes already handle it as a valid
-source state (see `DATABASE.md`'s updated transition table).
+`PENDING_BANK_SETTLEMENT` (RFC-007 D3) is a *designed* additive status
+between `PAYMENT_PENDING` and `COMPLETED` — no new route would be needed
+once it lands, the existing `release`/`dispute` routes would handle it
+as a valid source state. **Not yet migrated into the real `EscrowStatus`
+enum** (`DATABASE.md`, noted 2026-07-19) — this paragraph previously
+read as if it already were.
 
 Legacy equivalents: `POST /escrow/create`, `GET /escrow/:id`, `GET
 /escrow/trade/:tradeId`, `POST /escrow/lock`, `POST /escrow/payment-sent`,
