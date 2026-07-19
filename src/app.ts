@@ -92,7 +92,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         success: false,
         error: 'VALIDATION_ERROR',
         message: 'Invalid request data',
-        details: error.errors,
+        details: error.issues, // Zod v4 renamed ZodError.errors -> .issues
       })
     }
 

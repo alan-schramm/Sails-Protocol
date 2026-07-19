@@ -23,7 +23,7 @@ import { requireAuth } from '../../common/middleware/auth'
 const registerSchema = z.object({
   capabilityName: z.string().min(1),
   scope: z.array(z.string().min(1)).min(1),
-  constraints: z.record(z.unknown()).optional(),
+  constraints: z.record(z.string(), z.unknown()).optional(), // Zod v4 requires an explicit key schema
 })
 
 export async function capabilityRoutes(app: FastifyInstance): Promise<void> {

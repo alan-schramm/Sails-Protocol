@@ -1016,6 +1016,69 @@ RFC-018's 3 phases), 8 (SDK), 9 (Monorepo), and 11 (Frontend) are where
 Implementation Freeze effort should actually go next — they're the real
 code/SDK/UX work this phase exists to prioritize.
 
+## 16. Dependency major-version bump (2026-07-19) — applied on branch `chore/dependency-major-bumps-2026-07`
+
+Dependabot's grouped PR (`dependabot/npm_and_yarn/dependencies-850b9c8707`)
+bundled 15 simultaneous major-version bumps: `@prisma/client`/`prisma`
+5→7, `dotenv` 16→17, `pino` 8→10, `zod` 3→4, `@types/node` 20→26,
+`typescript` 5→7, `react`/`react-dom` 18→19, `react-router-dom` 6→7,
+`sonner` 1→2, `recharts` 2→3, `tailwindcss` 3→4 (+ matching `@types/react*`).
+The Dependabot branch itself was based on a stale commit predating
+RFC-016 through RFC-019 and this session's work, so it was reproduced
+fresh on `chore/dependency-major-bumps-2026-07` (branched off current
+`main`) rather than rebased.
+
+**14 of 15 packages applied as proposed.** `typescript` is the one
+deliberate exception: `ts-jest@29.4.11` (the latest published version)
+caps its own `typescript` peer range at `<7`, and empirically —
+confirmed by actually running the test suite, not just reading the peer
+range — TypeScript 6.0.3 also breaks ts-jest at runtime (every Jest
+global — `describe`/`it`/`expect`/`jest` — stopped resolving across all
+25 suites, even though 6.0.3 formally satisfies `<7`). `typescript`
+stays at its original `^5.9.3`; every other bump landed for real.
+
+Real breaking changes found and fixed, not just version bumps:
+- **Prisma 7**: schema-level `datasource { url = env(...) }` is removed
+  — connection config moved to a new `prisma.config.ts` (CLI/migrate)
+  and an explicit driver adapter passed to `new PrismaClient({ adapter })`
+  (runtime). Added `@prisma/adapter-pg` + `pg`, `prisma.config.ts`, and
+  updated `common/database/index.ts` accordingly.
+- **TypeScript 6 (via `moduleResolution`/`rootDir` inference changes)**:
+  `moduleResolution: "node"` (node10) is deprecated as of 6.0 with no
+  `ignoreDeprecations` value that also works on 5.9.3 — left as `"node"`
+  since 5.9.3 doesn't need the escape hatch; added explicit `rootDir` to
+  the 3 CJS `tsconfig.json`s (root, `sails-p2p-schemas`, `sails-sdk`)
+  since newer `tsc` versions require it explicitly rather than inferring
+  it, which surfaced regardless of which TS version ultimately shipped.
+- **Zod 4**: `ZodError.errors` renamed to `.issues` (`app.ts`'s error
+  handler); `z.record(valueSchema)` now requires an explicit key schema,
+  `z.record(z.string(), valueSchema)` (`capability.routes.ts`).
+- **Tailwind v4**: the PostCSS plugin moved to a separate
+  `@tailwindcss/postcss` package; `index.css`'s `@tailwind base/
+  components/utilities` directives became a single `@import "tailwindcss"`
+  + `@config "../tailwind.config.js"` (kept the existing JS config
+  rather than porting to v4's newer CSS-native `@theme` block, out of
+  scope for a dependency bump); `@apply` can no longer chain through
+  another custom `@layer components` class (v3 allowed `@apply card` /
+  `@apply pill` from a sibling custom class) — inlined the referenced
+  utility lists directly in `.card-hover`/`.pill-active`/`.pill-inactive`.
+- **React 19 + npm peer-resolution**: `react-router-dom@7`/`recharts@3`/
+  `sonner@2` all declare `react` as a wide-range peer dependency (all
+  accept 19), but npm's auto-peer-install resolved a *second* React
+  copy at 18.3.1 nested under `packages/sails-ui/node_modules` instead
+  of deduping against the direct `react@19.2.7` — the classic "Invalid
+  hook call" duplicate-React symptom (confirmed via `npm ls react --all`,
+  fixed via `"overrides": { "react": "^19.2.7", "react-dom": "^19.2.7" }`
+  in root `package.json`, verified with a clean `node_modules` reinstall
+  showing exactly one resolved copy).
+
+**Verification**: `npm run build` (backend, 3 TS projects) clean,
+`npm test` 218/218 (run twice), `npm run build:ui` clean (`tsc --noEmit`
++ `vite build`). Runtime-checked in the browser (dev server), not just
+type-checked — Marketplace, OfferDetail (React Router v7 navigation),
+Profile (Sonner v2 toast interaction), and the Admin Dashboard (Recharts
+v3 chart) all render correctly with zero console errors on a fresh tab.
+
 ---
 
 ## How to Use This List
