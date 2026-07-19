@@ -1,10 +1,26 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { CopyButton } from '../components/ui/CopyButton'
-import { AssetBadge, SideBadge, OfferStatusBadge } from '../components/ui/Badge'
-import { getAllOffers } from '../lib/offersStore'
+import { InfoTooltip } from '../components/ui/InfoTooltip'
+import { AssetBadge, SideBadge, OfferStatusBadge, OFFER_STATUS_LABEL } from '../components/ui/Badge'
+import { getAllOffers, updateOfferStatus } from '../lib/offersStore'
+import { formatDateTime } from '../lib/format'
+import { ASSET_SHORT_LABELS } from '../lib/labels'
+import type { OfferStatus } from '../types'
+
+const OFFER_FILTERS: { value: OfferStatus | 'Todos'; label: string }[] = [
+  { value: 'Todos', label: 'Todos' },
+  { value: 'ACTIVE', label: OFFER_STATUS_LABEL.ACTIVE },
+  { value: 'PAUSED', label: OFFER_STATUS_LABEL.PAUSED },
+  { value: 'COMPLETED', label: OFFER_STATUS_LABEL.COMPLETED },
+  { value: 'CANCELLED', label: OFFER_STATUS_LABEL.CANCELLED },
+]
+
+const KEY_EXPLAINER =
+  'Este é o identificador único da sua conta no Sails Protocol: a mesma chave Ed25519 usada para autenticar (assinar) suas ações E como sua chave de rede P2P (Pears/Holepunch) — o mesmo tipo de "Public Key" que apps como o Keet mostram. É segura para compartilhar; sua chave privada nunca sai do seu dispositivo.'
 
 export function Profile() {
   const { user } = useAuth()
@@ -16,14 +32,35 @@ export function Profile() {
 
   // TODO: replace with @sails/sdk `liquidity.getOffers({ userId })` once
   // the mock swap happens — `getAllOffers()` (lib/offersStore.ts) layers
-  // anything published via the "Publicar Anúncio" wizard on top of the
-  // seed MOCK_OFFERS, read fresh on every mount so a just-published
-  // offer shows up immediately after navigating back here.
-  const [offers] = useState(getAllOffers)
+  // anything published via the "Publicar Anúncio" wizard, plus any local
+  // status change (see `updateOfferStatus` below), on top of the seed
+  // MOCK_OFFERS, read fresh on every mount so a just-published offer
+  // shows up immediately after navigating back here.
+  const [offers, setOffers] = useState(getAllOffers)
+  const [statusFilter, setStatusFilter] = useState<OfferStatus | 'Todos'>('Todos')
+  const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null)
+
+  // Real gap found directly by the owner: "Minhas Ordens" had no
+  // date/time and no way to know what happened or remove an order —
+  // sorted newest-first (an actual history, not an unordered dump) and
+  // filterable by status, matching Binance P2P "My Ads" / Bisq "My Open
+  // Offers" / HodlHodl "My Contracts" / El Dorado / P2P.me, which all
+  // show a dated, filterable list of a user's own listings.
+  const myOffers = useMemo(() => {
+    return offers
+      .filter((o) => o.userId === user?.id)
+      .filter((o) => statusFilter === 'Todos' || o.status === statusFilter)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  }, [offers, user, statusFilter])
 
   if (!user) return null
 
-  const myOffers = offers.filter((o) => o.userId === user.id)
+  const applyStatus = (id: string, status: OfferStatus, message: string) => {
+    updateOfferStatus(id, status)
+    setOffers((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)))
+    setConfirmingCancelId(null)
+    toast.success(message)
+  }
 
   return (
     <div>
@@ -34,8 +71,20 @@ export function Profile() {
             {user.displayName}
             {user.verified && <span className="text-brand-orange text-base" title="Verificado">✓</span>}
           </h1>
+          {/* Real gap found directly by the owner: this key was shown with
+              no label at all — after seeing Keet call the equivalent value
+              "Public Key" with no further context, it wasn't clear this
+              was even the same kind of key, let alone *the user's own*.
+              It genuinely is the same key: PearNode's own Ed25519 keypair
+              IS the identity keypair (docs/ARCHITECTURE.md, pear.service.ts
+              `getKeyPair()`) — one primitive, not two, so the explainer
+              below says so plainly instead of inventing a distinction. */}
+          <div className="flex items-center gap-1.5 mt-2">
+            <span className="text-xs text-brand-text-muted">Sua chave de identidade (Pears / P2P)</span>
+            <InfoTooltip text={KEY_EXPLAINER} />
+          </div>
           <div className="flex items-center gap-2 mt-1">
-            <span className="font-mono text-xs text-brand-text-muted truncate max-w-xs">{user.publicKey}</span>
+            <span className="font-mono text-xs text-brand-text-secondary truncate max-w-xs">{user.publicKey}</span>
             <CopyButton value={user.publicKey} />
           </div>
           <p className="text-xs text-brand-text-muted mt-1">Membro desde {new Date(user.createdAt).toLocaleDateString('pt-BR')}</p>
@@ -90,17 +139,81 @@ export function Profile() {
           <h3 className="text-sm font-semibold text-brand-text">Minhas Ofertas</h3>
           <button onClick={() => navigate('/profile/new-offer')} className="btn-primary text-xs px-3 py-1.5">Nova Oferta</button>
         </div>
-        <div className="mt-3 space-y-2">
-          {myOffers.length === 0 && <p className="text-sm text-brand-text-muted">Nenhuma oferta publicada ainda.</p>}
-          {myOffers.map((o) => (
-            <div key={o.id} className="flex items-center gap-3 card p-3">
-              <AssetBadge asset={o.asset} />
-              <SideBadge side={o.side} />
-              <span className="font-medium text-sm text-brand-text">${o.priceUsd}</span>
-              <OfferStatusBadge status={o.status} />
-              <Link to={`/offer/${o.id}`} className="ml-auto text-xs text-brand-text-muted hover:text-brand-text">Ver →</Link>
-            </div>
+
+        <div className="mt-3 flex gap-2 flex-wrap">
+          {OFFER_FILTERS.map((f) => (
+            <button key={f.value} onClick={() => setStatusFilter(f.value)} className={statusFilter === f.value ? 'pill-active' : 'pill-inactive'}>
+              {f.label}
+            </button>
           ))}
+        </div>
+
+        <div className="mt-3 space-y-2">
+          {myOffers.length === 0 && (
+            <p className="text-sm text-brand-text-muted">
+              {statusFilter === 'Todos' ? 'Nenhuma oferta publicada ainda.' : `Nenhuma oferta com status "${OFFER_STATUS_LABEL[statusFilter]}".`}
+            </p>
+          )}
+          {myOffers.map((o) => {
+            const canManage = o.status === 'ACTIVE' || o.status === 'PAUSED'
+            return (
+              <div key={o.id} className="card p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <SideBadge side={o.side} />
+                  <AssetBadge asset={o.asset} />
+                  <span className="font-medium text-sm text-brand-text">${o.priceUsd}</span>
+                  <OfferStatusBadge status={o.status} />
+                  <span className="text-xs text-brand-text-muted ml-auto">
+                    {o.minAmount}–{o.maxAmount} {ASSET_SHORT_LABELS[o.asset]}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between mt-2">
+                  <span className="text-xs text-brand-text-muted">Criada em {formatDateTime(o.createdAt)}</span>
+                  <div className="flex items-center gap-2">
+                    {canManage && confirmingCancelId !== o.id && (
+                      <>
+                        <button
+                          onClick={() =>
+                            o.status === 'ACTIVE'
+                              ? applyStatus(o.id, 'PAUSED', 'Oferta pausada — não aparece mais no Marketplace')
+                              : applyStatus(o.id, 'ACTIVE', 'Oferta reativada')
+                          }
+                          className="text-xs text-brand-text-muted hover:text-brand-text border border-brand-border rounded-md px-2 py-1 transition-colors"
+                        >
+                          {o.status === 'ACTIVE' ? 'Pausar' : 'Ativar'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmingCancelId(o.id)}
+                          className="text-xs text-red-500 hover:text-red-400 border border-red-500/25 rounded-md px-2 py-1 transition-colors"
+                        >
+                          Cancelar oferta
+                        </button>
+                      </>
+                    )}
+                    <Link to={`/offer/${o.id}`} className="text-xs text-brand-text-muted hover:text-brand-text">Ver →</Link>
+                  </div>
+                </div>
+
+                {confirmingCancelId === o.id && (
+                  <div className="mt-2 rounded-md bg-red-500/5 border border-red-500/20 px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-xs text-brand-text-secondary">
+                      Cancelar esta oferta? Ela sai do Marketplace imediatamente e não pode ser reativada — publique uma nova se mudar de ideia.
+                    </span>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        onClick={() => applyStatus(o.id, 'CANCELLED', 'Oferta cancelada')}
+                        className="text-xs bg-red-600 hover:bg-red-500 text-white rounded-md px-2.5 py-1 font-semibold transition-colors"
+                      >
+                        Sim, cancelar
+                      </button>
+                      <button onClick={() => setConfirmingCancelId(null)} className="text-xs btn-ghost px-2.5 py-1">Voltar</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
 

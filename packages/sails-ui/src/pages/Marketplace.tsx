@@ -52,6 +52,14 @@ export function Marketplace() {
 
   const offers = useMemo(() => {
     let result = allOffers.filter((o) => {
+      // Real bug found live: a cancelled/paused offer (Profile.tsx's new
+      // "Cancelar oferta"/"Pausar" actions) still showed up here — this
+      // filter never checked status at all, since until now nothing in
+      // the UI could ever change one away from ACTIVE. Every real P2P
+      // marketplace (Binance, Bisq, HodlHodl, ...) hides a paused/
+      // cancelled ad from the public listing; only its owner sees it,
+      // in Profile.tsx's "Minhas Ofertas".
+      if (o.status !== 'ACTIVE') return false
       if (asset !== 'Todos' && o.asset !== asset) return false
       if (currency !== 'Todas' && o.fiatCurrency !== currency) return false
       if (side !== 'Todos' && o.side !== side) return false
