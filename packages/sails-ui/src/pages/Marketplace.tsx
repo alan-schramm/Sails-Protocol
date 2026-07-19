@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { MOCK_OFFERS, ASSETS, HIGH_REPUTATION_THRESHOLD } from '../data/mock'
+import { ASSETS, HIGH_REPUTATION_THRESHOLD } from '../data/mock'
+import { getAllOffers } from '../lib/offersStore'
 import { OfferCard } from '../components/marketplace/OfferCard'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
@@ -45,8 +46,12 @@ export function Marketplace() {
   // TODO: replace with @sails/sdk `liquidity.getOffers({ asset, side })`
   // call (real route: GET /v1/liquidity/offers) once mock data is
   // swapped — server-side filtering would replace this client-side pass.
+  // getAllOffers() (lib/offersStore.ts) layers anything published via
+  // the "Publicar Anúncio" wizard on top of the seed MOCK_OFFERS.
+  const [allOffers] = useState(getAllOffers)
+
   const offers = useMemo(() => {
-    let result = MOCK_OFFERS.filter((o) => {
+    let result = allOffers.filter((o) => {
       if (asset !== 'Todos' && o.asset !== asset) return false
       if (currency !== 'Todas' && o.fiatCurrency !== currency) return false
       if (side !== 'Todos' && o.side !== side) return false
@@ -68,7 +73,7 @@ export function Marketplace() {
     })
 
     return result
-  }, [asset, currency, side, search, filters])
+  }, [allOffers, asset, currency, side, search, filters])
 
   return (
     <div>

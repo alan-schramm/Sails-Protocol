@@ -8,6 +8,7 @@ import { OfferDetail } from './pages/OfferDetail'
 import { Trade } from './pages/Trade'
 import { Login } from './pages/Login'
 import { Profile } from './pages/Profile'
+import { PublishOffer } from './pages/PublishOffer'
 import { TradeHistory } from './pages/TradeHistory'
 import { Dashboard } from './pages/admin/Dashboard'
 import { ManageOffers } from './pages/admin/ManageOffers'
@@ -32,6 +33,7 @@ export default function App() {
               <Route path="/trade/:id" element={<Trade />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/profile/history" element={<TradeHistory />} />
+              <Route path="/profile/new-offer" element={<PublishOffer />} />
               <Route path="/admin" element={<Dashboard />} />
               <Route path="/admin/offers" element={<ManageOffers />} />
               <Route path="/admin/disputes" element={<Disputes />} />
