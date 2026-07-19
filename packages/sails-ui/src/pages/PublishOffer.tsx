@@ -35,6 +35,7 @@ import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { MOCK_OFFERS, ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
 import { ILLUSTRATIVE_FX_TO_USD, formatByCurrency } from '../lib/currency'
+import { PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { addOffer } from '../lib/offersStore'
 import type { AssetType, FiatCurrency, Offer, PaymentMethod, TradeSide } from '../types'
 
@@ -243,7 +244,7 @@ export function PublishOffer() {
               <label className="text-xs text-brand-text-muted mb-1.5 block">Método de pagamento</label>
               <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)} className="input-field w-full">
                 {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>{m}</option>
+                  <option key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</option>
                 ))}
               </select>
             </div>

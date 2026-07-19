@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
+import { InfoTooltip } from '../components/ui/InfoTooltip'
 
 export function Login() {
   const { login } = useAuth()
@@ -62,11 +63,22 @@ export function Login() {
           <ThemeToggle />
         </div>
 
-        <h2 className="text-2xl font-bold text-brand-text">Conectar Wallet</h2>
-        <p className="text-sm text-brand-text-muted mt-1">Use seu keypair Ed25519 para autenticar</p>
+        {/* Real fix from a cold-start UX walkthrough: "Use seu keypair
+            Ed25519 para autenticar" and "Conectar com WDK" were the
+            FIRST and ONLY things a brand-new, non-technical user saw —
+            neither means anything without already knowing what this
+            product is. The technical detail is true and stays (this is
+            a reference implementation of real crypto, not a claim to
+            water down) but it now lives behind an info icon instead of
+            being the primary copy a first-time user has to parse. */}
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-2xl font-bold text-brand-text">Entrar</h2>
+          <InfoTooltip text="Tecnicamente: autenticação por assinatura de chave Ed25519 — sem senha, sem servidor guardando credenciais. Sua chave privada nunca sai do seu dispositivo." />
+        </div>
+        <p className="text-sm text-brand-text-muted mt-1">Conecte sua carteira para comprar e vender com segurança</p>
 
         <button onClick={handleConnect} disabled={connecting} className="btn-primary mt-8 h-14">
-          {connecting ? 'Conectando...' : '🔑 Conectar com WDK'}
+          {connecting ? 'Conectando...' : '🔑 Conectar Carteira'}
         </button>
         <p className="text-xs text-brand-text-muted text-center mt-2">Powered by Tether WDK</p>
 

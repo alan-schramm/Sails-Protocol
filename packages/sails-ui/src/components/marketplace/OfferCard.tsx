@@ -4,6 +4,7 @@ import { AssetBadge, SideBadge, PaymentBadge } from '../ui/Badge'
 import { UserAvatar } from '../ui/UserAvatar'
 import { formatAmount } from '../../lib/format'
 import { formatByCurrency } from '../../lib/currency'
+import { ASSET_LABELS } from '../../lib/labels'
 
 export function OfferCard({ offer }: { offer: Offer }) {
   return (
@@ -20,7 +21,10 @@ export function OfferCard({ offer }: { offer: Offer }) {
         <div className="text-2xl font-black text-brand-text tabular-nums">
           {formatByCurrency(offer.priceFiat, offer.fiatCurrency)}
         </div>
-        <div className="text-xs text-brand-text-muted">por {offer.asset} · ${offer.priceUsd} USD</div>
+        <div className="text-xs text-brand-text-muted">
+          por {ASSET_LABELS[offer.asset]}
+          {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
+        </div>
       </div>
 
       <div className="mt-3 flex items-center gap-2">

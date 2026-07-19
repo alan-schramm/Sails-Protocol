@@ -10,6 +10,7 @@ import {
   type NegotiationProfile,
 } from '../../lib/aiNegotiator'
 import { InfoTooltip } from '../ui/InfoTooltip'
+import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import type { AssetType, FiatCurrency, TradeSide } from '../../types'
 
 const GOAL_PLACEHOLDER = 'Ex: quero comprar USDT pagando via PIX, tenho até R$ 500 disponíveis'
@@ -25,9 +26,19 @@ interface Props {
   // intent is generated lets Marketplace narrow its own asset/side/
   // currency filters to match, so the grid updates live.
   onIntentGenerated?: (asset: AssetType, side: TradeSide, currency: FiatCurrency) => void
+  // Real bug found in a cold-start UX walkthrough: a goal mentioning a
+  // currency the heuristic parser got wrong (qvacAgent.ts's own fix)
+  // could silently narrow Marketplace to zero matching offers, with
+  // nothing in this panel telling the user why — they'd only see a
+  // generic empty grid below, easy to miss or misread as "there's
+  // nothing to buy" rather than "this filter is too narrow." Marketplace
+  // passes the live post-filter count back in so this panel can say so
+  // directly, right where the filter was just set.
+  matchCount?: number
+  onResetFilters?: () => void
 }
 
-export function AgentIntentionPanel({ onIntentGenerated }: Props) {
+export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilters }: Props) {
   const [open, setOpen] = useState(false)
   const [side, setSide] = useState<TradeSide>('BUY')
   const [goal, setGoal] = useState('')
@@ -215,24 +226,37 @@ export function AgentIntentionPanel({ onIntentGenerated }: Props) {
             <div className="rounded-lg border border-brand-orange/30 bg-brand-orange/5 p-3">
               <div className="text-xs font-semibold text-brand-orange mb-2">Intenção estruturada gerada</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
-                <Field label="Ativo" value={result.asset} />
+                <Field label="Ativo" value={ASSET_LABELS[result.asset]} />
                 <Field label="Lado" value={result.side === 'BUY' ? 'Compra' : 'Venda'} />
                 <Field label="Moeda" value={result.currency} />
-                <Field label="Método" value={result.fiatMethod} />
+                <Field label="Método" value={PAYMENT_METHOD_LABELS[result.fiatMethod]} />
                 <Field label="Faixa de valor sugerida" value={`${result.currency} ${result.minValue} – ${result.maxValue}`} />
               </div>
 
-              <button
-                onClick={() => document.getElementById('marketplace-offer-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                className="text-xs text-brand-orange underline mb-3"
-              >
-                Ver ofertas correspondentes no Marketplace ↓
-              </button>
+              {matchCount !== undefined && (
+                matchCount > 0 ? (
+                  <button
+                    onClick={() => document.getElementById('marketplace-offer-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    className="text-xs text-brand-orange underline mb-3 block"
+                  >
+                    {matchCount} {matchCount === 1 ? 'oferta corresponde' : 'ofertas correspondem'} a este filtro — ver no Marketplace ↓
+                  </button>
+                ) : (
+                  <div className="mb-3 rounded-md bg-brand-elevated border border-brand-border px-3 py-2 text-xs text-brand-text-secondary">
+                    Nenhuma oferta encontrada com {result.currency} + {ASSET_LABELS[result.asset]}
+                    {onResetFilters && (
+                      <button onClick={onResetFilters} className="ml-2 text-brand-orange underline whitespace-nowrap">
+                        Redefinir filtros
+                      </button>
+                    )}
+                  </div>
+                )
+              )}
 
               <div className="text-xs font-semibold text-brand-text mb-2">Mandato para o AI Negotiator</div>
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <label className="text-xs text-brand-text-muted">
-                  Quantidade ({result.asset})
+                  Quantidade ({ASSET_SHORT_LABELS[result.asset]})
                   <input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Ex: 100" className="input-field w-full mt-1 text-sm" />
                 </label>
                 <label className="text-xs text-brand-text-muted">
@@ -319,7 +343,7 @@ export function AgentIntentionPanel({ onIntentGenerated }: Props) {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
                 <Field label="Modo" value={PROFILE_META[profile].label} />
                 <Field label="Objetivo" value={side === 'BUY' ? 'Comprar' : 'Vender'} />
-                <Field label="Quantidade" value={`${quantity} ${result.asset}`} />
+                <Field label="Quantidade" value={`${quantity} ${ASSET_SHORT_LABELS[result.asset]}`} />
                 <Field label={side === 'BUY' ? 'Preço máximo' : 'Preço mínimo'} value={`${result.currency} ${limitPrice}`} />
                 <Field label="Tempo restante" value={formatCountdown(secondsRemaining)} />
                 <Field label="Propostas analisadas" value={String(proposalsAnalyzed)} />

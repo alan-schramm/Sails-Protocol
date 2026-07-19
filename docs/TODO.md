@@ -537,6 +537,26 @@ makes the same point in more detail.
       verified in browser including mid-run interruption. Still a
       client-side simulation only; no backend accepts a mandate shaped
       like this yet (`packages/sails-ui/README.md` "Next steps").
+- [x] **Offer publishing wizard + six cold-start UX fixes** *(same day,
+      direct owner instruction: referenced RFC-017's documentation rigor
+      and a Binance "Publicar Anúncio" screenshot for the wizard; then
+      "está fidedigno o suficiente para achar os furos de UX?" →
+      "Tudo da lista" for the fixes)* — `PublishOffer.tsx` is a 3-step
+      wizard (tipo/preço → valor/método → condições) writing through
+      `lib/offersStore.ts` (`getAllOffers()`/`addOffer()`, localStorage
+      over the static `MOCK_OFFERS`) so a published offer shows up
+      immediately in Marketplace/Profile/OfferDetail. A second cold-start
+      walkthrough (clear `localStorage`, click through as a first-timer)
+      then found and fixed 6 more real bugs, 2 critical: self-trading was
+      possible (no `user.id === offer.userId` check anywhere); AI
+      Negotiator's currency parser was hardcoded to BRL regardless of
+      the goal text, silently producing zero-match Marketplace filters.
+      Also fixed: no login/wallet indicator on mobile; Login screen led
+      with "keypair Ed25519"/"WDK" jargon instead of plain language;
+      raw backend enums (`USDT_ERC20`, `BANK_TRANSFER`, ...) rendered
+      verbatim in several components instead of friendly labels; and a
+      redundant duplicate price line in `OfferDetail`. Full detail and
+      the fix for each in `packages/sails-ui/README.md`.
 
 ## 12. Deployment
 

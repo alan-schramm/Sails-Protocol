@@ -5,17 +5,18 @@
  * here for a status meaning.
  */
 import type { AssetType, TradeSide, PaymentMethod, TradeStatus, EscrowStatus, OfferStatus } from '../../types'
+import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 
-function Pill({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+function Pill({ children, className = '', title }: { children: React.ReactNode; className?: string; title?: string }) {
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}>
+    <span title={title} className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}>
       {children}
     </span>
   )
 }
 
 export function AssetBadge({ asset }: { asset: AssetType }) {
-  return <Pill className="border-brand-border bg-brand-elevated text-brand-text-secondary font-mono">{asset}</Pill>
+  return <Pill className="border-brand-border bg-brand-elevated text-brand-text-secondary" title={asset}>{ASSET_LABELS[asset]}</Pill>
 }
 
 export function SideBadge({ side }: { side: TradeSide }) {
@@ -27,7 +28,7 @@ export function SideBadge({ side }: { side: TradeSide }) {
 }
 
 export function PaymentBadge({ method }: { method: PaymentMethod }) {
-  return <Pill className="border-blue-500/25 bg-blue-500/10 text-blue-500">{method}</Pill>
+  return <Pill className="border-blue-500/25 bg-blue-500/10 text-blue-500">{PAYMENT_METHOD_LABELS[method]}</Pill>
 }
 
 const TRADE_STATUS_LABEL: Record<TradeStatus, string> = {

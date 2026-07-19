@@ -6,6 +6,7 @@ import { UserAvatar } from '../components/ui/UserAvatar'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { getAllOffers } from '../lib/offersStore'
+import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { useAuth } from '../context/AuthContext'
 
 export function OfferDetail() {
@@ -39,6 +40,10 @@ export function OfferDetail() {
   const amountNum = Number(amount) || 0
   const withinLimits = amountNum >= offer.minAmount && amountNum <= offer.maxAmount
   const totalFiat = amountNum * offer.priceFiat
+  // Real bug found in a cold-start UX walkthrough: nothing stopped a
+  // user from starting a trade against their own offer — the trade
+  // opened with the same person as buyer and seller on both sides.
+  const isOwnOffer = user?.id === offer.userId
 
   const handleStartTrade = () => {
     if (!user) {
@@ -47,6 +52,10 @@ export function OfferDetail() {
       // usuário conectava a carteira e caía no Marketplace, tendo que
       // reencontrar a oferta e digitar tudo de novo.
       navigate('/login', { state: { from: location.pathname, amount: amountNum || undefined } })
+      return
+    }
+    if (isOwnOffer) {
+      toast.error('Você não pode negociar com sua própria oferta')
       return
     }
     if (!amountNum || !withinLimits) {
@@ -76,7 +85,10 @@ export function OfferDetail() {
               <PaymentBadge method={offer.paymentMethod} />
             </div>
             <div className="mt-4 text-4xl font-black tabular-nums text-brand-text">{formatByCurrency(offer.priceFiat, offer.fiatCurrency)}</div>
-            <div className="text-sm text-brand-text-muted mt-1">por {offer.asset} · ${offer.priceUsd} USD</div>
+            <div className="text-sm text-brand-text-muted mt-1">
+              por {ASSET_LABELS[offer.asset]}
+              {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
+            </div>
           </div>
 
           <div className="mt-4 card p-5">
@@ -119,44 +131,57 @@ export function OfferDetail() {
 
           <div className="mt-4 card divide-y divide-brand-border">
             <Row label="Rede" value={offer.network ?? '—'} />
-            <Row label="Método de pagamento" value={offer.paymentMethod} />
-            <Row label="Limites" value={`${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${offer.asset}`} />
+            <Row label="Método de pagamento" value={PAYMENT_METHOD_LABELS[offer.paymentMethod]} />
+            <Row label="Limites" value={`${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`} />
             <Row label="Requer KYC" value={offer.requiresKyc ? 'Sim' : 'Não'} />
           </div>
         </div>
 
         <div className="lg:sticky lg:top-20 h-fit">
-          <div className="card p-5">
-            <h3 className="font-semibold text-brand-text">Iniciar negociação</h3>
-
-            <label className="block text-xs text-brand-text-muted mt-4 mb-1">Quanto você quer {offer.side === 'SELL' ? 'comprar' : 'vender'}?</label>
-            <div className="relative">
-              <input
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                type="number"
-                className="input-field w-full text-lg font-bold"
-                placeholder="0.00"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-brand-text-muted">{offer.asset}</span>
+          {isOwnOffer ? (
+            <div className="card p-5">
+              <h3 className="font-semibold text-brand-text">Esta é a sua oferta</h3>
+              <p className="text-sm text-brand-text-muted mt-2">
+                Você não pode iniciar uma negociação com o seu próprio anúncio.
+                Gerencie-o em "Minhas Ofertas", no seu perfil.
+              </p>
+              <Link to="/profile" className="btn-ghost mt-4 w-full py-3 text-sm text-center block">
+                Ir para Minhas Ofertas
+              </Link>
             </div>
-            {amount && !withinLimits && (
-              <p className="text-xs text-red-500 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
-            )}
+          ) : (
+            <div className="card p-5">
+              <h3 className="font-semibold text-brand-text">Iniciar negociação</h3>
 
-            <div className="mt-4 pt-4 border-t border-brand-border">
-              <div className="text-xs text-brand-text-muted">Você {offer.side === 'SELL' ? 'paga' : 'recebe'}</div>
-              <div className="text-2xl font-black tabular-nums mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
+              <label className="block text-xs text-brand-text-muted mt-4 mb-1">Quanto você quer {offer.side === 'SELL' ? 'comprar' : 'vender'}?</label>
+              <div className="relative">
+                <input
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  type="number"
+                  className="input-field w-full text-lg font-bold"
+                  placeholder="0.00"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
+              </div>
+              {amount && !withinLimits && (
+                <p className="text-xs text-red-500 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
+              )}
+
+              <div className="mt-4 pt-4 border-t border-brand-border">
+                <div className="text-xs text-brand-text-muted">Você {offer.side === 'SELL' ? 'paga' : 'recebe'}</div>
+                <div className="text-2xl font-black tabular-nums mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
+              </div>
+
+              <div className="mt-4 bg-brand-orange/5 border border-brand-orange/20 rounded-lg p-3 text-xs text-brand-text-secondary">
+                🔒 Escrow não custodial — fundos só liberados após confirmação de pagamento.
+              </div>
+
+              <button onClick={handleStartTrade} className="btn-primary mt-4 w-full py-3">
+                Iniciar Trade
+              </button>
             </div>
-
-            <div className="mt-4 bg-brand-orange/5 border border-brand-orange/20 rounded-lg p-3 text-xs text-brand-text-secondary">
-              🔒 Escrow não custodial — fundos só liberados após confirmação de pagamento.
-            </div>
-
-            <button onClick={handleStartTrade} className="btn-primary mt-4 w-full py-3">
-              Iniciar Trade
-            </button>
-          </div>
+          )}
         </div>
       </div>
     </div>
