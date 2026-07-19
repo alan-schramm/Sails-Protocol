@@ -355,6 +355,35 @@ makes the same point in more detail.
       works outside tests. Phase 3 (`OpenP2PTradeIntentHandler`, §2.7)
       remains deferred — a refactor of already-working logic, not a
       blocker.
+- [x] **Second pass, same day (2026-07-19), CTO-directed follow-up**
+      ("garantir que os testes cubram cenários de falha: escrow não
+      bloqueado, trade cancelado, settlement falho, disputa durante
+      negociação"). Live-PostgreSQL migration validation itself could
+      not be performed — no Docker/Postgres reachable in this sandboxed
+      environment (same limitation as Redis/live-WDK-testnet elsewhere
+      in this project); that piece is deferred to the sócio dev's infra
+      pass per the established division of labor. What was done instead:
+      (1) **real bug found and fixed** — `trade.service.ts`'s
+      `updateStatus()` left a cancelled Trade's Intent stuck at
+      `NEGOTIATING` forever; now transitions it to `CANCELLED`. (2)
+      **real bug found and fixed, more severe than the scenario asked
+      for** — investigating "disputa durante negociação" surfaced that
+      `Trade.escrowId` was **never persisted anywhere in the live code
+      path**: `escrow.service.ts`'s `createEscrow()` emits
+      `settlement.escrow.created` but its own module-boundary rule
+      (OpenSettlement may read `Trade`, never write it) forbids setting
+      `Trade.escrowId` itself, and no handler in
+      `common/events/handlers.ts` ever reacted to that event to do it —
+      meaning `dispute.service.ts`'s `raiseDispute()` guard
+      (`if (!trade.escrowId) throw ...`) rejected **every** dispute
+      unconditionally against a real database, regardless of trade
+      status. Not merely "disputes during negotiation are blocked" —
+      disputes were blocked, period. Fixed by adding the missing
+      `settlement.escrow.created` handler. (3) escrow-lock provider
+      failure confirmed already correctly handled by existing control
+      flow (fails before persisting/emitting) — added as a regression
+      test, no code change needed. `npm run build` clean, `npm test`
+      216/216 (4 new tests this pass).
 - [ ] **Related, more severe finding from the same audit — a real
       Constitutional Invariant violation, not a documentation gap:** the
       one real, tested `SettlementProvider` (`WdkSettlementProvider`,

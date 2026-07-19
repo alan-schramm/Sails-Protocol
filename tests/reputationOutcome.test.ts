@@ -168,3 +168,33 @@ describe('RFC-018 — Intent lifecycle driven by settlement.escrow.* handlers', 
     )
   })
 })
+
+// Gap found investigating a CTO-role follow-up ("disputa durante
+// negociação" — RFC-018 failure-scenario coverage): createEscrow() emits
+// settlement.escrow.created but never itself writes Trade.escrowId (its
+// own module-boundary rule forbids writing another module's table), and
+// nothing else did either — so Trade.escrowId was permanently null against
+// a real database, meaning dispute.service.ts's raiseDispute() guard
+// (`if (!trade.escrowId) throw ...`) rejected every dispute, unconditionally,
+// regardless of trade status. This is the regression test for the fix.
+describe('RFC-018 gap fix — settlement.escrow.created persists Trade.escrowId', () => {
+  beforeAll(() => {
+    registerEventHandlers()
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockTradeUpdate.mockResolvedValue({ id: 'trade-1', escrowId: 'escrow-1' })
+  })
+
+  it('settlement.escrow.created writes escrow.id onto Trade.escrowId — the FK dispute.service.ts requires to raise a dispute at all', async () => {
+    await handlers['settlement.escrow.created']({
+      tradeId: 'trade-1', escrowId: 'escrow-1', type: 'MOCK', lockedAmount: '20.5', asset: 'USDT_ERC20',
+    })
+
+    expect(mockTradeUpdate).toHaveBeenCalledWith({
+      where: { id: 'trade-1' },
+      data: { escrowId: 'escrow-1' },
+    })
+  })
+})

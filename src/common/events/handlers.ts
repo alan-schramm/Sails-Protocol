@@ -22,6 +22,9 @@ const INTENT_LIFECYCLE_TRIGGER = 'system:trade-lifecycle'
  * emit events (see event-bus.ts) and this dispatcher reacts to them.
  *
  * Ownership map (who reacts to what, and why):
+ *   - settlement.escrow.created   → OpenP2P reacts (Trade.escrowId = escrow.id
+ *                                   — the FK escrow.service.ts's own module-
+ *                                   boundary rule forbids it from writing itself)
  *   - settlement.escrow.locked    → OpenP2P reacts (Trade.status = ACTIVE)
  *   - settlement.escrow.released  → OpenP2P reacts (Trade.status = COMPLETED)
  *                                   OpenReputation reacts (increment stats,
@@ -87,6 +90,25 @@ const INTENT_LIFECYCLE_TRIGGER = 'system:trade-lifecycle'
 
 export function registerEventHandlers(): void {
   // ── Sails OpenP2P reacts to settlement state changes ────────────────────────
+
+  // Gap found while investigating a CTO-role follow-up ("disputa durante
+  // negociação" — RFC-018 failure-scenario coverage): escrow.service.ts's
+  // createEscrow() emits settlement.escrow.created but, per this file's own
+  // module-boundary rule (OpenSettlement may read Trade, never write it),
+  // never sets Trade.escrowId itself — and nothing else did either. That
+  // left Trade.escrowId permanently null in the real (non-mocked) flow,
+  // which meant dispute.service.ts's raiseDispute() guard
+  // (`if (!trade.escrowId) throw ...`) rejected every dispute unconditionally,
+  // for a trade in any status. Not merely "disputes during negotiation are
+  // blocked" — disputes were blocked, period. This handler is the missing
+  // reaction, matching the same pattern as settlement.escrow.locked below.
+  eventBus.on('settlement.escrow.created', async (payload) => {
+    await prisma.trade.update({
+      where: { id: payload.tradeId },
+      data: { escrowId: payload.escrowId },
+    })
+  })
+
   eventBus.on('settlement.escrow.locked', async (payload) => {
     const trade = await prisma.trade.update({
       where: { id: payload.tradeId },
