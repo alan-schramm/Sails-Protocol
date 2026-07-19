@@ -393,6 +393,53 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const toStatuses = mockIntentUpdate.mock.calls.map((c) => c[0]?.data?.status)
       expect(toStatuses).toEqual(['DISCOVERING', 'MATCHED', 'NEGOTIATING'])
     })
+
+    // Failure-scenario coverage requested directly in a CTO-role
+    // follow-up after RFC-018 Phases 1-2 landed: "garantir que os
+    // testes cubram cenários de falha... trade cancelado." Real gap
+    // found and fixed in the same pass — updateStatus('CANCELLED')
+    // previously never touched the Intent at all, leaving it stuck at
+    // NEGOTIATING forever for any trade cancelled before escrow locks.
+    it('RFC-018: cancelling a trade before escrow locks transitions its Intent to CANCELLED', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce({
+        id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING', intentId: 'intent-1',
+      })
+      mockTradeUpdate.mockResolvedValueOnce({ id: 'trade-1', status: 'CANCELLED' })
+      mockIntentEventFindFirst.mockResolvedValue(null)
+      mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'NEGOTIATING' })
+      mockIntentUpdate.mockResolvedValueOnce({ id: 'intent-1', status: 'CANCELLED' })
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/v1/openp2p/trades/trade-1/status',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { status: 'CANCELLED' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(mockIntentUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'intent-1' }, data: { status: 'CANCELLED' } })
+      )
+    })
+
+    it('RFC-018: cancelling a trade with no Intent behind it (pre-RFC-018 data) still succeeds, no Intent call made', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce({
+        id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING', intentId: null,
+      })
+      mockTradeUpdate.mockResolvedValueOnce({ id: 'trade-1', status: 'CANCELLED' })
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/v1/openp2p/trades/trade-1/status',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { status: 'CANCELLED' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(mockIntentUpdate).not.toHaveBeenCalled()
+    })
   })
 
   describe('open-p2p — chat message history (now requires auth — found and fixed while writing this test)', () => {

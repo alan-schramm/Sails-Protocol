@@ -154,6 +154,37 @@ original plan below where implementation found a better path:
   each `settlement.escrow.*` handler drives the right transition, and
   that a pre-RFC-018 Trade with `intentId: null` is skipped cleanly).
 
+**Second pass, same day (2026-07-19)** — a CTO-directed follow-up asked
+for failure-scenario test coverage (escrow not locked, trade cancelled,
+settlement failed, dispute during negotiation) plus real-Postgres
+migration validation. The migration validation could not be performed —
+no Docker/Postgres reachable in this sandboxed environment; deferred to
+the sócio dev's infra pass. The failure-scenario request surfaced two
+real gaps, both fixed:
+
+- `src/modules/open-p2p/trade.service.ts` — `updateStatus()` left a
+  Trade cancelled before escrow ever locked with its Intent stuck at
+  `NEGOTIATING` forever. Now transitions it to `CANCELLED` (a valid
+  direct transition from every pre-`COMMITTED` state per
+  `core/state-machine.ts`).
+- `src/common/events/handlers.ts` — investigating "dispute during
+  negotiation" surfaced a **more severe, pre-existing bug unrelated to
+  RFC-018 itself**: `Trade.escrowId` was never persisted anywhere in
+  the live code path (`escrow.service.ts`'s `createEscrow()` emits
+  `settlement.escrow.created` but its own module-boundary rule forbids
+  it from writing `Trade` directly, and no handler reacted to that
+  event). `dispute.service.ts`'s `raiseDispute()` guard
+  (`if (!trade.escrowId) throw ...`) therefore rejected every dispute
+  unconditionally against a real database — not merely during
+  negotiation. Added the missing `settlement.escrow.created` handler.
+- Escrow-lock provider failure was confirmed already correct (fails
+  before persisting or emitting, so the Intent is never falsely
+  advanced) — captured as a regression test, no code change needed.
+- New tests: 2 in `tests/routes.test.ts` (trade cancellation),
+  1 in `tests/escrowReleaseControls.test.ts` (lock failure), 1 in
+  `tests/reputationOutcome.test.ts` (`Trade.escrowId` persistence).
+  `npm run build` clean, `npm test` 216/216.
+
 **Core RFC Review Checklist** (`GOVERNANCE.md` §6A):
 
 - [x] `PROTOCOL_SPECIFICATION.md` — updated (§1.11's `Offer` entry,

@@ -133,6 +133,20 @@ export class TradeService {
       triggeredBy,
     }, tradeId)
 
+    // RFC-018 gap found by a CTO-role review after the initial rollout
+    // ("garantir que os testes cubram cenários de falha... trade
+    // cancelado"): a Trade cancelled before escrow ever locks left its
+    // Intent stuck at NEGOTIATING forever — nothing transitioned it.
+    // CANCELLED is a valid direct transition from every pre-COMMITTED
+    // state (core/state-machine.ts), so this is safe regardless of
+    // which one the Intent is actually in.
+    if (status === 'CANCELLED' && trade.intentId) {
+      await intentEngine.transition(
+        trade.intentId, 'CANCELLED', triggeredBy, 'intent.cancelled',
+        { intentId: trade.intentId, cancelledBy: triggeredBy }
+      )
+    }
+
     return updated
   }
 }

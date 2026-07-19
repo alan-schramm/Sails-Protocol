@@ -28,10 +28,11 @@ export {} // see chatUnification.test.ts's identical comment
 
 let enforceCapabilities = false
 let requireDualApprovalForRelease = false
+let mockEscrowFeatureFlag = true
 jest.mock('../src/config', () => ({
   get config() {
     return {
-      features: { mockEscrow: true, enforceCapabilities, requireDualApprovalForRelease },
+      features: { mockEscrow: mockEscrowFeatureFlag, enforceCapabilities, requireDualApprovalForRelease },
       trade: { defaultTimelockHours: 24 },
     }
   },
@@ -78,6 +79,8 @@ jest.mock('../src/common/events/event-bus', () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { escrowService } = require('../src/modules/open-settlement/escrow.service')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { eventBus } = require('../src/common/events/event-bus')
 
 const baseEscrow = {
   id: 'escrow-1', tradeId: 'trade-1', type: 'MOCK', status: 'PAYMENT_PENDING',
@@ -89,6 +92,7 @@ describe('escrowService.releaseFunds — RFC-014 capability check (relocated fro
     jest.clearAllMocks()
     enforceCapabilities = false
     requireDualApprovalForRelease = false
+    mockEscrowFeatureFlag = true
     mockEscrowFindUnique.mockResolvedValue(baseEscrow)
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
     // Gap-audit ownership check runs before the capability check — every
@@ -138,6 +142,7 @@ describe('escrowService — RFC-015 two-person control', () => {
     jest.clearAllMocks()
     enforceCapabilities = false
     requireDualApprovalForRelease = false
+    mockEscrowFeatureFlag = true
     mockEscrowFindUnique.mockResolvedValue(baseEscrow)
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
@@ -237,6 +242,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
     jest.clearAllMocks()
     enforceCapabilities = false
     requireDualApprovalForRelease = false
+    mockEscrowFeatureFlag = true
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
   })
 
@@ -259,6 +265,33 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
     it("allows an agent acting on the seller's behalf (agent:{label}:{sellerId})", async () => {
       const result = await escrowService.lockFunds('escrow-1', 'agent:seller-wallet:seller-1')
       expect(result.status).toBe('FUNDS_LOCKED')
+    })
+
+    // Failure-scenario coverage requested directly in a CTO-role
+    // follow-up after RFC-018 landed ("garantir que os testes cubram
+    // cenários de falha... escrow não bloqueado"). This is deliberate
+    // control flow, not a new behavior: escrowService.lockFunds() calls
+    // provider.lockFunds() before persisting anything or emitting
+    // settlement.escrow.locked (the event handlers.ts's Intent
+    // COMMITTED transition reacts to) — a provider failure must never
+    // leave a half-locked escrow or a falsely-COMMITTED Intent behind.
+    it('a provider lock failure leaves the escrow unpersisted and never emits settlement.escrow.locked', async () => {
+      jest.clearAllMocks()
+      // mockEscrow must be off here — otherwise getProvider() always
+      // short-circuits to the harmless MOCK provider regardless of
+      // escrow.type, and this test would never actually exercise
+      // LightningHodlProvider's failure path.
+      mockEscrowFeatureFlag = false
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      // LIGHTNING_HODL's provider always throws "not yet implemented" —
+      // real, already-existing behavior (escrow.service.ts's PROVIDERS
+      // map), reused here rather than fabricating a new failure mode.
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, type: 'LIGHTNING_HODL', status: 'CREATED' })
+
+      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/not yet implemented/)
+
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+      expect(eventBus.emit).not.toHaveBeenCalledWith('settlement.escrow.locked', expect.anything(), expect.anything())
     })
   })
 
