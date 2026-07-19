@@ -259,6 +259,54 @@ silently."
    sub-line even when the offer was already priced in USD. Fixed by
    only showing the conversion sub-line when `fiatCurrency !== 'USD'`.
 
+## Order history + identity key clarity (asked directly, in Portuguese: "minhas ordens tem que ter data e horario... e o usuario poder... remover a ordem")
+
+Two direct owner requests, checked against how Binance P2P, Bisq,
+HodlHodl, El Dorado, and P2P.me actually handle a user's own listings
+before building anything:
+
+- **"Minhas Ofertas" was a read-only, unordered dump — no date, no way
+  to remove anything.** Every real P2P platform shows a dated,
+  filterable list of your own ads with a way to take one down. Fixed in
+  `Profile.tsx`: offers now sort newest-first, a status filter chip row
+  (`Todos`/`Ativa`/`Pausada`/`Concluída`/`Cancelada`, reusing
+  `OFFER_STATUS_LABEL`, now exported from `Badge.tsx`) narrows the list,
+  each row shows `Criada em {formatDateTime(o.createdAt)}`, and
+  ACTIVE/PAUSED offers get "Pausar"/"Ativar" plus a destructive
+  "Cancelar oferta" action gated behind an inline confirm ("Sim,
+  cancelar" / "Voltar") — no browser `confirm()`, matching this app's
+  existing inline-confirm pattern (`Trade.tsx`'s dispute form). None of
+  these platforms hard-delete a listing's row on cancel (Binance/Bisq/
+  HodlHodl all just deactivate it), so `lib/offersStore.ts` gained
+  `updateOfferStatus()` — a status-only mutation via a localStorage
+  override map layered on top of both `MOCK_OFFERS` and locally-created
+  offers, mirroring the real backend's actual mutation shape
+  (`PATCH /v1/liquidity/offers/:id/status`, `liquidity.routes.ts`,
+  ownership-checked in `liquidity.service.ts`) rather than inventing a
+  DELETE that doesn't exist server-side.
+  - **Second real bug this surfaced immediately:** `Marketplace.tsx`'s
+    offer filter never checked `status` at all — until this fix nothing
+    in the UI could ever move an offer off `ACTIVE`, so the gap was
+    unreachable. Cancelling an offer and then finding it still listed
+    for sale confirmed it live. Fixed with `if (o.status !== 'ACTIVE')
+    return false` as the first filter check — a cancelled/paused offer
+    now only appears to its owner, in "Minhas Ofertas".
+- **The user's own public key was shown with zero label.** Raised
+  directly after opening Keet (a Holepunch/Pears app) and seeing an
+  unlabeled "Public Key" there too — it wasn't clear if Sails Protocol's
+  version was even the same *kind* of key, let alone *whose*. It
+  genuinely is the same key, not a simplification: `PearNode`'s own
+  Ed25519 keypair *is* the identity keypair
+  (`src/infrastructure/p2p/pear.service.ts`'s `getKeyPair()`;
+  `docs/ARCHITECTURE.md` calls it "each PearNode's real identity
+  keypair" outright) — used both to sign/authenticate
+  (`common/middleware/auth.ts`) and to run the Hyperswarm/HyperDHT P2P
+  node (`pear.routes.ts`'s `POST /v1/peers/start` takes the same secret
+  key straight from the identity flow). `Profile.tsx` now labels it
+  "Sua chave de identidade (Pears / P2P)" with an `InfoTooltip`
+  explaining both roles in one sentence and naming Keet directly, so the
+  connection to what the user already saw there is explicit.
+
 ## Running it
 
 ```bash

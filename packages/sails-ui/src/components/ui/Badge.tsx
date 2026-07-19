@@ -61,7 +61,7 @@ export function EscrowStatusBadge({ status }: { status: EscrowStatus }) {
   return <Pill className={ESCROW_STATUS_COLOR[status]}>{ESCROW_STATUS_LABEL[status]}</Pill>
 }
 
-const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
+export const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
   ACTIVE: 'Ativa', PAUSED: 'Pausada', COMPLETED: 'Concluída', CANCELLED: 'Cancelada',
 }
 export function OfferStatusBadge({ status }: { status: OfferStatus }) {

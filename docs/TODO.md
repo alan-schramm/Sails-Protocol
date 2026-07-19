@@ -557,6 +557,29 @@ makes the same point in more detail.
       verbatim in several components instead of friendly labels; and a
       redundant duplicate price line in `OfferDetail`. Full detail and
       the fix for each in `packages/sails-ui/README.md`.
+- [x] **Order history (date/time + cancel) + identity key clarity**
+      *(same day, direct owner instruction: "minhas ordens tem que ter
+      data e horario... e o usuario poder... remover a ordem", checked
+      against Binance/Bisq/HodlHodl/El Dorado/P2P.me; separately "não
+      fica claro se é minha chave Pears" after seeing Keet's unlabeled
+      Public Key)* — `Profile.tsx`'s "Minhas Ofertas" now sorts
+      newest-first, has status filter chips, shows `Criada em
+      {formatDateTime}`, and gained Pausar/Ativar/Cancelar actions
+      (destructive cancel gated behind an inline confirm, no browser
+      `confirm()`); `lib/offersStore.ts` gained `updateOfferStatus()` — a
+      status-only localStorage override, mirroring the real backend's
+      actual `PATCH /v1/liquidity/offers/:id/status` (never a DELETE,
+      matching how all 5 reference platforms actually behave). Doing
+      this surfaced a second real bug immediately: `Marketplace.tsx`
+      never filtered by `status`, so a just-cancelled offer stayed
+      listed for sale — fixed with an `status !== 'ACTIVE'` check.
+      Separately, `user.publicKey` was shown with no label at all;
+      labeled "Sua chave de identidade (Pears / P2P)" with an
+      `InfoTooltip` — genuinely the same key, not a simplification:
+      `PearNode.getKeyPair()`'s Ed25519 keypair *is* the identity
+      keypair (`docs/ARCHITECTURE.md`), used both for auth signing and
+      as the Hyperswarm/HyperDHT P2P identity. See
+      `packages/sails-ui/README.md` for full detail.
 
 ## 12. Deployment
 
