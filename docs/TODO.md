@@ -326,6 +326,53 @@ makes the same point in more detail.
       one self-issued `POST /v1/capabilities/register` call at a time).
 - [ ] **Still open:** `IntentHandler` plugin registration pattern (§2.7 of
       `PROTOCOL_SPECIFICATION.md`) is fully specified but has zero code.
+- [ ] **The most important open gap in this section, found 2026-07-19 by
+      a CTO-directed fidelity audit** ("a implementação está respeitando
+      o modelo de Intent definido na especificação?" — not a design
+      question, an audit of the shipped code against it): **no real
+      `Offer` or `Trade` in this codebase has an `Intent` row behind it.**
+      `liquidity.service.ts`'s `createOffer()` never calls
+      `intentEngine.create()`; `trade.service.ts`'s `createTrade()` (the
+      real "start a trade from an offer" path) never imports
+      `core/intent-engine.ts` at all. `Intent`/`IntentEvent`
+      (`routes/intentRoutes.ts`, `POST`/`DELETE /api/v1/intents`) is a
+      fully real, working, tested code path — the gap isn't that Intent
+      is unimplemented, it's that **the actual OpenP2P trade flow never
+      calls it.** Even `src/demo/pix-to-usdt-flow.ts`, the one script
+      that exercises both, creates an `Intent` and a `Trade` as two
+      uncorrelated rows with no foreign key between them (`Intent` at
+      line 153, `Trade` at line 157, no reference from one to the
+      other). This directly contradicts `PROTOCOL_SPECIFICATION.md`
+      §1.11's claim that a published `Offer` "is OpenLiquidity's concrete
+      database artifact representing a published, discoverable Intent"
+      — that claim is the intended target architecture, now annotated as
+      such in that section, not the current implementation. Closing this
+      means routing offer/trade creation through the Intent Engine for
+      real (`Offer`/`Trade` gaining an `intentId` FK, or equivalent) —
+      real, scoped engineering work, not a documentation fix. See
+      `PROTOCOL_SPECIFICATION.md` §1.11 and §1.12's footnote for the full
+      annotation.
+- [ ] **Related, more severe finding from the same audit — a real
+      Constitutional Invariant violation, not a documentation gap:** the
+      one real, tested `SettlementProvider` (`WdkSettlementProvider`,
+      `wdk-settlement.provider.ts`, marked `[x]` above as shipped) signs
+      every escrow release from **one server-held seed phrase**
+      (`WDK_SEED_PHRASE`) — no user-supplied signature or credential is
+      needed for `releaseFunds()` to succeed. This violates
+      `PROTOCOL_INVARIANTS.md` Constitutional Invariant 2 ("The Protocol
+      Never Custodies Assets") and `SECURITY_MODEL.md` §2 Principle 2
+      ("User Always Signs") **in the one real settlement path this
+      codebase ships today.** It was already disclosed at the code-comment
+      level (`wdk-settlement.provider.ts`'s own header: "a single-seed,
+      two-hop escrow, not a trustless multisig") but no document above
+      the code said so plainly until this audit — `SECURITY_MODEL.md`,
+      `PROTOCOL_INVARIANTS.md`, `TRUST_BOUNDARY.md`, and
+      `CRYPTOGRAPHIC_MODEL.md` §5 all now state it explicitly.
+      **Blocking for any production/mainnet use with real value** — do
+      not represent `WDK_USDT_EVM` as satisfying the protocol's
+      non-custodial invariant until a real multisig/threshold-signature
+      `SettlementProvider` for EVM exists, or scope `WDK_USDT_EVM`
+      explicitly to testnet/demo use only.
 
 ## 8. SDK (status changed — v0.1 real, partial) *(2026-07-17)*
 

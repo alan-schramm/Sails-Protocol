@@ -56,6 +56,21 @@ guidance to invariant because it is the protocol's entire reason for
 existing over a custodial alternative — see `PHILOSOPHY.md`, "Why
 Coordination, Not Custody."
 
+> **⚠ Known violation, real code, 2026-07-19.** Per this document's own
+> §"How Invariants Are Enforced" below, a violation is not something to
+> quietly caveat — it means the violating system is not Sails Protocol.
+> Stating that plainly: the one real, tested `SettlementProvider`
+> (`WdkSettlementProvider`, `wdk-settlement.provider.ts`) violates this
+> invariant. It signs every escrow release from a single server-held
+> seed phrase, not from any user's own key — full detail in
+> `CRYPTOGRAPHIC_MODEL.md` §5, `SECURITY_MODEL.md` §2 Principle 2. This
+> is flagged here loudly, not smoothed over, precisely because the
+> correct response per this document's own rule is "remove the
+> violation" (build a real multisig/threshold `SettlementProvider`, or
+> restrict `WDK_USDT_EVM` to non-production use until one exists) — not
+> to treat this paragraph as sufficient. Tracked as a blocking
+> production-readiness item in `TODO.md`.
+
 ### 3. Fiat Always Settles Outside the Protocol
 
 The protocol never receives, holds, processes, or executes a fiat
