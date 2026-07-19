@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
@@ -7,6 +7,7 @@ import { ThemeToggle } from '../components/ui/ThemeToggle'
 export function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [connecting, setConnecting] = useState(false)
 
   const handleConnect = () => {
@@ -22,7 +23,14 @@ export function Login() {
       login()
       setConnecting(false)
       toast.success('Conectado!')
-      navigate('/')
+      // Real fix: this used to always navigate to '/', so any protected
+      // action (e.g. OfferDetail's "Iniciar Trade") that bounced an
+      // unauthenticated user here lost all context — they'd land back on
+      // the Marketplace and have to re-find the offer and retype the
+      // amount. Now returns to wherever the redirect came from, carrying
+      // the amount forward too (OfferDetail reads it back to prefill).
+      const state = location.state as { from?: string; amount?: number } | null
+      navigate(state?.from ?? '/', { state: state?.amount ? { amount: state.amount } : undefined })
     }, 700)
   }
 

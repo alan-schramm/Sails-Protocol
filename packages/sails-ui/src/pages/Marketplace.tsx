@@ -76,7 +76,13 @@ export function Marketplace() {
       <p className="text-sm text-brand-text-muted mt-1">{offers.length} ofertas disponíveis · Non-custodial · Powered by Pears</p>
 
       <div className="mt-4">
-        <AgentIntentionPanel />
+        <AgentIntentionPanel
+          onIntentGenerated={(a, s, c) => {
+            setAsset(a)
+            setSide(s)
+            setCurrency(c)
+          }}
+        />
       </div>
 
       <div className="mt-2 flex flex-wrap gap-2 items-center">
@@ -117,7 +123,7 @@ export function Marketplace() {
         />
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div id="marketplace-offer-grid" className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {offers.map((offer) => (
           <OfferCard key={offer.id} offer={offer} />
         ))}

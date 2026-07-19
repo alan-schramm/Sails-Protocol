@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { MOCK_OFFERS } from '../data/mock'
 import { AssetBadge, SideBadge, PaymentBadge } from '../components/ui/Badge'
@@ -11,11 +11,19 @@ import { useAuth } from '../context/AuthContext'
 export function OfferDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   // TODO: replace with @sails/sdk `liquidity.getOffer(id)` (real route:
   // GET /v1/liquidity/offers/:asset/book, or a future single-offer route)
   const offer = MOCK_OFFERS.find((o) => o.id === id)
-  const [amount, setAmount] = useState('')
+  // Prefilled when arriving back here after being bounced to /login mid
+  // way through starting a trade (see handleStartTrade below) — without
+  // this, a round trip through login silently dropped whatever amount
+  // the user had already typed.
+  const [amount, setAmount] = useState<string>(() => {
+    const state = location.state as { amount?: number } | null
+    return state?.amount ? String(state.amount) : ''
+  })
 
   if (!offer) {
     return (
@@ -33,7 +41,10 @@ export function OfferDetail() {
   const handleStartTrade = () => {
     if (!user) {
       toast.error('Conecte sua carteira primeiro')
-      navigate('/login')
+      // Carrega para onde voltar e o valor já digitado — sem isso o
+      // usuário conectava a carteira e caía no Marketplace, tendo que
+      // reencontrar a oferta e digitar tudo de novo.
+      navigate('/login', { state: { from: location.pathname, amount: amountNum || undefined } })
       return
     }
     if (!amountNum || !withinLimits) {
@@ -42,9 +53,12 @@ export function OfferDetail() {
     }
     // TODO: replace with @sails/sdk `openp2p.trade(offerId, amount)`
     // (real route: POST /v1/openp2p/trades, requires auth — see
-    // trade.routes.ts). This mock just jumps straight to the mocked trade.
+    // trade.routes.ts). Builds a Trade from the real offer/amount picked
+    // here (src/lib/buildTrade.ts) instead of jumping to a hardcoded
+    // mock — a real backend would do this server-side and return the
+    // authoritative Trade.
     toast.success('Trade iniciado')
-    navigate('/trade/trade-a1b2c3d4')
+    navigate(`/trade/${offer.id}`, { state: { offer, amount: amountNum } })
   }
 
   return (

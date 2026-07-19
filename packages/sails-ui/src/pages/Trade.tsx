@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { MOCK_TRADE } from '../data/mock'
-import type { EscrowStatus, Message, MessageType } from '../types'
+import type { EscrowStatus, Message, MessageType, Offer } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/Badge'
 import { EscrowStateMachine } from '../components/trade/EscrowStateMachine'
@@ -10,7 +10,9 @@ import { EscrowActions } from '../components/trade/EscrowActions'
 import { TradeParties } from '../components/trade/TradeParties'
 import { ChatWindow } from '../components/chat/ChatWindow'
 import { AgentRiskCard } from '../components/agent/AgentRiskCard'
-import { formatBrl, formatDateTime } from '../lib/format'
+import { buildTradeFromOffer } from '../lib/buildTrade'
+import { formatDateTime } from '../lib/format'
+import { formatByCurrency } from '../lib/currency'
 
 let msgCounter = 100
 
@@ -20,12 +22,26 @@ function systemMessage(content: string): Message {
 
 export function Trade() {
   const { id } = useParams()
+  const location = useLocation()
   const { user } = useAuth()
   // TODO: replace with @sails/sdk `settlement.getEscrowByTrade(id)` +
   // `openp2p.getTrade(id)` (real routes: GET /v1/settlement/escrow/:id,
-  // GET /v1/openp2p/trades/:id) — this page always shows MOCK_TRADE
-  // regardless of :id in this pass.
-  const trade = MOCK_TRADE
+  // GET /v1/openp2p/trades/:id). Until then: if the user arrived via
+  // OfferDetail's "Iniciar Trade" (real fix — used to always show
+  // MOCK_TRADE regardless of which offer/amount was picked), build a
+  // trade that actually reflects it (src/lib/buildTrade.ts). A direct
+  // navigation to this URL with no state — a bookmark, a page refresh,
+  // or TradeHistory's "Ver Trade" links, which reference a historical
+  // trade this client-only mock has no way to reconstruct — falls back
+  // to the same MOCK_TRADE demo data every screen used before this fix;
+  // that fallback is intentional, not the bug being fixed here.
+  const trade = useMemo(() => {
+    const state = location.state as { offer?: Offer; amount?: number } | null
+    if (state?.offer && state.amount && user) {
+      return buildTradeFromOffer(state.offer, state.amount, user)
+    }
+    return MOCK_TRADE
+  }, [location.state, user])
 
   const [escrowStatus, setEscrowStatus] = useState<EscrowStatus>(trade.escrow.status)
   const [messages, setMessages] = useState<Message[]>(trade.messages)
@@ -93,7 +109,7 @@ export function Trade() {
           <div className="card p-4 divide-y divide-brand-border">
             <Row label="Ativo" value={trade.asset} />
             <Row label="Quantidade" value={String(trade.amount)} />
-            <Row label="Total" value={formatBrl(trade.totalBrl)} />
+            <Row label="Total" value={formatByCurrency(trade.totalBrl, trade.offer.fiatCurrency)} />
             <Row label="Status do escrow" value={<EscrowStatusBadge status={escrowStatus} />} />
           </div>
 

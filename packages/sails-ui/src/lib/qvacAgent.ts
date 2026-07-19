@@ -16,14 +16,14 @@
  * `.generateOfferIntent()` / `.assessIntentRisk()`, not a change to this
  * file's call sites.
  */
-import type { AssetType, PaymentMethod, TradeSide } from '../types'
+import type { AssetType, FiatCurrency, PaymentMethod, TradeSide } from '../types'
 
 export interface AgentGeneratedIntent {
   asset: AssetType
   side: TradeSide
   minValue: string
   maxValue: string
-  currency: string
+  currency: FiatCurrency
   fiatMethod: PaymentMethod
 }
 

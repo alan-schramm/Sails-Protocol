@@ -10,14 +10,24 @@ import {
   type NegotiationProfile,
 } from '../../lib/aiNegotiator'
 import { InfoTooltip } from '../ui/InfoTooltip'
-import type { TradeSide } from '../../types'
+import type { AssetType, FiatCurrency, TradeSide } from '../../types'
 
 const GOAL_PLACEHOLDER = 'Ex: quero comprar USDT pagando via PIX, tenho até R$ 500 disponíveis'
 
 const BOUNDARY_TEXT =
   'QVAC roda um LLM local (llama.cpp, sem nuvem). É um agente Crypto-Native (RFC-016): só age sobre ativos digitais já na sua wallet — negociar, criar/aceitar ofertas, travar e liberar escrow via WDK. Ele nunca chama uma API bancária e nunca toca PIX ou qualquer trilho fiat — quem faz o PIX é sempre a contraparte humana, fora do protocolo. Nesta interface o resultado é simulado: ainda não existe uma rota HTTP real conectando o navegador ao QVAC.'
 
-export function AgentIntentionPanel() {
+interface Props {
+  // Real fix: this panel used to live disconnected from the offer grid
+  // below it on Marketplace — generating an intent here never affected
+  // what offers were shown, and vice versa, so the two features felt
+  // bolted together rather than one flow. Calling this as soon as an
+  // intent is generated lets Marketplace narrow its own asset/side/
+  // currency filters to match, so the grid updates live.
+  onIntentGenerated?: (asset: AssetType, side: TradeSide, currency: FiatCurrency) => void
+}
+
+export function AgentIntentionPanel({ onIntentGenerated }: Props) {
   const [open, setOpen] = useState(false)
   const [side, setSide] = useState<TradeSide>('BUY')
   const [goal, setGoal] = useState('')
@@ -60,6 +70,7 @@ export function AgentIntentionPanel() {
       setResult(intent)
       setLimitPrice('')
       setQuantity('')
+      onIntentGenerated?.(intent.asset, intent.side, intent.currency)
     } finally {
       setLoading(false)
     }
@@ -210,6 +221,13 @@ export function AgentIntentionPanel() {
                 <Field label="Método" value={result.fiatMethod} />
                 <Field label="Faixa de valor sugerida" value={`${result.currency} ${result.minValue} – ${result.maxValue}`} />
               </div>
+
+              <button
+                onClick={() => document.getElementById('marketplace-offer-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                className="text-xs text-brand-orange underline mb-3"
+              >
+                Ver ofertas correspondentes no Marketplace ↓
+              </button>
 
               <div className="text-xs font-semibold text-brand-text mb-2">Mandato para o AI Negotiator</div>
               <div className="grid grid-cols-2 gap-2 mb-2">
