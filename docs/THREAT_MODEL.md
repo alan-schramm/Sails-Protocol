@@ -5,6 +5,10 @@
 > policy. Every integrator that builds on Sails inherits the same threat
 > mitigations described here — that's the point of putting them in the
 > protocol spec rather than leaving them to each reference implementation.
+> `TRUST_BOUNDARY.md` complements this catalog with the structural
+> question it doesn't answer directly: at each hop in a real request
+> flow, who is on the other side, and what can they lie about regardless
+> of which threat below is or isn't in play.
 
 ---
 

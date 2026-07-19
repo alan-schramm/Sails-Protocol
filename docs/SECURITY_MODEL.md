@@ -4,7 +4,11 @@
 > Where `THREAT_MODEL.md` catalogs *what could go wrong*, this document
 > describes the *trust mechanisms* that make the protocol usable between
 > two strangers in the first place, and what happens when something does
-> go wrong (dispute resolution).
+> go wrong (dispute resolution). Two companion documents narrow further:
+> `TRUST_BOUNDARY.md` maps *where* in the request flow each mechanism
+> below sits, and `CRYPTOGRAPHIC_MODEL.md` covers the actual cryptographic
+> mechanics (signature scheme, replay protection, encryption) this
+> document only names in passing (e.g. "Ed25519 keypair" in §1.3).
 
 ---
 

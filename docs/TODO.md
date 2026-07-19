@@ -681,6 +681,59 @@ makes the same point in more detail.
       needs the P2P node — and key custody — to live entirely
       client-side (a wallet/mobile app), never touching the backend at
       all. Flag before treating this as production-ready.
+- [x] **Documentation consolidation pass** *(2026-07-19, direct owner
+      instruction relaying a CTO-role architectural review: "o foco
+      deixa de ser adicionar funcionalidades e passa a ser consolidar o
+      protocolo")* — the review proposed 6 new "structuring documents"
+      (`TRUST_BOUNDARY.md`, `CAPABILITY_MODEL.md`, `THREAT_MODEL.md`,
+      `CRYPTOGRAPHIC_MODEL.md`, `PROTOCOL_INVARIANTS.md`,
+      `DESIGN_PRINCIPLES.md`) without full visibility into this repo's
+      existing 20-document Engineering Handoff series. Checked each
+      against what already exists before writing anything, per this
+      project's own "single source of truth" discipline — the same
+      instruction the review itself asked for:
+      - `THREAT_MODEL.md` (doc 8) and `PROTOCOL_INVARIANTS.md` (doc 19)
+        **already existed**, substantial and maintained — not touched
+        as new files.
+      - `DESIGN_PRINCIPLES.md` **not created** — `PRINCIPLES.md` (doc
+        16) already covers 6 of the review's 8 proposed principles
+        under existing names (Protocol First, Infrastructure Neutral
+        subsumes Wallet/Settlement/Transport Agnostic, Privacy
+        Preserving). Creating a competing file would have been exactly
+        the duplication the instruction asked to eliminate. The 2
+        genuinely uncovered concepts ("Agent Optional," "Local First")
+        are noted here, not added — `PRINCIPLES.md`'s own text states
+        its 9 principles "should appear, verbatim and in this order" in
+        the Whitepaper and `PROJECT_CONTEXT.md`; growing that list is a
+        cross-document change with its own precedent (the 8→9 growth
+        happened via a named Protocol Freeze review), not something to
+        do unilaterally while relaying a second-hand analysis.
+      - `CAPABILITY_MODEL.md` **not created** — RFC-005 already defines
+        `Capability`/`CapabilityGrant` formally, with a real Prisma
+        model and real enforcement (RFC-013/014). Instead added a
+        concrete CAN/CANNOT reference table operationalizing those
+        interfaces to `PROTOCOL_SPECIFICATION.md` §1.10.1, using the
+        QVAC Agent (RFC-016) as the worked example.
+      - `TRUST_BOUNDARY.md` and `CRYPTOGRAPHIC_MODEL.md` **genuinely
+        didn't exist anywhere** — created as new, unnumbered docs (same
+        precedent as `DEVELOPER_JOURNEY.md`/`HANDOFF.md`/
+        `TRANSACTION_WALKTHROUGH.md`), cross-referenced from
+        `00-INDEX.md`, `ARCHITECTURE.md`, `NODE_ARCHITECTURE.md`,
+        `SECURITY_MODEL.md`, and `THREAT_MODEL.md`. `CRYPTOGRAPHIC_MODEL.md`
+        is explicit about what's real vs. designed-but-not-wired (the
+        `IntentEvent` hash chain is real and active; RFC-008's
+        `TimestampAnchor` anchoring and extending the hash chain to the
+        general `Timeline` are not) and what has no guarantee at all yet
+        (no forward secrecy on P2P payload encryption).
+      - `PROTOCOL_INVARIANTS.md` extended, not replaced — the existing 6
+        invariants retitled "Constitutional" (protocol-shape rules),
+        with a new "Operational Invariants" section (`INV-OP-1`
+        through `INV-OP-8`) adding concrete, code-traceable rules per
+        the review's own example format, each tied to the RFC that
+        decided it and the file that enforces it today — including
+        being explicit about which are unconditional vs. gated behind
+        an off-by-default feature flag (dual-approval release,
+        social-engineering detection).
 - [x] `modules/open-settlement/settlement.routes.ts` — escrow
       create/lock/payment-sent/release/dispute/refund + a new dispute
       resolve route, per `API_REFERENCE.md` §4 (updated alongside this to

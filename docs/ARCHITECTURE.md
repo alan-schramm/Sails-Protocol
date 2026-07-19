@@ -466,6 +466,12 @@ If you're rebuilding these, follow the naming and event conventions in this
 handoff exactly — do not reintroduce the old unnamespaced patterns (see
 `CONTRIBUTING.md` for the specific rules and a worked example).
 
+**On the crypto-related files named above** (`payload-crypto.ts`,
+`middleware/auth.ts`, `pear.service.ts`'s keypair handling): what each
+one actually guarantees — and doesn't — is consolidated in
+`CRYPTOGRAPHIC_MODEL.md`, not repeated here. `TRUST_BOUNDARY.md` maps
+which of these sit at a trust-boundary crossing and what crosses it.
+
 ---
 
 ## 5. Event-Driven Coordination (the "zero coupling" mechanism)

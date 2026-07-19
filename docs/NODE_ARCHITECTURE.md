@@ -5,6 +5,10 @@
 > broader question of "who runs the infrastructure" for the protocol as a
 > whole. This is Infrastructure Layer material — see `ARCHITECTURE.md`
 > section 1 for how it relates to Domain/Application/Protocol layers.
+> **This document does not cover the cryptography running over this
+> transport** (identity keys, payload encryption, replay protection) —
+> that's `CRYPTOGRAPHIC_MODEL.md`. `TRUST_BOUNDARY.md` covers what a
+> connected peer over this transport can and cannot be trusted to say.
 
 **Revision note (Protocol Freeze, v8.3):** everything below describes
 Pears/HyperDHT — today's implementation. As of `PROTOCOL_SPECIFICATION.md`

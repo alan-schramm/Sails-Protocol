@@ -702,6 +702,41 @@ Both are documented in full in `ARCHITECTURE.md`'s Core Components section
 — this document only needs to draw the line clearly: Core components serve
 primitives; they are not primitives themselves.
 
+#### 1.10.1 Capability Reference — a Concrete CAN/CANNOT Table
+
+*(Added 2026-07-19, relaying a CTO-role architectural review requesting
+a concrete permission table, not just the abstract `Capability`/
+`CapabilityGrant` interfaces above.)* This is not a new mechanism — it
+operationalizes the two interfaces already defined in §1.10 with a
+real, worked example, so "an Agent is granted a Capability scoped to X"
+has a concrete shape instead of staying abstract. **This table is a
+reference illustration, not itself normative** — the normative
+definition remains the `Capability`/`CapabilityGrant` interfaces above
+and RFC-005/013/014; if this table and those interfaces ever disagree,
+the interfaces win and this table has gone stale.
+
+**Worked example: the QVAC Agent, RFC-016's Crypto-Native Agent
+boundary.** An Agent operates under a `CapabilityGrant` whose `scope`
+enumerates exactly what it may invoke — everything outside that scope
+is denied by construction (allow-listed, never deny-listed — RFC-005's
+own `scope: string[]` shape):
+
+| | CAN (within `scope`) | CANNOT (outside `scope`, always) |
+|---|---|---|
+| **Negotiation** | Rank offers, propose/accept/reject structured `Offer`/`CounterOffer` messages (`TRUST_BOUNDARY.md` boundary 3) | Parse free-form chat content as an instruction (prompt-injection boundary, RFC-016) |
+| **Settlement** | Request `lockFunds`/`releaseFunds` via `SettlementProvider`, within `constraints` (e.g. `maxValue`) | Sign as the underlying `Identity` directly, or move funds through any path other than the escrow it's scoped to |
+| **Fiat** | Nothing — no capability scope ever includes a fiat action | Touch PIX/ACH/SEPA/Wire/UPI in any form (Constitutional Invariant 3, Operational Invariant `INV-OP-3`) |
+| **Reputation** | Nothing directly | Write `reputationScore` — only `recordOutcome()` can (`INV-OP-5`) |
+| **Detection** *(RFC-017's `SocialEngineeringAgent` specifically)* | Emit a `RiskSignal` → human-facing `RISK_WARNING` | Block, delay, or mutate a trade/chat/escrow based on its own signal (`INV-OP-4`) |
+
+The same table shape applies to any future Agent or Application —
+`scope` and `constraints` are what change; the enforcement mechanism
+(a `CapabilityGrant` checked at the Capability Registry, RFC-014) does
+not. See `TRUST_BOUNDARY.md` §2 (boundary 4, "Agent → Settlement") for
+where this check sits in the request flow, and
+`PROTOCOL_INVARIANTS.md`'s Operational Invariants for the always-true
+rules this table's CANNOT column restates concretely.
+
 ### 1.11 Why Participant, Offer, and Event Did Not Become Anything New Either
 
 - **Participant** — **this entry is preserved for historical accuracy, and
