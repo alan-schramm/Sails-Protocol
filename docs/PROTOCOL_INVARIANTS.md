@@ -66,10 +66,11 @@ Coordination, Not Custody."
 > `CRYPTOGRAPHIC_MODEL.md` §5, `SECURITY_MODEL.md` §2 Principle 2. This
 > is flagged here loudly, not smoothed over, precisely because the
 > correct response per this document's own rule is "remove the
-> violation" (build a real multisig/threshold `SettlementProvider`, or
-> restrict `WDK_USDT_EVM` to non-production use until one exists) — not
-> to treat this paragraph as sufficient. Tracked as a blocking
-> production-readiness item in `TODO.md`.
+> violation" — **RFC-019** (`rfcs/RFC-019-settlement-custody-reference-vs-normative.md`)
+> is the accepted, registered plan for doing exactly that: reclassifying
+> the current implementation as a reference-only implementation and
+> specifying the real non-custodial target architecture, without
+> committing to a build date. Also tracked in `TODO.md`.
 
 ### 3. Fiat Always Settles Outside the Protocol
 
