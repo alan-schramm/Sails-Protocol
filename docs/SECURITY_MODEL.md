@@ -69,6 +69,29 @@ history.
 2. **User Always Signs** — every action that moves funds requires the
    user's own WDK signature. No server can initiate a transaction on a
    user's behalf.
+
+   **Real-implementation gap found 2026-07-19** (a CTO-directed fidelity
+   audit comparing this principle against the actual code, not just its
+   design): the one real, tested `SettlementProvider` —
+   `WdkSettlementProvider` (`wdk-settlement.provider.ts`) — does not
+   satisfy either principle 1 or 2 as written. It derives every escrow's
+   signing key from **one server-held seed phrase**
+   (`config.wdk.seedPhrase`, env var `WDK_SEED_PHRASE`) that also
+   controls a treasury account — the file's own header comment states
+   this plainly: "single-seed, two-hop escrow, not a trustless multisig
+   ... the same key that can lock funds can also move them anywhere."
+   `releaseFunds()` needs no user-supplied signature or credential at
+   all; the server signs unilaterally. This is a genuine violation of
+   `PROTOCOL_INVARIANTS.md`'s Constitutional Invariant 2 ("The Protocol
+   Never Custodies Assets") **in the one real settlement path this
+   codebase ships today** — not a documentation phrasing issue, a real
+   custody gap. It is explicitly disclosed at the code level (not
+   hidden), is testnet-only, and is tracked as a blocking
+   production-readiness item in `TODO.md` — see `CRYPTOGRAPHIC_MODEL.md`
+   §6 for the full technical detail. The `MOCK` `SettlementProvider`
+   (the only other implementation) and the protocol's own design
+   (multisig 2-of-3, per §1.1 above) are unaffected — this is specific
+   to `WDK_USDT_EVM`'s current implementation, not a design flaw.
 3. **Escrow Isolation** — escrow logic is architecturally separate from the
    application layer (see the layer-violation fix documented in
    `ARCHITECTURE.md`). Compromising reference-implementation infrastructure

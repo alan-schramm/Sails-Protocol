@@ -182,7 +182,56 @@ the entries you can see, not as a trustless timestamping guarantee.
 
 ---
 
-## 5. What This Document Deliberately Does Not Repeat
+## 5. Settlement Custody: What `WDK_USDT_EVM` Actually Signs With
+
+*(Added 2026-07-19 — a real custody gap found by a CTO-directed
+fidelity audit, "does the implementation respect the model the spec
+describes," not by a design review. Documented here rather than only in
+`SECURITY_MODEL.md` because the mechanics belong with the other
+signing/key-material sections above.)*
+
+**Guarantee the protocol's design calls for: the user's own key signs
+every fund-moving action; the server never holds a key capable of
+moving user funds (`PROTOCOL_INVARIANTS.md` Constitutional Invariant 2,
+`SECURITY_MODEL.md` Principle 2).**
+
+**What the one real, tested `SettlementProvider` — `WdkSettlementProvider`
+(`wdk-settlement.provider.ts`) — actually does: it does not meet that
+guarantee.** `getWallet()` constructs a `WalletManagerEvm` from a single
+seed phrase (`config.wdk.seedPhrase`, env var `WDK_SEED_PHRASE`) that
+the server holds. Every escrow's signing sub-account is derived
+deterministically from that one seed (`escrowIndexFor(tradeId)`, a
+`sha256(tradeId)`-derived index) — not from anything the buyer or
+seller supplies. `releaseFunds(escrow, toAddress)` needs no
+caller-provided signature or credential at all; it calls
+`escrowAcct.transfer(...)` directly using the server-derived key. The
+file's own header comment is explicit about this, unprompted: *"a
+single-seed, two-hop escrow, not a trustless multisig ... the same key
+that can lock funds can also move them anywhere."*
+
+**What this means concretely:**
+- The server (or whoever controls `WDK_SEED_PHRASE`) can move funds
+  from *any* escrow this provider created, at any time, without any
+  counterparty's cooperation or signature.
+- This is the opposite of the `TRUST_BOUNDARY.md` boundary-5 claim ("no
+  single party unilaterally moves funds") for this specific provider —
+  that claim describes the protocol's multisig design (§1.5,
+  `SettlementProvider` interface) and the `MOCK` provider's intent, not
+  `WDK_USDT_EVM`'s current reality.
+- It is disclosed at the code level, not hidden — but until this audit,
+  no document above the code comment itself said so plainly. It is
+  explicitly testnet-only in every place it's invoked
+  (`config.wdk.*` test defaults, `demo/pix-to-usdt-flow.ts`).
+
+**Not fixed here.** Closing this gap means building a real multisig or
+threshold-signature `SettlementProvider` for EVM (or restricting
+`WDK_USDT_EVM` to demo/testnet use only, never production, until one
+exists) — real engineering work, not a documentation correction.
+Tracked as a blocking production-readiness item in `TODO.md`.
+
+---
+
+## 6. What This Document Deliberately Does Not Repeat
 
 - **Who is on the other side of an encrypted channel, and whether
   they're trusted** — `TRUST_BOUNDARY.md`. This document is about what

@@ -816,10 +816,29 @@ rules this table's CANNOT column restates concretely.
   section 1.1 above. Two different proposals shared one name at different
   points in this project's history — this entry stays to make that
   history traceable, not to contradict section 1.1.
-- **Offer** — proposed as a primitive. Rejected: it is OpenLiquidity's
-  concrete database artifact representing a *published, discoverable*
-  Intent (`DATABASE.md` section 3, `moduleId: "openliquidity"`), not an
-  orthogonal concept. Stays a module-level entity.
+- **Offer** — proposed as a primitive. Rejected: it is *conceptually*
+  OpenLiquidity's concrete database artifact representing a *published,
+  discoverable* Intent (`DATABASE.md` section 3, `moduleId:
+  "openliquidity"`), not an orthogonal concept. Stays a module-level
+  entity. **Fidelity gap found 2026-07-19** (a CTO-directed audit
+  comparing this claim against the real, shipped code — not a design
+  question, an implementation one): `liquidity.service.ts`'s
+  `createOffer()` never calls `intentEngine.create()`, and
+  `trade.service.ts`'s `createTrade()` (the real "start a trade from an
+  offer" path) never imports `core/intent-engine.ts` at all. **No real
+  `Offer` or `Trade` in this codebase has an `Intent` database row behind
+  it today** — `Intent`/`IntentEvent` (`routes/intentRoutes.ts`) is a
+  fully separate, working code path
+  (`src/core/intent-engine.ts`'s `create()`/`cancel()`/`transition()`
+  are real, tested — see `TODO.md`) that the real OpenP2P trade flow
+  simply never calls. Even the one script that exercises both
+  (`src/demo/pix-to-usdt-flow.ts`) creates an `Intent` and a `Trade` as
+  two uncorrelated rows with no foreign key between them. This sentence's
+  claim is the intended target architecture, not the current
+  implementation — closing the gap (making offer/trade creation actually
+  route through the Intent Engine) is real, scoped engineering work,
+  tracked in `TODO.md`, not something a documentation pass can silently
+  assert into existence.
 - **Event** — proposed as a primitive. Rejected on a category distinction:
   Identity through Dispute (above) are *domain concepts* the protocol
   coordinates. Event is the *mechanism* by which any of their state
@@ -848,6 +867,11 @@ rules this table's CANNOT column restates concretely.
 | OpenProof | Implements: Proof, incl. Proof Registry, `EvidenceProvider`, and Evidence Bundle (RFC-007, RFC-006). Consumes: Timeline (RFC-007) to compose the Evidence Bundle. |
 | OpenFinance | Future application module. Reuses Discovery, Negotiation, Settlement, Reputation, Dispute, Proof (collateral/income verification) — adds new Intent types. |
 | Sails SDK (MVP release: Sails P2P Trading SDK) | Implements no primitive — wraps every module's interface into `SailsClient`. |
+
+*(OpenLiquidity's "Consumes: Intent" and OpenP2P's "Orchestrates:
+Intent → Discovery → ..." above describe the target architecture, not
+today's code — see section 1.11's `Offer` entry for the real, currently
+disconnected state of `Intent`/`Offer`/`Trade`.)*
 
 ---
 
