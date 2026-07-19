@@ -35,7 +35,7 @@ grows.
 | **Wallet Nodes** | Wallet apps that integrated the SDK (e.g. Satsails Wallet) | Act as P2P nodes on behalf of their users |
 | **Liquidity Nodes** | OTCs, market makers, payment providers | Standing offers, high volume, high uptime |
 | **Reputation Nodes** | Anyone — validates the public reputation graph | Consensus via protocol rules, not a central authority |
-| **Arbiter Nodes** | Bonded community volunteers | Handle dispute resolution (see `SECURITY_MODEL.md`) |
+| **Arbiter Nodes** | Trusted Arbitrators, registered per application via `ArbitrationProvider` — never a protocol-native, permissionless role (RFC-007 D4; corrected 2026-07-19, this previously said "bonded community volunteers") | Handle dispute resolution (see `SECURITY_MODEL.md`) |
 | **Bootstrap Nodes** | Initially Holepunch's public defaults, later Satsails-operated, eventually community-operated | Entry point for new peers joining the DHT |
 
 ---

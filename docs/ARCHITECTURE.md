@@ -81,9 +81,16 @@ Coordination Engine   → receives Intent + Policy + Capability + Events,
                         decides, then activates modules. No module ever
                         calls another module directly — only the Core.
 Event Bus             → namespaced {module}.{entity}.{action} events.
-                        Exposes a per-Intent Timeline read projection
-                        (RFC-007, rfcs/RFC-007-real-world-p2p-requirements.md,
-                        decision D5) — ordered events for one intentId.
+                        Exposes a per-correlationId Timeline read
+                        projection (RFC-007, rfcs/RFC-007-real-world-p2p-
+                        requirements.md, decision D5) — ordered events for
+                        one correlationId. Corrected 2026-07-19: this used
+                        to say "one intentId," matching RFC-007 D5's first
+                        draft — RFC-017 corrected the key to correlationId
+                        (real events carry tradeId today, no Intent-to-
+                        Trade link existing yet to key by intentId), and
+                        the two lines directly below already said
+                        correlationId — this line just hadn't caught up.
                         Considered and rejected as a 10th primitive in
                         that RFC; it lives here instead, consistent with
                         Event itself never being a primitive

@@ -96,9 +96,13 @@ interface SailsClient {
   // signed EvidenceReference. See the proof: namespace below for reading
   // that evidence back.
   releaseAsset(intentId: string): Promise<Settlement>
-  // Settlement status may pass through PENDING_BANK_SETTLEMENT (RFC-007 D3)
-  // before COMPLETED — represents a payment held/processing at the payer's
-  // financial institution, not yet a failure state.
+  // Designed (RFC-007 D3), not yet migrated: settlement status is intended
+  // to eventually pass through PENDING_BANK_SETTLEMENT before COMPLETED —
+  // representing a payment held/processing at the payer's financial
+  // institution, not yet a failure state — but the real EscrowStatus enum
+  // (prisma/schema.prisma) does not have this value today. Status note
+  // added 2026-07-19 (consolidation audit) after this file, alongside
+  // three others, described it as already live.
   dispute(intentId: string, reason: string): Promise<Dispute>
   // Escalation order (RFC-007 D4): Policy Engine → OpenAgents → a Trusted
   // Arbitrator via ArbitrationProvider → Settlement. Human arbitration is
@@ -221,10 +225,20 @@ interface TradeIntent {
   kycRequired?: boolean
 }
 
-type SettlementType = 'MOCK' | 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT'
+// WDK_USDT_EVM was missing from this list until a 2026-07-19
+// consolidation audit caught it — it's the second real, tested
+// SettlementProvider (@tetherto/wdk-wallet-evm, wdk-settlement.provider.ts),
+// not an aspirational value.
+type SettlementType = 'MOCK' | 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM'
 
 // RFC-005 (rfcs/RFC-005-capability-model.md) — the permission-grant side
-// of the Capability model; real as of RFC-013.
+// of the Capability model; real as of RFC-013. Field-name drift found
+// 2026-07-19 (consolidation audit): RFC-005's own design named this
+// field `grantId`, copied here verbatim — but the real Prisma model and
+// the real GET/POST /v1/capabilities routes both call it `id`. Expect
+// `id` from the actual API today; `grantId` below matches the design
+// doc, not (yet) the live response shape. See PROTOCOL_SPECIFICATION.md
+// §1.10 for the full note and TODO.md for the reconciliation this needs.
 interface CapabilityGrant {
   grantId: string
   grantedTo: string
