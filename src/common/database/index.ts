@@ -5,6 +5,7 @@
  * works without this existing.
  */
 import { PrismaClient } from '@prisma/client'
+import { PrismaPg } from '@prisma/adapter-pg'
 import { config } from '../../config'
 
 declare global {
@@ -12,13 +13,20 @@ declare global {
   var __prisma: PrismaClient | undefined
 }
 
+// Prisma 7 (Dependabot major-version bump, 2026-07-19): `datasources: { db:
+// { url } }` in the PrismaClient constructor is gone — the client now
+// requires an explicit driver adapter (prisma.config.ts covers the CLI
+// side only, not this runtime client). PrismaPg wraps a real `pg` Pool,
+// same connection string this always used (config.database.url).
+const adapter = new PrismaPg({ connectionString: config.database.url })
+
 // Reuse the client across hot-reloads in dev (ts-node-dev) instead of
 // opening a new connection pool on every file change.
 export const prisma: PrismaClient =
   global.__prisma ??
   new PrismaClient({
+    adapter,
     log: config.isProduction ? ['error', 'warn'] : ['error', 'warn', 'query'],
-    datasources: { db: { url: config.database.url } },
   })
 
 if (!config.isProduction) {
