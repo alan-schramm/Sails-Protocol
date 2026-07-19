@@ -28,6 +28,10 @@ effort has been enforcing). Bypasses the Discussion window
 (`GOVERNANCE.md` §5), the same precedent RFC-007/RFC-015/RFC-016/RFC-017
 already used for owner-directed RFCs.
 
+**Classification:** Core RFC (`GOVERNANCE.md` §6A) — changes which code
+path is the canonical entry point for `Trade`, a lifecycle-wiring
+change to an existing primitive, not an additive one.
+
 ## Motivation
 
 A concrete, present-day consequence of the gap: an SDK consumer calling
@@ -97,6 +101,31 @@ validation `intent-engine.ts` currently does directly — already flagged
 in §2.6 as "natural follow-up work, not done here." This RFC is that
 follow-up's trigger, not its full implementation (see Reference
 Implementation Plan).
+
+## Implementation Impact
+
+A scannable map to the full detail in Specification/Reference
+Implementation Plan below — not a duplicate of it:
+
+- `prisma/schema.prisma` — `Offer` and `Trade` each gain a nullable
+  `intentId String?` column + relation to `Intent`. Migration required.
+- `src/modules/open-liquidity/liquidity.service.ts` — `createOffer()`
+  gains a call to `intentEngine.create()` before `prisma.offer.create()`.
+- `src/modules/open-p2p/trade.service.ts` — `createTrade()` copies
+  `offer.intentId` onto the new `Trade` row and calls
+  `intentEngine.transition(intentId, 'COMMITTED')`.
+- `src/common/events/handlers.ts` — the existing
+  `settlement.escrow.released`/`refunded` reaction gains a call to
+  `intentEngine.transition(intentId, 'FULFILLED')` alongside its
+  existing `recordOutcome()` call.
+- `src/core/intent-engine.ts` — `transition()`'s ownership check needs a
+  real code change (not just a new call site): today only the Intent's
+  creator may transition it; a `Trade` counterparty who didn't create
+  the originating `Offer`/`Intent` also needs to be permitted to drive
+  `COMMITTED`.
+- New file: `src/modules/open-p2p/intent-handler.ts` (or similar) —
+  `OpenP2PTradeIntentHandler`, Phase 3 only (see Reference
+  Implementation Plan).
 
 ## Primitives Used or Extended
 

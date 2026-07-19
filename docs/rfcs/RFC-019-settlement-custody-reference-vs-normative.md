@@ -27,6 +27,10 @@ single-sequence rule). Bypasses the Discussion window
 (`GOVERNANCE.md` §5), the same precedent RFC-007/RFC-015/RFC-016/RFC-017/
 RFC-018 already used for owner-directed RFCs.
 
+**Classification:** Core RFC (`GOVERNANCE.md` §6A) — changes the
+custody/trust model of Settlement, the exact category §6A names as one
+of its founding examples.
+
 ## Motivation
 
 The gap was already disclosed at the code-comment level —
@@ -103,6 +107,29 @@ accommodates a genuinely non-custodial implementation; the gap is
 entirely inside `WdkSettlementProvider`'s implementation, not the
 primitive's contract. `MOCK` (the other existing provider) is
 unaffected — it was never presented as production-grade custody.
+
+## Implementation Impact
+
+A scannable map to the full detail in Specification/Reference
+Implementation Plan below — not a duplicate of it. **Phase 1 only**
+(Phase 2's real non-custodial provider is unscoped by design — see
+Reference Implementation Plan):
+
+- `src/infrastructure/*/wdk-settlement.provider.ts` — add a
+  `readonly custodyModel = 'server-custodial-reference-implementation'`
+  field to the class (exact field name/location TBD at implementation
+  time).
+- Server boot sequence (wherever `config.wdk`/`MOCK_ESCROW` is read at
+  startup) — add a loud, unmissable log line whenever WDK is the active
+  provider.
+- `.env.example` — add a comment on `WDK_SEED_PHRASE` stating the
+  custody model plainly.
+- `docs/API_REFERENCE.md` — settlement routes section gains a pointer
+  to `CRYPTOGRAPHIC_MODEL.md` §5.
+- **Not touched in Phase 1:** `escrow.service.ts`, `settlement-orchestrator.ts`,
+  or any real fund-moving logic — Phase 1 is purely a visibility/labeling
+  change, never a behavior change, per this RFC's own Alternatives
+  Considered.
 
 ## Primitives Used or Extended
 

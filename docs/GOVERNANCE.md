@@ -244,6 +244,62 @@ third party)?
 
 ---
 
+## 6A. Core RFC Classification (v8.24 — CTO-role recommendation, relayed by the project owner)
+
+Not every RFC carries the same weight. Registering a new
+`SettlementAdapter` implementation and changing how every `Trade` in
+the system relates to the `Intent` primitive are both real RFCs, but
+they are not equally consequential — the second kind needs a reader
+(human or Claude Code, in a future session with no memory of this one)
+to be able to tell, at a glance, that it's looking at a decision that
+reshapes a pillar of the protocol, not an incremental addition.
+
+**A Core RFC is one that does at least one of the following:**
+
+- Changes how an existing primitive's lifecycle is driven or wired
+  (not just extends its payload/event vocabulary — RFC-018 is the
+  founding example: it changes which code path is the canonical entry
+  point for `Trade`, a lifecycle-wiring change, not an additive one).
+- Changes the trust/custody model of Settlement, Identity, or any
+  mechanism `PROTOCOL_INVARIANTS.md` states a Constitutional Invariant
+  about (RFC-019 is the founding example: it reclassifies the real
+  custody model of the one live `SettlementProvider`).
+- Would, if reverted, break another already-accepted RFC's stated
+  assumptions.
+
+This is a **classification, not a renumbering** — a Core RFC still
+takes the next integer in the single, permanent sequence
+(`GOVERNANCE.md` §5). It is marked with a `**Classification:** Core
+RFC` line in the RFC's own Status block, immediately below `**Status:**`.
+
+**A Core RFC MUST include, as explicit, separately-headed sections, in
+this order, in addition to the rest of the standard template (§6):**
+
+```markdown
+## Motivation
+## Decision
+## Implementation Impact
+```
+
+`Motivation` and `Decision` already exist in spirit across most prior
+RFCs (often folded into `Summary`/`Specification`); making them
+mandatory, explicitly-headed sections for Core RFCs specifically —
+not every RFC — keeps the bar proportional: a routine adapter addition
+doesn't need this ceremony, a pillar-level change does.
+`Implementation Impact` is new: a short, scannable list of exactly
+which files/functions will need to change, so a future reader (or
+Claude Code, cold-starting a session) doesn't have to re-derive it from
+the full `Specification`/`Reference Implementation Plan` sections —
+those remain the authoritative detail; `Implementation Impact` is the
+map, not a duplicate of the territory.
+
+RFC-018 and RFC-019 are retroactively the first two Core RFCs — both
+already had `Motivation`/`Decision`; each gained a short
+`Implementation Impact` section and the `Classification` line as part
+of introducing this rule, not as a separate follow-up.
+
+---
+
 ## 6B. Implementation Freeze Traceability Discipline (v8.7 — CTO recommendation)
 
 Once Implementation Freeze begins (`MASTER_COORDINATION.md`'s 5-phase
