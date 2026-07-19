@@ -19,7 +19,16 @@ jest.mock('@tetherto/wdk-wallet-evm', () => ({
   default: class FakeWalletManagerEvm {},
 }))
 
-import { toBaseUnits, escrowIndexFor, buyerIndexFor } from '../src/modules/open-settlement/wdk-settlement.provider'
+import { toBaseUnits, escrowIndexFor, buyerIndexFor, wdkSettlementProvider } from '../src/modules/open-settlement/wdk-settlement.provider'
+
+// RFC-019 Phase 1 (rfcs/RFC-019-settlement-custody-reference-vs-normative.md)
+// — the introspectable custody-model flag needs no live wallet, so it's
+// verified directly here alongside the other pure/constructor-time checks.
+describe('WdkSettlementProvider.custodyModel (RFC-019 Phase 1)', () => {
+  it('declares itself a server-custodial reference implementation', () => {
+    expect(wdkSettlementProvider.custodyModel).toBe('server-custodial-reference-implementation')
+  })
+})
 
 describe('toBaseUnits (decimal string -> on-chain integer, USDT 6 decimals)', () => {
   it('converts a whole-number amount', () => {

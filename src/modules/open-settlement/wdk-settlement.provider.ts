@@ -80,6 +80,19 @@ export function buyerIndexFor(buyerId: string): number {
 export class WdkSettlementProvider implements SettlementProvider {
   name = 'WDK_USDT_EVM'
 
+  // RFC-019 Phase 1 (rfcs/RFC-019-settlement-custody-reference-vs-normative.md)
+  // — makes this class's own header comment above (the "single-seed,
+  // two-hop escrow" disclosure) introspectable in code, not just
+  // readable by whoever opens this file. Any code path holding a
+  // `SettlementProvider` can now check this field to tell a genuinely
+  // non-custodial implementation apart from this reference one — no
+  // such implementation exists yet (`MOCK` is a demonstration, this is
+  // the only real one), so this field always reads the same value
+  // today, but the field itself is the deliverable: it's what a future
+  // wallet-authorized provider (RFC-019's Phase 2, unscoped, not built)
+  // would set differently.
+  readonly custodyModel = 'server-custodial-reference-implementation' as const
+
   private wallet: WalletManagerEvm | null = null
 
   private getWallet(): WalletManagerEvm {

@@ -379,12 +379,14 @@ makes the same point in more detail.
       explicitly to testnet/demo use only. **RFC-019**
       (`docs/rfcs/RFC-019-settlement-custody-reference-vs-normative.md`,
       accepted 2026-07-19, CTO-role review approved as P0/blocking)
-      registers this reclassification and a 2-phase migration plan —
-      Phase 1 (custody-model flag + boot warning + doc pointers) is
-      low-risk and not yet implemented; Phase 2 (a real non-custodial
-      settlement path) is unscoped, unstarted, no committed date, per
-      the review's explicit "não implementar soluções provisórias...
-      apenas registrar e planejar" instruction.
+      registers this reclassification and a 2-phase migration plan.
+      **Phase 1 done (2026-07-19, Implementation Freeze — first real
+      code from either Core RFC):** `WdkSettlementProvider.custodyModel`,
+      a boot-time warning (`app.ts`'s `startServer()`) whenever
+      `MOCK_ESCROW=false`, `.env.example` disclosure, `API_REFERENCE.md`
+      pointer — purely additive, no behavior change, `npm test` 207/207.
+      Phase 2 (a real non-custodial settlement path) remains unscoped,
+      unstarted, no committed date.
 
 ## 8. SDK (status changed — v0.1 real, partial) *(2026-07-17)*
 
