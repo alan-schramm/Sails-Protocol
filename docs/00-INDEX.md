@@ -50,6 +50,19 @@ spec: how the real core (Capability Registry, OpenReputation, Pears
 brand per sharply-scoped product — `PROJECT_CONTEXT.md` §3's Named-SDK
 Rule). Does **not** change today's actual scope — that's still exactly
 one shipping product, the Sails P2P Trading SDK.
+[TRUST_BOUNDARY.md](TRUST_BOUNDARY.md) — who trusts whom: a boundary
+diagram from the user's device through to the settlement chain, and,
+per boundary, who can lie, what's verified, and where in the code that
+verification lives. Complements `THREAT_MODEL.md` (the attack catalog)
+and `SECURITY_MODEL.md` (why a stranger can be trusted at all) with the
+structural question neither answers directly.
+[CRYPTOGRAPHIC_MODEL.md](CRYPTOGRAPHIC_MODEL.md) — the actual
+cryptographic mechanics (Ed25519 identity, challenge-response replay
+protection, sealed-box P2P payload encryption, the `IntentEvent` hash
+chain) consolidated in one place, including an honest account of what
+each mechanism does *not* guarantee (e.g. no forward secrecy yet).
+Previously scattered as file-level doc comments across `ARCHITECTURE.md`
+and absent from `NODE_ARCHITECTURE.md` entirely.
 
 **Not in this repository, by design:** `docs/GOVERNANCE.md` §6C
 ("Publication Discipline") keeps strategic evaluation documents —
