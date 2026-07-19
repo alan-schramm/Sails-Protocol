@@ -37,6 +37,18 @@ import { config } from '../../config'
  *                                   emit this same event after persisting a
  *                                   Message, so this is the one place either
  *                                   transport's messages reach WS clients)
+ *   - openp2p.message.sent        → OpenAgents reacts, ONLY when
+ *                                   config.features.socialEngineeringDetection
+ *                                   is true (default false — real QVAC call
+ *                                   per message, not free): SocialEngineering
+ *                                   Agent.evaluate() (RFC-007 D7, real as of
+ *                                   RFC-017) scores the message for
+ *                                   off_channel_migration/payment_instruction_
+ *                                   change; a non-null signal is re-emitted as
+ *                                   agents.social_engineering.risk_detected,
+ *                                   which chat.routes.ts broadcasts as a
+ *                                   RISK_WARNING to the trade's WS room —
+ *                                   detection only, never an automatic action.
  *   - openp2p.trade.created        → OpenSettlement reacts, ONLY when
  *                                   config.features.autoSettleOnMatch is
  *                                   true (default false — see config's own
@@ -191,6 +203,48 @@ export function registerEventHandlers(): void {
   // onto Pears — that direction stays HumanChatChannel-only).
   eventBus.on('openp2p.message.sent', (payload) => {
     broadcastToTrade(payload.tradeId, { type: 'NEW_MESSAGE', payload })
+  })
+
+  // ── Sails OpenAgents: Social Engineering Agent (RFC-007 D7 / RFC-017) ──────
+  // Off by default (config.features.socialEngineeringDetection) — a real
+  // QVAC call per chat message is real latency and real model-inference
+  // cost, not something every deployment should pay for unconditionally.
+  // Uses onDurable() (not on()) because evaluate() needs the message's
+  // real eventId/publishedAt to build a TimelineEntry, per D7's own
+  // interface — never awaited into whatever triggered the message send,
+  // same "a detection failure must not break the thing it's watching"
+  // philosophy as autoSettleOnMatch's handler below.
+  //
+  // social-engineering-agent.ts is required lazily, after the flag check,
+  // not imported at the top of this file — it transitively imports the
+  // real @qvac/sdk (ESM-only), which every test that imports app.ts would
+  // otherwise need to mock (tests/walletAgents.test.ts's own jest.mock
+  // is why that pattern exists at all). This way @qvac/sdk is only ever
+  // touched when the feature is actually turned on.
+  eventBus.onDurable('openp2p.message.sent', async (event) => {
+    if (!config.features.socialEngineeringDetection) return
+
+    try {
+      const { socialEngineeringAgent } = require('../../modules/open-agents/social-engineering-agent') // eslint-disable-line @typescript-eslint/no-var-requires
+      const signal = await socialEngineeringAgent.evaluate({
+        eventId: event.eventId,
+        eventType: event.eventName,
+        occurredAt: event.publishedAt,
+        payload: event.payload,
+      })
+      if (!signal) return
+
+      await eventBus.emit('agents.social_engineering.risk_detected', {
+        tradeId: signal.correlationId,
+        pattern: signal.pattern,
+        riskScore: signal.riskScore,
+        reasoning: signal.reasoning,
+        sourceEventId: signal.sourceEventId,
+        detectedAt: signal.detectedAt,
+      }, signal.correlationId)   // correlationId (RFC-010) = tradeId
+    } catch (err) {
+      console.error(`[handlers] socialEngineeringDetection failed for message ${event.eventId}:`, err instanceof Error ? err.message : err)
+    }
   })
 
   // ── Sails OpenSettlement reacts to a Match (openp2p.trade.created) ────────

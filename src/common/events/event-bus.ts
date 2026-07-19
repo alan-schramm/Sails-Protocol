@@ -206,6 +206,23 @@ export interface NegotiationReconciledEvent {
   missedMessageCount: number
 }
 
+// ─── Sails OpenAgents — Social Engineering Agent (RFC-007 D7, real as of
+// RFC-017, rfcs/RFC-017-timeline-and-social-engineering-agent.md) ────────────
+// Raised when SocialEngineeringAgent.evaluate() (social-engineering-agent.ts)
+// scores a Timeline entry above the detection threshold. Detection only —
+// per D7's own design, this event never triggers an automatic action; it's
+// a signal for a human (surfaced today as a chat RISK_WARNING, RFC-017) or,
+// eventually, the Policy Engine (still a stub, core/policy-engine.ts) to
+// decide what to do with.
+export interface SocialEngineeringRiskDetectedEvent {
+  tradeId: string
+  pattern: 'off_channel_migration' | 'payment_instruction_change' | 'unexpected_flow_deviation' | string
+  riskScore: number
+  reasoning: string
+  sourceEventId: string
+  detectedAt: string
+}
+
 // ─── Event Map — canonical namespace {module}.{entity}.{action} ──────────────
 export interface SailsEventMap {
   // Intent Engine — §2.5, cross-cutting Core, not module-owned
@@ -267,6 +284,9 @@ export interface SailsEventMap {
   // Cross-module — P2P transport (Pears/HyperDHT)
   'peer.connected': PeerConnectedEvent
   'peer.disconnected': PeerDisconnectedEvent
+
+  // Sails OpenAgents — Social Engineering Agent (RFC-007 D7 / RFC-017)
+  'agents.social_engineering.risk_detected': SocialEngineeringRiskDetectedEvent
 }
 
 export type SailsEventName = keyof SailsEventMap
@@ -310,6 +330,25 @@ class SailsEventBus {
     listener: (payload: SailsEventMap[K]) => void | Promise<void>
   ): void {
     this.store.subscribe(event, (durableEvent) => listener(durableEvent.payload))
+  }
+
+  // Timeline's (RFC-017) only real dependency on the bus — a thin
+  // passthrough to whatever EventStore is wired in, so Timeline never
+  // needs to know which store implementation is active.
+  getEvents(correlationId: string): Promise<import('./event-store').DurableEvent[]> {
+    return this.store.getEvents(correlationId)
+  }
+
+  // Additive — RFC-017's SocialEngineeringAgent.evaluate() needs the full
+  // DurableEvent (eventId, publishedAt) to build a real TimelineEntry, not
+  // just the bare payload on() gives every other handler. A new method
+  // instead of changing on()'s signature, so every existing
+  // eventBus.on(...) call site in this codebase stays untouched.
+  onDurable<K extends SailsEventName>(
+    event: K,
+    listener: (event: import('./event-store').DurableEvent<K>) => void | Promise<void>
+  ): void {
+    this.store.subscribe(event, listener)
   }
 }
 

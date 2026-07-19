@@ -1,11 +1,28 @@
 import type { Message } from '../../types'
 import { formatTime } from '../../lib/format'
+import { RISK_PATTERN_LABEL } from '../../lib/socialEngineering'
+import { InfoTooltip } from '../ui/InfoTooltip'
 
 export function ChatMessage({ message, isMine }: { message: Message; isMine: boolean }) {
   if (message.type === 'SYSTEM') {
     return (
       <div className="self-center text-center text-xs italic text-brand-text-muted bg-brand-elevated border border-brand-border rounded-full px-4 py-1.5 my-1">
         {message.content}
+      </div>
+    )
+  }
+
+  if (message.type === 'RISK_WARNING') {
+    return (
+      <div className="self-stretch flex items-start gap-2 text-xs bg-red-500/10 border border-red-500/25 text-brand-text rounded-lg px-3.5 py-2.5 my-1">
+        <span className="text-base leading-none">⚠️</span>
+        <div className="flex-1">
+          <div className="flex items-center gap-1.5 font-semibold text-red-500">
+            {message.riskPattern ? RISK_PATTERN_LABEL[message.riskPattern] : 'Sinal de risco detectado'}
+            <InfoTooltip text="Reflete RISK_WARNING (RFC-017, SocialEngineeringAgent) — no backend real, o QVAC analisa a mensagem via qvacAgentProvider.assessSocialEngineeringRisk() e essa detecção fica desligada por padrão (config.features.socialEngineeringDetection). Nesta interface, a detecção em si é simulada por palavras-chave — não existe rota conectando o navegador ao agente real ainda." />
+          </div>
+          <p className="text-brand-text-secondary mt-0.5">{message.content}</p>
+        </div>
       </div>
     )
   }

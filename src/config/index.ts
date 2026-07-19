@@ -112,6 +112,14 @@ export const config = {
     // of this flag — a dispute existing already means the two-party
     // agreement this control is meant to enforce didn't happen.
     requireDualApprovalForRelease: process.env.REQUIRE_DUAL_APPROVAL_RELEASE === 'true',
+    // RFC-017: SocialEngineeringAgent (RFC-007 D7) calls QVAC on every
+    // chat message sent through openp2p.message.sent — a real local-LLM
+    // call per message, not free. Default false for cost/latency, the
+    // same reason autoSettleOnMatch/enforceCapabilities/
+    // requireDualApprovalForRelease all default false: a reference
+    // deployment that hasn't opted in should not pay for or wait on a
+    // local model call on every single chat message.
+    socialEngineeringDetection: process.env.SOCIAL_ENGINEERING_DETECTION === 'true',
   },
 
   trade: {

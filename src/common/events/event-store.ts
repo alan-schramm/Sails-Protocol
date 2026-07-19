@@ -45,6 +45,14 @@ export interface EventStore {
     eventName: K,
     handler: (event: DurableEvent<K>) => void | Promise<void>
   ): void
+  // Added for RFC-017 (rfcs/RFC-017-timeline-and-social-engineering-agent.md)
+  // — RFC-007 D5's Timeline read-model ("a per-correlationId ordered
+  // projection over the Event Bus") needs a way to ask a store "what
+  // already happened for X," not just "notify me of what happens next."
+  // Every event this bus has ever published carries a correlationId
+  // (RFC-010) — this is that history, queryable. Ordered by publishedAt
+  // ascending; returns [] for an unknown correlationId, never throws.
+  getEvents(correlationId: string): Promise<DurableEvent[]>
 }
 
 // ─── Default: in-memory, explicitly NOT durable ───────────────────────────────
@@ -57,6 +65,13 @@ export class InMemoryEventStore implements EventStore {
   readonly storeName = 'in-memory'
   readonly durable = false
   private emitter = new EventEmitter()
+  // Real, in-process history keyed by correlationId — what makes
+  // getEvents() (Timeline, RFC-017) actually work against this store,
+  // not just a name that implies storage. "In-memory" already disclosed
+  // this is lost on process restart (readonly durable = false above); a
+  // durable backend (RedisStreamsEventStore, once built) persists this
+  // properly instead of an unbounded process-lifetime array.
+  private byCorrelationId = new Map<string, DurableEvent[]>()
 
   constructor() {
     this.emitter.setMaxListeners(50)
@@ -77,6 +92,9 @@ export class InMemoryEventStore implements EventStore {
     if (process.env.NODE_ENV === 'development') {
       console.log(`[EventStore:in-memory] ${eventName} correlationId=${correlationId}`, JSON.stringify(payload))
     }
+    const existing = this.byCorrelationId.get(correlationId)
+    if (existing) existing.push(event)
+    else this.byCorrelationId.set(correlationId, [event])
     this.emitter.emit(eventName, event)
   }
 
@@ -92,6 +110,12 @@ export class InMemoryEventStore implements EventStore {
         })
       }
     })
+  }
+
+  async getEvents(correlationId: string): Promise<DurableEvent[]> {
+    // Already publish-ordered (array push is append-only) — no separate
+    // sort needed, unlike a real store that might return out of order.
+    return this.byCorrelationId.get(correlationId) ?? []
   }
 }
 
@@ -131,6 +155,15 @@ export class RedisStreamsEventStore implements EventStore {
     throw new Error(
       'RedisStreamsEventStore not yet implemented — see RFC-010 §Reference Implementation Plan ' +
       '(rfcs/RFC-010-durable-event-store.md).'
+    )
+  }
+
+  async getEvents(_correlationId: string): Promise<DurableEvent[]> {
+    throw new Error(
+      'RedisStreamsEventStore not yet implemented — see RFC-010 §Reference Implementation Plan ' +
+      '(rfcs/RFC-010-durable-event-store.md). getEvents() would use XRANGE per correlationId-keyed ' +
+      'stream, or a secondary index if events stay in one shared stream — undecided, same "designed, ' +
+      'not verified against live Redis" status as publish()/subscribe() above.'
     )
   }
 }

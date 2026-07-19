@@ -58,6 +58,12 @@ eventBus.on('settlement.escrow.payment_pending', (payload) => broadcastToTrade(p
 eventBus.on('settlement.escrow.released', (payload) => broadcastToTrade(payload.tradeId, { type: 'ESCROW_STATUS_UPDATE', payload }))
 eventBus.on('settlement.escrow.disputed', (payload) => broadcastToTrade(payload.tradeId, { type: 'ESCROW_STATUS_UPDATE', payload }))
 eventBus.on('settlement.escrow.refunded', (payload) => broadcastToTrade(payload.tradeId, { type: 'ESCROW_STATUS_UPDATE', payload }))
+// RFC-017 — SocialEngineeringAgent's detection (common/events/handlers.ts,
+// off by default behind config.features.socialEngineeringDetection)
+// reaches WS clients the same way every other server-pushed status
+// update in this file does. Detection only: this pushes a signal for a
+// human to see, it never blocks or alters the trade itself.
+eventBus.on('agents.social_engineering.risk_detected', (payload) => broadcastToTrade(payload.tradeId, { type: 'RISK_WARNING', payload }))
 
 async function resolveParticipantFromToken(token: string | undefined): Promise<string | null> {
   if (!token) return null

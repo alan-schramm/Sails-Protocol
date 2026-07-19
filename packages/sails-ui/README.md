@@ -77,6 +77,22 @@ this protocol. The one negotiation step that names a fiat action
 ("Aguardando pagamento") is always something the human counterparty
 does — the agent only waits for and observes it.
 
+**Scam-prevention warnings (RFC-017,
+`docs/rfcs/RFC-017-timeline-and-social-engineering-agent.md`):**
+`ChatWindow`/`ChatMessage` render a `RISK_WARNING` message type — the
+same name and shape the real backend's WS protocol uses
+(`chat.routes.ts`'s broadcast of `agents.social_engineering.risk_detected`).
+The real backend detector (`SocialEngineeringAgent.evaluate()`, QVAC via
+`assessSocialEngineeringRisk()`) is real code, off by default
+(`config.features.socialEngineeringDetection`) — but this UI has no live
+connection to it. `src/lib/socialEngineering.ts`'s `detectRiskLocally()`
+is a plain keyword regex standing in for that real QVAC call, purely so
+`Trade.tsx`'s chat has something to react to; it detects the same two
+patterns the real agent detects today (`off_channel_migration`,
+`payment_instruction_change` — try sending "vamos falar no whatsapp" or
+"nova chave pix" in the demo chat). Verified in browser: both patterns
+fire correctly, a plain message doesn't false-positive.
+
 **Chat image/video attach** (`ChatWindow`/`ChatMessage`): the 📎 button
 creates a local `URL.createObjectURL()` blob — the file never leaves the
 browser tab, nothing is sent "via Pears" yet. `ChatWindow.tsx`'s own
@@ -200,3 +216,9 @@ require touching `vite.config.ts`.
    delegation mandate — today `src/lib/aiNegotiator.ts`'s status
    timeline and Strategy panel are a client-side simulation with no
    agent actually running.
+9. Real `RISK_WARNING`: `new WebSocket('/v1/openp2p/chat?token=...')`
+   already delivers this message type once real chat (item 3) is wired
+   — nothing extra is needed on the backend side, that route already
+   broadcasts it (RFC-017). What's needed is only replacing
+   `src/lib/socialEngineering.ts`'s keyword regex with just listening
+   for the real WS message.

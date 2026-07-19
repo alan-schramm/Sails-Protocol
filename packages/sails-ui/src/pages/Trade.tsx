@@ -13,6 +13,7 @@ import { AgentRiskCard } from '../components/agent/AgentRiskCard'
 import { buildTradeFromOffer } from '../lib/buildTrade'
 import { formatDateTime } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
+import { detectRiskLocally } from '../lib/socialEngineering'
 
 let msgCounter = 100
 
@@ -87,6 +88,22 @@ export function Trade() {
 
   const handleSend = (content: string) => {
     setMessages((m) => [...m, { id: `m-${msgCounter++}`, senderId: user?.id ?? null, sender: user, content, type: 'TEXT', createdAt: new Date().toISOString() }])
+
+    // Mocked reflection of RFC-017's SocialEngineeringAgent — see
+    // lib/socialEngineering.ts's own comment for what's real vs simulated.
+    const warning = detectRiskLocally(content)
+    if (warning) {
+      setTimeout(() => {
+        setMessages((m) => [
+          ...m,
+          {
+            id: `risk-${msgCounter++}`, senderId: null, sender: null,
+            content: warning.reasoning, type: 'RISK_WARNING', riskPattern: warning.pattern,
+            createdAt: new Date().toISOString(),
+          },
+        ])
+      }, 600)
+    }
   }
 
   const handleSendMedia = (media: { url: string; fileName: string; type: MessageType }) => {
