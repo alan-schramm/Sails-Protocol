@@ -123,6 +123,46 @@ browser's console flagged it as a React DOM-nesting warning; `tsc` had
 no opinion, since it's valid TypeScript. Fixed by pulling `InfoTooltip`
 out to be a sibling of the toggle button instead of a descendant.
 
+## Three real UX bugs found and fixed (asked directly: "tem erros de UX?")
+
+None of these were caught by `tsc`/`npm run build` — all three are
+runtime navigation/state bugs, found by actually clicking through the
+full offer → login → trade flow, not by the type checker.
+
+1. **Any offer landed on the same hardcoded trade.** `OfferDetail`'s
+   "Iniciar Trade" always navigated to `/trade/trade-a1b2c3d4` — the
+   `MOCK_TRADE` id — regardless of which offer or amount was picked.
+   Browsing the STX offer and starting a trade landed on a screen
+   showing BTC, a different amount, and a different counterparty. Fixed
+   by `src/lib/buildTrade.ts`'s `buildTradeFromOffer()`, which
+   constructs a real `Trade` from the offer + amount passed through
+   `navigate()`'s router state; `Trade.tsx` uses it when that state is
+   present and falls back to `MOCK_TRADE` only for direct/bookmarked
+   navigation (no offer to build from) — an intentional fallback, not
+   the bug. Also swapped `Trade.tsx`'s hardcoded `formatBrl()` for
+   `formatByCurrency(trade.totalBrl, trade.offer.fiatCurrency)`, since a
+   trade built from a non-BRL offer needs the right currency symbol.
+2. **Login lost all context.** `Login`'s `handleConnect()` always
+   navigated to `/`. An unauthenticated user redirected here from
+   `OfferDetail`'s "Iniciar Trade" would connect, land on the
+   Marketplace, and have to re-find the offer and retype the amount.
+   Fixed with a standard return-to pattern: `OfferDetail` passes
+   `{ from: location.pathname, amount }` in `navigate()`'s state when
+   redirecting to `/login`; `Login` reads it back and navigates to
+   `from` (forwarding `amount`) instead of always `/`; `OfferDetail`
+   prefills its amount field from that returned state on mount.
+3. **`AgentIntentionPanel` and the offer grid never referenced each
+   other.** Delegating a mandate to the AI Negotiator never filtered or
+   highlighted any real offer, and picking an offer manually never
+   referenced anything from the mandate — two parallel entry points to
+   the same goal that felt bolted together rather than one flow. Fixed
+   with a new `onIntentGenerated` prop: as soon as QVAC parses a goal
+   (before the user even delegates), `Marketplace` narrows its own
+   asset/side/currency filters to match, so the offer grid updates
+   live. The generated-intent card also gained a "Ver ofertas
+   correspondentes no Marketplace ↓" link that scrolls to the (now
+   filtered) grid (`id="marketplace-offer-grid"`).
+
 ## Running it
 
 ```bash
