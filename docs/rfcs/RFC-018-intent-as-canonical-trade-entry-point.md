@@ -127,6 +127,17 @@ Implementation Plan below — not a duplicate of it:
   `OpenP2PTradeIntentHandler`, Phase 3 only (see Reference
   Implementation Plan).
 
+**Core RFC Review Checklist** (`GOVERNANCE.md` §6A):
+
+- [x] `PROTOCOL_SPECIFICATION.md` — updated (§1.11's `Offer` entry,
+  §1.12's footnote).
+- [ ] `PROTOCOL_INVARIANTS.md` — not applicable. No Constitutional or
+  Operational invariant changes; the Intent/Trade link is a wiring fix,
+  not a custody or trust-boundary change.
+- [ ] `TRUST_BOUNDARY.md` — not applicable, same reason.
+- [ ] `SECURITY_MODEL.md` — not applicable, same reason.
+- [ ] `CRYPTOGRAPHIC_MODEL.md` — not applicable, same reason.
+
 ## Primitives Used or Extended
 
 Extends **Intent** (§1.2, §2) and **Discovery** (§1.3, via `Offer`'s new
