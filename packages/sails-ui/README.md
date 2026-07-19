@@ -7,9 +7,35 @@ black + orange, light and dark theme, orange constant across both. See
 
 ## What this is
 
-9 screens, fully navigable, real routing (`react-router-dom`):
+10 screens, fully navigable, real routing (`react-router-dom`):
 Marketplace, Offer Detail, Trade (chat + escrow state machine), Login,
-Profile, Trade History, Admin Dashboard, Manage Offers, Disputes.
+Profile, Publish Offer (3-step wizard), Trade History, Admin Dashboard,
+Manage Offers, Disputes.
+
+**Publish Offer** (`PublishOffer.tsx`, `/profile/new-offer`): a 3-step
+wizard matching the Binance P2P ad-posting flow, requested directly with
+a reference screenshot — Definir tipo e preço → Definir valor e método →
+Definir condições. Every field that reaches the final `Offer` object
+maps onto the real backend's `CreateOfferInput`
+(`liquidity.service.ts`, checked before building this): asset, side,
+priceUsd, priceBrl, minAmount, maxAmount, paymentMethod, paymentDetails,
+network, description, requiresKyc. Two things are honestly not backed
+by that real shape: "Tipo de Preço: Flutuante" (a market-pegged price —
+`liquidity.service.ts` has no live FX/price-feed integration at all,
+selectable for fidelity to the reference screenshot but disabled with a
+tooltip explaining why) and `priceUsd` itself when pricing in a non-USD
+currency (derived via `lib/currency.ts`'s new `ILLUSTRATIVE_FX_TO_USD`,
+same "illustrative, not live" honesty boundary `AMOUNT_PRESETS` already
+uses). `lib/offersStore.ts` persists a published offer to
+`localStorage` (same pattern Marketplace's filters already use) layered
+on top of the seed `MOCK_OFFERS` — `Marketplace`/`Profile`/`OfferDetail`
+all read through it now, so a just-published offer shows up everywhere
+immediately. No `POST /v1/liquidity/offers` call happens — see this
+file's own `// TODO: replace with @sails/sdk liquidity.createOffer()`
+comment. Verified live in browser: full 3-step flow, validation on
+under-filled steps, the published offer appearing correctly in
+Marketplace, Profile, and its own detail page with the right
+side/price/limits.
 
 **Design system** (`src/index.css`, `tailwind.config.js`): CSS custom
 properties define the full palette for both themes — `:root` (light)
@@ -222,3 +248,8 @@ require touching `vite.config.ts`.
    broadcasts it (RFC-017). What's needed is only replacing
    `src/lib/socialEngineering.ts`'s keyword regex with just listening
    for the real WS message.
+10. A real `POST /v1/liquidity/offers` call (`liquidity.createOffer()`)
+    instead of `lib/offersStore.ts`'s `localStorage` layer, once auth
+    (item 2) is real — `PublishOffer.tsx`'s wizard already builds the
+    exact `CreateOfferInput` shape that call needs. A real live-rate
+    source would also let "Tipo de Preço: Flutuante" stop being disabled.

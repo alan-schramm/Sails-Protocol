@@ -1,10 +1,10 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { MOCK_OFFERS } from '../data/mock'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { CopyButton } from '../components/ui/CopyButton'
 import { AssetBadge, SideBadge, OfferStatusBadge } from '../components/ui/Badge'
+import { getAllOffers } from '../lib/offersStore'
 
 export function Profile() {
   const { user } = useAuth()
@@ -14,11 +14,16 @@ export function Profile() {
     if (!user) navigate('/login')
   }, [user, navigate])
 
+  // TODO: replace with @sails/sdk `liquidity.getOffers({ userId })` once
+  // the mock swap happens — `getAllOffers()` (lib/offersStore.ts) layers
+  // anything published via the "Publicar Anúncio" wizard on top of the
+  // seed MOCK_OFFERS, read fresh on every mount so a just-published
+  // offer shows up immediately after navigating back here.
+  const [offers] = useState(getAllOffers)
+
   if (!user) return null
 
-  // TODO: replace with @sails/sdk `liquidity.getOffers({ userId })` once
-  // the mock swap happens.
-  const myOffers = MOCK_OFFERS.filter((o) => o.userId === user.id)
+  const myOffers = offers.filter((o) => o.userId === user.id)
 
   return (
     <div>
@@ -83,7 +88,7 @@ export function Profile() {
       <div className="mt-6">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-brand-text">Minhas Ofertas</h3>
-          <button className="btn-primary text-xs px-3 py-1.5">Nova Oferta</button>
+          <button onClick={() => navigate('/profile/new-offer')} className="btn-primary text-xs px-3 py-1.5">Nova Oferta</button>
         </div>
         <div className="mt-3 space-y-2">
           {myOffers.length === 0 && <p className="text-sm text-brand-text-muted">Nenhuma oferta publicada ainda.</p>}

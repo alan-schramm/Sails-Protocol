@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { MOCK_OFFERS } from '../data/mock'
 import { AssetBadge, SideBadge, PaymentBadge } from '../components/ui/Badge'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
+import { getAllOffers } from '../lib/offersStore'
 import { useAuth } from '../context/AuthContext'
 
 export function OfferDetail() {
@@ -15,7 +15,9 @@ export function OfferDetail() {
   const { user } = useAuth()
   // TODO: replace with @sails/sdk `liquidity.getOffer(id)` (real route:
   // GET /v1/liquidity/offers/:asset/book, or a future single-offer route)
-  const offer = MOCK_OFFERS.find((o) => o.id === id)
+  // — getAllOffers() (lib/offersStore.ts) includes offers published via
+  // the "Publicar Anúncio" wizard, not just the seed MOCK_OFFERS.
+  const offer = getAllOffers().find((o) => o.id === id)
   // Prefilled when arriving back here after being bounced to /login mid
   // way through starting a trade (see handleStartTrade below) — without
   // this, a round trip through login silently dropped whatever amount
