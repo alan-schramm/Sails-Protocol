@@ -8,6 +8,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "outDir": "dist",
+    "rootDir": ".",
     "baseUrl": ".",
     "paths": {
       "@sails/p2p-schemas": ["packages/sails-p2p-schemas/src/index.ts"]
