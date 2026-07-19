@@ -924,6 +924,28 @@ Verified: `npm run build` clean, `npm test` 21/21 suites, 193/193 tests.
 
 ---
 
+## 15. Implementation Freeze (declared 2026-07-19)
+
+Full declaration lives in `GOVERNANCE.md` §6B — not repeated here, per
+this same document's own recent discipline about one source of truth.
+Short version for anyone scanning this list top to bottom: governance
+process is considered stable now (Core RFC classification, the review
+checklist, RFC-018/019 — all landed the same day). Effort going forward
+should weight roughly 80-90% code/tests/integration (WDK/Pears/QVAC)/UX/
+developer docs, 10-20% new RFCs, and those should come from what
+implementation reveals, not further architectural speculation. New
+governance process/classifications/documents are the exception now, not
+a natural next step — assume a concept already exists and consolidate
+before proposing an expansion.
+
+**Practical effect on this list:** sections 4 (Settlement Providers,
+specifically RFC-019's Phase 1/2), 7 (Intent Engine Tables, specifically
+RFC-018's 3 phases), 8 (SDK), 9 (Monorepo), and 11 (Frontend) are where
+Implementation Freeze effort should actually go next — they're the real
+code/SDK/UX work this phase exists to prioritize.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority
