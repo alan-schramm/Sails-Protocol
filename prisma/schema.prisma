@@ -2,9 +2,13 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Prisma 7 (Dependabot major-version bump, 2026-07-19): schema-level
+// `url = env("DATABASE_URL")` is no longer supported — connection config
+// moves to prisma.config.ts (CLI/migrate) and an explicit driver adapter
+// passed to `new PrismaClient({ adapter })` (runtime, common/database/index.ts).
+// See https://pris.ly/d/config-datasource and https://pris.ly/d/prisma7-client-config.
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum AssetType {

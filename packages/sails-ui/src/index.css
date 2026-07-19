@@ -1,6 +1,10 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4 (Dependabot major-version bump, 2026-07-19) — the old
+   `@tailwind base/components/utilities` directives are replaced by a
+   single `@import`. `@config` keeps the existing JS config (brand color
+   vars, darkMode: 'class') working as-is rather than porting it to v4's
+   newer CSS-native `@theme` block, out of scope for a dependency bump. */
+@import "tailwindcss";
+@config "../tailwind.config.js";
 
 /**
  * Satsails brand identity — black + orange, light and dark. Orange
@@ -60,8 +64,12 @@ body {
   .card {
     @apply bg-brand-surface border border-brand-border rounded-xl;
   }
+  /* Tailwind v4 (Dependabot major-version bump, 2026-07-19): @apply can
+     no longer chain through another custom @layer components class
+     (v3 allowed `@apply card`) — inlined .card's own utility list
+     directly rather than referencing it by name. */
   .card-hover {
-    @apply card transition-colors;
+    @apply bg-brand-surface border border-brand-border rounded-xl transition-colors;
   }
   .card-hover:hover {
     border-color: var(--color-orange-border);
@@ -81,11 +89,13 @@ body {
   .pill {
     @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors;
   }
+  /* Same Tailwind v4 @apply-chaining removal as .card-hover above —
+     .pill's own utility list inlined instead of `@apply pill`. */
   .pill-active {
-    @apply pill bg-brand-orange/10 border-brand-orange/30 text-brand-orange;
+    @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors bg-brand-orange/10 border-brand-orange/30 text-brand-orange;
   }
   .pill-inactive {
-    @apply pill bg-brand-elevated border-brand-border text-brand-text-secondary hover:border-brand-border-hover;
+    @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors bg-brand-elevated border-brand-border text-brand-text-secondary hover:border-brand-border-hover;
   }
 }
 
