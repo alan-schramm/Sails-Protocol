@@ -140,6 +140,13 @@ Legacy equivalents: `POST /offers`, `GET /offers`, `GET
 
 ## 4. Sails OpenSettlement — `/v1/settlement/`
 
+**Custody note (RFC-019):** the `WDK_USDT_EVM` `SettlementProvider`
+these routes call into when active is a server-custodial reference
+implementation, not the protocol's normative custody model — see
+`CRYPTOGRAPHIC_MODEL.md` §5 for the full mechanics and
+`rfcs/RFC-019-settlement-custody-reference-vs-normative.md` for the
+registered migration plan.
+
 | Method | Path | Description |
 |---|---|---|
 | POST | `/v1/settlement/escrow` | Create an escrow for a trade |

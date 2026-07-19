@@ -204,5 +204,21 @@ export async function startServer() {
 ╚══════════════════════════════════════════════════════╝
   `)
 
+  // RFC-019 Phase 1 (rfcs/RFC-019-settlement-custody-reference-vs-normative.md)
+  // — a loud, impossible-to-miss boot warning whenever the real WDK
+  // provider is active. `WdkSettlementProvider.custodyModel` is the
+  // introspectable form of this same fact; this is the human-visible
+  // one, since a boot log is what someone actually deploying this
+  // reference implementation is most likely to see.
+  if (!config.features.mockEscrow) {
+    console.warn(`
+⚠️  WDK_USDT_EVM is a SERVER-CUSTODIAL REFERENCE IMPLEMENTATION.
+    One server-held seed (WDK_SEED_PHRASE) signs every escrow
+    lock/release — this is NOT the protocol's normative custody model.
+    Do NOT use with real value at risk. See CRYPTOGRAPHIC_MODEL.md §5
+    and rfcs/RFC-019-settlement-custody-reference-vs-normative.md.
+    `)
+  }
+
   return app
 }

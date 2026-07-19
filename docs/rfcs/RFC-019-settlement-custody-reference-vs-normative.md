@@ -210,11 +210,17 @@ compatibility risk to anything already built against
 
 ## Reference Implementation Plan
 
-Satsails reference implementation (this repo). Phase 1 (the four
-"Immediate" items above) is low-risk and can be picked up as a
-near-term follow-up pass. Phase 2 (the real non-custodial settlement
-path) is separately scoped, unstarted, and not committed to a
-timeline — consistent with `GOVERNANCE.md` §5 step 4: accepting this
-RFC is not a commitment that Satsails will build Phase 2 by any date,
-only that the destination is now the recorded, binding target rather
-than an implicit assumption.
+Satsails reference implementation (this repo).
+
+**Phase 1 — done (2026-07-19).** `WdkSettlementProvider.custodyModel`
+(readonly, `'server-custodial-reference-implementation'`), a boot-time
+warning in `startServer()` whenever `MOCK_ESCROW=false`, `.env.example`
+disclosure on `WDK_SEED_PHRASE`, and an `API_REFERENCE.md` pointer to
+`CRYPTOGRAPHIC_MODEL.md` §5 — all landed together, purely additive, no
+behavior change (verified: `npm run build` clean, `npm test` 207/207).
+
+**Phase 2 — the real non-custodial settlement path** — is separately
+scoped, unstarted, and not committed to a timeline — consistent with
+`GOVERNANCE.md` §5 step 4: accepting this RFC is not a commitment that
+Satsails will build Phase 2 by any date, only that the destination is
+now the recorded, binding target rather than an implicit assumption.
