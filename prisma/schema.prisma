@@ -116,6 +116,13 @@ model Offer {
   moduleId       String        @default("openliquidity")
   protocolVersion String       @default("0.1")
   intentType     String?
+  // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) —
+  // the real Intent row this Offer was created from (createOffer() ->
+  // intentEngine.create()). Nullable: pre-migration Offer rows have no
+  // Intent behind them and remain fully valid, same backward-compatible
+  // pattern RFC-008 used for entryHash/prevHash.
+  intentId       String?
+  intent         Intent?       @relation(fields: [intentId], references: [id])
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -145,6 +152,11 @@ model Trade {
   moduleId    String      @default("openp2p")
   protocolVersion String  @default("0.1")
   intentType  String      @default("TradeIntent")
+  // RFC-018 — copied from the accepted Offer's intentId at trade
+  // creation (createTrade()). Nullable, same rationale as Offer.intentId
+  // above.
+  intentId    String?
+  intent      Intent?     @relation(fields: [intentId], references: [id])
   completedAt DateTime?
   cancelledAt DateTime?
   createdAt   DateTime    @default(now())
@@ -264,6 +276,13 @@ model Intent {
   metadata       Json      @default("{}")
 
   events IntentEvent[]
+  // RFC-018 — back-relations for Offer.intentId/Trade.intentId above.
+  // In practice one Intent maps to at most one Offer and one Trade
+  // (TradeIntentPayload's current scope), but modeled as arrays since
+  // that's the FK direction Prisma requires, not a claim that more than
+  // one of each is expected.
+  offers Offer[]
+  trades Trade[]
 
   @@index([participantId])
   @@index([status])

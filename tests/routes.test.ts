@@ -273,6 +273,20 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('publishes an offer for an authenticated caller', async () => {
       const token = await authedSession('user-1')
+      // RFC-018 — createOffer() now calls intentEngine.create() first
+      // (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md), the
+      // same CREATED -> VALIDATED -> COORDINATED chain the Intent API
+      // test below already exercises — same mock pattern reused here,
+      // not duplicated logic.
+      mockIntentEventFindFirst.mockResolvedValue(null)
+      mockIntentCreate.mockResolvedValueOnce({
+        id: 'intent-1', type: 'TradeIntent', participantId: 'user-1', moduleId: 'openp2p', status: 'CREATED',
+      })
+      mockIntentFindUnique
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED' })                                          // transition() -> VALIDATED
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload: {} })       // coordinationEngine.decide()
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED' })                                         // transition() -> COORDINATED
+      mockIntentUpdate.mockResolvedValue({ id: 'intent-1', status: 'COORDINATED' })
       mockOfferCreate.mockResolvedValueOnce({ id: 'offer-1', userId: 'user-1', asset: 'BTC', side: 'SELL', priceUsd: '65000' })
 
       const res = await app.inject({
@@ -283,8 +297,11 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
 
       expect(res.statusCode).toBe(201)
+      expect(mockIntentCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ participantId: 'user-1', type: 'TradeIntent' }) })
+      )
       expect(mockOfferCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ userId: 'user-1', asset: 'BTC' }) })
+        expect.objectContaining({ data: expect.objectContaining({ userId: 'user-1', asset: 'BTC', intentId: 'intent-1' }) })
       )
     })
 
@@ -339,6 +356,42 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(mockTradeCreate).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ buyerId: 'buyer-1', sellerId: 'seller-1' }) })
       )
+    })
+
+    it('RFC-018: walks the offer\'s Intent through DISCOVERING -> MATCHED -> NEGOTIATING when a trade starts', async () => {
+      const token = await authedSession('buyer-1')
+      mockOfferFindUnique.mockResolvedValueOnce({
+        id: 'offer-1', userId: 'seller-1', status: 'ACTIVE', side: 'SELL',
+        asset: 'BTC', priceUsd: '65000', network: null, intentId: 'intent-1',
+      })
+      mockTradeCreate.mockResolvedValueOnce({
+        id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING',
+        asset: 'BTC', amount: '0.01', priceUsd: '65000', intentId: 'intent-1',
+      })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', status: 'PENDING' })
+      mockIntentEventFindFirst.mockResolvedValue(null)
+      mockIntentFindUnique
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED' }) // -> DISCOVERING
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING' }) // -> MATCHED
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'MATCHED' })     // -> NEGOTIATING
+      mockIntentUpdate.mockResolvedValue({ id: 'intent-1' })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/openp2p/trades',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { offerId: 'offer-1', amount: '0.01' },
+      })
+
+      expect(res.statusCode).toBe(201)
+      expect(mockTradeCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ intentId: 'intent-1' }) })
+      )
+      // Three sequential transitions, in order — the actual state-machine
+      // edges (core/state-machine.ts) enforce the ordering; this just
+      // confirms trade.service.ts actually drives it.
+      const toStatuses = mockIntentUpdate.mock.calls.map((c) => c[0]?.data?.status)
+      expect(toStatuses).toEqual(['DISCOVERING', 'MATCHED', 'NEGOTIATING'])
     })
   })
 

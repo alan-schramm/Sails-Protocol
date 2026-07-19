@@ -326,36 +326,35 @@ makes the same point in more detail.
       one self-issued `POST /v1/capabilities/register` call at a time).
 - [ ] **Still open:** `IntentHandler` plugin registration pattern (§2.7 of
       `PROTOCOL_SPECIFICATION.md`) is fully specified but has zero code.
-- [ ] **The most important open gap in this section, found 2026-07-19 by
-      a CTO-directed fidelity audit** ("a implementação está respeitando
-      o modelo de Intent definido na especificação?" — not a design
-      question, an audit of the shipped code against it): **no real
-      `Offer` or `Trade` in this codebase has an `Intent` row behind it.**
-      `liquidity.service.ts`'s `createOffer()` never calls
-      `intentEngine.create()`; `trade.service.ts`'s `createTrade()` (the
-      real "start a trade from an offer" path) never imports
-      `core/intent-engine.ts` at all. `Intent`/`IntentEvent`
-      (`routes/intentRoutes.ts`, `POST`/`DELETE /api/v1/intents`) is a
-      fully real, working, tested code path — the gap isn't that Intent
-      is unimplemented, it's that **the actual OpenP2P trade flow never
-      calls it.** Even `src/demo/pix-to-usdt-flow.ts`, the one script
-      that exercises both, creates an `Intent` and a `Trade` as two
-      uncorrelated rows with no foreign key between them (`Intent` at
-      line 153, `Trade` at line 157, no reference from one to the
-      other). This directly contradicts `PROTOCOL_SPECIFICATION.md`
-      §1.11's claim that a published `Offer` "is OpenLiquidity's concrete
-      database artifact representing a published, discoverable Intent"
-      — that claim is the intended target architecture, now annotated as
-      such in that section, not the current implementation. Closing this
-      means routing offer/trade creation through the Intent Engine for
-      real (`Offer`/`Trade` gaining an `intentId` FK, or equivalent) —
-      real, scoped engineering work, not a documentation fix.
-      **RFC-018** (`docs/rfcs/RFC-018-intent-as-canonical-trade-entry-point.md`,
-      accepted 2026-07-19, CTO-role review approved as P0) registers the
-      target architecture and a 3-phase migration plan — not implemented
-      yet, per the review's own instruction to register and plan before
-      building. See `PROTOCOL_SPECIFICATION.md` §1.11 and §1.12's
-      footnote for the doc-side annotation.
+- [x] **Real gap found 2026-07-19 by a CTO-directed fidelity audit**
+      ("a implementação está respeitando o modelo de Intent definido na
+      especificação?" — not a design question, an audit of the shipped
+      code against it), **fixed the same day.** No real `Offer` or
+      `Trade` had an `Intent` row behind it — `liquidity.service.ts`'s
+      `createOffer()` never called `intentEngine.create()`;
+      `trade.service.ts`'s `createTrade()` never imported
+      `core/intent-engine.ts` at all — directly contradicting
+      `PROTOCOL_SPECIFICATION.md` §1.11's claim that a published `Offer`
+      "is OpenLiquidity's concrete database artifact representing a
+      published, discoverable Intent." **RFC-018**
+      (`docs/rfcs/RFC-018-intent-as-canonical-trade-entry-point.md`,
+      Core RFC) registered the target architecture, then Phases 1-2
+      were implemented in the same pass: `Offer`/`Trade` gained a
+      nullable `intentId` FK; `createOffer()` creates a real `Intent`;
+      `createTrade()` walks it through `DISCOVERING → MATCHED →
+      NEGOTIATING`; `common/events/handlers.ts`'s three
+      `settlement.escrow.*` reactions drive `COMMITTED`/`SETTLING → 
+      FULFILLED`/`FAILED`. Corrected from the RFC's own original draft
+      during implementation: `COMMITTED` fires at escrow-lock time
+      (matching §3.1's already-accepted mapping), not at trade
+      creation, and no `intent-engine.ts` ownership-check change was
+      actually needed. `npm run build` clean, `npm test` 212/212 (5 new
+      tests). **Not yet applied to a live database** — schema edited,
+      `npx prisma generate` run, but no Postgres reachable in this
+      environment to run a real migration; needed before this code path
+      works outside tests. Phase 3 (`OpenP2PTradeIntentHandler`, §2.7)
+      remains deferred — a refactor of already-working logic, not a
+      blocker.
 - [ ] **Related, more severe finding from the same audit — a real
       Constitutional Invariant violation, not a documentation gap:** the
       one real, tested `SettlementProvider` (`WdkSettlementProvider`,

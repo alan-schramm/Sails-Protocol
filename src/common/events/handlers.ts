@@ -5,7 +5,14 @@ import { reputationService } from '../../modules/open-reputation/reputation.serv
 import { broadcastToTrade } from '../../modules/open-p2p/chat-room-registry'
 import { executeSettlement } from '../../modules/open-settlement/settlement-orchestrator'
 import { wdkSettlementProvider, buyerIndexFor } from '../../modules/open-settlement/wdk-settlement.provider'
+import { intentEngine } from '../../core/intent-engine'
 import { config } from '../../config'
+
+// RFC-018 — 'system:trade-lifecycle' for every Intent transition this
+// dispatcher drives on a trade's behalf, matching the existing
+// 'system:expiry-check' sentinel convention (core/intent-engine.ts's
+// own expiry transitions) for system-triggered, non-participant events.
+const INTENT_LIFECYCLE_TRIGGER = 'system:trade-lifecycle'
 
 /**
  * Sails Protocol — Coordination Protocol (Event Handlers)
@@ -81,10 +88,27 @@ import { config } from '../../config'
 export function registerEventHandlers(): void {
   // ── Sails OpenP2P reacts to settlement state changes ────────────────────────
   eventBus.on('settlement.escrow.locked', async (payload) => {
-    await prisma.trade.update({
+    const trade = await prisma.trade.update({
       where: { id: payload.tradeId },
       data: { status: 'ACTIVE' },
     })
+
+    // RFC-018 — "05 ESCROW LOCKED" is PROTOCOL_SPECIFICATION.md §3.1's
+    // own mapping for the Intent Engine's COMMITTED state ("terms
+    // agreed, settlement requested"), not trade creation itself —
+    // trade.service.ts's createTrade() only walks the Intent to
+    // NEGOTIATING; escrow actually locking is what "terms agreed,
+    // settlement requested" means for OpenP2P. Skipped for any Trade
+    // created before this RFC landed (intentId null). `terms: null` —
+    // AgreedTerms (PROTOCOL_SPECIFICATION.md §1.4) lives only in
+    // negotiation.service.ts's in-memory state today, not persisted
+    // anywhere this handler can read; not fabricated here.
+    if (trade.intentId) {
+      await intentEngine.transition(
+        trade.intentId, 'COMMITTED', INTENT_LIFECYCLE_TRIGGER, 'intent.committed',
+        { intentId: trade.intentId, settlementId: payload.escrowId, terms: null }
+      )
+    }
   })
 
   eventBus.on('settlement.escrow.released', async (payload) => {
@@ -124,6 +148,25 @@ export function registerEventHandlers(): void {
       await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'POSITIVE')
       await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'POSITIVE')
     }
+
+    // RFC-018 — "released" always means the buyer got the asset, whether
+    // via the happy path or a dispute RELEASE ruling; from the Intent's
+    // own perspective (did this Intent's goal get fulfilled?) that's
+    // always a success, independent of who Reputation credits/penalizes
+    // above. SETTLING is walked through immediately before FULFILLED
+    // rather than at markPaymentSent() time — a real, scoped
+    // refinement, not this pass's scope (see RFC-018's own
+    // Implementation Impact).
+    if (trade.intentId) {
+      await intentEngine.transition(
+        trade.intentId, 'SETTLING', INTENT_LIFECYCLE_TRIGGER, 'intent.settling',
+        { intentId: trade.intentId, settlementId: payload.escrowId }
+      )
+      await intentEngine.transition(
+        trade.intentId, 'FULFILLED', INTENT_LIFECYCLE_TRIGGER, 'intent.fulfilled',
+        { intentId: trade.intentId, settlementId: payload.escrowId, outcome: 'RELEASED' }
+      )
+    }
   })
 
   eventBus.on('settlement.escrow.disputed', async (payload) => {
@@ -159,6 +202,18 @@ export function registerEventHandlers(): void {
     } else {
       await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEUTRAL')
       await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEUTRAL')
+    }
+
+    // RFC-018 — a refund, disputed or not, means the buyer never got the
+    // asset: the Intent's own goal was not fulfilled. FAILED is a valid
+    // direct transition from both COMMITTED and SETTLING
+    // (core/state-machine.ts), so this doesn't need to know which one
+    // the Intent is currently in.
+    if (trade.intentId) {
+      await intentEngine.transition(
+        trade.intentId, 'FAILED', INTENT_LIFECYCLE_TRIGGER, 'intent.failed',
+        { intentId: trade.intentId, reason: resolvedRefund ? 'Escrow refunded per dispute ruling' : 'Escrow refunded' }
+      )
     }
   })
 

@@ -2,6 +2,8 @@ import { AssetType, TradeSide, PaymentMethod, OfferStatus } from '../../common/t
 import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
+import { intentEngine } from '../../core/intent-engine'
+import type { TradeIntentPayload } from '../../common/types/intent'
 import type { Prisma } from '@prisma/client'
 
 /**
@@ -153,6 +155,23 @@ export class LiquidityRouter {
   }
 
   async createOffer(input: CreateOfferInput) {
+    // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) —
+    // an Offer is conceptually a published, discoverable TradeIntent
+    // (PROTOCOL_SPECIFICATION.md §1.11); this is the point that
+    // relationship becomes a real row, not just a documented claim. The
+    // payload's maxValue/minValue are the offer's total fiat range
+    // (priceUsd × the amount bounds already validated by this route's
+    // caller), decimal strings per RFC-009 — never a JS number.
+    const intentPayload: TradeIntentPayload = {
+      asset: input.asset,
+      side: input.side,
+      maxValue: (Number(input.priceUsd) * Number(input.maxAmount)).toFixed(8),
+      minValue: (Number(input.priceUsd) * Number(input.minAmount)).toFixed(8),
+      fiatMethod: input.paymentMethod,
+      network: input.network,
+    }
+    const intent = await intentEngine.create('TradeIntent', intentPayload, input.userId)
+
     const offer = await prisma.offer.create({
       data: {
         userId: input.userId,
@@ -167,6 +186,7 @@ export class LiquidityRouter {
         network: input.network,
         description: input.description,
         requiresKyc: input.requiresKyc,
+        intentId: intent.id,
       },
     })
 

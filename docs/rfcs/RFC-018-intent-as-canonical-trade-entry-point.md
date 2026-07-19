@@ -84,48 +84,75 @@ the `CreateOfferInput` fields it already receives — `asset`, `side`,
 `minValue` pair derived from `priceUsd × maxAmount`/`minAmount`), then
 persists the `Offer` row with the resulting `intentId`.
 
-Every `Trade` gains a nullable `intentId` foreign key. `trade.service.ts`'s
-`createTrade()` copies the accepted `Offer`'s `intentId` onto the new
-`Trade` row and calls `intentEngine.transition(intentId, 'COMMITTED')`
-— matching §2.4's existing generic lifecycle ("terms agreed, settlement
-requested") and §3.1's already-published mapping table (`COMMITTED` ↔
-"05 ESCROW LOCKED"). When settlement completes,
-`common/events/handlers.ts`'s existing `settlement.escrow.released`/
-`refunded` reaction (which already calls `reputationService.recordOutcome()`)
-also calls `intentEngine.transition(intentId, 'FULFILLED')` or the
-appropriate terminal state.
+Every `Trade` gains a nullable `intentId` foreign key, copied from the
+accepted `Offer`. **Corrected during implementation (2026-07-19) from
+this RFC's original draft:** `createTrade()` does **not** transition
+straight to `COMMITTED` — `assertValidTransition` (`core/state-machine.ts`)
+does not allow `COORDINATED → COMMITTED` directly, and
+`PROTOCOL_SPECIFICATION.md` §3.1's own, already-accepted mapping table
+places `COMMITTED` at "05 ESCROW LOCKED," not at trade creation ("02
+COUNTERPARTY FOUND"). `createTrade()` instead walks the Intent through
+`DISCOVERING → MATCHED → NEGOTIATING` (the search that led here, the
+counterparty being found, and `negotiationService.open()` all happening
+synchronously in this reference implementation's "accept an offer"
+flow) — real, scoped engineering work, not a documentation fix.
+`COMMITTED` fires from `common/events/handlers.ts`'s
+`settlement.escrow.locked` reaction instead, matching §3.1 exactly.
+When settlement completes, the existing `settlement.escrow.released`
+reaction walks `SETTLING → FULFILLED`; `settlement.escrow.refunded`
+transitions directly to `FAILED` (valid from both `COMMITTED` and
+`SETTLING` per the state machine, so no need to track which one the
+Intent is in at refund time).
 
-`IntentHandler` (§2.7) gets its first real implementation:
-`OpenP2PTradeIntentHandler`, formalizing the inline `TradeIntent`
-validation `intent-engine.ts` currently does directly — already flagged
-in §2.6 as "natural follow-up work, not done here." This RFC is that
-follow-up's trigger, not its full implementation (see Reference
+**Also corrected during implementation:** the ownership-check change
+flagged in Implementation Impact below turned out unnecessary —
+`intent-engine.ts`'s exported `transition()` has no ownership check at
+all (only `cancel()` does); it was already designed as an open
+mechanism any module can drive with any `triggeredBy` string, per its
+own doc comment. Verified by reading the function before assuming a
+change was needed, not by trial and error.
+
+`IntentHandler` (§2.7)'s real implementation
+(`OpenP2PTradeIntentHandler`, formalizing the inline `TradeIntent`
+validation `intent-engine.ts` currently does directly) remains
+deferred — Phase 3, not built in this pass (see Reference
 Implementation Plan).
 
 ## Implementation Impact
 
-A scannable map to the full detail in Specification/Reference
-Implementation Plan below — not a duplicate of it:
+**Status: implemented 2026-07-19** (`npm run build` clean, `npm test`
+212/212 — 5 new tests). What actually changed, corrected from the
+original plan below where implementation found a better path:
 
-- `prisma/schema.prisma` — `Offer` and `Trade` each gain a nullable
-  `intentId String?` column + relation to `Intent`. Migration required.
+- `prisma/schema.prisma` — `Offer` and `Trade` each gained a nullable
+  `intentId String?` column + relation to `Intent` (`Intent` gained
+  back-relation arrays `offers`/`trades`). **Schema edited and
+  `npx prisma generate` run; no live Postgres available in this
+  environment to run `prisma migrate dev`/`db push` against — a real
+  deployment needs to apply this schema change before this code path
+  will work.**
 - `src/modules/open-liquidity/liquidity.service.ts` — `createOffer()`
-  gains a call to `intentEngine.create()` before `prisma.offer.create()`.
+  calls `intentEngine.create()` before `prisma.offer.create()`, exactly
+  as planned.
 - `src/modules/open-p2p/trade.service.ts` — `createTrade()` copies
-  `offer.intentId` onto the new `Trade` row and calls
-  `intentEngine.transition(intentId, 'COMMITTED')`.
-- `src/common/events/handlers.ts` — the existing
-  `settlement.escrow.released`/`refunded` reaction gains a call to
-  `intentEngine.transition(intentId, 'FULFILLED')` alongside its
-  existing `recordOutcome()` call.
-- `src/core/intent-engine.ts` — `transition()`'s ownership check needs a
-  real code change (not just a new call site): today only the Intent's
-  creator may transition it; a `Trade` counterparty who didn't create
-  the originating `Offer`/`Intent` also needs to be permitted to drive
-  `COMMITTED`.
-- New file: `src/modules/open-p2p/intent-handler.ts` (or similar) —
-  `OpenP2PTradeIntentHandler`, Phase 3 only (see Reference
-  Implementation Plan).
+  `offer.intentId` onto the new `Trade` row and walks
+  `DISCOVERING → MATCHED → NEGOTIATING` (not straight to `COMMITTED` —
+  see Decision's correction above).
+- `src/common/events/handlers.ts` — `settlement.escrow.locked` gained
+  the `COMMITTED` transition; `settlement.escrow.released` gained
+  `SETTLING` then `FULFILLED`; `settlement.escrow.refunded` gained
+  `FAILED`. New module-level `INTENT_LIFECYCLE_TRIGGER` constant
+  (`'system:trade-lifecycle'`), matching the existing
+  `'system:expiry-check'` sentinel convention.
+- `src/core/intent-engine.ts` — **not changed.** The planned ownership-
+  check adjustment was found unnecessary on inspection (see Decision).
+- `src/modules/open-p2p/intent-handler.ts` (`OpenP2PTradeIntentHandler`)
+  — **not built.** Phase 3, still deferred.
+- New tests: `tests/routes.test.ts` (offer-publish and trade-creation
+  HTTP round-trips now assert the Intent chain fires) and
+  `tests/reputationOutcome.test.ts` (a new describe block asserting
+  each `settlement.escrow.*` handler drives the right transition, and
+  that a pre-RFC-018 Trade with `intentId: null` is skipped cleanly).
 
 **Core RFC Review Checklist** (`GOVERNANCE.md` §6A):
 
@@ -196,19 +223,30 @@ async createTrade(input: CreateTradeInput) {
     data: { /* ...existing fields..., */ intentId: offer.intentId },
   })
   if (offer.intentId) {
-    await intentEngine.transition(offer.intentId, 'COMMITTED', input.counterpartyId)
+    const triggeredBy = 'system:trade-lifecycle'
+    await intentEngine.transition(offer.intentId, 'DISCOVERING', triggeredBy, 'intent.discovering', { intentId: offer.intentId })
+    await intentEngine.transition(offer.intentId, 'MATCHED', triggeredBy, 'intent.matched', { intentId: offer.intentId, candidateIds: [input.counterpartyId] })
+    await intentEngine.transition(offer.intentId, 'NEGOTIATING', triggeredBy, 'intent.negotiating', { intentId: offer.intentId, negotiationId: trade.id })
   }
   // ...existing event emission + negotiationService.open() unchanged...
 }
+
+// common/events/handlers.ts — settlement.escrow.locked
+eventBus.on('settlement.escrow.locked', async (payload) => {
+  const trade = await prisma.trade.update({ where: { id: payload.tradeId }, data: { status: 'ACTIVE' } })
+  if (trade.intentId) {
+    await intentEngine.transition(trade.intentId, 'COMMITTED', INTENT_LIFECYCLE_TRIGGER, 'intent.committed',
+      { intentId: trade.intentId, settlementId: payload.escrowId, terms: null })
+  }
+})
 ```
 
-`intentEngine.transition()`'s existing signature/ownership checks
-(`ForbiddenError` on a mismatched `participantId`) need one adjustment:
-today only the Intent's own creator may transition it; a `Trade`'s
-counterparty (who did not create the originating `Offer`/`Intent`) must
-also be permitted to drive `COMMITTED` once they accept it. This is a
-real, scoped code change to `intent-engine.ts`'s ownership check, not
-just new call sites — flagged here explicitly rather than left implicit.
+**No `intent-engine.ts` change was needed** — `transition()` (as
+opposed to `cancel()`) has no ownership check at all; it's an open
+mechanism any module can drive with any `triggeredBy` string, by
+design (its own doc comment). The original draft assumed a change was
+needed here without having re-read the function first; corrected once
+it was.
 
 ## Backward Compatibility
 
@@ -221,23 +259,27 @@ table.
 
 ## Reference Implementation Plan
 
-Satsails reference implementation (this repo). Explicitly phased, per
-the CTO review's own instruction not to implement provisional fixes in
-the same pass as registering the gap:
+Satsails reference implementation (this repo).
 
-1. **Schema + wiring** (not done in this RFC): add the nullable
-   `intentId` columns, wire `createOffer()`/`createTrade()` as
-   specified above, adjust `intentEngine.transition()`'s ownership
-   check for the counterparty case.
-2. **Lifecycle completion**: wire the `FULFILLED`/terminal-state
-   transition into `common/events/handlers.ts`'s existing settlement
-   outcome reaction.
-3. **`OpenP2PTradeIntentHandler`**: extract `intent-engine.ts`'s inline
-   `TradeIntent` validation into a real, registered `IntentHandler`
-   (§2.7), retiring the inline special-case.
+**Phases 1-2 — done (2026-07-19).** Schema (`Offer`/`Trade` gain
+nullable `intentId`), `createOffer()`/`createTrade()` wired as
+specified, and the full `DISCOVERING → MATCHED → NEGOTIATING →
+COMMITTED → SETTLING → FULFILLED`/`FAILED` lifecycle driven from
+`trade.service.ts` and the three `settlement.escrow.*` reactions in
+`common/events/handlers.ts` — landed together as one real engineering
+pass, not left provisional, once the target was registered and clearly
+understood (per the CTO review's own instruction: register and plan
+first, then this pass is the "implementation" step, not a second
+provisional fix layered on top). `intent-engine.ts` needed no change
+(see Decision). Verified: `npm run build` clean, `npm test` 212/212 (5
+new tests). **Not yet applied to a live database** — no Postgres
+reachable in this environment; the schema change needs
+`npx prisma migrate dev` (or `db push`, matching whichever this
+project's real deployment uses — no `prisma/migrations/` directory
+exists in this repo to indicate which) run against a real database
+before this code path works outside tests.
 
-Acceptance of this RFC is not a commitment to a build date
-(`GOVERNANCE.md` §5, step 4) — it registers the target architecture and
-an incremental path, per the CTO review's explicit instruction:
-"registrar claramente a diferença ... e planejar a migração de forma
-incremental."
+**Phase 3 — `OpenP2PTradeIntentHandler`** — remains deferred. Extracting
+`intent-engine.ts`'s inline `TradeIntent` validation into a real,
+registered `IntentHandler` (§2.7) is a refactor of already-working
+logic, not a gap Phases 1-2 depend on — left for a future pass.

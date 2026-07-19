@@ -40,6 +40,16 @@ jest.mock('../src/modules/open-p2p/reconciliation.service', () => ({
   reconciliationService: { reconcilePeerPair: jest.fn().mockResolvedValue([]) },
 }))
 
+// RFC-018 — handlers.ts now calls intentEngine.transition() from these
+// same reactions; mocked wholesale (rather than the internal prisma
+// chain intentEngine.transition() itself makes) so this file can assert
+// on the call without re-deriving that chain — that internal mechanism
+// is already covered by tests/intentFlow.test.ts.
+const mockIntentTransition = jest.fn().mockResolvedValue(undefined)
+jest.mock('../src/core/intent-engine', () => ({
+  intentEngine: { transition: (...args: unknown[]) => mockIntentTransition(...args) },
+}))
+
 // @tetherto/wdk-wallet-evm ships pure ESM (no CJS build) — handlers.ts now
 // transitively imports it via settlement-orchestrator.ts/escrow.service.ts/
 // wdk-settlement.provider.ts (executeSettlement()'s auto-settle-on-match
@@ -60,7 +70,7 @@ describe('RFC-007 D8/D9 Outcome Engine (dispute-aware, via settlement.escrow.rel
 
   beforeEach(() => {
     jest.clearAllMocks()
-    mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01' })
+    mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
     mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
   })
 
@@ -105,5 +115,56 @@ describe('RFC-007 D8/D9 Outcome Engine (dispute-aware, via settlement.escrow.rel
     const scoreUpdates = mockUserUpdate.mock.calls.filter((c) => c[0]?.data?.reputationScore)
     expect(scoreUpdates.find((c) => c[0].where.id === 'buyer-1')?.[0].data.reputationScore).toEqual({ increment: -5 })
     expect(scoreUpdates.find((c) => c[0].where.id === 'seller-1')?.[0].data.reputationScore).toEqual({ increment: 2 })
+  })
+})
+
+// RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) —
+// the same three handlers above (plus settlement.escrow.locked) also
+// drive the originating Intent's lifecycle now. Verified directly here
+// since these are the real call sites, not just intent-engine.ts's own
+// internal transition() logic (already covered by intentFlow.test.ts).
+describe('RFC-018 — Intent lifecycle driven by settlement.escrow.* handlers', () => {
+  beforeAll(() => {
+    registerEventHandlers()
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
+    mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
+    mockDisputeFindFirst.mockResolvedValue(null)
+  })
+
+  it('settlement.escrow.locked transitions the Intent to COMMITTED', async () => {
+    await handlers['settlement.escrow.locked']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'seller-1', from: 'CREATED', to: 'FUNDS_LOCKED' })
+
+    expect(mockIntentTransition).toHaveBeenCalledWith(
+      'intent-1', 'COMMITTED', 'system:trade-lifecycle', 'intent.committed',
+      expect.objectContaining({ intentId: 'intent-1', settlementId: 'escrow-1' })
+    )
+  })
+
+  it('settlement.escrow.locked skips Intent transition when the Trade predates RFC-018 (intentId null)', async () => {
+    mockTradeUpdate.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: null })
+
+    await handlers['settlement.escrow.locked']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'seller-1', from: 'CREATED', to: 'FUNDS_LOCKED' })
+
+    expect(mockIntentTransition).not.toHaveBeenCalled()
+  })
+
+  it('settlement.escrow.released walks the Intent through SETTLING then FULFILLED, in order', async () => {
+    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'buyer-1', from: 'PAYMENT_PENDING', to: 'COMPLETED' })
+
+    const calls = mockIntentTransition.mock.calls.map((c) => c[1]) // toStatus per call
+    expect(calls).toEqual(['SETTLING', 'FULFILLED'])
+  })
+
+  it('settlement.escrow.refunded transitions the Intent to FAILED', async () => {
+    await handlers['settlement.escrow.refunded']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'seller-1', from: 'FUNDS_LOCKED', to: 'REFUNDED' })
+
+    expect(mockIntentTransition).toHaveBeenCalledWith(
+      'intent-1', 'FAILED', 'system:trade-lifecycle', 'intent.failed',
+      expect.objectContaining({ intentId: 'intent-1' })
+    )
   })
 })

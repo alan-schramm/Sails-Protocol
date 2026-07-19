@@ -11,6 +11,7 @@ import { prisma } from '../../common/database'
 import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { negotiationService } from './negotiation.service'
+import { intentEngine } from '../../core/intent-engine'
 import type { TradeStatus } from '../../common/types'
 
 export interface CreateTradeInput {
@@ -49,6 +50,7 @@ export class TradeService {
         priceUsd,
         totalUsd,
         network: offer.network,
+        intentId: offer.intentId, // RFC-018 — carried over from the accepted Offer
       },
     })
 
@@ -61,6 +63,27 @@ export class TradeService {
       amount: trade.amount.toString(),   // RFC-009 — Decimal -> decimal string at the event boundary
       priceUsd: trade.priceUsd.toString(),
     }, trade.id)
+
+    // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) —
+    // walks the originating Intent through the states this reference
+    // implementation's synchronous "accept an offer" flow actually
+    // represents: DISCOVERING (the search that led the counterparty to
+    // this offer already happened, outside this function) -> MATCHED (a
+    // counterparty is now committed) -> NEGOTIATING (negotiationService.
+    // open() below opens the chat channel immediately after). COMMITTED
+    // itself waits for escrow to actually lock
+    // (common/events/handlers.ts's settlement.escrow.locked reaction) —
+    // this mapping is PROTOCOL_SPECIFICATION.md §3.1's own table, not
+    // invented here. `offer.intentId` is null for any Offer created
+    // before this RFC landed — skipped entirely, not an error, same
+    // backward-compatible posture as every other nullable-FK migration
+    // in this codebase.
+    if (offer.intentId) {
+      const triggeredBy = 'system:trade-lifecycle'
+      await intentEngine.transition(offer.intentId, 'DISCOVERING', triggeredBy, 'intent.discovering', { intentId: offer.intentId })
+      await intentEngine.transition(offer.intentId, 'MATCHED', triggeredBy, 'intent.matched', { intentId: offer.intentId, candidateIds: [input.counterpartyId] })
+      await intentEngine.transition(offer.intentId, 'NEGOTIATING', triggeredBy, 'intent.negotiating', { intentId: offer.intentId, negotiationId: trade.id })
+    }
 
     // Opens the negotiation channel's in-memory status tracking and emits
     // negotiation.opened/openp2p.trade.status_changed. The HumanChatChannel
