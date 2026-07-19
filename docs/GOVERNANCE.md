@@ -338,6 +338,25 @@ accepted it — confirmed here rather than left to be re-derived.
 
 ## 6B. Implementation Freeze Traceability Discipline (v8.7 — CTO recommendation)
 
+**Implementation Freeze began 2026-07-19** — declared by a CTO-role
+review, relayed by the project owner, after the RFC-018/RFC-019/Core RFC
+consolidation pass: "A governança do protocolo é considerada
+estabilizada... a prioridade muda para: implementar fielmente o que já
+foi especificado, validar o protocolo em um caso de uso real, receber
+feedback de desenvolvedores externos, evoluir por evidência, não por
+especulação." Explicit guidance for this phase: **new governance
+process, classifications, or documents should not be introduced unless
+a clearly demonstrated need arises from implementation** — process
+changes are the exception now, not a natural extension of documentation
+work. Effort should weight roughly 80-90% code/tests/integration
+(WDK/Pears/QVAC)/UX/developer docs, 10-20% new RFCs — and those RFCs
+should be driven by what implementation reveals, not by further
+architectural speculation. This does not mean no RFCs — `GOVERNANCE.md`
+§5's process is unchanged and still applies whenever a real need
+surfaces — it means the default posture inverts: assume a concept
+already exists and try to consolidate before proposing an expansion,
+the same discipline the 2026-07-19 consolidation pass itself modeled.
+
 Once Implementation Freeze begins (`MASTER_COORDINATION.md`'s 5-phase
 pipeline), three rules apply to all new code, with no exception:
 
