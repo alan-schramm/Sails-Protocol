@@ -98,24 +98,48 @@ export class DisputeService {
       throw new ForbiddenError(`${arbiterId} is not the arbiter assigned to dispute ${disputeId}`)
     }
 
-    if (ruling === 'RELEASE') {
-      if (!releaseToAddress) {
-        throw new ValidationError('releaseToAddress is required when ruling is RELEASE')
-      }
-      await escrowService.releaseFunds(dispute.escrowId, releaseToAddress, arbiterId)
-    } else if (ruling === 'REFUND') {
-      await escrowService.refundFunds(dispute.escrowId, arbiterId)
+    if (ruling === 'RELEASE' && !releaseToAddress) {
+      throw new ValidationError('releaseToAddress is required when ruling is RELEASE')
     }
-    // SPLIT: no automated settlement action exists for this today (the
-    // existing SettlementProvider interface only has release/refund, not
-    // a split operation) — the ruling is recorded, but does not itself
-    // move funds. Documented here rather than silently no-op'd without
-    // explanation.
 
+    // Real bug found by tests/fullTradeLifecycle.test.ts (end-to-end
+    // chain, added investigating the CTO-role "validate the full flow"
+    // follow-up): this used to call escrowService.releaseFunds()/
+    // refundFunds() BEFORE marking the Dispute RESOLVED below. Those
+    // calls emit settlement.escrow.released/refunded, which
+    // common/events/handlers.ts reacts to with RFC-007 D8/D9's
+    // dispute-aware branch — a query for a Dispute row with
+    // `status: 'RESOLVED'` on this exact tradeId. That query always
+    // raced this function's own not-yet-run update() below and lost:
+    // every disputed resolution was silently scored as an ordinary
+    // no-dispute outcome (both parties POSITIVE/NEUTRAL) instead of the
+    // asymmetric win/loss RFC-007 D8/D9 specifies. Fixed by marking
+    // RESOLVED first; if the fund movement then fails, the ruling is
+    // reverted rather than left claiming a resolution that never
+    // actually moved funds.
     const updated = await prisma.dispute.update({
       where: { id: disputeId },
       data: { status: 'RESOLVED', ruling, resolvedAt: new Date() },
     })
+
+    try {
+      if (ruling === 'RELEASE') {
+        await escrowService.releaseFunds(dispute.escrowId, releaseToAddress as string, arbiterId)
+      } else if (ruling === 'REFUND') {
+        await escrowService.refundFunds(dispute.escrowId, arbiterId)
+      }
+      // SPLIT: no automated settlement action exists for this today (the
+      // existing SettlementProvider interface only has release/refund,
+      // not a split operation) — the ruling is recorded, but does not
+      // itself move funds. Documented here rather than silently no-op'd
+      // without explanation.
+    } catch (err) {
+      await prisma.dispute.update({
+        where: { id: disputeId },
+        data: { status: 'OPENED', ruling: null, resolvedAt: null },
+      })
+      throw err
+    }
 
     await eventBus.emit('dispute.resolved', {
       disputeId,

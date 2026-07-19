@@ -384,6 +384,48 @@ makes the same point in more detail.
       flow (fails before persisting/emitting) — added as a regression
       test, no code change needed. `npm run build` clean, `npm test`
       216/216 (4 new tests this pass).
+- [x] **Third pass, same day (2026-07-19), CTO-directed follow-up**
+      ("RFC-018 validation pass aprovado... validar o fluxo completo
+      end-to-end do Sails P2P Trading SDK com persistência real e
+      integração dos providers"). Real Postgres persistence + real WDK/
+      HyperDHT provider integration still could not be executed — same
+      no-Docker/no-live-network constraint as every other pass this
+      session; unchanged, still the sócio dev's infra job. What was
+      built instead, the strongest available substitute:
+      `tests/fullTradeLifecycle.test.ts` — every other test file in this
+      suite mocks at a single service boundary (routes.test.ts stubs
+      `eventBus.emit` to a no-op so cross-module reactions never fire;
+      `reputationOutcome.test.ts` mocks `intentEngine` wholesale). This
+      file instead chains the REAL service layer end to end — Intent
+      created → Offer published → discovered via the real order-book
+      aggregation → Trade born → escrow locked/paid/released via the
+      real `settlement-orchestrator.ts` → Reputation updated — with the
+      REAL `eventBus` (`InMemoryEventStore`, RFC-010's always-available
+      default, no Redis needed) actually dispatching to the REAL
+      `registerEventHandlers()` reactions. Only the database (an
+      in-memory fake standing in for Prisma) and the two genuinely-
+      external providers (WDK/HyperDHT) are replaced. A second test in
+      the same file drives a dispute through the real chain after escrow
+      locks, directly proving the `Trade.escrowId` fix above holds
+      end-to-end, not just at the handler level.
+      **Found one more real bug this way** — the kind a per-boundary
+      mock can't catch: `dispute.service.ts`'s `resolveDispute()` called
+      `escrowService.releaseFunds()`/`refundFunds()` (which emit the
+      events `common/events/handlers.ts`'s RFC-007 D8/D9 dispute-aware
+      reputation branch reacts to) **before** marking the `Dispute` row
+      `RESOLVED` — that branch's own `prisma.dispute.findFirst({ status:
+      'RESOLVED', ... })` query always raced this function's own
+      not-yet-run update and lost, so every disputed resolution was
+      silently scored as an ordinary no-dispute outcome (both parties
+      POSITIVE/NEUTRAL) instead of RFC-007 D8/D9's specified asymmetric
+      win/loss. Existing unit tests never caught this because they all
+      mock `resolveDispute()`'s internals directly, assuming the dispute
+      was already resolved by the time the handler runs — only a real
+      chained call exercises the actual order of operations. Fixed by
+      marking `RESOLVED` before moving funds, with a revert-on-failure
+      path (`status` back to `OPENED`, `ruling`/`resolvedAt` cleared) so
+      a failed fund movement doesn't leave a dispute falsely claiming
+      resolution. `npm run build` clean, `npm test` 218/218.
 - [ ] **Related, more severe finding from the same audit — a real
       Constitutional Invariant violation, not a documentation gap:** the
       one real, tested `SettlementProvider` (`WdkSettlementProvider`,
