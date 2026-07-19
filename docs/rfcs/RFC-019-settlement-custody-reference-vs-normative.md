@@ -131,6 +131,20 @@ Reference Implementation Plan):
   change, never a behavior change, per this RFC's own Alternatives
   Considered.
 
+**Core RFC Review Checklist** (`GOVERNANCE.md` §6A):
+
+- [ ] `PROTOCOL_SPECIFICATION.md` — not applicable. `SettlementProvider`'s
+  interface (§1.5) is unchanged by this RFC's own Decision — the gap is
+  in one implementation, not the primitive's contract.
+- [x] `PROTOCOL_INVARIANTS.md` — updated (Constitutional Invariant 2
+  gained a "Known violation, real code" callout).
+- [x] `TRUST_BOUNDARY.md` — updated (boundary 5's row now states the
+  real gap alongside the design intent, with a pointer to this RFC).
+- [x] `SECURITY_MODEL.md` — updated (§2 Principle 2 gained a
+  "Real-implementation gap found" note).
+- [x] `CRYPTOGRAPHIC_MODEL.md` — updated (new §5, "Settlement Custody:
+  What `WDK_USDT_EVM` Actually Signs With").
+
 ## Primitives Used or Extended
 
 **Settlement** (§1.5) — no interface change. This RFC constrains an

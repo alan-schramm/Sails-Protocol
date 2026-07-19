@@ -298,6 +298,42 @@ already had `Motivation`/`Decision`; each gained a short
 `Implementation Impact` section and the `Classification` line as part
 of introducing this rule, not as a separate follow-up.
 
+**Core RFC Review Checklist.** A Core RFC classification is not
+self-certifying — a follow-up CTO-role recommendation made this
+explicit after the first two landed, closing a real risk: without a
+checklist, "Core" could drift into meaning "an RFC someone decided
+felt important," years from now, without anyone actually having
+re-checked whether it ripples into the canonical docs it should. Before
+a Core RFC is marked Accepted, its author confirms — in the RFC itself,
+not just in a PR description — whether each of the following needed a
+change, and if so, made it in the same pass (not a promised follow-up):
+
+- [ ] Does it require an update to `PROTOCOL_SPECIFICATION.md` (the
+      frozen v1.0 spec itself)?
+- [ ] Does it affect anything `PROTOCOL_INVARIANTS.md` states as a
+      Constitutional or Operational invariant?
+- [ ] Does it change anything `TRUST_BOUNDARY.md` describes about who
+      can lie, sign, or alter state at a given boundary?
+- [ ] Does it change anything `SECURITY_MODEL.md` states as a Security
+      Principle or trust mechanism?
+- [ ] Does it change anything `CRYPTOGRAPHIC_MODEL.md` states about a
+      cryptographic guarantee (or its absence)?
+- [ ] Does it include the `Implementation Impact` section required
+      above?
+
+An item that's checked "not applicable" should say so briefly in the
+RFC's own `Decision` or `Implementation Impact` section — silence on
+one of these six is treated the same way `GOVERNANCE.md` §5 already
+treats a silent RFC rejection: not acceptable, has to state why.
+RFC-018 touched `PROTOCOL_SPECIFICATION.md` (§1.11, §1.12) only — no
+existing invariant, trust boundary, security principle, or
+cryptographic claim changes as a result of linking `Intent`↔`Trade`.
+RFC-019 touched all five: `PROTOCOL_SPECIFICATION.md` was not amended
+(§1.5's interface is unchanged, by RFC-019's own Decision), but
+`PROTOCOL_INVARIANTS.md`, `TRUST_BOUNDARY.md`, `SECURITY_MODEL.md`, and
+`CRYPTOGRAPHIC_MODEL.md` were all updated in the same pass that
+accepted it — confirmed here rather than left to be re-derived.
+
 ---
 
 ## 6B. Implementation Freeze Traceability Discipline (v8.7 — CTO recommendation)
