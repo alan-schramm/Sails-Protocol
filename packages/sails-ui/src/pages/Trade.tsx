@@ -14,6 +14,7 @@ import { buildTradeFromOffer } from '../lib/buildTrade'
 import { formatDateTime } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { detectRiskLocally } from '../lib/socialEngineering'
+import { ASSET_LABELS } from '../lib/labels'
 
 let msgCounter = 100
 
@@ -124,7 +125,7 @@ export function Trade() {
       <div className="mt-4 grid lg:grid-cols-[380px_1fr] gap-4">
         <div>
           <div className="card p-4 divide-y divide-brand-border">
-            <Row label="Ativo" value={trade.asset} />
+            <Row label="Ativo" value={ASSET_LABELS[trade.asset]} />
             <Row label="Quantidade" value={String(trade.amount)} />
             <Row label="Total" value={formatByCurrency(trade.totalBrl, trade.offer.fiatCurrency)} />
             <Row label="Status do escrow" value={<EscrowStatusBadge status={escrowStatus} />} />

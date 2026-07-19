@@ -205,6 +205,60 @@ full offer → login → trade flow, not by the type checker.
    correspondentes no Marketplace ↓" link that scrolls to the (now
    filtered) grid (`id="marketplace-offer-grid"`).
 
+## Six real UX bugs found by a cold-start walkthrough (asked directly: "está fidedigno o suficiente para achar os furos de UX?")
+
+Cleared `localStorage`, reloaded, and clicked through the app as a
+genuinely new user instead of using backend/code knowledge to predict
+behavior — the same methodology as the "Three real UX bugs" pass above,
+applied a second time after the offer-publishing wizard and AI
+Negotiator shipped. It surfaced two critical bugs no prior functional
+test had caught, because those passes always verified "does the happy
+path work," not "does an unexpected but natural human input break
+silently."
+
+1. **Self-trading was possible.** Nothing checked `user.id ===
+   offer.userId` before `OfferDetail`'s "Iniciar Trade" — logging in as
+   `bob_sats` and opening `bob_sats`'s own offer showed a working
+   trade-start form, and the resulting trade showed `bob_sats` as both
+   Comprador and Vendedor. Fixed with an `isOwnOffer` check that swaps
+   the trade-start form for an explanatory card ("Esta é a sua oferta")
+   linking to Perfil instead.
+2. **AI Negotiator's currency parsing was hardcoded to BRL.**
+   `qvacAgent.ts`'s `generateIntentWithQvac()` always returned
+   `currency: 'BRL'` regardless of what the goal said — a goal like
+   "quero comprar 100 dólares em USDT" silently produced a BRL-filtered
+   Marketplace with zero matching offers, with nothing explaining why.
+   Fixed the root cause with a `CURRENCY_HINTS` regex table (mirrors the
+   existing `ASSET_HINTS`/`METHOD_HINTS` pattern), and added a
+   safety net regardless: `Marketplace` now passes its live post-filter
+   `offers.length` into `AgentIntentionPanel`, which shows "N ofertas
+   correspondem a este filtro" or, on zero matches, "Nenhuma oferta
+   encontrada com X + Y" plus a "Redefinir filtros" action.
+3. **Mobile had no login/wallet indicator.** `TopNav` (desktop) shows
+   avatar+name or a "Conectar" link, but it's `hidden md:flex` — on
+   mobile, `Layout`'s own header showed only the logo and theme toggle,
+   giving a first-time mobile user no way to tell if they were connected
+   without opening Perfil. Fixed by mirroring TopNav's same pattern into
+   the mobile header.
+4. **Login led with jargon.** "Use seu keypair Ed25519 para autenticar"
+   and "🔑 Conectar com WDK" were the first and only copy a brand-new
+   user saw — meaningless without already knowing the product. The
+   technical detail is accurate and this is a reference implementation
+   of real crypto, so it wasn't deleted — it moved behind an
+   `InfoTooltip` next to a plain "Entrar" heading, and the button now
+   reads "Conectar Carteira".
+5. **Raw backend enums leaked into UI copy.** `USDT_ERC20`,
+   `BANK_TRANSFER`, `CRYPTO_DIRECT`, etc. were rendered verbatim in
+   `Badge.tsx`, `FilterPanel`, `PublishOffer`, `Trade`, and
+   `AgentIntentionPanel`. Fixed with a single `lib/labels.ts`
+   (`ASSET_LABELS`, `ASSET_SHORT_LABELS`, `PAYMENT_METHOD_LABELS`)
+   instead of per-component ad-hoc strings — the stored/filtered/
+   submitted value is untouched, only the rendered text changes.
+6. **`OfferDetail` showed the price twice.** The USD price appeared
+   both in the big price line and again as a redundant "≈ $X USD"
+   sub-line even when the offer was already priced in USD. Fixed by
+   only showing the conversion sub-line when `fiatCurrency !== 'USD'`.
+
 ## Running it
 
 ```bash

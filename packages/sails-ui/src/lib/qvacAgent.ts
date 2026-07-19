@@ -50,6 +50,25 @@ const METHOD_HINTS: [RegExp, PaymentMethod][] = [
   [/dinheiro|cash/i, 'CASH'],
 ]
 
+// Real bug found in a cold-start UX walkthrough: currency was hardcoded
+// to 'BRL' below regardless of what the goal actually said — a goal
+// like "quero comprar 100 dólares em USDT" silently generated a
+// BRL-priced intent, which then drove Marketplace's real currency
+// filter (Marketplace.tsx's onIntentGenerated) to a state with zero
+// matching offers, with nothing telling the user why. Detecting the
+// mentioned currency, defaulting to BRL only when none is mentioned
+// (this UI's primary market), fixes the actual cause.
+const CURRENCY_HINTS: [RegExp, FiatCurrency][] = [
+  [/d[oó]lar(es)?|\busd\b/i, 'USD'],
+  [/euro(s)?|\beur\b/i, 'EUR'],
+  [/libra(s)?\s*esterlina|\bgbp\b/i, 'GBP'],
+  [/peso\s*argentino|\bars\b/i, 'ARS'],
+  [/peso\s*mexicano|\bmxn\b/i, 'MXN'],
+  [/naira|\bngn\b/i, 'NGN'],
+  [/r[uú]pia|\binr\b/i, 'INR'],
+  [/\breal\b|reais|\bbrl\b/i, 'BRL'],
+]
+
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -62,6 +81,7 @@ export async function generateIntentWithQvac(goal: string, side: TradeSide): Pro
 
   const asset = ASSET_HINTS.find(([re]) => re.test(goal))?.[1] ?? 'BTC'
   const fiatMethod = METHOD_HINTS.find(([re]) => re.test(goal))?.[1] ?? 'PIX'
+  const currency = CURRENCY_HINTS.find(([re]) => re.test(goal))?.[1] ?? 'BRL'
   const amountMatch = goal.match(/(\d[\d.,]*)/)
   const maxAmount = amountMatch ? amountMatch[1].replace(/\./g, '').replace(',', '.') : '1000'
   const maxNum = Number(maxAmount) || 1000
@@ -71,7 +91,7 @@ export async function generateIntentWithQvac(goal: string, side: TradeSide): Pro
     side,
     minValue: (maxNum * 0.1).toFixed(2),
     maxValue: maxNum.toFixed(2),
-    currency: 'BRL',
+    currency,
     fiatMethod,
   }
 }

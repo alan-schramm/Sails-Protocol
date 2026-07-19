@@ -82,10 +82,16 @@ export function Marketplace() {
 
       <div className="mt-4">
         <AgentIntentionPanel
+          matchCount={offers.length}
           onIntentGenerated={(a, s, c) => {
             setAsset(a)
             setSide(s)
             setCurrency(c)
+          }}
+          onResetFilters={() => {
+            setAsset('Todos')
+            setCurrency('Todas')
+            setSide('Todos')
           }}
         />
       </div>

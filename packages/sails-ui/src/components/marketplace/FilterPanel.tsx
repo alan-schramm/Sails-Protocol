@@ -9,6 +9,7 @@
 import type { FiatCurrency, MarketplaceFilters, PaymentMethod } from '../../types'
 import { AMOUNT_PRESETS, formatByCurrency } from '../../lib/currency'
 import { COUNTRIES, PAYMENT_METHODS } from '../../data/mock'
+import { PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { InfoTooltip } from '../ui/InfoTooltip'
 
 interface Props {
@@ -137,7 +138,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
                 onClick={() => togglePaymentMethod(m)}
                 className={filters.paymentMethods.includes(m) ? 'pill-active' : 'pill-inactive'}
               >
-                {m}
+                {PAYMENT_METHOD_LABELS[m]}
               </button>
             ))}
           </div>
