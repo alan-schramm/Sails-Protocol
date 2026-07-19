@@ -664,6 +664,23 @@ makes the same point in more detail.
       a live two-node Pears/HyperDHT setup to build and verify against —
       the same limitation `PearsTransportProvider`'s own tests already
       decline to fake (see `tests/transportFallback.test.ts`'s comment).
+- [ ] **Key-custody gap found answering a direct owner question, not
+      fixed:** "as chaves privadas do usuário podem ser consultadas?" —
+      the answer for storage/auth is a clean no (no `secretKey`/
+      `privateKey` field anywhere in `prisma/schema.prisma`;
+      `common/middleware/auth.ts`'s challenge-response only ever receives
+      a *signature*, never the key). But `POST /v1/peers/start`
+      (`pear.routes.ts`) currently takes the caller's raw Ed25519 secret
+      key in the request body and hands it to `PearNode.start()`
+      (`pear.service.ts:71-76`) so the server can run that user's
+      Hyperswarm/HyperDHT node on their behalf — held only in an
+      in-memory `keyPair` field, never persisted or logged (only the
+      derived `peerId` hex is written to `User.peerId`), but it does
+      transit the server on that one call. Fine for this reference
+      implementation's server-hosted P2P node, but a production design
+      needs the P2P node — and key custody — to live entirely
+      client-side (a wallet/mobile app), never touching the backend at
+      all. Flag before treating this as production-ready.
 - [x] `modules/open-settlement/settlement.routes.ts` — escrow
       create/lock/payment-sent/release/dispute/refund + a new dispute
       resolve route, per `API_REFERENCE.md` §4 (updated alongside this to
