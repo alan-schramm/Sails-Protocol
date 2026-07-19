@@ -215,12 +215,26 @@ makes the same point in more detail.
       protocol surface, no RFC needed).
 - [ ] **Still open:** these are narrow capabilities (structural-shape
       risk assessment, and turning a stated goal into a valid payload
-      shape) — not the full OpenAgents module. RFC-007 D7's Social
-      Engineering Agent (watches the Timeline for fraud-precursor
-      patterns, raises a signal to the Policy Engine — BACKLOG.md P3) is
-      unrelated, unbuilt work. No HTTP route exists for any of this
-      either — it's called directly from `src/demo/pix-to-usdt-flow.ts`
-      and the agent classes, not exposed over `/v1/agents/*` yet.
+      shape) — not the full OpenAgents module. No HTTP route exists for
+      any of this — it's called directly from
+      `src/demo/pix-to-usdt-flow.ts` and the agent classes, not exposed
+      over `/v1/agents/*` yet.
+- [x] **RFC-007 D5 (Timeline) + D7 (Social Engineering Agent) — real as
+      of RFC-017** *(same day, direct owner instruction: "Construir o
+      Social Engineering Agent de verdade")* — `core/timeline.ts` (a
+      real, `correlationId`-keyed read-model, corrected from D5's literal
+      `intentId`-keyed interface — see RFC-017's own Motivation) backed
+      by a new `EventStore.getEvents()` query capability;
+      `social-engineering-agent.ts`'s `SocialEngineeringAgent.evaluate()`
+      (D7's own interface) uses QVAC to detect 2 of 3 named patterns
+      (`off_channel_migration`/`payment_instruction_change`) from real
+      chat messages, raising a real `RISK_WARNING` in the trade's chat —
+      detection only. Off by default
+      (`config.features.socialEngineeringDetection`). See
+      `docs/rfcs/RFC-017-timeline-and-social-engineering-agent.md` and
+      `BACKLOG.md`'s own rows for the full detail, including what's
+      still explicitly not built (`unexpected_flow_deviation` detection,
+      real Policy Engine integration).
 - [ ] **Model output quality caveat, observed directly, not theorized:**
       the smallest model in QVAC's registry (`LLAMA_3_2_1B_INST_Q4_0`,
       1B params) occasionally produces internally inconsistent or

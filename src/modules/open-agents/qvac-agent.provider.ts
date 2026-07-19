@@ -170,6 +170,41 @@ const SELLER_OFFER_SYSTEM_PROMPT =
   'strings (e.g. "20.5", never a JSON number), and the fiat payment method ' +
   'the seller accepts. Reply only with the requested JSON.'
 
+// ─── Social Engineering risk assessment (RFC-007 D7, real as of RFC-017,
+// rfcs/RFC-017-timeline-and-social-engineering-agent.md) — detection only,
+// called by social-engineering-agent.ts against real chat messages
+// (openp2p.message.sent). Two of D5's three named patterns are detectable
+// from message text alone; `unexpected_flow_deviation` needs real
+// state-machine awareness this pass doesn't build — see that RFC's own
+// scope note. ───────────────────────────────────────────────────────────────
+export interface SocialEngineeringSignal {
+  pattern: 'off_channel_migration' | 'payment_instruction_change' | 'none'
+  riskScore: number // 0-100
+  reasoning: string
+}
+
+const SOCIAL_ENGINEERING_SCHEMA = {
+  type: 'object',
+  properties: {
+    pattern: { type: 'string', enum: ['off_channel_migration', 'payment_instruction_change', 'none'] },
+    riskScore: { type: 'number' },
+    reasoning: { type: 'string' },
+  },
+  required: ['pattern', 'riskScore', 'reasoning'],
+} as const
+
+const SOCIAL_ENGINEERING_SYSTEM_PROMPT =
+  'You watch chat messages between a P2P crypto trade buyer and seller for ' +
+  'two specific scam patterns. off_channel_migration: someone asks to move ' +
+  'the conversation to WhatsApp, Telegram, phone, email, or anywhere ' +
+  'outside this chat. payment_instruction_change: payment details (a PIX ' +
+  'key, bank account, or wallet address) are given or changed in a way ' +
+  'that looks inconsistent with what was likely already agreed earlier in ' +
+  'the trade. If neither applies, reply "none" with riskScore 0. Score ' +
+  '0-100 for how confident you are the message shows one of these two ' +
+  'patterns. Reply only with the requested JSON, one short plain sentence ' +
+  'for "reasoning".'
+
 export class QvacAgentProvider {
   private modelId: string | null = null
   private loading: Promise<string> | null = null
@@ -251,6 +286,27 @@ Respond with your risk assessment as JSON matching the requested schema.`
       goal,
       'offer_intent',
       OFFER_INTENT_SCHEMA,
+      onProgress
+    )
+  }
+
+  async assessSocialEngineeringRisk(
+    message: string,
+    recentContext: string[] = [],
+    onProgress?: (p: unknown) => void
+  ): Promise<SocialEngineeringSignal> {
+    const contextBlock = recentContext.length
+      ? `Recent prior messages in this trade, oldest first:\n${recentContext.map((m) => `- ${m}`).join('\n')}\n\n`
+      : ''
+    const prompt = `${contextBlock}Message to evaluate: "${message}"
+
+Respond with your assessment as JSON matching the requested schema.`
+
+    return this.structuredCompletion<SocialEngineeringSignal>(
+      SOCIAL_ENGINEERING_SYSTEM_PROMPT,
+      prompt,
+      'social_engineering_signal',
+      SOCIAL_ENGINEERING_SCHEMA,
       onProgress
     )
   }

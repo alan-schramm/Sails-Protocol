@@ -198,6 +198,9 @@ Legacy equivalents: `POST /trade/create`, `GET /trade/:id`, `PATCH
 NEW_MESSAGE            — a new chat message in a joined trade room
 TRADE_STATUS_UPDATE    — trade status changed
 ESCROW_STATUS_UPDATE   — escrow status changed (auto-pushed via event bus)
+RISK_WARNING           — SocialEngineeringAgent (RFC-007 D7 / RFC-017) flagged
+                          a message; off by default (SOCIAL_ENGINEERING_DETECTION),
+                          detection only — never blocks or alters the trade
 USER_ONLINE / USER_OFFLINE
 PONG
 ERROR

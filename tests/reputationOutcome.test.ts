@@ -32,6 +32,7 @@ jest.mock('../src/common/events/event-bus', () => ({
     on: (event: string, handler: (payload: unknown) => Promise<void>) => {
       handlers[event] = handler
     },
+    onDurable: jest.fn(),
   },
 }))
 

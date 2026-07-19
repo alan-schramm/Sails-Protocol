@@ -117,7 +117,12 @@ export interface Escrow {
 // place to put a raw video blob) and a Pears event kind carrying media
 // (chat.routes.ts's WS->Pears relay only ever sends a MESSAGE_EXCHANGED
 // event with plain text `content` today). See ChatWindow's own comment.
-export type MessageType = 'TEXT' | 'SYSTEM' | 'PAYMENT_PROOF' | 'IMAGE' | 'VIDEO'
+// RISK_WARNING mirrors the real backend's WS message type of the same
+// name (RFC-017, chat.routes.ts's `agents.social_engineering.risk_detected`
+// -> RISK_WARNING broadcast) — not a UI-only invention. What IS UI-only
+// here is the detection itself: see lib/socialEngineering.ts's own
+// comment for exactly what's simulated vs real.
+export type MessageType = 'TEXT' | 'SYSTEM' | 'PAYMENT_PROOF' | 'IMAGE' | 'VIDEO' | 'RISK_WARNING'
 
 export interface Message {
   id: string
@@ -127,6 +132,7 @@ export interface Message {
   type: MessageType
   mediaUrl?: string // local blob: URL only in this UI — see ChatWindow's comment
   mediaFileName?: string
+  riskPattern?: 'off_channel_migration' | 'payment_instruction_change' // RISK_WARNING only
   createdAt: string
 }
 

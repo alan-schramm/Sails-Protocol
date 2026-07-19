@@ -116,6 +116,7 @@ jest.mock('../src/common/events/event-bus', () => ({
   eventBus: {
     emit: jest.fn().mockResolvedValue(undefined),
     on: jest.fn(),
+    onDurable: jest.fn(),
   },
 }))
 
