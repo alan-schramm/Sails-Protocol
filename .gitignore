@@ -7,3 +7,7 @@ dist/
 .local-redis.pid
 .local-redis.log
 dump.rdb
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

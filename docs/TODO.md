@@ -1503,6 +1503,78 @@ what got built anyway.
 
 ---
 
+## 23. Real Playwright E2E suite — "the official protocol test" (2026-07-20)
+
+CTO-directed, named priority-máxima follow-up to §22's audit: automate
+the golden path instead of validating it by hand. `@playwright/test`
+added (root devDependency, not scoped to `packages/sails-ui` — it drives
+the whole stack, not just the UI package). `playwright.config.ts` starts
+the real backend and real UI dev servers (`webServer`, `reuseExistingServer`
+so a dev's already-running servers are reused, not restarted) against
+real local Postgres/Redis (`§18` — prerequisite, not orchestrated by this
+config, same reasoning that section already gives for keeping DB startup
+a separate step). `npm run test:e2e` runs it.
+
+`e2e/golden-path.spec.ts` — two genuinely separate browser contexts
+(isolated `localStorage`, so two real, distinct Ed25519 identities, the
+same isolation a real buyer and seller on two different devices would
+have) drive: register → publish a real offer → discover it via the real
+Marketplace → start a real Trade → real-time chat over a live WebSocket
+→ escrow create/lock/mark-paid/release → settlement completes. No mocked
+fetch, no mocked WebSocket, anywhere — anything shown to be broken here
+is broken in the real stack.
+
+**Found three real, reproducible gaps while making this pass reliably
+— registered, not silently worked around:**
+
+1. **`AuthContext.tsx` computes a real `loading` boolean for its
+   post-reload re-authentication window but no page or layout component
+   ever reads it** (`grep -rn "\.loading" packages/sails-ui/src`, zero
+   matches outside that file). A full page reload leaves every form
+   fully interactive while re-auth is still in flight; a fast actor can
+   act before `user` populates, and the action silently no-ops
+   (`PublishOffer.tsx`'s `handlePublish()`: `if (!user || ...) return`)
+   instead of erroring or waiting. Worked around in the spec by waiting
+   for the same signal `TopNav.tsx` itself uses (`"Conectar"` link
+   presence) — a real user has no equivalent workaround available.
+2. **`liquidity.service.ts`'s `discover()` orders SELL offers by
+   `priceUsd` ascending and hard-caps at `take: 10`, no pagination, no
+   "more results" signal.** After enough offers accumulate for an
+   asset/side pair (exactly what running this very spec repeatedly
+   does), a real, active offer priced above the 10th-cheapest becomes
+   permanently invisible in the Marketplace — no error, no indication
+   anything is missing. This is a real "descoberta" gap, not a database-
+   hygiene inconvenience; it would affect a real busy marketplace the
+   same way. Worked around in the spec by pricing the test offer to
+   always sort first, which is a workaround for the *test's* stability,
+   not evidence the cap itself is fine.
+3. **`ChatWindow.tsx`'s "🟢 Conectado via Pears" label is static markup**,
+   not tied to the WebSocket's actual `readyState` or `JOIN_TRADE`
+   acknowledgment. A message sent before the recipient's join completes
+   is lost with no retry or backfill (the REST message-history fetch
+   already ran before the WS message would have arrived). Worked around
+   with a short explicit wait in the spec; a real user has no reliable
+   "is this actually connected yet" signal either.
+
+Also required lifting the real rate limiter's ceiling for local e2e runs
+specifically (`playwright.config.ts`'s `webServer.env`:
+`RATE_LIMIT_AUTH_MAX=500`, `RATE_LIMIT_MAX=2000` — not a change to
+`src/config/index.ts`'s real defaults, which stay `10`/`100`). The
+default 10-per-minute auth tier (RT-002's own real mitigation) is
+legitimately tight enough that one full golden-path run — two identities
+each re-authenticating on every full page reload, amplified by React
+StrictMode double-invoking effects in Vite's dev server — can exceed it,
+turning an otherwise-correct run into a spurious 401/429 failure. Worth
+revisiting once real usage data exists for what the production-tier
+default should actually be; not touched here beyond disclosing it.
+
+**Verification:** the spec passes reliably (6 consecutive runs after the
+three fixes above, 0 flakes) against the real local stack. `npm run
+build`/`npm test` unaffected (e2e lives in its own `e2e/` directory,
+outside Jest's `testDir`). `test-results/`, `playwright-report/` gitignored.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority
