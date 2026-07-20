@@ -31,6 +31,28 @@ export class TradeService {
       throw new ValidationError('Cannot start a trade against your own offer')
     }
 
+    // Robustness-audit fix (2026-07-20): createTrade() never validated
+    // `input.amount` at all — neither that it's a sane positive number,
+    // nor that it falls within the very `minAmount`/`maxAmount` bounds
+    // the Offer publishes and the UI displays as a hard constraint
+    // (OfferDetail.tsx's "Limites 10-100 USDT"). A caller could request
+    // any amount, including one wildly outside what the seller actually
+    // offered, and a real Trade would be created for it — an accepted
+    // "trade" the counterparty never agreed to, not just a UX gap.
+    // `Number()` here is the same "bounds check, not exact arithmetic"
+    // precedent RFC-009 already established (policy-engine.ts's
+    // validateFinancialSanity(), liquidity.service.ts's sort comparator)
+    // — the decimal string itself is still what's persisted below.
+    const amountNum = Number(input.amount)
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      throw new ValidationError(`amount must be a positive decimal string, got "${input.amount}"`)
+    }
+    if (amountNum < Number(offer.minAmount) || amountNum > Number(offer.maxAmount)) {
+      throw new ValidationError(
+        `amount ${input.amount} is outside Offer ${offer.id}'s limits (${offer.minAmount}-${offer.maxAmount})`
+      )
+    }
+
     // Offer.side is the offer creator's side — the caller takes the
     // opposite role. A SELL offer means the creator is the seller; a BUY
     // offer means the creator is the buyer.

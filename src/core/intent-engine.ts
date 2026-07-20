@@ -129,10 +129,30 @@ async function transition<K extends SailsEventName>(
 
   assertValidTransition(currentStatus, toStatus)
 
-  const updated = await prisma.intent.update({
-    where: { id: intentId },
+  // ─── Robustness-audit fix (2026-07-20): the same TOCTOU race
+  // escrow.service.ts's transitions had, applied to the RFC-018 state
+  // machine itself. The old code checked `assertValidTransition` against
+  // `currentStatus` (read moments earlier) and then unconditionally
+  // wrote `toStatus` — two concurrent transition() calls for the same
+  // Intent (e.g. an event handler reacting to two near-simultaneous real
+  // events) could both pass the in-memory check before either write
+  // landed. Worse than a lost update: writeIntentEvent() below computes
+  // `prevHash` from "the last IntentEvent row for this intentId" — two
+  // racing writers could both read the same prior event as "last" and
+  // both chain off it, corrupting RFC-008's hash chain (which promises
+  // exactly one true predecessor per event) rather than just overwriting
+  // a field. The `updateMany` `WHERE status:` clause makes this
+  // impossible: only the request whose expected `currentStatus` still
+  // matches the row's real current status affects a row, so only one
+  // concurrent caller ever proceeds to writeIntentEvent()/emit(). ──────
+  const claim = await prisma.intent.updateMany({
+    where: { id: intentId, status: currentStatus },
     data: { status: toStatus },
   })
+  if (claim.count === 0) {
+    throw new ValidationError(`Intent ${intentId} was already transitioned by a concurrent request (expected status ${currentStatus})`)
+  }
+  const updated = await prisma.intent.findUnique({ where: { id: intentId } })
   await writeIntentEvent(intentId, currentStatus, toStatus, triggeredBy, note)
   await eventBus.emit(eventName, eventPayload, intentId) // correlationId = intentId (RFC-010)
 

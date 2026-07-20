@@ -75,6 +75,23 @@ function makeTable(idPrefix: string, defaults: Record<string, unknown> = {}) {
         .filter((r) => Object.entries(where).every(([k, v]) => r[k] === v))
         .map((r) => ({ ...r }))
     }),
+    // Robustness-audit fix (2026-07-20): escrow.service.ts/intent-engine.ts
+    // now claim state transitions via a conditional updateMany() (WHERE
+    // id AND status match) before touching anything side-effecting — see
+    // both files' own comments. Real conditional-update semantics here,
+    // not a stub: only rows whose current value already matches every
+    // `where` entry get updated, and `count` reflects how many actually
+    // did — exactly what a concurrent-loser test needs to exercise for
+    // real, the same way the in-memory tables above already give every
+    // other method real round-trip behavior instead of a canned response.
+    updateMany: jest.fn(async ({ where, data }: any) => {
+      const matches = [...rows.values()].filter((r) => Object.entries(where).every(([k, v]) => r[k] === v))
+      for (const row of matches) {
+        const merged = { ...row, ...data, updatedAt: new Date() }
+        rows.set(row.id, merged)
+      }
+      return { count: matches.length }
+    }),
     findFirst: jest.fn(async ({ where = {} }: any = {}) => {
       const row = [...rows.values()].find((r) => Object.entries(where).every(([k, v]) => r[k] === v))
       return row ? { ...row } : null

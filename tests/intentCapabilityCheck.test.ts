@@ -26,7 +26,7 @@ jest.mock('../src/core/capability-registry', () => ({
 
 const mockIntentCreate = jest.fn()
 const mockIntentFindUnique = jest.fn()
-const mockIntentUpdate = jest.fn()
+const mockIntentUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockIntentEventCreate = jest.fn()
 const mockIntentEventFindFirst = jest.fn()
 
@@ -35,7 +35,9 @@ jest.mock('../src/common/database', () => ({
     intent: {
       create: (...args: unknown[]) => mockIntentCreate(...args),
       findUnique: (...args: unknown[]) => mockIntentFindUnique(...args),
-      update: (...args: unknown[]) => mockIntentUpdate(...args),
+      // Robustness-audit fix (2026-07-20) — see intent-engine.ts's own
+      // comment: transition() claims via an atomic updateMany() now.
+      updateMany: (...args: unknown[]) => mockIntentUpdateMany(...args),
     },
     intentEvent: {
       create: (...args: unknown[]) => mockIntentEventCreate(...args),
@@ -70,11 +72,16 @@ describe('intentEngine.create() — RFC-014 capability check (TradeIntent)', () 
       id: 'intent-1', type: 'TradeIntent', participantId: 'user-1', moduleId: 'openp2p',
       status: 'CREATED', payload,
     })
+    // Robustness-audit fix (2026-07-20): each transition() call now reads
+    // Intent twice (claim + re-fetch, since updateMany() doesn't return
+    // the row) — see intentFlow.test.ts's identical comment for the full
+    // call-by-call breakdown.
     mockIntentFindUnique
       .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', moduleId: 'openp2p', payload })
       .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload })
       .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload })
-    mockIntentUpdate.mockResolvedValue({ id: 'intent-1', status: 'COORDINATED' })
+      .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload })
+      .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', moduleId: 'openp2p', payload })
   })
 
   it('never calls capabilityRegistry.check when enforceCapabilities is false (the default)', async () => {
