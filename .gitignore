@@ -6,3 +6,4 @@ dist/
 .local-pgdata.log
 .local-redis.pid
 .local-redis.log
+dump.rdb
