@@ -11,18 +11,16 @@ export function Login() {
   const location = useLocation()
   const [connecting, setConnecting] = useState(false)
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     setConnecting(true)
-    // TODO: replace with @sails/sdk's real Ed25519 flow:
-    //   identity.register({ publicKey }) once, then
-    //   identity.authenticate({ publicKey, signature }) on every login
-    // (packages/sails-sdk/src/modules/identity.ts — real, tested,
-    // byte-for-byte checked against common/middleware/auth.ts's
-    // verification logic). WDK itself (@tetherto/wdk-wallet-evm) never
-    // runs in a browser tab — it holds seed material, server-side only.
-    setTimeout(() => {
-      login()
-      setConnecting(false)
+    try {
+      // Real Ed25519 challenge-response — identity.create() once (fresh
+      // keypair), identity.authenticate() every login
+      // (packages/sails-sdk/src/modules/identity.ts). WDK itself
+      // (@tetherto/wdk-wallet-evm) never runs in a browser tab — it holds
+      // seed material, server-side only; this is the separate identity
+      // keypair (Ed25519), not a WDK-managed key.
+      await login()
       toast.success('Conectado!')
       // Real fix: this used to always navigate to '/', so any protected
       // action (e.g. OfferDetail's "Iniciar Trade") that bounced an
@@ -32,7 +30,11 @@ export function Login() {
       // the amount forward too (OfferDetail reads it back to prefill).
       const state = location.state as { from?: string; amount?: number } | null
       navigate(state?.from ?? '/', { state: state?.amount ? { amount: state.amount } : undefined })
-    }, 700)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao conectar')
+    } finally {
+      setConnecting(false)
+    }
   }
 
   return (

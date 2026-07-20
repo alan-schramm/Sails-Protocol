@@ -62,6 +62,18 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send({ success: true, data: offer })
   })
 
+  // Single-offer lookup, including the seller's real public profile
+  // fields — see liquidity.service.ts's getOffer() doc comment for why
+  // this was missing (discover()/book() only return an aggregation
+  // summary, never enough for a real offer-detail screen).
+  app.get('/v1/liquidity/offers/id/:id', {
+    schema: { tags: ['open-liquidity'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const offer = await liquidityRouter.getOffer(id)
+    return reply.code(200).send({ success: true, data: offer })
+  })
+
   app.get('/v1/liquidity/offers/:asset/book', {
     schema: { tags: ['open-liquidity'] },
   }, async (request, reply) => {

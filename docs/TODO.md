@@ -1216,6 +1216,93 @@ devDependencies only.
 
 ---
 
+## 19. `packages/sails-ui` wired to the real backend — golden path (2026-07-19)
+
+Every screen in this reference UI was 100% mocked (`data/mock.ts`/
+`lib/offersStore.ts`/`localStorage`) until today — every `TODO: replace
+with @sails/sdk` comment across the codebase pointed at this pass. With
+§18's real local Postgres+Redis and a real `npm run dev` server running,
+the core "two wallets negotiate" loop now runs against the real backend
+end to end, verified live in a real browser (not just `tsc`/build):
+
+- **Login** (`AuthContext.tsx`) — real `identity.create()` +
+  `identity.authenticate()` (Ed25519 challenge-response,
+  `@sails/sdk`'s identity module). Keypair persisted in `localStorage`
+  (demo-only shortcut, disclosed in the file's own comment — a real
+  wallet integration keeps this in the wallet's own secure storage,
+  never a page-controlled origin). Verified: full register → challenge
+  → authenticate → `/v1/identity/me` round trip, all real HTTP calls.
+- **Marketplace** (`lib/realOffers.ts`) — real `liquidity.discover()`,
+  fanned out per asset/side (the real route only filters by asset+side,
+  no "list everything"). Verified: a real offer created via a smoke
+  test earlier the same day rendered live in the Marketplace grid.
+- **OfferDetail** — real single-offer fetch. Found a real gap: no route
+  ever let a caller fetch one Offer by id with its seller's real profile
+  fields — added `GET /v1/liquidity/offers/id/:id`
+  (`liquidity.service.ts`'s new `getOffer()`, `liquidity.routes.ts`) and
+  the matching `@sails/sdk` method.
+- **PublishOffer** — real `liquidity.publish()` (`POST
+  /v1/liquidity/offers`).
+- **Trade** — real `openp2p.trade()` (creates the real Trade, walks its
+  Intent through the real RFC-018 lifecycle), real `openp2p.getTrade()`/
+  `identity.get()` for both parties, real escrow actions
+  (`settlement.create/lock/markPaymentSent/release/dispute`, matching
+  each action's real ownership rule — only the seller sees "Criar
+  Escrow"/"Bloquear"/"Liberar", only the buyer sees "Marcar Pagamento
+  Enviado"), and real chat (`openp2p.getMessages()` for history,
+  `openp2p.chat()` WebSocket for live messages) — the QVAC risk card
+  (`AgentRiskCard`) also fired for real against this real trade.
+  `buildTrade.ts`'s client-only mock construction is no longer used by
+  this screen.
+
+**Real bugs found and fixed the same day, each invisible until this
+pass's actual browser exercise (this SDK's own tests always inject
+mocks — a real fetch/WS round trip was never exercised before):**
+1. `SailsTransport`'s fallback to the global `fetch` passed a bare
+   function reference, later called as `this.fetchImpl(...)` — real
+   browsers throw `Illegal invocation` for that (fetch requires
+   `window`/`WorkerGlobalScope` as its receiver). Fixed with
+   `fetch.bind(globalThis)`.
+2. `liquidity.discover()`/`.book()`/`.match()` all claimed to return
+   persisted `Offer` shapes — the live routes actually return
+   `{ offers, sources }` (`discover`) or bare `LiquidityOfferSummary`
+   objects (`book`'s bids/asks, `match`), a materially different shape
+   (no `userId`/`status`, `paymentMethods` array not singular). Fixed
+   the SDK's types to match reality; added `LiquidityOfferSummary`/
+   `DiscoverResult` exports.
+3. `WebSocketChannel.onMessage()` claimed `NEW_MESSAGE` frames carry the
+   persisted `Message` shape (`id`/`createdAt`) — the real broadcast
+   payload is `OpenP2PMessageSentEvent` (`messageId`/`timestamp`, no
+   `readAt`). Symptom before the fix: "Invalid Date" on every live chat
+   message. Fixed with a new `ChatMessageEvent` type matching the real
+   frame.
+4. (Tooling, not an SDK bug) Vite resolves `@sails/sdk` — an npm-
+   workspace-linked package — through its real filesystem path rather
+   than as a `node_modules` dependency, skipping the esbuild CJS→ESM
+   pre-bundling every other CJS dependency gets automatically. The
+   browser's native ESM loader then can't find named exports from what's
+   actually a CJS `exports.X = ...` module. Fixed with
+   `optimizeDeps.include: ['@sails/sdk']` in `packages/sails-ui/vite.config.ts`.
+
+**Still mocked, not touched this pass** (disclosed, not silently left):
+Profile's own-offers list, TradeHistory, the Admin dashboard/
+ManageOffers/Disputes screens, and media (image/video) chat attachments
+(no real upload/storage endpoint exists — same gap `types.ts`'s own
+comment already discloses). `isOperator`/`toggleRole` (Profile's
+buyer/seller role-play toggle) stays presentation-only, unrelated to
+real auth.
+
+**Verification**: `npm run build` clean (backend + all 3 TS packages),
+`npm run build:ui` clean (production Vite build), `npm test` 222/222.
+Live browser walkthrough against the real `npm run dev` server (real
+Postgres via §18): register/login, Marketplace showing a real offer,
+OfferDetail with real seller profile data, starting a real Trade (walked
+the real Intent lifecycle), the real QVAC risk card firing, and a real
+chat message sent/received over the live WebSocket with a correctly
+rendered timestamp.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority

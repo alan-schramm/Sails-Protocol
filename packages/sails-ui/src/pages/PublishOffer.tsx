@@ -36,8 +36,8 @@ import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { MOCK_OFFERS, ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
 import { ILLUSTRATIVE_FX_TO_USD, formatByCurrency } from '../lib/currency'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
-import { addOffer } from '../lib/offersStore'
-import type { AssetType, FiatCurrency, Offer, PaymentMethod, TradeSide } from '../types'
+import { sailsClient } from '../lib/sailsClient'
+import type { AssetType, FiatCurrency, PaymentMethod, TradeSide } from '../types'
 
 const STEPS = ['Definir tipo e preço', 'Definir valor e método', 'Definir condições']
 
@@ -92,7 +92,9 @@ export function PublishOffer() {
     setStep((s) => Math.min(s + 1, 3))
   }
 
-  const handlePublish = () => {
+  const [publishing, setPublishing] = useState(false)
+
+  const handlePublish = async () => {
     if (!user || asset === 'Todos' || currency === 'Todas') return
 
     const priceFiat = Number(price)
@@ -101,35 +103,32 @@ export function PublishOffer() {
     // why this conversion is illustrative, not live.
     const priceUsd = currency === 'USD' ? priceFiat : Number((priceFiat * ILLUSTRATIVE_FX_TO_USD[currency]).toFixed(2))
 
-    const offer: Offer = {
-      id: `offer-${Date.now()}`,
-      userId: user.id,
-      user,
-      asset,
-      side,
-      priceUsd,
-      fiatCurrency: currency,
-      priceFiat,
-      minAmount: Number(minAmount),
-      maxAmount: Number(maxAmount),
-      paymentMethod,
-      paymentDetails: paymentDetails.trim(),
-      status: 'ACTIVE',
-      network: NETWORK_BY_ASSET[asset],
-      description: description.trim() || undefined,
-      requiresKyc,
-      country,
-      tradedWithCurrentUser: false,
-      blockedRelationship: false,
-      createdAt: new Date().toISOString(),
+    setPublishing(true)
+    try {
+      // Real @sails/sdk call — POST /v1/liquidity/offers (requires the
+      // active session identity.authenticate() already established).
+      // priceUsd/minAmount/maxAmount as decimal strings, never number
+      // (RFC-009 — packages/sails-sdk/src/types.ts's own header comment).
+      await sailsClient.liquidity.publish({
+        asset,
+        side,
+        priceUsd: priceUsd.toFixed(8),
+        priceBrl: currency === 'BRL' ? priceFiat.toFixed(8) : undefined,
+        minAmount: minAmount,
+        maxAmount: maxAmount,
+        paymentMethod,
+        paymentDetails: paymentDetails.trim(),
+        network: NETWORK_BY_ASSET[asset],
+        description: description.trim() || undefined,
+        requiresKyc,
+      })
+      toast.success('Anúncio publicado!')
+      navigate('/profile')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao publicar anúncio')
+    } finally {
+      setPublishing(false)
     }
-
-    // TODO: replace with @sails/sdk `liquidity.createOffer(offer)` (real
-    // route: POST /v1/liquidity/offers, requires auth) once the mock
-    // swap happens — see lib/offersStore.ts's own comment.
-    addOffer(offer)
-    toast.success('Anúncio publicado!')
-    navigate('/profile')
   }
 
   return (
@@ -310,8 +309,8 @@ export function PublishOffer() {
             Próximo
           </button>
         ) : (
-          <button onClick={handlePublish} className="btn-primary flex-1 py-3">
-            Publicar
+          <button onClick={handlePublish} disabled={publishing} className="btn-primary flex-1 py-3">
+            {publishing ? 'Publicando...' : 'Publicar'}
           </button>
         )}
       </div>

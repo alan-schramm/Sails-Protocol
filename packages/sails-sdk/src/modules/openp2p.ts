@@ -19,6 +19,24 @@ export interface ChatFrame {
   payload: unknown
 }
 
+// The real shape of a NEW_MESSAGE frame's payload
+// (common/events/event-bus.ts's OpenP2PMessageSentEvent, broadcast
+// verbatim by common/events/handlers.ts's `openp2p.message.sent`
+// reaction) — genuinely different field names from the persisted
+// `Message` row this file used to (incorrectly) claim onMessage()
+// delivers: `messageId` not `id`, `timestamp` not `createdAt`, no
+// `readAt`. Found and fixed wiring the first real caller
+// (packages/sails-ui's Trade screen) — invisible to this SDK's own
+// tests, which never exercise a live WS round trip.
+export interface ChatMessageEvent {
+  messageId: string
+  tradeId: string
+  senderId: string
+  content: string
+  msgType: string
+  timestamp: string
+}
+
 /**
  * Wraps the real WS protocol at `GET /v1/openp2p/chat?token=...`
  * (API_REFERENCE.md section 5). Auto-joins `tradeId`'s room once the
@@ -27,7 +45,7 @@ export interface ChatFrame {
  * plumbing exposed to the caller).
  */
 export class WebSocketChannel {
-  private messageHandlers: Array<(msg: Message) => void> = []
+  private messageHandlers: Array<(msg: ChatMessageEvent) => void> = []
   private eventHandlers: Array<(frame: ChatFrame) => void> = []
 
   constructor(private readonly ws: WebSocket, private readonly tradeId: string) {
@@ -43,7 +61,7 @@ export class WebSocketChannel {
       }
       for (const handler of this.eventHandlers) handler(frame)
       if (frame.type === 'NEW_MESSAGE') {
-        for (const handler of this.messageHandlers) handler(frame.payload as Message)
+        for (const handler of this.messageHandlers) handler(frame.payload as ChatMessageEvent)
       }
     })
   }
@@ -53,7 +71,7 @@ export class WebSocketChannel {
   }
 
   /** Fires for every NEW_MESSAGE frame — the common case (SDK_GUIDE.md section 4). */
-  onMessage(handler: (msg: Message) => void): void {
+  onMessage(handler: (msg: ChatMessageEvent) => void): void {
     this.messageHandlers.push(handler)
   }
 

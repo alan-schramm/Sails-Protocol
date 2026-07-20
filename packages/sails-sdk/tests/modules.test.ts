@@ -22,13 +22,20 @@ function authedTransport(fetchImpl: jest.Mock): SailsTransport {
 }
 
 describe('SailsLiquidityModule', () => {
-  it('discover() hits GET /v1/liquidity/offers with asset+side query only', async () => {
-    const fetchImpl = fakeFetch(200, { success: true, data: [] })
+  it('discover() hits GET /v1/liquidity/offers with asset+side query only, and returns the real { offers, sources } shape', async () => {
+    // Real bug found and fixed wiring the first real caller
+    // (packages/sails-ui): this method's return type used to claim a
+    // bare Offer[] — the live route (liquidity.routes.ts ->
+    // getAggregatedOffers()) actually returns { offers, sources }, each
+    // offer a LiquidityOfferSummary, not a persisted Offer. Confirmed
+    // against the real server, not assumed.
+    const fetchImpl = fakeFetch(200, { success: true, data: { offers: [], sources: ['internal'] } })
     const liquidity = new SailsLiquidityModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
 
-    await liquidity.discover({ asset: 'BTC', side: 'BUY' })
+    const result = await liquidity.discover({ asset: 'BTC', side: 'BUY' })
 
     expect(fetchImpl.mock.calls[0][0]).toBe('http://localhost:3000/v1/liquidity/offers?asset=BTC&side=BUY')
+    expect(result).toEqual({ offers: [], sources: ['internal'] })
   })
 
   it('publish() posts to /v1/liquidity/offers with auth', async () => {
