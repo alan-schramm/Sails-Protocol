@@ -252,6 +252,33 @@ to a non-trading domain instead of P2P currency exchange.
   document rates most plausible for near-term exploration if any of this
   section becomes prioritized work.
 
+  **A concrete mechanism worth naming, not just the vertical in the
+  abstract (checked against WDK's own docs, 2026-07-20,
+  `docs.wdk.tether.io/ai/x402/`):** x402 is an HTTP-402-based
+  machine-to-machine micropayment protocol (originally Coinbase's) —
+  request a resource, get a 402 with a price, sign an EIP-3009 USDT
+  authorization, retry, get the resource, all in one HTTP round trip.
+  It solves a genuinely different problem than Sails OpenP2P (single-shot,
+  fixed-price, no negotiation, no fiat leg, no escrow/dispute) — it is
+  **not** a fit for the core P2P trading flow. Where it could fit, if
+  OpenAgents is ever built out: a Sails agent paying a third-party API
+  for data or inference as part of forming or pricing an `Intent`, which
+  is squarely a machine-to-machine, already-digital-asset payment —
+  consistent with RFC-016's Crypto-Native Agent boundary (never touches
+  fiat). Notable because the client-side signer is `WalletManagerEvm`
+  from `@tetherto/wdk-wallet-evm` — the same package
+  `wdk-settlement.provider.ts` already depends on, not a new wallet
+  stack. **Two honest caveats, not glossed over:** (1) x402 needs a
+  Facilitator to verify and settle — either a third-party service (WDK's
+  own docs disclaim it: "Tether does not endorse, operate, or assume
+  legal or financial responsibility for any third-party facilitator") or
+  a self-hosted one (`@semanticio/wdk-wallet-evm-x402-facilitator`,
+  `@x402/core`), a real operational choice either way; (2) it is USDT/EVM
+  only (Plasma/Stable recommended chains), so it inherits the same
+  chain-scope limits as `WDK_USDT_EVM` today. Not scoped, not backlogged
+  — recorded here as the answer to "what would an agent-to-agent payment
+  mechanism actually look like," should that question come up.
+
 None of these four are scoped, specced, or backlogged — they are recorded
 here as fit arguments only, consistent with this document's framing note.
 
