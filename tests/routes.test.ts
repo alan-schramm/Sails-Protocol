@@ -39,7 +39,21 @@ const mockCapabilityGrantFindUnique = jest.fn()
 const mockCapabilityGrantUpdate = jest.fn()
 const mockIntentCreate = jest.fn()
 const mockIntentFindUnique = jest.fn()
-const mockIntentUpdate = jest.fn()
+// Robustness-audit fix (2026-07-20): intent-engine.ts's transition() now
+// reads Intent twice per call (once to claim its atomic updateMany(),
+// once to re-fetch the post-claim row — updateMany() doesn't return the
+// row the way update() did). Most of the extra re-fetch reads in this
+// file aren't behavior-relevant to what these route/wiring tests check —
+// this persistent default (mockResolvedValue, not mockResolvedValueOnce,
+// so it survives every beforeEach's clearAllMocks() below) covers any
+// call a test doesn't explicitly queue a value for, so each test only
+// needs to queue the read(s) it actually cares about.
+mockIntentFindUnique.mockResolvedValue({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload: {} })
+// Same fix, the write side: transition() no longer calls prisma.intent.
+// update() at all — its status write is now the atomic updateMany()
+// claim below (identical `data: { status: toStatus }` shape, so
+// existing assertions on `.data.status` keep working unchanged).
+const mockIntentUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockIntentEventCreate = jest.fn()
 const mockIntentEventFindFirst = jest.fn()
 
@@ -48,7 +62,7 @@ jest.mock('../src/common/database', () => ({
     intent: {
       create: (...args: unknown[]) => mockIntentCreate(...args),
       findUnique: (...args: unknown[]) => mockIntentFindUnique(...args),
-      update: (...args: unknown[]) => mockIntentUpdate(...args),
+      updateMany: (...args: unknown[]) => mockIntentUpdateMany(...args),
     },
     intentEvent: {
       create: (...args: unknown[]) => mockIntentEventCreate(...args),
@@ -77,6 +91,12 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
       create: (...args: unknown[]) => mockEscrowCreate(...args),
       update: jest.fn().mockResolvedValue({}),
+      // Robustness-audit fix (2026-07-20) — escrow.service.ts's own
+      // comment has the full reasoning; same shape as the intent fix
+      // above (a default successful claim is enough for route-level
+      // tests, which don't assert the atomicity itself — that's
+      // escrowReleaseControls.test.ts's job).
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     escrowEvent: { create: (...args: unknown[]) => mockEscrowEventCreate(...args) },
     message: {
@@ -286,7 +306,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED' })                                          // transition() -> VALIDATED
         .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload: {} })       // coordinationEngine.decide()
         .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED' })                                         // transition() -> COORDINATED
-      mockIntentUpdate.mockResolvedValue({ id: 'intent-1', status: 'COORDINATED' })
+      mockIntentUpdateMany.mockResolvedValue({ id: 'intent-1', status: 'COORDINATED' })
       mockOfferCreate.mockResolvedValueOnce({ id: 'offer-1', userId: 'user-1', asset: 'BTC', side: 'SELL', priceUsd: '65000' })
 
       const res = await app.inject({
@@ -370,11 +390,18 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
       mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', status: 'PENDING' })
       mockIntentEventFindFirst.mockResolvedValue(null)
+      // Robustness-audit fix (2026-07-20): each of the three transition()
+      // calls below now reads Intent twice (claim + re-fetch), not once —
+      // 6 queued values total, not 3. Order: DISCOVERING's (read, refetch),
+      // MATCHED's (read, refetch), NEGOTIATING's (read, refetch).
       mockIntentFindUnique
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED' }) // -> DISCOVERING
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING' }) // -> MATCHED
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'MATCHED' })     // -> NEGOTIATING
-      mockIntentUpdate.mockResolvedValue({ id: 'intent-1' })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED' })  // -> DISCOVERING: read
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING' })  // -> DISCOVERING: refetch
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING' })  // -> MATCHED: read
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'MATCHED' })      // -> MATCHED: refetch
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'MATCHED' })      // -> NEGOTIATING: read
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'NEGOTIATING' }) // -> NEGOTIATING: refetch
+      mockIntentUpdateMany.mockResolvedValue({ count: 1 })
 
       const res = await app.inject({
         method: 'POST',
@@ -390,7 +417,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       // Three sequential transitions, in order — the actual state-machine
       // edges (core/state-machine.ts) enforce the ordering; this just
       // confirms trade.service.ts actually drives it.
-      const toStatuses = mockIntentUpdate.mock.calls.map((c) => c[0]?.data?.status)
+      const toStatuses = mockIntentUpdateMany.mock.calls.map((c) => c[0]?.data?.status)
       expect(toStatuses).toEqual(['DISCOVERING', 'MATCHED', 'NEGOTIATING'])
     })
 
@@ -408,7 +435,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       mockTradeUpdate.mockResolvedValueOnce({ id: 'trade-1', status: 'CANCELLED' })
       mockIntentEventFindFirst.mockResolvedValue(null)
       mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'NEGOTIATING' })
-      mockIntentUpdate.mockResolvedValueOnce({ id: 'intent-1', status: 'CANCELLED' })
+      mockIntentUpdateMany.mockResolvedValueOnce({ id: 'intent-1', status: 'CANCELLED' })
 
       const res = await app.inject({
         method: 'PATCH',
@@ -418,8 +445,11 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
 
       expect(res.statusCode).toBe(200)
-      expect(mockIntentUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'intent-1' }, data: { status: 'CANCELLED' } })
+      // Robustness-audit fix (2026-07-20): the atomic claim's `where` now
+      // includes the expected current status too, not just the id — see
+      // intent-engine.ts's own comment.
+      expect(mockIntentUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'intent-1', status: 'NEGOTIATING' }, data: { status: 'CANCELLED' } })
       )
     })
 
@@ -438,7 +468,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
 
       expect(res.statusCode).toBe(200)
-      expect(mockIntentUpdate).not.toHaveBeenCalled()
+      expect(mockIntentUpdateMany).not.toHaveBeenCalled()
     })
   })
 
@@ -779,7 +809,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', moduleId: 'openp2p', payload })
         .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload })
         .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload })
-      mockIntentUpdate.mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED' })
+      mockIntentUpdateMany.mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED' })
 
       const res = await app.inject({
         method: 'POST',
@@ -814,7 +844,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
 
       expect(res.statusCode).toBe(403)
-      expect(mockIntentUpdate).not.toHaveBeenCalled()
+      expect(mockIntentUpdateMany).not.toHaveBeenCalled()
     })
 
     it("cancels the caller's own Intent", async () => {
@@ -825,7 +855,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', participantId: 'buyer-1', expiresAt: null })
         .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', participantId: 'buyer-1', expiresAt: null })
       mockIntentEventFindFirst.mockResolvedValueOnce(null)
-      mockIntentUpdate.mockResolvedValueOnce({ id: 'intent-1', status: 'CANCELLED' })
+      mockIntentUpdateMany.mockResolvedValueOnce({ id: 'intent-1', status: 'CANCELLED' })
 
       const res = await app.inject({
         method: 'DELETE',

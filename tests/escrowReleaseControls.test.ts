@@ -45,6 +45,11 @@ jest.mock('@tetherto/wdk-wallet-evm', () => ({
 
 const mockEscrowFindUnique = jest.fn()
 const mockEscrowUpdate = jest.fn()
+// Robustness-audit fix (2026-07-20) — escrow.service.ts's mutating
+// methods now claim their status transition atomically via updateMany()
+// before touching the (possibly real, fund-moving) provider; see that
+// file's own comment. Defaults to a successful claim.
+const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowCreate = jest.fn()
 const mockEscrowEventCreate = jest.fn()
 const mockTradeFindUnique = jest.fn()
@@ -59,6 +64,7 @@ jest.mock('../src/common/database', () => ({
     escrow: {
       findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
       update: (...args: unknown[]) => mockEscrowUpdate(...args),
+      updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
       create: (...args: unknown[]) => mockEscrowCreate(...args),
     },
     escrowEvent: { create: (...args: unknown[]) => mockEscrowEventCreate(...args) },
@@ -290,7 +296,15 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
 
       await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/not yet implemented/)
 
-      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+      // Robustness-audit fix (2026-07-20): lockFunds() now claims
+      // FUNDS_LOCKED atomically *before* calling the provider, so a
+      // failed provider call does leave one update() call behind — the
+      // revert back to the original status (escrow.service.ts's own
+      // catch block), not a leftover lock. "Unpersisted" means no lock
+      // *fields* (txLockId/multisigAddr/lockedAt/expiresAt) were ever
+      // set, not "update() was never called" — checked precisely below.
+      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
+      expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { status: 'CREATED' } })
       expect(eventBus.emit).not.toHaveBeenCalledWith('settlement.escrow.locked', expect.anything(), expect.anything())
     })
 
@@ -320,7 +334,11 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       const result = await escrowService.lockFunds('escrow-1', 'seller-1')
 
       expect(result.status).toBe('FUNDS_LOCKED')
-      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
+      // 2, not 1: the failed first attempt above already contributed one
+      // update() call (the revert-back-to-CREATED — see the previous
+      // test's identical comment), and this successful retry contributes
+      // its own field-fill update() — both real, both expected.
+      expect(mockEscrowUpdate).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -336,6 +354,16 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
     })
 
     it('allows the buyer', async () => {
+      // Robustness-audit fix (2026-07-20): markPaymentSent() has no
+      // external provider call, so it claims via updateMany() then
+      // re-fetches via findUnique() (not update(), which doesn't apply
+      // here) — two findUnique calls now, not one: the initial read,
+      // then the re-fetch after the atomic claim succeeds. Queued
+      // explicitly (not relying on this describe's single-value default)
+      // so each call gets the status it should actually see.
+      mockEscrowFindUnique
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'PAYMENT_PENDING' })
       const result = await escrowService.markPaymentSent('escrow-1', 'buyer-1')
       expect(result.status).toBe('PAYMENT_PENDING')
     })
@@ -381,11 +409,20 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
     })
 
     it('allows the buyer', async () => {
+      // Same fix as markPaymentSent's identical comment — openDispute()
+      // also has no external provider call, so both findUnique calls
+      // (initial read + post-claim re-fetch) need queuing explicitly.
+      mockEscrowFindUnique
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED' })
       const result = await escrowService.openDispute('escrow-1', 'buyer-1', 'reason')
       expect(result.status).toBe('DISPUTED')
     })
 
     it('allows the seller', async () => {
+      mockEscrowFindUnique
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED' })
       const result = await escrowService.openDispute('escrow-1', 'seller-1', 'reason')
       expect(result.status).toBe('DISPUTED')
     })

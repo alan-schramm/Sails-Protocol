@@ -15,7 +15,7 @@ import { validateFinancialSanity } from '../src/core/policy-engine'
 
 const mockIntentCreate = jest.fn()
 const mockIntentFindUnique = jest.fn()
-const mockIntentUpdate = jest.fn()
+const mockIntentUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockIntentEventCreate = jest.fn()
 const mockIntentEventFindFirst = jest.fn()
 
@@ -24,7 +24,12 @@ jest.mock('../src/common/database', () => ({
     intent: {
       create: (...args: unknown[]) => mockIntentCreate(...args),
       findUnique: (...args: unknown[]) => mockIntentFindUnique(...args),
-      update: (...args: unknown[]) => mockIntentUpdate(...args),
+      // Robustness-audit fix (2026-07-20): transition() now does an
+      // atomic conditional updateMany() instead of an unconditional
+      // update() — see intent-engine.ts's own comment on why. Defaults
+      // to a successful claim (count: 1); the "concurrent request" test
+      // below overrides this to count: 0 to exercise the rejection path.
+      updateMany: (...args: unknown[]) => mockIntentUpdateMany(...args),
     },
     intentEvent: {
       create: (...args: unknown[]) => mockIntentEventCreate(...args),
@@ -117,17 +122,21 @@ describe('Intent Engine — happy path (IntentEngine -> PolicyEngine -> StateMac
     })
     mockIntentEventFindFirst.mockResolvedValue(null) // no prior event -> prevHash = 'genesis'
     // RFC-012: create() now calls transition() twice more (CREATED ->
-    // VALIDATED -> COORDINATED), each of which re-reads the Intent from
-    // Postgres first — real DB state would show the status the *previous*
-    // step just wrote, so the mock returns that in the same order:
-    // findUnique #1 (transition to VALIDATED) sees CREATED, #2
-    // (coordinationEngine.decide) sees VALIDATED, #3 (transition to
-    // COORDINATED) also sees VALIDATED (decide() doesn't mutate anything).
+    // VALIDATED -> COORDINATED). Robustness-audit fix (2026-07-20):
+    // transition() itself now reads Intent TWICE per call — once to
+    // capture the current status for its atomic updateMany() claim, once
+    // again afterward to return the post-claim row (updateMany() itself
+    // doesn't return the row, unlike update()) — so each transition()
+    // below consumes 2 findUnique results, not 1:
+    // #1/#2 = transition->VALIDATED (read, then re-fetch)
+    // #3 = coordinationEngine.decide() (its own single read)
+    // #4/#5 = transition->COORDINATED (read, then re-fetch)
     mockIntentFindUnique
       .mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', moduleId: 'openp2p', payload: { asset: 'BTC' } })
       .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload: { asset: 'BTC' } })
       .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload: { asset: 'BTC' } })
-    mockIntentUpdate.mockResolvedValue({ id: 'intent-1', status: 'COORDINATED' })
+      .mockResolvedValueOnce({ id: 'intent-1', status: 'VALIDATED', moduleId: 'openp2p', payload: { asset: 'BTC' } })
+      .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', moduleId: 'openp2p', payload: { asset: 'BTC' } })
 
     const payload = { asset: 'BTC', side: 'BUY' as const, maxValue: '0.5', minValue: '0.01' }
     const intent = await intentEngine.create('TradeIntent', payload, 'user-1')
@@ -170,5 +179,17 @@ describe('Intent Engine — happy path (IntentEngine -> PolicyEngine -> StateMac
       intentEngine.create('TradeIntent', { asset: 'BTC', side: 'BUY', maxValue: '-500' }, 'user-1')
     ).rejects.toThrow(/financial sanity/)
     expect(mockIntentCreate).not.toHaveBeenCalled()
+  })
+
+  it('robustness audit (2026-07-20): rejects a transition() lost to a concurrent request instead of silently overwriting it', async () => {
+    // Simulates the exact race the fix closes: two callers both read the
+    // same currentStatus, but only one's conditional updateMany() can
+    // ever match — the loser gets count: 0, not a silent double-write.
+    mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'CREATED', moduleId: 'openp2p', payload: {} })
+    mockIntentUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    await expect(
+      intentEngine.transition('intent-1', 'VALIDATED', 'user-1', 'intent.validated', { intentId: 'intent-1', participantId: 'user-1' })
+    ).rejects.toThrow(/already transitioned by a concurrent request/)
   })
 })

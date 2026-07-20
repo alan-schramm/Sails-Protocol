@@ -229,25 +229,56 @@ export class EscrowService {
       throw new ForbiddenError(`${triggeredBy} is not the seller of trade ${trade.id} — only the seller may lock escrow funds`)
     }
 
-    const provider = this.getProvider(escrow.type)
-    const result = await provider.lockFunds(escrow as unknown as EscrowRecord)
-
-    const now = new Date()
-    const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
-
-    const updated = await prisma.escrow.update({
-      where: { id: escrowId },
-      data: { status: 'FUNDS_LOCKED', txLockId: result.txId, multisigAddr: result.address, lockedAt: now, expiresAt },
+    // ─── Robustness-audit fix (2026-07-20): claim the transition
+    // atomically BEFORE calling the external provider, not after. The
+    // old code read `escrow.status`, checked it in memory
+    // (assertTransition above), then called the real, side-effecting
+    // provider — two concurrent lockFunds() calls for the same escrow
+    // (double-click, a retried request after a timeout) would both pass
+    // that in-memory check before either write landed, so both would go
+    // on to call provider.lockFunds(). For WDK_USDT_EVM that means two
+    // real on-chain calls for one escrow. `updateMany`'s `WHERE status:`
+    // clause makes Postgres itself the arbiter: only the request whose
+    // WHERE still matches the row's *current* status affects a row —
+    // the loser gets `count: 0` and is rejected before ever touching the
+    // provider, not after. ────────────────────────────────────────────
+    const claim = await prisma.escrow.updateMany({
+      where: { id: escrowId, status: escrow.status },
+      data: { status: 'FUNDS_LOCKED' },
     })
+    if (claim.count === 0) {
+      throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
+    }
 
-    // NOTE: previously this method also called prisma.trade.update(...) to set
-    // Trade.status = 'ACTIVE'. That write belonged to OpenP2P, not here. The
-    // OpenP2P trade handler now does this in reaction to the event below.
-    await this.transition(escrowId, escrow.tradeId, 'CREATED', 'FUNDS_LOCKED', triggeredBy, 'settlement.escrow.locked', {
-      txId: result.txId,
-    })
+    try {
+      const provider = this.getProvider(escrow.type)
+      const result = await provider.lockFunds(escrow as unknown as EscrowRecord)
 
-    return updated
+      const now = new Date()
+      const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
+
+      const updated = await prisma.escrow.update({
+        where: { id: escrowId },
+        data: { txLockId: result.txId, multisigAddr: result.address, lockedAt: now, expiresAt },
+      })
+
+      // NOTE: previously this method also called prisma.trade.update(...) to set
+      // Trade.status = 'ACTIVE'. That write belonged to OpenP2P, not here. The
+      // OpenP2P trade handler now does this in reaction to the event below.
+      await this.transition(escrowId, escrow.tradeId, 'CREATED', 'FUNDS_LOCKED', triggeredBy, 'settlement.escrow.locked', {
+        txId: result.txId,
+      })
+
+      return updated
+    } catch (err) {
+      // Revert the claim — an escrow left claiming FUNDS_LOCKED with no
+      // real lock behind it (the provider call failed) would otherwise
+      // block every future lockFunds() attempt via assertTransition,
+      // with no way to retry. Same revert-on-failure idiom
+      // dispute.service.ts's resolveDispute() already established.
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: escrow.status } }).catch(() => {})
+      throw err
+    }
   }
 
   async markPaymentSent(escrowId: string, triggeredBy: string) {
@@ -262,7 +293,18 @@ export class EscrowService {
       throw new ForbiddenError(`${triggeredBy} is not the buyer of trade ${trade.id} — only the buyer may confirm payment sent`)
     }
 
-    const updated = await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'PAYMENT_PENDING' } })
+    // No external provider call here, but still atomic (robustness audit,
+    // 2026-07-20) — a double-click could otherwise write the same
+    // transition twice, emitting settlement.escrow.payment_pending
+    // twice for one real event.
+    const claim = await prisma.escrow.updateMany({
+      where: { id: escrowId, status: escrow.status },
+      data: { status: 'PAYMENT_PENDING' },
+    })
+    if (claim.count === 0) {
+      throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
+    }
+    const updated = await prisma.escrow.findUnique({ where: { id: escrowId } })
 
     await this.transition(
       escrowId,
@@ -331,23 +373,56 @@ export class EscrowService {
       }
     }
 
-    const provider = this.getProvider(escrow.type)
-    const result = await provider.releaseFunds(escrow as unknown as EscrowRecord, toAddress)
-
-    const updated = await prisma.escrow.update({
-      where: { id: escrowId },
-      data: { status: 'COMPLETED', txReleaseId: result.txId, releasedAt: new Date() },
+    // ─── Robustness-audit fix (2026-07-20), the highest-severity finding
+    // of this pass: this is the one call in the entire codebase that can
+    // move real money (WDK_USDT_EVM signs and broadcasts a real on-chain
+    // USDT transfer). The old code called `provider.releaseFunds()`
+    // straight after the in-memory `assertTransition` check above, with
+    // no DB-level guard before it — two concurrent releaseFunds() calls
+    // for the same escrow (a double-click, a client retrying after a
+    // timeout that actually succeeded server-side, or a race between
+    // executeSettlement()'s auto-settle path and a manual API call)
+    // would both pass assertTransition before either write landed, and
+    // both would go on to sign and broadcast a real transfer — an actual
+    // double-payment, not a theoretical one. Fixed the same way
+    // lockFunds() above now is: atomically claim COMPLETED via a
+    // conditional `updateMany` *before* ever calling the provider, so a
+    // concurrent loser is rejected before touching real funds, not after.
+    const claim = await prisma.escrow.updateMany({
+      where: { id: escrowId, status: escrow.status },
+      data: { status: 'COMPLETED' },
     })
+    if (claim.count === 0) {
+      throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
+    }
 
-    // NOTE: previously this method also updated Trade.status/completedAt AND
-    // incremented User.totalTrades/totalVolumeBtc directly (reaching into
-    // OpenP2P's and OpenReputation's domains). Both writes are now owned by
-    // their respective modules, triggered by the event emitted below.
-    await this.transition(escrowId, escrow.tradeId, escrow.status, 'COMPLETED', triggeredBy, 'settlement.escrow.released', {
-      txId: result.txId,
-    })
+    try {
+      const provider = this.getProvider(escrow.type)
+      const result = await provider.releaseFunds(escrow as unknown as EscrowRecord, toAddress)
 
-    return updated
+      const updated = await prisma.escrow.update({
+        where: { id: escrowId },
+        data: { txReleaseId: result.txId, releasedAt: new Date() },
+      })
+
+      // NOTE: previously this method also updated Trade.status/completedAt AND
+      // incremented User.totalTrades/totalVolumeBtc directly (reaching into
+      // OpenP2P's and OpenReputation's domains). Both writes are now owned by
+      // their respective modules, triggered by the event emitted below.
+      await this.transition(escrowId, escrow.tradeId, escrow.status, 'COMPLETED', triggeredBy, 'settlement.escrow.released', {
+        txId: result.txId,
+      })
+
+      return updated
+    } catch (err) {
+      // Revert the claim — see lockFunds()'s identical comment. Critical
+      // here specifically: without this, a failed release (provider
+      // threw, e.g. RPC error) would leave the escrow permanently stuck
+      // claiming COMPLETED with `txReleaseId: null` — funds neither
+      // released nor recoverable through this service again.
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: escrow.status } }).catch(() => {})
+      throw err
+    }
   }
 
   async openDispute(escrowId: string, triggeredBy: string, reason: string) {
@@ -366,7 +441,19 @@ export class EscrowService {
       throw new ForbiddenError(`${triggeredBy} is not a party to trade ${trade.id}`)
     }
 
-    const updated = await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'DISPUTED' } })
+    // Atomic conditional update — see lockFunds()'s comment. No external
+    // provider call here, but dispute.service.ts's raiseDispute() itself
+    // already has its own @@unique([tradeId]) guard at the Dispute-row
+    // level (2026-07-19 security round); this closes the same race one
+    // layer down, at the Escrow row this method actually mutates.
+    const claim = await prisma.escrow.updateMany({
+      where: { id: escrowId, status: escrow.status },
+      data: { status: 'DISPUTED' },
+    })
+    if (claim.count === 0) {
+      throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
+    }
+    const updated = await prisma.escrow.findUnique({ where: { id: escrowId } })
 
     await this.transition(
       escrowId,
@@ -398,19 +485,34 @@ export class EscrowService {
       throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
     }
 
-    const provider = this.getProvider(escrow.type)
-    const result = await provider.refundFunds(escrow as unknown as EscrowRecord)
-
-    const updated = await prisma.escrow.update({
-      where: { id: escrowId },
-      data: { status: 'REFUNDED', txReleaseId: result.txId },
+    // Same fix as releaseFunds() above, same reason: claim REFUNDED
+    // atomically before ever calling the real, side-effecting provider.
+    const claim = await prisma.escrow.updateMany({
+      where: { id: escrowId, status: escrow.status },
+      data: { status: 'REFUNDED' },
     })
+    if (claim.count === 0) {
+      throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
+    }
 
-    await this.transition(escrowId, escrow.tradeId, escrow.status, 'REFUNDED', triggeredBy, 'settlement.escrow.refunded', {
-      txId: result.txId,
-    })
+    try {
+      const provider = this.getProvider(escrow.type)
+      const result = await provider.refundFunds(escrow as unknown as EscrowRecord)
 
-    return updated
+      const updated = await prisma.escrow.update({
+        where: { id: escrowId },
+        data: { txReleaseId: result.txId },
+      })
+
+      await this.transition(escrowId, escrow.tradeId, escrow.status, 'REFUNDED', triggeredBy, 'settlement.escrow.refunded', {
+        txId: result.txId,
+      })
+
+      return updated
+    } catch (err) {
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: escrow.status } }).catch(() => {})
+      throw err
+    }
   }
 
   // RFC-015 — the two-person control's write path. Reads Trade only to

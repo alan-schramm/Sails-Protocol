@@ -1399,6 +1399,110 @@ asserted `dispute()` always throws, which stopped being true).
 
 ---
 
+## 22. Pre-beta robustness audit (2026-07-20) — "assume 10,000 users tomorrow"
+
+CTO-directed audit for fund-loss bugs, state-machine violations, race
+conditions, and reconnection failures ahead of any public beta.
+Explicitly scoped to hardening existing infrastructure, not new
+features — every item below is either a fix to code that already
+existed, or a precisely-scoped registration of a gap left open on
+purpose. Verified: `npm run build` clean, `npm test` 224/224 (1 net new
+test; several existing tests updated for the new call shape, none
+weakened).
+
+### Fixed — real, reproducible bugs
+
+1. **Escrow state transitions were not atomic (TOCTOU race) — the
+   highest-severity finding, a genuine fund-loss bug, not a theoretical
+   one.** `escrow.service.ts`'s `lockFunds()`/`markPaymentSent()`/
+   `releaseFunds()`/`openDispute()`/`refundFunds()` all read `escrow.status`,
+   checked it in memory (`assertTransition`), then — for `releaseFunds()`
+   and `refundFunds()` specifically — called the real, side-effecting
+   `SettlementProvider` (for `WDK_USDT_EVM`, a real signed on-chain USDT
+   transfer) with no database-level guard before it. Two concurrent calls
+   for the same escrow (a double-click, a client retrying a request that
+   actually already succeeded, a race between `executeSettlement()`'s
+   auto-settle path and a manual API call) would both pass the in-memory
+   check before either write landed, and **both would sign and broadcast
+   a real transfer** — an actual double-payment. Fixed by claiming the
+   transition atomically via a conditional `prisma.escrow.updateMany({
+   where: { id, status: expectedCurrentStatus }, data: {...} })`
+   *before* ever calling the provider — Postgres's own row-level locking
+   makes only one concurrent caller's claim succeed (`count: 1`); the
+   loser gets `count: 0` and is rejected before touching real funds, not
+   after. On a provider failure after a successful claim, the status is
+   reverted (same idiom `dispute.service.ts`'s `resolveDispute()` already
+   established for its own revert-on-failure case) so a failed attempt
+   doesn't permanently strand the escrow. Verified in
+   `tests/escrowReleaseControls.test.ts` (26 tests, including the
+   provider-failure/revert and safe-retry cases, both updated for the new
+   call shape).
+2. **The RFC-018 Intent state machine had the identical race.**
+   `intent-engine.ts`'s `transition()` — the single function every real
+   status change in the protocol goes through — had the same read-check-
+   write gap. Worse than a lost update: `writeIntentEvent()` computes
+   `prevHash` from "the last `IntentEvent` row for this intentId," so two
+   racing transitions could both read the same prior event as "last" and
+   both chain off it, corrupting RFC-008's hash chain (which guarantees
+   exactly one true predecessor per event), not just silently overwriting
+   a status field. Fixed the same way: an atomic conditional
+   `prisma.intent.updateMany({ where: { id, status: currentStatus },
+   data: { status: toStatus } })` before `writeIntentEvent()`/`emit()`
+   ever run. New test in `tests/intentFlow.test.ts` exercises the
+   rejection path directly (`count: 0` → a clear error, not a silent
+   double-write).
+3. **`createTrade()` never validated `amount` against the Offer's own
+   `minAmount`/`maxAmount` — or that it was a sane positive number at
+   all.** A caller could request any amount, including one wildly outside
+   what the seller actually published (the same limits `OfferDetail.tsx`
+   shows the buyer as a hard constraint), and a real `Trade` would be
+   created for it — an accepted "trade" the counterparty never agreed to,
+   a state-consistency bug, not just a UX gap. Fixed in
+   `trade.service.ts`'s `createTrade()`, same "bounds check via `Number()`,
+   decimal string is still what's persisted" precedent RFC-009 already
+   established elsewhere in this codebase.
+
+### Found, not fixed — registered precisely, per the "no new features" scope
+
+- **No WebSocket reconnection logic anywhere in the client stack.**
+  `@sails/sdk`'s `WebSocketChannel` (`openp2p.ts`) has no reconnect-on-
+  `close`/`error` handling at all, and `Trade.tsx` never listens for
+  either event either — a dropped connection (network blip, server
+  restart, laptop sleep) silently stops chat/live-update delivery with no
+  recovery and no user-visible signal. Confirmed by reading both files
+  directly, not assumed. Not fixed here — building real reconnect-with-
+  backoff logic is new client functionality, not a fix to something that
+  already existed, out of this pass's explicit scope. Next step if
+  prioritized: exponential-backoff reconnect in `WebSocketChannel` itself
+  (so every caller gets it for free), re-`JOIN_TRADE` on reconnect, and a
+  visible "reconectando..." state in `Trade.tsx`.
+- **`trade.service.ts`'s `updateStatus()` and `capability-registry.ts`'s
+  `revoke()` have the same read-check-write shape as the escrow/intent
+  bugs above, but lower severity** — neither guards a real fund movement
+  or a hash-chain invariant; the worst case of a lost race is "last write
+  wins" on a status/timestamp field, not a double-payment or a corrupted
+  chain. Left as-is this pass (the fix pattern is identical to items 1-2
+  above if this is ever prioritized — same atomic `updateMany` swap).
+- **Client-side double-click protection already exists** (`Trade.tsx`'s
+  `acting` state disables every action button mid-request) — real, but
+  correctly understood as defense-in-depth, not the actual fix: it does
+  nothing against two independent HTTP clients (a retried request, a
+  second device, a script), which is exactly why item 1 above needed a
+  server-side, database-level fix regardless.
+
+### Explicitly out of scope this pass (the CTO's own "what I would NOT ask
+for right now" list, respected as-is)
+
+Playwright E2E suites, dual-browser test harnesses, fuzz testing
+infrastructure, and a formal RFC-018 model-checking harness (random
+event-sequence generation against the state machine) were all named as
+good ideas but bigger, standalone efforts — not attempted here without a
+separate decision to prioritize one. This section exists so that decision
+has an accurate audit to start from, not so it gets made implicitly by
+what got built anyway.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority
