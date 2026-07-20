@@ -51,6 +51,13 @@ jest.mock('../src/common/events/event-bus', () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { intentEngine } = require('../src/core/intent-engine')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { OpenP2PTradeIntentHandler } = require('../src/modules/open-p2p/intent-handler')
+
+// RFC-018 Phase 3 — validateStructure() delegates to whichever handler is
+// registered for the Intent type; register the real one here the same
+// way app.ts's buildApp() does at real boot.
+intentEngine.registerHandler(OpenP2PTradeIntentHandler)
 
 const payload = { asset: 'BTC', side: 'BUY' as const, maxValue: '0.5', minValue: '0.01' }
 

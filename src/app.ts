@@ -11,6 +11,8 @@ import { connectDatabase } from './common/database'
 import { connectRedis } from './common/redis'
 import { AppError } from './common/errors'
 import { registerEventHandlers } from './common/events/handlers'
+import { intentEngine } from './core/intent-engine'
+import { OpenP2PTradeIntentHandler } from './modules/open-p2p/intent-handler'
 import { intentRoutes } from './routes/intentRoutes'
 import { identityRoutes } from './modules/open-identity/identity.routes'
 import { liquidityRoutes } from './modules/open-liquidity/liquidity.routes'
@@ -171,6 +173,11 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // ── Register event handlers (Coordination Protocol) ──────────────────────
   registerEventHandlers()
+
+  // ── Register Intent handlers (Intent Engine plugin pattern, §2.7) ────────
+  // RFC-018 Phase 3 — the Core never imports a module; modules register
+  // themselves. OpenP2P is the only module with a real IntentHandler today.
+  intentEngine.registerHandler(OpenP2PTradeIntentHandler)
 
   return app
 }

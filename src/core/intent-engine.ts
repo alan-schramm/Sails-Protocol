@@ -60,37 +60,22 @@ export interface IntentEngine {
 const handlers = new Map<IntentType, IntentHandler>()
 
 // ─── CISO Byzantine Rule: reject and drop malformed intents at the entry
-// boundary — never persisted, never handed to a handler. ─────────────────────
+// boundary — never persisted, never handed to a handler. RFC-018 Phase 3:
+// this no longer knows what a TradeIntent's fields are — that check now
+// lives in the registered module handler (modules/open-p2p/intent-handler.ts),
+// consistent with §2.7's "the Core never imports a module" principle. An
+// IntentType with no registered handler is malformed by construction —
+// there is nothing that could have validated it. ─────────────────────────
 function validateStructure(type: IntentType, payload: IntentPayload): { valid: boolean; errors?: string[] } {
-  if (type !== 'TradeIntent') {
+  const handler = handlers.get(type)
+  if (!handler) {
     // PaymentIntent/SwapIntent/LoanIntent/EarnIntent/AgentIntent are 📋
     // future per PROTOCOL_SPECIFICATION.md §2.3 — no handler can exist for
     // them yet, so any attempt to create one is malformed by definition,
     // not a gap in this validator.
     return { valid: false, errors: [`Unsupported intent type: ${type} (no handler registered yet)`] }
   }
-
-  const p = payload as TradeIntentPayload
-  const errors: string[] = []
-  if (!p.asset || typeof p.asset !== 'string') errors.push('asset is required')
-  if (p.side !== 'BUY' && p.side !== 'SELL') errors.push("side must be 'BUY' or 'SELL'")
-  if (p.maxValue !== undefined && typeof p.maxValue !== 'string') errors.push('maxValue must be a decimal string, not a number (RFC-009)')
-  if (p.minValue !== undefined && typeof p.minValue !== 'string') errors.push('minValue must be a decimal string, not a number (RFC-009)')
-  // RFC-013 — minReputationRating mirrors ReputationScore's 0-5 scale
-  // (reputation.service.ts), not a decimal string: it's a threshold, not
-  // a transferred amount, so RFC-009's decimal-string rule doesn't apply.
-  if (p.minReputationRating !== undefined) {
-    if (typeof p.minReputationRating !== 'number' || !Number.isFinite(p.minReputationRating)) {
-      errors.push('minReputationRating must be a finite number')
-    } else if (p.minReputationRating < 0 || p.minReputationRating > 5) {
-      errors.push('minReputationRating must be between 0 and 5')
-    }
-  }
-  if (p.kycRequired !== undefined && typeof p.kycRequired !== 'boolean') {
-    errors.push('kycRequired must be a boolean')
-  }
-
-  return errors.length === 0 ? { valid: true } : { valid: false, errors }
+  return handler.validate(payload)
 }
 
 // Hash-chains IntentEvent the same way this pattern will eventually apply
