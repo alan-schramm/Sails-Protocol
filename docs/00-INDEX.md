@@ -63,6 +63,14 @@ chain) consolidated in one place, including an honest account of what
 each mechanism does *not* guarantee (e.g. no forward secrecy yet).
 Previously scattered as file-level doc comments across `ARCHITECTURE.md`
 and absent from `NODE_ARCHITECTURE.md` entirely.
+[ECOSYSTEM_INTEGRATIONS.md](ECOSYSTEM_INTEGRATIONS.md) — a vision/
+positioning document, not a spec (same category as `SDK_usecases.md`):
+how Sails Protocol could relate to external settlement networks, custody
+providers, and adjacent verticals (Lightning, Liquid, RGB, Ark, Fedimint,
+Nostr, EVM/Solana/TRON, DePIN, RWA, and others) as a coordination layer,
+never a replacement — with an explicit comparison against Bisq/Hodl Hodl
+and a corrected, narrow regulatory-neutrality claim. Nothing in it is
+built; none of it changes today's scope.
 
 **Not in this repository, by design:** `docs/GOVERNANCE.md` §6C
 ("Publication Discipline") keeps strategic evaluation documents —
