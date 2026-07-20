@@ -1079,6 +1079,22 @@ type-checked — Marketplace, OfferDetail (React Router v7 navigation),
 Profile (Sonner v2 toast interaction), and the Admin Dashboard (Recharts
 v3 chart) all render correctly with zero console errors on a fresh tab.
 
+**Known, accepted `npm audit` finding — not fixed, by deliberate
+decision:** `@hono/node-server` <1.19.13 (moderate, [GHSA-92pp-h63x-
+v22m](https://github.com/advisories/GHSA-92pp-h63x-v22m), a
+`serveStatic` middleware bypass via repeated slashes) is pulled in
+transitively via `prisma` (our devDependency) → `@prisma/dev` (Prisma's
+own internal package behind the `prisma dev` local-Postgres-proxy
+feature) → `@hono/node-server`. Confirmed via `npm ls @prisma/dev
+@hono/node-server` and a grep across `package.json`/`src/` — nothing in
+this project ever invokes `prisma dev` (only `db:migrate`/`db:generate`/
+`db:seed`/`db:studio`), so the vulnerable code path is never reached.
+`npm audit fix --force` would downgrade `prisma`/`@prisma/client` from
+`7.8.0` back to `6.19.3`, reverting the verified migration above for a
+devDependency-only, unreachable issue — not worth it. Revisit when
+Prisma ships a 7.x release with an updated `@prisma/dev`; nothing to do
+until then.
+
 ---
 
 ## 17. Security-validation round (2026-07-19) — abandoned trade, retry safety, event replay, concurrent dispute
