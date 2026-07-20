@@ -501,26 +501,21 @@ makes the same point in more detail.
       (`packages/sails-sdk/tests/capabilities.test.ts` +
       `client.test.ts` additions) — 40 SDK tests total, 155
       project-wide.
-- [ ] **Still genuinely unbuilt/partial**, honestly, not silently
-      claimed: of the six-verb Intent facade (`SDK_GUIDE.md` §2),
-      `negotiate`/`submitProof`/`releaseAsset`/`dispute` throw
-      `SailsNotImplementedError`. **`intent-facade.ts`'s own header is
-      now half-stale (found 2026-07-20, `HANDOFF.md` §3 item 4 has the
-      full correction) — do not trust its wording as-is:** RFC-018
-      (all 3 phases, done) gave `Trade`/`Offer` a real `intentId` FK, so
-      the "no server-side Intent -> Trade -> Escrow linkage" reason no
-      longer holds for `negotiate`/`releaseAsset`/`dispute` specifically
-      — the data link exists now. What's actually still missing for
-      those three: a route that resolves `intentId` to the `Trade`/
-      `Escrow` it produced (none exists — checked `trade.routes.ts`),
-      plus wiring the facade to call it instead of throwing. Small,
-      scoped, no external infra needed. `submitProof` is the one verb
-      still correctly blocked on the Proof primitive itself (zero routes
-      — see the corrected claim above this item: the `Claim`/`Proof`/
-      `EvidenceVerification` tables already exist, only
-      `proof.service.ts` and its routes don't). SDK_GUIDE.md §1's
-      "no new business logic" rule still applies — closing any of this
-      is Core/module work, not SDK code.
+- [x] **`dispute` closed for real (2026-07-20, §21 below has the full
+      writeup).** Of the six-verb Intent facade (`SDK_GUIDE.md` §2),
+      `createIntent`/`cancelIntent`/`dispute` are now real.
+      `negotiate`/`releaseAsset` still throw `SailsNotImplementedError`
+      — **not** for the "no server-side linkage" reason this item used
+      to give (RFC-018 closed that), but for two different, more precise
+      reasons found while fixing `dispute`: `negotiate`'s canonical
+      signature can't represent a persistent `WebSocketChannel`, and
+      `releaseAsset`'s canonical signature is missing a destination-
+      address parameter the one real release route requires. Neither is
+      "just SDK code" — both need a `SDK_GUIDE.md` shape decision first.
+      `submitProof` is still correctly blocked on the Proof primitive
+      itself (zero routes — the `Claim`/`Proof`/`EvidenceVerification`
+      tables already exist, only `proof.service.ts` and its routes
+      don't).
       `@sails/protocol-spec` also still does not exist — v0.1 defines its
       own local response types (`packages/sails-sdk/src/types.ts`)
       rather than reconciling with `@sails/p2p-schemas`'s differently-
@@ -1358,6 +1353,49 @@ against the real backend: seeded a fresh Offer with a real
 identities, registered/authenticated for real, not fixtures), opened
 `/trade/:id` as the buyer in a real browser session, and confirmed the
 card renders the exact seeded PIX string.
+
+---
+
+## 21. `@sails/sdk`'s `dispute()` is real; `negotiate()`/`releaseAsset()`'s
+    blockers corrected (2026-07-20)
+
+Section 8's "still genuinely unbuilt/partial" note (and `HANDOFF.md` §3
+item 4) said the fix for `negotiate`/`releaseAsset`/`dispute` was "a
+route + facade wiring" once RFC-018's `intentId` link existed. Building
+it found that claim was only half right — worth recording precisely,
+the same way an over-optimistic estimate from earlier in this project
+would be.
+
+**Done:** `trade.service.ts` gained `getTradeByIntentId()`;
+`GET /v1/openp2p/trades/by-intent/:intentId` (`API_REFERENCE.md` §5)
+exposes it, same no-auth pattern `GET /trades/:id` already has.
+`intent-facade.ts`'s `dispute(intentId, reason)` resolves the Trade,
+reads its `escrowId`, and raises a real `Dispute` on it — throws
+`SailsNotImplementedError` only if the Trade has no Escrow yet (nothing
+to dispute), not as a permanent state.
+
+**Found while building it, NOT done, for a more precise reason than
+before:**
+- `negotiate(intentId, event): Promise<void>` (`SDK_GUIDE.md` §2) — the
+  real negotiation channel is a persistent `WebSocketChannel`
+  (`openp2p.chat(tradeId)`), not something a single `Promise<void>` call
+  can represent. This needed the same signature-level check as
+  `releaseAsset` below to surface — the RFC-018 link fixed the *data*
+  gap, not this *shape* gap.
+- `releaseAsset(intentId): Promise<Settlement>` — the canonical
+  signature in `SDK_GUIDE.md` itself has no destination-address
+  parameter, but the one real release route
+  (`POST /v1/settlement/escrow/:id/release`) requires `toAddress` with
+  no default (`settlement.routes.ts`'s own zod schema, checked
+  directly). Closing this needs a decision on `SDK_GUIDE.md`'s canonical
+  shape — add a parameter, or define a default-address source — not
+  more plumbing. Not attempted here; flagged precisely instead of forced.
+- `submitProof` unchanged — still correctly blocked on the Proof
+  primitive having zero routes, unrelated to any of the above.
+
+**Verification:** `npm run build` clean, `npm test` 223/223 (2 new SDK
+tests replacing 1 now-obsolete one in `client.test.ts` — the old test
+asserted `dispute()` always throws, which stopped being true).
 
 ---
 

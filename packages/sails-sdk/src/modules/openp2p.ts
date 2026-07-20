@@ -106,6 +106,11 @@ export class SailsOpenP2PModule {
     return this.transport.get<Trade>(`/v1/openp2p/trades/${tradeId}`)
   }
 
+  /** RFC-018's intentId link, exposed directly — the same lookup intent-facade.ts's dispute() uses internally to turn an intentId into the Trade/Escrow it produced. */
+  async getTradeByIntent(intentId: string): Promise<Trade> {
+    return this.transport.get<Trade>(`/v1/openp2p/trades/by-intent/${intentId}`)
+  }
+
   /** Requires an active session. status: 'ACTIVE' | 'CANCELLED'. */
   async updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade> {
     return this.transport.patch<Trade>(`/v1/openp2p/trades/${tradeId}/status`, { status }, true)
