@@ -504,13 +504,23 @@ makes the same point in more detail.
 - [ ] **Still genuinely unbuilt/partial**, honestly, not silently
       claimed: of the six-verb Intent facade (`SDK_GUIDE.md` §2),
       `negotiate`/`submitProof`/`releaseAsset`/`dispute` throw
-      `SailsNotImplementedError` — `intent-facade.ts`'s own header
-      explains exactly why (no server-side Intent -> Trade -> Escrow
-      linkage; the Proof primitive has zero routes at all). Closing this
-      needs Core/module work (a real linkage path, and a first Proof
-      primitive implementation, §7's own still-open item), not more SDK
-      code — SDK_GUIDE.md §1's "no new business logic" rule means the
-      SDK correctly cannot paper over a gap that belongs server-side.
+      `SailsNotImplementedError`. **`intent-facade.ts`'s own header is
+      now half-stale (found 2026-07-20, `HANDOFF.md` §3 item 4 has the
+      full correction) — do not trust its wording as-is:** RFC-018
+      (all 3 phases, done) gave `Trade`/`Offer` a real `intentId` FK, so
+      the "no server-side Intent -> Trade -> Escrow linkage" reason no
+      longer holds for `negotiate`/`releaseAsset`/`dispute` specifically
+      — the data link exists now. What's actually still missing for
+      those three: a route that resolves `intentId` to the `Trade`/
+      `Escrow` it produced (none exists — checked `trade.routes.ts`),
+      plus wiring the facade to call it instead of throwing. Small,
+      scoped, no external infra needed. `submitProof` is the one verb
+      still correctly blocked on the Proof primitive itself (zero routes
+      — see the corrected claim above this item: the `Claim`/`Proof`/
+      `EvidenceVerification` tables already exist, only
+      `proof.service.ts` and its routes don't). SDK_GUIDE.md §1's
+      "no new business logic" rule still applies — closing any of this
+      is Core/module work, not SDK code.
       `@sails/protocol-spec` also still does not exist — v0.1 defines its
       own local response types (`packages/sails-sdk/src/types.ts`)
       rather than reconciling with `@sails/p2p-schemas`'s differently-

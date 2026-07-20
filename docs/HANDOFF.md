@@ -1,5 +1,5 @@
 # HANDOFF.md
-### Sails Protocol — Technical Handoff (2026-07-17, updated 2026-07-18)
+### Sails Protocol — Technical Handoff (2026-07-17, updated 2026-07-20)
 
 > Short, practical brief for whoever is picking this repo up next. Not a
 > replacement for `docs/00-INDEX.md`'s full 20-document reading order —
@@ -15,6 +15,18 @@
 > **[`docs/TRANSACTION_WALKTHROUGH.md`](TRANSACTION_WALKTHROUGH.md)**,
 > tracing one real trade through every piece named in this document at
 > once, including exactly what changes with both custody controls on.
+>
+> **Updated 2026-07-20** — section 1's core blocker claim ("no reachable
+> Postgres/Redis") is now stale and corrected below: both run for real in
+> this environment without Docker (`docs/TODO.md` §18,
+> `npm run db:local:start` / `npm run redis:local:start`), and
+> `packages/sails-ui` has been verified end-to-end against them in a real
+> browser (`docs/TODO.md` §19) — register/login, Marketplace, a real
+> trade, real chat over WebSocket, real QVAC risk evaluation. Item 4 below
+> is also corrected: RFC-018 (all 3 phases, done 2026-07-19/20) built the
+> server-side Intent→Trade/Offer linkage this item said was missing — but
+> a real, narrower gap was found while double-checking that claim,
+> written up in place of the old one, not silently dropped.
 
 ## 1. `demo-satsails-qvac.ts` — current state
 
@@ -43,24 +55,37 @@ runs, in order:
 
 **What's verified vs. not, honestly:**
 - ✅ Compiles clean (`npm run build`), every individual piece has its
-  own passing tests (166 total, `npm test`, up from 131 as of this doc's
-  original writing — rate limiting and RFC-014's capability enforcement
-  each added their own suites since) — QVAC's real LLM path was
-  live-smoke-tested once this session (~737MB model download, ~7-9s per
-  call after caching); the Ed25519/libsodium crypto is unit-tested for
-  real, not mocked.
-- ❌ **The full `demo-satsails-qvac.ts` run has still never completed
-  end-to-end in this environment** — no reachable Postgres/Redis, no
-  live P2P bootstrap network, no funded WDK testnet key here. It has
-  only been run up to the expected `Postgres unreachable` failure point.
-  **This should be your first real test**: `docker-compose.yml` now
-  exists at the repo root (`docker compose up -d` — Postgres 16 + Redis
-  7, healthchecked, matches `.env.example` exactly, see
-  `docs/DEPLOYMENT.md`) — it just hasn't been exercised against real
-  Docker anywhere in this project's history, since none was reachable in
-  any environment this was built in. Run `npm run demo:qvac` against it
-  and watch it all the way through — that's still the single most
-  valuable thing an incoming dev can do here.
+  own passing tests (222 total, `npm test`, up from 166 as of this doc's
+  prior update). QVAC's real LLM path was live-smoke-tested once
+  (~737MB model download, ~7-9s per call after caching); the
+  Ed25519/libsodium crypto is unit-tested for real, not mocked.
+- ✅ **The blocker this section used to lead with — "no reachable
+  Postgres/Redis" — is resolved as of `docs/TODO.md` §18.** Real local
+  Postgres + Redis now run in this environment without Docker
+  (`npm run db:local:start` / `npm run redis:local:start`, wrapping real
+  `pg_ctl`/`initdb` and a real Memurai binary respectively — not a mock
+  layer). `packages/sails-ui` has been verified against them end-to-end
+  in a real browser session (`docs/TODO.md` §19): register/login (real
+  Ed25519), browse a real Marketplace, open a real trade, real chat over
+  a live WebSocket, a real QVAC risk card firing mid-negotiation.
+- ❌ **`demo-satsails-qvac.ts` specifically (the standalone WDK/Pears/QVAC
+  CLI script, distinct from the HTTP server + UI path verified above) has
+  still never been run against this now-working local infra** — that's
+  a genuinely different code path (real HyperDHT peer discovery between
+  two local nodes, a funded WDK testnet key for the real signed USDT
+  transfer) and remains untested end-to-end. **This is the actual
+  remaining "needs a dev's hands" item, and specifically why:** it needs
+  a funded WDK EVM testnet key (`WDK_SEED_PHRASE`/`WDK_USDT_CONTRACT` in
+  `.env.example`) that no environment this project has been built in has
+  had access to, plus confirming two local HyperDHT nodes can actually
+  hole-punch and reach each other from wherever you're running this
+  (network-dependent, not something a sandboxed dev environment can
+  verify). `docker-compose.yml` still exists at the repo root as an
+  alternative to the local-infra scripts above (`docs/DEPLOYMENT.md`) —
+  either gets you the database layer; neither solves the two items in
+  this paragraph, which are the real remaining gap. Run
+  `npm run demo:qvac` once you have a funded testnet key — that's still
+  the single most valuable thing an incoming dev can do here.
 
 ## 2. Installed WDK / Pears / QVAC dependencies (exact versions)
 
@@ -80,9 +105,13 @@ each one actually does in this codebase).
 
 ## 3. `docs/TODO.md` — attack in this order
 
-1. **Run the full demo against real local infra** (section 1 above) —
-   nothing else on this list matters until you've confirmed the happy
-   path actually completes outside a sandboxed environment.
+1. ~~**Run the full demo against real local infra.**~~ **Partially
+   closed (2026-07-20).** Local Postgres+Redis and the HTTP server + UI
+   path are verified end-to-end (section 1 above). **Still open, and now
+   the real first step:** run `npm run demo:qvac` itself — needs a
+   funded WDK EVM testnet key and two reachable local HyperDHT nodes,
+   neither available in any sandboxed environment this project has been
+   built in (section 1's last paragraph has the exact "why").
 2. ~~**Rate limiting** — zero mitigation exists anywhere.~~ **Closed.**
    `@fastify/rate-limit` is real: a general per-IP ceiling on every route
    plus a tighter tier on `/v1/identity/challenge`/`authenticate`
@@ -90,16 +119,32 @@ each one actually does in this codebase).
    `TODO.md` §6, `THREAT_MODEL.md` §4. Still open: no per-API-key tier,
    and `trustProxy` needs setting explicitly if this ever sits behind a
    reverse proxy (not yet done — no proxy exists yet either).
-3. **Proof primitive** (`BACKLOG.md` P0) — zero routes, zero tables. This
-   is what's blocking two real gaps at once: `submitProof()`/`dispute()`
-   in `@sails/sdk`'s Intent facade (currently throw
-   `SailsNotImplementedError`, see `intent-facade.ts`), and real evidence
-   capture for disputes.
-4. **Intent → Trade → Escrow linkage** — the reason
-   `releaseAsset(intentId)`/`negotiate(intentId, ...)` don't work yet
-   either. An Intent and the Trade/Escrow it produces are currently
-   unlinked entities server-side; closing this unblocks the rest of the
-   SDK's six-verb facade.
+3. **Proof primitive** (`BACKLOG.md` P0) — **corrected claim (2026-07-20):
+   the `Claim`/`Proof`/`EvidenceVerification` tables already exist**
+   (`DATABASE.md`, `common/types`); what's actually missing is
+   `modules/open-proof/proof.service.ts` — no `assertClaim()`/
+   `submitProof()`/`verify()` service logic and zero routes. This is
+   what's blocking `submitProof()`/`dispute()` in `@sails/sdk`'s Intent
+   facade (currently throw `SailsNotImplementedError`, see
+   `intent-facade.ts`), and real evidence capture for disputes.
+4. **`@sails/sdk`'s Intent facade doesn't consume the Intent→Trade/Offer
+   link RFC-018 built — corrected (2026-07-20), narrower than this item
+   used to claim.** RFC-018 (all 3 phases, done) gave `Trade`/`Offer` a
+   real, populated `intentId` FK — the server-side data link
+   `intent-facade.ts`'s own doc comment says is missing no longer is.
+   What's still actually missing, found while verifying that comment:
+   **no route resolves an `intentId` to the `Trade`/`Escrow` it
+   produced** (checked — nothing in `trade.routes.ts` queries by
+   `intentId`). Concretely, closing this is: (a) one new route, e.g.
+   `GET /v1/openp2p/trades/by-intent/:intentId` (`Trade.findFirst({
+   where: { intentId } })` — the column and data already exist), (b)
+   wiring `intent-facade.ts`'s `negotiate()`/`releaseAsset()`/
+   `dispute()` to call it instead of throwing
+   `SailsNotImplementedError`, delegating to the same
+   `openp2p.chat()`/`settlement.release()`/`settlement.dispute()` calls
+   their error messages already point callers to today. Small, scoped,
+   no external infra needed — a reasonable next pass, not attempted in
+   this one since it wasn't the task in progress when found.
 5. **Chat/negotiation messages are still plaintext** — found while
    building `payload-crypto.ts`: Intent payloads sent via
    `sendIntentToPeer()` are properly encrypted, but `chat.routes.ts`/
