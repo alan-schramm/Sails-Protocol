@@ -1788,6 +1788,31 @@ packages/sails-sdk` 44/44 (2 new tests). Full repo suite re-run after:
 `npm run build` clean, `npx jest` 226/226 (224 + these 2 new tests),
 `npx playwright test` 3/3.
 
+**Addendum, same day — the real cost of dual-naming, and the actual
+fix, not just a note:** raised directly (user feedback, not
+self-identified): two names for the same module is not free — it's a
+permanent tax on autocomplete discoverability specifically (a caller
+typing `sdk.` sees 13 properties with no indication 5 pairs are
+identical). It is *not* a runtime-drift risk — `this.auth =
+this.identity` in the constructor means the two can never behave
+differently, so there is nothing to keep "in sync" at runtime; the cost
+is purely about a newcomer's first encounter with the type. Fixed, not
+just accepted: every one of the 10 aliased/canonical properties in
+`client.ts` now carries its own `/** */` JSDoc block (not a `//` line
+comment — only block comments surface in editor hover) with an
+`{@link}` pointer to its counterpart, confirmed to survive into the
+compiled `.d.ts` (`tsc`'s `declaration: true` preserves JSDoc) — so
+`sdk.auth`'s hover tooltip says "alias for `sdk.identity`, same
+instance" without the reader needing `docs/API_STABLE.md` open.
+`docs/API_STABLE.md` itself gained a short pointer to this. Considered
+and rejected: namespacing aliases under `sdk.friendly.*` — would fully
+eliminate the top-level autocomplete crowding, but costs a token on
+every call (`sdk.friendly.auth.authenticate(...)`) for a problem the
+JSDoc fix already solves without that tax. Verified: `npm run build -w
+@sails/sdk` clean, the compiled `packages/sails-sdk/dist/client.d.ts`
+inspected directly to confirm the JSDoc survived compilation, full
+repo `npm run build` + `npx jest` 226/226 re-run clean.
+
 ---
 
 ## How to Use This List
