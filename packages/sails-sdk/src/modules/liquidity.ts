@@ -13,7 +13,7 @@
  * signature below reflects only what the server actually accepts.
  */
 import type { SailsTransport } from '../transport'
-import type { AssetType, Offer, PaymentMethod, TradeSide } from '../types'
+import type { AssetType, Offer, PaymentMethod, Participant, TradeSide } from '../types'
 
 export interface PublishOfferInput {
   asset: AssetType
@@ -29,10 +29,41 @@ export interface PublishOfferInput {
   requiresKyc?: boolean
 }
 
+// The shape GET /v1/liquidity/offers actually returns per item
+// (liquidity.service.ts's LiquidityOffer, mapOfferToLiquidityOffer()) —
+// genuinely different from the persisted `Offer` model this file used to
+// (incorrectly) claim discover() returns: no `userId`/`priceBrl`/
+// `status`, a `paymentMethods` array instead of a single
+// `paymentMethod`, and an aggregation-only `source`/`traderReputation`.
+// Found and fixed while wiring the first real caller of this method
+// (packages/sails-ui) — the mismatch was never exercised against a live
+// server before.
+export interface LiquidityOfferSummary {
+  id: string
+  source: 'internal' | 'hodlhodl' | 'robosats' | string
+  asset: AssetType
+  side: TradeSide
+  priceUsd: string
+  minAmount: string
+  maxAmount: string
+  paymentMethods: string[]
+  traderReputation?: number
+}
+
+// getAggregatedOffers()'s real return shape — also not a bare array.
+export interface DiscoverResult {
+  offers: LiquidityOfferSummary[]
+  sources: string[]
+}
+
+// bids/asks are LiquidityOfferSummary, not Offer — getOrderBook()
+// (liquidity.service.ts) delegates to the same getAggregatedOffers()
+// discover() does. Confirmed against the live route (same fix as
+// DiscoverResult above), not assumed.
 export interface OrderBook {
   asset: AssetType
-  bids: Offer[]
-  asks: Offer[]
+  bids: LiquidityOfferSummary[]
+  asks: LiquidityOfferSummary[]
   spread: string | null
 }
 
@@ -45,8 +76,18 @@ export interface MatchInput {
 export class SailsLiquidityModule {
   constructor(private readonly transport: SailsTransport) {}
 
-  async discover(filter: { asset: AssetType; side: TradeSide }): Promise<Offer[]> {
-    return this.transport.get<Offer[]>('/v1/liquidity/offers', filter)
+  async discover(filter: { asset: AssetType; side: TradeSide }): Promise<DiscoverResult> {
+    return this.transport.get<DiscoverResult>('/v1/liquidity/offers', filter)
+  }
+
+  /**
+   * Single-offer lookup with the seller's real public profile fields —
+   * genuinely didn't exist until packages/sails-ui's OfferDetail screen
+   * needed it (real route added the same day: GET
+   * /v1/liquidity/offers/id/:id, liquidity.routes.ts).
+   */
+  async getOffer(offerId: string): Promise<Offer & { user: Participant }> {
+    return this.transport.get<Offer & { user: Participant }>(`/v1/liquidity/offers/id/${offerId}`)
   }
 
   /** Requires an active session. */
@@ -63,7 +104,10 @@ export class SailsLiquidityModule {
     return this.transport.patch<Offer>(`/v1/liquidity/offers/${offerId}/status`, { status }, true)
   }
 
-  async match(input: MatchInput): Promise<Offer | null> {
-    return this.transport.post<Offer | null>('/v1/liquidity/match', input)
+  // findBestMatch() (liquidity.service.ts) also returns a
+  // LiquidityOfferSummary, not a persisted Offer — same class of bug as
+  // discover()/book() above, same fix.
+  async match(input: MatchInput): Promise<LiquidityOfferSummary | null> {
+    return this.transport.post<LiquidityOfferSummary | null>('/v1/liquidity/match', input)
   }
 }

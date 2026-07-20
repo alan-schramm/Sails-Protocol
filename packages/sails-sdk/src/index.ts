@@ -26,8 +26,15 @@ export {
   type AuthenticateResult,
 } from './modules/identity'
 export { SailsReputationModule, type RateInput } from './modules/reputation'
-export { SailsLiquidityModule, type PublishOfferInput, type OrderBook, type MatchInput } from './modules/liquidity'
-export { SailsOpenP2PModule, WebSocketChannel, type ChatFrame } from './modules/openp2p'
+export {
+  SailsLiquidityModule,
+  type PublishOfferInput,
+  type OrderBook,
+  type MatchInput,
+  type LiquidityOfferSummary,
+  type DiscoverResult,
+} from './modules/liquidity'
+export { SailsOpenP2PModule, WebSocketChannel, type ChatFrame, type ChatMessageEvent } from './modules/openp2p'
 export { SailsSettlementModule, type CreateEscrowInput } from './modules/settlement'
 export { SailsPeersModule, type StaticTopic } from './modules/peers'
 export { SailsCapabilitiesModule, type RegisterCapabilityInput } from './modules/capabilities'

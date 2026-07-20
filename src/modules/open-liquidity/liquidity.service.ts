@@ -201,6 +201,28 @@ export class LiquidityRouter {
     return offer
   }
 
+  // Real gap found wiring the first real caller (packages/sails-ui's
+  // OfferDetail screen): no route ever let a caller fetch a single Offer
+  // by id, including its owner's public profile fields — discover()/
+  // getAggregatedOffers() only support asset+side listing, and the
+  // aggregated LiquidityOffer summary shape they return is missing
+  // several fields OfferDetail genuinely needs (network, description,
+  // requiresKyc, the seller's displayName/verified/totalTrades). This is
+  // the persisted Offer row plus its real User relation, not a second
+  // aggregation-shaped summary.
+  async getOffer(offerId: string) {
+    const offer = await prisma.offer.findUnique({
+      where: { id: offerId },
+      include: { user: { select: {
+        id: true, publicKey: true, displayName: true, peerId: true,
+        reputationScore: true, totalTrades: true, disputeCount: true,
+        totalVolumeBtc: true, verified: true, createdAt: true,
+      } } },
+    })
+    if (!offer) throw new NotFoundError('Offer', offerId)
+    return offer
+  }
+
   async updateOfferStatus(offerId: string, status: OfferStatus, triggeredBy: string) {
     const offer = await prisma.offer.findUnique({ where: { id: offerId } })
     if (!offer) throw new NotFoundError('Offer', offerId)

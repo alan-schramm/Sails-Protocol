@@ -40,8 +40,14 @@ export class SailsTransport {
     this.baseUrl = options.baseUrl.replace(/\/$/, '')
     // Falls back to the global fetch — present in every modern browser
     // and Node 18+ — rather than bundling a polyfill this package
-    // doesn't need in either target environment.
-    this.fetchImpl = options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : undefined as unknown as typeof fetch)
+    // doesn't need in either target environment. Bound to globalThis,
+    // not passed as a bare function reference: a real browser's fetch()
+    // throws "Illegal invocation" when later called as `this.fetchImpl(...)`
+    // (a method call whose receiver isn't a Window/WorkerGlobalScope) —
+    // found the hard way in the first real browser exercise of this path
+    // (packages/sails-ui), invisible to this SDK's own tests since they
+    // always inject an explicit fetchImpl mock.
+    this.fetchImpl = options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : undefined as unknown as typeof fetch)
     if (!this.fetchImpl) {
       throw new SailsTransportError(
         'No fetch implementation available — pass { fetchImpl } explicitly in an environment without a global fetch.'

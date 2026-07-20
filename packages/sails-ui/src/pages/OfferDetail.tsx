@@ -1,24 +1,62 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { AssetBadge, SideBadge, PaymentBadge } from '../components/ui/Badge'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
-import { getAllOffers } from '../lib/offersStore'
+import { sailsClient } from '../lib/sailsClient'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { useAuth } from '../context/AuthContext'
+import type { Offer, User } from '../types'
+
+function toOffer(raw: Awaited<ReturnType<typeof sailsClient.liquidity.getOffer>>): Offer {
+  const user: User = {
+    id: raw.user.id,
+    publicKey: raw.user.publicKey,
+    displayName: raw.user.displayName,
+    peerId: raw.user.peerId,
+    reputationScore: raw.user.reputationScore,
+    totalTrades: raw.user.totalTrades,
+    disputeCount: raw.user.disputeCount,
+    totalVolumeBtc: Number(raw.user.totalVolumeBtc),
+    verified: raw.user.verified,
+    createdAt: raw.user.createdAt,
+  }
+  const priceUsd = Number(raw.priceUsd)
+  const priceBrl = raw.priceBrl ? Number(raw.priceBrl) : priceUsd
+  return {
+    id: raw.id,
+    userId: raw.userId,
+    user,
+    asset: raw.asset,
+    side: raw.side,
+    priceUsd,
+    fiatCurrency: 'BRL', // real Offer only ever models a BRL fiat price (priceBrl) — see types.ts's own header comment
+    priceFiat: priceBrl,
+    minAmount: Number(raw.minAmount),
+    maxAmount: Number(raw.maxAmount),
+    paymentMethod: raw.paymentMethod,
+    paymentDetails: raw.paymentDetails ?? undefined,
+    status: raw.status,
+    network: raw.network ?? undefined,
+    description: raw.description ?? undefined,
+    requiresKyc: raw.requiresKyc,
+    country: 'BR', // no real country field on Offer yet — same gap types.ts's header already discloses
+    tradedWithCurrentUser: false, // needs a real trade-history join this route doesn't do
+    blockedRelationship: false, // no real block-list backend yet
+    createdAt: raw.createdAt,
+  }
+}
 
 export function OfferDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
-  // TODO: replace with @sails/sdk `liquidity.getOffer(id)` (real route:
-  // GET /v1/liquidity/offers/:asset/book, or a future single-offer route)
-  // — getAllOffers() (lib/offersStore.ts) includes offers published via
-  // the "Publicar Anúncio" wizard, not just the seed MOCK_OFFERS.
-  const offer = getAllOffers().find((o) => o.id === id)
+  const [offer, setOffer] = useState<Offer | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [startingTrade, setStartingTrade] = useState(false)
   // Prefilled when arriving back here after being bounced to /login mid
   // way through starting a trade (see handleStartTrade below) — without
   // this, a round trip through login silently dropped whatever amount
@@ -27,6 +65,22 @@ export function OfferDetail() {
     const state = location.state as { amount?: number } | null
     return state?.amount ? String(state.amount) : ''
   })
+
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    setLoading(true)
+    sailsClient.liquidity
+      .getOffer(id)
+      .then((raw) => { if (!cancelled) setOffer(toOffer(raw)) })
+      .catch(() => { if (!cancelled) setOffer(null) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [id])
+
+  if (loading) {
+    return <div className="text-center py-16 text-brand-text-muted">Carregando oferta...</div>
+  }
 
   if (!offer) {
     return (
@@ -45,7 +99,7 @@ export function OfferDetail() {
   // opened with the same person as buyer and seller on both sides.
   const isOwnOffer = user?.id === offer.userId
 
-  const handleStartTrade = () => {
+  const handleStartTrade = async () => {
     if (!user) {
       toast.error('Conecte sua carteira primeiro')
       // Carrega para onde voltar e o valor já digitado — sem isso o
@@ -62,14 +116,22 @@ export function OfferDetail() {
       toast.error('Informe uma quantidade dentro do limite da oferta')
       return
     }
-    // TODO: replace with @sails/sdk `openp2p.trade(offerId, amount)`
-    // (real route: POST /v1/openp2p/trades, requires auth — see
-    // trade.routes.ts). Builds a Trade from the real offer/amount picked
-    // here (src/lib/buildTrade.ts) instead of jumping to a hardcoded
-    // mock — a real backend would do this server-side and return the
-    // authoritative Trade.
-    toast.success('Trade iniciado')
-    navigate(`/trade/${offer.id}`, { state: { offer, amount: amountNum } })
+    setStartingTrade(true)
+    try {
+      // Real @sails/sdk call — POST /v1/openp2p/trades (requires the
+      // active session; the server derives the counterparty from it,
+      // trade.routes.ts). This is the real trade.service.ts's
+      // createTrade(), which also walks the offer's real Intent through
+      // DISCOVERING -> MATCHED -> NEGOTIATING (RFC-018) — not a client-
+      // side mock Trade built from whatever was picked here.
+      const trade = await sailsClient.openp2p.trade(offer.id, String(amountNum))
+      toast.success('Trade iniciado')
+      navigate(`/trade/${trade.id}`, { state: { offer, amount: amountNum } })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao iniciar trade')
+    } finally {
+      setStartingTrade(false)
+    }
   }
 
   return (
@@ -177,8 +239,8 @@ export function OfferDetail() {
                 🔒 Escrow não custodial — fundos só liberados após confirmação de pagamento.
               </div>
 
-              <button onClick={handleStartTrade} className="btn-primary mt-4 w-full py-3">
-                Iniciar Trade
+              <button onClick={handleStartTrade} disabled={startingTrade} className="btn-primary mt-4 w-full py-3">
+                {startingTrade ? 'Iniciando...' : 'Iniciar Trade'}
               </button>
             </div>
           )}

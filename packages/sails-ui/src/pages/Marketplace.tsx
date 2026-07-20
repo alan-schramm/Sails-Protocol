@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ASSETS, HIGH_REPUTATION_THRESHOLD } from '../data/mock'
-import { getAllOffers } from '../lib/offersStore'
+import { fetchOffers } from '../lib/realOffers'
 import { OfferCard } from '../components/marketplace/OfferCard'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
@@ -43,12 +43,23 @@ export function Marketplace() {
     filters.country !== 'Todos',
   ].filter(Boolean).length
 
-  // TODO: replace with @sails/sdk `liquidity.getOffers({ asset, side })`
-  // call (real route: GET /v1/liquidity/offers) once mock data is
-  // swapped — server-side filtering would replace this client-side pass.
-  // getAllOffers() (lib/offersStore.ts) layers anything published via
-  // the "Publicar Anúncio" wizard on top of the seed MOCK_OFFERS.
-  const [allOffers] = useState(getAllOffers)
+  // Real @sails/sdk liquidity.discover() calls (lib/realOffers.ts),
+  // fanned out per asset/side since GET /v1/liquidity/offers only
+  // filters by asset+side, not a bare "list everything". Client-side
+  // filtering below (country/paymentMethods/etc.) stays, since the real
+  // route doesn't support those filters server-side either (verified
+  // against liquidity.routes.ts directly).
+  const [allOffers, setAllOffers] = useState<import('../types').Offer[]>([])
+  const [loadingOffers, setLoadingOffers] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingOffers(true)
+    fetchOffers(asset, side)
+      .then((offers) => { if (!cancelled) setAllOffers(offers) })
+      .finally(() => { if (!cancelled) setLoadingOffers(false) })
+    return () => { cancelled = true }
+  }, [asset, side])
 
   const offers = useMemo(() => {
     let result = allOffers.filter((o) => {
@@ -143,11 +154,17 @@ export function Marketplace() {
       </div>
 
       <div id="marketplace-offer-grid" className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {offers.map((offer) => (
-          <OfferCard key={offer.id} offer={offer} />
-        ))}
-        {offers.length === 0 && (
-          <p className="col-span-full text-center text-brand-text-muted py-10">Nenhuma oferta encontrada com esses filtros.</p>
+        {loadingOffers ? (
+          <p className="col-span-full text-center text-brand-text-muted py-10">Carregando ofertas...</p>
+        ) : (
+          <>
+            {offers.map((offer) => (
+              <OfferCard key={offer.id} offer={offer} />
+            ))}
+            {offers.length === 0 && (
+              <p className="col-span-full text-center text-brand-text-muted py-10">Nenhuma oferta encontrada com esses filtros.</p>
+            )}
+          </>
         )}
       </div>
 

@@ -1,104 +1,190 @@
-import { useMemo, useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { MOCK_TRADE } from '../data/mock'
-import type { EscrowStatus, Message, MessageType, Offer } from '../types'
+import type { Trade as SdkTrade, Escrow as SdkEscrow, Message as SdkMessage, ChatMessageEvent, WebSocketChannel } from '@sails/sdk'
+import type { EscrowStatus, Message, MessageType, User } from '../types'
 import { useAuth } from '../context/AuthContext'
+import { sailsClient } from '../lib/sailsClient'
 import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/Badge'
 import { EscrowStateMachine } from '../components/trade/EscrowStateMachine'
 import { EscrowActions } from '../components/trade/EscrowActions'
 import { TradeParties } from '../components/trade/TradeParties'
 import { ChatWindow } from '../components/chat/ChatWindow'
 import { AgentRiskCard } from '../components/agent/AgentRiskCard'
-import { buildTradeFromOffer } from '../lib/buildTrade'
 import { formatDateTime } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { detectRiskLocally } from '../lib/socialEngineering'
 import { ASSET_LABELS } from '../lib/labels'
 
-let msgCounter = 100
+// A real buyer address doesn't exist yet in this reference implementation
+// (wdk-settlement.provider.ts's own doc comment: no per-user EVM address
+// onboarding) — same gap this whole project already discloses. Demo-only
+// placeholder, MockSettlementProvider/LightningHodlProvider don't
+// validate address format.
+const DEMO_RELEASE_ADDRESS = 'demo-buyer-payout-address'
 
-function systemMessage(content: string): Message {
-  return { id: `sys-${msgCounter++}`, senderId: null, sender: null, content, type: 'SYSTEM', createdAt: new Date().toISOString() }
+function toParticipantUser(p: Awaited<ReturnType<typeof sailsClient.identity.get>>): User {
+  return {
+    id: p.id, publicKey: p.publicKey, displayName: p.displayName, peerId: p.peerId,
+    reputationScore: p.reputationScore, totalTrades: p.totalTrades, disputeCount: p.disputeCount,
+    totalVolumeBtc: Number(p.totalVolumeBtc), verified: p.verified, createdAt: p.createdAt,
+  }
+}
+
+function toUiMessage(m: SdkMessage, buyer: User, seller: User): Message {
+  const sender = m.senderId === buyer.id ? buyer : m.senderId === seller.id ? seller : null
+  return {
+    id: m.id, senderId: m.senderId, sender,
+    content: m.content, type: (m.msgType as MessageType) ?? 'TEXT',
+    createdAt: m.createdAt,
+  }
+}
+
+// The live WS NEW_MESSAGE frame's real shape (ChatMessageEvent, fixed
+// the same day in @sails/sdk's openp2p.ts — see that file's own comment)
+// genuinely differs from getMessages()'s REST history shape (SdkMessage
+// above): messageId/timestamp, not id/createdAt.
+function toUiMessageFromEvent(m: ChatMessageEvent, buyer: User, seller: User): Message {
+  const sender = m.senderId === buyer.id ? buyer : m.senderId === seller.id ? seller : null
+  return {
+    id: m.messageId, senderId: m.senderId, sender,
+    content: m.content, type: (m.msgType as MessageType) ?? 'TEXT',
+    createdAt: m.timestamp,
+  }
 }
 
 export function Trade() {
   const { id } = useParams()
-  const location = useLocation()
   const { user } = useAuth()
-  // TODO: replace with @sails/sdk `settlement.getEscrowByTrade(id)` +
-  // `openp2p.getTrade(id)` (real routes: GET /v1/settlement/escrow/:id,
-  // GET /v1/openp2p/trades/:id). Until then: if the user arrived via
-  // OfferDetail's "Iniciar Trade" (real fix — used to always show
-  // MOCK_TRADE regardless of which offer/amount was picked), build a
-  // trade that actually reflects it (src/lib/buildTrade.ts). A direct
-  // navigation to this URL with no state — a bookmark, a page refresh,
-  // or TradeHistory's "Ver Trade" links, which reference a historical
-  // trade this client-only mock has no way to reconstruct — falls back
-  // to the same MOCK_TRADE demo data every screen used before this fix;
-  // that fallback is intentional, not the bug being fixed here.
-  const trade = useMemo(() => {
-    const state = location.state as { offer?: Offer; amount?: number } | null
-    if (state?.offer && state.amount && user) {
-      return buildTradeFromOffer(state.offer, state.amount, user)
-    }
-    return MOCK_TRADE
-  }, [location.state, user])
 
-  const [escrowStatus, setEscrowStatus] = useState<EscrowStatus>(trade.escrow.status)
-  const [messages, setMessages] = useState<Message[]>(trade.messages)
+  const [trade, setTrade] = useState<SdkTrade | null>(null)
+  const [escrow, setEscrow] = useState<SdkEscrow | null>(null)
+  const [buyer, setBuyer] = useState<User | null>(null)
+  const [seller, setSeller] = useState<User | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [loading, setLoading] = useState(true)
+  const [acting, setActing] = useState(false)
   const [showDisputeForm, setShowDisputeForm] = useState(false)
   const [disputeReason, setDisputeReason] = useState('')
+  const channelRef = useRef<WebSocketChannel | null>(null)
 
-  const isBuyer = user?.id === trade.buyer.id
-  const isSeller = user?.id === trade.seller.id
+  // Real fetch — openp2p.getTrade() + identity.get() for both real
+  // parties + settlement.get() for the real escrow (if one exists yet)
+  // + real chat history. Independent of how the page was reached (a
+  // fresh POST /v1/openp2p/trades navigation, a bookmark, or a refresh)
+  // — no client-only mock construction left (buildTrade.ts, replaced).
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    setLoading(true)
+    ;(async () => {
+      const t = await sailsClient.openp2p.getTrade(id)
+      if (cancelled) return
+      setTrade(t)
 
-  const events = useMemo(() => trade.escrow.events, [trade])
+      const [b, s] = await Promise.all([
+        sailsClient.identity.get(t.buyerId).then(toParticipantUser),
+        sailsClient.identity.get(t.sellerId).then(toParticipantUser),
+      ])
+      if (cancelled) return
+      setBuyer(b)
+      setSeller(s)
 
-  const appendSystem = (text: string) => setMessages((m) => [...m, systemMessage(text)])
+      if (t.escrowId) {
+        const e = await sailsClient.settlement.get(t.escrowId)
+        if (!cancelled) setEscrow(e)
+      }
 
-  const handleLockFunds = () => {
-    setEscrowStatus('FUNDS_LOCKED')
-    appendSystem('🔒 Vendedor bloqueou os fundos no escrow.')
+      if (user) {
+        const history = await sailsClient.openp2p.getMessages(t.id).catch(() => [])
+        if (!cancelled) setMessages(history.map((m) => toUiMessage(m, b, s)))
+
+        // Real WS chat (RFC-004/API_REFERENCE.md §5) — live NEW_MESSAGE
+        // frames appended as they arrive, same channel used to send.
+        const channel = sailsClient.openp2p.chat(t.id)
+        channel.onMessage((m) => setMessages((prev) => [...prev, toUiMessageFromEvent(m, b, s)]))
+        channelRef.current = channel
+      }
+    })().finally(() => { if (!cancelled) setLoading(false) })
+
+    return () => {
+      cancelled = true
+      channelRef.current?.close()
+      channelRef.current = null
+    }
+  }, [id, user])
+
+  const isBuyer = !!user && !!trade && user.id === trade.buyerId
+  const isSeller = !!user && !!trade && user.id === trade.sellerId
+
+  const events = useMemo(() => {
+    if (!escrow) return []
+    // No dedicated escrow-history endpoint is wired into this SDK yet —
+    // deriving a single current-state entry from the real Escrow row
+    // rather than fabricating a full event log this UI can't fetch.
+    return [{ status: escrow.status as EscrowStatus, timestamp: escrow.updatedAt, actor: 'system' as const }]
+  }, [escrow])
+
+  const withGuard = async (fn: () => Promise<void>) => {
+    setActing(true)
+    try {
+      await fn()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha na ação')
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const handleCreateEscrow = () => trade && withGuard(async () => {
+    const e = await sailsClient.settlement.create({ tradeId: trade.id, lockedAmount: trade.amount, asset: trade.asset })
+    setEscrow(e)
+    toast.success('Escrow criado')
+  })
+
+  const handleLockFunds = () => escrow && withGuard(async () => {
+    const e = await sailsClient.settlement.lock(escrow.id)
+    setEscrow(e)
     toast.success('Escrow bloqueado 🔒')
-  }
+  })
 
-  const handleMarkPaymentSent = () => {
-    setEscrowStatus('PAYMENT_PENDING')
-    appendSystem('💸 Comprador marcou o pagamento como enviado.')
+  const handleMarkPaymentSent = () => escrow && withGuard(async () => {
+    const e = await sailsClient.settlement.markPaymentSent(escrow.id)
+    setEscrow(e)
     toast.success('Pagamento marcado como enviado 💸')
-  }
+  })
 
-  const handleReleaseFunds = () => {
-    setEscrowStatus('COMPLETED')
-    appendSystem('✅ Vendedor liberou os fundos. Trade concluído (tx: mock-release-' + Math.random().toString(36).slice(2, 10) + ')')
+  const handleReleaseFunds = () => escrow && withGuard(async () => {
+    const e = await sailsClient.settlement.release(escrow.id, DEMO_RELEASE_ADDRESS)
+    setEscrow(e)
     toast.success('Fundos liberados — trade concluído!')
-  }
+  })
 
-  const handleOpenDispute = () => {
+  const handleOpenDispute = () => escrow && withGuard(async () => {
     if (!disputeReason.trim()) {
       toast.error('Descreva o motivo da disputa')
       return
     }
-    setEscrowStatus('DISPUTED')
-    appendSystem(`⚠️ Disputa aberta: "${disputeReason}"`)
+    await sailsClient.settlement.dispute(escrow.id, disputeReason.trim())
+    const refreshed = await sailsClient.settlement.get(escrow.id)
+    setEscrow(refreshed)
     toast.error('Disputa aberta')
     setShowDisputeForm(false)
     setDisputeReason('')
-  }
+  })
 
   const handleSend = (content: string) => {
-    setMessages((m) => [...m, { id: `m-${msgCounter++}`, senderId: user?.id ?? null, sender: user, content, type: 'TEXT', createdAt: new Date().toISOString() }])
-
+    channelRef.current?.send({ content, msgType: 'TEXT' })
     // Mocked reflection of RFC-017's SocialEngineeringAgent — see
     // lib/socialEngineering.ts's own comment for what's real vs simulated.
+    // Client-local only, never sent over the real chat channel.
     const warning = detectRiskLocally(content)
     if (warning) {
       setTimeout(() => {
         setMessages((m) => [
           ...m,
           {
-            id: `risk-${msgCounter++}`, senderId: null, sender: null,
+            id: `risk-${Date.now()}`, senderId: null, sender: null,
             content: warning.reasoning, type: 'RISK_WARNING', riskPattern: warning.pattern,
             createdAt: new Date().toISOString(),
           },
@@ -107,12 +193,32 @@ export function Trade() {
     }
   }
 
+  // No real media upload/storage endpoint exists yet (types.ts's own
+  // comment on MessageType) — stays client-local, never reaches the real
+  // chat channel, which only carries a plain-text `content` field today.
   const handleSendMedia = (media: { url: string; fileName: string; type: MessageType }) => {
     setMessages((m) => [
       ...m,
-      { id: `m-${msgCounter++}`, senderId: user?.id ?? null, sender: user, content: '', type: media.type, mediaUrl: media.url, mediaFileName: media.fileName, createdAt: new Date().toISOString() },
+      { id: `m-${Date.now()}`, senderId: user?.id ?? null, sender: user, content: '', type: media.type, mediaUrl: media.url, mediaFileName: media.fileName, createdAt: new Date().toISOString() },
     ])
   }
+
+  if (loading) {
+    return <div className="text-center py-16 text-brand-text-muted">Carregando trade...</div>
+  }
+
+  if (!trade || !buyer || !seller) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-brand-text-secondary">Trade não encontrado.</p>
+        <Link to="/" className="text-sm text-brand-orange underline mt-2 inline-block">Voltar ao Marketplace</Link>
+      </div>
+    )
+  }
+
+  const escrowStatus: EscrowStatus = (escrow?.status as EscrowStatus) ?? 'CREATED'
+  const amount = Number(trade.amount)
+  const totalBrl = Number(trade.totalUsd) // no real BRL conversion available from Trade — see OfferDetail's own comment on this same gap
 
   return (
     <div>
@@ -126,19 +232,27 @@ export function Trade() {
         <div>
           <div className="card p-4 divide-y divide-brand-border">
             <Row label="Ativo" value={ASSET_LABELS[trade.asset]} />
-            <Row label="Quantidade" value={String(trade.amount)} />
-            <Row label="Total" value={formatByCurrency(trade.totalBrl, trade.offer.fiatCurrency)} />
+            <Row label="Quantidade" value={String(amount)} />
+            <Row label="Total" value={formatByCurrency(totalBrl, 'BRL')} />
             <Row label="Status do escrow" value={<EscrowStatusBadge status={escrowStatus} />} />
           </div>
 
-          <TradeParties buyer={trade.buyer} seller={trade.seller} currentUserId={user?.id} />
+          <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} />
 
-          <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={trade.totalUsd} minValue={trade.totalUsd} />
+          <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={Number(trade.totalUsd)} minValue={Number(trade.totalUsd)} />
 
           <div className="card p-5 mt-3">
             <EscrowStateMachine status={escrowStatus} />
 
-            {!showDisputeForm ? (
+            {!escrow ? (
+              isSeller ? (
+                <button onClick={handleCreateEscrow} disabled={acting} className="btn-primary w-full py-2.5 text-sm mt-4">
+                  {acting ? 'Criando...' : '🔓 Criar Escrow'}
+                </button>
+              ) : (
+                <p className="text-xs text-brand-text-muted mt-3">Aguardando o vendedor criar o escrow.</p>
+              )
+            ) : !showDisputeForm ? (
               <EscrowActions
                 status={escrowStatus}
                 isBuyer={isBuyer}
@@ -158,7 +272,7 @@ export function Trade() {
                   rows={3}
                 />
                 <div className="flex gap-2 mt-2">
-                  <button onClick={handleOpenDispute} className="flex-1 bg-red-600 hover:bg-red-500 text-white rounded-lg py-2 text-sm font-semibold transition-colors">Confirmar Disputa</button>
+                  <button onClick={handleOpenDispute} disabled={acting} className="flex-1 bg-red-600 hover:bg-red-500 text-white rounded-lg py-2 text-sm font-semibold transition-colors">Confirmar Disputa</button>
                   <button onClick={() => setShowDisputeForm(false)} className="flex-1 btn-ghost py-2 text-sm">Cancelar</button>
                 </div>
               </div>
