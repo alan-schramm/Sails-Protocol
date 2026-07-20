@@ -1150,8 +1150,69 @@ overclaim corrected, one already proven safe:
 
 **Verification**: `npm run build` clean, `npm test` 222/222 (run twice).
 Schema changed (`Dispute.@@unique([tradeId])`) — `npx prisma generate`
-run; not yet applied to a live database, same standing limitation as
-every other schema change this project has made without Docker access.
+run at the time; **applied for real the same day, see §18 below** — the
+"no live Postgres" limitation this note originally referenced no longer
+holds for local dev.
+
+---
+
+## 18. Real local Postgres + Redis — no Docker required (2026-07-19)
+
+The single most-repeated caveat in this entire document — "no live
+Postgres/Redis reachable in this environment" — stops being universally
+true today, for local development. `embedded-postgres` (downloads a
+real native Postgres binary per platform via `optionalDependencies`, no
+container runtime needed) and `redis-memory-server` (same idea; resolves
+to Memurai on Windows — real Redis dropped official Windows support
+years ago, Memurai is a Redis-protocol-compatible server distributed
+under its own EULA, free "Developer Edition" for exactly this use case)
+both install and run cleanly in this sandboxed Windows environment with
+zero Docker/container access.
+
+`scripts/local-postgres.js` and `scripts/local-redis.js` (`npm run
+db:local:start`/`db:local:stop`, `npm run redis:local:start`/
+`redis:local:stop`) manage them — both default to the exact
+host/port/user/password `config/index.ts`'s own fallback defaults
+already assumed (`postgresql://postgres:password@127.0.0.1:5432/
+sails_protocol`, `redis://127.0.0.1:6379`), so **zero `.env` changes**
+are needed to point the real app at them. Neither script uses its
+underlying library's own start()/stop() API directly — found the hard
+way that `embedded-postgres`'s module-level `AsyncExitHook` stops every
+tracked instance the moment the calling Node process exits (even a
+clean `process.exit(0)`), which would kill the server the instant a
+short-lived "start" script returned. Both scripts instead shell out to
+the real `pg_ctl`/Memurai binaries directly as detached OS processes,
+independent of the calling script's own lifetime — the actual fix.
+
+**What this unlocked, verified for real the same day:**
+- `npx prisma db push` against a genuinely live database — all 12
+  tables created for the first time ever outside a mock. Confirmed via
+  `information_schema.tables`.
+- A real service-layer round trip with zero mocking:
+  `liquidityRouter.createOffer()` → `intentEngine.create()` (the actual
+  RFC-018 code) wrote a real `User`, `Offer`, and `Intent` row, with the
+  `Intent` walking `CREATED → VALIDATED → COORDINATED` for real and its
+  hash-chained `IntentEvent` rows persisting correctly — read back and
+  confirmed via direct SQL, not application code.
+- `npm run dev`'s real Fastify server booted against real Postgres AND
+  real Redis (`[Database] Connected` / `[Redis] Connected`, both real
+  log lines, not mocked) — the first time this project's actual
+  `startServer()` has ever run end-to-end. A real
+  `GET /v1/liquidity/offers/USDT_ERC20/book` HTTP call returned the
+  exact Offer created in the smoke test above, straight from Postgres.
+
+**What this does NOT unlock** (scope discipline — not claiming more than
+verified): live HyperDHT P2P network (needs real internet peers), real
+WDK testnet transfers (needs real blockchain RPC access), or a
+production deployment story — this is strictly a local-dev/testing
+capability. `docker-compose.yml` (§12/BACKLOG.md, already real) remains
+the deployment-shaped path; this is the workaround for environments
+(like this one) where Docker itself isn't available.
+
+`.local-pgdata/`, `.local-pgdata.log`, `.local-redis.pid`,
+`.local-redis.log` are gitignored — per-machine local state, never
+committed. `embedded-postgres` and `redis-memory-server` added as
+devDependencies only.
 
 ---
 

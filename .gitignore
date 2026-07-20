@@ -2,3 +2,7 @@ node_modules/
 dist/
 .env
 *.log
+.local-pgdata/
+.local-pgdata.log
+.local-redis.pid
+.local-redis.log
