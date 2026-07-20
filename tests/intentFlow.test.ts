@@ -42,6 +42,15 @@ jest.mock('../src/common/events/event-bus', () => ({
 // prisma/eventBus, not the real ones.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { intentEngine } = require('../src/core/intent-engine')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { OpenP2PTradeIntentHandler } = require('../src/modules/open-p2p/intent-handler')
+
+// RFC-018 Phase 3 — validateStructure() now delegates to whichever
+// handler is registered for the Intent type, same as app.ts's real boot
+// sequence (buildApp()). Registered once here, at module load, since
+// intentEngine's handler Map is a module-scoped singleton shared by
+// every test in this file.
+intentEngine.registerHandler(OpenP2PTradeIntentHandler)
 
 describe('State Machine (pure functions, no mocking needed)', () => {
   it('allows CREATED -> VALIDATED -> COORDINATED -> DISCOVERING -> MATCHED -> NEGOTIATING -> COMMITTED -> SETTLING -> FULFILLED (RFC-012)', () => {

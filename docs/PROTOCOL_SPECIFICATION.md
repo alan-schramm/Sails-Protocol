@@ -1072,11 +1072,13 @@ models — deviation noted here rather than left silent:
 
 First real implementation: `core/intent-engine.ts`'s `create()`/`cancel()`/
 `transition()`. `registerHandler`'s plugin pattern (§2.7 below) is
-implemented but only one real `IntentHandler` exists — none yet, actually;
-`TradeIntent` validation is inlined in `intent-engine.ts` directly rather
-than registered as a separate handler, since OpenP2P doesn't have its own
-`IntentHandler` module file yet. Migrating that inline validation into a
-real `openp2p` `IntentHandler` is natural follow-up work, not done here.
+implemented and, as of RFC-018 Phase 3 (2026-07-20), has its first real
+`IntentHandler`: `modules/open-p2p/intent-handler.ts`'s
+`OpenP2PTradeIntentHandler`, registered at boot in `app.ts`. `TradeIntent`
+field validation now lives there, not inlined in `intent-engine.ts` —
+the Core's `validateStructure()` only dispatches to whichever handler is
+registered for a given `IntentType`, which is also why an unregistered
+type (every 📋 future one) is rejected as malformed by construction.
 
 ### 2.7 Integration Pattern (plugin architecture)
 

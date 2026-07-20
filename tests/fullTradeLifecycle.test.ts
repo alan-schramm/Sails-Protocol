@@ -177,6 +177,10 @@ const { TrustedArbitratorProvider } = require('../src/modules/open-settlement/ar
 const { registerEventHandlers } = require('../src/common/events/handlers')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { eventBus } = require('../src/common/events/event-bus')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { intentEngine } = require('../src/core/intent-engine')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { OpenP2PTradeIntentHandler } = require('../src/modules/open-p2p/intent-handler')
 
 // The real eventBus (InMemoryEventStore, RFC-010's always-available
 // default) — genuinely dispatches to registerEventHandlers()'s real
@@ -197,6 +201,10 @@ function seedUsers() {
 
 beforeAll(() => {
   registerEventHandlers()
+  // RFC-018 Phase 3 — validateStructure() now delegates to whichever
+  // handler is registered for the Intent type, same as app.ts's real
+  // buildApp() boot sequence.
+  intentEngine.registerHandler(OpenP2PTradeIntentHandler)
 })
 
 beforeEach(() => {

@@ -324,8 +324,14 @@ makes the same point in more detail.
       itself doesn't consult the registry (unchanged from RFC-012's scope
       cut); no route/CLI for an operator to issue grants in bulk (still
       one self-issued `POST /v1/capabilities/register` call at a time).
-- [ ] **Still open:** `IntentHandler` plugin registration pattern (§2.7 of
-      `PROTOCOL_SPECIFICATION.md`) is fully specified but has zero code.
+- [x] **`IntentHandler` plugin registration pattern (§2.7) — done
+      (2026-07-20), RFC-018 Phase 3.** `modules/open-p2p/intent-handler.ts`'s
+      `OpenP2PTradeIntentHandler` is the first real, registered handler —
+      `TradeIntent`'s field validation moved out of `intent-engine.ts`'s
+      `validateStructure()` (which now just dispatches to
+      `handlers.get(type)`) and into the module, registered at boot in
+      `app.ts` next to `registerEventHandlers()`. Behavior-preserving —
+      `npm run build` clean, `npm test` 222/222, no test count change.
 - [x] **Real gap found 2026-07-19 by a CTO-directed fidelity audit**
       ("a implementação está respeitando o modelo de Intent definido na
       especificação?" — not a design question, an audit of the shipped

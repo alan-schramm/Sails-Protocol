@@ -336,7 +336,25 @@ project's real deployment uses — no `prisma/migrations/` directory
 exists in this repo to indicate which) run against a real database
 before this code path works outside tests.
 
-**Phase 3 — `OpenP2PTradeIntentHandler`** — remains deferred. Extracting
-`intent-engine.ts`'s inline `TradeIntent` validation into a real,
-registered `IntentHandler` (§2.7) is a refactor of already-working
-logic, not a gap Phases 1-2 depend on — left for a future pass.
+**Phase 3 — `OpenP2PTradeIntentHandler` — done (2026-07-20).**
+`modules/open-p2p/intent-handler.ts` now holds the real, registered
+`IntentHandler` (§2.7): the exact field-level validation previously
+inlined in `intent-engine.ts`'s `validateStructure()`, moved verbatim,
+plus no-op `onCreated`/`onFulfilled`/`onExpired` (documented as
+intentionally empty — Phases 1-2's `liquidity.service.ts`/
+`trade.service.ts` already drive those reactions as `intentEngine`
+callers, not as handler callbacks; duplicating them here would double
+them). `validateStructure()` now delegates to `handlers.get(type)`
+instead of hardcoding `TradeIntent`'s fields — the Core no longer knows
+what a TradeIntent looks like, closing the gap `PROTOCOL_SPECIFICATION.md`
+§2.6 disclosed ("only one real IntentHandler exists — none yet,
+actually"). Registered at boot in `app.ts`'s `buildApp()`, next to
+`registerEventHandlers()`. Behavior-preserving, as predicted — no
+route, test assertion, or error message changed; the 3 test files that
+call `intentEngine.create('TradeIntent', ...)` outside `buildApp()`
+(`intentFlow.test.ts`, `intentCapabilityCheck.test.ts`,
+`fullTradeLifecycle.test.ts`) now register the same real handler
+explicitly, mirroring production boot instead of relying on inline
+Core validation. `npm run build` clean, `npm test` 222/222 (no new
+tests needed — existing coverage already exercises every branch through
+the new indirection).
