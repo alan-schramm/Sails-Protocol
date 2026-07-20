@@ -1319,6 +1319,48 @@ rendered timestamp.
 
 ---
 
+## 20. Trade screen now shows the seller's payment details (2026-07-20)
+
+**Real gap, found and closed the same day, not carried over as a TODO
+item:** `OfferDetail` fetched `Offer.paymentMethod`/`paymentDetails`
+(where to actually send fiat — a PIX key, in the reference flow) but
+never rendered `paymentDetails` even there, and `Trade` — the screen a
+buyer is actually looking at once a trade is underway — never fetched
+the Offer at all. A buyer who'd already navigated away from OfferDetail
+had no way to see where to send money once the trade started.
+
+**Fixed:** `trade.service.ts`'s `getTrade()` now `include`s the real
+`offer` relation (the `intentId`-style pattern this file already uses
+for `escrow`/`messages`) — no new route, no schema change, the
+`offerId` FK already existed. `@sails/sdk`'s `Trade` type gained an
+optional `offer?: Offer` field (optional because `trade()`'s create
+response doesn't include it — only `getTrade()` does, documented on the
+method itself). `Trade.tsx` renders a "Como pagar" card for the buyer
+specifically, showing the human-readable payment method
+(`PAYMENT_METHOD_LABELS`, already existed) and the raw `paymentDetails`
+string, with an honest fallback ("combine pelo chat") when a seller
+left it blank.
+
+**Also found while auditing this, not yet fixed — a smaller version of
+the same gap:** `OfferDetail.tsx` itself fetches `paymentDetails` into
+its local `Offer` object but still never renders it, even on the page
+whose whole job is showing offer details before a trade starts. Left
+as-is — out of the scope actually confirmed for this pass (the Trade
+screen specifically) — but worth closing in the same spirit if picked
+up next: one `Row` addition, same pattern as `PAYMENT_METHOD_LABELS`'s
+existing row.
+
+**Verification:** `npm run build` clean, `packages/sails-ui`'s
+`npx tsc --noEmit` clean, `npm test` 222/222 (no regressions — the new
+`include` doesn't change any mocked test's assertions). Live-verified
+against the real backend: seeded a fresh Offer with a real
+`paymentDetails` string and a real Trade against it (two fresh Ed25519
+identities, registered/authenticated for real, not fixtures), opened
+`/trade/:id` as the buyer in a real browser session, and confirmed the
+card renders the exact seeded PIX string.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority
