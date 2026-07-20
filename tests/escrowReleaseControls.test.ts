@@ -293,6 +293,35 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       expect(mockEscrowUpdate).not.toHaveBeenCalled()
       expect(eventBus.emit).not.toHaveBeenCalledWith('settlement.escrow.locked', expect.anything(), expect.anything())
     })
+
+    // Security-validation round (2026-07-19, "settlement falhando / retry
+    // seguro" scenario): the test above proves a failed lock leaves
+    // nothing persisted — this one proves the OTHER half of "safe retry":
+    // the same escrow row is still in a state where a corrected attempt
+    // (here: the operator fixes the escrow's type, the real-world
+    // equivalent of retrying against a working provider) goes through
+    // cleanly via the exact same code path, no leftover half-locked state
+    // from the failed attempt getting in the way.
+    it('a failed lock leaves the escrow retry-safe — a subsequent attempt on the same row succeeds cleanly', async () => {
+      jest.clearAllMocks()
+      mockEscrowFeatureFlag = false
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrow, type: 'LIGHTNING_HODL', status: 'CREATED' })
+
+      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/not yet implemented/)
+
+      // Retry: same escrow id, still status CREATED (never advanced), now
+      // routed through a working provider — mockEscrow back on, matching
+      // an operator retrying with the config actually fixed.
+      mockEscrowFeatureFlag = true
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrow, type: 'MOCK', status: 'CREATED' })
+      mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+
+      const result = await escrowService.lockFunds('escrow-1', 'seller-1')
+
+      expect(result.status).toBe('FUNDS_LOCKED')
+      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('markPaymentSent', () => {

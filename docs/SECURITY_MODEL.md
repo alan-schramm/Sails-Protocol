@@ -129,6 +129,22 @@ Seller provides no evidence of non-payment beyond the timeout. Timelock
 expires → escrow refunds the seller automatically. The buyer's suspicious
 non-payment pattern is logged to the reputation system.
 
+**Real gap found 2026-07-19 (security-validation round, "trade abandonado"
+scenario) — the automatic part of this scenario is not implemented.**
+`escrow.service.ts`'s `lockFunds()` computes and stores a real
+`Escrow.expiresAt` (`lockedAt + timelockHours`, `DEFAULT_TIMELOCK_HOURS=24`
+per `.env.example`) — but nothing in this codebase ever reads that field
+again. No proactive sweeper exists, and `refundFunds()`/`openDispute()` are
+only reachable through an explicit participant/arbiter action; a genuinely
+abandoned trade (counterparty never returns) sits in `FUNDS_LOCKED`
+indefinitely with no automatic refund, no reputation update. This is a
+narrower, escrow-level instance of the same "lazy, not proactive" pattern
+`core/state-machine.ts`'s own doc comment already discloses for Intent
+expiry (`BACKLOG.md`'s Intent Engine row) — that disclosure only covered
+the Intent layer, not this Escrow-level timelock claim. Building the
+sweeper is real, separate future work (tracked in `BACKLOG.md`); this note
+exists so this document stops asserting protection that doesn't exist yet.
+
 ### Scenario C: Disputed payment proof
 
 A **Trusted Arbitrator** — assigned via `ArbitrationProvider`, registered
@@ -156,7 +172,10 @@ entry) — reputation-as-bond, not collateral-as-bond.
 - Reputation penalties apply to bad-faith disputes
 - A Trusted Arbitrator's own reputation is the incentive for a fair
   ruling — a bad ruling is visible and permanent, not just a lost fee
-- Timelock fallbacks handle no-response scenarios automatically
+- Timelock fallbacks are meant to handle no-response scenarios
+  automatically — **not yet implemented as of 2026-07-19** (see Scenario
+  B's own correction above); `Escrow.expiresAt` is computed and stored but
+  never enforced by any proactive process today
 - Dispute history is public on the reputation layer — repeat bad actors
   become visible to the whole network, not just one counterparty
 

@@ -48,16 +48,34 @@ export class DisputeService {
     // transition (Escrow -> DISPUTED), not new logic written here.
     await escrowService.openDispute(trade.escrowId, raisedBy, reason)
 
-    const dispute = await prisma.dispute.create({
-      data: {
-        tradeId,
-        escrowId: trade.escrowId,
-        openedBy: raisedBy,
-        reason,
-        evidence: evidence as unknown as object,
-        status: 'OPENED',
-      },
-    })
+    // Security-validation round (2026-07-19, "disputa dupla" scenario):
+    // this create() reads-then-writes across two calls (this one and
+    // openDispute() above) with no locking — buyer and seller calling
+    // raiseDispute() concurrently could both pass every check above
+    // before either write lands. The schema's new @@unique([tradeId])
+    // on Dispute (see that model's own comment) is the actual guard: the
+    // loser of the race hits a real P2002 here, caught and turned into a
+    // clean rejection instead of a second, corrupting Dispute row —
+    // same pattern reputation.service.ts's rate() already established
+    // for its own unique-constraint race.
+    let dispute
+    try {
+      dispute = await prisma.dispute.create({
+        data: {
+          tradeId,
+          escrowId: trade.escrowId,
+          openedBy: raisedBy,
+          reason,
+          evidence: evidence as unknown as object,
+          status: 'OPENED',
+        },
+      })
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ValidationError(`A dispute has already been raised for trade ${tradeId}`)
+      }
+      throw err
+    }
 
     const arbiterId = await this.arbitrationProvider.assign(dispute.id, tradeId)
     const updated = await prisma.dispute.update({

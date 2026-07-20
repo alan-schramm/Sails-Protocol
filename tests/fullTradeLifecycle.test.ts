@@ -175,6 +175,8 @@ const { DisputeService } = require('../src/modules/open-settlement/dispute.servi
 const { TrustedArbitratorProvider } = require('../src/modules/open-settlement/arbitration-provider')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { registerEventHandlers } = require('../src/common/events/handlers')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { eventBus } = require('../src/common/events/event-bus')
 
 // The real eventBus (InMemoryEventStore, RFC-010's always-available
 // default) — genuinely dispatches to registerEventHandlers()'s real
@@ -317,5 +319,86 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     // RFC-007 D9 — a REFUND ruling means the seller won, the buyer lost.
     expect(users.rows.get('seller-1')?.reputationScore).toBe(2)
     expect(users.rows.get('buyer-1')?.reputationScore).toBe(-5)
+  })
+})
+
+// Security-validation round (2026-07-19, "replay de evento / idempotência"
+// scenario): InMemoryEventStore (event-store.ts, RFC-010's always-available
+// default) is a plain EventEmitter — it never redelivers an event on its
+// own, so neither of the two behaviors below is reachable through any real
+// code path in this reference implementation TODAY. They matter because
+// RFC-010 already anticipates swapping in a durable backend
+// (RedisStreamsEventStore, still unbuilt per BACKLOG.md), and durable
+// queues commonly redeliver on at-least-once semantics — these tests put
+// that future requirement under pressure now, before it's built, rather
+// than discovering it live.
+describe('Event replay / idempotency stress test — not reachable today, a real requirement before any durable EventStore ships', () => {
+  // registerEventHandlers() already ran once in this file's top-level
+  // beforeAll (above) — eventBus is a module-level singleton shared by
+  // every describe block in this file, so calling it again here would
+  // double-register every listener (EventEmitter.on() has no dedup),
+  // making a single emit() fire each reaction twice on its own — a test
+  // bug that would fake the exact "double-count" this block exists to
+  // isolate for real, found the hard way while writing this test.
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    ;[users, offers, trades, escrows, escrowEvents, disputes, intents].forEach((t) => t.rows.clear())
+    intentEventRows.length = 0
+    seedUsers()
+  })
+
+  it('GOOD: a duplicate settlement.escrow.locked is naturally rejected by the Intent state machine — COMMITTED is not re-enterable', async () => {
+    const offer = await liquidityRouter.createOffer({
+      userId: 'seller-1', asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1.00', minAmount: '10', maxAmount: '100', paymentMethod: 'PIX',
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: 'buyer-1', amount: '20' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, lockedAmount: '20', asset: 'USDT_ERC20' })
+    await escrowService.lockFunds(escrow.id, 'seller-1')
+    await flush()
+    expect(intents.rows.get(offer.intentId)?.status).toBe('COMMITTED')
+
+    // Redeliver the exact same event a second time — simulates a durable
+    // queue's at-least-once retry, not something this test fabricates
+    // beyond what actually flows through escrow.service.ts's transition().
+    await eventBus.emit('settlement.escrow.locked', {
+      escrowId: escrow.id, tradeId: trade.id, from: 'CREATED', to: 'FUNDS_LOCKED', triggeredBy: 'seller-1',
+    }, trade.id)
+    await flush()
+
+    // core/state-machine.ts's VALID_TRANSITIONS has no COMMITTED -> COMMITTED
+    // entry — intent-engine.ts's transition() throws, event-store.ts's
+    // subscribe() catches and logs it (console.error, expected in this
+    // test's output), and the Intent is left exactly where it was.
+    // Protected by construction, not by anything built for this test.
+    expect(intents.rows.get(offer.intentId)?.status).toBe('COMMITTED')
+  })
+
+  it('BAD (known, tracked gap — not fixed here): a duplicate settlement.escrow.released double-counts reputation', async () => {
+    const offer = await liquidityRouter.createOffer({
+      userId: 'seller-1', asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1.00', minAmount: '10', maxAmount: '100', paymentMethod: 'PIX',
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: 'buyer-1', amount: '20' })
+    const result = await executeSettlement({ tradeId: trade.id, buyerReceivingAddress: '0xBuyerTestnetAddress' })
+    await flush()
+    expect(users.rows.get('buyer-1')?.reputationScore).toBe(2)
+    expect(users.rows.get('seller-1')?.reputationScore).toBe(2)
+
+    // Redeliver settlement.escrow.released — unlike the Intent side above,
+    // nothing here checks "have I already recorded this outcome."
+    // reputation.service.ts's recordOutcome() is a bare increment with no
+    // idempotency key (no eventId tracked, no "already applied" guard).
+    await eventBus.emit('settlement.escrow.released', {
+      escrowId: result.escrowId, tradeId: trade.id, from: 'PAYMENT_PENDING', to: 'COMPLETED', triggeredBy: 'seller-1',
+    }, trade.id)
+    await flush()
+
+    // This IS the bug the "replay de evento" scenario predicted — asserted
+    // here deliberately, as documentation of a real, currently-unreachable
+    // risk (docs/BACKLOG.md), not as an accepted outcome. Before any
+    // durable, redelivering EventStore ships, recordOutcome()'s callers
+    // need an idempotency key (eventId) check first.
+    expect(users.rows.get('buyer-1')?.reputationScore).toBe(4)
+    expect(users.rows.get('seller-1')?.reputationScore).toBe(4)
   })
 })

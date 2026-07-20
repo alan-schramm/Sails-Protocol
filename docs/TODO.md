@@ -1081,6 +1081,64 @@ v3 chart) all render correctly with zero console errors on a fresh tab.
 
 ---
 
+## 17. Security-validation round (2026-07-19) — abandoned trade, retry safety, event replay, concurrent dispute
+
+CTO-role follow-up after RFC-018's validation pass and the
+`fullTradeLifecycle.test.ts` bug find: 4 scenarios meant to put the
+architecture under pressure before adding any new feature, in the same
+Implementation Freeze spirit (find real divergences, fix them, don't
+invent new concepts). Two real bugs found and fixed, one real doc
+overclaim corrected, one already proven safe:
+
+1. **Trade abandonado (timeout) — real doc overclaim, corrected, sweeper
+   itself deferred as tracked future work.** `SECURITY_MODEL.md` claimed
+   "Timelock fallbacks handle no-response scenarios automatically" —
+   `escrow.service.ts` computes and stores a real `Escrow.expiresAt` at
+   lock time but nothing ever reads it again; no sweeper exists. Corrected
+   `SECURITY_MODEL.md` Scenario B + Resolution Principles to state this
+   honestly; added a `BACKLOG.md` row tracking the real sweeper as
+   separate future work (the state-transition logic it would drive,
+   `refundFunds()`, already exists and is tested — only the "notice time
+   has passed" trigger is missing).
+2. **Settlement failure retry safety — confirmed already safe, regression
+   test added.** A failed `lockFunds()` (e.g. an unimplemented provider)
+   leaves the `Escrow` row at `CREATED`, untouched — a corrected retry on
+   the same row goes through the identical code path cleanly. New test in
+   `tests/escrowReleaseControls.test.ts`.
+3. **Event replay / idempotency — investigated and characterized, not
+   fixed (not reachable today).** `InMemoryEventStore` (RFC-010's
+   always-available default) never redelivers, so this isn't a live bug —
+   but a stress test in `tests/fullTradeLifecycle.test.ts` proved the
+   Intent lifecycle is naturally protected by `state-machine.ts`'s
+   `assertValidTransition()` (a duplicate transition throws and is caught/
+   logged, state untouched) while `reputation.service.ts`'s
+   `recordOutcome()` is a bare increment with no idempotency key — a
+   duplicate `settlement.escrow.released` delivery doubles
+   `reputationScore`/`totalTrades`/`totalVolumeBtc`. Documented as a hard
+   precondition on `BACKLOG.md`'s `RedisStreamsEventStore` row: that work
+   must not ship without an eventId-based idempotency check on
+   `recordOutcome()`'s callers first.
+4. **Disputa dupla (concurrent double-dispute) — real bug, fixed.**
+   `dispute.service.ts`'s `raiseDispute()` reads escrow status, validates,
+   then writes, with no locking — two concurrent calls (buyer and seller
+   both raising a dispute at once) could both pass every check before
+   either write landed, producing two `OPENED` Dispute rows for the same
+   trade, possibly with two different assigned arbiters (no DB constraint
+   prevented it). Fixed with `schema.prisma`'s `Dispute` model gaining
+   `@@unique([tradeId])` (this reference implementation's dispute flow has
+   no reopen-after-`RESOLVED` path, so one dispute per trade for its
+   entire lifetime is the real invariant) and `raiseDispute()` catching
+   the resulting P2002 into a clean `ValidationError` — same pattern
+   `reputation.service.ts`'s `rate()` already established for its own
+   unique-constraint race. New test in `tests/disputeFlow.test.ts`.
+
+**Verification**: `npm run build` clean, `npm test` 222/222 (run twice).
+Schema changed (`Dispute.@@unique([tradeId])`) — `npx prisma generate`
+run; not yet applied to a live database, same standing limitation as
+every other schema change this project has made without Docker access.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority
