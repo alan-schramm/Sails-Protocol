@@ -13,6 +13,12 @@ import { requireAuth } from '../../common/middleware/auth'
 const assetSideQuerySchema = z.object({
   asset: z.string().min(1),
   side: z.enum(['BUY', 'SELL']),
+  // Pagination (docs/TODO.md §25) — both optional, clamped again in
+  // liquidity.service.ts's getOffers() (limit: 1-50, default 10) so a
+  // second caller of that method directly is protected even if it
+  // bypasses this route's own validation.
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
 })
 
 const createOfferSchema = z.object({
@@ -40,15 +46,18 @@ const matchSchema = z.object({
 })
 
 export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
-  // NOTE: filterable by asset+side only today — paymentMethod/price-range
-  // filtering from API_REFERENCE.md's description is not yet implemented
-  // (liquidityRouter.getAggregatedOffers doesn't support it); documented
-  // here rather than silently dropped.
+  // NOTE: filterable by asset+side (+ optional limit/offset) only today —
+  // paymentMethod/price-range filtering from API_REFERENCE.md's
+  // description is not yet implemented (liquidityRouter.getAggregatedOffers
+  // doesn't support it); documented here rather than silently dropped.
   app.get('/v1/liquidity/offers', {
     schema: { tags: ['open-liquidity'] },
   }, async (request, reply) => {
     const query = assetSideQuerySchema.parse(request.query)
-    const result = await liquidityRouter.getAggregatedOffers(query.asset as any, query.side)
+    const result = await liquidityRouter.getAggregatedOffers(query.asset as any, query.side, {
+      limit: query.limit,
+      offset: query.offset,
+    })
     return reply.code(200).send({ success: true, data: result })
   })
 

@@ -154,3 +154,31 @@ describe('SailsClient — module assembly', () => {
     expect(init.headers.authorization).toBe('Bearer manually-set-token')
   })
 })
+
+describe('SailsClient — friendly aliases (docs/API_STABLE.md)', () => {
+  // Each alias must be the SAME instance as its protocol-name
+  // counterpart, not a second module with its own state — a caller
+  // mixing `sdk.auth.authenticate(...)` and `sdk.identity.me()` (or any
+  // other alias/protocol-name pair) must share one session, one
+  // transport, no duplicated behavior to keep in sync.
+  it('auth/offers/trades/escrow/trustScore are the exact same instances as identity/liquidity/openp2p/settlement/reputation', () => {
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch })
+
+    expect(client.auth).toBe(client.identity)
+    expect(client.offers).toBe(client.liquidity)
+    expect(client.trades).toBe(client.openp2p)
+    expect(client.escrow).toBe(client.settlement)
+    expect(client.trustScore).toBe(client.reputation)
+  })
+
+  it('a session set via one name is visible through its alias (proves they share the one real transport, not just object equality)', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'user-1' } })
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+
+    client.setSessionToken('alias-shared-token')
+    await client.auth.me()
+
+    const [, init] = fetchImpl.mock.calls[0]
+    expect(init.headers.authorization).toBe('Bearer alias-shared-token')
+  })
+})

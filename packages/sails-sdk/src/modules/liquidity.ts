@@ -76,7 +76,14 @@ export interface MatchInput {
 export class SailsLiquidityModule {
   constructor(private readonly transport: SailsTransport) {}
 
-  async discover(filter: { asset: AssetType; side: TradeSide }): Promise<DiscoverResult> {
+  /**
+   * `limit` (default 10, max 50) and `offset` are optional — added
+   * (docs/TODO.md §25) after dogfooding this SDK (examples/simple-wallet)
+   * found that without them, an offer beyond the 10 cheapest active ones
+   * for an asset/side was simply unreachable through this method on any
+   * marketplace with more than 10 active offers.
+   */
+  async discover(filter: { asset: AssetType; side: TradeSide; limit?: number; offset?: number }): Promise<DiscoverResult> {
     return this.transport.get<DiscoverResult>('/v1/liquidity/offers', filter)
   }
 

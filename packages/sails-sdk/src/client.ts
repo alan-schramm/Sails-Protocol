@@ -37,6 +37,8 @@ export interface SailsClientOptions {
 export class SailsClient {
   private readonly transport: SailsTransport
 
+  // ── Protocol names (RFC/module-accurate — match this repo's own
+  // src/modules/open-* folder names) ─────────────────────────────────
   readonly identity: SailsIdentityModule
   readonly reputation: SailsReputationModule
   readonly liquidity: SailsLiquidityModule
@@ -46,6 +48,27 @@ export class SailsClient {
   readonly capabilities: SailsCapabilitiesModule
   readonly wallet?: WalletAdapter
   private readonly intents: SailsIntentFacade
+
+  // ── Friendly aliases (docs/API_STABLE.md, frozen alongside the
+  // protocol names above as of v0.1 — both are equally stable public
+  // API, neither is deprecated or preferred). Each is the *same
+  // instance* as its protocol-name counterpart, not a separate module —
+  // `sdk.auth === sdk.identity`. Exists because different integrators
+  // reach for different vocabulary (a P2P-trading-specific dev thinks
+  // "offers/trades/escrow"; a generic wallet/fintech dev thinks
+  // "auth/liquidity") and both should land on the same working code
+  // without a rename. `reputation` deliberately has NO `profile` alias:
+  // this module only returns a numeric trust score
+  // (get/leaderboard/rate) — no displayName/avatar/trade history (that's
+  // `identity`) — so `profile` would promise more than it returns.
+  // `trustScore` names what it actually is instead. There is no
+  // separate `chat` alias either — chat lives inside `trades`/`openp2p`
+  // (`sdk.trades.chat(tradeId)`), it was never a standalone module.
+  readonly auth: SailsIdentityModule
+  readonly offers: SailsLiquidityModule
+  readonly trades: SailsOpenP2PModule
+  readonly escrow: SailsSettlementModule
+  readonly trustScore: SailsReputationModule
 
   constructor(options: SailsClientOptions) {
     const transportOptions: SailsTransportOptions = { baseUrl: options.baseUrl }
@@ -62,6 +85,12 @@ export class SailsClient {
     this.capabilities = new SailsCapabilitiesModule(this.transport)
     this.intents = new SailsIntentFacade(this.transport)
     if (options.wallet) this.wallet = options.wallet
+
+    this.auth = this.identity
+    this.offers = this.liquidity
+    this.trades = this.openp2p
+    this.escrow = this.settlement
+    this.trustScore = this.reputation
   }
 
   // ── Intent-oriented facade (SDK_GUIDE.md section 2) — delegates to

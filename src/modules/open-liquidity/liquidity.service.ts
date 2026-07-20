@@ -33,10 +33,23 @@ export interface LiquidityOffer {
   traderReputation?: number
 }
 
+// Real gap found dogfooding @sails/sdk (examples/simple-wallet,
+// docs/TODO.md §25): getOffers()/getAggregatedOffers() had a hard
+// `take: 10` with no way for a caller to reach anything beyond the 10
+// cheapest active offers for an asset/side — on any marketplace with
+// more than 10 active offers (a certainty at real scale), a caller has
+// no way to discover the rest. `limit` defaults to 10 (unchanged
+// behavior for every existing caller that doesn't pass it) and is
+// capped at 50 to keep a single query bounded.
+export interface OfferPagination {
+  limit?: number
+  offset?: number
+}
+
 export interface LiquidityProvider {
   name: string
   isAvailable(): Promise<boolean>
-  getOffers(asset: AssetType, side: TradeSide): Promise<LiquidityOffer[]>
+  getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination): Promise<LiquidityOffer[]>
   matchOrder(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null>
 }
 
@@ -78,11 +91,14 @@ class InternalOrderBook implements LiquidityProvider {
     return true
   }
 
-  async getOffers(asset: AssetType, side: TradeSide): Promise<LiquidityOffer[]> {
+  async getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination): Promise<LiquidityOffer[]> {
+    const limit = Math.min(Math.max(pagination?.limit ?? 10, 1), 50)
+    const offset = Math.max(pagination?.offset ?? 0, 0)
     const offers = await prisma.offer.findMany({
       where: { asset, side, status: 'ACTIVE' },
       orderBy: { priceUsd: side === 'SELL' ? 'asc' : 'desc' },
-      take: 10,
+      take: limit,
+      skip: offset,
       include: { user: { select: { reputationScore: true } } },
     })
     return offers.map(mapOfferToLiquidityOffer)
@@ -116,7 +132,7 @@ class HodlHodlProvider implements LiquidityProvider {
     return false
   }
 
-  async getOffers(asset: AssetType, _side: TradeSide): Promise<LiquidityOffer[]> {
+  async getOffers(asset: AssetType, _side: TradeSide, _pagination?: OfferPagination): Promise<LiquidityOffer[]> {
     // TODO(roadmap Meses 1-3): GET https://hodlhodl.com/api/v1/offers
     //   ?filters[currency_code]=BRL&filters[asset]=BTC
     console.log(`[HodlHodl] getOffers for ${asset} — not yet implemented`)
@@ -263,14 +279,25 @@ export class LiquidityRouter {
     return { asset, bids: bids.offers, asks: asks.offers, spread }
   }
 
-  async getAggregatedOffers(asset: AssetType, side: TradeSide): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
+  // `pagination` is passed to each provider's own getOffers() as-is, not
+  // re-applied after aggregation — with today's single real provider
+  // (InternalOrderBook; HodlHodl is disabled) that's equivalent to
+  // paginating the combined result. Aggregating across N>1 *real*
+  // providers correctly (one global page cutting across all of them,
+  // not N separate per-provider pages) is real follow-up work once a
+  // second provider is actually enabled — not done speculatively here.
+  async getAggregatedOffers(
+    asset: AssetType,
+    side: TradeSide,
+    pagination?: OfferPagination
+  ): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
     const all: LiquidityOffer[] = []
     const sources: string[] = []
 
     for (const provider of this.providers) {
       try {
         if (!(await provider.isAvailable())) continue
-        const offers = await provider.getOffers(asset, side)
+        const offers = await provider.getOffers(asset, side, pagination)
         all.push(...offers)
         sources.push(provider.name)
       } catch (err) {

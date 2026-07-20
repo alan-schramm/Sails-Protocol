@@ -71,8 +71,18 @@ export async function fetchOffers(asset: AssetType | 'Todos', side: TradeSide | 
   const sides: TradeSide[] = side === 'Todos' ? ['BUY', 'SELL'] : [side]
 
   const results = await Promise.all(
+    // limit: 50 (the route's own max, docs/TODO.md §25) — without it,
+    // discover() defaults to 10, ordered by price ascending. A real
+    // gap this exact default caused: e2e/golden-path.spec.ts's own
+    // freshly-published offer stopped appearing in this Marketplace
+    // once enough same-tier-priced offers had accumulated in the
+    // shared local dev database, since it no longer ranked in the top
+    // 10. This does not remove the underlying cap (a marketplace with
+    // more than 50 active offers per asset/side still needs real
+    // pagination/infinite-scroll here, not built yet) — it only widens
+    // the window this reference UI already relies on implicitly.
     assets.flatMap((a) => sides.map((s) =>
-      sailsClient.liquidity.discover({ asset: a, side: s }).catch((err) => {
+      sailsClient.liquidity.discover({ asset: a, side: s, limit: 50 }).catch((err) => {
         console.error(`[realOffers] discover(${a}, ${s}) failed:`, err)
         return { offers: [], sources: [] }
       })

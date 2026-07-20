@@ -1,0 +1,129 @@
+/**
+ * @sails/example-simple-wallet
+ *
+ * The dogfooding test for @sails/sdk (docs/TODO.md §25): a wallet
+ * developer's first 15 minutes with the SDK, written using ONLY its
+ * public surface (`@sails/sdk`'s exports) — no reaching into this
+ * monorepo's internal services, no mocks. It runs the real golden path
+ * (register → publish → discover → trade → chat → escrow → release)
+ * against a real local Sails node, exactly like a wallet integrating
+ * this protocol for the first time would.
+ *
+ * Prerequisites: a Sails node running locally (`npm run dev` from the
+ * repo root — see README.md in this directory for the full walkthrough,
+ * including how to point this at a different node via SAILS_BASE_URL).
+ *
+ * Run: npm run start -w @sails/example-simple-wallet
+ */
+import { SailsClient, type ChatMessageEvent } from '@sails/sdk'
+
+const BASE_URL = process.env.SAILS_BASE_URL ?? 'http://localhost:3000'
+
+let stepNumber = 0
+function step(label: string): void {
+  stepNumber += 1
+  console.log(`\n[${stepNumber}] ${label}`)
+}
+
+// Waits for one chat message on `channel`, or rejects after `timeoutMs` —
+// a real wallet needs this same pattern (chat delivery is async, over a
+// WebSocket, not a request/response call) so it's included here rather
+// than hidden.
+function waitForMessage(
+  channel: ReturnType<SailsClient['openp2p']['chat']>,
+  timeoutMs = 5000
+): Promise<ChatMessageEvent> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`No chat message received within ${timeoutMs}ms`)), timeoutMs)
+    channel.onMessage((msg) => {
+      clearTimeout(timer)
+      resolve(msg)
+    })
+  })
+}
+
+async function main() {
+  // ── Two independent wallets, two independent SailsClient instances —
+  // exactly how a real seller and a real buyer would each hold their own
+  // client, their own keypair, their own session. Nothing is shared.
+  const sellerWallet = new SailsClient({ baseUrl: BASE_URL })
+  const buyerWallet = new SailsClient({ baseUrl: BASE_URL })
+
+  step('Seller registers and authenticates (identity.create + identity.authenticate)')
+  const { keypair: sellerKeypair } = await sellerWallet.identity.create(undefined, 'Simple Wallet — Seller')
+  await sellerWallet.identity.authenticate(sellerKeypair)
+  console.log('    seller session established')
+
+  step('Buyer registers and authenticates')
+  const { keypair: buyerKeypair } = await buyerWallet.identity.create(undefined, 'Simple Wallet — Buyer')
+  await buyerWallet.identity.authenticate(buyerKeypair)
+  console.log('    buyer session established')
+
+  step('Seller publishes a SELL offer (liquidity.publish)')
+  // Priced deliberately low (real finding from running this example against
+  // this repo's own well-used local dev backend, not a guess): discover()
+  // orders SELL offers by priceUsd ascending and hard-caps at 10 results
+  // (liquidity.service.ts's getOffers(), `take: 10`, no pagination param —
+  // see docs/TODO.md §25). On a database that already has 10+ cheaper
+  // active offers for this asset (true after enough E2E runs), a
+  // realistically-priced new offer can silently fail to appear in
+  // discover() at all. A real wallet integration hits this exact wall on
+  // any sufficiently active marketplace — pricing aggressively low here
+  // works around it for this demo; it does not fix the underlying gap.
+  const offer = await sellerWallet.liquidity.publish({
+    asset: 'USDT_ERC20',
+    side: 'SELL',
+    priceUsd: '0.01',
+    minAmount: '1',
+    maxAmount: '100',
+    paymentMethod: 'PIX',
+    paymentDetails: 'simple-wallet-example-pix-key',
+  })
+  console.log(`    offer ${offer.id} published`)
+
+  step('Buyer discovers offers for USDT_ERC20/SELL (liquidity.discover)')
+  const { offers } = await buyerWallet.liquidity.discover({ asset: 'USDT_ERC20', side: 'SELL' })
+  const found = offers.find((o) => o.id === offer.id)
+  if (!found) throw new Error('Published offer did not appear in discover() results')
+  console.log(`    found ${offers.length} offer(s), including the one just published`)
+
+  step('Buyer opens a trade against the offer (openp2p.trade)')
+  const trade = await buyerWallet.openp2p.trade(offer.id, '10')
+  console.log(`    trade ${trade.id} created`)
+
+  step('Both sides connect to chat and exchange one message (openp2p.chat)')
+  const sellerChat = sellerWallet.openp2p.chat(trade.id)
+  const buyerChat = buyerWallet.openp2p.chat(trade.id)
+  await new Promise((r) => setTimeout(r, 300)) // let both WS JOIN_TRADE frames land before sending
+  const received = waitForMessage(sellerChat)
+  buyerChat.send({ content: 'Hi — sending payment now via PIX.' })
+  const message = await received
+  console.log(`    seller received: "${message.content}"`)
+  sellerChat.close()
+  buyerChat.close()
+
+  step('Seller creates and locks the escrow (settlement.create + settlement.lock)')
+  const escrow = await sellerWallet.settlement.create({
+    tradeId: trade.id,
+    lockedAmount: '10',
+    asset: 'USDT_ERC20',
+  })
+  await sellerWallet.settlement.lock(escrow.id)
+  console.log(`    escrow ${escrow.id} locked`)
+
+  step('Buyer marks the fiat payment as sent (settlement.markPaymentSent)')
+  await buyerWallet.settlement.markPaymentSent(escrow.id)
+  console.log('    payment marked sent')
+
+  step('Seller releases the escrow (settlement.release)')
+  const released = await sellerWallet.settlement.release(escrow.id, 'example-payout-address')
+  console.log(`    escrow status: ${released.status}, txReleaseId: ${released.txReleaseId}`)
+
+  console.log('\nDone — full golden path completed using only @sails/sdk\'s public API.')
+}
+
+main().catch((err) => {
+  console.error('\nFailed:', err instanceof Error ? err.message : err)
+  console.error(`\nIs a Sails node running at ${BASE_URL}? Start one with "npm run dev" from the repo root.`)
+  process.exitCode = 1
+})
