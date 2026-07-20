@@ -27,6 +27,15 @@
 > server-side Intent→Trade/Offer linkage this item said was missing — but
 > a real, narrower gap was found while double-checking that claim,
 > written up in place of the old one, not silently dropped.
+>
+> **Also 2026-07-20 — read this before manually walking the golden path
+> again:** it's automated now. `npm run test:e2e` (`docs/TODO.md` §23)
+> runs `e2e/golden-path.spec.ts` — two real identities, register through
+> settlement, against the real local stack, no mocks. Found 3 real UI
+> gaps in the process (stale "loading" state never gated, `discover()`'s
+> silent 10-result cap, a fake "connected" chat indicator) — all in §23,
+> not repeated here. This is now the fastest way to confirm the golden
+> path still works after a change, not a manual browser walkthrough.
 
 ## 1. `demo-satsails-qvac.ts` — current state
 
