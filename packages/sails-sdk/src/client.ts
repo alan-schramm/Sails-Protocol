@@ -38,13 +38,27 @@ export class SailsClient {
   private readonly transport: SailsTransport
 
   // ── Protocol names (RFC/module-accurate — match this repo's own
-  // src/modules/open-* folder names) ─────────────────────────────────
+  // src/modules/open-* folder names). Each has a friendly alias below
+  // (docs/API_STABLE.md) except `peers`/`capabilities`, which have none
+  // — both names would just be synonyms, not a real accessibility gain.
+  // See each property's own JSDoc for its exact alias, if any (shows on
+  // hover — this comment block itself does not, by design: the per-
+  // property pointer is what actually solves "confusing in autocomplete
+  // with no context").
+
+  /** Register, Ed25519 challenge-response auth, session management. Friendly alias: {@link SailsClient.auth} — same instance, not a separate module. */
   readonly identity: SailsIdentityModule
+  /** Reputation score, leaderboard, rating submission. Friendly alias: {@link SailsClient.trustScore} — same instance, not a separate module. */
   readonly reputation: SailsReputationModule
+  /** Publish/discover/manage Offers, the order book. Friendly alias: {@link SailsClient.offers} — same instance, not a separate module. */
   readonly liquidity: SailsLiquidityModule
+  /** Open/manage a Trade, real-time chat (`.chat(tradeId)`). Friendly alias: {@link SailsClient.trades} — same instance, not a separate module. */
   readonly openp2p: SailsOpenP2PModule
+  /** Escrow lifecycle: create, lock, release, refund, dispute. Friendly alias: {@link SailsClient.escrow} — same instance, not a separate module. */
   readonly settlement: SailsSettlementModule
+  /** P2P transport node — start/stop, topic/trade rooms, direct offer broadcast. No friendly alias (see docs/API_STABLE.md for why). */
   readonly peers: SailsPeersModule
+  /** RFC-013 Capability Registry — register/list/revoke capability grants. No friendly alias (see docs/API_STABLE.md for why). */
   readonly capabilities: SailsCapabilitiesModule
   readonly wallet?: WalletAdapter
   private readonly intents: SailsIntentFacade
@@ -64,10 +78,16 @@ export class SailsClient {
   // `trustScore` names what it actually is instead. There is no
   // separate `chat` alias either — chat lives inside `trades`/`openp2p`
   // (`sdk.trades.chat(tradeId)`), it was never a standalone module.
+
+  /** Alias for {@link SailsClient.identity} — the exact same instance, not a separate module. Use whichever name reads better in your codebase. */
   readonly auth: SailsIdentityModule
+  /** Alias for {@link SailsClient.liquidity} — the exact same instance, not a separate module. */
   readonly offers: SailsLiquidityModule
+  /** Alias for {@link SailsClient.openp2p} — the exact same instance, not a separate module. Chat also lives here: `sdk.trades.chat(tradeId)`. */
   readonly trades: SailsOpenP2PModule
+  /** Alias for {@link SailsClient.settlement} — the exact same instance, not a separate module. */
   readonly escrow: SailsSettlementModule
+  /** Alias for {@link SailsClient.reputation} — the exact same instance, not a separate module. Named `trustScore`, not `profile`: this module only returns a numeric score (get/leaderboard/rate), never displayName/avatar/trade history — that's {@link SailsClient.identity}. */
   readonly trustScore: SailsReputationModule
 
   constructor(options: SailsClientOptions) {

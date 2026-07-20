@@ -36,6 +36,14 @@ enforced by `packages/sails-sdk/tests/client.test.ts`'s
 `client.auth === client.identity`-style assertions). Both names are
 frozen together, permanently, as of v0.1.
 
+Every property listed below (both names, in every pair) carries its own
+JSDoc `@see`/alias pointer in `packages/sails-sdk/src/client.ts`, which
+`tsc`'s `declaration: true` output preserves into the published
+`.d.ts` — so hovering `sdk.auth` in an editor shows "alias for
+`sdk.identity`, same instance" directly, without needing this document
+open. The goal: two names in autocomplete should never be confusing,
+only convenient.
+
 One deliberate non-alias: `reputation` has **no** `profile` alias. This
 module only returns a numeric trust score plus a leaderboard and rating
 submission (`get`/`leaderboard`/`rate`) — it has no displayName, avatar,
