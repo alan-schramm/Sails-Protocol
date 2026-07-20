@@ -1575,6 +1575,75 @@ outside Jest's `testDir`). `test-results/`, `playwright-report/` gitignored.
 
 ---
 
+## 24. Real concurrency proof — `e2e/concurrency.spec.ts` (2026-07-20)
+
+CTO-directed follow-up to §22's robustness audit: that audit *fixed* a
+real TOCTOU race in `escrow.service.ts`/`intent-engine.ts` (atomic
+conditional `updateMany` claimed before any side-effecting provider
+call), but every test that verified it did so against mocked, sequential
+Prisma calls — legitimate unit coverage, but incapable of proving the
+fix holds against genuinely simultaneous requests hitting real Postgres.
+This file is pure HTTP (Playwright's `request` fixture, no browser)
+against the real running backend, firing N truly-concurrent requests via
+`Promise.all`.
+
+Two scenarios, matching the CTO's own framing directly:
+
+1. **"Duplicate escrow / duplicate settlement":** 10 concurrent
+   `POST .../release` calls for the *same* escrow. Exactly 1 succeeds
+   (200), 9 are rejected cleanly (< 500, never a second silent 200), and
+   the final state is exactly one real release — one `txReleaseId`, not
+   two, not a corrupted intermediate status.
+2. **"100 offers, 100 buyers, 100 trades simultaneously"** (scaled to 20
+   for a sandboxed environment): 20 fully independent trades created and
+   released concurrently. All 20 succeed, and all 20 `txReleaseId`s are
+   distinct — no cross-contamination between unrelated escrows sharing
+   the same code path at the same instant.
+
+Both pass, 4/4 clean runs against the real, correctly-fixed code.
+
+**A regression-verification detour worth recording honestly.** Before
+trusting scenario 1, I tried to prove it has teeth: temporarily removed
+the `status: escrow.status` guard from `releaseFunds()`'s `updateMany`
+`where` clause (so the claim would always succeed regardless of current
+state) and inserted an artificial 50ms delay right after the initial
+`findUnique`, to widen the race window. The test still reported exactly
+1 success — which looked at first like a false negative in the test
+itself.
+
+It wasn't. Backend request logs (real timestamps, real reqIds) showed
+why: of the 10 `Promise.all`-dispatched requests, only the first landed
+and fully completed (`req-f`, done at `.631`) before the remaining nine
+even arrived at the server (`req-g` onward, starting at `.856` —
+225ms later). Playwright's `request` fixture does not guarantee all 10
+calls hit the server as simultaneous TCP connections; enough client-side
+staggering exists that, by the time the later requests' code ran, the
+row was already `COMPLETED`. That meant the *unrelated*, pre-existing
+`assertTransition(escrow.status, 'COMPLETED')` check — which runs before
+the (deliberately broken) `updateMany` and independently rejects
+re-entry into a terminal state, since `VALID_TRANSITIONS.COMPLETED` is
+`[]` — was catching the late arrivals on a *freshly re-read* status, not
+because the atomic-claim fix I'd broken was doing anything. The
+artificial 50ms delay didn't help because it sat before that same
+`assertTransition` call: it widened the window between the read and the
+check, not between the read and the actual concurrent write each
+request would race against.
+
+Net effect: `assertTransition` is real, correct, defense-in-depth that
+happens to also block duplicate settlement under *this specific test
+harness's* actual arrival pattern — but it is not a substitute for the
+atomic `updateMany` guard, and this test as written does not exercise
+the guard in true isolation from that other check. Forcing genuinely
+simultaneous arrival (e.g. a lower-level concurrent client, or
+`maxSockets`/agent tuning) would be needed to test the `updateMany`
+guard in isolation; not attempted here — registered, not built, per this
+phase's "no new infrastructure" scope. Both temporary edits (guard
+removal, artificial delay) were reverted before committing; the real fix
+is unchanged from §22. Full suite reconfirmed green after revert: 224/224
+Jest, 3/3 Playwright (golden path + both concurrency scenarios).
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority
