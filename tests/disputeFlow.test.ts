@@ -110,6 +110,29 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     )
   })
 
+  // Security-validation round (2026-07-19, "disputa dupla" scenario):
+  // buyer and seller both raising a dispute at once can both pass every
+  // check in raiseDispute()/openDispute() before either write lands —
+  // nothing serializes the two calls. The real guard is the database:
+  // schema.prisma's Dispute model gained @@unique([tradeId]), so the
+  // second concurrent prisma.dispute.create() throws a real P2002 (this
+  // mock stands in for that database behavior, not fabricating a new
+  // failure mode). Proves raiseDispute() converts it to a clean rejection
+  // instead of letting a second Dispute row silently exist.
+  it('a second concurrent raiseDispute for the same trade is rejected, not silently duplicated', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: 'escrow-1' })
+    const p2002 = Object.assign(new Error('Unique constraint failed on the fields: (`tradeId`)'), { code: 'P2002' })
+    mockDisputeCreate.mockRejectedValueOnce(p2002)
+
+    await expect(service.raiseDispute('trade-1', 'seller-1', 'contraparte não confirma pagamento')).rejects.toThrow(
+      /already been raised/
+    )
+    // openDispute() still ran (the escrow-side race isn't what's being
+    // asserted here — the Dispute-row race is) — this test's own value is
+    // that the ValidationError surfaces cleanly, not a raw P2002.
+    expect(mockOpenDispute).toHaveBeenCalled()
+  })
+
   it('rejects a raiseDispute from someone who is not a party to the trade', async () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: 'escrow-1' })
     await expect(service.raiseDispute('trade-1', 'stranger', 'reason')).rejects.toThrow(/not a party/)

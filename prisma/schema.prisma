@@ -240,7 +240,23 @@ model Dispute {
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt
 
-  @@index([tradeId])
+  // Security-validation round (2026-07-19, CTO-role follow-up, "disputa
+  // dupla" scenario): dispute.service.ts's raiseDispute() reads
+  // escrow.status, validates the transition, THEN writes — two concurrent
+  // calls (buyer and seller both raising a dispute at once) can both read
+  // the pre-write status and both pass, since escrow.service.ts's
+  // openDispute() has no optimistic-concurrency check either. Without a
+  // DB-level constraint, that race produced two OPENED Dispute rows for
+  // the same trade, possibly assigned two different arbiters — a real
+  // gap, not a hypothetical one. This constraint is the actual fix: the
+  // second concurrent create() now fails at the database with a unique-
+  // constraint violation (P2002), which raiseDispute() catches and turns
+  // into a clean ValidationError instead of silent double-dispute
+  // corruption. @@unique rather than a partial/filtered index — this
+  // reference implementation's dispute flow has no "reopen after
+  // RESOLVED" path, so one Dispute per Trade for its entire lifetime is
+  // the real invariant, not just "one at a time."
+  @@unique([tradeId]) // also serves as the tradeId lookup index — no separate @@index needed
   @@index([escrowId])
   @@index([status])
   @@map("disputes")
