@@ -1888,6 +1888,51 @@ Adjusted all three before doing the actual work, not after.
 
 ---
 
+## 28. Final pre-handoff public-API audit (2026-07-20)
+
+CTO's explicit closing request before the SDK passes to a dev for
+ongoing maintenance: audit `@sails/sdk` as an external developer seeing
+it for the first time, looking specifically for internal leakage onto
+the public surface — not a feature review. 8 categories requested; each
+checked against real code, not assumed. Fixed only what was real; did
+not implement anything new.
+
+| # | Category | Result | Severity |
+|---|---|---|---|
+| 1 | Public APIs exposed unnecessarily | **Found — fixed.** `SailsTransport`/`SailsTransportOptions` re-exported from the public barrel (`index.ts`) despite zero documented use case, zero real external usage (`packages/sails-ui`, `examples/simple-wallet` — grepped directly), and this package's own tests already importing it straight from `./transport`, never through the barrel. | High |
+| 2 | Exported types that should be internal | **Found — fixed.** `SailsIntentFacade` (the class) exported from the public barrel despite `SailsClient.intents` being deliberately `private` — the class export directly contradicted its own encapsulation intent, letting a caller construct one against a raw transport and bypass `SailsClient`'s session management entirely. Zero real usage confirmed. The two payload types it also exports (`NegotiationEvent`, `ProofSubmission`) stayed exported — `negotiate()`/`submitProof()` callers genuinely need them. | High |
+| 3 | Public methods never used | **Checked, no fix needed.** Several methods (`settlement.refund`/`resolveDispute`, `reputation.rate`, all of `peers`/`capabilities`) have no current internal caller — but each maps 1:1 to a real, tested backend route (verified across this whole session's work), not accidental cruft. Flagging "unused by today's one internal consumer" as a defect would be wrong for a v0.1 SDK whose entire purpose is serving future third-party wallets that don't exist yet. | — (not a finding) |
+| 4 | Imports from `src/internal` or private paths | **Checked, clean.** `grep -rn` across the whole package for reaches outside `packages/sails-sdk` (`../../../`, `@/`, etc.) — zero matches. | — |
+| 5 | Circular dependencies | **Checked, clean.** `npx madge --circular` — "No circular dependency found!" | — |
+| 6 | References to the backend violating the API Freeze | **Checked, clean.** No hardcoded backend URLs or `process.env` reads in actual code — the one `localhost:3000` match is a doc-comment example illustrating "never hardcode this," not a real reference. | — |
+| 7 | TODO/FIXME/HACK inside the public SDK | **Checked, clean.** The only "TODO" matches are legitimate cross-references to `docs/TODO.md` (this file) — no real incomplete-work markers. | — |
+| 8a | TypeScript warnings hidden by casts | **Found — fixed (minor).** One `as unknown as typeof fetch` in `transport.ts`'s constructor — not a real bug (the field is validated and thrown-on immediately after), but avoidable: restructured to resolve into a local variable, validate, then assign — the field's `typeof fetch` type now genuinely guarantees "always present" instead of that guarantee resting on a cast plus an easy-to-break immediate-throw convention. | Low |
+| 8b | Public documentation diverging from implementation | **Found — fixed.** `docs/SDK_GUIDE.md` section 2's interface block — despite its own banner claiming "verified route-by-route" — had drifted substantially from the real implementation across `identity` (wrong method names, `verify()` never built — real flow is `challenge()`+`authenticate()`), `liquidity` (`discover`/`publish`/`match` all wrong signatures, `cancel()` never implemented — real equivalent is `updateStatus()`), `settlement` (`create`/`dispute` wrong signatures/return types), and `reputation` (`rate()` wrong signature). Rewritten to match `packages/sails-sdk/src/modules/*.ts` exactly; file's own status banner updated with this correction and a pointer to `docs/API_STABLE.md` as the actual frozen contract if the two ever disagree again. | Medium |
+
+**No Critical findings.** The two High findings were about surface area
+(internal classes reachable that shouldn't be), not correctness or
+security — nothing in the shipped `dist/` behaved incorrectly, no data
+exposure, no broken contract. Both are now fixed.
+
+**A real regression this pass's own fixes exposed, fixed in turn:**
+rerunning `examples/simple-wallet` after these changes hit the exact
+§25/§26 pagination-collision class again — this repo's shared local dev
+database had, by this point in the session, accumulated more than 10
+offers *also* priced at the same minimum tier (confirmed via a direct
+`curl` — the top 10 at default `limit` were six `0.01`s and four
+`0.00`s), so the example's own low price stopped being sufficient on
+its own. Fixed the same way `packages/sails-ui`'s `realOffers.ts` was
+fixed in §25: added `limit: 50` to the example's `discover()` call too.
+Real, if slightly funny, proof the underlying gap is real — even this
+fix's own demo needed the fix.
+
+**Verification:** `npm run build` (backend+SDK+UI) clean, `npx jest
+packages/sails-sdk` 44/44, full repo `npx jest` 226/226, `npx playwright
+test` 3/3, `examples/simple-wallet` re-run twice clean against the
+trimmed public surface.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority

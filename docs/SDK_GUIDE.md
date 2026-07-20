@@ -25,6 +25,17 @@
 > is branded **Sails P2P Trading SDK** — same package, scoped to what's
 > actually being built first (P2P trading); see `PROJECT_CONTEXT.md`
 > section 3 for the naming rule.
+>
+> **Correction (2026-07-20, release-audit finding — docs/TODO.md §28):**
+> despite the "verified route-by-route" claim above, section 2's
+> `identity`/`reputation`/`liquidity`/`settlement`/`openp2p` interface
+> block had drifted from the real implementation in most of its method
+> signatures (wrong parameter shapes, a `liquidity.cancel()` that was
+> never built, `identity.verify()` which doesn't exist). Rewritten to
+> match `packages/sails-sdk/src/modules/*.ts` exactly. `docs/API_STABLE.md`
+> is the actual frozen, no-breaking-changes contract as of v0.1 — this
+> file is illustrative onboarding material, not the source of truth if
+> the two ever disagree again.
 
 The SDK is where the developer diagram (`PROJECT_CONTEXT.md` section 3,
 "The developer diagram") lands in code — `SailsClient` is what sits at the
@@ -114,51 +125,83 @@ interface SailsClient {
   // the last stage, not the first — most disputes are expected to resolve
   // before ever reaching an ArbitrationProvider.
 
-  // Sails OpenIdentity
+  // ── Real signatures, corrected 2026-07-20 (release-audit finding,
+  // docs/TODO.md §28) ─────────────────────────────────────────────────
+  // Everything below this line was rewritten to match the actual
+  // implemented code (packages/sails-sdk/src/modules/*.ts, read
+  // directly, not assumed) — the previous version of this block was
+  // aspirational pseudocode that had drifted from what got built:
+  // wrong method names (identity.verify() was never built; the real
+  // flow is challenge()+authenticate()), wrong signatures throughout
+  // liquidity/settlement/reputation, and one method
+  // (liquidity.cancel()) that was never implemented at all — the real
+  // equivalent is updateStatus(offerId, status). This block is still
+  // illustrative, not the frozen contract — docs/API_STABLE.md is the
+  // one document making an actual no-breaking-changes commitment; if
+  // the two ever disagree again, trust API_STABLE.md and file that as
+  // a bug against this file.
+
+  // Sails OpenIdentity (alias: auth)
   identity: {
-    create(keypair: Ed25519Keypair): Promise<Participant>
-    verify(challenge: Challenge): Promise<AuthToken>
+    create(keypair?: Ed25519Keypair, displayName?: string): Promise<{ participant: Participant; keypair: Ed25519Keypair }>
+    challenge(publicKeyHex: string): Promise<{ challenge: string; expiresIn: number }>
+    authenticate(keypair: Ed25519Keypair): Promise<{ participantId: string; sessionToken: string }>
     get(participantId: string): Promise<Participant>
+    me(): Promise<Participant>   // requires an active session
   }
 
-  // Sails OpenReputation
+  // Sails OpenReputation (alias: trustScore — deliberately not
+  // `profile`; this module has no displayName/avatar/trade history)
   reputation: {
     get(participantId: string): Promise<ReputationScore>
     // ReputationScore (RFC-007 D8) is computed exclusively from
     // recordOutcome() / SettlementOutcome events — rate() below never
     // feeds into it, and a CancelledByAgreement outcome always classifies
     // Neutral, never Negative.
-    rate(tradeId: string, score: 1 | 2 | 3 | 4 | 5): Promise<void>
+    rate(input: { tradeId: string; ratedId: string; score: 1 | 2 | 3 | 4 | 5; comment?: string }): Promise<unknown>
     // Informational feedback only as of RFC-007 — stored, displayed, but
     // does not alter ReputationScore. Do not build UI that implies this
     // is "leaving a rating that affects reputation."
-    leaderboard(): Promise<ReputationScore[]>
+    leaderboard(limit?: number): Promise<ReputationScore[]>
   }
 
-  // Sails OpenLiquidity — advanced/direct use; createIntent()+negotiate()
-  // above is the path most applications should use instead
+  // Sails OpenLiquidity (alias: offers) — advanced/direct use;
+  // createIntent()+negotiate() above is the path most applications
+  // should use instead
   liquidity: {
-    publish(offer: OfferIntent): Promise<Offer>
-    discover(intent: Intent): Promise<Offer[]>
-    match(intent: Intent): Promise<Match | null>
-    cancel(offerId: string): Promise<void>
+    publish(input: PublishOfferInput): Promise<Offer>   // requires an active session
+    discover(filter: { asset: AssetType; side: TradeSide; limit?: number; offset?: number }): Promise<{ offers: LiquidityOfferSummary[]; sources: string[] }>
+    getOffer(offerId: string): Promise<Offer & { user: Participant }>
+    book(asset: AssetType): Promise<OrderBook>
+    match(input: { asset: AssetType; side: TradeSide; amount: string }): Promise<LiquidityOfferSummary | null>
+    // No dedicated cancel() — use the generic status transition:
+    updateStatus(offerId: string, status: 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'): Promise<Offer>   // requires an active session
   }
 
-  // Sails OpenSettlement — advanced/direct use; releaseAsset()/dispute()
-  // above is the path most applications should use instead
+  // Sails OpenSettlement (alias: escrow) — advanced/direct use;
+  // releaseAsset()/dispute() above is the path most applications
+  // should use instead
   settlement: {
-    create(type: SettlementType, tradeId: string): Promise<Escrow>
-    lock(escrowId: string): Promise<Escrow>
-    release(escrowId: string): Promise<Escrow>
-    dispute(escrowId: string, reason: string): Promise<Escrow>
+    create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session
+    get(escrowId: string): Promise<Escrow>
+    lock(escrowId: string): Promise<Escrow>   // requires an active session
+    markPaymentSent(escrowId: string): Promise<Escrow>   // requires an active session
+    release(escrowId: string, toAddress: string): Promise<Escrow>   // requires an active session
+    dispute(escrowId: string, reason: string, evidence?: unknown[]): Promise<Dispute>   // requires an active session
+    refund(escrowId: string): Promise<Escrow>   // requires an active session
+    resolveDispute(disputeId: string, ruling: 'RELEASE' | 'REFUND' | 'SPLIT', releaseToAddress?: string): Promise<Dispute>   // requires an active session + assigned arbiter
   }
 
-  // Sails OpenP2P — advanced/direct use; negotiate() above is the path
-  // most applications should use instead
+  // Sails OpenP2P (alias: trades) — advanced/direct use; negotiate()
+  // above is the path most applications should use instead. Chat also
+  // lives here — there is no separate chat module.
   openp2p: {
-    trade(offerId: string): Promise<Trade>
-    chat(tradeId: string): WebSocketChannel
-    getMessages(tradeId: string): Promise<Message[]>
+    trade(offerId: string, amount: string): Promise<Trade>   // requires an active session — note the required amount, a real deviation from an earlier two-arg draft of this signature
+    getTrade(tradeId: string): Promise<Trade>
+    getTradeByIntent(intentId: string): Promise<Trade>
+    updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade>   // requires an active session
+    chat(tradeId: string): WebSocketChannel   // requires an active session
+    getMessages(tradeId: string): Promise<Message[]>   // requires an active session
   }
 
   // Capability declaration/grants — RFC-005 (rfcs/RFC-005-capability-model.md),

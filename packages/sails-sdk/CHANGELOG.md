@@ -3,21 +3,69 @@
 All notable changes to `@sails/sdk` are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Note on versioning:** this package has stayed at `0.1.0` throughout
-everything below — it has not been version-bumped, and is not yet
-published to any npm registry (confirmed via `npm view @sails/sdk` →
-404, 2026-07-20). `docs/API_STABLE.md` is the actual frozen-API
-contract; per that document, `0.1` becomes `1.0` once this SDK has had
-real external usage (a real wallet/client consuming it in production) —
-not before. This file uses `[Unreleased]` for that reason, even though
-every entry below is already in `main`.
+**Note on versioning:** this package is still not published to any npm
+registry (confirmed via `npm view @sails/sdk` → 404, 2026-07-20).
+`v1.0.0-rc1` below is a **release candidate**, not a final `1.0.0` —
+by SemVer, `1.0.0-rc1` has *lower* precedence than `1.0.0` itself.
+`docs/API_STABLE.md`'s freeze commitment ("0.1 becomes 1.0 once this
+SDK has had real external usage") is not contradicted by tagging an
+RC: an RC is exactly "this is what we believe 1.0.0 will be, pending a
+real consumer proving it out" — the actual `1.0.0` tag still waits for
+that.
+
+**A real gotcha found trying to bump `package.json`'s own `"version"`
+field to match** (`0.1.0` → `1.0.0-rc1`): `packages/sails-ui/package.json`
+declares `"@sails/sdk": "^0.1.0"`. The moment the local package's version
+moved outside that range, `npm install` stopped treating it as a
+workspace-local symlink and tried to satisfy the range from the real
+npm registry instead — which 404s, since nothing is published. Reverted
+immediately (confirmed `npm install` clean again after). **Consequence:**
+the git tag `v1.0.0-rc1` and this changelog heading are intentionally
+decoupled from `package.json`'s `"version"` field, which stays `0.1.0`
+until either a real publish happens or every workspace consumer's
+declared range is widened at the same time — not something to do
+silently as a side effect of tagging a release candidate.
 
 ## [Unreleased]
 
-Everything below has landed on `main` at `0.1.0`. Nothing has been
-tagged or published yet.
+Nothing yet — everything up to this point has been folded into
+`v1.0.0-rc1` below.
+
+## [1.0.0-rc1] - 2026-07-20
+
+Release-candidate audit pass (docs/TODO.md §28) — a final check for
+internal implementation details leaked onto the public surface, before
+handoff to ongoing maintenance. No new features; only real problems
+found and fixed.
+
+### Fixed (this audit)
+- `SailsTransport`/`SailsTransportOptions` were re-exported from the
+  public package root despite zero documented use case and zero real
+  external usage — removed from the public surface (still exported
+  from `transport.ts` itself for this package's own internal use).
+- `SailsIntentFacade` (the class) was re-exported from the public
+  package root despite `SailsClient.intents` being deliberately
+  `private` specifically to prevent exactly this — a caller could
+  construct one directly against a raw transport, bypassing
+  `SailsClient`'s session management entirely. Removed from the public
+  surface; the two payload types it also exports (`NegotiationEvent`,
+  `ProofSubmission`) stayed, since `negotiate()`/`submitProof()`
+  callers genuinely need them.
+- One internal `as unknown as typeof fetch` cast in `transport.ts`'s
+  constructor removed via restructuring (resolve → validate → assign,
+  instead of assign-with-cast → validate).
+- `docs/SDK_GUIDE.md` section 2's interface listing — despite its own
+  banner claiming "verified route-by-route" — had drifted from the
+  real implementation across `identity`/`liquidity`/`settlement`/
+  `reputation` (wrong method names and signatures throughout;
+  `liquidity.cancel()` was documented but never built — the real
+  equivalent is `updateStatus()`). Rewritten to match the real code.
 
 ### Added
+
+Everything below was already on `main` before this audit pass — folded
+into this first tagged version rather than re-listed as a separate
+entry.
 - Initial SDK: `SailsClient`, the Transport layer, and six Protocol SDK
   modules — `identity`, `reputation`, `liquidity`, `openp2p`,
   `settlement`, `peers` — plus the Intent-oriented six-verb facade

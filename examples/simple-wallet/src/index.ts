@@ -82,7 +82,13 @@ async function main() {
   console.log(`    offer ${offer.id} published`)
 
   step('Buyer discovers offers for USDT_ERC20/SELL (liquidity.discover)')
-  const { offers } = await buyerWallet.liquidity.discover({ asset: 'USDT_ERC20', side: 'SELL' })
+  // limit: 50 (the route's own max, docs/TODO.md §25) — the low price
+  // above stopped being enough on its own once this repo's shared local
+  // dev database accumulated more than 10 offers ALSO priced at the
+  // minimum tier (every prior run of this example, plus §22-§26's own
+  // E2E runs, all racing for the same "cheapest" slot). Real proof the
+  // underlying gap is real: even the fix's own demo needed the fix.
+  const { offers } = await buyerWallet.liquidity.discover({ asset: 'USDT_ERC20', side: 'SELL', limit: 50 })
   const found = offers.find((o) => o.id === offer.id)
   if (!found) throw new Error('Published offer did not appear in discover() results')
   console.log(`    found ${offers.length} offer(s), including the one just published`)
