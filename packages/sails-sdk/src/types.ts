@@ -89,6 +89,12 @@ export interface Trade {
   cancelledAt: string | null
   createdAt: string
   updatedAt: string
+  // Only populated by openp2p.getTrade() (GET /v1/openp2p/trades/:id) —
+  // the Offer this Trade was accepted from, so a caller mid-trade can
+  // still see paymentMethod/paymentDetails (where to actually send fiat)
+  // without having to have kept the OfferDetail page's own fetch around.
+  // Optional because trade()'s create response doesn't include it.
+  offer?: Offer
 }
 
 export interface Escrow {

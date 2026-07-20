@@ -14,7 +14,7 @@ import { AgentRiskCard } from '../components/agent/AgentRiskCard'
 import { formatDateTime } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { detectRiskLocally } from '../lib/socialEngineering'
-import { ASSET_LABELS } from '../lib/labels'
+import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
 
 // A real buyer address doesn't exist yet in this reference implementation
 // (wdk-settlement.provider.ts's own doc comment: no per-user EVM address
@@ -236,6 +236,27 @@ export function Trade() {
             <Row label="Total" value={formatByCurrency(totalBrl, 'BRL')} />
             <Row label="Status do escrow" value={<EscrowStatusBadge status={escrowStatus} />} />
           </div>
+
+          {isBuyer && trade.offer && (
+            // Found auditing this screen: paymentMethod/paymentDetails
+            // (where to actually send fiat) were fetched by OfferDetail
+            // but never carried into the Trade screen — a buyer who'd
+            // already left that page had no way to see it again once
+            // the trade was underway. trade.service.ts's getTrade() now
+            // includes the originating Offer specifically for this.
+            <div className="card p-4 mt-3 border border-brand-orange/30">
+              <p className="text-xs font-semibold text-brand-text-muted mb-2">
+                Como pagar — {PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
+              </p>
+              {trade.offer.paymentDetails ? (
+                <p className="text-sm font-mono text-brand-text break-all">{trade.offer.paymentDetails}</p>
+              ) : (
+                <p className="text-xs text-brand-text-muted">
+                  O vendedor não informou os dados de pagamento aqui — combine pelo chat.
+                </p>
+              )}
+            </div>
+          )}
 
           <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} />
 

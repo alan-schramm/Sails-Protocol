@@ -101,6 +101,7 @@ export class SailsOpenP2PModule {
     return this.transport.post<Trade>('/v1/openp2p/trades', { offerId, amount }, true)
   }
 
+  /** Unlike trade()'s create response, this always populates `offer` (trade.service.ts's getTrade() includes it) — real, not just typed-optional. */
   async getTrade(tradeId: string): Promise<Trade> {
     return this.transport.get<Trade>(`/v1/openp2p/trades/${tradeId}`)
   }

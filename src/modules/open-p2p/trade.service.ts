@@ -101,6 +101,14 @@ export class TradeService {
       include: {
         escrow: true,
         messages: { orderBy: { createdAt: 'asc' } },
+        // Found while auditing a real gap: the buyer has nowhere to see
+        // *where* to send fiat (the seller's Offer.paymentDetails) once a
+        // trade is already underway — OfferDetail shows it, but Trade
+        // never re-fetched the Offer at all. paymentMethod/paymentDetails
+        // are the two fields this exists for; the rest of Offer comes
+        // along for free via the relation, same low-risk tradeoff every
+        // other `include` in this file already makes.
+        offer: true,
       },
     })
     if (!trade) throw new NotFoundError('Trade', tradeId)
