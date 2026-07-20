@@ -192,3 +192,35 @@ real); the small QVAC model (`LLAMA_3_2_1B_INST_Q4_0`) occasionally
 produces structurally-valid-but-semantically-off values (`TODO.md` §5B) —
 fine for this demo, worth a bigger model or explicit range checks before
 any real money moves on agent-generated amounts.
+
+## 4. What genuinely needs a dev with real infrastructure vs. what's
+   buildable in a sandboxed environment (2026-07-20)
+
+The gap list above mixes two very different kinds of "not done yet":
+things blocked on infrastructure a sandboxed environment structurally
+cannot provide (funded keys, reachable peers, a second real device), and
+things that are just unwritten code. Conflating them wastes a dev's
+first day re-discovering which is which. This section is the audited
+split, current as of this writing — update it, don't let it silently go
+stale the way section 1's old "no reachable Postgres/Redis" claim did.
+
+### Needs a dev in a real environment — and precisely why
+
+| Item | Why it can't be closed here |
+|---|---|
+| **RFC-019 Phase 2** — real multisig/threshold-signature `SettlementProvider` for EVM | Not an infra gap, a real design decision (which scheme, which library) that then needs verification against funded testnet keys — the current single-seed `WdkSettlementProvider` is the disclosed blocker for any production/mainnet use (`PROTOCOL_INVARIANTS.md` Constitutional Invariant 2) |
+| **`demo-satsails-qvac.ts` run end-to-end** | Needs a funded WDK EVM testnet key and two `HyperDHT` nodes actually reaching each other over a real network — section 1 above has the full detail |
+| **`HumanChatChannel.onEvent()`** (defined, never called — incoming Pears messages have no consumer) | Same reason: only verifiable with two real peer nodes, not something to fake a passing test against |
+| **`LightningHodlProvider`/`LiquidCovenantProvider`** | Need a real LND/CLN node or real Liquid covenant tooling — neither exists in any environment this project has been built in |
+| Real liquidity / real strangers trading repeatedly (PIX↔USDT/BTC at volume) | Not engineering at all — a GTM/business milestone, out of scope for this list entirely |
+
+### Buildable now, no live infra required
+
+| Item | Status |
+|---|---|
+| **A route resolving `intentId → Trade/Escrow`, plus wiring `@sails/sdk`'s `dispute()` to it** | **Done (2026-07-20).** `GET /v1/openp2p/trades/by-intent/:intentId` + `trade.service.ts`'s `getTradeByIntentId()`; `intent-facade.ts`'s `dispute(intentId, reason)` now really resolves the Trade, gets its `escrowId`, and raises a real `Dispute` — same route `settlement.dispute()` uses. **Found while building this, corrected in the same pass:** `negotiate()`/`releaseAsset()` were NOT just missing this same route — each has its own, different real blocker, discovered only by checking `SDK_GUIDE.md`'s exact canonical signatures instead of assuming they'd fall to the same fix. `negotiate(intentId, event): Promise<void>` can't represent `openp2p.chat(tradeId)`'s real shape (a persistent `WebSocketChannel`, not a fire-and-forget call). `releaseAsset(intentId): Promise<Settlement>` has no destination-address parameter, but the one real release route requires `toAddress` with no default — a gap in `SDK_GUIDE.md`'s own canonical signature, not a missing route. Both left throwing `SailsNotImplementedError`, with corrected messages — forcing either into "working" would mean silently diverging from the documented contract, which this project's own discipline treats as worse than an honest not-yet. `npm run build` clean, `npm test` 223/223. |
+| **`RedisStreamsEventStore`** (RFC-010's own Reference Implementation Plan: `XADD`/`XGROUP`/`XREADGROUP`/`XACK`) | Not yet attempted. Previously blocked on "no reachable Redis to integration-test against" — no longer true, real local Redis runs in this environment (§18 above). A first pass without `XCLAIM`-based crash recovery (the RFC's own stated prerequisite before this becomes Satsails Wallet's *active* store) would be real, honestly-scoped progress, matching the same disclosure pattern `WdkSettlementProvider` already uses. Flagged as the next reasonable candidate — not started without confirmation given its size (a consumer-group polling loop, not a small tweak). |
+
+### Deliberately not attempted — a scoping decision, not a blocker
+
+**`PolicyEngine`'s governed-policy interface** (`get`/`propose`/`activate` — `FeePolicy`/`TrustPolicy`/`RoutingPolicy`, `core/policy-engine.ts`) stays a stub on purpose, not because anything blocks it technically. Closing it for real needs: a new Prisma-backed policies table (none exists), and a decision to wire `coordination-engine.ts`'s `decide()` into it — something RFC-012's own Alternatives Considered explicitly kept out of scope, and nothing in the current P2P Trading SDK golden path calls `policyEngine.get()` at all. Per `PROJECT_CONTEXT.md`'s priority filter ("does this directly improve building a P2P Financial Marketplace?"), this doesn't clear the bar today — it's a real architectural decision that deserves its own RFC when something in the real flow actually needs fee/trust/routing rules enforced, not a stub to remove opportunistically. Note this is a **different reason** than the "needs live infra" row above — worth keeping distinct so it isn't miscategorized as either "blocked" or "just do it."

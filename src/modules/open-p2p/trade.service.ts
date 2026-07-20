@@ -95,6 +95,21 @@ export class TradeService {
     return trade
   }
 
+  // Closes the real gap @sails/sdk's intent-facade.ts's dispute() needed:
+  // resolving an intentId (the caller's own vocabulary — createIntent()
+  // is the entry point) to the Trade/Escrow RFC-018 already links it to
+  // server-side. Same no-auth pattern as getTrade() below — an intentId
+  // isn't guessable-and-sensitive any more than a tradeId already is,
+  // and getTrade() itself has never required auth.
+  async getTradeByIntentId(intentId: string) {
+    const trade = await prisma.trade.findFirst({
+      where: { intentId },
+      include: { escrow: true, offer: true },
+    })
+    if (!trade) throw new NotFoundError('Trade for Intent', intentId)
+    return trade
+  }
+
   async getTrade(tradeId: string) {
     const trade = await prisma.trade.findUnique({
       where: { id: tradeId },

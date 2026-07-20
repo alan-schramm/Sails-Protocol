@@ -1,13 +1,25 @@
 /**
  * SailsClient — assembly and the Intent-oriented facade's honest
  * implemented/not-implemented split (intent-facade.ts's own header
- * explains why four of the six verbs throw).
+ * explains why three of the six verbs still throw — dispute() became
+ * real once RFC-018's Intent -> Trade -> Escrow link existed).
  */
 import { SailsClient } from '../src/client'
 import { SailsNotImplementedError } from '../src/errors'
 
 function fakeFetch(status: number, body: unknown): jest.Mock {
   return jest.fn().mockResolvedValue({ ok: status >= 200 && status < 300, status, json: async () => body })
+}
+
+// dispute() makes two real calls in sequence (GET by-intent, then POST
+// dispute) — a single fakeFetch() can't return two different bodies, so
+// this resolves each call in the order dispute() actually makes them.
+function fakeFetchSequence(...responses: Array<{ status: number; body: unknown }>): jest.Mock {
+  const mock = jest.fn()
+  for (const { status, body } of responses) {
+    mock.mockResolvedValueOnce({ ok: status >= 200 && status < 300, status, json: async () => body })
+  }
+  return mock
 }
 
 describe('SailsClient — Intent facade', () => {
@@ -70,9 +82,33 @@ describe('SailsClient — Intent facade', () => {
     await expect(client.releaseAsset('intent-1')).rejects.toThrow(/settlement\.release/)
   })
 
-  it('dispute() throws SailsNotImplementedError and points to settlement.dispute()', async () => {
-    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch })
-    await expect(client.dispute('intent-1', 'reason')).rejects.toThrow(/settlement\.dispute/)
+  it('dispute() resolves intentId -> Trade -> Escrow (RFC-018) and raises a real Dispute', async () => {
+    const fetchImpl = fakeFetchSequence(
+      { status: 200, body: { success: true, data: { id: 'trade-1', escrowId: 'escrow-1' } } },
+      { status: 200, body: { success: true, data: { id: 'dispute-1', reason: 'no payment received' } } }
+    )
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-token-1')
+
+    const dispute = await client.dispute('intent-1', 'no payment received')
+
+    expect(dispute.id).toBe('dispute-1')
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://localhost:3000/v1/openp2p/trades/by-intent/intent-1')
+    const [disputeUrl, disputeInit] = fetchImpl.mock.calls[1]
+    expect(disputeUrl).toBe('http://localhost:3000/v1/settlement/escrow/escrow-1/dispute')
+    expect(JSON.parse(disputeInit.body)).toEqual({ reason: 'no payment received' })
+  })
+
+  it('dispute() throws SailsNotImplementedError when the resolved Trade has no Escrow yet', async () => {
+    // Called twice below (same as this file's other rejects.toThrow pairs),
+    // so the by-intent lookup needs two queued responses, not one.
+    const noEscrowResponse = { status: 200, body: { success: true, data: { id: 'trade-1', escrowId: null } } }
+    const fetchImpl = fakeFetchSequence(noEscrowResponse, noEscrowResponse)
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-token-1')
+
+    await expect(client.dispute('intent-1', 'reason')).rejects.toThrow(SailsNotImplementedError)
+    await expect(client.dispute('intent-1', 'reason')).rejects.toThrow(/no Escrow yet/)
   })
 })
 

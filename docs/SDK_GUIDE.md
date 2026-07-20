@@ -11,12 +11,17 @@
 > against each `*.routes.ts` file directly, not assumed from this doc's
 > prose — see this file's own section 2 note on `createIntent`/`trade()`
 > deviations found that way). Of the six-verb Intent facade,
-> `createIntent`/`cancelIntent` are real; `negotiate`/`submitProof`/
-> `releaseAsset`/`dispute` throw `SailsNotImplementedError` with a
-> specific reason and, where one exists, a real working alternative
+> `createIntent`/`cancelIntent`/`dispute` are real as of RFC-018's
+> Intent -> Trade -> Escrow link (`GET /v1/openp2p/trades/by-intent/
+> :intentId`, 2026-07-20); `negotiate`/`submitProof`/`releaseAsset` still
+> throw `SailsNotImplementedError` with a specific reason and, where one
+> exists, a real working alternative
 > (`packages/sails-sdk/src/intent-facade.ts`'s own header has the full
-> explanation — the blocker is server-side: no Intent -> Trade -> Escrow
-> linkage, and the Proof primitive has zero routes yet). Its MVP release
+> explanation — no longer a linkage gap for any of the three: `negotiate`
+> is a shape mismatch against a stateful `WebSocketChannel`, `releaseAsset`
+> is missing a destination-address parameter in this very document's own
+> canonical signature, and the Proof primitive genuinely has zero routes
+> yet). Its MVP release
 > is branded **Sails P2P Trading SDK** — same package, scoped to what's
 > actually being built first (P2P trading); see `PROJECT_CONTEXT.md`
 > section 3 for the naming rule.

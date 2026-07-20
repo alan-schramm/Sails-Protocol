@@ -39,6 +39,19 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send({ success: true, data: trade })
   })
 
+  // Real backing route for @sails/sdk's intent-facade.ts's dispute()
+  // (RFC-018's intentId link made this possible — see trade.service.ts's
+  // own comment on getTradeByIntentId()). Registered as its own path
+  // segment, not a query param on /trades/:id — no collision with that
+  // route's :id matcher since find-my-way routes by segment count.
+  app.get('/v1/openp2p/trades/by-intent/:intentId', {
+    schema: { tags: ['open-p2p'] },
+  }, async (request, reply) => {
+    const { intentId } = z.object({ intentId: z.string().min(1) }).parse(request.params)
+    const trade = await tradeService.getTradeByIntentId(intentId)
+    return reply.code(200).send({ success: true, data: trade })
+  })
+
   app.patch('/v1/openp2p/trades/:id/status', {
     preHandler: requireAuth,
     schema: { tags: ['open-p2p'] },

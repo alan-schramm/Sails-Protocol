@@ -185,7 +185,8 @@ tracked; see that file's "Resolved Items" section.
 | Method | Path | Description |
 |---|---|---|
 | POST | `/v1/openp2p/trades` | Start a trade from an offer |
-| GET | `/v1/openp2p/trades/:id` | Trade detail with escrow + messages |
+| GET | `/v1/openp2p/trades/:id` | Trade detail with escrow + messages + originating offer |
+| GET | `/v1/openp2p/trades/by-intent/:intentId` | Resolve an `intentId` to the Trade it produced (RFC-018) — new, backs `@sails/sdk`'s `dispute()` |
 | PATCH | `/v1/openp2p/trades/:id/status` | Update trade status (ACTIVE/DISPUTED/CANCELLED) |
 | WS | `/v1/openp2p/chat` | WebSocket negotiation channel (see below) |
 | GET | `/v1/openp2p/chat/:tradeId/messages` | Message history for a trade |
