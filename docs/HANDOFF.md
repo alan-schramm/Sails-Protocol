@@ -233,3 +233,80 @@ stale the way section 1's old "no reachable Postgres/Redis" claim did.
 ### Deliberately not attempted — a scoping decision, not a blocker
 
 **`PolicyEngine`'s governed-policy interface** (`get`/`propose`/`activate` — `FeePolicy`/`TrustPolicy`/`RoutingPolicy`, `core/policy-engine.ts`) stays a stub on purpose, not because anything blocks it technically. Closing it for real needs: a new Prisma-backed policies table (none exists), and a decision to wire `coordination-engine.ts`'s `decide()` into it — something RFC-012's own Alternatives Considered explicitly kept out of scope, and nothing in the current P2P Trading SDK golden path calls `policyEngine.get()` at all. Per `PROJECT_CONTEXT.md`'s priority filter ("does this directly improve building a P2P Financial Marketplace?"), this doesn't clear the bar today — it's a real architectural decision that deserves its own RFC when something in the real flow actually needs fee/trust/routing rules enforced, not a stub to remove opportunistically. Note this is a **different reason** than the "needs live infra" row above — worth keeping distinct so it isn't miscategorized as either "blocked" or "just do it."
+
+## 5. `@sails/sdk` v1.0.0-rc1 — release notes and the maintenance-mode rule (2026-07-20)
+
+CTO's explicit closing instruction before a dev takes over ongoing
+maintenance: don't hand off "loose." This section is that organized
+transition for `@sails/sdk` specifically — everything else in this file
+still applies to the wider reference implementation.
+
+### What "Release Candidate" means here, precisely
+
+`v1.0.0-rc1` is a git tag on this commit, not an npm-published version —
+`packages/sails-sdk/package.json`'s own `"version"` field stays `0.1.0`
+(see `packages/sails-sdk/CHANGELOG.md`'s versioning note for the exact
+technical reason it can't be bumped yet without breaking
+`packages/sails-ui`'s workspace install — a real gotcha, not an
+oversight). By SemVer, `1.0.0-rc1` has lower precedence than `1.0.0`
+itself: this is "what we believe v1.0.0 will be," not v1.0.0 itself.
+`docs/API_STABLE.md`'s freeze commitment (0.1 → 1.0 only after real
+external usage) is unaffected — the actual `1.0.0` tag still waits for
+a real consumer to prove this out.
+
+### Release-candidate checklist — done
+
+- ✅ **API frozen** — `docs/API_STABLE.md`: every module (protocol name
+  + friendly alias), every real method, zero-breaking-changes
+  commitment until v1.
+- ✅ **Documentation delivered** — `docs/API_STABLE.md`,
+  `docs/SDK_GUIDE.md` (corrected 2026-07-20, `docs/TODO.md` §28),
+  `packages/sails-sdk/README`-equivalent context in this file and
+  `PROJECT_CONTEXT.md`, `examples/simple-wallet/README.md`,
+  `packages/sails-sdk/CHANGELOG.md`, generated API docs
+  (`npm run docs -w @sails/sdk` → `packages/sails-sdk/docs-api/`,
+  gitignored — regenerate locally, not committed).
+- ✅ **Tests green** — Jest 226/226, Playwright 3/3 (golden path + both
+  concurrency scenarios), `examples/simple-wallet` dogfooding passes,
+  production builds (backend + SDK + UI) all clean.
+- ✅ **Final audit done** — `docs/TODO.md` §28: 2 High findings (internal
+  classes leaked onto the public surface), 1 Medium (stale docs), 1 Low
+  (an avoidable cast) — all fixed, none Critical.
+
+### Pendências registradas — known, open, not blocking the RC
+
+- `liquidity.discover()`'s pagination is a real fix (`limit`/`offset`,
+  max 50) but not a complete one — a marketplace with more than 50
+  active offers per asset/side still has no way to reach the rest; real
+  pagination/infinite-scroll in `packages/sails-ui`'s Marketplace screen
+  is unbuilt.
+- No ESM build — `package.json` only declares `main` (CommonJS), so
+  real tree-shaking is not possible today regardless of how a consumer
+  writes their imports (`docs/TODO.md` §27).
+- Node LTS validation (20/22) genuinely not done — only Node 24.16.0
+  was available in this environment, no version manager present.
+- `negotiate()`/`submitProof()`/`releaseAsset()` remain honest
+  `SailsNotImplementedError` stubs — each has a distinct, disclosed
+  reason (`intent-facade.ts`'s own header), not a linkage gap.
+- The wider CTO roadmap beyond this SDK (Satsails Wallet, Rumble, QVAC
+  agents, Portable Trust, Capability Registry evolution, OpenIdentity)
+  is explicitly **out of scope for this handoff** — the SDK is the
+  first layer; those are meant to be built *against* it, not alongside
+  it in this same pass.
+
+### The rule for whoever maintains this next
+
+> **`@sails/sdk` is in controlled maintenance and evolution. Do not
+> change anything in `docs/API_STABLE.md` without an RFC or explicit
+> approval. New changes should come from real integration needs — a
+> real wallet, a real bug, a real second consumer — not from new ideas
+> about the SDK itself.**
+
+This exists specifically to prevent the common failure mode of a new
+maintainer arriving and starting to "improve" the architecture,
+breaking a base that real dogfooding (`examples/simple-wallet`) and a
+full audit (`docs/TODO.md` §28) already validated. From here, the right
+kind of work is: fixing bugs real users hit, performance, real new
+integrations, supporting new clients, evolving the Wallet on top of
+this SDK, and preparing an actual stable release — not restructuring
+what's already frozen.

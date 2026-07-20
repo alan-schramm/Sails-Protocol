@@ -4,7 +4,14 @@
  * docs/DEVELOPER_JOURNEY.md for the step-by-step onboarding flow.
  */
 export { SailsClient, type SailsClientOptions } from './client'
-export { SailsTransport, type SailsTransportOptions } from './transport'
+// SailsTransport/SailsTransportOptions deliberately NOT re-exported here
+// (audit finding, docs/TODO.md §28): internal plumbing SailsClient
+// assembles itself — zero documented use case for an external caller
+// constructing one directly, zero real external usage (packages/sails-ui,
+// examples/simple-wallet), and this package's own tests already import
+// it straight from './transport', never through this barrel. Still
+// exported from transport.ts itself for that internal use; just not part
+// of the public @sails/sdk surface.
 
 export {
   SailsError,
@@ -39,8 +46,17 @@ export { SailsSettlementModule, type CreateEscrowInput } from './modules/settlem
 export { SailsPeersModule, type StaticTopic } from './modules/peers'
 export { SailsCapabilitiesModule, type RegisterCapabilityInput } from './modules/capabilities'
 
+// SailsIntentFacade (the class) deliberately NOT re-exported here (audit
+// finding, docs/TODO.md §28): SailsClient.intents is private specifically
+// so the six delegate methods (createIntent/cancelIntent/negotiate/
+// submitProof/releaseAsset/dispute) are the only supported entry point —
+// exporting the class itself would let a caller construct one directly
+// against a raw transport, bypassing SailsClient's session management
+// entirely, exactly what `private` was meant to prevent. Zero real
+// external usage confirmed. The two payload types below stay exported —
+// negotiate()/submitProof() callers genuinely need them to construct
+// their second argument.
 export {
-  SailsIntentFacade,
   type NegotiationEvent,
   type ProofSubmission,
 } from './intent-facade'

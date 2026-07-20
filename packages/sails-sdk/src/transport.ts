@@ -47,12 +47,22 @@ export class SailsTransport {
     // found the hard way in the first real browser exercise of this path
     // (packages/sails-ui), invisible to this SDK's own tests since they
     // always inject an explicit fetchImpl mock.
-    this.fetchImpl = options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : undefined as unknown as typeof fetch)
-    if (!this.fetchImpl) {
+    //
+    // Resolved into a local first (audit finding, docs/TODO.md §28):
+    // validating and throwing BEFORE ever assigning to the readonly,
+    // non-nullable `this.fetchImpl` field means no `as unknown as`
+    // escape hatch is needed to satisfy the type checker — the field's
+    // type keeps genuinely guaranteeing "always present, never
+    // undefined" instead of the guarantee resting on a cast plus an
+    // immediate-throw convention a future editor could accidentally
+    // break.
+    const resolvedFetch = options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : undefined)
+    if (!resolvedFetch) {
       throw new SailsTransportError(
         'No fetch implementation available — pass { fetchImpl } explicitly in an environment without a global fetch.'
       )
     }
+    this.fetchImpl = resolvedFetch
     this.webSocketImpl = options.webSocketImpl ?? (typeof WebSocket !== 'undefined' ? WebSocket : undefined)
   }
 
