@@ -1815,6 +1815,79 @@ repo `npm run build` + `npx jest` 226/226 re-run clean.
 
 ---
 
+## 27. SDK release-readiness pass — Release Candidate checks (2026-07-20)
+
+CTO's own read of everything above: the SDK has crossed from "compiles"
+to "used by a real application, found real integration bugs" — a
+Release Candidate, not a place for more features. His follow-up list
+(7 checks that build confidence, explicitly not new methods/modules) had
+3 concrete inaccuracies against the real repo, corrected before running
+anything: the example commands used the package name
+`@sails/p2p-trading-sdk` (the real name is `@sails/sdk` — "Sails P2P
+Trading SDK" is prose/marketing, not the npm package name); they assumed
+the package is already published (`npm view @sails/sdk` → real `404`,
+confirmed 2026-07-20 — nothing has ever been published); and the
+suggested `CHANGELOG.md` heading was `v1.0.0`, which directly
+contradicts `docs/API_STABLE.md`'s own freeze commitment ("0.1 becomes
+1.0 once this SDK has had real external usage" — none exists yet).
+Adjusted all three before doing the actual work, not after.
+
+**What was actually run, all real, all against the real built package:**
+
+- **Package footprint** (`npm pack` inside `packages/sails-sdk`): 22.3 kB
+  packed, 77.4 kB unpacked, 31 files — far under any of the CTO's
+  illustrative guesses (200 KB/800 KB/3 MB).
+- **Standalone smoke test** — not `npm install @sails/sdk` against the
+  real registry (nothing published there), but the equivalent that
+  doesn't require publishing anything: packed the real tarball, created
+  a folder with zero relation to this monorepo (own `npm init`, no
+  workspace symlinks, no shared `node_modules`), installed only the
+  tarball, and ran a script exercising every module, every friendly
+  alias (`auth`/`offers`/`trades`/`escrow`/`trustScore`), same-instance
+  identity between alias pairs, `generateKeypair()`, and every error
+  class. All passed identically to running inside the workspace — this
+  is the actual proof a fresh `npm install` + `import { SailsClient }`
+  works, the real intent behind the CTO's items 2 and 7.
+- **Tree-shaking — checked, found it doesn't apply, not silently
+  claimed to work:** `packages/sails-sdk/package.json` declares only
+  `main` (CommonJS) — no `module`, no `exports` map, no `sideEffects`
+  flag, no ESM build at all. Real tree-shaking needs static ESM
+  analysis; a CJS-only package cannot be meaningfully tree-shaken by any
+  bundler no matter how a caller writes their `import`. Not fixed here
+  — a dual CJS/ESM build is new packaging infrastructure, exactly what
+  this phase is not supposed to add (the CTO's own "não pediria mais
+  nenhuma feature" applies to packaging as much as to API surface).
+  Recorded honestly in `packages/sails-sdk/CHANGELOG.md` as a known,
+  unfixed gap rather than papered over.
+- **TypeDoc** (new `packages/sails-sdk/typedoc.json`, `npm run docs`
+  script) — generates real browsable API docs from source + JSDoc
+  directly (0 errors, 1 benign warning about an unexported internal
+  const array TypeDoc can't inline — not a code defect, not fixed, since
+  exporting it would be new API surface for a purely cosmetic docs-tool
+  complaint). Spot-checked the generated HTML directly to confirm
+  §26's new alias JSDoc renders correctly. Output (`docs-api/`, ~1.5MB)
+  gitignored — generated content, not committed, same pattern as
+  `test-results/`/`playwright-report/`.
+- **`packages/sails-sdk/CHANGELOG.md`** (new) — real history compiled
+  from this package's actual 10-commit `git log`, not the CTO's
+  illustrative placeholder entries. Correctly headed `[Unreleased]` (see
+  the versioning-inaccuracy correction above), with real Added/Fixed/
+  Changed sections plus a "Verified, not changed" section documenting
+  the package-footprint/smoke-test/tree-shaking/Node-version findings
+  from this pass directly in the artifact a consumer would actually
+  read.
+- **Node LTS validation — genuinely not done, disclosed, not faked.**
+  This environment has only Node 24.16.0 (`node --version`) and no
+  version manager (`nvm`, `fnm`, `volta`, `n` all absent — checked
+  directly, not assumed). Installing a second Node runtime is a real
+  system change, not a reversible code edit — registered as an open gap
+  in the CHANGELOG rather than silently skipped or claimed complete.
+
+**Verification:** `npm run build` clean (unaffected by the new
+`typedoc` devDependency), `npx jest` 226/226.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority

@@ -11,3 +11,5 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+packages/sails-sdk/docs-api/
+*.tgz

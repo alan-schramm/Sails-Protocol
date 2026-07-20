@@ -8,13 +8,15 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "docs": "typedoc"
   },
   "license": "Apache-2.0",
   "dependencies": {
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
+    "typedoc": "^0.28.20",
     "typescript": "^5.9.3"
   }
 }
