@@ -1090,21 +1090,40 @@ type-checked — Marketplace, OfferDetail (React Router v7 navigation),
 Profile (Sonner v2 toast interaction), and the Admin Dashboard (Recharts
 v3 chart) all render correctly with zero console errors on a fresh tab.
 
-**Known, accepted `npm audit` finding — not fixed, by deliberate
-decision:** `@hono/node-server` <1.19.13 (moderate, [GHSA-92pp-h63x-
+**Update (2026-07-20) — now fixed, forward, no downgrade needed:**
+Prisma 7.9.0 replaced `@prisma/dev`'s internal HTTP router
+(`find-my-way`, no more `@hono/node-server` in its dependency tree at
+all — confirmed via `npm view @prisma/dev@latest dependencies`), so the
+`prisma`/`@prisma/client` bump from `7.8.0` → `7.9.0` (both still
+`^7.x`, no `package.json` range change beyond the patch itself) removes
+the vulnerable transitive dependency outright instead of requiring the
+downgrade-to-6.19.3 tradeoff described below. `npm audit` now reports 0
+vulnerabilities. Verified: `npx prisma generate`, `npm run build` clean,
+`npx jest` 224/224, and — since this changes the actual runtime DB
+client, not just a devDependency — the full `npx playwright test` suite
+(golden path + both §24 concurrency scenarios) re-run against a freshly
+restarted backend on the new client, 3/3 passing against real local
+Postgres.
+
+<details>
+<summary>Original finding (2026-07-19), kept for context — no longer the current state</summary>
+
+`@hono/node-server` <1.19.13 (moderate, [GHSA-92pp-h63x-
 v22m](https://github.com/advisories/GHSA-92pp-h63x-v22m), a
-`serveStatic` middleware bypass via repeated slashes) is pulled in
+`serveStatic` middleware bypass via repeated slashes) was pulled in
 transitively via `prisma` (our devDependency) → `@prisma/dev` (Prisma's
 own internal package behind the `prisma dev` local-Postgres-proxy
 feature) → `@hono/node-server`. Confirmed via `npm ls @prisma/dev
 @hono/node-server` and a grep across `package.json`/`src/` — nothing in
 this project ever invokes `prisma dev` (only `db:migrate`/`db:generate`/
-`db:seed`/`db:studio`), so the vulnerable code path is never reached.
-`npm audit fix --force` would downgrade `prisma`/`@prisma/client` from
-`7.8.0` back to `6.19.3`, reverting the verified migration above for a
-devDependency-only, unreachable issue — not worth it. Revisit when
-Prisma ships a 7.x release with an updated `@prisma/dev`; nothing to do
-until then.
+`db:seed`/`db:studio`), so the vulnerable code path was never reached.
+At the time, `npm audit fix --force` would have downgraded
+`prisma`/`@prisma/client` from `7.8.0` back to `6.19.3`, reverting the
+verified migration above for a devDependency-only, unreachable issue —
+not worth it. Resolved forward instead once Prisma shipped 7.9.0 (see
+above).
+
+</details>
 
 ---
 
