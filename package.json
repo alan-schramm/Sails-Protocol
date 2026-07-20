@@ -12,7 +12,8 @@
     "node": ">=20.0.0"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ],
   "scripts": {
     "build": "npm run build -w @sails/p2p-schemas && npm run build -w @sails/sdk && tsc",

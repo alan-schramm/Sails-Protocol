@@ -1663,6 +1663,133 @@ Jest, 3/3 Playwright (golden path + both concurrency scenarios).
 
 ---
 
+## 25. SDK hardening phase, part 1 — `examples/simple-wallet` dogfooding + a real gap it found and fixed (2026-07-20)
+
+CTO-directed pivot (relayed 2026-07-20): now that `@sails/sdk` is the
+primary product surface, stop adding functionality and start hardening
+it — make it trivial for any wallet to integrate. First step: prove it,
+don't assume it. `examples/simple-wallet` (new workspace, added to root
+`package.json`'s `workspaces` array as `examples/*`) is a ~140-line
+script using **only `@sails/sdk`'s public exports** — no reaching into
+this monorepo's internal services, no mocks — that drives the entire
+golden path against a real local Sails node: register (seller) →
+register (buyer) → publish offer → discover it → open a trade → chat →
+create + lock escrow → mark payment sent → release. 12 SDK methods, 9
+narrated steps. Run via `npm run start -w @sails/example-simple-wallet`
+(prerequisite: `npm run dev` from the repo root). See
+`examples/simple-wallet/README.md` for the full walkthrough.
+
+**A real, previously-unknown gap this surfaced, then fixed (not just
+documented):** the first version of this example published its offer at
+a realistic price (`priceUsd: '1.00'`) and step 4 — `liquidity.discover()`
+finding the offer just published — failed outright. Root cause, found by
+reading `liquidity.service.ts` directly: `InternalOrderBook.getOffers()`
+had a hardcoded `take: 10` with no way for any caller (SDK or raw HTTP)
+to reach anything beyond the 10 cheapest active offers for a given
+asset/side — `GET /v1/liquidity/offers`'s query schema never accepted a
+pagination parameter at all. This repo's own local dev database, after
+dozens of E2E runs across §22-§24, had accumulated enough active
+`USDT_ERC20`/`SELL` offers that a normally-priced new one silently fell
+outside the top 10. This is exactly the class of bug the CTO's
+hardening mandate exists to catch: invisible in every test written so
+far (each one only ever asserted "my own offer is discoverable"
+immediately after creation, on a database no other test had polluted
+yet) and guaranteed to bite any real wallet integrating against a
+genuinely active marketplace.
+
+**Fixed, not worked around:**
+- `src/modules/open-liquidity/liquidity.service.ts` — `LiquidityProvider.getOffers()` and `LiquidityRouter.getAggregatedOffers()` both gained an optional `pagination?: { limit?: number; offset?: number }` (new `OfferPagination` type). `InternalOrderBook.getOffers()` clamps `limit` to 1-50 (default 10 — unchanged behavior for every existing caller that doesn't pass one) and applies `skip: offset`. Aggregation across multiple providers is not globally re-paginated (documented as a known limitation, real follow-up once a second real provider — HodlHodl today is a disabled stub — actually exists).
+- `src/modules/open-liquidity/liquidity.routes.ts` — `GET /v1/liquidity/offers` accepts optional `limit`/`offset` query params (zod-validated, `limit` capped at 50 — an out-of-range value is rejected with a clean 400, not silently clamped).
+- `packages/sails-sdk/src/modules/liquidity.ts` — `discover()`'s filter type gained optional `limit`/`offset`, documented with the exact failure this fixes.
+- `examples/simple-wallet/src/index.ts` — kept its low-price (`'0.01'`) workaround deliberately, with a comment explaining why: pagination lets a caller *browse* more of the market, but a wallet that already knows a specific offer id has no reason to page through `discover()` hunting for it — `liquidity.getOffer(offerId)` is the right call for that, and doesn't exist as a workaround here on purpose (see the example's own README for the fuller explanation).
+
+**Verification:** `npm run build` clean, `npx jest` 224/224, `npx
+playwright test` 3/3 (golden path + both concurrency scenarios) against
+a freshly restarted backend on the new code. Direct `curl` checks against
+the real endpoint confirmed all four behaviors: default (no params)
+still returns exactly 10 — unchanged; `limit=50` returns 50 (this
+database now has 50+ real accumulated offers); `limit=200` is rejected
+with `400 VALIDATION_ERROR` (`"Too big: expected number to be <=50"`),
+not silently clamped; `offset=10&limit=10` returns a genuine second page
+(different offers than page one). The `examples/simple-wallet` script
+itself ran clean 4/4 times end to end, including once against the fixed
+pagination code specifically to confirm the golden path still holds.
+
+**Addendum, same day, found rerunning the full Playwright suite after
+the fix above:** `e2e/golden-path.spec.ts` — which had *already*
+disclosed this exact `take: 10` cap in its own header comment since
+§22/§23, with a "price it tiny" workaround — failed for the first time
+in this session, for the reason its own comment predicted: enough
+`R$0,01`-tier offers had accumulated (including from this very fix's
+own verification runs) that a freshly published offer no longer
+reliably ranked in the top 10 by price alone. Traced to the real product
+code, not just the test: `packages/sails-ui/src/lib/realOffers.ts`'s
+`fetchOffers()` — the actual Marketplace screen's data source — called
+`sailsClient.liquidity.discover({ asset, side })` with no `limit`,
+silently defaulting to 10. Fixed by passing `limit: 50` (the route's own
+max) there too. This is the real UI, not a test-only fix — any live user
+publishing into a sufficiently active market was hitting this exact
+invisibility today. Re-verified: 3/3 Playwright, then `golden-path.spec.ts`
+alone 3 more consecutive clean runs to confirm this wasn't luck given
+how collision-prone the original failure was.
+
+---
+
+## 26. SDK hardening phase, part 2 — friendly aliases + `docs/API_STABLE.md`, the actual freeze (2026-07-20)
+
+Direct follow-up to §25's item 3 ("API Freeze," CTO's original hardening
+list). Before writing a frozen public-API document, this repo's own
+`SailsClient` names (`identity`/`liquidity`/`openp2p`/`settlement`/
+`reputation`) had to be reconciled against the CTO's proposed friendlier
+names (`auth`/`offers`/`trades`/`escrow`/`profile`) — freezing the wrong
+one, or freezing then renaming, defeats the point of a freeze. Resolved
+as: **both names, permanently, as the same object** — not a rename, not
+a deprecation of either side. `packages/sails-sdk/src/client.ts` gained
+`auth`/`offers`/`trades`/`escrow`/`trustScore` as readonly properties
+assigned in the constructor to the exact same module instance as their
+protocol-name counterpart (`this.auth = this.identity`, etc.) —
+`sdk.auth === sdk.identity` is a real, tested invariant
+(`packages/sails-sdk/tests/client.test.ts`'s new "friendly aliases"
+describe block: same-instance assertions for all 5 pairs, plus a
+round-trip proving a session set through one name is visible through
+its alias, i.e. they share the one real transport, not just reference
+equality by coincidence).
+
+**One deliberate deviation from the CTO's proposed names, corrected
+before shipping, not after:** `reputation` has no `profile` alias.
+Checked `modules/reputation.ts` directly — it only exposes `get()`
+(a numeric score), `leaderboard()`, and `rate()` (informational only,
+does not feed the score). No displayName, avatar, verified status, or
+trade history — that data belongs to `identity.get()`/`identity.me()`.
+Naming it `profile` would have shipped a permanently-frozen public API
+name that overpromises what it returns. `trustScore` was chosen instead
+— it names exactly what the module is. `chat` also has no separate
+alias (never asked for one, once clarified) — it already lives inside
+`openp2p`/`trades` (`sdk.trades.chat(tradeId)`), never a standalone
+module.
+
+**`docs/API_STABLE.md`** (new) is the actual freeze document this
+section's title promises: every `SailsClient` module (protocol name +
+friendly alias, or the note that none makes sense for `peers`/
+`capabilities`), every real method with its one-line contract, and the
+freeze commitment itself (no breaking changes to anything listed until
+v1; new optional params/methods/modules are additive, not breaking).
+Explicitly carves out the Intent facade's three still-throwing verbs
+(`negotiate`/`submitProof`/`releaseAsset`) as NOT frozen — their
+throw-vs-real status is expected to change, and that specific change is
+additive. Cross-referenced from `docs/00-INDEX.md` (now 21 documents,
+inserted as entry 6 right after `SDK_GUIDE.md`; the one other place in
+that file describing the current table's own size as a live count,
+not a historical reference to the original delivered set, updated to
+match).
+
+**Verification:** `npm run build -w @sails/sdk` clean, `npx jest
+packages/sails-sdk` 44/44 (2 new tests). Full repo suite re-run after:
+`npm run build` clean, `npx jest` 226/226 (224 + these 2 new tests),
+`npx playwright test` 3/3.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority
