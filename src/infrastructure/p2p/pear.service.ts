@@ -44,6 +44,34 @@ export function deriveTopic(name: string): Buffer {
   return createHash('sha256').update(`sails:v1:${name}`).digest()
 }
 
+// Security fix (Fase 1 Red Team review, Task 2's real finding —
+// "reconciliation poisoning" turned out to live here, not in
+// ReconciliationService — see tests/reconciliation-poisoning.test.ts's
+// header comment). Extracted as a standalone function (not inlined in
+// handleNewConnection() below) specifically so it's unit-testable —
+// handleNewConnection() itself needs a real Hyperswarm connection object
+// and can't be, the same limitation this file's own PearNode already has
+// throughout ("cannot be verified without a live network").
+//
+// `remotePeerId` is the only cryptographically real part of an incoming
+// P2P connection (HyperDHT's own Noise-handshake public key) —
+// `claimedUserId` (the HANDSHAKE message's own `userId` field) is just a
+// claim the connecting peer makes about themselves. Before this fix,
+// that claim was trusted outright: any peer could bind an arbitrary
+// userId to their real connection in `userPeerMap`, hijacking
+// sendToPeer() delivery meant for whoever they claimed to be, and
+// poisoning reconcilePeerPair() via the peer.connected event that
+// followed. Verified here against the same `User.peerId` Postgres
+// already records the moment a legitimate node's own start() call
+// succeeds (below) — a claimed userId whose real peerId doesn't match
+// this connection's actual remotePeerId is not a legitimate identity
+// claim for this connection.
+export async function verifyHandshakeIdentity(claimedUserId: unknown, remotePeerId: string): Promise<boolean> {
+  if (typeof claimedUserId !== 'string' || !claimedUserId) return false
+  const claimedUser = await prisma.user.findUnique({ where: { id: claimedUserId }, select: { peerId: true } })
+  return claimedUser?.peerId === remotePeerId
+}
+
 export const TOPICS = {
   marketplace: deriveTopic('marketplace'),
   btc: deriveTopic('offers:BTC'),
@@ -167,7 +195,7 @@ export class PearNode extends EventEmitter {
     console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] New connection from peer ${remotePeerId.slice(0, 16)}`)
     socket.write(JSON.stringify({ type: 'HANDSHAKE', userId: this.ownerUserId }))
 
-    socket.on('data', (data: Buffer) => {
+    socket.on('data', async (data: Buffer) => {
       let msg: any
       try {
         msg = JSON.parse(data.toString())
@@ -176,6 +204,22 @@ export class PearNode extends EventEmitter {
       }
 
       if (msg.type === 'HANDSHAKE') {
+        // See verifyHandshakeIdentity()'s doc comment above for the full
+        // explanation — an unidentified connection is left open, not
+        // closed outright (RFC-002's "never assumes continuous
+        // connectivity" — a mismatch isn't inherently hostile, e.g. a
+        // client mid-way through its own start() sequence), it's simply
+        // never registered as the identity it claimed.
+        const verified = await verifyHandshakeIdentity(msg.userId, remotePeerId)
+        if (!verified) {
+          console.warn(
+            `[Pear:${this.ownerUserId.slice(0, 8)}] HANDSHAKE identity mismatch — peer ${remotePeerId.slice(0, 16)} ` +
+            `claimed userId ${typeof msg.userId === 'string' ? msg.userId.slice(0, 8) : String(msg.userId)}, but that ` +
+            'user\'s real peerId does not match this connection. Claim ignored — not registered in userPeerMap, no peer.connected emitted.'
+          )
+          return
+        }
+
         const peer: PearPeer = {
           userId: msg.userId,
           publicKey: remotePeerId,
