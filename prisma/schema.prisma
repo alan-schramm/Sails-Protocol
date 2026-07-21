@@ -412,3 +412,68 @@ model EscrowReleaseApproval {
   @@index([escrowId])
   @@map("escrow_release_approvals")
 }
+
+enum VerificationVerdict {
+  ACCEPTED
+  REJECTED
+}
+
+// Sails OpenProof — Claim/Proof/Verification (PROTOCOL_SPECIFICATION.md
+// §1.8, RFC-006). This pass builds the core three-table shape plus the
+// specific hash/nonce/time-lock properties Fase 1's Red Team review asked
+// for; it deliberately does NOT build RFC-007's ProofRegistry (duplicate-
+// evidence detection), EvidenceProvider (external media storage adapter —
+// `evidence` is stored inline here, not yet routed through Nostr.build/S3/
+// IPFS/etc.), or RFC-008's AnchorProof/TimestampAnchor — those remain
+// 📋 Planned, unbuilt, same as before this pass.
+model Claim {
+  id         String   @id @default(uuid())
+  claimedBy  String   // a Participant id (RFC-001)
+  claimType  String   // open string — e.g. 'payment_sent', 'keypair_control', 'collateral_held'
+  assertion  Json      // e.g. { amount: "500", currency: "BRL" }
+  createdAt  DateTime @default(now())
+
+  proofs     Proof[]
+
+  @@index([claimedBy])
+  @@map("claims")
+}
+
+// evidenceHash is ALWAYS computed server-side from `evidence` by
+// proof.service.ts's submitProof() — a caller-submitted hash is never
+// trusted or persisted as-is (the exact gap Fase 1 Task 3 exists to
+// close). `evidence` is stored inline (see model-level comment above for
+// why that's a deliberate, disclosed scope limit, not an oversight).
+model Proof {
+  id           String   @id @default(uuid())
+  claimId      String
+  claim        Claim    @relation(fields: [claimId], references: [id])
+  evidence     Json
+  evidenceHash String   // sha256 hex of the canonicalized `evidence`, recomputed server-side — never client-supplied
+  submittedBy  String
+  submittedAt  DateTime @default(now())
+
+  verifications Verification[]
+
+  @@index([claimId])
+  @@map("proofs")
+}
+
+// verifiedBy may be a Participant, an assigned Arbiter, or a QVAC agent
+// label (same `agent:{label}:{participantId}` shape escrow.service.ts's
+// isPartyOrAgent() already uses) — never trusted as an identity claim on
+// its own; callers reach this through routes that already authenticated
+// the caller, the same boundary every other mutating route in this
+// codebase relies on (requireAuth, never a bare id in the body).
+model Verification {
+  id         String              @id @default(uuid())
+  proofId    String
+  proof      Proof               @relation(fields: [proofId], references: [id])
+  verifiedBy String
+  verdict    VerificationVerdict
+  reason     String?
+  verifiedAt DateTime            @default(now())
+
+  @@index([proofId])
+  @@map("verifications")
+}

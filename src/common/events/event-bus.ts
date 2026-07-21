@@ -119,6 +119,18 @@ export interface VerificationEvent {
   verifiedBy: string
   verdict: 'ACCEPTED' | 'REJECTED'
 }
+// Fase 1 Task 3(c) — proof.service.ts's submitProof(). Not in
+// PROTOCOL_SPECIFICATION.md §1.8's original event list; added because
+// evidenceHash is now always server-recomputed (never client-trusted),
+// which makes "the client claimed a different hash than the evidence
+// actually produced" a real, detectable signal worth its own event
+// rather than a silently-discarded mismatch.
+export interface ProofHashMismatchEvent {
+  proofId: string
+  claimId: string
+  claimedHash: string
+  actualHash: string
+}
 
 // ─── Dispute primitive events — PROTOCOL_SPECIFICATION.md §1.9 ───────────────
 export interface DisputeEvent {
@@ -265,6 +277,7 @@ export interface SailsEventMap {
   // Proof primitive — RFC-003
   'claim.asserted': ClaimAssertedEvent
   'proof.submitted': ProofSubmittedEvent
+  'proof.hash_mismatch_detected': ProofHashMismatchEvent
   'verification.accepted': VerificationEvent
   'verification.rejected': VerificationEvent
 
