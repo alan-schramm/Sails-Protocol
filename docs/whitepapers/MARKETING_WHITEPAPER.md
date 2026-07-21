@@ -93,14 +93,70 @@ protocol grows — and gets the whole thing, maintained and improved by
 an ecosystem, not by its own engineering team alone.
 
 And this isn't limited to one asset. The reference implementation
-already discovers and settles trades across Bitcoin, USDT (on Ethereum,
-Tron, Liquid, and Lightning rails), Lightning-native BTC, and
-Liquid-native BTC — with more assets added as the protocol's asset
-adapters grow, the same way new apps kept arriving after the App Store
-opened, not as a promise of everything at once, but as a real,
-extensible foundation. The examples above are shown because they're the
-ones already real and typed in the protocol today, not because they're
-the ceiling.
+already discovers and negotiates trades across Bitcoin, USDT (on
+Ethereum, Tron, Liquid, and Lightning rails), Lightning-native BTC, and
+Liquid-native BTC — with real, automated settlement live today
+specifically for USDT on Ethereum, and the rest already typed into the
+protocol as the settlement side catches up, not invented on the spot to
+pad a list.
+
+That settlement side has real room to grow, and grows without
+rearchitecting anything, because of what it's already standing on.
+Settlement runs through WDK — the same wallet infrastructure Satsails
+Wallet already depends on today — and WDK's own published network
+support (`docs.wdk.tether.io`) already reaches well beyond what Sails
+Protocol's settlement adapters have connected to so far: Bitcoin
+Mainnet, EVM chains including Ethereum, TRON, TON, and Solana. Two of
+those — TON and Solana — aren't even in Sails Protocol's own asset
+list yet. Every network WDK already signs for is real infrastructure
+capacity waiting on adapter work, not a promise invented for this
+document; Satsails' own wallet stack separately reaches Liquid through
+Breez's SDK, alongside WDK. WDK's multi-token support goes further
+than chains, too: Tether's own WDK starter template lists **Tether
+Gold (XAU₮)** as a supported token alongside BTC and USD₮, and it's
+already load-bearing in production outside Sails — Tether's own
+wallet app and Rumble's WDK-built tipping wallet both let users hold
+and send XAU₮ today, not as a roadmap item. Digitized gold settling
+over the same rails as BTC and USDT is exactly the kind of asset class
+Sails Protocol has no adapter for yet, and exactly the kind WDK
+already makes possible the moment one gets built. More assets arrive
+as that adapter work lands, the same way new apps kept arriving after
+the App Store opened — a real, extensible foundation standing on
+infrastructure that already works, not a claim that Sails Protocol's
+own settlement layer already covers all of it today.
+
+---
+
+## The same idea, a few different ways to see it
+
+No single analogy lands for everyone. Kubernetes and the iPhone are the
+two above because they explain the shift for a technical or
+product-minded reader — here are a few more, each aimed at how a
+different kind of reader already thinks. All are explanatory devices,
+not factual claims about Sails Protocol itself.
+
+- **For a developer:** it's Stripe Connect for P2P coordination. You
+  don't build a payments processor to accept payments — you plug into
+  rails that already move money for thousands of other platforms, and
+  focus your engineering on your own product instead of reinventing
+  infrastructure everyone needs the same version of.
+- **For someone who's never heard the word "protocol":** it's your
+  phone number. You can call anyone, on any carrier, in any country —
+  not because every carrier merged into one company, but because they
+  all agreed to speak the same connecting standard decades ago. Sails
+  Protocol is that same idea for moving value between wallets that
+  don't work for the same company.
+- **For an investor:** it's Visa or Mastercard's original insight —
+  don't try to be every bank; build the rails banks plug into, and
+  capture a small piece of a very large amount of value moving through
+  a network you don't have to operate alone. The difference here: no
+  bank ever has to hand Visa custody of its customers' money to use the
+  rails. Sails Protocol doesn't either.
+- **For a journalist looking for one sentence:** Sails Protocol is
+  trying to do for peer-to-peer crypto trading what email did for
+  messaging — one shared, open standard, so any provider's users can
+  reach any other provider's users, without every provider building
+  its own private network first.
 
 ---
 
@@ -134,6 +190,77 @@ specifically checking that nothing half-finished leaked into what a new
 integrator would see first. It is ready for the next wallet. The next
 wallet just hasn't arrived yet — and that is the opportunity this
 document is actually about.
+
+---
+
+## Why these three technologies, and why now
+
+Every layer in the diagram below is real. Nothing is a placeholder box
+drawn to look complete:
+
+```mermaid
+graph TD
+    W["Wallet"] --> S["Sails P2P Trading SDK"]
+    S --> P["Sails Protocol"]
+    subgraph Modules["8 Official Modules"]
+        M1[OpenP2P]
+        M2[OpenSettlement]
+        M3[OpenIdentity]
+        M4[OpenProof]
+        M5[OpenReputation]
+        M6[OpenAgents]
+        M7[OpenLiquidity]
+        M8["OpenFinance (roadmap)"]
+    end
+    P --> Modules
+    Modules --> Infra
+    subgraph Infra["Real Infrastructure This Coordinates"]
+        WDK["WDK — Tether"]
+        Pears["Pears — Holepunch"]
+        QVAC["QVAC — Tether"]
+    end
+    Infra --> Assets["Bitcoin · Liquid · Lightning · USDT · Tether Gold"]
+```
+
+WDK and QVAC are Tether's own technology — real, serious infrastructure
+Tether built for wallet signing/settlement and for private, on-device
+AI, already carrying real value: WDK is what Tether's own wallet app
+and third-party products like Rumble's tipping wallet run on today,
+moving BTC, USDT, and Tether Gold (XAU₮) for real users. Pears is
+Holepunch's real, production-grade peer-to-peer network stack — and
+Tether has shipped its own product directly on it too (PearPass, a
+P2P password manager), which is Tether treating Pears as
+production-grade infrastructure worth building on, not a
+speculative bet. Each of these three is genuinely capable of far more
+than any single application has yet asked of it. Sails Protocol's
+answer to that is deliberate, not incidental: **the first real use
+case built on this stack was chosen specifically to put all three to
+a real, practical test at once** — not a demo, not a hackathon
+proof-of-concept, but a coordination layer processing real trades in a
+wallet with real users today.
+
+That is the honest version of the pitch this section exists to make:
+these technologies deserve more real-world proof than they've gotten
+so far, and Sails Protocol's ambition is to be the project that
+provides it — not by building something new next to WDK, Pears, and
+QVAC, but by proving, in production, exactly how much value the three
+of them create when they're coordinated correctly.
+
+This isn't a guess about what Tether wants to see, either. Tether runs
+its own Developer Grants Program (`tether.dev`) — equity-free,
+payment-on-completed-work, no cap on total payouts — funding exactly
+four categories: core libraries for QVAC, MDK, WDK, and Pears;
+documentation and onboarding; applications built on the stack; and
+research into decentralization, edge AI, peer-to-peer networking, and
+cryptography. Tether CEO Paolo Ardoino's own stated bar for what gets
+funded: *"If you can build something that runs locally, holds value
+directly, and doesn't rely on external providers, we'll fund it."*
+Sails Protocol — a
+coordination layer running on exactly WDK, Pears, and QVAC, holding no
+custody of its own, depending on no external provider Tether or
+Holepunch didn't already build — is not adjacent to that bar. It is a
+direct fit for it, and it exists as a production system today, not a
+grant application yet to be tested.
 
 ---
 
@@ -279,3 +406,16 @@ not less.
 
 The core works. The first real numbers exist. The next chapter is
 whichever wallet decides not to stay an island.
+
+---
+
+## Read next
+
+This document made the case for *why*. Three companion documents go
+deeper for whoever needs it: [`PROTOCOL_PAPER.md`](PROTOCOL_PAPER.md)
+specifies *what* the protocol formally is, [`TECHNICAL_WHITEPAPER.md`](TECHNICAL_WHITEPAPER.md)
+explains *how* the reference implementation actually works and why it
+holds up, and [`SDK_PAPER.md`](SDK_PAPER.md) is the concrete, technical
+answer to "how would my wallet actually integrate this." All four use
+the same discipline: real claims cited, vision labeled as vision, never
+mixed.
