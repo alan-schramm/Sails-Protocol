@@ -47,7 +47,7 @@
  * against a bank.
  */
 import { loadModel, completion, unloadModel, LLAMA_3_2_1B_INST_Q4_0 } from '@qvac/sdk'
-import type { FiatCurrency, PaymentMethod } from '../../common/types'
+import type { AssetType, FiatCurrency, PaymentMethod } from '../../common/types'
 
 // ─── Risk assessment (moved from qvac-risk.service.ts, unchanged behavior) ──
 export type RiskLevel = 'low' | 'medium' | 'high'
@@ -60,15 +60,17 @@ export interface IntentRiskAssessment {
 }
 
 export interface AssessableIntent {
-  asset: string
+  // Restricted to the same real enums tradeIntentPayloadSchema now
+  // validates (routes/intentRoutes.ts) — all three were open `string`
+  // until the Fase 1 Red Team pass found this let adversarial free text
+  // reach the prompt below unsanitized
+  // (tests/qvac-prompt-injection.test.ts, confirmed live against the
+  // real model for fiatMethod and, in a follow-up live check, for
+  // asset too).
+  asset: AssetType
   side: 'BUY' | 'SELL'
   maxValue?: string
   minValue?: string
-  // Restricted to the same real enums tradeIntentPayloadSchema now
-  // validates (routes/intentRoutes.ts) — was an open `string` until the
-  // Fase 1 Red Team pass found this let adversarial free text reach the
-  // prompt below unsanitized (tests/qvac-prompt-injection.test.ts,
-  // confirmed live against the real model).
   currency?: FiatCurrency
   fiatMethod?: PaymentMethod
 }

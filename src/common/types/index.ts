@@ -26,3 +26,14 @@ export type PaymentMethod =
 // unsanitized (tests/qvac-prompt-injection.test.ts) — this closes that
 // vector at its root, not just at the prompt-construction layer.
 export type FiatCurrency = 'BRL' | 'USD' | 'EUR' | 'GBP' | 'ARS' | 'MXN' | 'NGN' | 'INR'
+
+// Same follow-up on `asset`: tradeIntentPayloadSchema's `asset` field was
+// still `z.string()` after the currency/fiatMethod fix above — live
+// re-verification (tests/qvac-prompt-injection.test.ts) confirmed this
+// was exploitable the identical way (an adversarial `asset` value still
+// flipped assessIntentRisk()'s verdict). AssetType (top of this file)
+// already exists and is what Offer.asset/Trade.asset/Escrow.asset are
+// constrained to at the Prisma level (schema.prisma) — an Intent using
+// anything outside it would fail downstream anyway the moment it became
+// a real Offer/Escrow, so restricting it here loses no real capability,
+// it just fails fast instead of failing later.
