@@ -290,6 +290,20 @@ do:
    default, that raises the bar beyond a single party's word even
    before any dispute is raised.
 
+**A fifth, real mechanism worth its own note: the Timeline read-model
+and social-engineering detection (RFC-017).** Every state change in a
+trade is written to a `correlationId`-keyed Timeline — real,
+hash-chained for tamper-evidence where it applies to `IntentEvent`
+specifically (Section 5). An Agent watches this Timeline, alongside
+real chat content, for known fraud precursors — off-channel migration
+away from the protocol's own chat, and suspicious last-minute changes
+to payment instructions — and raises a warning directly in the trade's
+chat. ✅ Proven, live, and deliberately scoped: this is detection only,
+never automated blocking or fund-locking, and is off by default. A
+third named fraud pattern (unexpected deviation from a trade's expected
+flow) needs a more state-aware component than this pass built, and is
+tracked as 📋 planned rather than claimed done.
+
 ---
 
 ## 8. Constitutional Invariants
