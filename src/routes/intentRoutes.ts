@@ -14,19 +14,23 @@ import { intentEngine } from '../core/intent-engine'
 import { requireAuth } from '../common/middleware/auth'
 import type { IntentType, TradeIntentPayload } from '../common/types/intent'
 
-// Fase 1 Red Team finding: currency/fiatMethod were open z.string(),
-// letting adversarial free text ride all the way into
+// Fase 1 Red Team finding: asset/currency/fiatMethod were open
+// z.string(), letting adversarial free text ride all the way into
 // QvacAgentProvider.assessIntentRisk()'s prompt unsanitized
 // (tests/qvac-prompt-injection.test.ts confirmed this live, against the
 // real model — a fiatMethod containing a fake "SYSTEM OVERRIDE"
 // instruction flipped a high-risk/reject assessment to low-risk/proceed
-// on an identical trade). Restricted to the same real enums
-// common/types/index.ts's FiatCurrency/PaymentMethod already declare —
-// closes the vector at the API boundary, not just at the prompt layer
-// (see qvac-agent.provider.ts's RISK_SYSTEM_PROMPT for the
-// defense-in-depth layer on top of this).
+// on an identical trade; a live re-check found `asset` exploitable the
+// identical way). Restricted to the same real enums
+// common/types/index.ts's AssetType/FiatCurrency/PaymentMethod already
+// declare — closes the vector at the API boundary, not just at the
+// prompt layer (see qvac-agent.provider.ts's RISK_SYSTEM_PROMPT for the
+// defense-in-depth layer on top of this). `asset` costs nothing to
+// restrict: Offer.asset/Trade.asset/Escrow.asset are already constrained
+// to this same AssetType at the Prisma level, so an Intent using
+// anything outside it would fail downstream anyway.
 const tradeIntentPayloadSchema = z.object({
-  asset: z.string().min(1),
+  asset: z.enum(['BTC', 'USDT_ERC20', 'USDT_TRC20', 'USDT_LIQUID', 'USDT_LIGHTNING', 'LN_BTC', 'LIQUID_BTC', 'SPARK', 'STACKS', 'RSK_BTC']),
   side: z.enum(['BUY', 'SELL']),
   maxValue: z.string().optional(),
   minValue: z.string().optional(),
