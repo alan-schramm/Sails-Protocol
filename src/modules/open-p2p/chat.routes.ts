@@ -36,12 +36,10 @@ import { z } from 'zod'
 import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
-import { redis } from '../../common/redis'
 import { requireAuth } from '../../common/middleware/auth'
+import { resolveParticipantFromToken } from '../../common/middleware/ws-auth'
 import { joinRoom, leaveRoom, broadcastToTrade, type RoomMember } from './chat-room-registry'
 import { pearNodeRegistry } from '../../infrastructure/p2p/pear.service'
-
-const SESSION_PREFIX = 'auth:session:'
 
 // Auto-push escrow/trade status changes to whoever's currently watching
 // that trade's room — API_REFERENCE.md's TRADE_STATUS_UPDATE/
@@ -64,11 +62,6 @@ eventBus.on('settlement.escrow.refunded', (payload) => broadcastToTrade(payload.
 // update in this file does. Detection only: this pushes a signal for a
 // human to see, it never blocks or alters the trade itself.
 eventBus.on('agents.social_engineering.risk_detected', (payload) => broadcastToTrade(payload.tradeId, { type: 'RISK_WARNING', payload }))
-
-async function resolveParticipantFromToken(token: string | undefined): Promise<string | null> {
-  if (!token) return null
-  return redis.get(`${SESSION_PREFIX}${token}`)
-}
 
 const joinTradeSchema = z.object({ tradeId: z.string().min(1) })
 const sendMessageSchema = z.object({

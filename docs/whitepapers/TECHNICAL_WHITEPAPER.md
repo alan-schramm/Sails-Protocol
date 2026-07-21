@@ -318,6 +318,20 @@ against live production data has not been verified in this environment
 (no reachable production Postgres to test against) — disclosed here
 rather than assumed fine.
 
+**Fallback to a centralized relay on restrictive networks:** Hyperswarm's
+DHT hole-punching does not complete inside every network — corporate
+firewalls and some symmetric NATs block it outright. `FallbackTransportProvider`
+races `PearsTransportProvider.start()` against a 5-second timeout; if it
+doesn't win, `WebSocketRelayTransportProvider` takes over — a
+`POST /v1/peers/start` caller gets a `transport` field back (`'pears'`
+or `'websocket-relay'`) telling them which one connected. Scoped
+honestly: this covers `start()` and direct `sendToPeer()` only. A
+relay has no concept of a Hyperswarm topic, so `/v1/peers/join-trade`
+and `/v1/peers/broadcast-offer` — and DHT-based marketplace discovery
+generally — still require a real `PearNode` and return `409` for a
+participant who fell back to the relay. That is a structural property
+of a point-to-point relay, not an unfinished corner of this one.
+
 ---
 
 ## 6. The Cryptographic Model
@@ -499,15 +513,23 @@ external usage, not an internal decision to bump a version number.
 
 ## 11. What This Document Does Not Claim
 
-Four honest limits, stated the same way the rest of this document states
-everything else:
+Three honest limits remain, stated the same way the rest of this
+document states everything else — a fourth (CommonJS-only packaging)
+was closed after this section was first written:
 
-- **Tree-shaking does not work today.** The SDK ships CommonJS only —
-  no `module`/`exports`/`sideEffects` fields, no ESM build. A bundler
-  cannot meaningfully tree-shake a CommonJS-only package regardless of
-  how a consumer writes their `import`. Not fixed — a dual CJS/ESM
-  build is new packaging infrastructure, deliberately out of scope for
-  the current hardening phase.
+- **Resolved: the SDK now ships both CJS and ESM builds.** It shipped
+  CommonJS-only through the initial hardening phase — no
+  `module`/`exports`/`sideEffects` fields, no ESM build, so a bundler
+  couldn't meaningfully tree-shake it regardless of how a consumer
+  wrote their `import`. Fixed via a `tsup`-based dual build
+  (`packages/sails-sdk/tsup.config.ts`): `main`/`types` still point at
+  the same `dist/index.js`/`dist/index.d.ts` this package always
+  shipped (purely additive, not a change to the frozen v1.0.0-rc1
+  public API surface, `docs/API_STABLE.md`), with `dist/index.mjs` and
+  a proper `exports` map added alongside. Verified both ways at
+  runtime — `require('@sails/sdk')` and `import ... from '@sails/sdk'`
+  against the built output — not just that the build command exits
+  zero.
 - **No independent security audit has been performed.** Every finding
   in this document comes from this project's own internal review
   process. That process has repeatedly found and disclosed real bugs
@@ -522,14 +544,35 @@ everything else:
   to unit tests that always inject a mock). It has not been verified
   across a matrix of browsers/devices, nor under real mobile network
   conditions.
-- **No load or performance testing has been run.** Every concurrency
-  claim in this document (Section 4's escrow-release race test) proves
+- **A first local load test exists, with real numbers — not yet a
+  sustained or production benchmark.** Every concurrency claim elsewhere
+  in this document (Section 4's escrow-release race test) proves
   *correctness* under parallel load — exactly one winner, no duplicate
-  settlement — not *throughput* at scale. No numbers exist yet for
-  requests/second, WebSocket connections held concurrently, or database
-  behavior under sustained load. Named directly rather than implied by
-  omission: this is real, unstarted work, not a claim of established
-  performance.
+  settlement — which is a different question from *throughput*. Using
+  Artillery against this repo's own local dev server (one machine, the
+  embedded local Postgres/Redis setup, not production infrastructure):
+  the authenticated Intent API (`POST`/`DELETE /api/v1/intents`, real
+  Ed25519 challenge-response per virtual user, not an auth bypass)
+  sustained 700 create/cancel round trips over 30 seconds — p95 32ms,
+  p99 55ms, zero failures — once the shipped rate-limit defaults
+  (`RATE_LIMIT_MAX=100`/min, `RATE_LIMIT_AUTH_MAX=10`/min) were
+  deliberately raised for this one run, to isolate application
+  throughput from that intentional security ceiling. At the actual
+  shipped defaults, the identical load hits `429`s within seconds —
+  confirmation the rate limiter (RT-002's mitigation) is live and
+  enforced under real concurrent load, not just documented. The chat
+  WebSocket (`/v1/openp2p/chat`) held 550 authenticated connect +
+  PING/PONG round trips over the same window, zero failures, using a
+  pool of pre-authenticated sessions rather than a fresh handshake per
+  connection — a real constraint of Artillery's WebSocket engine
+  (`loadtest/chat-ws.yml`'s own comment explains why), not a
+  simplification chosen to inflate the number. What this does not yet
+  cover, named directly: a sustained multi-minute soak, how many
+  WebSocket connections can be held open concurrently (this measured
+  connect-and-round-trip, not idle-connection capacity), database
+  behavior at real production volume, or real network latency instead
+  of localhost. Scripts live in `loadtest/` for anyone who wants to
+  reproduce or extend this.
 
 ---
 
@@ -539,8 +582,8 @@ everything else:
 |---|---|---|
 | Core primitives | Identity, Intent, Discovery, Negotiation, Settlement, Reputation, Agent, Dispute | Proof's full service layer |
 | Modules | OpenIdentity, OpenReputation, OpenSettlement (testnet), OpenLiquidity, OpenP2P; OpenAgents' first capabilities | OpenFinance entirely; OpenAgents' full fraud-detection surface |
-| Transport | Pears/HyperDHT real connectivity, reconciliation on reconnect | A second `TransportProvider` implementation (interface allows one, none built) |
+| Transport | Pears/HyperDHT real connectivity, reconciliation on reconnect, WebSocket relay fallback on `start()`/`sendToPeer()` when Pears times out | Relay equivalent for DHT-topic operations (`join-trade`, `broadcast-offer`, marketplace discovery) |
 | Settlement | Mock + one real testnet provider (WDK), two-person control, atomic concurrency-safe transitions | Real non-custodial multisig/co-signing settlement; Lightning HODL and Liquid Covenant providers |
 | Crypto | Ed25519 auth, sealed-box payload encryption, IntentEvent hash-chaining | General Timeline hash-chaining, verifiable timestamp anchoring |
-| SDK | `v1.0.0-rc1`, frozen API, real dogfooding, standalone-verified package | ESM/tree-shaking support, `negotiate`/`submitProof`/`releaseAsset` |
+| SDK | `v1.0.0-rc1`, frozen API, real dogfooding, standalone-verified package, dual CJS/ESM build (tree-shakeable) | `negotiate`/`submitProof`/`releaseAsset` |
 | Security | Rate limiting, IDOR fixes, two-person control, Decimal precision, capability enforcement | Independent third-party audit, proactive timeout/refund sweep |

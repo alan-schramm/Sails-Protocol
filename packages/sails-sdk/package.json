@@ -3,12 +3,22 @@
   "version": "0.1.0",
   "description": "Sails P2P Trading SDK — the single typed client a wallet/fintech imports to reach every Sails Protocol module (OpenIdentity, OpenLiquidity, OpenP2P, OpenSettlement, OpenReputation) over HTTP/WebSocket. See docs/SDK_GUIDE.md.",
   "main": "dist/index.js",
+  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
     "docs": "typedoc"
   },
   "license": "Apache-2.0",
@@ -16,6 +26,7 @@
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
+    "tsup": "^8.5.1",
     "typedoc": "^0.28.20",
     "typescript": "^5.9.3"
   }

@@ -394,14 +394,30 @@ src/
 │       │                                 added for payload-crypto.ts)
 │       ├── transport-provider.ts       (TransportProvider interface per
 │       │                                 RFC-002, PearsTransportProvider,
-│       │                                 FallbackTransportProvider — real,
-│       │                                 not yet wired to a route.
+│       │                                 FallbackTransportProvider — now
+│       │                                 wired to POST /v1/peers/start
+│       │                                 (pear.routes.ts), which returns
+│       │                                 which transport actually
+│       │                                 connected. Scoped: covers
+│       │                                 start()/sendToPeer() degrading to
+│       │                                 the relay on a Pears timeout, not
+│       │                                 join-trade/broadcast-offer — a
+│       │                                 relay has no DHT topic, so those
+│       │                                 still require a real PearNode.
 │       │                                 PearsTransportProvider.sendIntentToPeer()
 │       │                                 — real, direct, encrypted,
 │       │                                 server-free Intent delivery over
 │       │                                 Hyperswarm/HyperDHT, a Pears-only
 │       │                                 extension beyond the shared
 │       │                                 interface)
+│       ├── relay.routes.ts             (`/ws/relay` — gives
+│       │                                 WebSocketRelayTransportProvider a
+│       │                                 real socket to register against;
+│       │                                 previously referenced by a class
+│       │                                 comment in websocket-relay.service.ts
+│       │                                 but did not exist. Same
+│       │                                 `?token=` query-param auth as
+│       │                                 chat.routes.ts's WS route)
 │       ├── payload-crypto.ts           (real libsodium sealed-box
 │       │                                 encryption for P2P payloads —
 │       │                                 Ed25519→Curve25519 conversion of

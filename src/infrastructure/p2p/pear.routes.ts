@@ -10,6 +10,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { pearNodeRegistry } from './pear.service'
+import { fallbackTransportProvider } from './transport-provider'
 import { requireAuth } from '../../common/middleware/auth'
 
 const startSchema = z.object({
@@ -38,8 +39,17 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const body = startSchema.parse(request.body)
     const participantId = (request as any).participantId as string
-    const peerId = await pearNodeRegistry.start(participantId, body.secretKey)
-    return reply.code(200).send({ success: true, data: { peerId } })
+    // Pears first, WebSocket relay (`/ws/relay`) only if Pears doesn't
+    // connect within the timeout — see transport-provider.ts's
+    // FallbackTransportProvider. `transport` tells the caller which one
+    // actually won, so a client can show a degraded-connectivity state:
+    // a participant on 'websocket-relay' can still start()/sendToPeer(),
+    // but /v1/peers/join-trade and /v1/peers/broadcast-offer below still
+    // require a real PearNode and will 409 for them — a relay has no DHT
+    // topic to join.
+    const { peerId } = await fallbackTransportProvider.start(participantId, body.secretKey)
+    const transport = fallbackTransportProvider.activeTransportName(participantId)
+    return reply.code(200).send({ success: true, data: { peerId, transport } })
   })
 
   app.post('/v1/peers/stop', {

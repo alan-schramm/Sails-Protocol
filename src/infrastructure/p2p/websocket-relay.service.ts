@@ -32,7 +32,7 @@
  * client-initiated (a participant's client connects to this server's `/ws`
  * upgrade endpoint). `start()` below registers readiness; `registerSocket()`
  * is what a Fastify WS route handler calls once the actual connection
- * lands — see app.ts's `/ws/relay` route.
+ * lands — see relay.routes.ts's `/ws/relay` route (registered in app.ts).
  */
 import type { TransportProvider, PeerHandle } from './transport-provider'
 

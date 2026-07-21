@@ -20,6 +20,7 @@ import { tradeRoutes } from './modules/open-p2p/trade.routes'
 import { chatRoutes } from './modules/open-p2p/chat.routes'
 import { settlementRoutes } from './modules/open-settlement/settlement.routes'
 import { peerRoutes } from './infrastructure/p2p/pear.routes'
+import { relayRoutes } from './infrastructure/p2p/relay.routes'
 import { reputationRoutes } from './modules/open-reputation/reputation.routes'
 import { capabilityRoutes } from './modules/open-agents/capability.routes'
 
@@ -164,6 +165,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(intentRoutes)
   await app.register(identityRoutes)
   await app.register(peerRoutes)
+  await app.register(relayRoutes)
   await app.register(liquidityRoutes)
   await app.register(tradeRoutes)
   await app.register(chatRoutes)
