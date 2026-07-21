@@ -171,7 +171,7 @@ Registry, the Policy Engine), not primitives.
 | **Settlement** | HOW value actually moves | ✅ Real (testnet) escrow via a pluggable `SettlementProvider` — see Section 8 for the current custody caveat |
 | **Reputation** | WHY to trust a counterparty | ✅ Outcome-based scoring, portable across applications, tied to the keypair not the platform |
 | **Agent** | WHO (or what) acts on someone's behalf | ✅ Local, on-device inference for risk assessment and negotiation assistance; never holds a signing key of its own |
-| **Proof** | HOW a claim gets verified by someone else | 🟡 Interfaces defined (`Claim`/`Proof`/`Verification`); real evidence-registry service layer 📋 planned |
+| **Proof** | HOW a claim gets verified by someone else | 🟡 `Claim`/`Proof`/`Verification` real (`proof.service.ts`) with server-side hash recompute, single-use verification nonces, and submission-window time-lock; duplicate-evidence detection and external media storage adapters 📋 planned |
 | **Dispute** | HOW a disagreement gets formally resolved | ✅ Real, persisted, with an escalation order (assigned arbitrator today; automated pre-arbitration stages 📋 planned) |
 
 **Identity is built on an abstract `Participant` interface**, not a
@@ -266,7 +266,7 @@ that specific combination matters is in
 | **OpenReputation** | Portable, outcome-based reputation tied to the keypair, not the platform. | ✅ Proven |
 | **OpenSettlement** | Pluggable escrow (`SettlementProvider`: Mock → Multisig → Lightning HODL → Liquid Covenant) and dispute resolution. | ✅ Proven in testnet — see Section 8 for the real custody caveat on the one live provider |
 | **OpenLiquidity** | Discovery and routing — the order book lives here, not in OpenP2P, so future modules can reuse discovery without rebuilding it. | ✅ Proven |
-| **OpenProof** | Standardized `Claim → Proof → Verification` evidence — one format every other module's disputes and negotiations consume instead of inventing their own. | 🟡 Interfaces real, service layer 📋 planned |
+| **OpenProof** | Standardized `Claim → Proof → Verification` evidence — one format every other module's disputes and negotiations consume instead of inventing their own. | 🟡 Core service real (hash recompute, nonce anti-replay, time-lock); duplicate-evidence detection and external media adapters 📋 planned |
 | **OpenP2P** | Orchestrates the full trade lifecycle using every module above; owns the negotiation/chat channel. | ✅ Proven — the reference implementation's most complete module, and the one running in production today (Section 9) |
 | **OpenAgents** | Local, on-device AI for negotiation assistance, risk assessment, and fraud-pattern detection in chat — never touches fiat rails, only acts on digital assets it's explicitly capable of. | 🟡 First real capabilities live; detection is advisory-only, never blocking, and off by default |
 | **OpenFinance** | Reserved for future financial primitives (`LoanIntent`, `SwapIntent`, `EarnIntent`) reusing OpenSettlement/OpenLiquidity/OpenReputation without duplicating them. | 📋 Planned — no code exists |
