@@ -10,6 +10,14 @@
 > test results. The same labeling discipline applies: ✅ **Proven**
 > (built, tested, cited), 📜 **Commitment** (a rule the system is held
 > to), 📋 **Planned** (designed, not built).
+>
+> Everything below is engineering detail in service of one outcome: a
+> wallet that integrates this stack isn't adopting a library, it's
+> plugging into a coordination layer meant to be shared by every wallet
+> that does — the engineering has to be this rigorous specifically
+> because a shared economic layer only works if every participant can
+> actually trust it. [`SDK_PAPER.md`](SDK_PAPER.md) covers why that
+> matters commercially; this document covers why it holds up.
 
 ---
 
@@ -439,7 +447,7 @@ external usage, not an internal decision to bump a version number.
 
 ## 11. What This Document Does Not Claim
 
-Two honest limits, stated the same way the rest of this document states
+Four honest limits, stated the same way the rest of this document states
 everything else:
 
 - **Tree-shaking does not work today.** The SDK ships CommonJS only —
@@ -454,6 +462,22 @@ everything else:
   rather than assuming correctness — which is real evidence of rigor —
   but it is not a substitute for third-party review before any
   production deployment handling real value at meaningful scale.
+- **Browser verification is real but limited to one client.** The SDK's
+  `fetch`/`WebSocket` transport is confirmed working in a real browser
+  session against the real backend (`packages/sails-ui`, the reference
+  UI) — including the one browser-specific bug this surfaced (a native
+  `fetch()` throwing "Illegal invocation" when called unbound, invisible
+  to unit tests that always inject a mock). It has not been verified
+  across a matrix of browsers/devices, nor under real mobile network
+  conditions.
+- **No load or performance testing has been run.** Every concurrency
+  claim in this document (Section 4's escrow-release race test) proves
+  *correctness* under parallel load — exactly one winner, no duplicate
+  settlement — not *throughput* at scale. No numbers exist yet for
+  requests/second, WebSocket connections held concurrently, or database
+  behavior under sustained load. Named directly rather than implied by
+  omission: this is real, unstarted work, not a claim of established
+  performance.
 
 ---
 

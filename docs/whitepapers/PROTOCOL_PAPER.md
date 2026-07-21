@@ -48,6 +48,14 @@ Trading SDK**, that any non-custodial wallet can integrate to become a
 participant in a shared, interoperable P2P marketplace, instead of
 building that infrastructure alone.
 
+The SDK is the entry point, not the product. What a wallet actually
+gains by integrating is not a library — it is standing access to a
+shared economic layer: liquidity, counterparties, and portable trust
+that compound with every other wallet that integrates, instead of
+capping out at that one wallet's own user base. This document specifies
+the protocol that layer is built on; [`SDK_PAPER.md`](SDK_PAPER.md)
+makes the economic case for joining it in full.
+
 This document is 📜 the normative specification: what any
 implementation, in any language, on any network, MUST respect to
 correctly call itself Sails Protocol — independent of the one reference
@@ -247,6 +255,15 @@ graph TD
 There is no separate "escrow module" or "key-management module" —
 escrow is OpenSettlement's responsibility; key custody is the
 Participant's own, never the protocol's, by Principle 3.
+
+**The Capability Registry**, referenced by Principle 5, is the Core
+component every module consults before letting an actor do something
+consequential: not a module itself, but the shared authorization layer
+underneath all eight. A `CapabilityGrant` is explicit, scoped, and
+revocable — no module assumes an actor may act just because it
+authenticated. ✅ Proven and enforced today at the Intent-creation and
+settlement-release choke points; how it works internally is detailed in
+the companion [`TECHNICAL_WHITEPAPER.md`](TECHNICAL_WHITEPAPER.md).
 
 ---
 

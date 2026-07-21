@@ -32,9 +32,12 @@ have if it weren't alone.
 
 ## What if it didn't have to be an island
 
-Sails Protocol is open infrastructure that lets any non-custodial
-wallet become part of one shared, interoperable P2P financial
-marketplace — without giving up its brand, its users, or a single key.
+**Sails Protocol is a shared economic layer for non-custodial
+wallets** — not another wallet, another SDK feature, or another app to
+compete with the ones already out there. It is open infrastructure that
+lets any non-custodial wallet become part of one shared, interoperable
+P2P financial marketplace — without giving up its brand, its users, or
+a single key.
 
 It does this by standardizing the one thing no wallet has ever had to
 share before: the coordination layer. Not the wallet's identity, not
