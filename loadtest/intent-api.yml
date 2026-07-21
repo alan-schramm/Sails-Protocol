@@ -1,0 +1,48 @@
+# Load test — Intent API (POST/DELETE /api/v1/intents), auth included.
+#
+# Answers TECHNICAL_WHITEPAPER.md's disclosed gap: "No numbers exist yet
+# for throughput" (section 12's Summary Table). Each virtual user goes
+# through the real Ed25519 challenge-response flow (processor.js) before
+# touching the Intent API — this measures the authenticated path a real
+# wallet integration would actually hit, not an auth-bypassed shortcut.
+#
+# Run: npx artillery run loadtest/intent-api.yml
+config:
+  target: "http://localhost:3000"
+  processor: "./processor.js"
+  phases:
+    - duration: 20
+      arrivalRate: 5
+      name: Warm-up
+    - duration: 30
+      arrivalRate: 20
+      name: Sustained load
+  variables:
+    asset: ["BTC", "USDT_ERC20", "LN_BTC"]
+
+scenarios:
+  - name: "Create and cancel a TradeIntent (authenticated)"
+    flow:
+      - function: "setupAuthenticatedUser"
+      - post:
+          url: "/api/v1/intents"
+          headers:
+            Authorization: "Bearer {{ sessionToken }}"
+          json:
+            type: "TradeIntent"
+            payload:
+              asset: "{{ asset }}"
+              side: "BUY"
+              maxValue: "100"
+              currency: "USD"
+          capture:
+            - json: "$.data.id"
+              as: "intentId"
+          expect:
+            - statusCode: 201
+      - delete:
+          url: "/api/v1/intents/{{ intentId }}"
+          headers:
+            Authorization: "Bearer {{ sessionToken }}"
+          expect:
+            - statusCode: 200

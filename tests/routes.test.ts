@@ -268,7 +268,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(401)
     })
 
-    it('starts a node for an authenticated caller', async () => {
+    it('starts a node for an authenticated caller, reporting pears as the connected transport', async () => {
       const token = await authedSession('user-1')
       const res = await app.inject({
         method: 'POST',
@@ -277,7 +277,14 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         payload: { secretKey: 'abcd' },
       })
       expect(res.statusCode).toBe(200)
-      expect(JSON.parse(res.body).data.peerId).toBe('fake-peer-id')
+      const data = JSON.parse(res.body).data
+      // FallbackTransportProvider (transport-provider.ts): the mocked
+      // pearNodeRegistry.start() above resolves instantly, so it always
+      // wins the race against the fallback timeout in this suite —
+      // transportFallback.test.ts covers the actual timeout/fallback
+      // path with fake providers.
+      expect(data.peerId).toBe('fake-peer-id')
+      expect(data.transport).toBe('pears')
     })
   })
 

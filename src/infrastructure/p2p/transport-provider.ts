@@ -35,6 +35,7 @@
 import { pearNodeRegistry } from './pear.service'
 import { prisma } from '../../common/database'
 import { encryptForPeer } from './payload-crypto'
+import { webSocketRelayTransportProvider } from './websocket-relay.service'
 
 export interface PeerHandle {
   peerId: string
@@ -225,4 +226,25 @@ export class FallbackTransportProvider implements TransportProvider {
   isConnected(participantId: string): boolean {
     return this.provider(participantId).isConnected(participantId)
   }
+
+  // Which transport actually won the race for this participant — surfaced
+  // to callers (pear.routes.ts's /v1/peers/start response) so a client can
+  // show a degraded-connectivity state when Pears didn't connect in time.
+  // Falls back to `this.primary.name` before start() has ever been called,
+  // matching `provider()`'s own default.
+  activeTransportName(participantId: string): string {
+    return this.provider(participantId).name
+  }
 }
+
+// Shared singleton — Pears first, WebSocket relay only if Pears doesn't
+// connect within the timeout (03-implementation_plan.md section 3).
+// `/v1/peers/start` (pear.routes.ts) is the only current caller; every
+// other Pears-specific route (join-trade, broadcast-offer, sendIntentToPeer)
+// still depends on `pearNodeRegistry` directly and has no relay equivalent —
+// a centralized relay has no concept of a DHT topic, so that gap is
+// structural, not an oversight (see this file's class doc above).
+export const fallbackTransportProvider = new FallbackTransportProvider(
+  pearsTransportProvider,
+  webSocketRelayTransportProvider
+)
