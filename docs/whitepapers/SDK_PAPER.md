@@ -16,6 +16,15 @@
 > local AI agents, and real crypto settlement — without building any
 > of it from scratch.*
 
+> **The Sails P2P Trading SDK is not an isolated product.** It is the
+> reference implementation of Sails Protocol — the first concrete proof
+> that the protocol's coordination layer works, and the door any other
+> wallet walks through to join it. The SDK is the entry point. The
+> product a wallet actually gains by integrating is standing
+> participation in a shared economic layer — liquidity, counterparties,
+> and trust that no single wallet can build alone. Everything in this
+> document builds toward that one point.
+
 ---
 
 ## 1. Every Non-Custodial Wallet Has the Same Problem
@@ -33,6 +42,19 @@ liquidity beyond that one wallet's own user base.
 The result: the wallet stays an interface. The actual economic activity
 — the trades, the fees, the relationships — happens somewhere else, on
 someone else's platform.
+
+```mermaid
+graph TD
+    subgraph Today["Today — most non-custodial wallets"]
+        T1["Wallet"] --> T2["Hold assets<br/>Sign transactions<br/>Show a balance"]
+    end
+    subgraph WithSDK["With Sails P2P Trading SDK"]
+        S1["Wallet"] --> S2["Marketplace"] --> S3["P2P Discovery"] --> S4["Negotiation & Chat"] --> S5["Escrow"] --> S6["Settlement"] --> S7["Reputation"] --> S8["Agents"] --> S9["A real path to revenue"]
+    end
+```
+
+One integration point (`new SailsClient(...)`, Section 2) — not six
+separate systems to design, build, and operate.
 
 ---
 
