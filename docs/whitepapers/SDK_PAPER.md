@@ -104,6 +104,19 @@ chat server, escrow contract, or matching engine for the integrating
 wallet to build or run. The client above talks to one Sails node and
 gets back a fully working P2P marketplace.
 
+**What actually settles for real today, stated precisely:** the escrow
+lifecycle above (`create`/`lock`/`release`) is real against every
+`asset` type the SDK exposes, but which of those actually broadcast a
+real transaction depends on the `SettlementProvider` configured behind
+it. `USDT_ERC20` settles for real, on testnet, via a real
+`@tetherto/wdk-wallet-evm` signature and broadcast — not a simulation.
+Lightning HODL and Liquid Covenant escrow are typed and named in the
+protocol but not yet backed by a working provider; calling them today
+resolves to a mock. A wallet integrating for real should know exactly
+which asset path it's testing against before assuming production
+readiness — this SDK is honest about that distinction by design, not by
+omission.
+
 ---
 
 ## 3. The Thesis: Integration Is a Business Decision, Not Just a Technical One

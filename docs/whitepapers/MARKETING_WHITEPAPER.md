@@ -28,6 +28,19 @@ Every team solves this problem alone. Every solution is an island. Every
 island has less liquidity, less trust, and less reach than it would
 have if it weren't alone.
 
+This isn't a Bitcoin-only problem, or an Ethereum-only problem — it's
+the shape of every non-custodial wallet, on every chain. A Bitcoin
+wallet like Green Wallet or BlueWallet has it. A multi-asset wallet
+handling stablecoins has it. An EVM wallet — MetaMask, Trust Wallet,
+Exodus, or anything a user reaches via WalletConnect — has the exact
+same one. *(Named here purely as illustrative examples of the kind of
+wallet this problem affects — not as partners, integrators, or
+endorsers of Sails Protocol; none of the above have any relationship
+with this project today.)* It's the smaller, independent teams that
+feel this hardest: they have the least room to absorb months of
+unmonetized infrastructure work, and the most to gain from not having
+to.
+
 ---
 
 ## What if it didn't have to be an island
@@ -58,6 +71,39 @@ them have ever had to build alone before.
 
 ---
 
+## The iPhone moment
+
+Before the iPhone, a phone was a phone, a camera was a camera, and a
+music player was a music player — each its own device, each requiring
+its own manufacturer to build the whole thing from scratch. The App
+Store didn't just add software to a phone. It turned a single-purpose
+device into a platform that became whatever the next app made it —
+without Apple building a camera company, a bank, or a game studio
+itself.
+
+That is the shift Sails Protocol is built for. A non-custodial wallet
+today is single-purpose: it holds assets. With Sails, it doesn't stop
+being a wallet — it gains a new capability the same way a phone gained
+a camera app, not by rebuilding itself, but by enabling something that
+already exists elsewhere in the ecosystem. This is **Capabilities as a
+Protocol**: a wallet doesn't construct a marketplace, a chat system,
+or an escrow engine feature by feature. It enables the capability —
+P2P trading today, financial primitives like lending or swaps as the
+protocol grows — and gets the whole thing, maintained and improved by
+an ecosystem, not by its own engineering team alone.
+
+And this isn't limited to one asset. The reference implementation
+already discovers and settles trades across Bitcoin, USDT (on Ethereum,
+Tron, Liquid, and Lightning rails), Lightning-native BTC, and
+Liquid-native BTC — with more assets added as the protocol's asset
+adapters grow, the same way new apps kept arriving after the App Store
+opened, not as a promise of everything at once, but as a real,
+extensible foundation. The examples above are shown because they're the
+ones already real and typed in the protocol today, not because they're
+the ceiling.
+
+---
+
 ## This isn't a pitch for something that doesn't exist yet
 
 The core mechanics — Intent-driven trade coordination, real-time
@@ -68,6 +114,14 @@ Wallet**, a real non-custodial wallet that has been in production since
 **$10M+ USD in processed volume and 12,000+ users**. That is not a
 projection. It is what happens when the coordination mechanics this
 protocol defines get used by real people trading real value.
+
+What that first implementation is actually built from, concretely: real
+peer-to-peer connectivity via **Pears**, real crypto settlement via
+**WDK**, and a local AI agent via **QVAC** that assists with risk
+assessment and negotiation on-device — no cloud call in the loop. Three
+pieces of real infrastructure, coordinated by Sails Protocol, moving
+real value. This is the proof this document leans on: not a diagram of
+what could exist, a working system that already does.
 
 What has not happened yet — and we want to be exactly as clear about
 this as we are proud of what has — is a second wallet, built by someone
@@ -127,19 +181,30 @@ support, infrastructure, compliance, with no direct revenue line
 attached.
 
 A wallet that becomes a marketplace instead of just an interface has an
-entirely different shape of business in front of it — not yet realized
-anywhere, worth building toward deliberately: originating trades for
-other participants, offering premium visibility to sellers, operating
-one of the trusted-provider roles the protocol is designed around
-(dispute arbitration, compliance, liquidity provision) rather than
-outsourcing all of it. None of this is available today — the protocol
-fee mechanism that would fund it exists and is deliberately set to zero
-while the network is still being built, and none of these revenue paths
-have a real implementation behind them yet. We say this plainly because
-the honest version of this opportunity is more convincing than an
-inflated one: the infrastructure to capture this is real and running;
-the business model on top of it is the part every early integrator
-gets to help define.
+entirely different shape of business in front of it, with value capture
+possible at four distinct layers — not yet realized anywhere, worth
+building toward deliberately:
+
+1. **Protocol** — a small, shared coordination fee on settled trades,
+   sustaining the infrastructure everyone relies on.
+2. **SDK** — the integration layer itself: today free and open, the
+   foundation every wallet builds on without licensing it.
+3. **Application** — the wallet's own layer: originating trades for
+   other participants, premium visibility for sellers, its own
+   relationship with its own users, unchanged.
+4. **Services** — trusted-provider roles the protocol is designed
+   around (dispute arbitration, compliance, liquidity provision),
+   operated by whoever chooses to run them rather than outsourced to a
+   single company by default.
+
+None of this is available today — the protocol fee mechanism that would
+fund layer 1 exists and is deliberately set to zero while the network is
+still being built, and none of layers 3-4's revenue paths have a real
+implementation behind them yet. We say this plainly because the honest
+version of this opportunity is more convincing than an inflated one:
+the infrastructure to capture this is real and running; the business
+model on top of it is the part every early integrator gets to help
+define.
 
 ---
 
