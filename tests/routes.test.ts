@@ -56,6 +56,11 @@ mockIntentFindUnique.mockResolvedValue({ id: 'intent-1', status: 'VALIDATED', mo
 const mockIntentUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockIntentEventCreate = jest.fn()
 const mockIntentEventFindFirst = jest.fn()
+const mockClaimCreate = jest.fn()
+const mockClaimFindUnique = jest.fn()
+const mockProofCreate = jest.fn()
+const mockProofFindUnique = jest.fn()
+const mockVerificationCreate = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -113,6 +118,17 @@ jest.mock('../src/common/database', () => ({
       findMany: (...args: unknown[]) => mockCapabilityGrantFindMany(...args),
       findUnique: (...args: unknown[]) => mockCapabilityGrantFindUnique(...args),
       update: (...args: unknown[]) => mockCapabilityGrantUpdate(...args),
+    },
+    claim: {
+      create: (...args: unknown[]) => mockClaimCreate(...args),
+      findUnique: (...args: unknown[]) => mockClaimFindUnique(...args),
+    },
+    proof: {
+      create: (...args: unknown[]) => mockProofCreate(...args),
+      findUnique: (...args: unknown[]) => mockProofFindUnique(...args),
+    },
+    verification: {
+      create: (...args: unknown[]) => mockVerificationCreate(...args),
     },
   },
 }))
@@ -871,6 +887,118 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
 
       expect(res.statusCode).toBe(200)
+    })
+  })
+
+  describe('open-proof', () => {
+    it('rejects asserting a claim without auth', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/proof/claims',
+        payload: { claimType: 'payment_sent', assertion: { amount: '100' } },
+      })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('asserts a claim for an authenticated caller, claimedBy derived from the session not the body', async () => {
+      const token = await authedSession('buyer-1')
+      mockClaimCreate.mockResolvedValueOnce({ id: 'claim-1', claimedBy: 'buyer-1', claimType: 'payment_sent', assertion: { amount: '100' }, createdAt: new Date() })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/proof/claims',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { claimType: 'payment_sent', assertion: { amount: '100' } },
+      })
+
+      expect(res.statusCode).toBe(201)
+      expect(mockClaimCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ claimedBy: 'buyer-1' }) })
+      )
+    })
+
+    it('rejects submitting a proof without auth', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/proof/proofs',
+        payload: { claimId: 'claim-1', evidence: { x: 1 } },
+      })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('submits a proof for an authenticated caller — evidenceHash is server-computed, never taken from the request', async () => {
+      const token = await authedSession('buyer-1')
+      mockClaimFindUnique.mockResolvedValueOnce({ id: 'claim-1', createdAt: new Date() })
+      mockProofCreate.mockResolvedValueOnce({ id: 'proof-1', claimId: 'claim-1', evidence: { x: 1 }, evidenceHash: 'real-server-hash', submittedBy: 'buyer-1', submittedAt: new Date() })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/proof/proofs',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { claimId: 'claim-1', evidence: { x: 1 }, claimedHash: 'forged-hash-attacker-hopes-is-trusted' },
+      })
+
+      expect(res.statusCode).toBe(201)
+      const body = JSON.parse(res.body)
+      expect(body.data.evidenceHash).not.toBe('forged-hash-attacker-hopes-is-trusted')
+    })
+
+    it('rejects verifying a proof with no nonce', async () => {
+      const token = await authedSession('arbiter-1')
+      mockProofFindUnique.mockResolvedValueOnce({ id: 'proof-1', claimId: 'claim-1' })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/proof/proofs/proof-1/verify',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { verdict: 'ACCEPTED', nonce: 'never-issued' },
+      })
+
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('issues a nonce then verifies a proof with it — the real round trip a client goes through', async () => {
+      const token = await authedSession('arbiter-1')
+      mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1' })
+
+      const nonceRes = await app.inject({
+        method: 'POST',
+        url: '/v1/proof/proofs/proof-1/verify-nonce',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(nonceRes.statusCode).toBe(200)
+      const { nonce } = JSON.parse(nonceRes.body).data
+
+      mockVerificationCreate.mockResolvedValueOnce({ id: 'verification-1', proofId: 'proof-1', verifiedBy: 'arbiter-1', verdict: 'ACCEPTED', verifiedAt: new Date() })
+
+      const verifyRes = await app.inject({
+        method: 'POST',
+        url: '/v1/proof/proofs/proof-1/verify',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { verdict: 'ACCEPTED', nonce },
+      })
+
+      expect(verifyRes.statusCode).toBe(201)
+      expect(JSON.parse(verifyRes.body).data.verdict).toBe('ACCEPTED')
+    })
+
+    it('rejects reading an evidence bundle without auth', async () => {
+      const res = await app.inject({ method: 'GET', url: '/v1/proof/claims/claim-1/bundle' })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('returns the evidence bundle for an authenticated caller', async () => {
+      const token = await authedSession('buyer-1')
+      mockClaimFindUnique.mockResolvedValueOnce({ id: 'claim-1', claimedBy: 'buyer-1', proofs: [] })
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/proof/claims/claim-1/bundle',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data.id).toBe('claim-1')
     })
   })
 })

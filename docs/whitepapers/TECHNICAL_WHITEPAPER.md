@@ -260,14 +260,25 @@ discovery mechanism for loan/swap offers without duplicating it. A
 order book today; HodlHodl-style external liquidity is interfaced but
 disabled pending an API key) and ranks by price.
 
-### OpenProof — 🟡 Interfaces real, service layer planned
+### OpenProof — 🟡 Core service real, evidence-registry layer planned
 `Claim → Proof → Verification` — a deliberate three-way split mirroring
 the W3C Verifiable Credentials model, so evidence (a payment
 screenshot, a delivery confirmation) has a standard shape every other
 module's dispute/negotiation flow can consume instead of inventing its
-own. Real Prisma types exist; the service layer that actually verifies
-and aggregates evidence (`getEvidenceBundle(intentId)`) is designed
-(RFC-006/RFC-007) but not yet built.
+own. Real Prisma models exist as of a Fase 1 Red Team pass
+(`proof.service.ts`) — `assertClaim()`/`submitProof()`/
+`issueVerificationNonce()`/`verifyProof()`/`getEvidenceBundle(claimId)`,
+plus three real security properties that pass added: `evidenceHash` is
+always server-recomputed (never a client-submitted hash), verification
+requires a single-use nonce (anti-replay), and `submitProof()` enforces
+a configurable submission-window time-lock against the Claim's
+`createdAt`. Still 📋 planned, unchanged by that pass: RFC-007's
+`ProofRegistry` (duplicate-evidence detection across separate
+Intents/disputes) and `EvidenceProvider` (external media storage
+adapters — evidence is stored inline in Postgres today, the same
+pragmatism `Message.content` already uses, not yet routed through
+Nostr.build/S3/R2/IPFS/Arweave), and RFC-008's
+`AnchorProof`/`TimestampAnchor`.
 
 ### OpenP2P — ✅ Proven — the most complete module, running in production
 Orchestrates the full trade lifecycle using every module above: opens
