@@ -17,7 +17,8 @@
 > that does — the engineering has to be this rigorous specifically
 > because a shared economic layer only works if every participant can
 > actually trust it. [`SDK_PAPER.md`](SDK_PAPER.md) covers why that
-> matters commercially; this document covers why it holds up.
+> matters commercially, [`MARKETING_WHITEPAPER.md`](MARKETING_WHITEPAPER.md)
+> covers why it matters at all, and this document covers why it holds up.
 
 ---
 
@@ -89,6 +90,57 @@ graph LR
 
 Each of the three has no edge to either of the other two directly —
 every line in this diagram passes through Sails, by construction.
+
+Attribution matters here, precisely: WDK and QVAC are Tether's own
+infrastructure; Pears is Holepunch's, a separate company. Neither is a
+Sails Protocol component — each is a real, independent piece of
+production-grade infrastructure the reference implementation
+coordinates rather than reimplements, consistent with Constitutional
+Invariant 6 (Infrastructure Neutral, `PROTOCOL_PAPER.md` §8): none of
+the three is protocol-mandated, each is a swappable Adapter in
+principle, and this reference implementation happens to be the first
+system putting genuine, coordinated, production use behind all three
+at once.
+
+The full stack, end to end:
+
+```mermaid
+graph TD
+    W["Wallet"] --> S["Sails P2P Trading SDK"]
+    S --> P["Sails Protocol"]
+    subgraph Modules["8 Official Modules"]
+        M1[OpenP2P] ~~~ M2[OpenSettlement]
+        M3[OpenIdentity] ~~~ M4[OpenProof]
+        M5[OpenReputation] ~~~ M6[OpenAgents]
+        M7[OpenLiquidity] ~~~ M8["OpenFinance (roadmap)"]
+    end
+    P --> Modules
+    Modules --> Infra
+    subgraph Infra["Coordinated Infrastructure"]
+        WDK2["WDK — Tether"]
+        Pears2["Pears — Holepunch"]
+        QVAC2["QVAC — Tether"]
+    end
+    Infra --> Assets["Bitcoin · Liquid · Lightning · USDT"]
+```
+
+The `Assets` node above is deliberately scoped to what Sails Protocol
+itself has an `AssetType` and settlement adapter for today — it is not
+the ceiling of what WDK can sign for. WDK's own multi-token support
+extends to Tether Gold (XAU₮) and networks (TON, Solana) Sails
+Protocol has no adapter for yet; that gap is infrastructure capacity
+already waiting, not a claim this document is making about Sails
+Protocol's current settlement coverage. Tether CEO Paolo Ardoino has
+described what Tether wants built on this stack in exactly these
+terms: *"If you can build something that runs locally, holds value
+directly, and doesn't rely on external providers, we'll fund it."*
+A protocol that never custodies assets (Constitutional Invariant 2)
+and coordinates rather than reimplements WDK, Pears, and QVAC is a
+direct match for that description — not a claim that the reference
+implementation's own Fastify/Postgres coordination layer is itself
+local-first, which it isn't. See
+[`MARKETING_WHITEPAPER.md`](MARKETING_WHITEPAPER.md#why-these-three-technologies-and-why-now)
+for the fuller case.
 
 ---
 

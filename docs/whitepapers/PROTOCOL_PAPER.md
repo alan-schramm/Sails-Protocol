@@ -50,11 +50,13 @@ building that infrastructure alone.
 
 The SDK is the entry point, not the product. What a wallet actually
 gains by integrating is not a library — it is standing access to a
-shared economic layer: liquidity, counterparties, and portable trust
-that compound with every other wallet that integrates, instead of
-capping out at that one wallet's own user base. This document specifies
+shared economic layer: liquidity, counterparties, and portable
+reputation that compound with every other wallet that integrates,
+instead of capping out at that one wallet's own user base. This document specifies
 the protocol that layer is built on; [`SDK_PAPER.md`](SDK_PAPER.md)
-makes the economic case for joining it in full.
+makes the economic case for joining it in full, and
+[`MARKETING_WHITEPAPER.md`](MARKETING_WHITEPAPER.md) makes that same
+case without the normative language, for a non-technical reader.
 
 This document is 📜 the normative specification: what any
 implementation, in any language, on any network, MUST respect to
@@ -237,9 +239,26 @@ graph TD
     OpenIdentity · OpenReputation · OpenSettlement · OpenLiquidity
     OpenProof · OpenP2P · OpenAgents · OpenFinance"]
     Ref["One Reference Implementation — Satsails
-    Fastify/Postgres · Pears/HyperDHT · WDK · QVAC"]
+    Fastify/Postgres · Pears/HyperDHT (Holepunch) · WDK (Tether) · QVAC (Tether)"]
     Core --> Modules --> Ref
 ```
+
+None of the three — WDK, Pears, QVAC — is protocol-mandated: Principle 3
+and Constitutional Invariant 6 (Section 8, **Infrastructure Neutral**)
+both require every Core interface (`SettlementProvider`,
+`TransportProvider`) to stay swappable in principle. What's true today,
+without weakening that neutrality, is that this reference
+implementation is a real, in-production case of coordinating serious
+infrastructure two different companies built — WDK and QVAC from
+Tether, Pears from Holepunch — rather than any of it being simulated or
+placeholder. Tether CEO Paolo Ardoino has put a public bar on the kind
+of work Tether wants to see built on this stack: *"If you can build
+something that runs locally, holds value directly, and doesn't rely
+on external providers, we'll fund it."* A protocol whose Constitutional
+Invariants already forbid custody and mandate infrastructure
+neutrality is not a stretch fit for that bar. The business case for why
+that specific combination matters is in
+[`MARKETING_WHITEPAPER.md`](MARKETING_WHITEPAPER.md#why-these-three-technologies-and-why-now).
 
 | Module | Role | Status |
 |---|---|---|

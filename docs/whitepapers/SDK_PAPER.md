@@ -56,6 +56,37 @@ graph TD
 One integration point (`new SailsClient(...)`, Section 2) — not six
 separate systems to design, build, and operate.
 
+What that one integration point stands on is not a toy stack, either:
+
+```mermaid
+graph TD
+    W["Your Wallet"] --> S["Sails P2P Trading SDK"]
+    S --> P["Sails Protocol"]
+    P --> Modules["8 Official Modules"]
+    Modules --> Infra["WDK (Tether) · Pears (Holepunch) · QVAC (Tether)"]
+    Infra --> Assets["Bitcoin · Liquid · Lightning · USDT"]
+```
+
+WDK and QVAC are Tether's own infrastructure — real settlement signing
+and real on-device AI, not something this project built from scratch.
+Pears is Holepunch's production P2P network stack. Integrating this SDK
+means standing on infrastructure already built and maintained at a
+scale no individual wallet team would build alone, coordinated by a
+protocol whose only job is making the three of them work together for
+one real use case. It also means inheriting headroom: WDK already
+signs for assets and networks — Tether Gold (XAU₮), TON, Solana —
+that Sails Protocol has no adapter for yet, so integrating early puts
+a wallet in line for that breadth as adapter work lands, rather than
+waiting for someone else to build it first.
+
+Tether CEO Paolo Ardoino has said plainly what Tether wants built on
+this stack: *"If you can build something that runs locally, holds
+value directly, and doesn't rely on external providers, we'll fund
+it."* A non-custodial wallet integrating a non-custodial coordination
+layer is exactly that kind of build — which is as much a signal for
+where this ecosystem is headed as it is a fact about Sails Protocol
+itself.
+
 ---
 
 ## 2. What Integration Actually Looks Like — ✅ Real Code, Not a Mockup
@@ -237,6 +268,13 @@ that bar has been met — the same primitives (Identity, Intent,
 Settlement, Reputation, Agent) are what a Wallet SDK, a Portable Trust
 SDK, and an Agent-focused SDK all reuse, rather than each reinventing
 its own version of identity or escrow.
+
+The protocol these primitives belong to, independent of this one SDK,
+is specified in full in [`PROTOCOL_PAPER.md`](PROTOCOL_PAPER.md). How
+the reference implementation actually engineers all of this — the
+architecture, the cryptography, the concurrency-safety work — is in
+[`TECHNICAL_WHITEPAPER.md`](TECHNICAL_WHITEPAPER.md). This document
+stays deliberately scoped to one question: why integrating is worth it.
 
 ---
 
