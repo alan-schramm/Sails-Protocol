@@ -126,6 +126,16 @@ export const config = {
     defaultTimelockHours: parseInt(process.env.DEFAULT_TIMELOCK_HOURS ?? '24', 10),
   },
 
+  // Sails OpenProof (proof.service.ts) — Fase 1 Task 3(c). Evidence
+  // submitted long after the Claim it supports is worth less as proof of
+  // anything that happened *at the claimed time*, the same reasoning
+  // escrow.timelockHours already applies to fund locks. Verification
+  // nonces follow auth.ts's challenge-response TTL pattern exactly.
+  proof: {
+    submissionWindowHours: parseInt(process.env.PROOF_SUBMISSION_WINDOW_HOURS ?? '72', 10),
+    verificationNonceTtlSeconds: parseInt(process.env.PROOF_VERIFICATION_NONCE_TTL ?? '300', 10),
+  },
+
   settlement: {
     // RFC-007 D4 — "each wallet/application registers its own Trusted
     // Arbitrators," not a protocol-wide list. Empty by default — dispute

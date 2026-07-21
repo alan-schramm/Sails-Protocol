@@ -23,6 +23,7 @@ import { peerRoutes } from './infrastructure/p2p/pear.routes'
 import { relayRoutes } from './infrastructure/p2p/relay.routes'
 import { reputationRoutes } from './modules/open-reputation/reputation.routes'
 import { capabilityRoutes } from './modules/open-agents/capability.routes'
+import { proofRoutes } from './modules/open-proof/proof.routes'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -172,6 +173,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(settlementRoutes)
   await app.register(reputationRoutes)
   await app.register(capabilityRoutes)
+  await app.register(proofRoutes)
 
   // ── Register event handlers (Coordination Protocol) ──────────────────────
   registerEventHandlers()
