@@ -46,10 +46,24 @@ export interface OfferPagination {
   offset?: number
 }
 
+// paymentMethod / price-range filters — API_REFERENCE.md §3 ("List offers,
+// filterable by asset/side/paymentMethod/price range"). All optional; combined
+// with the asset+side+ACTIVE base filter inside InternalOrderBook.getOffers().
+// minPrice/maxPrice are decimal strings (RFC-009), compared against the
+// Prisma.Decimal priceUsd column the same way matchOrder() already compares
+// string amounts — never coerced to a JS number.
+export interface OfferFilters {
+  paymentMethod?: string
+  minPrice?: string
+  maxPrice?: string
+}
+
+export type OfferQuery = OfferPagination & OfferFilters
+
 export interface LiquidityProvider {
   name: string
   isAvailable(): Promise<boolean>
-  getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination): Promise<LiquidityOffer[]>
+  getOffers(asset: AssetType, side: TradeSide, query?: OfferQuery): Promise<LiquidityOffer[]>
   matchOrder(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null>
 }
 
@@ -91,11 +105,29 @@ class InternalOrderBook implements LiquidityProvider {
     return true
   }
 
-  async getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination): Promise<LiquidityOffer[]> {
-    const limit = Math.min(Math.max(pagination?.limit ?? 10, 1), 50)
-    const offset = Math.max(pagination?.offset ?? 0, 0)
+  async getOffers(asset: AssetType, side: TradeSide, query?: OfferQuery): Promise<LiquidityOffer[]> {
+    const limit = Math.min(Math.max(query?.limit ?? 10, 1), 50)
+    const offset = Math.max(query?.offset ?? 0, 0)
+    // Optional price-range filter (API_REFERENCE.md §3). priceUsd is a
+    // Prisma.Decimal — gte/lte accept a decimal string, the same comparison
+    // matchOrder() below already performs on minAmount/maxAmount (RFC-009).
+    const priceFilter =
+      query?.minPrice !== undefined || query?.maxPrice !== undefined
+        ? {
+            priceUsd: {
+              ...(query?.minPrice !== undefined ? { gte: query.minPrice } : {}),
+              ...(query?.maxPrice !== undefined ? { lte: query.maxPrice } : {}),
+            },
+          }
+        : {}
     const offers = await prisma.offer.findMany({
-      where: { asset, side, status: 'ACTIVE' },
+      where: {
+        asset,
+        side,
+        status: 'ACTIVE',
+        ...(query?.paymentMethod ? { paymentMethod: query.paymentMethod as any } : {}),
+        ...priceFilter,
+      },
       orderBy: { priceUsd: side === 'SELL' ? 'asc' : 'desc' },
       take: limit,
       skip: offset,
@@ -132,7 +164,7 @@ class HodlHodlProvider implements LiquidityProvider {
     return false
   }
 
-  async getOffers(asset: AssetType, _side: TradeSide, _pagination?: OfferPagination): Promise<LiquidityOffer[]> {
+  async getOffers(asset: AssetType, _side: TradeSide, _query?: OfferQuery): Promise<LiquidityOffer[]> {
     // TODO(roadmap Meses 1-3): GET https://hodlhodl.com/api/v1/offers
     //   ?filters[currency_code]=BRL&filters[asset]=BTC
     console.log(`[HodlHodl] getOffers for ${asset} — not yet implemented`)
@@ -279,7 +311,8 @@ export class LiquidityRouter {
     return { asset, bids: bids.offers, asks: asks.offers, spread }
   }
 
-  // `pagination` is passed to each provider's own getOffers() as-is, not
+  // The query options (pagination + paymentMethod/price-range filters) pass to
+  // each provider's own getOffers() as-is, not
   // re-applied after aggregation — with today's single real provider
   // (InternalOrderBook; HodlHodl is disabled) that's equivalent to
   // paginating the combined result. Aggregating across N>1 *real*
@@ -289,7 +322,7 @@ export class LiquidityRouter {
   async getAggregatedOffers(
     asset: AssetType,
     side: TradeSide,
-    pagination?: OfferPagination
+    query?: OfferQuery
   ): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
     const all: LiquidityOffer[] = []
     const sources: string[] = []
@@ -297,7 +330,7 @@ export class LiquidityRouter {
     for (const provider of this.providers) {
       try {
         if (!(await provider.isAvailable())) continue
-        const offers = await provider.getOffers(asset, side, pagination)
+        const offers = await provider.getOffers(asset, side, query)
         all.push(...offers)
         sources.push(provider.name)
       } catch (err) {

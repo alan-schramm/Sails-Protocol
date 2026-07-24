@@ -19,6 +19,11 @@ const assetSideQuerySchema = z.object({
   // bypasses this route's own validation.
   limit: z.coerce.number().int().min(1).max(50).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+  // Filters (API_REFERENCE.md §3) — all optional; applied in the provider
+  // query. minPrice/maxPrice are decimal USD strings (RFC-009), not coerced.
+  paymentMethod: z.string().min(1).optional(),
+  minPrice: z.string().min(1).optional(),
+  maxPrice: z.string().min(1).optional(),
 })
 
 const createOfferSchema = z.object({
@@ -46,10 +51,10 @@ const matchSchema = z.object({
 })
 
 export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
-  // NOTE: filterable by asset+side (+ optional limit/offset) only today —
-  // paymentMethod/price-range filtering from API_REFERENCE.md's
-  // description is not yet implemented (liquidityRouter.getAggregatedOffers
-  // doesn't support it); documented here rather than silently dropped.
+  // Filterable by asset+side, optional paymentMethod and price range
+  // (minPrice/maxPrice — decimal USD strings), plus limit/offset: the full
+  // API_REFERENCE.md §3 filter set. Filters are applied inside the provider's
+  // own getOffers() query (InternalOrderBook), not post-aggregation.
   app.get('/v1/liquidity/offers', {
     schema: { tags: ['open-liquidity'] },
   }, async (request, reply) => {
@@ -57,6 +62,9 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
     const result = await liquidityRouter.getAggregatedOffers(query.asset as any, query.side, {
       limit: query.limit,
       offset: query.offset,
+      paymentMethod: query.paymentMethod,
+      minPrice: query.minPrice,
+      maxPrice: query.maxPrice,
     })
     return reply.code(200).send({ success: true, data: result })
   })
