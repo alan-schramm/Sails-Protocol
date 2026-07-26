@@ -20,6 +20,11 @@ export interface CreateTradeInput {
   amount: string          // decimal string — RFC-009
 }
 
+export interface TradePagination {
+  limit?: number
+  offset?: number
+}
+
 export class TradeService {
   async createTrade(input: CreateTradeInput) {
     const offer = await prisma.offer.findUnique({ where: { id: input.offerId } })
@@ -150,6 +155,36 @@ export class TradeService {
     })
     if (!trade) throw new NotFoundError('Trade', tradeId)
     return trade
+  }
+
+  // Fase 2 (SDK React) — closes a real gap found while scoping
+  // useSailsTrades(): no "list my trades" endpoint existed anywhere
+  // (packages/sails-ui's own TradeHistory.tsx uses MOCK_TRADE_HISTORY
+  // for exactly this reason). Scoped to trades where the caller is
+  // buyer OR seller — never a global listing, which would leak every
+  // participant's trade activity to every other participant. Same
+  // limit/offset clamping convention liquidity.service.ts's
+  // InternalOrderBook.getOffers() already established (limit 1-50,
+  // default 10) — matched here rather than inventing a second
+  // pagination convention or a cursor-based one.
+  async getTrades(participantId: string, pagination?: TradePagination) {
+    const limit = Math.min(Math.max(pagination?.limit ?? 10, 1), 50)
+    const offset = Math.max(pagination?.offset ?? 0, 0)
+
+    const where = { OR: [{ buyerId: participantId }, { sellerId: participantId }] }
+
+    const [trades, total] = await Promise.all([
+      prisma.trade.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        include: { escrow: true },
+      }),
+      prisma.trade.count({ where }),
+    ])
+
+    return { trades, total, hasMore: offset + trades.length < total }
   }
 
   // Only the subset of transitions a participant can trigger directly —

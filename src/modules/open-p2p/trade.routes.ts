@@ -16,7 +16,27 @@ const updateStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'CANCELLED']),
 })
 
+const listTradesSchema = z.object({
+  limit: z.coerce.number().int().optional(),
+  offset: z.coerce.number().int().optional(),
+})
+
 export async function tradeRoutes(app: FastifyInstance): Promise<void> {
+  // Fase 2 (SDK React) — see trade.service.ts's getTrades() comment for
+  // why this didn't exist before. requireAuth because this is inherently
+  // caller-scoped (a participant's own trade history), unlike
+  // getTrade()/getTradeByIntentId() below which read a single trade by
+  // an unguessable id and have never required auth.
+  app.get('/v1/openp2p/trades', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-p2p'] },
+  }, async (request, reply) => {
+    const query = listTradesSchema.parse(request.query)
+    const participantId = (request as any).participantId as string
+    const result = await tradeService.getTrades(participantId, query)
+    return reply.code(200).send({ success: true, data: result })
+  })
+
   app.post('/v1/openp2p/trades', {
     preHandler: requireAuth,
     schema: { tags: ['open-p2p'] },

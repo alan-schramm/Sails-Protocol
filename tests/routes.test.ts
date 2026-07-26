@@ -25,6 +25,7 @@ const mockOfferCreate = jest.fn()
 const mockOfferUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockTradeFindMany = jest.fn()
+const mockTradeCount = jest.fn()
 const mockTradeCreate = jest.fn()
 const mockTradeUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
@@ -89,6 +90,7 @@ jest.mock('../src/common/database', () => ({
     trade: {
       findUnique: (...args: unknown[]) => mockTradeFindUnique(...args),
       findMany: (...args: unknown[]) => mockTradeFindMany(...args),
+      count: (...args: unknown[]) => mockTradeCount(...args),
       create: (...args: unknown[]) => mockTradeCreate(...args),
       update: (...args: unknown[]) => mockTradeUpdate(...args),
     },
@@ -353,6 +355,52 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const res = await app.inject({ method: 'GET', url: '/v1/liquidity/offers/BTC/book' })
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body).data).toEqual(expect.objectContaining({ asset: 'BTC', bids: [], asks: [] }))
+    })
+  })
+
+  describe('open-p2p — list trades (Fase 2, SDK React)', () => {
+    it('rejects listing trades without auth', async () => {
+      const res = await app.inject({ method: 'GET', url: '/v1/openp2p/trades' })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it("lists the caller's own trades (buyer or seller), scoped by participantId", async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindMany.mockResolvedValueOnce([{ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'ACTIVE' }])
+      mockTradeCount.mockResolvedValueOnce(1)
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/openp2p/trades',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body)
+      expect(body.data.trades).toHaveLength(1)
+      expect(body.data.total).toBe(1)
+      expect(body.data.hasMore).toBe(false)
+      expect(mockTradeFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { OR: [{ buyerId: 'buyer-1' }, { sellerId: 'buyer-1' }] },
+        })
+      )
+    })
+
+    it('clamps limit to the established 1-50 range and respects offset/hasMore', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindMany.mockResolvedValueOnce(new Array(50).fill({ id: 't', buyerId: 'buyer-1', sellerId: 's' }))
+      mockTradeCount.mockResolvedValueOnce(120)
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/openp2p/trades?limit=9999&offset=10',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(mockTradeFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 50, skip: 10 }))
+      expect(JSON.parse(res.body).data.hasMore).toBe(true)
     })
   })
 

@@ -97,6 +97,19 @@ export interface Trade {
   offer?: Offer
 }
 
+// Fase 2 (SDK React) — GET /v1/openp2p/trades (trade.service.ts's
+// getTrades()), the "list my trades" endpoint that didn't exist before
+// useSailsTrades() needed one. Each Trade here does NOT include
+// messages/offer the way getTrade()'s single-trade response does — a
+// list view has no use for a full message history per row, and
+// including it would make a page-of-10 response N+1 query the size of
+// ten separate getTrade() calls for no reason.
+export interface PaginatedTrades {
+  trades: Trade[]
+  total: number
+  hasMore: boolean
+}
+
 export interface Escrow {
   id: string
   tradeId: string
