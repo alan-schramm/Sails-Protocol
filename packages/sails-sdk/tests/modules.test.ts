@@ -141,6 +141,36 @@ describe('SailsOpenP2PModule', () => {
     const openp2p = new SailsOpenP2PModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch }))
     expect(() => openp2p.chat('trade-1')).toThrow(/active session/)
   })
+
+  // Fase 2 (SDK React) — GET /v1/openp2p/trades didn't exist before
+  // useSailsTrades() needed a real list endpoint (trade.routes.ts's own
+  // comment has the full story). Requires auth, unlike getTrade()/
+  // getTradeByIntent() above.
+  it('getTrades() hits GET /v1/openp2p/trades with auth, passing limit/offset as query params', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { trades: [], total: 0, hasMore: false } })
+    const openp2p = new SailsOpenP2PModule(authedTransport(fetchImpl))
+
+    const result = await openp2p.getTrades({ limit: 20, offset: 40 })
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/openp2p/trades?limit=20&offset=40')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(result).toEqual({ trades: [], total: 0, hasMore: false })
+  })
+
+  it('getTrades() omits limit/offset from the query string when called with no arguments', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { trades: [], total: 0, hasMore: false } })
+    const openp2p = new SailsOpenP2PModule(authedTransport(fetchImpl))
+
+    await openp2p.getTrades()
+
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://localhost:3000/v1/openp2p/trades')
+  })
+
+  it('getTrades() throws if called before authenticate() (no session token) — matches every other auth-required call in this module', async () => {
+    const openp2p = new SailsOpenP2PModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch }))
+    await expect(openp2p.getTrades()).rejects.toThrow(/requires authentication/)
+  })
 })
 
 // Minimal fake matching the WebSocket surface WebSocketChannel actually

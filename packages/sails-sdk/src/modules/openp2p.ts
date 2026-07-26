@@ -11,7 +11,7 @@
  * required field.
  */
 import type { SailsTransport } from '../transport'
-import type { Message, Trade } from '../types'
+import type { Message, PaginatedTrades, Trade } from '../types'
 import { SailsTransportError } from '../errors'
 
 export interface ChatFrame {
@@ -99,6 +99,24 @@ export class SailsOpenP2PModule {
   /** Requires an active session. See this file's header for the `amount` deviation from SDK_GUIDE.md. */
   async trade(offerId: string, amount: string): Promise<Trade> {
     return this.transport.post<Trade>('/v1/openp2p/trades', { offerId, amount }, true)
+  }
+
+  /**
+   * Requires an active session — the caller's own trade history (as
+   * buyer or seller), never a global listing (trade.service.ts's
+   * getTrades()). Fase 2 (SDK React) addition: closes the gap
+   * useSailsTrades() needed — no such endpoint existed before (see that
+   * service method's own comment for why packages/sails-ui's
+   * TradeHistory.tsx uses mock data today). `limit` is clamped
+   * server-side to 1-50 (default 10), matching liquidity's
+   * getOffers()/discover() pagination convention.
+   */
+  async getTrades(pagination?: { limit?: number; offset?: number }): Promise<PaginatedTrades> {
+    return this.transport.get<PaginatedTrades>(
+      '/v1/openp2p/trades',
+      { limit: pagination?.limit, offset: pagination?.offset },
+      true
+    )
   }
 
   /** Unlike trade()'s create response, this always populates `offer` (trade.service.ts's getTrade() includes it) — real, not just typed-optional. */

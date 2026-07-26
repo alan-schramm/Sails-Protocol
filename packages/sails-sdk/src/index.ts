@@ -77,6 +77,7 @@ export type {
   Participant,
   Offer,
   Trade,
+  PaginatedTrades,
   Escrow,
   Dispute,
   Message,
