@@ -543,6 +543,88 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     })
   })
 
+  describe('open-p2p — reconcile (RFC-011, Fase 4 follow-up: the real endpoint the RFC always named but never built)', () => {
+    it('rejects reconciling without auth', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/openp2p/trades/trade-1/reconcile' })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('rejects a caller who is not a party to the trade', async () => {
+      const token = await authedSession('stranger')
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/openp2p/trades/trade-1/reconcile',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('404s when the trade does not exist', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce(null)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/openp2p/trades/missing-trade/reconcile',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(404)
+    })
+
+    it('returns current status + missed messages for a real participant', async () => {
+      const token = await authedSession('buyer-1')
+      // First call: the route's own ownership check. Second call:
+      // reconciliationService.reconcileTrade()'s internal lookup
+      // (include: { escrow: true }) — two separate prisma.trade.findUnique
+      // calls, same as chat.routes.ts's getMessages() vs. its own
+      // service-layer lookup pattern elsewhere in this file.
+      mockTradeFindUnique
+        .mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+        .mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'ACTIVE', escrow: { status: 'FUNDS_LOCKED' } })
+      mockMessageFindMany.mockResolvedValueOnce([
+        { id: 'msg-1', senderId: 'seller-1', content: 'missed while offline', msgType: 'TEXT', createdAt: new Date('2026-07-27T00:00:00.000Z') },
+      ])
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/openp2p/trades/trade-1/reconcile',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body).data
+      expect(body.currentTradeStatus).toBe('ACTIVE')
+      expect(body.currentEscrowStatus).toBe('FUNDS_LOCKED')
+      expect(body.missedMessages).toHaveLength(1)
+      expect(body.missedMessages[0].content).toBe('missed while offline')
+    })
+
+    it('passes sinceMessageCreatedAt through to the message query as a real filter', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindUnique
+        .mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+        .mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'ACTIVE', escrow: null })
+      mockMessageFindMany.mockResolvedValueOnce([])
+
+      const since = '2026-07-27T00:00:00.000Z'
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/openp2p/trades/trade-1/reconcile',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { sinceMessageCreatedAt: since },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(mockMessageFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { tradeId: 'trade-1', createdAt: { gt: new Date(since) } } })
+      )
+    })
+  })
+
   describe('open-p2p — chat message history (now requires auth — found and fixed while writing this test)', () => {
     it('rejects fetching message history without auth', async () => {
       const res = await app.inject({ method: 'GET', url: '/v1/openp2p/chat/trade-1/messages' })
