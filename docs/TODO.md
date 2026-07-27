@@ -159,13 +159,41 @@ makes the same point in more detail.
       and the arbitrated-dispute release path — both checks now live
       inside `releaseFunds()` itself. 13 new tests
       (`tests/escrowReleaseControls.test.ts`).
-- [ ] `LightningHodlProvider` — currently throws `EscrowError('not yet
-      implemented')` for every method. Needs a real LND/CLN integration
-      (or a hosted LSP account exposing hold-invoice semantics) — neither
-      exists in any environment this project has been built in, so this
-      stays honestly unimplemented rather than faked. Same for
-      `LiquidCovenantProvider`, which doesn't exist as a file at all yet
-      (needs a real Elements node plus a new `liquidjs-lib` dependency).
+- [x] `LightningHodlProvider` — **done** (`lightning-hodl.provider.ts`,
+      2026-07-27), via Arkade (Ark protocol) rather than a literal LND
+      hold-invoice. Plain Lightning HTLCs have no genuine multi-party
+      escrow primitive — confirmed directly from HodlHodl's own docs,
+      their Lightning mode is plain custodial holding on their own LND
+      node, not cryptographic escrow ("currently there are no multisig
+      escrow addresses on the Lightning Network"). Arkade is different: a
+      real, live Bitcoin L2 (VTXOs, Taproot scripts) that HodlHodl and
+      Lendasat both already build genuine 2-of-3-style escrow on top of —
+      same production precedent this file follows. Real
+      `@arkade-os/sdk` — `SeedIdentity`/`MultisigTapscript`/
+      `CSVMultisigTapscript`/`VtxoScript` construction verified
+      experimentally against the real package AND a real network call to
+      Ark Labs' own public mutinynet ASP (`https://mutinynet.arkade.sh`,
+      confirmed reachable — real `getInfo()`, real signer pubkey, a real
+      resulting Arkade address). Same custody-model/single-arbiter
+      disclosure as `MultisigProvider`. `releaseFunds()`/`refundFunds()`
+      are built against the real, documented `buildOffchainTx`/
+      `combineTapscriptSigs`/`verifyTapscriptSignatures`/
+      `RestArkProvider.submitTx`+`finalizeTx` functions, but — disclosed
+      plainly in that file's own header comment — NOT executed end-to-end
+      against a real funded VTXO in this pass (needs an actually-funded
+      mutinynet address, a further step; same category of disclosure
+      `WdkSettlementProvider` already uses for its own
+      real-but-unfunded-in-this-sandbox transfer path). Note: `@arkade-os/sdk`
+      cannot load under Jest (its CJS build transitively requires
+      `@scure/btc-signer`, pure ESM, no CJS build) — mocked in every test
+      file that reaches `escrow.service.ts`, same fix already used for
+      `@tetherto/wdk-wallet-evm`; confirmed this is Jest-specific, not a
+      real runtime problem (`node dist/src/modules/open-settlement/escrow.service.js`
+      loads the real, unmocked package cleanly).
+      `LiquidCovenantProvider` remains genuinely unimplemented — doesn't
+      exist as a file at all yet (needs a real Elements node plus a new
+      `liquidjs-lib` dependency), no Arkade-equivalent precedent found for
+      it yet.
 - [x] Real Multisig 2-of-3 Bitcoin escrow — **done** (`multisig.provider.ts`,
       2026-07-27). Real `bitcoinjs-lib`/`bip32`/`ecpair`/`tiny-secp256k1`
       P2WSH script + PSBT construction/signing/finalization, verified

@@ -25,6 +25,10 @@ jest.mock('../src/config', () => ({
       features: { mockEscrow: mockEscrowFeatureFlag, enforceCapabilities: false, requireDualApprovalForRelease: false },
       trade: { defaultTimelockHours: 24 },
       settlement: { trustedArbitrators: ['arb-1'] },
+      // Empty on purpose — lightning-hodl.provider.ts (real since the
+      // Arkade build) is inert without it, same "clear config error"
+      // pattern as multisig.provider.ts's own empty seed default below.
+      arkade: { seed: '' },
     }
   },
 }))
@@ -32,6 +36,22 @@ jest.mock('../src/config', () => ({
 jest.mock('@tetherto/wdk-wallet-evm', () => ({
   __esModule: true,
   default: class FakeWalletManagerEvm {},
+}))
+
+// @arkade-os/sdk's CJS build still transitively requires @scure/btc-signer,
+// which ships pure ESM (no CJS build) — same "Unexpected token 'export'"
+// problem as @tetherto/wdk-wallet-evm above, same fix. None of these tests
+// exercise lightning-hodl.provider.ts's real Arkade calls.
+jest.mock('@arkade-os/sdk', () => ({
+  SeedIdentity: { fromSeed: jest.fn() },
+  MultisigTapscript: { encode: jest.fn() },
+  CSVMultisigTapscript: { encode: jest.fn() },
+  VtxoScript: class FakeVtxoScript {},
+  RestArkProvider: class FakeRestArkProvider {},
+  RestIndexerProvider: class FakeRestIndexerProvider {},
+  buildOffchainTx: jest.fn(),
+  combineTapscriptSigs: jest.fn(),
+  verifyTapscriptSignatures: jest.fn(),
 }))
 
 const mockGetDepositAddress = jest.fn()
@@ -131,12 +151,12 @@ describe('getProvider() — no more silent MOCK fallback for an unregistered rea
     )
   })
 
-  it('still throws LIGHTNING_HODL\'s own "not yet implemented" message (unchanged behavior)', async () => {
+  it('LIGHTNING_HODL is registered (real since the Arkade build) and throws its own clear config error, not a fallback', async () => {
     mockEscrowFindUnique.mockResolvedValue({
       id: 'escrow-5', tradeId: 'trade-5', type: 'LIGHTNING_HODL', status: 'CREATED', timelockHours: 24,
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-5', buyerId: 'buyer-1', sellerId: 'seller-1' })
 
-    await expect(escrowService.lockFunds('escrow-5', 'seller-1')).rejects.toThrow('Lightning HODL escrow not yet implemented')
+    await expect(escrowService.lockFunds('escrow-5', 'seller-1')).rejects.toThrow('ARKADE_SEED')
   })
 })
