@@ -35,9 +35,10 @@ jest.mock('../src/config', () => ({
       features: { mockEscrow: mockEscrowFeatureFlag, enforceCapabilities, requireDualApprovalForRelease },
       trade: { defaultTimelockHours: 24 },
       // Empty on purpose — LightningHodlProvider (lightning-hodl.provider.ts)
-      // is now real, and reliably throws a clear config error with no
-      // ARKADE_SEED configured, same "reliable provider failure" fixture
-      // role LIGHTNING_HODL always played here even back when it was a
+      // is now real, and (with no pubkeys submitted, see
+      // mockParticipantKeyFindMany below) reliably throws a clear "missing
+      // pubkey" error, same "reliable provider failure" fixture role
+      // LIGHTNING_HODL always played here even back when it was a
       // permanent throw-only stub.
       settlement: { trustedArbitrators: [] },
       arkade: { seed: '' },
@@ -81,6 +82,16 @@ const mockApprovalUpsert = jest.fn()
 const mockApprovalFindMany = jest.fn()
 const mockApprovalCount = jest.fn()
 const mockDisputeFindFirst = jest.fn()
+// Client-held-keys pass — lockFunds() now queries this for
+// MULTISIG/LIGHTNING_HODL escrows before calling the provider. Defaults
+// to empty (no keys submitted), which is fine for these tests: both
+// escrow types here reliably fail before ever needing a real pubkey
+// (MOCK_ESCROW stays true throughout, so getProvider() always
+// short-circuits to MockSettlementProvider — see this file's header
+// comment; the LIGHTNING_HODL fixture used further down exists purely as
+// a "reliably throws" stand-in, same role it always played, and its
+// error fires before partiesFor() would ever need these keys).
+const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -99,6 +110,7 @@ jest.mock('../src/common/database', () => ({
       count: (...args: unknown[]) => mockApprovalCount(...args),
     },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
+    escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
   },
 }))
 
@@ -318,7 +330,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // behavior, reused here rather than fabricating a new failure mode.
       mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, type: 'LIGHTNING_HODL', status: 'CREATED' })
 
-      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/TRUSTED_ARBITRATORS/)
+      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/requires a submitted buyer pubkey/)
 
       // Robustness-audit fix (2026-07-20): lockFunds() now claims
       // FUNDS_LOCKED atomically *before* calling the provider, so a
@@ -346,7 +358,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
       mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrow, type: 'LIGHTNING_HODL', status: 'CREATED' })
 
-      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/TRUSTED_ARBITRATORS/)
+      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/requires a submitted buyer pubkey/)
 
       // Retry: same escrow id, still status CREATED (never advanced), now
       // routed through a working provider — mockEscrow back on, matching

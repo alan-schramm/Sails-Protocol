@@ -46,12 +46,16 @@ type EscrowRecord = {
   // (OpenSettlement must never own Trade's data, see this file's header
   // comment), so these are attached by lockFunds()/releaseFunds()/
   // refundFunds() below from a Trade row they already fetch for the
-  // isPartyOrAgent() authorization check. Only MultisigProvider needs
-  // them (it must derive 2 of 3 keys from real party identities, unlike
-  // MOCK/WDK_USDT_EVM which only ever need tradeId) — optional so every
-  // other provider can keep ignoring them.
+  // isPartyOrAgent() authorization check.
   buyerId?: string
   sellerId?: string
+  // Client-submitted pubkeys (EscrowParticipantKey, hex, 33-byte
+  // compressed) — attached by lockFunds() for MULTISIG/LIGHTNING_HODL,
+  // the only two providers that need them (they no longer derive
+  // buyer/seller keys server-side, see each provider's own header
+  // comment). Optional so every other provider keeps ignoring them.
+  buyerPubkey?: string
+  sellerPubkey?: string
   // Set only for releaseFunds()/refundFunds() — the arbiter id
   // (resolveDispute()'s triggeredBy) an arbitrated call was authorized
   // with, so MultisigProvider can refuse a mismatched dispute-arbiter
@@ -119,13 +123,18 @@ const PROVIDERS: Record<string, SettlementProvider> = {
 }
 
 // Providers that never push funds into escrow themselves (MULTISIG,
-// LIGHTNING_HODL/Arkade) need their deposit address available immediately
-// at creation time, before any lockFunds() call — see createEscrow()'s
-// getDepositAddress() branch below.
-const NON_CUSTODIAL_PROVIDERS: Record<string, { getDepositAddress(tradeId: string, buyerId: string, sellerId: string): Promise<string> }> = {
+// LIGHTNING_HODL/Arkade) and whose buyer/seller keys are client-held —
+// their deposit address can only be derived once both pubkeys have been
+// submitted (submitParticipantKey() below), not at creation time.
+const NON_CUSTODIAL_PROVIDERS: Record<string, { getDepositAddress(tradeId: string, buyerPubkey: string, sellerPubkey: string): Promise<string> }> = {
   MULTISIG: multisigProvider,
   LIGHTNING_HODL: lightningHodlProvider,
 }
+
+// 33-byte compressed secp256k1 pubkey, hex — the canonical client-submitted
+// format both MULTISIG and LIGHTNING_HODL derive their own required
+// representation from (see each provider's own header comment).
+const PUBKEY_HEX_PATTERN = /^0[23][0-9a-fA-F]{64}$/
 
 export interface CreateEscrowInput {
   tradeId: string
@@ -231,7 +240,12 @@ export class EscrowService {
 
     const type = input.type ?? (config.features.mockEscrow ? 'MOCK' : 'MULTISIG')
 
-    let escrow = await prisma.escrow.create({
+    // MULTISIG/LIGHTNING_HODL's buyer/seller keys are now client-held
+    // (each provider's own header comment) — the deposit address
+    // genuinely cannot be derived yet at creation time, only once both
+    // parties have submitted their pubkey via submitParticipantKey()
+    // below. Escrow.multisigAddr stays null until then.
+    const escrow = await prisma.escrow.create({
       data: {
         tradeId: input.tradeId,
         type: type as any,
@@ -243,19 +257,6 @@ export class EscrowService {
       },
     })
 
-    // MULTISIG/LIGHTNING_HODL are non-custodial (see each provider's own
-    // doc comment) — unlike MOCK/WDK_USDT_EVM they never push funds into
-    // escrow themselves, so the seller needs the deposit address up
-    // front, before any lockFunds() call, not only once funds are
-    // confirmed. Populated here rather than lazily in lockFunds() so
-    // GET /v1/settlement/escrow/:id already has it the moment the escrow
-    // exists.
-    const nonCustodialProvider = NON_CUSTODIAL_PROVIDERS[type]
-    if (nonCustodialProvider && !config.features.mockEscrow) {
-      const address = await nonCustodialProvider.getDepositAddress(trade.id, trade.buyerId, trade.sellerId)
-      escrow = await prisma.escrow.update({ where: { id: escrow.id }, data: { multisigAddr: address } })
-    }
-
     await eventBus.emit('settlement.escrow.created', {
       escrowId: escrow.id,
       tradeId: escrow.tradeId,
@@ -265,6 +266,55 @@ export class EscrowService {
     }, escrow.tradeId)   // correlationId = tradeId (RFC-010)
 
     return escrow
+  }
+
+  // The client-held-keys write path (2026-07-27) — buyer/seller each call
+  // this once, from their own client, submitting only their public key
+  // (their private key never leaves the browser; see multisig.provider.ts's
+  // and lightning-hodl.provider.ts's own header comments for the full
+  // custody-model disclosure). Idempotent per role: a party resubmitting
+  // overwrites their own row (upsert), same shape as approveRelease()
+  // above. Once both buyer and seller rows exist, derives and persists
+  // the real deposit address — this is the only place that now happens,
+  // replacing createEscrow()'s old immediate-population branch.
+  async submitParticipantKey(escrowId: string, participantId: string, pubkey: string) {
+    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    if (!escrow) throw new NotFoundError('Escrow', escrowId)
+
+    const provider = NON_CUSTODIAL_PROVIDERS[escrow.type]
+    if (!provider) {
+      throw new EscrowError(`Escrow type '${escrow.type}' does not use client-submitted keys — nothing to submit`)
+    }
+
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+
+    let role: 'buyer' | 'seller'
+    if (participantId === trade.buyerId) role = 'buyer'
+    else if (participantId === trade.sellerId) role = 'seller'
+    else throw new ForbiddenError(`${participantId} is not a counterparty (buyer or seller) of trade ${trade.id}`)
+
+    if (!PUBKEY_HEX_PATTERN.test(pubkey)) {
+      throw new EscrowError('pubkey must be a 33-byte compressed secp256k1 public key, hex-encoded (66 hex characters, starting with 02 or 03)')
+    }
+
+    await prisma.escrowParticipantKey.upsert({
+      where: { escrowId_role: { escrowId, role } },
+      update: { participantId, pubkey },
+      create: { escrowId, role, participantId, pubkey },
+    })
+
+    const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
+    const buyerKey = keys.find((k) => k.role === 'buyer')
+    const sellerKey = keys.find((k) => k.role === 'seller')
+
+    let updatedEscrow = escrow
+    if (buyerKey && sellerKey && !escrow.multisigAddr && !config.features.mockEscrow) {
+      const address = await provider.getDepositAddress(trade.id, buyerKey.pubkey, sellerKey.pubkey)
+      updatedEscrow = await prisma.escrow.update({ where: { id: escrowId }, data: { multisigAddr: address } })
+    }
+
+    return { escrow: updatedEscrow, buyerKeySubmitted: !!buyerKey, sellerKeySubmitted: !!sellerKey }
   }
 
   async lockFunds(escrowId: string, triggeredBy: string) {
@@ -303,7 +353,19 @@ export class EscrowService {
 
     try {
       const provider = this.getProvider(escrow.type)
-      const result = await provider.lockFunds({ ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId } as unknown as EscrowRecord)
+      // MULTISIG/LIGHTNING_HODL need the client-submitted pubkeys
+      // (EscrowParticipantKey) to re-derive the same script lockFunds()
+      // verifies against — every other provider ignores these extra
+      // fields, same "optional, only two providers care" shape as
+      // buyerId/sellerId below.
+      const participantKeys = NON_CUSTODIAL_PROVIDERS[escrow.type]
+        ? await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
+        : []
+      const buyerPubkey = participantKeys.find((k) => k.role === 'buyer')?.pubkey
+      const sellerPubkey = participantKeys.find((k) => k.role === 'seller')?.pubkey
+      const result = await provider.lockFunds({
+        ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey,
+      } as unknown as EscrowRecord)
 
       const now = new Date()
       const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)

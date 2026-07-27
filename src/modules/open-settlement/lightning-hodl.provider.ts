@@ -20,31 +20,32 @@
  * `CSVMultisigTapscript` unilateral-exit leaf), and a real Arkade address
  * produced from a live server pubkey — all confirmed working, not assumed.
  *
- * Custody model — same "state it plainly" discipline as
- * `multisig.provider.ts`'s own header comment (and this file reuses that
- * file's exact key-derivation shape, just building an Ark `VtxoScript`
- * instead of a Bitcoin P2WSH script): all 3 keys (buyer/seller/arbiter)
- * are derived from one server-held seed — genuine 2-of-3-shaped Taproot
- * script mechanics, not yet a trustless design where each counterparty
- * holds their own key. Same single-arbiter limitation as
- * `MultisigProvider` too: the script's arbiter key is fixed at
- * escrow-creation time.
+ * Custody model — updated 2026-07-27 (client-held keys pass, same change
+ * `multisig.provider.ts` got): the buyer and seller each generate their
+ * own key CLIENT-SIDE (`@sails/sdk`'s escrow-key module) and submit only
+ * the public key (`POST /v1/settlement/escrow/:id/submit-key`, persisted
+ * as `EscrowParticipantKey`) — this provider never sees, derives, or
+ * holds either of their private keys. Only the arbiter key is still
+ * server-derived. The submitted pubkey is the same 33-byte compressed
+ * secp256k1 format `MultisigProvider` uses (one client key genuinely
+ * serves both providers — verified experimentally that
+ * `compressed[1:] === x-only`, same normalization `getServerPubKey()`
+ * below already does for the ASP's own pubkey); this file strips the
+ * leading byte to get the 32-byte x-only form `MultisigTapscript` wants.
  *
- * Non-custodial in the fund-movement sense — this provider never pushes
- * funds into escrow itself. `lockFunds()`/`verifyLock()` only verify that
- * a VTXO was funded externally (queried from the ASP's real indexer),
- * matching `MultisigProvider`'s pattern exactly.
- *
- * Disclosure on `releaseFunds()`/`refundFunds()`: built against the real,
- * documented `buildOffchainTx`/`combineTapscriptSigs`/
- * `verifyTapscriptSignatures`/`RestArkProvider.submitTx`+`finalizeTx`
- * functions (all confirmed to exist with these exact signatures in the
- * installed package) — but NOT executed end-to-end against a real funded
- * VTXO in this pass (that needs an actually-funded mutinynet address, a
- * further step). Same category of disclosure `WdkSettlementProvider`'s own
- * header comment already uses for its real-but-unfunded-in-this-sandbox
- * transfer path — written against the real compiled API, not fabricated,
- * but the live money-moving round trip itself is unverified here.
+ * Consequence, stated plainly rather than silently broken (identical
+ * reasoning to `multisig.provider.ts`): `releaseFunds()`/`refundFunds()`
+ * used to co-sign with 2 of 3 keys server-side in one call — no longer
+ * possible now that buyer/seller keys are client-held. Both throw a clear
+ * `EscrowError` below. A real release needs a signature-collection flow
+ * (server builds the unsigned Ark tx, each required party fetches + signs
+ * + submits their own signature client-side) — Phase 2, not built yet,
+ * `docs/TODO.md` §4 tracks it. This also retires the
+ * `buildOffchainTx`/`combineTapscriptSigs`/`verifyTapscriptSignatures`/
+ * `submitTx`/`finalizeTx` machinery this file previously built against
+ * (still real, still correct against the documented API — just not
+ * reachable from any code path until Phase 2 rebuilds the signing flow
+ * around client-submitted signatures instead of server-held keys).
  *
  * Testnet (mutinynet) only. ARKADE_SEED empty by default — same
  * "surface a clear config error, don't refuse to boot" pattern as
@@ -57,40 +58,42 @@ import {
   VtxoScript,
   RestArkProvider,
   RestIndexerProvider,
-  buildOffchainTx,
-  combineTapscriptSigs,
-  verifyTapscriptSignatures,
-  type ArkTxInput,
 } from '@arkade-os/sdk'
 import { createHash } from 'crypto'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
 
-type ArkParties = { buyerId: string; sellerId: string; arbiterId: string }
+type ArkParties = { buyerPubkey: Uint8Array; sellerPubkey: Uint8Array; arbiterId: string }
 
 export type ArkEscrowInput = {
   tradeId: string
   lockedAmount: string
-  buyerId?: string
-  sellerId?: string
+  buyerPubkey?: string   // hex, 33-byte compressed — from EscrowParticipantKey
+  sellerPubkey?: string  // hex, 33-byte compressed — from EscrowParticipantKey
   txLockId?: string | null
   status?: string
   triggeredBy?: string
 }
 
-// Same shape as multisig.provider.ts's keyIndexFor/deriveKey — kept as an
-// independent copy (not imported) since the two files build genuinely
-// different script types (P2WSH vs. VtxoScript) from the derived key even
-// though the derivation salt convention matches. Exported for direct
-// unit testing, same reason multisig.provider.ts's is.
+// Kept for the arbiter role only now — buyer/seller salts are unused
+// (their keys are client-submitted, not derived). Exported for direct
+// unit testing, same reason it always was.
 export function seedFor(role: 'buyer' | 'seller' | 'arbiter', id: string): Uint8Array {
   return createHash('sha512').update(`arkade:${role}:${id}`).digest()
 }
 
+// 33-byte compressed -> 32-byte x-only — same point, different
+// serialization (verified experimentally: compressed[1:] === schnorr
+// x-only pubkey for the same private key). Shared by parsePubkey() below
+// and getServerPubKey()'s identical normalization of the ASP's own key.
+function toXOnly(compressed: Buffer): Buffer {
+  return compressed.length === 33 ? compressed.subarray(1) : compressed
+}
+
 export class LightningHodlProvider implements SettlementProvider {
   name = 'LIGHTNING_HODL'
-  readonly custodyModel = 'server-derived-2-of-3-reference-implementation' as const
+  readonly custodyModel = 'client-held-buyer-seller-keys-server-held-arbiter' as const
 
   private ark: RestArkProvider | null = null
   private indexer: RestIndexerProvider | null = null
@@ -99,7 +102,7 @@ export class LightningHodlProvider implements SettlementProvider {
   private requireSeed(): string {
     if (!config.arkade.seed) {
       throw new EscrowError(
-        'LIGHTNING_HODL (Arkade) provider requires ARKADE_SEED configured (.env.example) — refusing to derive keys from an empty seed'
+        'LIGHTNING_HODL (Arkade) provider requires ARKADE_SEED configured (.env.example) — refusing to derive the arbiter key from an empty seed'
       )
     }
     return config.arkade.seed
@@ -128,60 +131,44 @@ export class LightningHodlProvider implements SettlementProvider {
   private async getServerPubKey(): Promise<Uint8Array> {
     if (this.cachedServerPubKey) return this.cachedServerPubKey
     const info = await this.getArkProvider().getInfo()
-    // ArkInfo.signerPubkey is a 33-byte compressed SEC pubkey — VtxoScript's
-    // address()/CSVMultisigTapscript want the 32-byte x-only key. Confirmed
-    // experimentally (a bare 33-byte value throws "Invalid server public
-    // key length, expected 32 bytes, got 33").
-    const raw = Buffer.from(info.signerPubkey, 'hex')
-    this.cachedServerPubKey = raw.length === 33 ? raw.subarray(1) : raw
+    this.cachedServerPubKey = toXOnly(Buffer.from(info.signerPubkey, 'hex'))
     return this.cachedServerPubKey
   }
 
-  private deriveKey(role: 'buyer' | 'seller' | 'arbiter', id: string): SeedIdentity {
+  // Arbiter is the only role this provider still derives itself — buyer
+  // and seller keys are client-submitted (see partiesFor()).
+  private deriveArbiterKey(id: string): SeedIdentity {
     this.requireSeed()
-    // Reference-seed + role/id salt (same convention as
-    // multisig.provider.ts's keyIndexFor) — SeedIdentity wants a full
-    // 64-byte seed rather than a BIP-32 index, so this mixes the shared
-    // reference seed into the salted hash rather than deriving an index.
-    const material = createHash('sha512').update(config.arkade.seed).update(seedFor(role, id)).digest()
+    const material = createHash('sha512').update(config.arkade.seed).update(seedFor('arbiter', id)).digest()
     return SeedIdentity.fromSeed(material, { isMainnet: false })
   }
 
-  private partiesFor(escrow: ArkEscrowInput): ArkParties {
-    if (!escrow.buyerId || !escrow.sellerId) {
+  private parsePubkey(hex: string | undefined, role: 'buyer' | 'seller', tradeId: string): Buffer {
+    if (!hex) {
       throw new EscrowError(
-        `LIGHTNING_HODL (Arkade) provider requires buyerId/sellerId for trade ${escrow.tradeId} — escrow.service.ts must pass Trade's parties through`
+        `LIGHTNING_HODL (Arkade) provider requires a submitted ${role} pubkey for trade ${tradeId} — call POST /v1/settlement/escrow/:id/submit-key first (see EscrowParticipantKey)`
       )
     }
-    return { buyerId: escrow.buyerId, sellerId: escrow.sellerId, arbiterId: this.defaultArbiterId() }
+    const buf = Buffer.from(hex, 'hex')
+    if (buf.length !== 33) {
+      throw new EscrowError(`LIGHTNING_HODL (Arkade) provider: ${role} pubkey for trade ${tradeId} must be a 33-byte compressed secp256k1 key, got ${buf.length} bytes`)
+    }
+    return buf
   }
 
-  // Same single-arbiter limitation as multisig.provider.ts's
-  // assertArbiterMatchesScript() — the script's arbiter key is fixed at
-  // creation time and cannot depend on whichever arbiter
-  // TrustedArbitratorProvider's round-robin later assigns to an actual
-  // dispute.
-  private assertArbiterMatchesScript(escrow: ArkEscrowInput) {
-    if (escrow.status !== 'DISPUTED') return
-    const scriptArbiter = this.defaultArbiterId()
-    if (escrow.triggeredBy && escrow.triggeredBy !== scriptArbiter) {
-      throw new EscrowError(
-        `LIGHTNING_HODL (Arkade) provider: dispute arbiter '${escrow.triggeredBy}' does not match the arbiter key ('${scriptArbiter}') baked into this escrow's script at creation time. ` +
-        'This reference implementation only supports a single-arbiter TRUSTED_ARBITRATORS configuration.'
-      )
+  private partiesFor(escrow: ArkEscrowInput): ArkParties {
+    return {
+      buyerPubkey: toXOnly(this.parsePubkey(escrow.buyerPubkey, 'buyer', escrow.tradeId)),
+      sellerPubkey: toXOnly(this.parsePubkey(escrow.sellerPubkey, 'seller', escrow.tradeId)),
+      arbiterId: this.defaultArbiterId(),
     }
   }
 
   private async buildScript(parties: ArkParties) {
-    const buyerIdentity = this.deriveKey('buyer', parties.buyerId)
-    const sellerIdentity = this.deriveKey('seller', parties.sellerId)
-    const arbiterIdentity = this.deriveKey('arbiter', parties.arbiterId)
-
-    const [buyerPk, sellerPk, arbiterPk] = await Promise.all([
-      buyerIdentity.xOnlyPublicKey(),
-      sellerIdentity.xOnlyPublicKey(),
-      arbiterIdentity.xOnlyPublicKey(),
-    ])
+    const arbiterIdentity = this.deriveArbiterKey(parties.arbiterId)
+    const arbiterPk = await arbiterIdentity.xOnlyPublicKey()
+    const buyerPk = parties.buyerPubkey
+    const sellerPk = parties.sellerPubkey
 
     // OR-of-AND-pairs — same technique multisig.provider.ts uses for real
     // Bitcoin P2WSH, here building a real Ark Taproot VtxoScript instead.
@@ -198,14 +185,21 @@ export class LightningHodlProvider implements SettlementProvider {
     const serverPubKey = await this.getServerPubKey()
     const address = vtxoScript.address(undefined, serverPubKey)
 
-    return { vtxoScript, address, buyerIdentity, sellerIdentity, arbiterIdentity, buyerSeller, buyerArbiter, sellerArbiter, buyerExit }
+    return { vtxoScript, address, arbiterIdentity, buyerSeller, buyerArbiter, sellerArbiter, buyerExit }
   }
 
-  // Not part of SettlementProvider — called directly by escrow.service.ts's
-  // createEscrow() to populate Escrow.multisigAddr immediately, same role
-  // as MultisigProvider.getDepositAddress().
-  async getDepositAddress(tradeId: string, buyerId: string, sellerId: string): Promise<string> {
-    const { address } = await this.buildScript({ buyerId, sellerId, arbiterId: this.defaultArbiterId() })
+  // Not part of SettlementProvider — called by escrow.service.ts's
+  // submitParticipantKey() once BOTH buyer and seller pubkeys have been
+  // submitted, to populate Escrow.multisigAddr. Same role as
+  // MultisigProvider.getDepositAddress() — takes raw submitted hex
+  // directly for the same reason that one does.
+  async getDepositAddress(tradeId: string, buyerPubkeyHex: string, sellerPubkeyHex: string): Promise<string> {
+    const parties: ArkParties = {
+      buyerPubkey: toXOnly(this.parsePubkey(buyerPubkeyHex, 'buyer', tradeId)),
+      sellerPubkey: toXOnly(this.parsePubkey(sellerPubkeyHex, 'seller', tradeId)),
+      arbiterId: this.defaultArbiterId(),
+    }
+    const { address } = await this.buildScript(parties)
     return address.encode()
   }
 
@@ -239,97 +233,22 @@ export class LightningHodlProvider implements SettlementProvider {
     return vtxos.some((v) => v.value >= expected)
   }
 
-  // Shared by releaseFunds()/refundFunds() below — builds, co-signs
-  // (buyer+seller normal path; buyer+arbiter / seller+arbiter on a
-  // DISPUTED escrow, mirroring MultisigProvider's identical logic), and
-  // submits a real offchain Ark transaction spending the funding VTXO to
-  // `toAddress`. See this file's header comment for the disclosure on
-  // this method specifically: built against the real, documented SDK
-  // functions, not executed end-to-end against a funded VTXO in this pass.
-  private async spend(escrow: ArkEscrowInput, toAddress: string, signers: readonly [SeedIdentity, SeedIdentity], leaf: { script: Uint8Array }) {
-    const parties = this.partiesFor(escrow)
-    const { vtxoScript, buyerExit } = await this.buildScript(parties)
-
-    if (!escrow.txLockId) {
-      throw new EscrowError(`Escrow for trade ${escrow.tradeId} has no recorded funding txid (txLockId) — cannot spend before lockFunds() has confirmed one`)
-    }
-    const scriptHex = Buffer.from(vtxoScript.pkScript).toString('hex')
-    const { vtxos } = await this.getIndexer().getVtxos({ scripts: [scriptHex], spendableOnly: true })
-    const vtxo = vtxos.find((v) => v.txid === escrow.txLockId)
-    if (!vtxo) {
-      throw new EscrowError(`Funding VTXO ${escrow.txLockId} for this escrow's Arkade script not found by the indexer — it may already be spent`)
-    }
-
-    const tapLeafScript = vtxoScript.findLeaf(Buffer.from(leaf.script).toString('hex'))
-    const input: ArkTxInput = {
-      tapLeafScript,
-      tapTree: vtxoScript.encode(),
-      txid: vtxo.txid,
-      vout: vtxo.vout,
-      value: vtxo.value,
-    }
-    const toScript = Buffer.from(toAddress, 'hex') // caller passes a raw script; see releaseFunds/refundFunds
-
-    const { arkTx, checkpoints } = buildOffchainTx([input], [{ script: toScript, amount: BigInt(vtxo.value) }], buyerExit)
-
-    // Co-sign: each identity signs its own copy of the tx, then the two
-    // signed copies are merged — same two-independent-signatures pattern
-    // multisig.provider.ts's PSBT flow uses, adapted to Ark's
-    // combineTapscriptSigs helper (Ark txs aren't PSBTs).
-    const [signerA, signerB] = signers
-    const signedByA = await signerA.sign(arkTx, [0])
-    const signedByB = await signerB.sign(arkTx, [0])
-    const finalArkTx = combineTapscriptSigs(signedByA, signedByB)
-    verifyTapscriptSignatures(finalArkTx, 0, [
-      Buffer.from(await signerA.xOnlyPublicKey()).toString('hex'),
-      Buffer.from(await signerB.xOnlyPublicKey()).toString('hex'),
-    ])
-
-    // Checkpoint transactions carry the same tapscript spending condition
-    // as the main ark tx for this input, so they need the identical
-    // two-party co-signature before submission.
-    const signedCheckpoints = await Promise.all(
-      checkpoints.map(async (cp) => {
-        const a = await signerA.sign(cp, [0])
-        const b = await signerB.sign(cp, [0])
-        return combineTapscriptSigs(a, b).hex
-      })
+  // Phase 2, not built yet — see this file's header comment. The buyer's
+  // and seller's private keys are now client-held; this provider
+  // structurally cannot co-sign an Ark tx with either anymore. Throwing
+  // here, honestly, rather than attempting a signature this provider has
+  // no key for.
+  async releaseFunds(_escrow: ArkEscrowInput, _toAddress: string): Promise<{ txId: string }> {
+    throw new EscrowError(
+      'LIGHTNING_HODL (Arkade) provider: releaseFunds() requires client-submitted signatures now that buyer/seller keys are client-held (Phase 2 — signature collection — not yet built). See docs/TODO.md §4.'
     )
-
-    const submitted = await this.getArkProvider().submitTx(finalArkTx.hex, signedCheckpoints)
-    await this.getArkProvider().finalizeTx(submitted.arkTxid, submitted.signedCheckpointTxs)
-    return { txId: submitted.arkTxid }
   }
 
-  async releaseFunds(escrow: ArkEscrowInput, toAddress: string): Promise<{ txId: string }> {
-    this.assertArbiterMatchesScript(escrow)
-    const parties = this.partiesFor(escrow)
-    const { buyerIdentity, sellerIdentity, arbiterIdentity, buyerSeller, buyerArbiter } = await this.buildScript(parties)
-    // Normal release: buyer+seller. Disputed (ruling favors buyer): arbiter co-signs with the buyer.
-    const [signers, leaf] = escrow.status === 'DISPUTED'
-      ? ([[buyerIdentity, arbiterIdentity], buyerArbiter] as const)
-      : ([[buyerIdentity, sellerIdentity], buyerSeller] as const)
-    return this.spend(escrow, toAddress, signers, leaf)
-  }
-
-  async refundFunds(escrow: ArkEscrowInput): Promise<{ txId: string }> {
-    this.assertArbiterMatchesScript(escrow)
-    const parties = this.partiesFor(escrow)
-    const { vtxoScript, buyerIdentity, sellerIdentity, arbiterIdentity, buyerSeller, sellerArbiter } = await this.buildScript(parties)
-    // Refund-to-seller: mirror of releaseFunds. Disputed (ruling favors seller): arbiter co-signs with the seller.
-    const [signers, leaf] = escrow.status === 'DISPUTED'
-      ? ([[sellerIdentity, arbiterIdentity], sellerArbiter] as const)
-      : ([[buyerIdentity, sellerIdentity], buyerSeller] as const)
-    const sellerPk = await sellerIdentity.xOnlyPublicKey()
-    const serverPubKey = await this.getServerPubKey()
-    // Seller's own single-key Ark address, same reference-implementation
-    // stand-in multisig.provider.ts's refundFunds() already uses (no
-    // per-user payout address exists in the schema yet — dispute.service.ts's
-    // own comment flags this same gap for WDK).
-    const sellerScript = new VtxoScript([CSVMultisigTapscript.encode({ timelock: { type: 'blocks', value: 1n }, pubkeys: [sellerPk] }).script])
-    const sellerAddress = sellerScript.address(undefined, serverPubKey)
-    const toScriptHex = Buffer.from(sellerAddress.pkScript ?? vtxoScript.pkScript).toString('hex')
-    return this.spend(escrow, toScriptHex, signers, leaf)
+  // Same reason as releaseFunds() above.
+  async refundFunds(_escrow: ArkEscrowInput): Promise<{ txId: string }> {
+    throw new EscrowError(
+      'LIGHTNING_HODL (Arkade) provider: refundFunds() requires client-submitted signatures now that buyer/seller keys are client-held (Phase 2 — signature collection — not yet built). See docs/TODO.md §4.'
+    )
   }
 }
 

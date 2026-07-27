@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import type { Trade as SdkTrade, Escrow as SdkEscrow, Message as SdkMessage, ChatMessageEvent, WebSocketChannel } from '@sails/sdk'
 import type { EscrowStatus, Message, MessageType, User } from '../types'
 import { useAuth } from '../context/AuthContext'
+import { useEscrowKey } from '../hooks/useEscrowKey'
 import { sailsClient } from '../lib/sailsClient'
 import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/Badge'
 import { EscrowStateMachine } from '../components/trade/EscrowStateMachine'
@@ -56,6 +57,7 @@ function toUiMessageFromEvent(m: ChatMessageEvent, buyer: User, seller: User): M
 export function Trade() {
   const { id } = useParams()
   const { user } = useAuth()
+  const { submitEscrowKeyIfNeeded } = useEscrowKey()
 
   const [trade, setTrade] = useState<SdkTrade | null>(null)
   const [escrow, setEscrow] = useState<SdkEscrow | null>(null)
@@ -91,7 +93,15 @@ export function Trade() {
       setSeller(s)
 
       if (t.escrowId) {
-        const e = await sailsClient.settlement.get(t.escrowId)
+        let e = await sailsClient.settlement.get(t.escrowId)
+        // Client-held-keys write path (MULTISIG/LIGHTNING_HODL only, see
+        // useEscrowKey's own header comment) — submitting is idempotent
+        // and requires an authenticated session, so only attempted for a
+        // logged-in counterparty, not every visitor who opens this page.
+        if (user && (user.id === t.buyerId || user.id === t.sellerId)) {
+          await submitEscrowKeyIfNeeded(e.type, e.id).catch(() => {})
+          e = await sailsClient.settlement.get(t.escrowId)
+        }
         if (!cancelled) setEscrow(e)
       }
 

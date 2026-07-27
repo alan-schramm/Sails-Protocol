@@ -25,17 +25,21 @@ single party can access the funds alone — release requires bilateral or
 arbitrated action.
 
 - **Multisig 2-of-3:** Buyer + Seller + Arbiter — real as of 2026-07-27
-  (`multisig.provider.ts`), with one disclosed gap: this reference
-  implementation still derives all 3 keys from one server-held seed
-  rather than each counterparty holding their own (`TODO.md` §4,
-  `docs/HANDOFF.md` §4 has the full custody-model note)
+  (`multisig.provider.ts`). Buyer/seller each hold their own client-side
+  key as of the same day's follow-up pass (`@sails/sdk`'s
+  `generateEscrowKeypair()` + `POST /v1/settlement/escrow/:id/submit-key`)
+  — the server only ever derives the arbiter's own key, the same split
+  HodlHodl's real design uses. Disclosed gap: release/refund need a
+  client-signature-collection flow that doesn't exist yet (Phase 2), so
+  both currently throw rather than silently fail (`TODO.md` §4 has the
+  full disclosure)
 - **Lightning HODL HTLC:** time-locked — real as of 2026-07-27, via Arkade
   (Ark protocol) rather than a literal LND hold-invoice
   (`lightning-hodl.provider.ts`) — plain Lightning HTLCs genuinely have no
   multi-party escrow primitive (confirmed from HodlHodl's own docs), but
   Arkade does, and HodlHodl/Lendasat both already build on it in
-  production. Same disclosed custody-model gap as Multisig above
-  (`TODO.md` §4)
+  production. Same client-held-keys upgrade and same disclosed Phase 2
+  gap as Multisig above (`TODO.md` §4)
 - **Liquid Covenant:** script-enforced — not implemented at all yet, same
   live-infrastructure blocker as Lightning above
 

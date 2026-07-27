@@ -1,23 +1,40 @@
 /**
  * MultisigProvider — real 2-of-3 Bitcoin P2WSH script/PSBT logic.
  *
+ * Client-held-keys pass (2026-07-27): buyer/seller pubkeys are now
+ * client-submitted (33-byte compressed secp256k1 hex, real fixtures
+ * generated once via @noble/curves — see the constants below), not
+ * server-derived. Only the arbiter key is still derived from
+ * MULTISIG_SEED. releaseFunds()/refundFunds() now throw a clear "Phase 2
+ * not built" error unconditionally, since this provider no longer holds
+ * either counterparty's private key to sign with — see
+ * multisig.provider.ts's own header comment for the full disclosure.
+ *
  * Unlike WdkSettlementProvider (tests/wdkSettlementProvider.test.ts),
  * whose lock/release/refund calls need a live funded testnet wallet to
- * verify for real, MultisigProvider's entire cryptographic core — key
- * derivation, script/address construction, PSBT signing and
- * finalization — is pure and fully verifiable without any live
- * infrastructure. Only the two network calls (explorer UTXO lookup,
- * broadcast) are mocked here; everything else (including real 2-of-3
- * signing) runs for real against the actual bitcoinjs-lib/bip32/ecpair
- * APIs, the same experiment already run manually before this file was
- * written confirmed works.
+ * verify for real, everything testable here (key derivation for the
+ * arbiter, script/address construction, UTXO verification) is pure and
+ * fully verifiable without any live infrastructure — only the explorer
+ * API network call is mocked.
  *
  * config.multisig.seed / config.settlement.trustedArbitrators are read
  * once at module-load time (src/config/index.ts), so each test that
  * needs a specific configuration resets modules and re-requires with
  * process.env set first.
  */
+export {} // forces module scope — without this, top-level `const` here and in
+// lightningHodlProvider.test.ts (also script-scoped, no imports of its own)
+// collide as the SAME global binding under isolatedModules-style checking.
+
 const ORIGINAL_ENV = process.env
+
+// Real, valid 33-byte compressed secp256k1 pubkeys — generated once via
+// @noble/curves (deterministic sha256-derived private keys), not random,
+// so test failures are reproducible.
+const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
+const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
+const BUYER2_PUBKEY = '03a8f0fdc9911d8e33f58b1fced67b769189f2188431515e5171462522cb1be87b'
+const SELLER2_PUBKEY = '022704740d198905f841d3c4a82afd828398130d62190d9142761158eb893c9419'
 
 function loadProvider(env: Record<string, string | undefined>) {
   jest.resetModules()
@@ -32,21 +49,18 @@ afterAll(() => {
 describe('keyIndexFor (deterministic per-role-and-id derivation)', () => {
   it('is deterministic — same role+id always derives the same index', () => {
     const { keyIndexFor } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    expect(keyIndexFor('buyer', 'user-1')).toBe(keyIndexFor('buyer', 'user-1'))
+    expect(keyIndexFor('arbiter', 'user-1')).toBe(keyIndexFor('arbiter', 'user-1'))
   })
 
-  it('produces different indexes for different roles on the same id (distinct salt)', () => {
+  it('produces different indexes for different ids (distinct salt)', () => {
     const { keyIndexFor } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    const buyer = keyIndexFor('buyer', 'shared-id')
-    const seller = keyIndexFor('seller', 'shared-id')
-    const arbiter = keyIndexFor('arbiter', 'shared-id')
-    expect(new Set([buyer, seller, arbiter]).size).toBe(3)
+    expect(keyIndexFor('arbiter', 'arb-1')).not.toBe(keyIndexFor('arbiter', 'arb-2'))
   })
 
   it('always stays within the valid BIP-32 non-hardened index range', () => {
     const { keyIndexFor } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     for (const id of ['u1', 'a-very-long-user-id-uuid-like-string-1234567890', '']) {
-      const index = keyIndexFor('buyer', id)
+      const index = keyIndexFor('arbiter', id)
       expect(index).toBeGreaterThanOrEqual(0)
       expect(index).toBeLessThan(0x80000000)
     }
@@ -54,45 +68,50 @@ describe('keyIndexFor (deterministic per-role-and-id derivation)', () => {
 })
 
 describe('MultisigProvider.custodyModel', () => {
-  it('declares itself a server-derived 2-of-3 reference implementation, not trustless', () => {
+  it('declares itself client-held-buyer-seller-keys, not server-derived', () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    expect(multisigProvider.custodyModel).toBe('server-derived-2-of-3-reference-implementation')
+    expect(multisigProvider.custodyModel).toBe('client-held-buyer-seller-keys-server-held-arbiter')
   })
 })
 
 describe('MultisigProvider config gating — inert without MULTISIG_SEED/TRUSTED_ARBITRATORS', () => {
   it('throws a clear error when MULTISIG_SEED is empty', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: '', TRUSTED_ARBITRATORS: 'arb-1' })
-    await expect(multisigProvider.getDepositAddress('trade-1', 'buyer-1', 'seller-1')).rejects.toThrow('MULTISIG_SEED')
+    await expect(multisigProvider.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)).rejects.toThrow('MULTISIG_SEED')
   })
 
   it('throws a clear error when no TRUSTED_ARBITRATORS entry is configured', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: '' })
-    await expect(multisigProvider.getDepositAddress('trade-1', 'buyer-1', 'seller-1')).rejects.toThrow('TRUSTED_ARBITRATORS')
+    await expect(multisigProvider.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)).rejects.toThrow('TRUSTED_ARBITRATORS')
+  })
+
+  it('rejects a malformed (wrong-length) pubkey with a clear error', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    await expect(multisigProvider.getDepositAddress('trade-1', '02aabb', SELLER_PUBKEY)).rejects.toThrow('33-byte compressed')
   })
 })
 
-describe('MultisigProvider.getDepositAddress (real P2WSH address derivation)', () => {
-  it('is deterministic — same buyer/seller pair always derives the same address', async () => {
+describe('MultisigProvider.getDepositAddress (real P2WSH address derivation from submitted pubkeys)', () => {
+  it('is deterministic — same buyer/seller pubkeys always derive the same address', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    const a = await multisigProvider.getDepositAddress('trade-1', 'buyer-1', 'seller-1')
-    const b = await multisigProvider.getDepositAddress('trade-1', 'buyer-1', 'seller-1')
+    const a = await multisigProvider.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
+    const b = await multisigProvider.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
     expect(a).toBe(b)
     expect(a).toMatch(/^tb1/) // testnet bech32 (P2WSH) prefix
   })
 
-  it('derives a different address for a different buyer/seller pair', async () => {
+  it('derives a different address for a different buyer/seller pubkey pair', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    const a = await multisigProvider.getDepositAddress('trade-1', 'buyer-1', 'seller-1')
-    const b = await multisigProvider.getDepositAddress('trade-2', 'buyer-2', 'seller-2')
+    const a = await multisigProvider.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
+    const b = await multisigProvider.getDepositAddress('trade-2', BUYER2_PUBKEY, SELLER2_PUBKEY)
     expect(a).not.toBe(b)
   })
 
-  it('derives a different address under a different seed (no cross-deployment collision)', async () => {
+  it('derives a different address under a different arbiter seed (same buyer/seller pubkeys)', async () => {
     const { multisigProvider: p1 } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    const a = await p1.getDepositAddress('trade-1', 'buyer-1', 'seller-1')
+    const a = await p1.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
     const { multisigProvider: p2 } = loadProvider({ MULTISIG_SEED: 'seed-b', TRUSTED_ARBITRATORS: 'arb-1' })
-    const b = await p2.getDepositAddress('trade-1', 'buyer-1', 'seller-1')
+    const b = await p2.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
     expect(a).not.toBe(b)
   })
 })
@@ -111,7 +130,7 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
       ok: true,
       json: async () => [{ txid: 'a'.repeat(64), vout: 0, value: 100_000, status: { confirmed: true } }],
     })
-    const result = await multisigProvider.lockFunds({ tradeId: 't1', buyerId: 'b1', sellerId: 's1', lockedAmount: '0.0005' })
+    const result = await multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
     expect(result.txId).toBe('a'.repeat(64))
     expect(result.address).toMatch(/^tb1/)
   })
@@ -120,8 +139,16 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [] })
     await expect(
-      multisigProvider.lockFunds({ tradeId: 't1', buyerId: 'b1', sellerId: 's1', lockedAmount: '0.0005' })
+      multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
     ).rejects.toThrow('No funding UTXO')
+  })
+
+  it('lockFunds throws when no pubkeys have been submitted yet', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    await expect(
+      multisigProvider.lockFunds({ tradeId: 't1', lockedAmount: '0.0005' })
+    ).rejects.toThrow('requires a submitted buyer pubkey')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('verifyLock is true only for a confirmed UTXO meeting the expected amount', async () => {
@@ -130,14 +157,14 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
       ok: true,
       json: async () => [{ txid: 'b'.repeat(64), vout: 0, value: 100_000, status: { confirmed: false } }],
     })
-    const unconfirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerId: 'b1', sellerId: 's1', lockedAmount: '0.0005' })
+    const unconfirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
     expect(unconfirmed).toBe(false)
 
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => [{ txid: 'b'.repeat(64), vout: 0, value: 100_000, status: { confirmed: true } }],
     })
-    const confirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerId: 'b1', sellerId: 's1', lockedAmount: '0.0005' })
+    const confirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
     expect(confirmed).toBe(true)
   })
 
@@ -145,83 +172,26 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
     await expect(
-      multisigProvider.verifyLock({ tradeId: 't1', buyerId: 'b1', sellerId: 's1', lockedAmount: '0.0005' })
+      multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
     ).rejects.toThrow('503')
   })
 })
 
-describe('MultisigProvider — release/refund PSBT construction, signing, and finalization', () => {
-  const fetchMock = jest.fn()
-  const FUNDING_TXID = 'c'.repeat(64)
-
-  beforeEach(() => {
-    fetchMock.mockReset()
-    ;(global as any).fetch = fetchMock
-  })
-
-  it('releaseFunds (normal, non-disputed path) builds a real 2-of-3-signed transaction and broadcasts it', async () => {
-    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    fetchMock
-      .mockResolvedValueOnce({ ok: true, json: async () => [{ txid: FUNDING_TXID, vout: 0, value: 100_000, status: { confirmed: true } }] })
-      .mockResolvedValueOnce({ ok: true, text: async () => `${'d'.repeat(64)}\n` })
-
-    const result = await multisigProvider.releaseFunds(
-      { tradeId: 't1', buyerId: 'b1', sellerId: 's1', lockedAmount: '0.0005', txLockId: FUNDING_TXID, status: 'PAYMENT_PENDING' },
-      'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
-    )
-    expect(result.txId).toBe('d'.repeat(64))
-
-    // Second fetch call is the broadcast — assert real, finalized, signed
-    // transaction hex was actually sent (not merely that broadcast ran).
-    const broadcastCall = fetchMock.mock.calls[1]
-    expect(broadcastCall[0]).toContain('/tx')
-    expect(typeof broadcastCall[1].body).toBe('string')
-    expect(broadcastCall[1].body.length).toBeGreaterThan(0)
-  })
-
-  it('refundFunds (normal path) signs with buyer+seller and pays out to a derived seller address', async () => {
-    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    fetchMock
-      .mockResolvedValueOnce({ ok: true, json: async () => [{ txid: FUNDING_TXID, vout: 0, value: 100_000, status: { confirmed: true } }] })
-      .mockResolvedValueOnce({ ok: true, text: async () => `${'e'.repeat(64)}\n` })
-
-    const result = await multisigProvider.refundFunds({
-      tradeId: 't1', buyerId: 'b1', sellerId: 's1', lockedAmount: '0.0005', txLockId: FUNDING_TXID, status: 'FUNDS_LOCKED',
-    })
-    expect(result.txId).toBe('e'.repeat(64))
-  })
-
-  it('releaseFunds on a DISPUTED escrow signs with buyer+arbiter instead of buyer+seller', async () => {
-    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    fetchMock
-      .mockResolvedValueOnce({ ok: true, json: async () => [{ txid: FUNDING_TXID, vout: 0, value: 100_000, status: { confirmed: true } }] })
-      .mockResolvedValueOnce({ ok: true, text: async () => `${'f'.repeat(64)}\n` })
-
-    const result = await multisigProvider.releaseFunds(
-      { tradeId: 't1', buyerId: 'b1', sellerId: 's1', lockedAmount: '0.0005', txLockId: FUNDING_TXID, status: 'DISPUTED', triggeredBy: 'arb-1' },
-      'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
-    )
-    expect(result.txId).toBe('f'.repeat(64))
-  })
-
-  it('rejects an arbitrated release whose triggeredBy does not match the arbiter key baked into the script', async () => {
+describe('MultisigProvider — releaseFunds()/refundFunds() are Phase-2-not-built (client-signature collection)', () => {
+  it('releaseFunds() throws a clear, honest error rather than attempting to sign with a key it no longer holds', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     await expect(
       multisigProvider.releaseFunds(
-        { tradeId: 't1', buyerId: 'b1', sellerId: 's1', lockedAmount: '0.0005', txLockId: FUNDING_TXID, status: 'DISPUTED', triggeredBy: 'some-other-arbiter' },
+        { tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005', txLockId: 'a'.repeat(64), status: 'PAYMENT_PENDING' },
         'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
       )
-    ).rejects.toThrow('does not match the arbiter key')
-    expect(fetchMock).not.toHaveBeenCalled()
+    ).rejects.toThrow('Phase 2')
   })
 
-  it('throws when no txLockId is recorded yet (nothing to spend)', async () => {
+  it('refundFunds() throws the same clear error', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     await expect(
-      multisigProvider.releaseFunds(
-        { tradeId: 't1', buyerId: 'b1', sellerId: 's1', lockedAmount: '0.0005', txLockId: null, status: 'PAYMENT_PENDING' },
-        'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
-      )
-    ).rejects.toThrow('no recorded funding txid')
+      multisigProvider.refundFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005', txLockId: 'a'.repeat(64), status: 'FUNDS_LOCKED' })
+    ).rejects.toThrow('Phase 2')
   })
 })

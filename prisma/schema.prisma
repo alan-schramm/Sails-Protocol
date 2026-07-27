@@ -413,6 +413,36 @@ model EscrowReleaseApproval {
   @@map("escrow_release_approvals")
 }
 
+// Client-held keys for MULTISIG/LIGHTNING_HODL escrow — the genuine
+// HodlHodl-grade non-custody upgrade (2026-07-27). Before this,
+// multisig.provider.ts/lightning-hodl.provider.ts derived ALL 3 keys
+// (buyer/seller/arbiter) from one server-held seed; now the buyer and
+// seller each generate their own key client-side and submit only the
+// public key here — the server never sees their private key, only
+// derives its own arbiter key. Same table shape as EscrowReleaseApproval
+// above (per-escrow, per-role row, unique-constrained, upsert-idempotent),
+// with a real payload since "which pubkey" — unlike "did X approve" — is
+// not a boolean.
+model EscrowParticipantKey {
+  id            String   @id @default(uuid())
+  escrowId      String
+  role          String   // 'buyer' | 'seller' — must match the trade's own buyerId/sellerId, enforced in escrow.service.ts, not by a DB constraint
+  participantId String
+  // 33-byte compressed secp256k1 pubkey, hex (66 chars) — the canonical
+  // submitted format. MultisigProvider's P2WSH/OP_CHECKMULTISIG script
+  // uses it as-is; LightningHodlProvider's Arkade Taproot script derives
+  // the 32-byte x-only form by stripping the leading parity byte (same
+  // point, different serialization — verified experimentally before this
+  // model was written, see multisig.provider.ts/lightning-hodl.provider.ts's
+  // own header comments for the full disclosure).
+  pubkey        String
+  createdAt     DateTime @default(now())
+
+  @@unique([escrowId, role])
+  @@index([escrowId])
+  @@map("escrow_participant_keys")
+}
+
 enum VerificationVerdict {
   ACCEPTED
   REJECTED
