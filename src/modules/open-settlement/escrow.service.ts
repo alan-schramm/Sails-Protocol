@@ -6,6 +6,7 @@ import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
 import { randomUUID as uuidv4 } from 'crypto'
 import { wdkSettlementProvider } from './wdk-settlement.provider'
+import { multisigProvider } from './multisig.provider'
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 
 /**
@@ -40,6 +41,22 @@ type EscrowRecord = {
   releasedAt: Date | null
   createdAt: Date
   updatedAt: Date
+  // Trade's own parties — Escrow itself has no buyer/seller columns
+  // (OpenSettlement must never own Trade's data, see this file's header
+  // comment), so these are attached by lockFunds()/releaseFunds()/
+  // refundFunds() below from a Trade row they already fetch for the
+  // isPartyOrAgent() authorization check. Only MultisigProvider needs
+  // them (it must derive 2 of 3 keys from real party identities, unlike
+  // MOCK/WDK_USDT_EVM which only ever need tradeId) — optional so every
+  // other provider can keep ignoring them.
+  buyerId?: string
+  sellerId?: string
+  // Set only for releaseFunds()/refundFunds() — the arbiter id
+  // (resolveDispute()'s triggeredBy) an arbitrated call was authorized
+  // with, so MultisigProvider can refuse a mismatched dispute-arbiter
+  // signature instead of attempting one that would fail to validate. See
+  // multisig.provider.ts's assertArbiterMatchesScript().
+  triggeredBy?: string
 }
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -102,6 +119,13 @@ const PROVIDERS: Record<string, SettlementProvider> = {
   // own doc comment has the full custody-model caveat (single-seed
   // two-hop escrow, testnet only).
   WDK_USDT_EVM: wdkSettlementProvider,
+  // Real 2-of-3 Bitcoin PSBT construction/signing — multisig.provider.ts's
+  // own doc comment has the full custody-model caveat (server-derived
+  // keys, single-arbiter limitation, testnet only). Previously absent
+  // from this map entirely, meaning getProvider() silently fell through
+  // to MOCK for every MULTISIG escrow ever created (fixed below too —
+  // that fallback no longer exists for any type).
+  MULTISIG: multisigProvider,
 }
 
 export interface CreateEscrowInput {
@@ -133,7 +157,22 @@ function isPartyOrAgent(triggeredBy: string, participantId: string): boolean {
 export class EscrowService {
   private getProvider(type: string): SettlementProvider {
     if (config.features.mockEscrow || type === 'MOCK') return PROVIDERS['MOCK']
-    return PROVIDERS[type] ?? PROVIDERS['MOCK']
+    const provider = PROVIDERS[type]
+    if (!provider) {
+      // Correctness fix (found during the MULTISIG provider build): this
+      // used to fall through to `?? PROVIDERS['MOCK']` for ANY
+      // unregistered type — MULTISIG and LIQUID_COVENANT both silently
+      // mock-processed real-money-shaped escrows with no error, unlike
+      // LIGHTNING_HODL which at least throws "not yet implemented".
+      // MULTISIG is now real (above); LIQUID_COVENANT still has no
+      // provider, and now fails the same loud way LIGHTNING_HODL always
+      // has, instead of quietly faking it.
+      throw new EscrowError(
+        `No SettlementProvider registered for escrow type '${type}' — refusing to silently fall back to MOCK for a type that claims to be real. ` +
+        "Set MOCK_ESCROW=true (or type: 'MOCK') if a fake escrow is actually intended."
+      )
+    }
+    return provider
   }
 
   // Shared by releaseFunds()/refundFunds() below — both are legitimately
@@ -193,7 +232,7 @@ export class EscrowService {
 
     const type = input.type ?? (config.features.mockEscrow ? 'MOCK' : 'MULTISIG')
 
-    const escrow = await prisma.escrow.create({
+    let escrow = await prisma.escrow.create({
       data: {
         tradeId: input.tradeId,
         type: type as any,
@@ -204,6 +243,17 @@ export class EscrowService {
         timelockHours: input.timelockHours ?? config.trade.defaultTimelockHours,
       },
     })
+
+    // MULTISIG is non-custodial (multisig.provider.ts's own doc comment) —
+    // unlike MOCK/WDK_USDT_EVM it never pushes funds into escrow itself,
+    // so the seller needs the deposit address up front, before any
+    // lockFunds() call, not only once funds are confirmed. Populated here
+    // rather than lazily in lockFunds() so GET /v1/settlement/escrow/:id
+    // already has it the moment the escrow exists.
+    if (type === 'MULTISIG' && !config.features.mockEscrow) {
+      const address = await multisigProvider.getDepositAddress(trade.id, trade.buyerId, trade.sellerId)
+      escrow = await prisma.escrow.update({ where: { id: escrow.id }, data: { multisigAddr: address } })
+    }
 
     await eventBus.emit('settlement.escrow.created', {
       escrowId: escrow.id,
@@ -252,7 +302,7 @@ export class EscrowService {
 
     try {
       const provider = this.getProvider(escrow.type)
-      const result = await provider.lockFunds(escrow as unknown as EscrowRecord)
+      const result = await provider.lockFunds({ ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId } as unknown as EscrowRecord)
 
       const now = new Date()
       const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
@@ -398,7 +448,10 @@ export class EscrowService {
 
     try {
       const provider = this.getProvider(escrow.type)
-      const result = await provider.releaseFunds(escrow as unknown as EscrowRecord, toAddress)
+      const result = await provider.releaseFunds(
+        { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
+        toAddress
+      )
 
       const updated = await prisma.escrow.update({
         where: { id: escrowId },
@@ -497,7 +550,9 @@ export class EscrowService {
 
     try {
       const provider = this.getProvider(escrow.type)
-      const result = await provider.refundFunds(escrow as unknown as EscrowRecord)
+      const result = await provider.refundFunds(
+        { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord
+      )
 
       const updated = await prisma.escrow.update({
         where: { id: escrowId },

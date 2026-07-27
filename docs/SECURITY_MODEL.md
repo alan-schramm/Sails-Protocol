@@ -24,9 +24,16 @@ Funds are locked in a smart contract or multisig *before* fiat is sent. No
 single party can access the funds alone — release requires bilateral or
 arbitrated action.
 
-- **Multisig 2-of-3:** Buyer + Seller + Arbiter
-- **Lightning HODL HTLC:** time-locked
-- **Liquid Covenant:** script-enforced
+- **Multisig 2-of-3:** Buyer + Seller + Arbiter — real as of 2026-07-27
+  (`multisig.provider.ts`), with one disclosed gap: this reference
+  implementation still derives all 3 keys from one server-held seed
+  rather than each counterparty holding their own (`TODO.md` §4,
+  `docs/HANDOFF.md` §4 has the full custody-model note)
+- **Lightning HODL HTLC:** time-locked — genuinely blocked on a live
+  LND/CLN node or hosted LSP account, neither of which exists in any
+  environment this project has been built in (`TODO.md` §4)
+- **Liquid Covenant:** script-enforced — not implemented at all yet, same
+  live-infrastructure blocker as Lightning above
 
 ### 1.2 Portable Reputation
 
