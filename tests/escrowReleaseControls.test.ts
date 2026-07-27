@@ -34,6 +34,13 @@ jest.mock('../src/config', () => ({
     return {
       features: { mockEscrow: mockEscrowFeatureFlag, enforceCapabilities, requireDualApprovalForRelease },
       trade: { defaultTimelockHours: 24 },
+      // Empty on purpose — LightningHodlProvider (lightning-hodl.provider.ts)
+      // is now real, and reliably throws a clear config error with no
+      // ARKADE_SEED configured, same "reliable provider failure" fixture
+      // role LIGHTNING_HODL always played here even back when it was a
+      // permanent throw-only stub.
+      settlement: { trustedArbitrators: [] },
+      arkade: { seed: '' },
     }
   },
 }))
@@ -41,6 +48,22 @@ jest.mock('../src/config', () => ({
 jest.mock('@tetherto/wdk-wallet-evm', () => ({
   __esModule: true,
   default: class FakeWalletManagerEvm {},
+}))
+
+// @arkade-os/sdk's CJS build still transitively requires @scure/btc-signer,
+// which ships pure ESM (no CJS build) — same "Unexpected token 'export'"
+// problem as @tetherto/wdk-wallet-evm above, same fix. None of these tests
+// exercise lightning-hodl.provider.ts's real Arkade calls.
+jest.mock('@arkade-os/sdk', () => ({
+  SeedIdentity: { fromSeed: jest.fn() },
+  MultisigTapscript: { encode: jest.fn() },
+  CSVMultisigTapscript: { encode: jest.fn() },
+  VtxoScript: class FakeVtxoScript {},
+  RestArkProvider: class FakeRestArkProvider {},
+  RestIndexerProvider: class FakeRestIndexerProvider {},
+  buildOffchainTx: jest.fn(),
+  combineTapscriptSigs: jest.fn(),
+  verifyTapscriptSignatures: jest.fn(),
 }))
 
 const mockEscrowFindUnique = jest.fn()
@@ -289,12 +312,13 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // LightningHodlProvider's failure path.
       mockEscrowFeatureFlag = false
       mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-      // LIGHTNING_HODL's provider always throws "not yet implemented" —
-      // real, already-existing behavior (escrow.service.ts's PROVIDERS
-      // map), reused here rather than fabricating a new failure mode.
+      // LIGHTNING_HODL's provider (lightning-hodl.provider.ts, real since
+      // the Arkade build) reliably throws with no ARKADE_SEED configured
+      // (this file's config mock leaves it empty) — real, already-existing
+      // behavior, reused here rather than fabricating a new failure mode.
       mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, type: 'LIGHTNING_HODL', status: 'CREATED' })
 
-      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/not yet implemented/)
+      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/TRUSTED_ARBITRATORS/)
 
       // Robustness-audit fix (2026-07-20): lockFunds() now claims
       // FUNDS_LOCKED atomically *before* calling the provider, so a
@@ -322,7 +346,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
       mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrow, type: 'LIGHTNING_HODL', status: 'CREATED' })
 
-      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/not yet implemented/)
+      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/TRUSTED_ARBITRATORS/)
 
       // Retry: same escrow id, still status CREATED (never advanced), now
       // routed through a working provider — mockEscrow back on, matching

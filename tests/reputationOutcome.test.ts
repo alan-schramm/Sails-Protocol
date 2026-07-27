@@ -60,6 +60,22 @@ jest.mock('@tetherto/wdk-wallet-evm', () => ({
   default: class FakeWalletManagerEvm {},
 }))
 
+// @arkade-os/sdk's CJS build still transitively requires @scure/btc-signer,
+// which ships pure ESM (no CJS build) — same "Unexpected token 'export'"
+// problem as @tetherto/wdk-wallet-evm above, same fix. None of these tests
+// exercise lightning-hodl.provider.ts's real Arkade calls.
+jest.mock('@arkade-os/sdk', () => ({
+  SeedIdentity: { fromSeed: jest.fn() },
+  MultisigTapscript: { encode: jest.fn() },
+  CSVMultisigTapscript: { encode: jest.fn() },
+  VtxoScript: class FakeVtxoScript {},
+  RestArkProvider: class FakeRestArkProvider {},
+  RestIndexerProvider: class FakeRestIndexerProvider {},
+  buildOffchainTx: jest.fn(),
+  combineTapscriptSigs: jest.fn(),
+  verifyTapscriptSignatures: jest.fn(),
+}))
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { registerEventHandlers } = require('../src/common/events/handlers')
 

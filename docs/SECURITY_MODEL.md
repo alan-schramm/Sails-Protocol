@@ -29,9 +29,13 @@ arbitrated action.
   implementation still derives all 3 keys from one server-held seed
   rather than each counterparty holding their own (`TODO.md` §4,
   `docs/HANDOFF.md` §4 has the full custody-model note)
-- **Lightning HODL HTLC:** time-locked — genuinely blocked on a live
-  LND/CLN node or hosted LSP account, neither of which exists in any
-  environment this project has been built in (`TODO.md` §4)
+- **Lightning HODL HTLC:** time-locked — real as of 2026-07-27, via Arkade
+  (Ark protocol) rather than a literal LND hold-invoice
+  (`lightning-hodl.provider.ts`) — plain Lightning HTLCs genuinely have no
+  multi-party escrow primitive (confirmed from HodlHodl's own docs), but
+  Arkade does, and HodlHodl/Lendasat both already build on it in
+  production. Same disclosed custody-model gap as Multisig above
+  (`TODO.md` §4)
 - **Liquid Covenant:** script-enforced — not implemented at all yet, same
   live-infrastructure blocker as Lightning above
 

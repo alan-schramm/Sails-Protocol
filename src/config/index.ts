@@ -171,6 +171,20 @@ export const config = {
     network: process.env.MULTISIG_NETWORK ?? 'testnet',
     explorerApiUrl: process.env.MULTISIG_EXPLORER_API_URL ?? 'https://mempool.space/testnet/api',
   },
+
+  // LIGHTNING_HODL SettlementProvider (lightning-hodl.provider.ts) — real
+  // Arkade (Ark protocol) VTXO/Taproot script construction and signing.
+  // Empty seed by default, same pattern as wdk.seedPhrase/multisig.seed
+  // above. Defaults point at Ark Labs' own public mutinynet deployment —
+  // confirmed reachable (real getInfo()/getVtxos() responses) before this
+  // config was added, not assumed. See that file's own header comment for
+  // the full custody-model and release/refund verification-scope
+  // disclosure.
+  arkade: {
+    seed: process.env.ARKADE_SEED ?? '',
+    asp: process.env.ARKADE_ASP_URL ?? 'https://mutinynet.arkade.sh',
+    explorerApiUrl: process.env.ARKADE_EXPLORER_API_URL ?? 'https://mempool.mutinynet.arkade.sh/api',
+  },
 }
 
 // RT-001's fix, made structural instead of relying on someone remembering

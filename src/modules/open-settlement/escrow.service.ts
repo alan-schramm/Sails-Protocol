@@ -7,6 +7,7 @@ import { eventBus } from '../../common/events/event-bus'
 import { randomUUID as uuidv4 } from 'crypto'
 import { wdkSettlementProvider } from './wdk-settlement.provider'
 import { multisigProvider } from './multisig.provider'
+import { lightningHodlProvider } from './lightning-hodl.provider'
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 
 /**
@@ -96,25 +97,14 @@ class MockSettlementProvider implements SettlementProvider {
   }
 }
 
-class LightningHodlProvider implements SettlementProvider {
-  name = 'LIGHTNING_HODL'
-  async lockFunds(_e: EscrowRecord): Promise<{ txId: string; address: string }> {
-    throw new EscrowError('Lightning HODL escrow not yet implemented. Use MOCK type.')
-  }
-  async releaseFunds(_e: EscrowRecord, _a: string): Promise<{ txId: string }> {
-    throw new EscrowError('Lightning HODL escrow not yet implemented.')
-  }
-  async refundFunds(_e: EscrowRecord): Promise<{ txId: string }> {
-    throw new EscrowError('Lightning HODL escrow not yet implemented.')
-  }
-  async verifyLock(_e: EscrowRecord) {
-    return false
-  }
-}
-
 const PROVIDERS: Record<string, SettlementProvider> = {
   MOCK: new MockSettlementProvider(),
-  LIGHTNING_HODL: new LightningHodlProvider(),
+  // Real Arkade (Ark protocol) VTXO/Taproot escrow — lightning-hodl.provider.ts's
+  // own doc comment has the full custody-model caveat (server-derived
+  // keys, single-arbiter limitation, release/refund verification scope,
+  // testnet/mutinynet only). Previously a throw-only stub inline in this
+  // file; extracted to its own file and implemented for real.
+  LIGHTNING_HODL: lightningHodlProvider,
   // Real @tetherto/wdk-wallet-evm USDT settlement — wdk-settlement.provider.ts's
   // own doc comment has the full custody-model caveat (single-seed
   // two-hop escrow, testnet only).
@@ -126,6 +116,15 @@ const PROVIDERS: Record<string, SettlementProvider> = {
   // to MOCK for every MULTISIG escrow ever created (fixed below too —
   // that fallback no longer exists for any type).
   MULTISIG: multisigProvider,
+}
+
+// Providers that never push funds into escrow themselves (MULTISIG,
+// LIGHTNING_HODL/Arkade) need their deposit address available immediately
+// at creation time, before any lockFunds() call — see createEscrow()'s
+// getDepositAddress() branch below.
+const NON_CUSTODIAL_PROVIDERS: Record<string, { getDepositAddress(tradeId: string, buyerId: string, sellerId: string): Promise<string> }> = {
+  MULTISIG: multisigProvider,
+  LIGHTNING_HODL: lightningHodlProvider,
 }
 
 export interface CreateEscrowInput {
@@ -244,14 +243,16 @@ export class EscrowService {
       },
     })
 
-    // MULTISIG is non-custodial (multisig.provider.ts's own doc comment) —
-    // unlike MOCK/WDK_USDT_EVM it never pushes funds into escrow itself,
-    // so the seller needs the deposit address up front, before any
-    // lockFunds() call, not only once funds are confirmed. Populated here
-    // rather than lazily in lockFunds() so GET /v1/settlement/escrow/:id
-    // already has it the moment the escrow exists.
-    if (type === 'MULTISIG' && !config.features.mockEscrow) {
-      const address = await multisigProvider.getDepositAddress(trade.id, trade.buyerId, trade.sellerId)
+    // MULTISIG/LIGHTNING_HODL are non-custodial (see each provider's own
+    // doc comment) — unlike MOCK/WDK_USDT_EVM they never push funds into
+    // escrow themselves, so the seller needs the deposit address up
+    // front, before any lockFunds() call, not only once funds are
+    // confirmed. Populated here rather than lazily in lockFunds() so
+    // GET /v1/settlement/escrow/:id already has it the moment the escrow
+    // exists.
+    const nonCustodialProvider = NON_CUSTODIAL_PROVIDERS[type]
+    if (nonCustodialProvider && !config.features.mockEscrow) {
+      const address = await nonCustodialProvider.getDepositAddress(trade.id, trade.buyerId, trade.sellerId)
       escrow = await prisma.escrow.update({ where: { id: escrow.id }, data: { multisigAddr: address } })
     }
 
