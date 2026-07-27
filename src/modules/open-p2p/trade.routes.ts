@@ -5,7 +5,10 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { tradeService } from './trade.service'
+import { reconciliationService } from './reconciliation.service'
 import { requireAuth } from '../../common/middleware/auth'
+import { prisma } from '../../common/database'
+import { NotFoundError, ForbiddenError } from '../../common/errors'
 
 const createTradeSchema = z.object({
   offerId: z.string().min(1),
@@ -19,6 +22,10 @@ const updateStatusSchema = z.object({
 const listTradesSchema = z.object({
   limit: z.coerce.number().int().optional(),
   offset: z.coerce.number().int().optional(),
+})
+
+const reconcileSchema = z.object({
+  sinceMessageCreatedAt: z.coerce.date().optional(),
 })
 
 export async function tradeRoutes(app: FastifyInstance): Promise<void> {
@@ -81,5 +88,36 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
     const participantId = (request as any).participantId as string
     const trade = await tradeService.updateStatus(id, body.status, participantId)
     return reply.code(200).send({ success: true, data: trade })
+  })
+
+  // RFC-011's own "Reference Implementation Plan" and
+  // reconciliation.service.ts's own doc comment both named this exact
+  // path as the real endpoint that didn't exist yet — the automatic
+  // peer.connected trigger (pear.service.ts) already calls
+  // reconcileTrade() server-side, but a client had no way to ask for its
+  // own delta directly (e.g. after a k6/load-test-style forced
+  // reconnect, or a mobile client resuming from background). Wired here
+  // (Fase 4 follow-up) rather than left as an aspirational comment.
+  //
+  // requireAuth + participant check — same reasoning and same pattern as
+  // chat.routes.ts's getMessages(): this returns the same missed-message
+  // content, so it needs the identical ownership boundary, not a laxer
+  // one just because it's a "reconciliation" endpoint.
+  app.post('/v1/openp2p/trades/:id/reconcile', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-p2p'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const body = reconcileSchema.parse(request.body ?? {})
+    const participantId = (request as any).participantId as string
+
+    const trade = await prisma.trade.findUnique({ where: { id } })
+    if (!trade) throw new NotFoundError('Trade', id)
+    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
+      throw new ForbiddenError(`${participantId} is not a party to trade ${id}`)
+    }
+
+    const result = await reconciliationService.reconcileTrade(id, body.sinceMessageCreatedAt ?? null)
+    return reply.code(200).send({ success: true, data: result })
   })
 }
