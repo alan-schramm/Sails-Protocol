@@ -20,9 +20,20 @@ import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
 // A real buyer address doesn't exist yet in this reference implementation
 // (wdk-settlement.provider.ts's own doc comment: no per-user EVM address
 // onboarding) — same gap this whole project already discloses. Demo-only
-// placeholder, MockSettlementProvider/LightningHodlProvider don't
-// validate address format.
+// placeholder; only MockSettlementProvider actually accepts an arbitrary
+// string here (WDK_USDT_EVM validates a real EVM address, MULTISIG/
+// LIGHTNING_HODL below use their own dedicated hex-script placeholder,
+// since a real bitcoin/Ark address wouldn't survive this reference
+// implementation's own address-format checks either).
 const DEMO_RELEASE_ADDRESS = 'demo-buyer-payout-address'
+
+// MULTISIG's Phase 2 initiateRelease() expects a real bech32 testnet
+// address (bitcoinjs-lib's Psbt.addOutput() decodes it); LIGHTNING_HODL's
+// expects a raw script hex instead (lightning-hodl.provider.ts's own
+// header comment / buildUnsignedSpend()). Both demo-only placeholders —
+// see DEMO_RELEASE_ADDRESS's own comment above for the broader gap.
+const DEMO_RELEASE_ADDRESS_MULTISIG = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
+const DEMO_RELEASE_SCRIPT_HEX_ARKADE = '0014' + '00'.repeat(20)
 
 function toParticipantUser(p: Awaited<ReturnType<typeof sailsClient.identity.get>>): User {
   return {
@@ -172,16 +183,17 @@ export function Trade() {
   })
 
   const handleReleaseFunds = () => escrow && withGuard(async () => {
-    // Phase 2 (2026-07-27), MULTISIG only — buyer/seller keys are
-    // client-held, so release goes through signature collection instead
-    // of the single synchronous call below. The seller (normal path) or
-    // assigned arbiter (disputed path) initiates the round here; if this
-    // user is also one of its required signers (the normal path), sign
-    // and submit immediately rather than requiring a second visit to this
-    // page — the other required party still needs to open the page once
-    // to trigger their own auto-sign (see the escrow-fetch effect above).
-    if (escrow.type === 'MULTISIG') {
-      await sailsClient.settlement.initiateRelease(escrow.id, DEMO_RELEASE_ADDRESS)
+    // Phase 2 (2026-07-27) — MULTISIG and LIGHTNING_HODL both use
+    // client-signature collection now, since buyer/seller keys are
+    // client-held. The seller (normal path) or assigned arbiter (disputed
+    // path) initiates the round here; if this user is also one of its
+    // required signers (the normal path), sign and submit immediately
+    // rather than requiring a second visit to this page — the other
+    // required party still needs to open the page once to trigger their
+    // own auto-sign (see the escrow-fetch effect above).
+    if (escrow.type === 'MULTISIG' || escrow.type === 'LIGHTNING_HODL') {
+      const toAddress = escrow.type === 'MULTISIG' ? DEMO_RELEASE_ADDRESS_MULTISIG : DEMO_RELEASE_SCRIPT_HEX_ARKADE
+      await sailsClient.settlement.initiateRelease(escrow.id, toAddress)
       if (user) await signAndSubmitPendingTransactionIfNeeded(escrow.type, escrow.id, user.id).catch(() => {})
       const e = await sailsClient.settlement.get(escrow.id)
       setEscrow(e)

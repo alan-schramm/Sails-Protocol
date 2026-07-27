@@ -71,6 +71,11 @@ jest.mock('@arkade-os/sdk', () => ({
   verifyTapscriptSignatures: jest.fn(),
 }))
 
+// lightning-hodl.provider.ts's Phase 2 addition imports @scure/btc-signer
+// directly (pure ESM, same reason @arkade-os/sdk itself is mocked above)
+// — this test never reaches those code paths, a bare stub is enough.
+jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
+
 // A minimal, real (not stubbed-out) simulation of what actually makes the
 // atomic-claim pattern safe: one shared mutable row, and updateMany()
 // only applying (and reporting count: 1) when its WHERE.status still

@@ -76,6 +76,11 @@ jest.mock('@arkade-os/sdk', () => ({
   verifyTapscriptSignatures: jest.fn(),
 }))
 
+// lightning-hodl.provider.ts's Phase 2 addition imports @scure/btc-signer
+// directly (pure ESM, same reason @arkade-os/sdk itself is mocked above)
+// — this test never reaches those code paths, a bare stub is enough.
+jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { registerEventHandlers } = require('../src/common/events/handlers')
 

@@ -56,6 +56,11 @@ jest.mock('@arkade-os/sdk', () => ({
   RestIndexerProvider: class FakeRestIndexerProvider {},
 }))
 
+// lightning-hodl.provider.ts's Phase 2 addition imports @scure/btc-signer
+// directly (pure ESM, same reason @arkade-os/sdk itself is mocked above)
+// — this test never reaches those code paths, a bare stub is enough.
+jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
+
 const mockGetDepositAddress = jest.fn()
 const mockBuildUnsignedRelease = jest.fn()
 const mockBuildUnsignedRefund = jest.fn()
