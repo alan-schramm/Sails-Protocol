@@ -222,6 +222,45 @@ makes the same point in more detail.
       of throwing like `LIGHTNING_HODL` already did — a real-money-shaped
       escrow could silently mock-process. Fixed for every type, not just
       `MULTISIG`.
+- [x] **Client-held keys (Phase 1 of the HodlHodl-grade non-custody
+      upgrade) — done, 2026-07-27.** Closes the biggest disclosed gap in
+      both `MultisigProvider` and `LightningHodlProvider`: buyer/seller no
+      longer have their key derived server-side. Each generates a real
+      secp256k1 keypair client-side (`@sails/sdk`'s new `escrow-key.ts`,
+      `generateEscrowKeypair()` — `@noble/curves`, pinned to `^1.2.0`
+      specifically because 2.x ships pure ESM with no real CJS entry for
+      this subpath, same class of Jest-breaking problem
+      `@tetherto/wdk-wallet-evm`/`@arkade-os/sdk` already have) and submits
+      only the 33-byte compressed pubkey via the new
+      `POST /v1/settlement/escrow/:id/submit-key` route
+      (`escrow.service.ts`'s `submitParticipantKey()`, persisted as the
+      new `EscrowParticipantKey` Prisma model). The server now derives
+      only the arbiter's key — genuinely the same custody split HodlHodl's
+      own real design uses (confirmed against their public API docs
+      before `MultisigProvider` was first built). `custodyModel` on both
+      providers changed from `server-derived-2-of-3-reference-implementation`
+      to `client-held-buyer-seller-keys-server-held-arbiter` to reflect
+      this. `createEscrow()` no longer populates `Escrow.multisigAddr`
+      immediately — it can't, until both pubkeys arrive;
+      `submitParticipantKey()` derives and persists the real address once
+      they do. **Consequence, disclosed plainly, not silently broken:**
+      `releaseFunds()`/`refundFunds()` on both providers now throw a clear
+      "Phase 2 not built" `EscrowError` unconditionally — the server
+      structurally cannot sign with a key it no longer holds. A real
+      release needs a signature-collection flow (server builds an unsigned
+      tx, each required party fetches + signs + submits their own
+      signature client-side) — scoped as an explicit Phase 2, not started.
+      Verified end-to-end against the real running server + real local
+      Postgres (not just unit tests): two real registered participants, a
+      real trade, a real `MULTISIG` escrow, both submitting real
+      client-generated pubkeys, address staying `null` until both arrive
+      then resolving to a real testnet P2WSH address matching on re-fetch.
+      New/changed tests: `tests/multisigProvider.test.ts` and
+      `tests/lightningHodlProvider.test.ts` rewritten for the
+      pubkey-accepting API; `tests/escrowProviderWiring.test.ts` gained a
+      `submitParticipantKey()` describe block; new
+      `packages/sails-sdk/tests/escrow-key.test.ts` (real crypto,
+      cross-checked against `bitcoinjs-lib`).
 
 ## 5. Liquidity Providers Beyond Internal
 

@@ -35,6 +35,19 @@ export class SailsSettlementModule {
     return this.transport.get<Escrow>(`/v1/settlement/escrow/${escrowId}`)
   }
 
+  /**
+   * Requires an active session. The client-held-keys write path for
+   * MULTISIG/LIGHTNING_HODL escrow — submit only the public half of a
+   * keypair generated via `generateEscrowKeypair()` (`escrow-key.ts`);
+   * the private key never leaves the caller. Once both the trade's buyer
+   * and seller have each called this once, the server derives and
+   * persists the real deposit address (`Escrow.multisigAddr`) — see
+   * `escrow.service.ts`'s `submitParticipantKey()`.
+   */
+  async submitKey(escrowId: string, pubkeyHex: string): Promise<{ escrow: Escrow; buyerKeySubmitted: boolean; sellerKeySubmitted: boolean }> {
+    return this.transport.post(`/v1/settlement/escrow/${escrowId}/submit-key`, { pubkey: pubkeyHex }, true)
+  }
+
   /** Requires an active session. CREATED -> FUNDS_LOCKED. */
   async lock(escrowId: string): Promise<Escrow> {
     return this.transport.post<Escrow>(`/v1/settlement/escrow/${escrowId}/lock`, undefined, true)

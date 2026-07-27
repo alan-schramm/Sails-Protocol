@@ -45,6 +45,12 @@ const releaseSchema = z.object({
   toAddress: z.string().min(1),
 })
 
+// 33-byte compressed secp256k1 pubkey, hex — same pattern
+// escrow.service.ts's submitParticipantKey() validates against.
+const submitKeySchema = z.object({
+  pubkey: z.string().regex(/^0[23][0-9a-fA-F]{64}$/, 'must be a 33-byte compressed secp256k1 public key, hex-encoded'),
+})
+
 const disputeSchema = z.object({
   reason: z.string().min(1),
   evidence: z.array(z.any()).optional(),
@@ -81,6 +87,24 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const participantId = (request as any).participantId as string
     const escrow = await escrowService.lockFunds(id, participantId)
     return reply.code(200).send({ success: true, data: escrow })
+  })
+
+  // Client-held-keys write path (2026-07-27) — buyer or seller submits
+  // only their own public key, generated client-side (@sails/sdk's
+  // escrow-key module); see escrow.service.ts's submitParticipantKey()
+  // and multisig.provider.ts's/lightning-hodl.provider.ts's own header
+  // comments for the full custody-model disclosure. Only meaningful for
+  // MULTISIG/LIGHTNING_HODL escrows — submitParticipantKey() itself
+  // rejects any other type.
+  app.post('/v1/settlement/escrow/:id/submit-key', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const body = submitKeySchema.parse(request.body)
+    const participantId = (request as any).participantId as string
+    const result = await escrowService.submitParticipantKey(id, participantId, body.pubkey)
+    return reply.code(200).send({ success: true, data: result })
   })
 
   app.post('/v1/settlement/escrow/:id/payment-sent', {

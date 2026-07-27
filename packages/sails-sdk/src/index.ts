@@ -43,6 +43,7 @@ export {
 } from './modules/liquidity'
 export { SailsOpenP2PModule, WebSocketChannel, type ChatFrame, type ChatMessageEvent } from './modules/openp2p'
 export { SailsSettlementModule, type CreateEscrowInput } from './modules/settlement'
+export { generateEscrowKeypair, type EscrowKeypair } from './modules/escrow-key'
 export { SailsPeersModule, type StaticTopic } from './modules/peers'
 export { SailsCapabilitiesModule, type RegisterCapabilityInput } from './modules/capabilities'
 
