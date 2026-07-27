@@ -88,6 +88,7 @@
   },
   "overrides": {
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "find-my-way": "^9.7.0"
   }
 }

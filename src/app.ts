@@ -84,10 +84,26 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   })
 
-  await app.register(swaggerUi, {
-    routePrefix: '/docs',
-    uiConfig: { docExpansion: 'list', deepLinking: false },
-  })
+  // Dependabot finding (2026-07-27): @fastify/swagger-ui pulls in
+  // @fastify/static@9.3.0, which has a real, currently-unpatched
+  // route-guard-bypass/path-traversal advisory (GHSA-83w8-p2f5-377r) —
+  // no non-major fix exists yet (the fix needs @fastify/static v10,
+  // which @fastify/swagger-ui's own latest release still doesn't
+  // support). `/docs` was registered unconditionally in every
+  // environment with no auth guard — a real, live, unauthenticated
+  // attack surface, not a theoretical one. Same `config.isProduction`
+  // hard-gate pattern config/index.ts already uses for MOCK_ESCROW: the
+  // vulnerable static-file-serving plugin is simply never registered in
+  // production, closing the exposure without waiting on an upstream fix.
+  // `@fastify/swagger` above (the OpenAPI spec generator, no static file
+  // serving) stays registered everywhere — it has no path-traversal
+  // surface of its own.
+  if (!config.isProduction) {
+    await app.register(swaggerUi, {
+      routePrefix: '/docs',
+      uiConfig: { docExpansion: 'list', deepLinking: false },
+    })
+  }
 
   // ── Error Handler ─────────────────────────────────────────────────────────
   app.setErrorHandler((error, _req, reply) => {
@@ -157,7 +173,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     name: 'Sails OpenP2P',
     protocol: 'Sails Protocol — Open Coordination Protocol for Sovereign Finance',
     referenceImplementation: 'Satsails Wallet',
-    docs: '/docs',
+    docs: config.isProduction ? null : '/docs', // see this route's own registration above for why
     ws: '/ws?userId=<uuid>',
     version: '0.1.0',
   }))
@@ -210,8 +226,9 @@ export async function startServer() {
 ╠══════════════════════════════════════════════════════╣
 ║  HTTP  → http://${config.app.host}:${config.app.port}                   ║
 ║  WS    → ws://${config.app.host}:${config.app.port}/ws?userId=<uuid>    ║
-║  DHT   → POST /peer/start (HyperDHT node)              ║
-║  Docs  → http://${config.app.host}:${config.app.port}/docs              ║
+║  DHT   → POST /peer/start (HyperDHT node)              ║${
+    config.isProduction ? '' : `\n║  Docs  → http://${config.app.host}:${config.app.port}/docs              ║`
+  }
 ╚══════════════════════════════════════════════════════╝
   `)
 

@@ -1303,6 +1303,61 @@ above).
 
 </details>
 
+### 16B. Dependabot follow-up (2026-07-27) — triaged 67-package `npm audit` list, fixed the 2 real production-exposed items
+
+GitHub flagged 15 Dependabot alerts (2 critical, 7 high, 5 moderate, 1
+low) on `main`; `npm audit` locally reports a larger, differently-counted
+67 (it counts every vulnerable package occurrence in the dependency
+graph, Dependabot dedupes by advisory). Triaged the full `npm audit`
+output by whether the vulnerable code actually runs in this server's
+request path, not just by severity label — most of the 67 are
+dev/test-only tooling (Jest, ts-jest, Vitest, Storybook, Artillery,
+`@prisma/dev`, `redis-memory-server`) that never ships or executes
+against real traffic; several of those need semver-major bumps that risk
+destabilizing the large, already-verified test/tooling setup this
+session built up, so they're deliberately left alone here rather than
+bumped reflexively.
+
+**Two real, production-reachable issues found and fixed:**
+
+- **`find-my-way` (Fastify's own router, `fastify@5.10.0`'s direct
+  dependency) — HTTP/2 DDoS (GHSA-c96f-x56v-gq3h), fixed non-breaking.**
+  `npm audit`'s own tree attributed this advisory only to `@prisma/dev`'s
+  copy, which under-reported the real exposure — `find-my-way@9.6.0` is
+  also the literal router every HTTP request to this server passes
+  through. Pinned via `package.json`'s existing `overrides` field (same
+  mechanism already used there for `react`/`react-dom`) to `^9.7.0`, the
+  patched version, same major — no code change needed.
+- **`@fastify/static` (pulled in by `@fastify/swagger-ui`, which powers
+  the `/docs` route) — route-guard-bypass/path-traversal
+  (GHSA-83w8-p2f5-377r, high). No non-breaking fix exists yet** — the fix
+  requires `@fastify/static` v10, and `@fastify/swagger-ui`'s own latest
+  release (`6.1.0`) still pins `^9.1.2`. `/docs` was registered
+  unconditionally in every environment (`app.ts`) with no auth guard — a
+  real, live, unauthenticated attack surface on any deployment, not a
+  theoretical one. Fixed by gating `swaggerUi`'s registration behind
+  `!config.isProduction` — the same hard-gate pattern `config/index.ts`
+  already uses for `MOCK_ESCROW` in production — so the vulnerable
+  static-file-serving plugin is simply never registered where it would
+  be reachable by the public, closing the exposure without waiting on an
+  upstream fix. `@fastify/swagger` itself (the OpenAPI spec generator, no
+  static file serving) stays registered everywhere — it has no
+  path-traversal surface of its own. `GET /` and the startup console
+  banner both updated to stop advertising `/docs` when it isn't actually
+  registered. Verified by booting the compiled server both ways:
+  `NODE_ENV` unset → `/docs` returns `200`; `NODE_ENV=production` →
+  `/docs` returns `404` and `GET /`'s `docs` field is `null`.
+
+**Deliberately not touched this pass** (all dev/test-only, no production
+exposure): the Jest/ts-jest ecosystem, Vitest/`@vitest/coverage-v8`
+(critical, but only reachable via a locally-listening Vitest UI server
+this repo never runs), Storybook/`@joshwooding/vite-plugin-*`, Artillery/
+OpenTelemetry (load-tests only), `@prisma/dev` itself, `redis-memory-server`/
+`rimraf`/`ts-node-dev`. `react-router-dom@7.18.1` (`sails-ui`) technically
+falls in the flagged range for a "RSC Mode CSRF Bypass" advisory, but
+`sails-ui` is a plain client-side Vite SPA that never uses React Server
+Components mode — left as a known-low-real-risk entry, not fixed here.
+
 ---
 
 ## 17. Security-validation round (2026-07-19) — abandoned trade, retry safety, event replay, concurrent dispute
