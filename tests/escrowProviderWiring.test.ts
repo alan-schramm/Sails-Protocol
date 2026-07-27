@@ -57,6 +57,10 @@ jest.mock('@arkade-os/sdk', () => ({
 }))
 
 const mockGetDepositAddress = jest.fn()
+const mockBuildUnsignedRelease = jest.fn()
+const mockBuildUnsignedRefund = jest.fn()
+const mockFinalizeRelease = jest.fn()
+const mockFinalizeRefund = jest.fn()
 jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
   multisigProvider: {
     name: 'MULTISIG',
@@ -65,6 +69,10 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     releaseFunds: jest.fn(),
     refundFunds: jest.fn(),
     verifyLock: jest.fn(),
+    buildUnsignedRelease: (...args: unknown[]) => mockBuildUnsignedRelease(...args),
+    buildUnsignedRefund: (...args: unknown[]) => mockBuildUnsignedRefund(...args),
+    finalizeRelease: (...args: unknown[]) => mockFinalizeRelease(...args),
+    finalizeRefund: (...args: unknown[]) => mockFinalizeRefund(...args),
   },
 }))
 
@@ -76,6 +84,11 @@ const mockEscrowEventCreate = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockParticipantKeyUpsert = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
+const mockPendingTxFindUnique = jest.fn()
+const mockPendingTxCreate = jest.fn()
+const mockPendingTxDelete = jest.fn()
+const mockTxSignatureUpsert = jest.fn()
+const mockTxSignatureFindMany = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -91,6 +104,16 @@ jest.mock('../src/common/database', () => ({
       upsert: (...args: unknown[]) => mockParticipantKeyUpsert(...args),
       findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
     },
+    escrowPendingTransaction: {
+      findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
+      create: (...args: unknown[]) => mockPendingTxCreate(...args),
+      delete: (...args: unknown[]) => mockPendingTxDelete(...args),
+    },
+    escrowTransactionSignature: {
+      upsert: (...args: unknown[]) => mockTxSignatureUpsert(...args),
+      findMany: (...args: unknown[]) => mockTxSignatureFindMany(...args),
+    },
+    dispute: { findFirst: jest.fn().mockResolvedValue(null) },
   },
 }))
 
@@ -261,5 +284,197 @@ describe('getProvider() — no more silent MOCK fallback for an unregistered rea
     ])
 
     await expect(escrowService.lockFunds('escrow-5', 'seller-1')).rejects.toThrow('ARKADE_SEED')
+  })
+})
+
+// Phase 2 (2026-07-27) — the signature-collection orchestration:
+// initiateRelease()/initiateRefund() build+persist an unsigned PSBT
+// without transitioning the escrow; submitTransactionSignature() collects
+// each required signer's own signed copy and only finalizes (real
+// provider call + status transition) once every required signer has
+// submitted. multisig.provider.ts's own real PSBT/combine logic is
+// covered by tests/multisigProvider.test.ts — this file only exercises
+// escrow.service.ts's orchestration around it.
+describe('initiateRelease()/initiateRefund() — Phase 2 signature-collection round setup', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockParticipantKeyFindMany.mockResolvedValue([
+      { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
+      { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
+    ])
+    mockPendingTxFindUnique.mockResolvedValue(null)
+  })
+
+  it('initiateRelease builds an unsigned PSBT via the provider and persists it, without transitioning the escrow', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
+    mockBuildUnsignedRelease.mockResolvedValue({ psbtBase64: 'unsigned-psbt', requiredSigners: ['buyer-1', 'seller-1'] })
+    mockPendingTxCreate.mockResolvedValue({ id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'] })
+
+    const result = await escrowService.initiateRelease('escrow-1', 'tb1qexample', 'seller-1')
+
+    expect(mockBuildUnsignedRelease).toHaveBeenCalledWith(
+      expect.objectContaining({ buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY }),
+      'tb1qexample'
+    )
+    expect(mockPendingTxCreate).toHaveBeenCalledWith({
+      data: { escrowId: 'escrow-1', kind: 'release', toAddress: 'tb1qexample', unsignedPsbtBase64: 'unsigned-psbt', requiredSigners: ['buyer-1', 'seller-1'], triggeredBy: 'seller-1' },
+    })
+    expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+    expect(result.id).toBe('ptx-1')
+  })
+
+  it('initiateRelease rejects a caller who is neither the seller nor the assigned arbiter', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
+
+    await expect(escrowService.initiateRelease('escrow-1', 'tb1qexample', 'buyer-1')).rejects.toThrow(
+      'is neither the seller'
+    )
+    expect(mockBuildUnsignedRelease).not.toHaveBeenCalled()
+  })
+
+  it('initiateRelease rejects when a signing round is already in flight for this escrow', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
+    mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-existing', kind: 'release' })
+
+    await expect(escrowService.initiateRelease('escrow-1', 'tb1qexample', 'seller-1')).rejects.toThrow(
+      'already has a pending release transaction'
+    )
+    expect(mockBuildUnsignedRelease).not.toHaveBeenCalled()
+  })
+
+  it('initiateRelease rejects an escrow type with no registered SignatureCollectionProvider', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-2', tradeId: 'trade-2', type: 'MOCK', status: 'PAYMENT_PENDING' })
+
+    await expect(escrowService.initiateRelease('escrow-2', 'tb1qexample', 'seller-1')).rejects.toThrow(
+      'does not use the client-signature-collection release flow'
+    )
+  })
+
+  it('initiateRefund builds an unsigned refund PSBT and persists the provider-derived toAddress', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'FUNDS_LOCKED' })
+    mockBuildUnsignedRefund.mockResolvedValue({ psbtBase64: 'unsigned-refund-psbt', requiredSigners: ['seller-1', 'buyer-1'], toAddress: 'tb1qsellerrefund' })
+    mockPendingTxCreate.mockResolvedValue({ id: 'ptx-2', escrowId: 'escrow-1', kind: 'refund', requiredSigners: ['seller-1', 'buyer-1'] })
+
+    const result = await escrowService.initiateRefund('escrow-1', 'seller-1')
+
+    expect(mockPendingTxCreate).toHaveBeenCalledWith({
+      data: { escrowId: 'escrow-1', kind: 'refund', toAddress: 'tb1qsellerrefund', unsignedPsbtBase64: 'unsigned-refund-psbt', requiredSigners: ['seller-1', 'buyer-1'], triggeredBy: 'seller-1' },
+    })
+    expect(result.id).toBe('ptx-2')
+  })
+})
+
+describe('submitTransactionSignature() — collects signatures, finalizes only once every required signer has submitted', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+    mockPendingTxDelete.mockResolvedValue({})
+  })
+
+  it('records a partial submission without finalizing when not every required signer has submitted yet', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
+    mockPendingTxFindUnique.mockResolvedValue({
+      id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'],
+      unsignedPsbtBase64: 'unsigned-psbt', triggeredBy: 'seller-1',
+    })
+    mockTxSignatureFindMany.mockResolvedValue([{ participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' }])
+
+    const result = await escrowService.submitTransactionSignature('escrow-1', 'buyer-1', 'buyer-signed')
+
+    expect(mockTxSignatureUpsert).toHaveBeenCalledWith({
+      where: { pendingTxId_participantId: { pendingTxId: 'ptx-1', participantId: 'buyer-1' } },
+      update: { signedPsbtBase64: 'buyer-signed' },
+      create: { pendingTxId: 'ptx-1', participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
+    })
+    expect(result.complete).toBe(false)
+    expect(mockFinalizeRelease).not.toHaveBeenCalled()
+    expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('finalizes for real once every required signer has submitted — release path', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
+    mockPendingTxFindUnique.mockResolvedValue({
+      id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'],
+      unsignedPsbtBase64: 'unsigned-psbt', triggeredBy: 'seller-1',
+    })
+    mockTxSignatureFindMany.mockResolvedValue([
+      { participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
+      { participantId: 'seller-1', signedPsbtBase64: 'seller-signed' },
+    ])
+    mockFinalizeRelease.mockResolvedValue({ txId: 'real-release-txid' })
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', status: 'COMPLETED', txReleaseId: 'real-release-txid' })
+
+    const result = await escrowService.submitTransactionSignature('escrow-1', 'seller-1', 'seller-signed')
+
+    expect(mockFinalizeRelease).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'escrow-1' }),
+      'unsigned-psbt',
+      ['buyer-signed', 'seller-signed']
+    )
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'PAYMENT_PENDING' }, data: { status: 'COMPLETED' } })
+    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-release-txid', releasedAt: expect.any(Date) } })
+    expect(mockPendingTxDelete).toHaveBeenCalledWith({ where: { id: 'ptx-1' } })
+    expect(result.complete).toBe(true)
+  })
+
+  it('finalizes for real once every required signer has submitted — refund path', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'FUNDS_LOCKED' })
+    mockPendingTxFindUnique.mockResolvedValue({
+      id: 'ptx-2', escrowId: 'escrow-1', kind: 'refund', requiredSigners: ['seller-1'],
+      unsignedPsbtBase64: 'unsigned-refund-psbt', triggeredBy: 'seller-1',
+    })
+    mockTxSignatureFindMany.mockResolvedValue([{ participantId: 'seller-1', signedPsbtBase64: 'seller-signed' }])
+    mockFinalizeRefund.mockResolvedValue({ txId: 'real-refund-txid' })
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', status: 'REFUNDED', txReleaseId: 'real-refund-txid' })
+
+    const result = await escrowService.submitTransactionSignature('escrow-1', 'seller-1', 'seller-signed')
+
+    expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'])
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'REFUNDED' } })
+    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-refund-txid' } })
+    expect(result.complete).toBe(true)
+  })
+
+  it('rejects a signature from someone who is not a required signer for this pending transaction', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
+    mockPendingTxFindUnique.mockResolvedValue({
+      id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'],
+      unsignedPsbtBase64: 'unsigned-psbt', triggeredBy: 'seller-1',
+    })
+
+    await expect(escrowService.submitTransactionSignature('escrow-1', 'not-a-party', 'sig')).rejects.toThrow(
+      'is not one of the required signers'
+    )
+    expect(mockTxSignatureUpsert).not.toHaveBeenCalled()
+  })
+
+  it('rejects when no signing round is in flight for this escrow', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
+    mockPendingTxFindUnique.mockResolvedValue(null)
+
+    await expect(escrowService.submitTransactionSignature('escrow-1', 'buyer-1', 'sig')).rejects.toThrow(
+      'has no pending transaction awaiting signatures'
+    )
+  })
+})
+
+describe('getPendingTransaction()', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('returns the pending transaction row (with signatures) when one exists', async () => {
+    mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'], signatures: [] })
+    const result = await escrowService.getPendingTransaction('escrow-1')
+    expect(result.id).toBe('ptx-1')
+  })
+
+  it('throws NotFoundError when no signing round is in flight', async () => {
+    mockPendingTxFindUnique.mockResolvedValue(null)
+    await expect(escrowService.getPendingTransaction('escrow-1')).rejects.toThrow('EscrowPendingTransaction')
   })
 })

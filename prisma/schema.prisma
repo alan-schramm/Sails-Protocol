@@ -443,6 +443,53 @@ model EscrowParticipantKey {
   @@map("escrow_participant_keys")
 }
 
+// Phase 2 of the client-held-keys upgrade (2026-07-27) — signature
+// collection for MULTISIG release/refund. Once buyer/seller keys became
+// client-held (EscrowParticipantKey above), multisig.provider.ts could no
+// longer sign a release/refund server-side in one synchronous call; this
+// pair of tables tracks the in-flight signing round instead: the server
+// builds one unsigned PSBT (escrow.service.ts's initiateRelease()/
+// initiateRefund()), each required party independently signs their own
+// copy client-side and submits it back (submitTransactionSignature()) —
+// verified experimentally that bitcoinjs-lib's Psbt.combine() correctly
+// merges independently-signed copies of the same unsigned PSBT before
+// this was written. Cleared (deleted, cascading to its signatures) once
+// finalize succeeds — a completed release/refund leaves no pending row
+// behind, only Escrow.txReleaseId as the durable record.
+model EscrowPendingTransaction {
+  id                 String   @id @default(uuid())
+  escrowId           String   @unique
+  kind               String   // 'release' | 'refund'
+  toAddress          String
+  unsignedPsbtBase64 String
+  // Participant ids who must each submit their own signed copy. On a
+  // DISPUTED release/refund this list has only ONE entry (buyer or
+  // seller) — the arbiter's own required signature is pre-embedded into
+  // unsignedPsbtBase64 above at build time, since the arbiter's key is
+  // still server-derived (multisig.provider.ts's own header comment) and
+  // never needed a client submission to begin with.
+  requiredSigners    String[]
+  triggeredBy        String
+  createdAt          DateTime @default(now())
+
+  signatures EscrowTransactionSignature[]
+
+  @@map("escrow_pending_transactions")
+}
+
+model EscrowTransactionSignature {
+  id               String                   @id @default(uuid())
+  pendingTxId      String
+  pendingTx        EscrowPendingTransaction @relation(fields: [pendingTxId], references: [id], onDelete: Cascade)
+  participantId    String
+  signedPsbtBase64 String
+  createdAt        DateTime                 @default(now())
+
+  @@unique([pendingTxId, participantId])
+  @@index([pendingTxId])
+  @@map("escrow_transaction_signatures")
+}
+
 enum VerificationVerdict {
   ACCEPTED
   REJECTED

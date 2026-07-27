@@ -261,6 +261,90 @@ makes the same point in more detail.
       `submitParticipantKey()` describe block; new
       `packages/sails-sdk/tests/escrow-key.test.ts` (real crypto,
       cross-checked against `bitcoinjs-lib`).
+- [x] **Client-signature-collection (Phase 2 of the HodlHodl-grade
+      non-custody upgrade), MULTISIG only — done, 2026-07-27.** Closes the
+      gap Phase 1 (above) disclosed: `releaseFunds()`/`refundFunds()` can
+      no longer sign server-side now that buyer/seller keys are
+      client-held. Real flow: `POST .../initiate-release` /
+      `.../initiate-refund` (`escrow.service.ts`'s `initiateRelease()`/
+      `initiateRefund()`) run the same ownership/capability/dual-approval
+      checks the old synchronous release/refund already had, then call
+      `multisig.provider.ts`'s new `buildUnsignedRelease()`/
+      `buildUnsignedRefund()` (real PSBT construction against the
+      escrow's recorded funding UTXO, does NOT sign) and persist it as a
+      new `EscrowPendingTransaction` row — escrow status is untouched
+      until finalize actually succeeds. Each required signer
+      (`requiredSigners`, participant ids) independently loads the
+      unsigned PSBT, signs their own copy client-side
+      (`@sails/sdk`'s new `signEscrowPsbt()`, `@bitcoinerlab/secp256k1` —
+      pure JS, no WASM, the same avoidance-of-`tiny-secp256k1`-in-the-
+      browser reasoning `escrow-key.ts` already used for `@noble/curves`),
+      and submits it via `POST .../submit-transaction-signature`
+      (`submitTransactionSignature()`, persisted as
+      `EscrowTransactionSignature`). Once every required signer has
+      submitted, the real provider call happens
+      (`finalizeRelease()`/`finalizeRefund()` — `Psbt.combine()`s every
+      independently-signed copy against the unsigned base and finalizes,
+      broadcasts) and the SAME atomic `updateMany` status-claim pattern
+      `releaseFunds()`/`refundFunds()` already used protects against
+      double-finalization. **Disputed release/refund**: the arbiter's own
+      required signature is pre-embedded into the "unsigned" PSBT at
+      build time (the arbiter's key is still server-derived, unchanged
+      from Phase 1) rather than waiting for an HTTP submission from a key
+      the server already legitimately holds — only the other required
+      party (buyer or seller, mirroring the pre-Phase-1 signer-selection
+      logic: release favors the buyer, refund favors the seller) is a
+      real pending client submission in that case.
+      **Verified experimentally before writing this** (mirrors every
+      prior provider's "verify, don't assume" discipline this session):
+      `Psbt.combine()` correctly merges two independently-signed copies of
+      the SAME unsigned PSBT (server sends one unsigned PSBT to both
+      parties, each signs their own copy without seeing the other's
+      signature) and correctly fails to finalize with only one; a
+      `@bitcoinerlab/secp256k1`-signed PSBT input combines/finalizes
+      correctly against a `tiny-secp256k1`-backed verifier (the two ECC
+      implementations genuinely interoperate on the same PSBT bytes — the
+      actual cross-library requirement here, client signs with one
+      library, server finalizes with another).
+      **Verified end-to-end against the real running server + real local
+      Postgres** (not just unit tests, mirroring Phase 1's own
+      verification style — a local stub swapped in only for the one
+      dependency this environment cannot reach with real funds, a funded
+      testnet Bitcoin UTXO; every other part of the stack — real HTTP
+      routes, real `escrow.service.ts` orchestration, real Postgres, real
+      PSBT construction/signing/combine/finalize — ran for real): two real
+      users, a real trade, a real `MULTISIG` escrow, both pubkeys
+      submitted, real `lockFunds()`, `initiate-release` correctly leaves
+      the escrow at `PAYMENT_PENDING` until both parties independently
+      submit their real signed PSBT copy, escrow reaches `COMPLETED` with
+      a real `txReleaseId` only once the second signature lands (the
+      first submission alone correctly reports `complete: false`), and the
+      `EscrowPendingTransaction` row is gone (404) once finalized.
+      **Explicitly deferred, not this pass:** `LIGHTNING_HODL`'s
+      equivalent Phase 2 needs its own separate verification of whether
+      `@arkade-os/sdk`'s client-side signing primitive
+      (`SeedIdentity.sign()`) works standalone in a browser bundle outside
+      the full ASP-connected wallet machinery — genuinely different
+      unknowns than Multisig's PSBT signing, not bundled in blind.
+      New/changed: `prisma/schema.prisma`'s `EscrowPendingTransaction`/
+      `EscrowTransactionSignature` models;
+      `multisig.provider.ts`'s `buildUnsignedRelease()`/
+      `buildUnsignedRefund()`/`finalizeRelease()`/`finalizeRefund()`;
+      `escrow.service.ts`'s `initiateRelease()`/`initiateRefund()`/
+      `submitTransactionSignature()`/`getPendingTransaction()`; 4 new
+      `settlement.routes.ts` routes; `@sails/sdk`'s `signEscrowPsbt()`
+      (`escrow-key.ts`) and 4 new `SailsSettlementModule` methods;
+      minimal `sails-ui` wiring (`useEscrowKey`'s
+      `signAndSubmitPendingTransactionIfNeeded()`, called speculatively
+      whenever a MULTISIG/LIGHTNING_HODL escrow loads, plus
+      `Trade.tsx`'s release button now calls `initiateRelease()` for
+      MULTISIG instead of the old direct `release()`, which now correctly
+      throws "not directly callable" for this type). Tests: extended
+      `tests/multisigProvider.test.ts` (9 new, real PSBT
+      build/combine/finalize), extended `tests/escrowProviderWiring.test.ts`
+      (12 new, service-layer orchestration), extended
+      `packages/sails-sdk/tests/escrow-key.test.ts` (3 new,
+      `signEscrowPsbt()` cross-library interop) — 341/341 full suite green.
 
 ## 5. Liquidity Providers Beyond Internal
 

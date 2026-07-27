@@ -128,6 +128,34 @@ export interface Escrow {
   updatedAt: string
 }
 
+// Phase 2 (2026-07-27) — the in-flight signature-collection round for a
+// MULTISIG release/refund (escrow.service.ts's initiateRelease()/
+// initiateRefund()/submitTransactionSignature()). Mirrors
+// EscrowPendingTransaction/EscrowTransactionSignature (prisma/schema.prisma)
+// directly.
+export interface EscrowTransactionSignature {
+  id: string
+  pendingTxId: string
+  participantId: string
+  signedPsbtBase64: string
+  createdAt: string
+}
+
+export interface EscrowPendingTransaction {
+  id: string
+  escrowId: string
+  kind: 'release' | 'refund'
+  toAddress: string
+  unsignedPsbtBase64: string
+  requiredSigners: string[]
+  triggeredBy: string
+  createdAt: string
+  // Only present on getPendingTransaction() — initiateRelease()/
+  // initiateRefund()'s own create response doesn't include it (no
+  // signatures can exist yet at that point).
+  signatures?: EscrowTransactionSignature[]
+}
+
 export interface Dispute {
   id: string
   tradeId: string
