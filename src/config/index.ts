@@ -159,6 +159,18 @@ export const config = {
     rpcUrl: process.env.WDK_RPC_URL ?? 'https://sepolia.drpc.org',
     usdtContract: process.env.WDK_USDT_CONTRACT ?? '',
   },
+
+  // MULTISIG SettlementProvider (multisig.provider.ts) — real 2-of-3
+  // Bitcoin P2WSH script/PSBT construction against a public block-explorer
+  // API. Empty seed by default, same "surface a clear config error, don't
+  // refuse to boot" pattern as wdk.seedPhrase above — this provider's own
+  // header comment has the full custody-model disclosure (server-derived
+  // keys, single-arbiter limitation).
+  multisig: {
+    seed: process.env.MULTISIG_SEED ?? '',
+    network: process.env.MULTISIG_NETWORK ?? 'testnet',
+    explorerApiUrl: process.env.MULTISIG_EXPLORER_API_URL ?? 'https://mempool.space/testnet/api',
+  },
 }
 
 // RT-001's fix, made structural instead of relying on someone remembering

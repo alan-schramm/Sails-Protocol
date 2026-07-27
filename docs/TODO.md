@@ -160,13 +160,40 @@ makes the same point in more detail.
       inside `releaseFunds()` itself. 13 new tests
       (`tests/escrowReleaseControls.test.ts`).
 - [ ] `LightningHodlProvider` — currently throws `EscrowError('not yet
-      implemented')` for every method. Needs a real LND/CLN integration.
-- [ ] `LiquidCovenantProvider` — does not exist yet at all, only referenced
-      as an `EscrowType` enum value.
-- [ ] Real Multisig 2-of-3 Bitcoin escrow — not implemented; only `MOCK`
-      and now `WDK_USDT_EVM` are functional today. RFC-015's two-person
-      control (above) is a real mitigation for *who may trigger* a
-      release, not a substitute for this.
+      implemented')` for every method. Needs a real LND/CLN integration
+      (or a hosted LSP account exposing hold-invoice semantics) — neither
+      exists in any environment this project has been built in, so this
+      stays honestly unimplemented rather than faked. Same for
+      `LiquidCovenantProvider`, which doesn't exist as a file at all yet
+      (needs a real Elements node plus a new `liquidjs-lib` dependency).
+- [x] Real Multisig 2-of-3 Bitcoin escrow — **done** (`multisig.provider.ts`,
+      2026-07-27). Real `bitcoinjs-lib`/`bip32`/`ecpair`/`tiny-secp256k1`
+      P2WSH script + PSBT construction/signing/finalization, verified
+      against the real libraries (2-of-3 finalizes, 1-of-3 correctly
+      fails). Custody model disclosed plainly in that file's own header
+      comment, same discipline as `WdkSettlementProvider`: all 3 keys
+      (buyer/seller/arbiter) are still derived from one server-held seed —
+      genuine 2-of-3 script mechanics, not yet a trustless multisig where
+      each counterparty holds their own key (that's the same gap RFC-019
+      Phase 2 already names). Also single-arbiter-only: the script's
+      arbiter key is fixed at escrow-creation time, so a deployment with
+      more than one `TRUSTED_ARBITRATORS` entry can produce a dispute
+      whose assigned arbiter doesn't match — the provider refuses that
+      loudly (`assertArbiterMatchesScript()`) rather than attempting a
+      signature that wouldn't validate. Non-custodial in the fund-movement
+      sense (unlike `MOCK`/`WDK_USDT_EVM`, it never pushes funds in — the
+      seller funds the deposit address externally). Tests:
+      `tests/multisigProvider.test.ts` (18, pure crypto — no live infra
+      needed for any of it except the final broadcast, which is mocked)
+      and `tests/escrowProviderWiring.test.ts` (5, wiring). RFC-015's
+      two-person control (above) remains a real mitigation for *who may
+      trigger* a release; this is the actual on-chain enforcement.
+      **Real bug found and fixed in the same pass:** `getProvider()` used
+      to silently fall back to `MOCK` for ANY unregistered `EscrowType`
+      (`MULTISIG` before this, and still `LIQUID_COVENANT` today) instead
+      of throwing like `LIGHTNING_HODL` already did — a real-money-shaped
+      escrow could silently mock-process. Fixed for every type, not just
+      `MULTISIG`.
 
 ## 5. Liquidity Providers Beyond Internal
 
