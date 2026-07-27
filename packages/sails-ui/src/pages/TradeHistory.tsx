@@ -50,7 +50,7 @@ export function TradeHistory() {
               <span className="font-medium text-sm text-brand-text">{formatAmount(t.amount)} com {t.counterpart}</span>
             </div>
             <div className="flex items-center gap-2 md:ml-4">
-              <span className={`text-xs px-2 py-0.5 rounded-full ${t.role === 'BUYER' ? 'bg-blue-500/10 text-blue-500' : 'bg-green-500/10 text-green-500'}`}>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${t.role === 'BUYER' ? 'bg-blue-500/10 text-blue-700' : 'bg-green-500/10 text-green-500'}`}>
                 {t.role === 'BUYER' ? 'Comprador' : 'Vendedor'}
               </span>
               <span className="text-xs text-brand-text-muted">{t.date}</span>

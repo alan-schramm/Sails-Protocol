@@ -48,7 +48,7 @@ export function EscrowActions({ status, isBuyer, isSeller, onLockFunds, onMarkPa
 
       {!isTerminal && canDispute && (
         // TODO: POST /v1/settlement/escrow/:id/dispute (dispute.service.ts's raiseDispute())
-        <button onClick={onOpenDispute} className="w-full border border-red-500/25 text-red-500 rounded-lg py-2 text-sm hover:bg-red-500/10 transition-colors">
+        <button onClick={onOpenDispute} className="w-full border border-red-500/25 text-red-700 rounded-lg py-2 text-sm hover:bg-red-500/10 transition-colors">
           ⚠️ Abrir Disputa
         </button>
       )}

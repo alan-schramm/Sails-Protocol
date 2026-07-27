@@ -227,7 +227,7 @@ export function OfferDetail() {
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
               </div>
               {amount && !withinLimits && (
-                <p className="text-xs text-red-500 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
+                <p className="text-xs text-red-700 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
               )}
 
               <div className="mt-4 pt-4 border-t border-brand-border">

@@ -22,7 +22,7 @@ export function Disputes() {
     <div>
       <div className="flex items-center gap-2">
         <h1 className="text-2xl font-black tracking-tight text-brand-text">Disputas</h1>
-        <span className="bg-red-500/10 text-red-500 text-xs font-bold rounded-full px-2 py-0.5">
+        <span className="bg-red-500/10 text-red-700 text-xs font-bold rounded-full px-2 py-0.5">
           {disputes.filter((d) => d.status !== 'RESOLVED').length}
         </span>
       </div>
@@ -34,7 +34,7 @@ export function Disputes() {
               <span className="font-mono text-brand-text-muted">{d.tradeId}</span>
               <AssetBadge asset={d.asset} />
               <span className="text-brand-text-muted">{formatDateTime(d.openedAt)}</span>
-              <span className={`ml-auto px-2 py-0.5 rounded-full font-medium ${d.status === 'RESOLVED' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+              <span className={`ml-auto px-2 py-0.5 rounded-full font-medium ${d.status === 'RESOLVED' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-700'}`}>
                 {d.status}
               </span>
             </div>

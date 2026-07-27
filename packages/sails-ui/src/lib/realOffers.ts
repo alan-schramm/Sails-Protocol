@@ -66,32 +66,50 @@ function summaryToOffer(s: LiquidityOfferSummary): Offer {
   }
 }
 
+// Real gap fixed here (Fase 3 E2E follow-up): a single `limit: 50` call
+// per (asset, side) still hard-caps at 50 — a freshly-published offer
+// can still be permanently unreachable once 50+ offers accumulate for
+// that pair (confirmed directly: this exact thing broke
+// e2e/flows/p2p-trade-happy-path.spec.ts once the shared local dev
+// Postgres had enough leftover test offers). The backend and SDK
+// already support full limit+offset pagination (liquidity.routes.ts,
+// sails-sdk's discover()) — this was the one caller never using it
+// beyond a single page. `discover()`'s real response has no
+// total/hasMore field (DiscoverResult is just {offers, sources}), so
+// "a short page means the last page" is the correct, standard way to
+// know when to stop — not a total count this route doesn't return.
+async function fetchAllPages(asset: AssetType, side: TradeSide): Promise<Offer[]> {
+  const pageSize = 50 // the route's own max (docs/TODO.md §25)
+  const collected: Offer[] = []
+  let offset = 0
+
+  for (;;) {
+    let page: LiquidityOfferSummary[]
+    try {
+      page = (await sailsClient.liquidity.discover({ asset, side, limit: pageSize, offset })).offers
+    } catch (err) {
+      console.error(`[realOffers] discover(${asset}, ${side}, offset=${offset}) failed:`, err)
+      break
+    }
+    for (const s of page) collected.push(summaryToOffer(s))
+    if (page.length < pageSize) break // short page — no more pages
+    offset += pageSize
+  }
+
+  return collected
+}
+
 export async function fetchOffers(asset: AssetType | 'Todos', side: TradeSide | 'Todos'): Promise<Offer[]> {
   const assets: AssetType[] = asset === 'Todos' ? [...ASSETS] : [asset]
   const sides: TradeSide[] = side === 'Todos' ? ['BUY', 'SELL'] : [side]
 
   const results = await Promise.all(
-    // limit: 50 (the route's own max, docs/TODO.md §25) — without it,
-    // discover() defaults to 10, ordered by price ascending. A real
-    // gap this exact default caused: e2e/golden-path.spec.ts's own
-    // freshly-published offer stopped appearing in this Marketplace
-    // once enough same-tier-priced offers had accumulated in the
-    // shared local dev database, since it no longer ranked in the top
-    // 10. This does not remove the underlying cap (a marketplace with
-    // more than 50 active offers per asset/side still needs real
-    // pagination/infinite-scroll here, not built yet) — it only widens
-    // the window this reference UI already relies on implicitly.
-    assets.flatMap((a) => sides.map((s) =>
-      sailsClient.liquidity.discover({ asset: a, side: s, limit: 50 }).catch((err) => {
-        console.error(`[realOffers] discover(${a}, ${s}) failed:`, err)
-        return { offers: [], sources: [] }
-      })
-    ))
+    assets.flatMap((a) => sides.map((s) => fetchAllPages(a, s)))
   )
 
   const seen = new Map<string, Offer>()
-  for (const r of results) {
-    for (const s of r.offers) seen.set(s.id, summaryToOffer(s))
+  for (const offers of results) {
+    for (const o of offers) seen.set(o.id, o)
   }
   return [...seen.values()]
 }

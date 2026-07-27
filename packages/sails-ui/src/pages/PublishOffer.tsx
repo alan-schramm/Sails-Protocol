@@ -101,7 +101,21 @@ export function PublishOffer() {
     // Real CreateOfferInput.priceUsd is mandatory regardless of which
     // fiat the offer is priced in — see this file's own doc comment for
     // why this conversion is illustrative, not live.
-    const priceUsd = currency === 'USD' ? priceFiat : Number((priceFiat * ILLUSTRATIVE_FX_TO_USD[currency]).toFixed(2))
+    //
+    // Bug fixed here (found by e2e/flows/*.spec.ts using small BRL test
+    // prices): this used to round to 2 decimals with `.toFixed(2)`
+    // *before* the `.toFixed(8)` decimal-string conversion below — any
+    // BRL price whose USD equivalent was under half a cent silently
+    // became priceUsd="0.00000000", a real, live, non-obvious offer
+    // with a free price. Kept at full precision here; `.toFixed(8)`
+    // below is the only rounding step now, matching the column's real
+    // Decimal(24,8) precision (RFC-009).
+    const priceUsd = currency === 'USD' ? priceFiat : priceFiat * ILLUSTRATIVE_FX_TO_USD[currency]
+
+    if (priceUsd <= 0) {
+      toast.error('O preço convertido para USD ficou zerado — informe um preço mais alto')
+      return
+    }
 
     setPublishing(true)
     try {

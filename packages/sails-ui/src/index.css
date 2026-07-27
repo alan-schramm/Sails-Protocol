@@ -24,12 +24,26 @@
   --color-border-hover: 212 212 212; /* #d4d4d4 */
   --color-text: 10 10 10;            /* #0a0a0a */
   --color-text-secondary: 82 82 82;  /* #525252 */
-  --color-text-muted: 163 163 163;   /* #a3a3a3 */
+  /* Was 163 163 163 (#a3a3a3) — real WCAG 2.1 AA violation confirmed by
+     e2e/accessibility/a11y.spec.ts's AxeBuilder scan (2.52:1 against
+     white, needs 4.5:1). 100 100 100 gives ~5.9:1 while staying lighter
+     (more de-emphasized) than --color-text-secondary above, preserving
+     the same visual hierarchy. */
+  --color-text-muted: 100 100 100;   /* #646464 */
 
-  --color-orange: 249 115 22;       /* #f97316 */
-  --color-orange-hover: 234 88 12;  /* #ea580c */
-  --color-orange-subtle: rgba(249, 115, 22, 0.08);
-  --color-orange-border: rgba(249, 115, 22, 0.25);
+  /* Was 249 115 22 (#f97316) — real WCAG 2.1 AA violations confirmed by
+     AxeBuilder: white text on this background (.btn-primary) measured
+     2.8:1, and this color as text on the page background (the "P2P"
+     logotype) measured 2.68:1 — both need 4.5:1. 194 65 12 is the same
+     hue family (a "burnt orange"/Tailwind orange-700, already used
+     elsewhere in this codebase for badge foregrounds), ~5.2:1 with
+     white text and ~5.0:1 as text on this page's background. */
+  --color-orange: 194 65 12;        /* #c2410c */
+  /* Was 234 88 12 (#ea580c), 3.55:1 with white text — same fix logic,
+     darker still so hover reads as a distinct "pressed" state. */
+  --color-orange-hover: 154 52 18;  /* #9a3412 */
+  --color-orange-subtle: rgba(194, 65, 12, 0.08);
+  --color-orange-border: rgba(194, 65, 12, 0.25);
 }
 
 :root.dark {
@@ -40,12 +54,19 @@
   --color-border-hover: 56 56 56;    /* #383838 */
   --color-text: 250 250 250;         /* #fafafa */
   --color-text-secondary: 163 163 163; /* #a3a3a3 */
-  --color-text-muted: 82 82 82;      /* #525252 */
+  /* Was 82 82 82 (#525252) — same real contrast bug as light mode's
+     --color-text-muted, just inverted (too dark against this near-black
+     background instead of too light against white). 140 140 140 gives
+     ~6.1:1 while staying dimmer than --color-text-secondary above. */
+  --color-text-muted: 140 140 140;   /* #8c8c8c */
 
-  --color-orange: 249 115 22;       /* #f97316 */
-  --color-orange-hover: 251 146 60; /* #fb923c */
-  --color-orange-subtle: rgba(249, 115, 22, 0.12);
-  --color-orange-border: rgba(249, 115, 22, 0.3);
+  /* Same fix as :root above — dark mode's button text is still white
+     (.btn-primary hardcodes text-white regardless of theme), so this
+     needed the identical fix, not a theme-specific one. */
+  --color-orange: 194 65 12;        /* #c2410c */
+  --color-orange-hover: 154 52 18;  /* #9a3412 */
+  --color-orange-subtle: rgba(194, 65, 12, 0.12);
+  --color-orange-border: rgba(194, 65, 12, 0.3);
 }
 
 body {
