@@ -51,6 +51,17 @@ const submitKeySchema = z.object({
   pubkey: z.string().regex(/^0[23][0-9a-fA-F]{64}$/, 'must be a 33-byte compressed secp256k1 public key, hex-encoded'),
 })
 
+const initiateReleaseSchema = z.object({
+  toAddress: z.string().min(1),
+})
+
+// PSBT, base64-encoded — same format multisig.provider.ts's
+// buildUnsignedRelease()/buildUnsignedRefund() emit and @sails/sdk's
+// signEscrowPsbt() returns.
+const submitTransactionSignatureSchema = z.object({
+  signedPsbtBase64: z.string().min(1),
+})
+
 const disputeSchema = z.object({
   reason: z.string().min(1),
   evidence: z.array(z.any()).optional(),
@@ -126,6 +137,57 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const participantId = (request as any).participantId as string
     const escrow = await escrowService.releaseFunds(id, body.toAddress, participantId)
     return reply.code(200).send({ success: true, data: escrow })
+  })
+
+  // Phase 2 client-signature-collection flow (2026-07-27) — real for
+  // MULTISIG only; escrowService.initiateRelease() itself rejects any
+  // other escrow type with a clear error pointing back to the direct
+  // /release route. See escrow.service.ts's own header comment on this
+  // method for the full flow.
+  app.post('/v1/settlement/escrow/:id/initiate-release', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const body = initiateReleaseSchema.parse(request.body)
+    const participantId = (request as any).participantId as string
+    const pending = await escrowService.initiateRelease(id, body.toAddress, participantId)
+    return reply.code(201).send({ success: true, data: pending })
+  })
+
+  // Mirror of initiate-release above, for refund.
+  app.post('/v1/settlement/escrow/:id/initiate-refund', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const participantId = (request as any).participantId as string
+    const pending = await escrowService.initiateRefund(id, participantId)
+    return reply.code(201).send({ success: true, data: pending })
+  })
+
+  // Each required signer (EscrowPendingTransaction.requiredSigners) calls
+  // this once with their own independently-signed copy of the unsigned
+  // PSBT. Once every required signer has submitted, the response's
+  // `data.complete` flips to true and the escrow has actually transitioned
+  // (COMPLETED/REFUNDED) with a real txReleaseId.
+  app.post('/v1/settlement/escrow/:id/submit-transaction-signature', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const body = submitTransactionSignatureSchema.parse(request.body)
+    const participantId = (request as any).participantId as string
+    const result = await escrowService.submitTransactionSignature(id, participantId, body.signedPsbtBase64)
+    return reply.code(200).send({ success: true, data: result })
+  })
+
+  app.get('/v1/settlement/escrow/:id/pending-transaction', {
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const pending = await escrowService.getPendingTransaction(id)
+    return reply.code(200).send({ success: true, data: pending })
   })
 
   // RFC-015 — two-person control. Records the calling participant's

@@ -29,10 +29,16 @@ arbitrated action.
   key as of the same day's follow-up pass (`@sails/sdk`'s
   `generateEscrowKeypair()` + `POST /v1/settlement/escrow/:id/submit-key`)
   — the server only ever derives the arbiter's own key, the same split
-  HodlHodl's real design uses. Disclosed gap: release/refund need a
-  client-signature-collection flow that doesn't exist yet (Phase 2), so
-  both currently throw rather than silently fail (`TODO.md` §4 has the
-  full disclosure)
+  HodlHodl's real design uses. Release/refund go through a real
+  client-signature-collection flow (Phase 2, same day): the server builds
+  an unsigned PSBT (`POST .../initiate-release`/`initiate-refund`), each
+  required party signs their own copy client-side (`@sails/sdk`'s
+  `signEscrowPsbt()`) and submits it
+  (`POST .../submit-transaction-signature`); once every required
+  signature has arrived, the server combines and finalizes for real
+  (verified end-to-end against the live server + real Postgres —
+  `TODO.md` §4 has the full disclosure, including what's still deferred:
+  `LIGHTNING_HODL`'s equivalent Phase 2)
 - **Lightning HODL HTLC:** time-locked — real as of 2026-07-27, via Arkade
   (Ark protocol) rather than a literal LND hold-invoice
   (`lightning-hodl.provider.ts`) — plain Lightning HTLCs genuinely have no

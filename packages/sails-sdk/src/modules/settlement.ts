@@ -12,7 +12,7 @@
  * exactly like the server route does.
  */
 import type { SailsTransport } from '../transport'
-import type { AssetType, Dispute, DisputeRuling, Escrow, EscrowType } from '../types'
+import type { AssetType, Dispute, DisputeRuling, Escrow, EscrowPendingTransaction, EscrowType } from '../types'
 
 export interface CreateEscrowInput {
   tradeId: string
@@ -71,6 +71,42 @@ export class SailsSettlementModule {
   /** Requires an active session. -> REFUNDED. */
   async refund(escrowId: string): Promise<Escrow> {
     return this.transport.post<Escrow>(`/v1/settlement/escrow/${escrowId}/refund`, undefined, true)
+  }
+
+  /**
+   * Phase 2 (2026-07-27), MULTISIG only. Requires an active session AND
+   * the same authorization release() already requires (seller, or the
+   * assigned dispute arbiter). Builds and persists an unsigned release
+   * PSBT server-side — does NOT move funds or transition the escrow by
+   * itself. Each id in the response's `requiredSigners` must call
+   * `submitTransactionSignature()` with their own signed copy
+   * (`signEscrowPsbt()`, `escrow-key.ts`) before the release actually
+   * completes.
+   */
+  async initiateRelease(escrowId: string, toAddress: string): Promise<EscrowPendingTransaction> {
+    return this.transport.post(`/v1/settlement/escrow/${escrowId}/initiate-release`, { toAddress }, true)
+  }
+
+  /** Mirror of initiateRelease() above, for refund. */
+  async initiateRefund(escrowId: string): Promise<EscrowPendingTransaction> {
+    return this.transport.post(`/v1/settlement/escrow/${escrowId}/initiate-refund`, undefined, true)
+  }
+
+  /**
+   * Submits the caller's own independently-signed copy of the pending
+   * transaction's unsigned PSBT (sign it first with `signEscrowPsbt()`).
+   * `complete: true` in the response means every required signer has now
+   * submitted and the escrow has actually finalized (combined, broadcast,
+   * and transitioned) — check `getPendingTransaction()`/`get()` for the
+   * resulting `txReleaseId` if needed.
+   */
+  async submitTransactionSignature(escrowId: string, signedPsbtBase64: string): Promise<{ complete: boolean }> {
+    return this.transport.post(`/v1/settlement/escrow/${escrowId}/submit-transaction-signature`, { signedPsbtBase64 }, true)
+  }
+
+  /** No active session required. Throws SailsNotFoundError if no signing round is in flight for this escrow. */
+  async getPendingTransaction(escrowId: string): Promise<EscrowPendingTransaction> {
+    return this.transport.get(`/v1/settlement/escrow/${escrowId}/pending-transaction`)
   }
 
   /**

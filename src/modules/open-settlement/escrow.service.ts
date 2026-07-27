@@ -131,6 +131,22 @@ const NON_CUSTODIAL_PROVIDERS: Record<string, { getDepositAddress(tradeId: strin
   LIGHTNING_HODL: lightningHodlProvider,
 }
 
+// Phase 2 (2026-07-27) — providers whose release/refund now goes through
+// client-signature collection instead of a single synchronous provider
+// call. MULTISIG only this pass — LIGHTNING_HODL's equivalent needs its
+// own separate verification of @arkade-os/sdk's client-side signing story
+// in a browser bundle first (genuinely different unknowns), tracked in
+// TODO.md §4, not bundled in here.
+interface SignatureCollectionProvider {
+  buildUnsignedRelease(escrow: unknown, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }>
+  buildUnsignedRefund(escrow: unknown): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string }>
+  finalizeRelease(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
+  finalizeRefund(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
+}
+const SIGNATURE_COLLECTION_PROVIDERS: Record<string, SignatureCollectionProvider> = {
+  MULTISIG: multisigProvider,
+}
+
 // 33-byte compressed secp256k1 pubkey, hex — the canonical client-submitted
 // format both MULTISIG and LIGHTNING_HODL derive their own required
 // representation from (see each provider's own header comment).
@@ -631,6 +647,224 @@ export class EscrowService {
       await prisma.escrow.update({ where: { id: escrowId }, data: { status: escrow.status } }).catch(() => {})
       throw err
     }
+  }
+
+  // Phase 2 client-signature-collection flow (2026-07-27) — the real
+  // replacement for the direct releaseFunds() call above, for providers in
+  // SIGNATURE_COLLECTION_PROVIDERS (MULTISIG only this pass). Runs the
+  // exact same ownership/capability/dual-approval checks releaseFunds()
+  // already has, but does NOT transition escrow.status or write
+  // txReleaseId itself — it only builds and persists an unsigned PSBT for
+  // the required parties to sign. The real transition happens inside
+  // submitTransactionSignature() below, once every required signature has
+  // arrived.
+  async initiateRelease(escrowId: string, toAddress: string, triggeredBy: string) {
+    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    if (!escrow) throw new NotFoundError('Escrow', escrowId)
+
+    const provider = SIGNATURE_COLLECTION_PROVIDERS[escrow.type]
+    if (!provider) {
+      throw new EscrowError(
+        `Escrow type '${escrow.type}' does not use the client-signature-collection release flow — use POST /v1/settlement/escrow/${escrowId}/release instead`
+      )
+    }
+    this.assertTransition(escrow.status, 'COMPLETED')
+
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+    if (!(await this.isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
+      throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
+    }
+
+    // Same two checks releaseFunds() runs — see that method's own comments.
+    if (config.features.enforceCapabilities) {
+      const capabilityName = CAPABILITY_IMPLEMENTATIONS.opensettlement
+      const allowed = await capabilityRegistry.check(triggeredBy, capabilityName, 'settlement.escrow.released')
+      if (!allowed) {
+        throw new ForbiddenError(
+          `${triggeredBy} has no active '${capabilityName}' capability grant covering 'settlement.escrow.released'`
+        )
+      }
+    }
+    if (config.features.requireDualApprovalForRelease && escrow.status === 'PAYMENT_PENDING') {
+      const dual = await this.hasDualApproval(escrowId)
+      if (!dual) {
+        throw new EscrowError(
+          `Release blocked: both counterparties must call POST /v1/settlement/escrow/${escrowId}/approve-release ` +
+          'before funds can be released (RFC-015 two-person control).'
+        )
+      }
+    }
+
+    const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
+    if (existingPending) {
+      throw new EscrowError(`Escrow ${escrowId} already has a pending ${existingPending.kind} transaction awaiting signatures`)
+    }
+
+    const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
+    const buyerPubkey = keys.find((k) => k.role === 'buyer')?.pubkey
+    const sellerPubkey = keys.find((k) => k.role === 'seller')?.pubkey
+
+    const { psbtBase64, requiredSigners } = await provider.buildUnsignedRelease(
+      { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey },
+      toAddress
+    )
+
+    try {
+      return await prisma.escrowPendingTransaction.create({
+        data: { escrowId, kind: 'release', toAddress, unsignedPsbtBase64: psbtBase64, requiredSigners, triggeredBy },
+      })
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new EscrowError(`Escrow ${escrowId} already has a pending transaction awaiting signatures (concurrent initiate)`)
+      }
+      throw err
+    }
+  }
+
+  // Mirror of initiateRelease() above, for refund. Only the
+  // isSellerOrAssignedArbiter check — refundFunds() itself doesn't run the
+  // capability/dual-approval checks releaseFunds() does, so this doesn't
+  // either (same authorization surface as the method it replaces).
+  async initiateRefund(escrowId: string, triggeredBy: string) {
+    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    if (!escrow) throw new NotFoundError('Escrow', escrowId)
+
+    const provider = SIGNATURE_COLLECTION_PROVIDERS[escrow.type]
+    if (!provider) {
+      throw new EscrowError(
+        `Escrow type '${escrow.type}' does not use the client-signature-collection refund flow — use POST /v1/settlement/escrow/${escrowId}/refund instead`
+      )
+    }
+    this.assertTransition(escrow.status, 'REFUNDED')
+
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+    if (!(await this.isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
+      throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
+    }
+
+    const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
+    if (existingPending) {
+      throw new EscrowError(`Escrow ${escrowId} already has a pending ${existingPending.kind} transaction awaiting signatures`)
+    }
+
+    const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
+    const buyerPubkey = keys.find((k) => k.role === 'buyer')?.pubkey
+    const sellerPubkey = keys.find((k) => k.role === 'seller')?.pubkey
+
+    const { psbtBase64, requiredSigners, toAddress } = await provider.buildUnsignedRefund(
+      { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey }
+    )
+
+    try {
+      return await prisma.escrowPendingTransaction.create({
+        data: { escrowId, kind: 'refund', toAddress, unsignedPsbtBase64: psbtBase64, requiredSigners, triggeredBy },
+      })
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new EscrowError(`Escrow ${escrowId} already has a pending transaction awaiting signatures (concurrent initiate)`)
+      }
+      throw err
+    }
+  }
+
+  // The signature-collection write path — each required signer (from
+  // EscrowPendingTransaction.requiredSigners) calls this once, submitting
+  // their own independently-signed copy of the unsigned PSBT
+  // (`@sails/sdk`'s signEscrowPsbt()). Upsert-idempotent per participant,
+  // same shape as submitParticipantKey()/approveRelease() above. Once
+  // every required signer has submitted, combines + broadcasts for real
+  // (provider.finalizeRelease()/finalizeRefund()) and performs the same
+  // atomic status-claim releaseFunds()/refundFunds() already do, so the
+  // race protection those methods have is preserved here too.
+  async submitTransactionSignature(escrowId: string, participantId: string, signedPsbtBase64: string) {
+    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    if (!escrow) throw new NotFoundError('Escrow', escrowId)
+
+    const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
+    if (!pending) {
+      throw new EscrowError(`Escrow ${escrowId} has no pending transaction awaiting signatures — call initiate-release/initiate-refund first`)
+    }
+    if (!pending.requiredSigners.includes(participantId)) {
+      throw new ForbiddenError(
+        `${participantId} is not one of the required signers (${pending.requiredSigners.join(', ')}) for escrow ${escrowId}'s pending ${pending.kind}`
+      )
+    }
+
+    await prisma.escrowTransactionSignature.upsert({
+      where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
+      update: { signedPsbtBase64 },
+      create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
+    })
+
+    const signatures = await prisma.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id } })
+    const submittedIds = new Set(signatures.map((s) => s.participantId))
+    const allSubmitted = pending.requiredSigners.every((id) => submittedIds.has(id))
+
+    if (!allSubmitted) {
+      return { pendingTransaction: pending, complete: false, submittedCount: signatures.length, requiredCount: pending.requiredSigners.length }
+    }
+
+    const provider = SIGNATURE_COLLECTION_PROVIDERS[escrow.type]
+    if (!provider) {
+      // Cannot happen in practice — a pending row only exists for a type
+      // registered in SIGNATURE_COLLECTION_PROVIDERS — but stated loudly
+      // rather than silently, consistent with getProvider()'s own comment.
+      throw new EscrowError(`Escrow type '${escrow.type}' has a pending transaction but no registered SignatureCollectionProvider`)
+    }
+    const targetStatus = pending.kind === 'release' ? 'COMPLETED' : 'REFUNDED'
+
+    // Atomic claim before ever calling the real, side-effecting provider —
+    // same idiom as releaseFunds()/refundFunds() above.
+    const claim = await prisma.escrow.updateMany({
+      where: { id: escrowId, status: escrow.status },
+      data: { status: targetStatus },
+    })
+    if (claim.count === 0) {
+      throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
+    }
+
+    try {
+      const signedList = pending.requiredSigners.map(
+        (id) => signatures.find((s) => s.participantId === id)!.signedPsbtBase64
+      )
+      const result = pending.kind === 'release'
+        ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList)
+        : await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList)
+
+      const updateData = pending.kind === 'release'
+        ? { txReleaseId: result.txId, releasedAt: new Date() }
+        : { txReleaseId: result.txId }
+      const updated = await prisma.escrow.update({ where: { id: escrowId }, data: updateData })
+
+      const eventName = pending.kind === 'release' ? 'settlement.escrow.released' : 'settlement.escrow.refunded'
+      await this.transition(escrowId, escrow.tradeId, escrow.status, targetStatus, pending.triggeredBy, eventName, {
+        txId: result.txId,
+      })
+
+      // Cascade-deletes its EscrowTransactionSignature rows (schema.prisma's
+      // onDelete: Cascade) — a completed round leaves no pending row behind.
+      await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+
+      return { escrow: updated, complete: true }
+    } catch (err) {
+      // Revert the claim — see releaseFunds()'s identical comment. The
+      // pending row and its signatures are left in place on failure so the
+      // caller can retry submitTransactionSignature() (idempotent upsert)
+      // without needing to re-collect signatures already submitted.
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: escrow.status } }).catch(() => {})
+      throw err
+    }
+  }
+
+  async getPendingTransaction(escrowId: string) {
+    const pending = await prisma.escrowPendingTransaction.findUnique({
+      where: { escrowId },
+      include: { signatures: true },
+    })
+    if (!pending) throw new NotFoundError('EscrowPendingTransaction', escrowId)
+    return pending
   }
 
   // RFC-015 — the two-person control's write path. Reads Trade only to

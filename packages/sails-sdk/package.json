@@ -23,7 +23,10 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
+    "@bitcoinerlab/secp256k1": "^1.2.0",
     "@noble/curves": "^1.2.0",
+    "bitcoinjs-lib": "^7.0.1",
+    "ecpair": "^3.0.1",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {

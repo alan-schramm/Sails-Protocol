@@ -16,7 +16,7 @@
  * a real wallet integration could derive per-trade keys instead without
  * changing anything on the server side (it only ever sees a pubkey).
  */
-import { generateEscrowKeypair } from '@sails/sdk'
+import { generateEscrowKeypair, signEscrowPsbt } from '@sails/sdk'
 import { sailsClient } from '../lib/sailsClient'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
@@ -28,6 +28,12 @@ interface StoredEscrowKeypair {
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16)
+  return bytes
 }
 
 function loadOrCreateEscrowKeypair(): StoredEscrowKeypair {
@@ -61,5 +67,29 @@ export function useEscrowKey() {
     return sailsClient.settlement.submitKey(escrowId, publicKeyHex)
   }
 
-  return { submitEscrowKeyIfNeeded }
+  // Phase 2 (2026-07-27), MULTISIG only (LIGHTNING_HODL isn't registered
+  // in escrow.service.ts's SIGNATURE_COLLECTION_PROVIDERS yet — see that
+  // file's own comment). If a release/refund signature-collection round
+  // is in flight for this escrow and the current participant is one of
+  // its required signers, signs the unsigned PSBT with this browser's
+  // stored escrow key (signEscrowPsbt(), @sails/sdk) and submits it.
+  // Idempotent (server upserts by participantId) and a safe no-op when no
+  // round is in flight or this participant isn't a required signer — same
+  // "call speculatively" pattern as submitEscrowKeyIfNeeded above.
+  const signAndSubmitPendingTransactionIfNeeded = async (escrowType: string, escrowId: string, participantId: string) => {
+    if (!CLIENT_KEY_ESCROW_TYPES.has(escrowType)) return null
+    let pending
+    try {
+      pending = await sailsClient.settlement.getPendingTransaction(escrowId)
+    } catch {
+      return null // no signing round in flight for this escrow — nothing to do
+    }
+    if (!pending.requiredSigners.includes(participantId)) return null
+
+    const { privateKeyHex } = loadOrCreateEscrowKeypair()
+    const signedPsbtBase64 = signEscrowPsbt(pending.unsignedPsbtBase64, hexToBytes(privateKeyHex))
+    return sailsClient.settlement.submitTransactionSignature(escrowId, signedPsbtBase64)
+  }
+
+  return { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded }
 }

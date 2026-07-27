@@ -57,7 +57,7 @@ function toUiMessageFromEvent(m: ChatMessageEvent, buyer: User, seller: User): M
 export function Trade() {
   const { id } = useParams()
   const { user } = useAuth()
-  const { submitEscrowKeyIfNeeded } = useEscrowKey()
+  const { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded } = useEscrowKey()
 
   const [trade, setTrade] = useState<SdkTrade | null>(null)
   const [escrow, setEscrow] = useState<SdkEscrow | null>(null)
@@ -100,6 +100,13 @@ export function Trade() {
         // logged-in counterparty, not every visitor who opens this page.
         if (user && (user.id === t.buyerId || user.id === t.sellerId)) {
           await submitEscrowKeyIfNeeded(e.type, e.id).catch(() => {})
+          // Phase 2 (2026-07-27), MULTISIG only — if a release/refund
+          // signature round is already in flight and this user is one of
+          // its required signers, auto-sign and submit (useEscrowKey's
+          // own header comment on signAndSubmitPendingTransactionIfNeeded
+          // has the full "no dedicated screen, call speculatively" scope
+          // note). A safe no-op otherwise.
+          await signAndSubmitPendingTransactionIfNeeded(e.type, e.id, user.id).catch(() => {})
           e = await sailsClient.settlement.get(t.escrowId)
         }
         if (!cancelled) setEscrow(e)
@@ -165,6 +172,26 @@ export function Trade() {
   })
 
   const handleReleaseFunds = () => escrow && withGuard(async () => {
+    // Phase 2 (2026-07-27), MULTISIG only — buyer/seller keys are
+    // client-held, so release goes through signature collection instead
+    // of the single synchronous call below. The seller (normal path) or
+    // assigned arbiter (disputed path) initiates the round here; if this
+    // user is also one of its required signers (the normal path), sign
+    // and submit immediately rather than requiring a second visit to this
+    // page — the other required party still needs to open the page once
+    // to trigger their own auto-sign (see the escrow-fetch effect above).
+    if (escrow.type === 'MULTISIG') {
+      await sailsClient.settlement.initiateRelease(escrow.id, DEMO_RELEASE_ADDRESS)
+      if (user) await signAndSubmitPendingTransactionIfNeeded(escrow.type, escrow.id, user.id).catch(() => {})
+      const e = await sailsClient.settlement.get(escrow.id)
+      setEscrow(e)
+      toast.success(
+        e.status === 'COMPLETED'
+          ? 'Fundos liberados — trade concluído!'
+          : 'Liberação iniciada — aguardando assinatura da contraparte'
+      )
+      return
+    }
     const e = await sailsClient.settlement.release(escrow.id, DEMO_RELEASE_ADDRESS)
     setEscrow(e)
     toast.success('Fundos liberados — trade concluído!')

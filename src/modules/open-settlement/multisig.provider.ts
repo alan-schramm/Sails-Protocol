@@ -21,16 +21,26 @@
  * gap the provider's own header used to disclose here ("all three keys
  * derived from one server-held seed") for the address/script side.
  *
- * Consequence, stated plainly rather than silently broken:
- * `releaseFunds()`/`refundFunds()` used to sign with 2 of 3 keys
- * server-side, synchronously, in one call — that's no longer possible
- * now that buyer/seller keys are client-held. Both methods throw a clear
- * `EscrowError` below rather than attempting (and failing) to sign with a
- * key this provider doesn't have. A real release/refund needs a
- * signature-collection flow (server builds an unsigned PSBT, each
- * required party fetches + signs + submits their own signature
- * client-side) — scoped as an explicit, separate Phase 2, not built yet.
- * `TODO.md` §4 tracks it.
+ * Consequence, now resolved (Phase 2, 2026-07-27): `releaseFunds()`/
+ * `refundFunds()` used to sign with 2 of 3 keys server-side, synchronously,
+ * in one call — no longer possible now that buyer/seller keys are
+ * client-held. Both `SettlementProvider` methods still throw below (they
+ * are not directly callable), but the REAL release/refund path now exists
+ * as a signature-collection flow: `buildUnsignedRelease()`/
+ * `buildUnsignedRefund()` build an unsigned PSBT (escrow.service.ts's
+ * `initiateRelease()`/`initiateRefund()`); each required party
+ * independently signs their own copy client-side (`@sails/sdk`'s
+ * `signEscrowPsbt()`) and submits it back
+ * (`POST .../submit-transaction-signature`); once every required signer
+ * has submitted, `finalizeRelease()`/`finalizeRefund()` combine the
+ * independently-signed copies and broadcast — verified experimentally
+ * before this was written that `Psbt.combine()` correctly merges two
+ * independently-signed copies of the same unsigned PSBT (and correctly
+ * fails to finalize with only one). On a `DISPUTED` release/refund, the
+ * arbiter's own required signature is pre-embedded into the unsigned PSBT
+ * at build time (its key is still server-derived, see below) — only the
+ * other required party (buyer or seller) is a real pending client
+ * submission in that case.
  *
  * Non-custodial in the fund-movement sense — unlike MOCK/WDK_USDT_EVM,
  * this provider never pushes funds into escrow itself. The seller sends
@@ -47,9 +57,11 @@
  * config.settlement.trustedArbitrators[0] (see defaultArbiterId()) — it
  * cannot depend on whichever arbiter TrustedArbitratorProvider's
  * round-robin later assigns to an actual dispute (arbitration-provider.ts),
- * since the script must exist before any dispute does. Moot for now
- * while releaseFunds()/refundFunds() are Phase-2-not-built (above), but
- * documented here since it becomes relevant again once that ships.
+ * since the script must exist before any dispute does. Relevant now that
+ * Phase 2 (above) actually builds a disputed spend: `assertArbiterMatchesScript()`
+ * below still refuses a mismatched dispute-arbiter signature loudly rather
+ * than attempting one that would fail to validate against this escrow's
+ * baked-in script.
  *
  * Testnet only. MULTISIG_SEED empty by default — same "surface a clear
  * config error, don't refuse to boot" pattern as WDK_SEED_PHRASE.
@@ -95,6 +107,13 @@ export type MultisigEscrowInput = {
   lockedAmount: string
   buyerPubkey?: string   // hex, 33-byte compressed — from EscrowParticipantKey
   sellerPubkey?: string  // hex, 33-byte compressed — from EscrowParticipantKey
+  // Trade's own party ids (not pubkeys) — needed by buildUnsignedRelease()/
+  // buildUnsignedRefund() below to know WHICH participant id each required
+  // client signature must come from. Distinct from buyerPubkey/sellerPubkey
+  // above (script material) the same way escrow.service.ts's EscrowRecord
+  // already separates the two.
+  buyerId?: string
+  sellerId?: string
   txLockId?: string | null
   status?: string
   triggeredBy?: string
@@ -174,6 +193,22 @@ export class MultisigProvider implements SettlementProvider {
     }
   }
 
+  // See this file's header comment on the single-arbiter limitation — only
+  // relevant on the DISPUTED path, where `triggeredBy` is the arbiter
+  // actually assigned to this dispute (dispute.service.ts's
+  // resolveDispute()), which may not be the one baked into this escrow's
+  // script if more than one TRUSTED_ARBITRATORS entry is configured.
+  private assertArbiterMatchesScript(escrow: MultisigEscrowInput) {
+    if (escrow.status !== 'DISPUTED') return
+    const scriptArbiter = this.defaultArbiterId()
+    if (escrow.triggeredBy && escrow.triggeredBy !== scriptArbiter) {
+      throw new EscrowError(
+        `MULTISIG provider: dispute arbiter '${escrow.triggeredBy}' does not match the arbiter key ('${scriptArbiter}') baked into this escrow's script at creation time. ` +
+        'This reference implementation only supports a single-arbiter TRUSTED_ARBITRATORS configuration for MULTISIG escrows.'
+      )
+    }
+  }
+
   // Not part of SettlementProvider — called by escrow.service.ts's
   // submitParticipantKey() once BOTH buyer and seller pubkeys have been
   // submitted, to populate Escrow.multisigAddr. Takes the raw submitted
@@ -228,23 +263,159 @@ export class MultisigProvider implements SettlementProvider {
     return utxos.some((u) => u.value >= expected && u.status.confirmed)
   }
 
-  // Phase 2, not built yet — see this file's header comment. The buyer's
-  // and seller's private keys are now client-held; this provider
-  // structurally cannot sign with either anymore. A real release needs a
-  // signature-collection flow (unsigned PSBT built server-side, each
-  // required party fetches + signs + submits their own signature) that
-  // doesn't exist yet. Throwing here, honestly, rather than attempting a
-  // signature this provider has no key for.
+  private async broadcast(txHex: string): Promise<string> {
+    const res = await fetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex })
+    if (!res.ok) {
+      throw new EscrowError(`MULTISIG provider: broadcast failed with ${res.status}: ${await res.text()}`)
+    }
+    return (await res.text()).trim()
+  }
+
+  // Shared by buildUnsignedRelease()/buildUnsignedRefund() below — builds
+  // the unsigned spend PSBT against the escrow's recorded funding UTXO.
+  // Does not sign anything; the caller decides whether the arbiter
+  // pre-signs (disputed path) before handing the result to clients.
+  private async buildUnsignedSpend(escrow: MultisigEscrowInput, parties: MultisigParties, toAddress: string): Promise<bitcoin.Psbt> {
+    this.assertArbiterMatchesScript(escrow)
+    const { p2ms, p2wsh, network } = this.buildScript(parties)
+
+    if (!escrow.txLockId) {
+      throw new EscrowError(`Escrow for trade ${escrow.tradeId} has no recorded funding txid (txLockId) — cannot spend before lockFunds() has confirmed one`)
+    }
+    const utxos = await this.fetchUtxos(p2wsh.address!)
+    const utxo = utxos.find((u) => u.txid === escrow.txLockId)
+    if (!utxo) {
+      throw new EscrowError(`Funding UTXO ${escrow.txLockId} for ${p2wsh.address} not found by the explorer — it may already be spent`)
+    }
+
+    // A flat, generous reference fee — a real deployment would query the
+    // explorer's fee-estimate endpoint instead of a hardcoded constant;
+    // documented here rather than silently arbitrary.
+    const feeSats = 1000n
+    const outputValue = BigInt(utxo.value) - feeSats
+    if (outputValue <= 0n) {
+      throw new EscrowError(`UTXO value ${utxo.value} sats too small to cover the ${feeSats} sat reference fee`)
+    }
+
+    const psbt = new bitcoin.Psbt({ network })
+    psbt.addInput({
+      hash: utxo.txid,
+      index: utxo.vout,
+      witnessUtxo: { script: p2wsh.output!, value: BigInt(utxo.value) },
+      witnessScript: p2ms.output!,
+    })
+    psbt.addOutput({ address: toAddress, value: outputValue })
+    return psbt
+  }
+
+  // Real Phase 2 (2026-07-27) — see this file's header comment for the
+  // full flow. Builds but does NOT fully sign a release PSBT: normal path
+  // returns it fully unsigned with both buyer and seller as required
+  // signers; disputed path pre-signs with the server-held arbiter key
+  // (mirroring the old pre-Phase-1 signer selection — arbiter co-signs
+  // with the buyer, favoring the RELEASE ruling) and returns only the
+  // buyer as a required (real, client) signer.
+  async buildUnsignedRelease(escrow: MultisigEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
+    const parties = this.partiesFor(escrow)
+    const psbt = await this.buildUnsignedSpend(escrow, parties, toAddress)
+
+    if (escrow.status === 'DISPUTED') {
+      const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
+      psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+      if (!escrow.buyerId) {
+        throw new EscrowError(`MULTISIG provider: missing buyerId for disputed release of trade ${escrow.tradeId}`)
+      }
+      return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId] }
+    }
+
+    if (!escrow.buyerId || !escrow.sellerId) {
+      throw new EscrowError(`MULTISIG provider: missing buyerId/sellerId for release of trade ${escrow.tradeId}`)
+    }
+    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId, escrow.sellerId] }
+  }
+
+  // Mirror of buildUnsignedRelease() above, for refund-to-seller. Refund
+  // address = the seller's own CLIENT-SUBMITTED pubkey's P2WPKH form — a
+  // reference stand-in (no per-user BTC payout address exists in the
+  // schema yet, same gap dispute.service.ts's own comment already flags
+  // for WDK's releaseToAddress), and only needs the seller's PUBLIC key
+  // (p2wpkh() takes a pubkey, not a private key) so it stays derivable
+  // even though this provider never holds the seller's private key.
+  async buildUnsignedRefund(escrow: MultisigEscrowInput): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string }> {
+    const parties = this.partiesFor(escrow)
+    const network = networkFor(config.multisig.network)
+    const sellerRefundAddress = bitcoin.payments.p2wpkh({ pubkey: parties.sellerPubkey, network }).address!
+
+    const psbt = await this.buildUnsignedSpend(escrow, parties, sellerRefundAddress)
+
+    if (escrow.status === 'DISPUTED') {
+      const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
+      psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+      if (!escrow.sellerId) {
+        throw new EscrowError(`MULTISIG provider: missing sellerId for disputed refund of trade ${escrow.tradeId}`)
+      }
+      return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.sellerId], toAddress: sellerRefundAddress }
+    }
+
+    if (!escrow.buyerId || !escrow.sellerId) {
+      throw new EscrowError(`MULTISIG provider: missing buyerId/sellerId for refund of trade ${escrow.tradeId}`)
+    }
+    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.sellerId, escrow.buyerId], toAddress: sellerRefundAddress }
+  }
+
+  // Shared finalize: combines the unsigned PSBT with every independently-
+  // signed copy submitted by the required signers (verified experimentally
+  // — see this file's header comment — that Psbt.combine() correctly
+  // merges independent copies of the SAME unsigned PSBT) and broadcasts.
+  // On the disputed path, unsignedPsbtBase64 already carries the arbiter's
+  // partial signature (embedded by buildUnsignedRelease/Refund above), so
+  // combining it with the single client-submitted copy still yields both
+  // required signatures.
+  private async finalizeSpend(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+    const network = networkFor(config.multisig.network)
+    let merged: bitcoin.Psbt
+    try {
+      merged = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
+      for (const signed of signedPsbtBase64List) {
+        merged.combine(bitcoin.Psbt.fromBase64(signed, { network }))
+      }
+      merged.finalizeAllInputs()
+    } catch (err) {
+      throw new EscrowError(
+        `MULTISIG provider: failed to combine/finalize signatures for trade ${escrow.tradeId}: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+    const tx = merged.extractTransaction()
+    const txId = await this.broadcast(tx.toHex())
+    return { txId }
+  }
+
+  async finalizeRelease(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+    return this.finalizeSpend(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+  }
+
+  async finalizeRefund(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+    return this.finalizeSpend(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+  }
+
+  // Not directly callable — the SettlementProvider interface still
+  // requires these methods, but buyer/seller keys are client-held, so a
+  // real release needs the multi-step flow above instead of a single
+  // synchronous call. Kept as loud, explanatory throws (not silently
+  // wrong) rather than removed, since escrow.service.ts's own
+  // releaseFunds()/refundFunds() (the MOCK/WDK_USDT_EVM path) still calls
+  // through this same interface for every SettlementProvider.
   async releaseFunds(_escrow: MultisigEscrowInput, _toAddress: string): Promise<{ txId: string }> {
     throw new EscrowError(
-      'MULTISIG provider: releaseFunds() requires client-submitted signatures now that buyer/seller keys are client-held (Phase 2 — signature collection — not yet built). See docs/TODO.md §4.'
+      'MULTISIG provider: releaseFunds() is not directly callable — buyer/seller keys are client-held. ' +
+      'Use POST /v1/settlement/escrow/:id/initiate-release, then submit-transaction-signature, instead (see escrow.service.ts).'
     )
   }
 
-  // Same reason as releaseFunds() above.
   async refundFunds(_escrow: MultisigEscrowInput): Promise<{ txId: string }> {
     throw new EscrowError(
-      'MULTISIG provider: refundFunds() requires client-submitted signatures now that buyer/seller keys are client-held (Phase 2 — signature collection — not yet built). See docs/TODO.md §4.'
+      'MULTISIG provider: refundFunds() is not directly callable — buyer/seller keys are client-held. ' +
+      'Use POST /v1/settlement/escrow/:id/initiate-refund, then submit-transaction-signature, instead (see escrow.service.ts).'
     )
   }
 }

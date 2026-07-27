@@ -177,21 +177,201 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
   })
 })
 
-describe('MultisigProvider — releaseFunds()/refundFunds() are Phase-2-not-built (client-signature collection)', () => {
-  it('releaseFunds() throws a clear, honest error rather than attempting to sign with a key it no longer holds', async () => {
+describe('MultisigProvider — releaseFunds()/refundFunds() are not directly callable (superseded by Phase 2 signature collection)', () => {
+  it('releaseFunds() throws a clear, honest error pointing at the real flow', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     await expect(
       multisigProvider.releaseFunds(
         { tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005', txLockId: 'a'.repeat(64), status: 'PAYMENT_PENDING' },
         'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
       )
-    ).rejects.toThrow('Phase 2')
+    ).rejects.toThrow('not directly callable')
   })
 
   it('refundFunds() throws the same clear error', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     await expect(
       multisigProvider.refundFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005', txLockId: 'a'.repeat(64), status: 'FUNDS_LOCKED' })
-    ).rejects.toThrow('Phase 2')
+    ).rejects.toThrow('not directly callable')
+  })
+})
+
+// Phase 2 (2026-07-27) — real signature-collection flow: buildUnsignedRelease/
+// buildUnsignedRefund build a real PSBT against a mocked explorer UTXO;
+// finalizeRelease/finalizeRefund combine real independently-signed copies
+// and broadcast. Needs actual private keys (not just the pubkey fixtures
+// above) to produce real signatures — a separate deterministic keypair
+// derived directly via tiny-secp256k1/ecpair (already real deps at the
+// repo root, same libraries multisig.provider.ts itself uses), mirroring
+// the psbt-combine-experiment.js verification done before this file was
+// written.
+describe('MultisigProvider — Phase 2 signature collection (buildUnsignedRelease/buildUnsignedRefund/finalizeRelease/finalizeRefund)', () => {
+  const ecc = require('tiny-secp256k1')
+  const bitcoin = require('bitcoinjs-lib')
+  const { ECPairFactory } = require('ecpair')
+  const crypto = require('crypto')
+  bitcoin.initEccLib(ecc)
+  const ECPair = ECPairFactory(ecc)
+  const network = bitcoin.networks.testnet
+
+  const buyerKey = ECPair.fromPrivateKey(crypto.createHash('sha256').update('phase2-buyer').digest(), { network })
+  const sellerKey = ECPair.fromPrivateKey(crypto.createHash('sha256').update('phase2-seller').digest(), { network })
+  const buyerPubkeyHex = Buffer.from(buyerKey.publicKey).toString('hex')
+  const sellerPubkeyHex = Buffer.from(sellerKey.publicKey).toString('hex')
+  const REFUND_ADDRESS_UNUSED = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
+
+  const fetchMock = jest.fn()
+  beforeEach(() => {
+    fetchMock.mockReset()
+    ;(global as any).fetch = fetchMock
+  })
+
+  function mockUtxoFetch(txid: string, value: number) {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [{ txid, vout: 0, value, status: { confirmed: true } }],
+    })
+  }
+
+  it('buildUnsignedRelease returns a fully unsigned PSBT requiring both buyer and seller on the normal path', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = 'd'.repeat(64)
+    mockUtxoFetch(txid, 100_000)
+    const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRelease(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+      REFUND_ADDRESS_UNUSED
+    )
+    expect(requiredSigners).toEqual(['buyer-1', 'seller-1'])
+    expect(typeof psbtBase64).toBe('string')
+    // Fully unsigned — neither party's signature is embedded yet.
+    const psbt = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    expect(() => psbt.finalizeAllInputs()).toThrow()
+  })
+
+  it('end-to-end: two independently-signed copies combine and finalize to a real broadcast txid', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = 'e'.repeat(64)
+    mockUtxoFetch(txid, 100_000)
+    const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRelease(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+      REFUND_ADDRESS_UNUSED
+    )
+    expect(requiredSigners).toEqual(['buyer-1', 'seller-1'])
+
+    // Buyer and seller each independently load the SAME unsigned PSBT and
+    // sign their own copy, without seeing the other's signature.
+    const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    buyerCopy.signInput(0, buyerKey)
+    const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    sellerCopy.signInput(0, sellerKey)
+
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => 'f'.repeat(64) })
+    const result = await multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64(), sellerCopy.toBase64()])
+    expect(result.txId).toBe('f'.repeat(64))
+  })
+
+  it('finalizeRelease fails to combine/finalize with only one of two required signatures', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = '1'.repeat(64)
+    mockUtxoFetch(txid, 100_000)
+    const { psbtBase64 } = await multisigProvider.buildUnsignedRelease(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+      REFUND_ADDRESS_UNUSED
+    )
+    const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    buyerCopy.signInput(0, buyerKey)
+
+    await expect(
+      multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])
+    ).rejects.toThrow('failed to combine/finalize')
+  })
+
+  it('disputed release: arbiter pre-signs immediately, only the buyer remains a required client signer', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = '2'.repeat(64)
+    mockUtxoFetch(txid, 100_000)
+    const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRelease(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+      REFUND_ADDRESS_UNUSED
+    )
+    expect(requiredSigners).toEqual(['buyer-1'])
+
+    // The returned "unsigned" PSBT already carries the arbiter's own
+    // signature — only the buyer needs to add theirs.
+    const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    buyerCopy.signInput(0, buyerKey)
+
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '3'.repeat(64) })
+    const result = await multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])
+    expect(result.txId).toBe('3'.repeat(64))
+  })
+
+  it('disputed release rejects a mismatched dispute arbiter before ever building a PSBT', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    await expect(
+      multisigProvider.buildUnsignedRelease(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: 'x'.repeat(64), status: 'DISPUTED', triggeredBy: 'not-the-arbiter' },
+        REFUND_ADDRESS_UNUSED
+      )
+    ).rejects.toThrow('does not match')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('buildUnsignedRelease throws when the escrow has no recorded funding txid yet', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    await expect(
+      multisigProvider.buildUnsignedRelease(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', status: 'PAYMENT_PENDING' },
+        REFUND_ADDRESS_UNUSED
+      )
+    ).rejects.toThrow('no recorded funding txid')
+  })
+
+  it('buildUnsignedRefund derives a real P2WPKH refund address from the seller pubkey and requires seller+buyer on the normal path', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = '4'.repeat(64)
+    mockUtxoFetch(txid, 100_000)
+    const { psbtBase64, requiredSigners, toAddress } = await multisigProvider.buildUnsignedRefund({
+      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'FUNDS_LOCKED',
+    })
+    expect(toAddress).toMatch(/^tb1/)
+    expect(requiredSigners).toEqual(['seller-1', 'buyer-1'])
+    expect(typeof psbtBase64).toBe('string')
+  })
+
+  it('end-to-end refund: two independently-signed copies combine and finalize', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = '5'.repeat(64)
+    mockUtxoFetch(txid, 100_000)
+    const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRefund({
+      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'FUNDS_LOCKED',
+    })
+    expect(requiredSigners).toEqual(['seller-1', 'buyer-1'])
+
+    const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    sellerCopy.signInput(0, sellerKey)
+    const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    buyerCopy.signInput(0, buyerKey)
+
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '6'.repeat(64) })
+    const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64(), buyerCopy.toBase64()])
+    expect(result.txId).toBe('6'.repeat(64))
+  })
+
+  it('disputed refund: arbiter pre-signs immediately, only the seller remains a required client signer', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = '7'.repeat(64)
+    mockUtxoFetch(txid, 100_000)
+    const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRefund({
+      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1',
+    })
+    expect(requiredSigners).toEqual(['seller-1'])
+
+    const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    sellerCopy.signInput(0, sellerKey)
+
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '8'.repeat(64) })
+    const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64()])
+    expect(result.txId).toBe('8'.repeat(64))
   })
 })
