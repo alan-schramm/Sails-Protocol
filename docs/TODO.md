@@ -320,12 +320,6 @@ makes the same point in more detail.
       a real `txReleaseId` only once the second signature lands (the
       first submission alone correctly reports `complete: false`), and the
       `EscrowPendingTransaction` row is gone (404) once finalized.
-      **Explicitly deferred, not this pass:** `LIGHTNING_HODL`'s
-      equivalent Phase 2 needs its own separate verification of whether
-      `@arkade-os/sdk`'s client-side signing primitive
-      (`SeedIdentity.sign()`) works standalone in a browser bundle outside
-      the full ASP-connected wallet machinery — genuinely different
-      unknowns than Multisig's PSBT signing, not bundled in blind.
       New/changed: `prisma/schema.prisma`'s `EscrowPendingTransaction`/
       `EscrowTransactionSignature` models;
       `multisig.provider.ts`'s `buildUnsignedRelease()`/
@@ -345,6 +339,76 @@ makes the same point in more detail.
       (12 new, service-layer orchestration), extended
       `packages/sails-sdk/tests/escrow-key.test.ts` (3 new,
       `signEscrowPsbt()` cross-library interop) — 341/341 full suite green.
+- [x] **LIGHTNING_HODL's own Phase 2 — done, 2026-07-27 (second follow-up
+      pass, same day).** The open question this section previously
+      deferred — does `@arkade-os/sdk`'s client-side signing primitive
+      work standalone in a browser bundle, outside the full
+      ASP-connected wallet machinery? — is now answered **yes**, verified
+      three separate ways before writing any shipped code (this session's
+      standing "verify, don't assume" discipline): (1) a standalone Node
+      script proved `SingleKey.fromPrivateKey()` — an in-memory signer
+      needing nothing but a raw private key, no seed/wallet/ASP
+      connection — correctly signs, combines
+      (`combineTapscriptSigs`), and verifies (`verifyTapscriptSignatures`)
+      a real Ark offchain tx built via the real `buildOffchainTx()`; (2) a
+      second script proved `@scure/btc-signer`'s `Transaction` (what
+      `buildOffchainTx()` actually returns) round-trips through
+      `.toPSBT()`/`Transaction.fromPSBT()` with everything `sign()` needs
+      intact — the same PSBT wire format `multisig.provider.ts` already
+      uses; (3) `esbuild --platform=browser` bundled `SingleKey` +
+      `buildOffchainTx` + `combineTapscriptSigs` +
+      `verifyTapscriptSignatures` + script-building helpers with zero
+      Node-core imports in the output, and the REAL `sails-ui` Vite
+      production build (not just a synthetic check) succeeded with
+      `@arkade-os/sdk`/`@scure/btc-signer` actually included (889 modules
+      transformed, up from 745 before).
+      Implementation mirrors `multisig.provider.ts`'s Phase 2 exactly,
+      adapted for Ark's shape: `lightning-hodl.provider.ts`'s new
+      `buildUnsignedRelease()`/`buildUnsignedRefund()`/`finalizeRelease()`/
+      `finalizeRefund()` build (but don't sign) the Ark tx + checkpoint(s)
+      via the same `buildOffchainTx()` this file always used; the "PSBT"
+      string handed back and forth is actually a JSON bundle
+      (`{ arkTxPsbtBase64, checkpointsPsbtBase64[], expectedPubkeys[] }`)
+      since an Ark offchain tx needs its main tx AND a per-input
+      checkpoint tx signed/combined together, unlike a single Bitcoin
+      PSBT — `escrow.service.ts`'s `SIGNATURE_COLLECTION_PROVIDERS`
+      interface never inspects this string's contents, so the difference
+      is invisible at the orchestration layer (registering
+      `LIGHTNING_HODL` there was a one-line change — the whole
+      `initiateRelease()`/`initiateRefund()`/`submitTransactionSignature()`/
+      `getPendingTransaction()` flow is provider-agnostic already). On a
+      `DISPUTED` release/refund, the arbiter's own required signature
+      (still server-derived, unchanged from Phase 1) is pre-embedded into
+      the bundle at build time. `@sails/sdk` gained `signEscrowArkTx()`
+      (`escrow-ark-signing.ts`) — the Arkade equivalent of
+      `signEscrowPsbt()`, using `SingleKey` + `@scure/btc-signer`'s
+      `Transaction` instead of bitcoinjs-lib/ECPair, same client-held
+      private key either way. `useEscrowKey`'s
+      `signAndSubmitPendingTransactionIfNeeded()` now dispatches on escrow
+      type (`signEscrowPsbt()` for MULTISIG, `signEscrowArkTx()` for
+      LIGHTNING_HODL); `Trade.tsx`'s release button now handles both
+      types, each with its own demo `toAddress` format (a real bech32
+      testnet address for MULTISIG, a raw script hex for LIGHTNING_HODL —
+      `lightning-hodl.provider.ts`'s own `toAddress` convention, unchanged
+      from before this pass).
+      **Disclosed, not silently glossed over:** as with the very first
+      `LightningHodlProvider` build (this section's own earlier entry),
+      the REST calls this pass adds (`RestArkProvider.submitTx()`/
+      `.finalizeTx()`) are built against the real, documented
+      `@arkade-os/sdk` API — the same client whose `getInfo()`/`getVtxos()`
+      methods Phase 1 already exercises — but this pass, like every prior
+      one touching this file, was not run end-to-end against a real
+      funded mutinynet VTXO (this environment cannot originate real
+      testnet Bitcoin funds); what WAS verified for real is everything
+      upstream of that network call — the signing, serialization, and
+      orchestration logic — via the three checks above plus 18 new
+      Jest tests (`tests/lightningHodlProvider.test.ts`) against
+      deliberately-fake-but-structurally-faithful stand-ins for
+      `@arkade-os/sdk`/`@scure/btc-signer` (both pure ESM, cannot load
+      under Jest at all — same reason this file's tests have always
+      mocked them). 349/349 full backend suite green, 54/54 SDK suite
+      green, `npm run build` clean across backend + `@sails/sdk` +
+      `sails-ui`.
 
 ## 5. Liquidity Providers Beyond Internal
 

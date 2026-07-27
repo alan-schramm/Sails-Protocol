@@ -33,19 +33,39 @@
  * below already does for the ASP's own pubkey); this file strips the
  * leading byte to get the 32-byte x-only form `MultisigTapscript` wants.
  *
- * Consequence, stated plainly rather than silently broken (identical
- * reasoning to `multisig.provider.ts`): `releaseFunds()`/`refundFunds()`
- * used to co-sign with 2 of 3 keys server-side in one call — no longer
- * possible now that buyer/seller keys are client-held. Both throw a clear
- * `EscrowError` below. A real release needs a signature-collection flow
- * (server builds the unsigned Ark tx, each required party fetches + signs
- * + submits their own signature client-side) — Phase 2, not built yet,
- * `docs/TODO.md` §4 tracks it. This also retires the
- * `buildOffchainTx`/`combineTapscriptSigs`/`verifyTapscriptSignatures`/
- * `submitTx`/`finalizeTx` machinery this file previously built against
- * (still real, still correct against the documented API — just not
- * reachable from any code path until Phase 2 rebuilds the signing flow
- * around client-submitted signatures instead of server-held keys).
+ * Consequence, now resolved (Phase 2, 2026-07-27 — same day as
+ * MULTISIG's own Phase 2): `releaseFunds()`/`refundFunds()` used to
+ * co-sign with 2 of 3 keys server-side in one call — no longer possible
+ * now that buyer/seller keys are client-held. Both `SettlementProvider`
+ * methods still throw below (not directly callable), but the REAL
+ * release/refund path now exists: `buildUnsignedRelease()`/
+ * `buildUnsignedRefund()` build (but do not fully sign) the Ark tx +
+ * checkpoint(s) via the same `buildOffchainTx()` this file always used;
+ * each required party independently signs their own copy client-side
+ * (`@sails/sdk`'s `signEscrowArkTx()`, using `@arkade-os/sdk`'s
+ * `SingleKey` — a raw-private-key signer, verified experimentally to
+ * need nothing but the same private key `generateEscrowKeypair()`
+ * already produces for MULTISIG, no ASP/wallet machinery, and to bundle
+ * cleanly for a browser target with zero Node-core imports); once every
+ * required signature has arrived, `finalizeRelease()`/`finalizeRefund()`
+ * combine (`combineTapscriptSigs`), verify (`verifyTapscriptSignatures`),
+ * and submit for real (`RestArkProvider.submitTx`+`finalizeTx`).
+ *
+ * Wire format: the unsigned/signed "PSBT" string this provider hands
+ * back and forth is a JSON bundle
+ * (`{ arkTxPsbtBase64, checkpointsPsbtBase64[], expectedPubkeys[] }`),
+ * not a bare PSBT — Ark's offchain tx needs the main tx AND one
+ * checkpoint tx per input signed/combined together, unlike a single
+ * Bitcoin PSBT. Verified experimentally that `@scure/btc-signer`'s
+ * `Transaction` (what `buildOffchainTx()` actually returns) round-trips
+ * through `.toPSBT()`/`Transaction.fromPSBT()` with everything
+ * `SingleKey.sign()` needs intact — the same PSBT wire format
+ * `multisig.provider.ts` uses, just serialized per-tx and bundled as
+ * JSON here since there's more than one tx per signing round. On a
+ * `DISPUTED` release/refund, the arbiter's own required signature is
+ * pre-embedded into the bundle at build time (its key is still
+ * server-derived, unchanged from Phase 1) — only the other required
+ * party is a real pending client submission in that case.
  *
  * Testnet (mutinynet) only. ARKADE_SEED empty by default — same
  * "surface a clear config error, don't refuse to boot" pattern as
@@ -58,7 +78,12 @@ import {
   VtxoScript,
   RestArkProvider,
   RestIndexerProvider,
+  buildOffchainTx,
+  combineTapscriptSigs,
+  verifyTapscriptSignatures,
+  type ArkTxInput,
 } from '@arkade-os/sdk'
+import { Transaction } from '@scure/btc-signer'
 import { createHash } from 'crypto'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
@@ -71,9 +96,29 @@ export type ArkEscrowInput = {
   lockedAmount: string
   buyerPubkey?: string   // hex, 33-byte compressed — from EscrowParticipantKey
   sellerPubkey?: string  // hex, 33-byte compressed — from EscrowParticipantKey
+  // Trade's own party ids — needed by buildUnsignedRelease()/
+  // buildUnsignedRefund() below to know WHICH participant id each
+  // required client signature must come from. See multisig.provider.ts's
+  // identical MultisigEscrowInput fields for the same reasoning.
+  buyerId?: string
+  sellerId?: string
   txLockId?: string | null
   status?: string
   triggeredBy?: string
+}
+
+// The JSON bundle this provider's unsigned/signed "PSBT" strings actually
+// contain — see this file's header comment for why (an Ark offchain tx
+// needs its main tx AND a per-input checkpoint tx signed/combined
+// together, unlike a single Bitcoin PSBT).
+type ArkPendingBundle = {
+  arkTxPsbtBase64: string
+  checkpointsPsbtBase64: string[]
+  // Only meaningful on the UNSIGNED bundle (the server-authoritative one
+  // stored in EscrowPendingTransaction.unsignedPsbtBase64) — signed
+  // submissions don't need to carry this, finalizeArk() only ever reads
+  // it off the unsigned bundle.
+  expectedPubkeys?: string[]
 }
 
 // Kept for the arbiter role only now — buyer/seller salts are unused
@@ -164,6 +209,41 @@ export class LightningHodlProvider implements SettlementProvider {
     }
   }
 
+  // Same single-arbiter limitation as multisig.provider.ts's
+  // assertArbiterMatchesScript() — the script's arbiter key is fixed at
+  // creation time and cannot depend on whichever arbiter
+  // TrustedArbitratorProvider's round-robin later assigns to an actual
+  // dispute.
+  private assertArbiterMatchesScript(escrow: ArkEscrowInput) {
+    if (escrow.status !== 'DISPUTED') return
+    const scriptArbiter = this.defaultArbiterId()
+    if (escrow.triggeredBy && escrow.triggeredBy !== scriptArbiter) {
+      throw new EscrowError(
+        `LIGHTNING_HODL (Arkade) provider: dispute arbiter '${escrow.triggeredBy}' does not match the arbiter key ('${scriptArbiter}') baked into this escrow's script at creation time. ` +
+        'This reference implementation only supports a single-arbiter TRUSTED_ARBITRATORS configuration.'
+      )
+    }
+  }
+
+  // See this file's header comment on the JSON bundle wire format.
+  private serializeBundle(arkTx: Transaction, checkpoints: Transaction[], expectedPubkeys?: string[]): string {
+    const bundle: ArkPendingBundle = {
+      arkTxPsbtBase64: Buffer.from(arkTx.toPSBT()).toString('base64'),
+      checkpointsPsbtBase64: checkpoints.map((cp) => Buffer.from(cp.toPSBT()).toString('base64')),
+      ...(expectedPubkeys ? { expectedPubkeys } : {}),
+    }
+    return JSON.stringify(bundle)
+  }
+
+  private deserializeBundle(json: string): { arkTx: Transaction; checkpoints: Transaction[]; expectedPubkeys?: string[] } {
+    const parsed = JSON.parse(json) as ArkPendingBundle
+    return {
+      arkTx: Transaction.fromPSBT(Buffer.from(parsed.arkTxPsbtBase64, 'base64')),
+      checkpoints: parsed.checkpointsPsbtBase64.map((b) => Transaction.fromPSBT(Buffer.from(b, 'base64'))),
+      expectedPubkeys: parsed.expectedPubkeys,
+    }
+  }
+
   private async buildScript(parties: ArkParties) {
     const arbiterIdentity = this.deriveArbiterKey(parties.arbiterId)
     const arbiterPk = await arbiterIdentity.xOnlyPublicKey()
@@ -233,21 +313,173 @@ export class LightningHodlProvider implements SettlementProvider {
     return vtxos.some((v) => v.value >= expected)
   }
 
-  // Phase 2, not built yet — see this file's header comment. The buyer's
-  // and seller's private keys are now client-held; this provider
-  // structurally cannot co-sign an Ark tx with either anymore. Throwing
-  // here, honestly, rather than attempting a signature this provider has
-  // no key for.
+  // Shared by buildUnsignedRelease()/buildUnsignedRefund() below — fetches
+  // the escrow's recorded funding VTXO and builds (does not sign) the Ark
+  // offchain tx spending it to toScript via the given leaf.
+  private async buildUnsignedSpend(
+    escrow: ArkEscrowInput,
+    parties: ArkParties,
+    leaf: { script: Uint8Array },
+    toScriptHex: string
+  ): Promise<{ arkTx: Transaction; checkpoints: Transaction[] }> {
+    this.assertArbiterMatchesScript(escrow)
+    const { vtxoScript, buyerExit } = await this.buildScript(parties)
+
+    if (!escrow.txLockId) {
+      throw new EscrowError(`Escrow for trade ${escrow.tradeId} has no recorded funding txid (txLockId) — cannot spend before lockFunds() has confirmed one`)
+    }
+    const scriptHex = Buffer.from(vtxoScript.pkScript).toString('hex')
+    const { vtxos } = await this.getIndexer().getVtxos({ scripts: [scriptHex], spendableOnly: true })
+    const vtxo = vtxos.find((v) => v.txid === escrow.txLockId)
+    if (!vtxo) {
+      throw new EscrowError(`Funding VTXO ${escrow.txLockId} for this escrow's Arkade script not found by the indexer — it may already be spent`)
+    }
+
+    const tapLeafScript = vtxoScript.findLeaf(Buffer.from(leaf.script).toString('hex'))
+    const input: ArkTxInput = {
+      tapLeafScript,
+      tapTree: vtxoScript.encode(),
+      txid: vtxo.txid,
+      vout: vtxo.vout,
+      value: vtxo.value,
+    }
+    const toScript = Buffer.from(toScriptHex, 'hex')
+    return buildOffchainTx([input], [{ script: toScript, amount: BigInt(vtxo.value) }], buyerExit)
+  }
+
+  // Real Phase 2 (2026-07-27) — see this file's header comment for the
+  // full flow. Normal path returns the tx bundle fully unsigned with both
+  // buyer and seller as required signers; disputed path pre-signs with
+  // the server-held arbiter key (mirroring the old pre-Phase-1 signer
+  // selection — arbiter co-signs with the buyer, favoring RELEASE) and
+  // returns only the buyer as a required (real, client) signer.
+  async buildUnsignedRelease(escrow: ArkEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
+    const parties = this.partiesFor(escrow)
+    const { buyerSeller, buyerArbiter } = await this.buildScript(parties)
+    const leaf = escrow.status === 'DISPUTED' ? buyerArbiter : buyerSeller
+    const { arkTx, checkpoints } = await this.buildUnsignedSpend(escrow, parties, leaf, toAddress)
+
+    if (escrow.status === 'DISPUTED') {
+      const arbiterIdentity = this.deriveArbiterKey(parties.arbiterId)
+      const arbiterPk = await arbiterIdentity.xOnlyPublicKey()
+      const signedArkTx = await arbiterIdentity.sign(arkTx, [0])
+      const signedCheckpoints = await Promise.all(checkpoints.map((cp) => arbiterIdentity.sign(cp, [0])))
+      if (!escrow.buyerId) {
+        throw new EscrowError(`LIGHTNING_HODL (Arkade) provider: missing buyerId for disputed release of trade ${escrow.tradeId}`)
+      }
+      const expectedPubkeys = [Buffer.from(parties.buyerPubkey).toString('hex'), Buffer.from(arbiterPk).toString('hex')]
+      return { psbtBase64: this.serializeBundle(signedArkTx, signedCheckpoints, expectedPubkeys), requiredSigners: [escrow.buyerId] }
+    }
+
+    if (!escrow.buyerId || !escrow.sellerId) {
+      throw new EscrowError(`LIGHTNING_HODL (Arkade) provider: missing buyerId/sellerId for release of trade ${escrow.tradeId}`)
+    }
+    const expectedPubkeys = [Buffer.from(parties.buyerPubkey).toString('hex'), Buffer.from(parties.sellerPubkey).toString('hex')]
+    return { psbtBase64: this.serializeBundle(arkTx, checkpoints, expectedPubkeys), requiredSigners: [escrow.buyerId, escrow.sellerId] }
+  }
+
+  // Mirror of buildUnsignedRelease() above, for refund-to-seller. Refund
+  // address = a real single-key Ark address built from the seller's own
+  // CLIENT-SUBMITTED pubkey — same reference stand-in
+  // multisig.provider.ts's buildUnsignedRefund() uses for its own P2WPKH
+  // equivalent, and only needs the seller's PUBLIC key (VtxoScript.address()
+  // takes a pubkey, not a private key), so it stays derivable even though
+  // this provider never holds the seller's private key.
+  async buildUnsignedRefund(escrow: ArkEscrowInput): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string }> {
+    const parties = this.partiesFor(escrow)
+    const { buyerSeller, sellerArbiter } = await this.buildScript(parties)
+    const serverPubKey = await this.getServerPubKey()
+    const sellerScript = new VtxoScript([
+      CSVMultisigTapscript.encode({ timelock: { type: 'blocks', value: 1n }, pubkeys: [parties.sellerPubkey] }).script,
+    ])
+    const sellerAddress = sellerScript.address(undefined, serverPubKey)
+    const toScriptHex = Buffer.from(sellerAddress.pkScript).toString('hex')
+
+    const leaf = escrow.status === 'DISPUTED' ? sellerArbiter : buyerSeller
+    const { arkTx, checkpoints } = await this.buildUnsignedSpend(escrow, parties, leaf, toScriptHex)
+
+    if (escrow.status === 'DISPUTED') {
+      const arbiterIdentity = this.deriveArbiterKey(parties.arbiterId)
+      const arbiterPk = await arbiterIdentity.xOnlyPublicKey()
+      const signedArkTx = await arbiterIdentity.sign(arkTx, [0])
+      const signedCheckpoints = await Promise.all(checkpoints.map((cp) => arbiterIdentity.sign(cp, [0])))
+      if (!escrow.sellerId) {
+        throw new EscrowError(`LIGHTNING_HODL (Arkade) provider: missing sellerId for disputed refund of trade ${escrow.tradeId}`)
+      }
+      const expectedPubkeys = [Buffer.from(parties.sellerPubkey).toString('hex'), Buffer.from(arbiterPk).toString('hex')]
+      return { psbtBase64: this.serializeBundle(signedArkTx, signedCheckpoints, expectedPubkeys), requiredSigners: [escrow.sellerId], toAddress: toScriptHex }
+    }
+
+    if (!escrow.buyerId || !escrow.sellerId) {
+      throw new EscrowError(`LIGHTNING_HODL (Arkade) provider: missing buyerId/sellerId for refund of trade ${escrow.tradeId}`)
+    }
+    const expectedPubkeys = [Buffer.from(parties.buyerPubkey).toString('hex'), Buffer.from(parties.sellerPubkey).toString('hex')]
+    return { psbtBase64: this.serializeBundle(arkTx, checkpoints, expectedPubkeys), requiredSigners: [escrow.sellerId, escrow.buyerId], toAddress: toScriptHex }
+  }
+
+  // Shared finalize: combines the unsigned bundle with every
+  // independently-signed copy submitted by the required signers
+  // (combineTapscriptSigs — the Ark equivalent of Psbt.combine()),
+  // verifies the result actually carries every expected signature
+  // (verifyTapscriptSignatures — combine itself does not validate, unlike
+  // bitcoinjs-lib's finalizeAllInputs()), then submits for real. On the
+  // disputed path, the unsigned bundle already carries the arbiter's
+  // partial signature (embedded by buildUnsignedRelease/Refund above), so
+  // combining it with the single client-submitted copy still yields both
+  // required signatures.
+  private async finalizeArk(escrow: ArkEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+    try {
+      const base = this.deserializeBundle(unsignedPsbtBase64)
+      const signedBundles = signedPsbtBase64List.map((s) => this.deserializeBundle(s))
+      const expectedPubkeys = base.expectedPubkeys ?? []
+
+      let finalArkTx = base.arkTx
+      for (const b of signedBundles) finalArkTx = combineTapscriptSigs(finalArkTx, b.arkTx)
+      verifyTapscriptSignatures(finalArkTx, 0, expectedPubkeys)
+
+      const signedCheckpoints = base.checkpoints.map((cp, i) => {
+        let combined = cp
+        for (const b of signedBundles) combined = combineTapscriptSigs(combined, b.checkpoints[i])
+        verifyTapscriptSignatures(combined, 0, expectedPubkeys)
+        return combined.hex
+      })
+
+      const submitted = await this.getArkProvider().submitTx(finalArkTx.hex, signedCheckpoints)
+      await this.getArkProvider().finalizeTx(submitted.arkTxid, submitted.signedCheckpointTxs)
+      return { txId: submitted.arkTxid }
+    } catch (err) {
+      throw new EscrowError(
+        `LIGHTNING_HODL (Arkade) provider: failed to combine/finalize signatures for trade ${escrow.tradeId}: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  }
+
+  async finalizeRelease(escrow: ArkEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+    return this.finalizeArk(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+  }
+
+  async finalizeRefund(escrow: ArkEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+    return this.finalizeArk(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+  }
+
+  // Not directly callable — the SettlementProvider interface still
+  // requires these methods, but buyer/seller keys are client-held, so a
+  // real release needs the multi-step flow above instead of a single
+  // synchronous call. Kept as loud, explanatory throws (not silently
+  // wrong) rather than removed, since escrow.service.ts's own
+  // releaseFunds()/refundFunds() (the MOCK/WDK_USDT_EVM path) still calls
+  // through this same interface for every SettlementProvider.
   async releaseFunds(_escrow: ArkEscrowInput, _toAddress: string): Promise<{ txId: string }> {
     throw new EscrowError(
-      'LIGHTNING_HODL (Arkade) provider: releaseFunds() requires client-submitted signatures now that buyer/seller keys are client-held (Phase 2 — signature collection — not yet built). See docs/TODO.md §4.'
+      'LIGHTNING_HODL (Arkade) provider: releaseFunds() is not directly callable — buyer/seller keys are client-held. ' +
+      'Use POST /v1/settlement/escrow/:id/initiate-release, then submit-transaction-signature, instead (see escrow.service.ts).'
     )
   }
 
-  // Same reason as releaseFunds() above.
   async refundFunds(_escrow: ArkEscrowInput): Promise<{ txId: string }> {
     throw new EscrowError(
-      'LIGHTNING_HODL (Arkade) provider: refundFunds() requires client-submitted signatures now that buyer/seller keys are client-held (Phase 2 — signature collection — not yet built). See docs/TODO.md §4.'
+      'LIGHTNING_HODL (Arkade) provider: refundFunds() is not directly callable — buyer/seller keys are client-held. ' +
+      'Use POST /v1/settlement/escrow/:id/initiate-refund, then submit-transaction-signature, instead (see escrow.service.ts).'
     )
   }
 }

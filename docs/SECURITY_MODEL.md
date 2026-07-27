@@ -44,8 +44,17 @@ arbitrated action.
   (`lightning-hodl.provider.ts`) — plain Lightning HTLCs genuinely have no
   multi-party escrow primitive (confirmed from HodlHodl's own docs), but
   Arkade does, and HodlHodl/Lendasat both already build on it in
-  production. Same client-held-keys upgrade and same disclosed Phase 2
-  gap as Multisig above (`TODO.md` §4)
+  production. Same client-held-keys upgrade as Multisig above, and — as
+  of the same day's second follow-up pass — the same real
+  client-signature-collection Phase 2 too: `@arkade-os/sdk`'s `SingleKey`
+  (a raw-private-key signer, no ASP/wallet machinery needed) was verified
+  to bundle cleanly for a browser target before this was built. Release/
+  refund go through `POST .../initiate-release`/`initiate-refund` +
+  `.../submit-transaction-signature`, same routes MULTISIG uses — the
+  server never inspects the signed-payload format, so both providers
+  share one generic orchestration layer (`TODO.md` §4 has the full
+  disclosure, including what's still unverified: a live run against a
+  real funded mutinynet VTXO, which this environment cannot originate)
 - **Liquid Covenant:** script-enforced — not implemented at all yet, same
   live-infrastructure blocker as Lightning above
 

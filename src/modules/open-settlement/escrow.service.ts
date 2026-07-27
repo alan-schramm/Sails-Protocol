@@ -133,10 +133,16 @@ const NON_CUSTODIAL_PROVIDERS: Record<string, { getDepositAddress(tradeId: strin
 
 // Phase 2 (2026-07-27) — providers whose release/refund now goes through
 // client-signature collection instead of a single synchronous provider
-// call. MULTISIG only this pass — LIGHTNING_HODL's equivalent needs its
-// own separate verification of @arkade-os/sdk's client-side signing story
-// in a browser bundle first (genuinely different unknowns), tracked in
-// TODO.md §4, not bundled in here.
+// call. Both MULTISIG and LIGHTNING_HODL as of the same day's follow-up
+// pass — verified experimentally first that @arkade-os/sdk's SingleKey
+// (a raw-private-key signer, the same private key generateEscrowKeypair()
+// already produces for MULTISIG) needs no ASP/wallet machinery to sign,
+// and bundles cleanly for a browser target with zero Node-core imports.
+// The "psbtBase64" field is generic across both providers — MULTISIG's is
+// a literal Bitcoin PSBT, LIGHTNING_HODL's is a JSON bundle of Ark tx +
+// checkpoint PSBTs (see lightning-hodl.provider.ts's own header comment)
+// — this service never inspects the string's contents itself, only
+// stores/relays it, so the difference is invisible here.
 interface SignatureCollectionProvider {
   buildUnsignedRelease(escrow: unknown, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }>
   buildUnsignedRefund(escrow: unknown): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string }>
@@ -145,6 +151,7 @@ interface SignatureCollectionProvider {
 }
 const SIGNATURE_COLLECTION_PROVIDERS: Record<string, SignatureCollectionProvider> = {
   MULTISIG: multisigProvider,
+  LIGHTNING_HODL: lightningHodlProvider,
 }
 
 // 33-byte compressed secp256k1 pubkey, hex — the canonical client-submitted

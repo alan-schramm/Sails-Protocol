@@ -16,7 +16,7 @@
  * a real wallet integration could derive per-trade keys instead without
  * changing anything on the server side (it only ever sees a pubkey).
  */
-import { generateEscrowKeypair, signEscrowPsbt } from '@sails/sdk'
+import { generateEscrowKeypair, signEscrowPsbt, signEscrowArkTx } from '@sails/sdk'
 import { sailsClient } from '../lib/sailsClient'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
@@ -67,15 +67,20 @@ export function useEscrowKey() {
     return sailsClient.settlement.submitKey(escrowId, publicKeyHex)
   }
 
-  // Phase 2 (2026-07-27), MULTISIG only (LIGHTNING_HODL isn't registered
-  // in escrow.service.ts's SIGNATURE_COLLECTION_PROVIDERS yet — see that
-  // file's own comment). If a release/refund signature-collection round
-  // is in flight for this escrow and the current participant is one of
-  // its required signers, signs the unsigned PSBT with this browser's
-  // stored escrow key (signEscrowPsbt(), @sails/sdk) and submits it.
-  // Idempotent (server upserts by participantId) and a safe no-op when no
-  // round is in flight or this participant isn't a required signer — same
-  // "call speculatively" pattern as submitEscrowKeyIfNeeded above.
+  // Phase 2 (2026-07-27) — MULTISIG and LIGHTNING_HODL both use client
+  // signature collection now (escrow.service.ts's
+  // SIGNATURE_COLLECTION_PROVIDERS). If a release/refund round is in
+  // flight for this escrow and the current participant is one of its
+  // required signers, signs the unsigned bundle with this browser's
+  // stored escrow key and submits it — MULTISIG via `signEscrowPsbt()`
+  // (bitcoinjs-lib PSBT), LIGHTNING_HODL via `signEscrowArkTx()`
+  // (`@arkade-os/sdk`'s `SingleKey`, a JSON bundle of Ark tx + checkpoint
+  // PSBTs — see `lightning-hodl.provider.ts`'s own header comment for
+  // why). Both use the SAME client-held private key (one raw secp256k1
+  // key genuinely serves both formats). Idempotent (server upserts by
+  // participantId) and a safe no-op when no round is in flight or this
+  // participant isn't a required signer — same "call speculatively"
+  // pattern as submitEscrowKeyIfNeeded above.
   const signAndSubmitPendingTransactionIfNeeded = async (escrowType: string, escrowId: string, participantId: string) => {
     if (!CLIENT_KEY_ESCROW_TYPES.has(escrowType)) return null
     let pending
@@ -87,7 +92,10 @@ export function useEscrowKey() {
     if (!pending.requiredSigners.includes(participantId)) return null
 
     const { privateKeyHex } = loadOrCreateEscrowKeypair()
-    const signedPsbtBase64 = signEscrowPsbt(pending.unsignedPsbtBase64, hexToBytes(privateKeyHex))
+    const privateKey = hexToBytes(privateKeyHex)
+    const signedPsbtBase64 = escrowType === 'LIGHTNING_HODL'
+      ? await signEscrowArkTx(pending.unsignedPsbtBase64, privateKey)
+      : signEscrowPsbt(pending.unsignedPsbtBase64, privateKey)
     return sailsClient.settlement.submitTransactionSignature(escrowId, signedPsbtBase64)
   }
 
