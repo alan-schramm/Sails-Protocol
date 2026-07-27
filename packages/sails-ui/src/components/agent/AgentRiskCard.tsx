@@ -6,7 +6,7 @@ import type { AssetType, TradeSide } from '../../types'
 const RISK_STYLE: Record<AgentRiskAssessment['risk'], string> = {
   low: 'text-green-500 bg-green-500/10 border-green-500/25',
   medium: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/25',
-  high: 'text-red-500 bg-red-500/10 border-red-500/25',
+  high: 'text-red-700 bg-red-500/10 border-red-500/25',
 }
 
 const RECOMMENDATION_LABEL: Record<AgentRiskAssessment['recommendation'], string> = {

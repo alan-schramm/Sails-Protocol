@@ -52,7 +52,7 @@ export function Dashboard() {
 function StatCard({ label, value, tone = 'default' }: { label: string; value: string | number; tone?: 'default' | 'danger' }) {
   return (
     <div className="card p-4">
-      <div className={`text-2xl font-black ${tone === 'danger' ? 'text-red-500' : 'text-brand-text'}`}>{value}</div>
+      <div className={`text-2xl font-black ${tone === 'danger' ? 'text-red-700' : 'text-brand-text'}`}>{value}</div>
       <div className="text-xs text-brand-text-muted mt-1">{label}</div>
     </div>
   )

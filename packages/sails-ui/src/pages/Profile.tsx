@@ -185,7 +185,7 @@ export function Profile() {
                         </button>
                         <button
                           onClick={() => setConfirmingCancelId(o.id)}
-                          className="text-xs text-red-500 hover:text-red-400 border border-red-500/25 rounded-md px-2 py-1 transition-colors"
+                          className="text-xs text-red-700 hover:text-red-400 border border-red-500/25 rounded-md px-2 py-1 transition-colors"
                         >
                           Cancelar oferta
                         </button>

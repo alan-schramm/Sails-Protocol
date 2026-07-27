@@ -23,12 +23,12 @@ export function SideBadge({ side }: { side: TradeSide }) {
   return side === 'BUY' ? (
     <Pill className="border-green-500/25 bg-green-500/10 text-green-500">COMPRAR</Pill>
   ) : (
-    <Pill className="border-red-500/25 bg-red-500/10 text-red-500">VENDER</Pill>
+    <Pill className="border-red-500/25 bg-red-500/10 text-red-700">VENDER</Pill>
   )
 }
 
 export function PaymentBadge({ method }: { method: PaymentMethod }) {
-  return <Pill className="border-blue-500/25 bg-blue-500/10 text-blue-500">{PAYMENT_METHOD_LABELS[method]}</Pill>
+  return <Pill className="border-blue-500/25 bg-blue-500/10 text-blue-700">{PAYMENT_METHOD_LABELS[method]}</Pill>
 }
 
 const TRADE_STATUS_LABEL: Record<TradeStatus, string> = {
@@ -36,9 +36,9 @@ const TRADE_STATUS_LABEL: Record<TradeStatus, string> = {
 }
 const TRADE_STATUS_COLOR: Record<TradeStatus, string> = {
   PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-500',
-  ACTIVE: 'border-blue-500/25 bg-blue-500/10 text-blue-500',
+  ACTIVE: 'border-blue-500/25 bg-blue-500/10 text-blue-700',
   COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-500',
-  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-500',
+  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-700',
   CANCELLED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
 }
 export function TradeStatusBadge({ status }: { status: TradeStatus }) {
@@ -51,10 +51,10 @@ const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
 }
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
   CREATED: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
-  FUNDS_LOCKED: 'border-blue-500/25 bg-blue-500/10 text-blue-500',
+  FUNDS_LOCKED: 'border-blue-500/25 bg-blue-500/10 text-blue-700',
   PAYMENT_PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-500',
   COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-500',
-  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-500',
+  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-700',
   REFUNDED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
 }
 export function EscrowStatusBadge({ status }: { status: EscrowStatus }) {
