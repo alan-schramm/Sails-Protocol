@@ -1422,6 +1422,84 @@ falls in the flagged range for a "RSC Mode CSRF Bypass" advisory, but
 `sails-ui` is a plain client-side Vite SPA that never uses React Server
 Components mode — left as a known-low-real-risk entry, not fixed here.
 
+### 16C. Dependabot follow-up round 2 (2026-07-28) — leaf-level overrides for the dev-tooling chain, real ceiling found
+
+Went back through §16B's "deliberately not touched" list at the user's
+request. Real result: **4 more genuinely fixed via targeted
+`package.json` `overrides` entries, no tool major-version bump needed**
+— `tar` (`^7.5.22`, full fix), `valibot` (`^1.4.2`, full fix — only
+consumed by `@prisma/dev`, never invoked), `brace-expansion`
+(`^5.0.8`, **partial** — fixes the `artillery`/`typedoc` dependency
+paths, but two remaining copies are hard-pinned by `minimatch@9.x`'s own
+`^2.0.2` dependency inside `@joshwooding/vite-plugin-react-docgen-typescript`
+(Storybook) and `@vitest/coverage-v8` — npm's override resolution
+correctly declined to force an incompatible major there rather than risk
+silently breaking those tools' own glob parsing), `uuid` (`^11.1.1`,
+**partial** — fixes the `artillery` paths (already on `11.1.1`), but
+`@storybook/addon-actions` bundles its own hard-pinned `uuid@9.0.1` copy
+under its own `node_modules` that the override can't reach without
+forcing an incompatible major into a tool that pins it deliberately).
+**Net: 66 → 62 flagged packages.** Verified nothing broke: full backend
++ SDK Jest suite (349/349), `npm run build` clean (backend + `@sails/sdk`
++ `sails-ui`), `@sails/sdk-react`'s own `tsc --noEmit` + `tsup` build
+clean.
+
+**The remaining 62 all have the same real ceiling**: a genuine fix
+requires a semver-major bump of Jest, Vitest, Storybook, or Artillery
+themselves (their nested vulnerable copies of `glob`/`minimatch`/
+`brace-expansion`/`uuid`/`filelist`/`ejs`/`@opentelemetry/*` have no
+patched release within their currently-declared major ranges — confirmed
+by checking each package's own published version list, not assumed).
+Deliberately still not forced this pass: this repo has a **concrete,
+documented precedent for this exact failure mode** — §16's own
+TypeScript major-bump entry above records that bumping `typescript` past
+`^5.9.3` broke `ts-jest` at runtime (every Jest global stopped resolving
+across all suites) despite formally satisfying `ts-jest`'s declared peer
+range, only caught by actually running the suite, not by reading the
+range. Blindly bumping Jest/Vitest/Storybook/Artillery's own majors risks
+the identical class of silent breakage across this repo's much larger,
+already-hard-won test/tooling investment (Fase 2's SDK React + Storybook
++ Vitest/RTL setup, Fase 3's Playwright E2E suite, Fase 4's k6/Artillery
+load tests) — all dev/test-only surfaces that never execute against real
+traffic, unlike the two §16B already fixed. Recommendation if this is
+ever revisited: a dedicated pass per tool (Jest+ts-jest together, Vitest
++coverage-v8 together, Storybook's whole `@storybook/*` set together —
+never one package in isolation, since these ecosystems version-lock
+against each other), each with its own full-suite verification, not a
+blanket `npm audit fix --force`.
+
+**`react-router-dom` re-checked, confirmed no available fix exists**
+(GHSA-qwww-vcr4-c8h2, "RSC Mode CSRF Bypass"): the advisory's vulnerable
+range is `>=7.12.0 <8.3.0`; `7.18.1` (currently installed, also the
+latest published release) falls inside it, and `react-router` has not
+yet published an `8.3.0` — the only fix the registry actually offers
+today is `npm audit`'s suggested `7.11.0`, a **downgrade** below the
+vulnerable range's own start, losing ~7 months of real patches/features
+for a vulnerability class that doesn't apply here in the first place —
+`sails-ui` is a plain client-side SPA (`BrowserRouter`/`Routes`/`Route`),
+never uses React Server Components mode, which is what CSRF-bypasses
+Action execution. GitHub Advisory Database hasn't even scored this one
+yet (CVSS `vectorString: null`). Confirmed deliberate accepted risk, not
+an oversight — downgrading would be a real regression for zero practical
+safety gain; will pick this back up once react-router actually ships a
+forward-compatible `8.3.0`+ (or backports to a patched `7.x`).
+
+**Also discovered, unrelated to this pass, flagged separately (not
+fixed here):** `@sails/sdk-react`'s own Vitest suite has been silently
+broken since commit `9a49f20` (today, MULTISIG Phase 2) — 5 of 10 test
+files fail to load with `Error: ecc library invalid` (thrown by
+`ecpair`'s built-in self-test against `@bitcoinerlab/secp256k1`, added to
+`escrow-key.ts` that commit). Confirmed the same library passes
+`ecpair`'s self-test cleanly under plain Node — the failure is specific
+to Vitest's jsdom test environment, likely a module-duplication issue
+(two resolved copies of `@noble/curves`/`@noble/hashes` disagreeing).
+Real backend/SDK build and the actual `signEscrowPsbt()`/
+`generateEscrowKeypair()` functionality are unaffected (proven working
+under plain Node and real browser bundling elsewhere this session) — this
+is specifically `sdk-react`'s own test environment. Not investigated
+further here since it's unrelated to the Dependabot work this pass was
+scoped to; a background task was spawned to track it.
+
 ---
 
 ## 17. Security-validation round (2026-07-19) — abandoned trade, retry safety, event replay, concurrent dispute
