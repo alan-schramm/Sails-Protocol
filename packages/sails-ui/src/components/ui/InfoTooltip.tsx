@@ -11,7 +11,7 @@ export function InfoTooltip({ text }: { text: string }) {
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
         aria-label="Mais informações"
-        className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-[10px] flex items-center justify-center hover:border-brand-orange hover:text-brand-orange transition-colors"
+        className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-[10px] flex items-center justify-center hover:border-brand-orange-accent hover:text-brand-orange-accent transition-colors"
       >
         i
       </button>

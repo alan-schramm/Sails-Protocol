@@ -29,7 +29,19 @@ export default {
           'text-muted': 'rgb(var(--color-text-muted) / <alpha-value>)',
           orange: 'rgb(var(--color-orange) / <alpha-value>)',
           'orange-hover': 'rgb(var(--color-orange-hover) / <alpha-value>)',
+          // Separate from `orange` above: that token is contrast-locked for
+          // white-text-on-orange (buttons) in both themes. This one is for
+          // orange-as-text/icon/accent on a brand SURFACE (never behind
+          // white body text), so dark mode can use the fuller vibrant hue
+          // — see src/index.css's own comment on `--color-orange-accent`.
+          'orange-accent': 'rgb(var(--color-orange-accent) / <alpha-value>)',
         },
+      },
+      fontFamily: {
+        // Display face for headlines/wordmark only — body text stays on
+        // the fast, dense-legible system stack (see index.css's `body`
+        // rule); this is the one place asked to carry brand personality.
+        display: ['"Space Grotesk"', '-apple-system', 'sans-serif'],
       },
     },
   },

@@ -260,7 +260,7 @@ export function Trade() {
     return (
       <div className="text-center py-16">
         <p className="text-brand-text-secondary">Trade não encontrado.</p>
-        <Link to="/" className="text-sm text-brand-orange underline mt-2 inline-block">Voltar ao Marketplace</Link>
+        <Link to="/" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Voltar ao Marketplace</Link>
       </div>
     )
   }
@@ -293,7 +293,7 @@ export function Trade() {
             // already left that page had no way to see it again once
             // the trade was underway. trade.service.ts's getTrade() now
             // includes the originating Offer specifically for this.
-            <div className="card p-4 mt-3 border border-brand-orange/30">
+            <div className="card p-4 mt-3 border border-brand-orange-accent/30">
               <p className="text-xs font-semibold text-brand-text-muted mb-2">
                 Como pagar — {PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
               </p>

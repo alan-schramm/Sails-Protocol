@@ -21,8 +21,8 @@ export function Layout() {
           theme toggle; mobile needs its own since BottomNav is reserved
           for primary navigation. */}
       <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-brand-border sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
-        <Link to="/" className="font-black text-brand-text tracking-tight">
-          Sails <span className="text-brand-orange">P2P</span>
+        <Link to="/" className="font-display font-bold text-brand-text tracking-tight">
+          Sails <span className="text-brand-orange-accent">P2P</span>
         </Link>
         <div className="flex items-center gap-3">
           <ThemeToggle />

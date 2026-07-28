@@ -13,7 +13,11 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 function resolveInitialTheme(): Theme {
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored === 'light' || stored === 'dark') return stored
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  // Dark is the official Satsails identity (2026-07-28 direction, same
+  // reasoning Login's brand panel already uses: "deliberately always
+  // dark") — defaults here regardless of system preference; light stays
+  // a fully supported, one-click opt-out via ThemeToggle.
+  return 'dark'
 }
 
 function applyTheme(theme: Theme) {
