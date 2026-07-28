@@ -49,6 +49,7 @@ enum EscrowType {
   LIGHTNING_HODL
   LIQUID_COVENANT
   WDK_USDT_EVM // real @tetherto/wdk-wallet-evm USDT (ERC-20) settlement — see wdk-settlement.provider.ts
+  SAFE_GUARD_EVM // RFC-020 — Safe Transaction Guard + ERC-4337, KMS-backed arbiter co-signer — see safe-guard-evm.provider.ts
   MOCK
 }
 

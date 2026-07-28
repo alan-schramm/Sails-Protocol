@@ -185,6 +185,24 @@ export const config = {
     asp: process.env.ARKADE_ASP_URL ?? 'https://mutinynet.arkade.sh',
     explorerApiUrl: process.env.ARKADE_EXPLORER_API_URL ?? 'https://mempool.mutinynet.arkade.sh/api',
   },
+
+  // SAFE_GUARD_EVM SettlementProvider (safe-guard-evm.provider.ts, RFC-020)
+  // — a Safe Transaction Guard + ERC-4337 escrow whose arbiter co-signer
+  // key lives in AWS KMS, never in this process. Empty kmsKeyId by
+  // default, same "surface a clear config error, don't refuse to boot"
+  // pattern as wdk.seedPhrase/multisig.seed/arkade.seed above — without a
+  // real AWS_KMS_KEY_ID the disputed-release/refund path throws a real
+  // AWS auth/network error the first time it's actually exercised, not a
+  // fabricated one. chainId/entryPointAddress default to Sepolia + the
+  // real, well-known canonical ERC-4337 v0.7 EntryPoint address (same one
+  // used throughout `packages/sails-sdk/src/custody/evm-4337.ts`'s own
+  // tests) — inert public values, safe to ship as defaults.
+  safeGuardEvm: {
+    chainId: BigInt(process.env.SAFE_GUARD_EVM_CHAIN_ID ?? '11155111'),
+    entryPointAddress: process.env.SAFE_GUARD_EVM_ENTRY_POINT ?? '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+    kmsKeyId: process.env.AWS_KMS_KEY_ID ?? '',
+    kmsRegion: process.env.AWS_REGION ?? 'us-east-1',
+  },
 }
 
 // RT-001's fix, made structural instead of relying on someone remembering

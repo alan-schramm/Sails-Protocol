@@ -745,6 +745,31 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(JSON.parse(res.body).data.id).toBe('escrow-1')
     })
 
+    // RFC-020, 2026-07-28 — SAFE_GUARD_EVM is a real, registered escrow
+    // type now (previously the createEscrowSchema zod validator didn't
+    // know about it, so this exact request would 400 before reaching
+    // escrowService.createEscrow() at all). This is the one integration
+    // point safeGuardEvmProvider.test.ts's own unit tests can't cover —
+    // the real HTTP request → zod validation → service call path.
+    it('accepts SAFE_GUARD_EVM as a real escrow type (RFC-020)', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', escrowId: null })
+      mockEscrowCreate.mockResolvedValueOnce({
+        id: 'escrow-safe-guard-1', tradeId: 'trade-1', status: 'CREATED',
+        type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'ETH',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/escrow',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { tradeId: 'trade-1', type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'ETH' },
+      })
+
+      expect(res.statusCode).toBe(201)
+      expect(JSON.parse(res.body).data.id).toBe('escrow-safe-guard-1')
+    })
+
     it('surfaces a clear config error when disputing with no TRUSTED_ARBITRATORS configured (not a crash)', async () => {
       const token = await authedSession('buyer-1')
       mockEscrowFindUnique.mockResolvedValueOnce({ id: 'escrow-1', tradeId: 'trade-1' })

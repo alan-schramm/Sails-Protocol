@@ -711,13 +711,32 @@ makes the same point in more detail.
       network), plus `@sails/sdk`'s `ERC4337CustodyProvider`,
       `BitcoinCustodyProvider`, and `SailsSignerService` (AWS KMS
       co-signer) with real, independently-verified cryptographic logic
-      (`packages/sails-sdk/tests/custody-*.test.ts`). **Still not done:**
-      third-party Solidity audit, testnet/mainnet deployment, live AWS
-      KMS calls, ERC-4337 bundler integration, and wiring any of it into
-      `escrow.service.ts`/`WdkSettlementProvider`'s actual release path —
-      `WdkSettlementProvider` is untouched and still signs from the
-      single server-held seed today. No committed date for closing the
-      remaining gap.
+      (`packages/sails-sdk/tests/custody-*.test.ts`). **Wired in as a
+      real, registered fifth `SettlementProvider` (2026-07-28, same-day
+      follow-up):** `SAFE_GUARD_EVM` (`safe-guard-evm.provider.ts`) is
+      now in `escrow.service.ts`'s `PROVIDERS`/`SIGNATURE_COLLECTION_PROVIDERS`
+      maps, following MULTISIG's exact client-held-keys +
+      signature-collection-route pattern (no new routes needed —
+      `initiate-release`/`initiate-refund`/`submit-transaction-signature`
+      are already generic over `escrow.type`). Real, tested: UserOperation/
+      userOpHash construction (importing `@sails/sdk`'s `getUserOpHash()`
+      rather than a second hand-written copy — client and server must
+      hash identically for a signature to verify), and real signature
+      recovery + Safe's actual ascending-address-sorted packed-signature
+      combination (20 tests, `tests/safeGuardEvmProvider.test.ts`).
+      **Still not done, same disclosed boundary as before, just now
+      localized to fewer methods:** `lockFunds()`/`verifyLock()`/the
+      final bundler-submission step inside `finalizeRelease()`/
+      `finalizeRefund()` all throw a clear, named error — deploying/
+      checking a Safe and submitting to a bundler need live EVM RPC
+      infrastructure this environment doesn't have, and the disputed-path
+      KMS arbiter co-sign throws without a real `AWS_KMS_KEY_ID`
+      configured (the cooperative buyer+seller path needs no AWS access
+      at all). `WdkSettlementProvider` itself is untouched and still
+      signs from the single server-held seed — `SAFE_GUARD_EVM` is a new,
+      parallel provider, not a replacement, and no escrow is forced onto
+      it. No committed date for a third-party audit, real deployment, or
+      cutover.
 
 ## 8. SDK (status changed — v0.1 real, partial) *(2026-07-17)*
 
