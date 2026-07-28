@@ -34,7 +34,11 @@ function getDisputeService(): DisputeService {
 
 const createEscrowSchema = z.object({
   tradeId: z.string().min(1),
-  type: z.enum(['MULTISIG', 'LIGHTNING_HODL', 'LIQUID_COVENANT', 'MOCK']).optional(),
+  // WDK_USDT_EVM and SAFE_GUARD_EVM were both real, registered providers
+  // (escrow.service.ts's PROVIDERS map) missing from this validator —
+  // WDK_USDT_EVM was a pre-existing gap found while adding SAFE_GUARD_EVM
+  // (RFC-020), fixed here rather than left alongside the new one.
+  type: z.enum(['MULTISIG', 'LIGHTNING_HODL', 'LIQUID_COVENANT', 'WDK_USDT_EVM', 'SAFE_GUARD_EVM', 'MOCK']).optional(),
   lockedAmount: z.string().min(1),
   asset: z.string().min(1),
   network: z.string().optional(),

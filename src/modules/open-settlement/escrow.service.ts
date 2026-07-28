@@ -8,6 +8,7 @@ import { randomUUID as uuidv4 } from 'crypto'
 import { wdkSettlementProvider } from './wdk-settlement.provider'
 import { multisigProvider } from './multisig.provider'
 import { lightningHodlProvider } from './lightning-hodl.provider'
+import { safeGuardEvmProvider } from './safe-guard-evm.provider'
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 
 /**
@@ -120,6 +121,13 @@ const PROVIDERS: Record<string, SettlementProvider> = {
   // to MOCK for every MULTISIG escrow ever created (fixed below too —
   // that fallback no longer exists for any type).
   MULTISIG: multisigProvider,
+  // Real Safe Transaction Guard + ERC-4337 escrow (RFC-020) —
+  // safe-guard-evm.provider.ts's own doc comment has the full
+  // custody-model caveat (client-held buyer/seller keys, KMS-backed
+  // arbiter co-signer, and the real-but-not-yet-deployable boundary:
+  // lockFunds/verifyLock/broadcast all require live EVM RPC +
+  // ERC-4337 bundler infrastructure this environment doesn't have).
+  SAFE_GUARD_EVM: safeGuardEvmProvider,
 }
 
 // Providers that never push funds into escrow themselves (MULTISIG,
@@ -152,6 +160,7 @@ interface SignatureCollectionProvider {
 const SIGNATURE_COLLECTION_PROVIDERS: Record<string, SignatureCollectionProvider> = {
   MULTISIG: multisigProvider,
   LIGHTNING_HODL: lightningHodlProvider,
+  SAFE_GUARD_EVM: safeGuardEvmProvider,
 }
 
 // 33-byte compressed secp256k1 pubkey, hex — the canonical client-submitted
