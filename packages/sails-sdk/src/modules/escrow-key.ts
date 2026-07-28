@@ -16,15 +16,21 @@
  *
  * `@noble/curves` — pure JS, browser-safe, no WASM (unlike
  * `tiny-secp256k1`, the backend's own choice for the same curve, which
- * would complicate this package's browser bundle target). Pinned to
- * `^1.2.0` specifically (not the newer 2.x also present elsewhere in
- * this monorepo's dependency tree via `@arkade-os/sdk`'s own
- * dependencies) — 2.x ships pure ESM with no real CJS entry point for
- * this subpath, which breaks under Jest the same way
- * `@tetherto/wdk-wallet-evm`/`@arkade-os/sdk` already do elsewhere in
- * this repo; 1.2.0 is genuinely dual CJS/ESM, confirmed directly against
- * its own `package.json` (`main`/`exports` fields), not assumed. Verified
- * experimentally before this file was written that a `@noble/curves`
+ * would complicate this package's browser bundle target). `package.json`
+ * declares `^2.0.1`: `@arkade-os/sdk`'s own transitive tree
+ * (`@bitcoinerlab/descriptors-core`, pulled in via
+ * `@bitcoinerlab/descriptors-scure`) requires `@noble/curves` 2.x, and npm
+ * cannot place two different major versions in the same
+ * `packages/sails-sdk/node_modules` slot — confirmed via `npm ls
+ * @noble/curves -w @sails/sdk --all` after both a clean reinstall and
+ * `npm dedupe` still resolved 2.2.0 there. `secp256k1`'s real v2.x API
+ * (`Signature.fromBytes`/`toBytes` with an explicit `format` argument,
+ * `utils.randomSecretKey` replacing v1.x's `randomPrivateKey`, `sign`/
+ * `verify` defaulting to `prehash: true`) was re-verified directly against
+ * the actually-resolved package before this file's `randomPrivateKey()`
+ * call was updated to `randomSecretKey()` — not assumed compatible with
+ * the v1.x API this file originally targeted. Verified experimentally
+ * before this file was written that a `@noble/curves`
  * private key produces a compressed pubkey directly compatible with
  * bitcoinjs-lib's multisig construction (`multisig.provider.ts` uses it
  * server-side) and, with the leading byte stripped, the x-only form
@@ -32,7 +38,7 @@
  * (`lightning-hodl.provider.ts`) — one client key genuinely serves both
  * providers, not two separate ones.
  */
-import { secp256k1 } from '@noble/curves/secp256k1'
+import { secp256k1 } from '@noble/curves/secp256k1.js'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import * as bitcoin from 'bitcoinjs-lib'
 import { ECPairFactory } from 'ecpair'
@@ -51,7 +57,7 @@ export interface EscrowKeypair {
 }
 
 export function generateEscrowKeypair(): EscrowKeypair {
-  const privateKey = secp256k1.utils.randomPrivateKey()
+  const privateKey = secp256k1.utils.randomSecretKey()
   const publicKey = secp256k1.getPublicKey(privateKey, true) // compressed, 33 bytes
   return { privateKey, publicKey, publicKeyHex: bytesToHex(publicKey) }
 }

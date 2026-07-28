@@ -70,7 +70,14 @@ Coordination, Not Custody."
 > is the accepted, registered plan for doing exactly that: reclassifying
 > the current implementation as a reference-only implementation and
 > specifying the real non-custodial target architecture, without
-> committing to a build date. Also tracked in `TODO.md`.
+> committing to a build date. Also tracked in `TODO.md`. **RFC-020**
+> (`rfcs/RFC-020-non-custodial-evm-settlement.md`, RFC-019's own Phase 2)
+> registers real engineering progress toward closing this gap — a Safe
+> Transaction Guard contract that compiles clean against real audited
+> dependencies and tested `@sails/sdk` custody interfaces (ERC-4337
+> UserOperation hashing, KMS co-signing) — but nothing in it is deployed
+> or wired into `WdkSettlementProvider`'s actual release path yet, so the
+> violation stated above remains live.
 
 ### 3. Fiat Always Settles Outside the Protocol
 

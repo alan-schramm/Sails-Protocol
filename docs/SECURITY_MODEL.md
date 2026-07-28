@@ -119,7 +119,13 @@ history.
    hidden), is testnet-only, and **RFC-019**
    (`rfcs/RFC-019-settlement-custody-reference-vs-normative.md`) is the
    accepted, registered migration plan — see `CRYPTOGRAPHIC_MODEL.md`
-   §5 for the full technical detail. The `MOCK` `SettlementProvider`
+   §5 for the full technical detail. **RFC-020**
+   (`rfcs/RFC-020-non-custodial-evm-settlement.md`, RFC-019's Phase 2)
+   registers real engineering progress toward the fix — a Safe
+   Transaction Guard + ERC-4337 escrow with a KMS-backed co-signer,
+   specified and tested but not deployed or wired into
+   `WdkSettlementProvider`'s actual release path — see that RFC's
+   Threat Matrix (§6) for the full risk breakdown. The `MOCK` `SettlementProvider`
    (the only other implementation) and the protocol's own design
    (multisig 2-of-3, per §1.1 above) are unaffected — this is specific
    to `WDK_USDT_EVM`'s current implementation, not a design flaw.

@@ -147,6 +147,17 @@ implementation, not the protocol's normative custody model — see
 `rfcs/RFC-019-settlement-custody-reference-vs-normative.md` for the
 registered migration plan.
 
+**RFC-020 routes (specified, NOT implemented — not live in this server):**
+RFC-020 §4 specifies three new EVM-custody routes —
+`POST /v1/openp2p/escrows/:escrowId/evm/initiate-release`,
+`POST /v1/openp2p/escrows/:escrowId/evm/submit-signature`,
+`POST /v1/openp2p/escrows/:escrowId/evm/finalize` — mirroring the real
+`MULTISIG`/`LIGHTNING_HODL` initiate/submit-signature/finalize pattern
+already shipped above. These exist only as an OpenAPI spec inside the
+RFC; no route file, controller, or `escrow.service.ts` wiring exists
+for them yet — do not call them against this server. See
+`rfcs/RFC-020-non-custodial-evm-settlement.md` §4.
+
 | Method | Path | Description |
 |---|---|---|
 | POST | `/v1/settlement/escrow` | Create an escrow for a trade |

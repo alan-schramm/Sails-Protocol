@@ -1,0 +1,20 @@
+{
+  "name": "@sails/contracts",
+  "version": "0.1.0",
+  "description": "Sails Protocol — RFC-020 non-custodial EVM settlement Solidity contracts (SailsEscrowSafe, ERC-4337 + Safe). Reference implementation only — see docs/rfcs/RFC-020-non-custodial-evm-settlement.md. Not deployed or audited.",
+  "private": true,
+  "license": "Apache-2.0",
+  "scripts": {
+    "compile": "hardhat compile",
+    "clean": "hardhat clean"
+  },
+  "devDependencies": {
+    "hardhat": "^2.29.0"
+  },
+  "dependencies": {
+    "@account-abstraction/contracts": "^0.8.0",
+    "@safe-global/safe-contracts": "^1.4.1-2",
+    "@safe-global/safe-4337": "^0.3.0-1",
+    "@openzeppelin/contracts": "^5.6.1"
+  }
+}
