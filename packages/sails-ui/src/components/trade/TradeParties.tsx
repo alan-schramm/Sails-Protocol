@@ -16,7 +16,7 @@ function PartyRow({ user, role, isYou }: { user: User; role: string; isYou: bool
       <UserAvatar user={user} size="sm" />
       <div className="text-sm">
         <span className="font-medium text-brand-text">{user.displayName}</span>
-        {isYou && <span className="ml-1.5 text-xs bg-brand-orange/10 text-brand-orange rounded px-1.5 py-0.5">Você</span>}
+        {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-accent rounded px-1.5 py-0.5">Você</span>}
       </div>
       <span className="ml-auto text-xs text-brand-text-muted">{role}</span>
     </div>

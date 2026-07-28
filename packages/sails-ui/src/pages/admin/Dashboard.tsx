@@ -9,7 +9,7 @@ export function Dashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-black tracking-tight text-brand-text">Painel do Operador</h1>
+      <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Painel do Operador</h1>
 
       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Ofertas Ativas" value={activeOffers} />
@@ -26,7 +26,7 @@ export function Dashboard() {
             <XAxis dataKey="date" stroke="rgb(var(--color-text-muted))" tick={{ fontSize: 10, fill: 'rgb(var(--color-text-muted))' }} interval={4} />
             <YAxis stroke="rgb(var(--color-text-muted))" tick={{ fontSize: 10, fill: 'rgb(var(--color-text-muted))' }} />
             <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, background: 'rgb(var(--color-surface))', border: '1px solid rgb(var(--color-border))', color: 'rgb(var(--color-text))' }} />
-            <Line type="monotone" dataKey="volume" stroke="rgb(var(--color-orange))" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="volume" stroke="rgb(var(--color-orange-accent))" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -52,7 +52,7 @@ export function Dashboard() {
 function StatCard({ label, value, tone = 'default' }: { label: string; value: string | number; tone?: 'default' | 'danger' }) {
   return (
     <div className="card p-4">
-      <div className={`text-2xl font-black ${tone === 'danger' ? 'text-red-700' : 'text-brand-text'}`}>{value}</div>
+      <div className={`text-2xl font-display font-bold ${tone === 'danger' ? 'text-red-700' : 'text-brand-text'}`}>{value}</div>
       <div className="text-xs text-brand-text-muted mt-1">{label}</div>
     </div>
   )

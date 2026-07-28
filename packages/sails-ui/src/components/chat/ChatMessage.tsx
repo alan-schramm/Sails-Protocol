@@ -46,10 +46,10 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
       >
         {isProof && <div className="text-xs font-semibold text-green-500 mb-1">🧾 Comprovante de Pagamento</div>}
         {message.type === 'IMAGE' && message.mediaUrl && (
-          <img src={message.mediaUrl} alt={message.mediaFileName ?? 'Imagem enviada'} className="max-w-[240px] max-h-[240px] rounded-xl object-cover" />
+          <img src={message.mediaUrl} alt={message.mediaFileName ?? 'Imagem enviada'} className="max-w-[240px] max-h-[240px] rounded-lg object-cover" />
         )}
         {message.type === 'VIDEO' && message.mediaUrl && (
-          <video src={message.mediaUrl} controls className="max-w-[240px] max-h-[240px] rounded-xl" />
+          <video src={message.mediaUrl} controls className="max-w-[240px] max-h-[240px] rounded-lg" />
         )}
         {!isMedia && message.content}
         {isMedia && message.content && (

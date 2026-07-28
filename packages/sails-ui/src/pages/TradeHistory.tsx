@@ -26,7 +26,7 @@ export function TradeHistory() {
 
   return (
     <div>
-      <h1 className="text-2xl font-black tracking-tight text-brand-text">Histórico de Trades</h1>
+      <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Histórico de Trades</h1>
 
       <div className="mt-4 grid grid-cols-3 gap-3">
         <SummaryStat value={formatBrl(totalVolume)} label="Volume total" />
@@ -71,7 +71,7 @@ export function TradeHistory() {
 function SummaryStat({ value, label }: { value: string | number; label: string }) {
   return (
     <div className="card p-3 text-center">
-      <div className="text-lg font-black text-brand-text">{value}</div>
+      <div className="text-lg font-display font-bold text-brand-text">{value}</div>
       <div className="text-xs text-brand-text-muted">{label}</div>
     </div>
   )

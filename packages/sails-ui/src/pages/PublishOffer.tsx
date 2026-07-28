@@ -151,7 +151,7 @@ export function PublishOffer() {
         <button onClick={() => (step === 1 ? navigate('/profile') : setStep((s) => s - 1))} className="text-xl text-brand-text-secondary hover:text-brand-text">
           ←
         </button>
-        <h1 className="text-lg font-bold text-brand-text">Publicar Anúncio</h1>
+        <h1 className="text-lg font-display font-bold text-brand-text">Publicar Anúncio</h1>
       </div>
 
       <div className="flex items-center mb-8">
@@ -166,7 +166,7 @@ export function PublishOffer() {
                 </div>
                 <span className={`text-[10px] text-center max-w-[70px] ${active ? 'text-brand-text font-medium' : 'text-brand-text-muted'}`}>{label}</span>
               </div>
-              {n < STEPS.length && <div className={`flex-1 h-px mx-2 mb-4 ${step > n ? 'bg-brand-orange' : 'bg-brand-border'}`} />}
+              {n < STEPS.length && <div className={`flex-1 h-px mx-2 mb-4 ${step > n ? 'bg-brand-orange-accent' : 'bg-brand-border'}`} />}
             </div>
           )
         })}
@@ -283,7 +283,7 @@ export function PublishOffer() {
               </div>
               <button
                 onClick={() => setRequiresKyc((v) => !v)}
-                className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${requiresKyc ? 'bg-brand-orange' : 'bg-brand-elevated'}`}
+                className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${requiresKyc ? 'bg-brand-orange-accent' : 'bg-brand-elevated'}`}
               >
                 <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${requiresKyc ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </button>

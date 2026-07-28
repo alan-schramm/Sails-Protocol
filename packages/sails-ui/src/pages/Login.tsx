@@ -44,9 +44,14 @@ export function Login() {
           which only affects the form panel on the right. */}
       <div
         className="hidden lg:flex flex-col justify-center px-14 text-white relative overflow-hidden"
+        /* Hardcoded, not `var(--color-orange-subtle)`: this panel is
+           deliberately always dark regardless of the site-wide light/dark
+           toggle (see this div's own comment above), but that CSS var
+           flips with `.dark` on <html> — reading it here would dim this
+           glow whenever a visitor's overall theme choice is light. */
         style={{ backgroundColor: '#050505', backgroundImage: 'radial-gradient(ellipse 80% 40% at 50% -5%, rgba(249,115,22,0.1) 0%, transparent 65%)' }}
       >
-        <h1 className="text-4xl font-black tracking-tight leading-tight">
+        <h1 className="text-4xl font-display font-bold tracking-tight leading-tight">
           O marketplace P2P para crypto soberana
         </h1>
         <p className="text-neutral-400 text-lg mt-4">Sem custódia. Sem intermediários. Seus fundos, suas chaves.</p>
@@ -74,7 +79,7 @@ export function Login() {
             water down) but it now lives behind an info icon instead of
             being the primary copy a first-time user has to parse. */}
         <div className="flex items-center gap-1.5">
-          <h2 className="text-2xl font-bold text-brand-text">Entrar</h2>
+          <h2 className="text-2xl font-display font-bold text-brand-text">Entrar</h2>
           <InfoTooltip text="Tecnicamente: autenticação por assinatura de chave Ed25519 — sem senha, sem servidor guardando credenciais. Sua chave privada nunca sai do seu dispositivo." />
         </div>
         <p className="text-sm text-brand-text-muted mt-1">Conecte sua carteira para comprar e vender com segurança</p>
@@ -84,7 +89,7 @@ export function Login() {
         </button>
         <p className="text-xs text-brand-text-muted text-center mt-2">Powered by Tether WDK</p>
 
-        <div className="mt-8 bg-brand-elevated border border-brand-border rounded-xl p-4 flex gap-3">
+        <div className="mt-8 bg-brand-elevated border border-brand-border rounded-lg p-4 flex gap-3">
           <span className="text-brand-text-secondary">🛡️</span>
           <p className="text-xs text-brand-text-secondary">
             Sua chave privada nunca sai do seu dispositivo. O Sails Protocol só verifica sua assinatura.

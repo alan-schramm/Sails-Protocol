@@ -1,3 +1,14 @@
+/* Display typeface (2026-07-28 visual redesign) — the one place asked
+   to carry brand personality (wordmark, page headlines); body text
+   stays on the system stack below for density/legibility on
+   info-heavy trading screens. Loaded via Google Fonts rather than a
+   bundled @fontsource package to avoid touching node_modules/
+   package-lock while another session has this workspace's dev server
+   open concurrently. Must precede every other rule (CSS requires all
+   `@import`s to come first) — `vite build` only warns and drops it
+   silently if it doesn't, it doesn't fail the build. */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap');
+
 /* Tailwind v4 (Dependabot major-version bump, 2026-07-19) — the old
    `@tailwind base/components/utilities` directives are replaced by a
    single `@import`. `@config` keeps the existing JS config (brand color
@@ -44,6 +55,11 @@
   --color-orange-hover: 154 52 18;  /* #9a3412 */
   --color-orange-subtle: rgba(194, 65, 12, 0.08);
   --color-orange-border: rgba(194, 65, 12, 0.25);
+  /* orange-as-TEXT/icon/accent, never behind white body text — on this
+     light bg the vibrant #f97316 still measures ~2.7:1 (fails WCAG AA),
+     so light mode keeps the same accessible hue as `--color-orange`
+     above. Dark mode below is where this actually differs. */
+  --color-orange-accent: 194 65 12; /* #c2410c */
 }
 
 :root.dark {
@@ -65,8 +81,17 @@
      needed the identical fix, not a theme-specific one. */
   --color-orange: 194 65 12;        /* #c2410c */
   --color-orange-hover: 154 52 18;  /* #9a3412 */
-  --color-orange-subtle: rgba(194, 65, 12, 0.12);
-  --color-orange-border: rgba(194, 65, 12, 0.3);
+  /* orange-as-TEXT/icon/accent (2026-07-28 visual redesign, requested
+     directly): the original vibrant #f97316 was only ever a contrast
+     problem as white-text-on-orange (`--color-orange` above) or as text
+     on a light background (`:root`'s `--color-orange-accent`) — measured
+     against this theme's own near-black surfaces (#050505/#0f0f0f/
+     #161616) it's ~6.2-7.2:1, well past WCAG AA. Restoring the full
+     brand hue here, not reopening the a11y bug those tokens were fixed
+     for. */
+  --color-orange-accent: 249 115 22; /* #f97316 */
+  --color-orange-subtle: rgba(249, 115, 22, 0.12);
+  --color-orange-border: rgba(249, 115, 22, 0.3);
 }
 
 body {
@@ -82,18 +107,33 @@ body {
    utility bundles instead of copy-pasted class strings, so retheming
    later means editing these ~8 rules, not every component file. */
 @layer components {
+  /* rounded-xl -> rounded-lg (2026-07-28 visual redesign): the large,
+     uniform bubble radius on every single container was called out
+     directly as the main "generic AI-app" tell. Sharper corners read
+     closer to the Binance/Airtm/El Dorado trading-density reference. */
   .card {
-    @apply bg-brand-surface border border-brand-border rounded-xl;
+    @apply bg-brand-surface border border-brand-border rounded-lg;
   }
   /* Tailwind v4 (Dependabot major-version bump, 2026-07-19): @apply can
      no longer chain through another custom @layer components class
      (v3 allowed `@apply card`) — inlined .card's own utility list
      directly rather than referencing it by name. */
   .card-hover {
-    @apply bg-brand-surface border border-brand-border rounded-xl transition-colors;
+    @apply bg-brand-surface border border-brand-border rounded-lg transition-colors;
   }
   .card-hover:hover {
     border-color: var(--color-orange-border);
+  }
+  /* Dense list-row treatment (2026-07-28), replacing the floaty
+     bordered-card-in-a-grid shape for listing screens (Marketplace's
+     OfferCard) with a single hairline-divided list — the actual layout
+     Binance P2P/Airtm/El Dorado use for offer listings, not a card
+     grid. Side (buy/sell) reads instantly off the left accent border,
+     set per-row via a `border-l-green-500`/`border-l-red-500` utility
+     class at the call site rather than baked in here (this class has
+     no opinion on side). */
+  .offer-row {
+    @apply flex flex-col gap-2 border-b border-brand-border border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated md:flex-row md:items-center md:gap-4 md:px-4 md:py-2.5;
   }
   .btn-primary {
     @apply bg-brand-orange hover:bg-brand-orange-hover text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;

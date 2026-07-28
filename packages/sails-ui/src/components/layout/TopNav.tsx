@@ -11,8 +11,8 @@ export function TopNav() {
 
   return (
     <header className="hidden md:flex h-14 items-center border-b border-brand-border bg-brand-bg/90 backdrop-blur px-6 sticky top-0 z-40">
-      <Link to="/" className="font-black text-lg tracking-tight text-brand-text">
-        Sails <span className="text-brand-orange">P2P</span>
+      <Link to="/" className="font-display font-bold text-lg tracking-tight text-brand-text">
+        Sails <span className="text-brand-orange-accent">P2P</span>
       </Link>
 
       <nav className="flex items-center gap-6 ml-10">

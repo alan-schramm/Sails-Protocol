@@ -16,7 +16,7 @@ export function ManageOffers() {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-black tracking-tight text-brand-text">Gerenciar Ofertas</h1>
+        <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Gerenciar Ofertas</h1>
         <button onClick={() => setShowModal(true)} className="btn-primary text-sm px-4 py-2">
           Nova Oferta
         </button>
