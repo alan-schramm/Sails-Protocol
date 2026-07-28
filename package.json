@@ -13,7 +13,8 @@
   },
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "examples/*",
+    "contracts"
   ],
   "scripts": {
     "build": "npm run build -w @sails/p2p-schemas && npm run build -w @sails/sdk && tsc",

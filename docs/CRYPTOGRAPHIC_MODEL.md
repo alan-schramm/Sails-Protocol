@@ -233,6 +233,67 @@ reference-only, specifies the non-custodial target architecture, and
 lays out an incremental migration without committing to a build date.
 Also tracked as a blocking production-readiness item in `TODO.md`.
 
+### 5.1 RFC-020's real (but unwired) target: ERC-4337 UserOperation hashing + MuSig2
+
+*(Added 2026-07-28. RFC-020 is RFC-019's own Phase 2 — the real design
+this section's "Not fixed here" gap has been waiting for. None of this
+is called from `WdkSettlementProvider` or any live route; it is real,
+independently-tested cryptographic logic in new `@sails/sdk` custody
+modules, verified structurally and via `packages/sails-sdk/tests/custody-*.test.ts`,
+not exercised against live infrastructure.)*
+
+**EVM — `ERC4337CustodyProvider`'s `userOpHash`**
+(`packages/sails-sdk/src/custody/evm-4337.ts`). Transcribed
+field-for-field from `UserOperationLib.sol`'s real `encode()`/`hash()`
+and `EntryPoint.sol`'s real `getUserOpHash()` — every field the
+struct-hash ABI-encodes is already a fixed 32-byte word or a
+pre-hashed dynamic field, so this is genuine 32-byte-word
+concatenation, not a full ABI codec:
+
+```
+structHash  = keccak256(abi.encode(PACKED_USEROP_TYPEHASH, sender, nonce,
+                keccak256(initCode), keccak256(callData), accountGasLimits,
+                preVerificationGas, gasFees, keccak256(paymasterAndData)))
+domainSep   = keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH,
+                keccak256("ERC4337"), keccak256("1"), chainId, entryPoint))
+userOpHash  = keccak256(0x1901 || domainSep || structHash)
+```
+
+`entryPointAddress`/`chainId` are required constructor parameters,
+never hardcoded defaults, since the domain separator is bound to a
+specific deployed `EntryPoint` on a specific chain. Signing this hash
+(via `SailsSignerService`, below) and bundler submission are
+real-API-shaped but throw `SailsNotImplementedError` — no live AWS
+credentials or bundler endpoint exist in this sandbox.
+
+The one key the server still legitimately holds under this design —
+the arbiter-equivalent 2-of-3 co-signer on the `SailsEscrowSafe` Safe —
+moves from a raw seed phrase into AWS KMS via `SailsSignerService`
+(`packages/sails-sdk/src/custody/kms-signer.ts`): the service holds
+only a `KeyId`, never raw key material, and a KMS asymmetric signing
+key is provably non-exportable.
+
+**Bitcoin — `BitcoinCustodyProvider`'s MuSig2 primitive**
+(`packages/sails-sdk/src/custody/bitcoin-taproot.ts`), a documented
+Taproot upgrade path for the already-shipped P2WSH `MultisigProvider`,
+not a replacement of it. Each of `MultisigProvider`'s three real
+signing pairs (buyer+seller cooperative, arbiter+buyer disputed-release,
+arbiter+seller disputed-refund) becomes its own MuSig2-aggregated
+2-of-2 x-only pubkey, usable as one Taproot script-tree leaf spent with
+a single Schnorr signature instead of P2WSH's revealed 3-of-3 script.
+Key/nonce aggregation, the partial-signature round, and combination use
+`@scure/btc-signer`'s real `musig2.js` — verified end-to-end (2-of-2
+aggregate → nonce exchange → partial-sign → combine →
+`schnorr.verify()`) against a real secp256k1 keypair before being
+written. Deriving the real bech32m Taproot address and broadcasting a
+finalized transaction need a live network target and throw
+`SailsNotImplementedError`, the same boundary `MultisigProvider`'s own
+`fetchUtxos()`/`broadcast()` already has against testnet.
+
+Full detail, including the Solidity `Guard` these hashes and signatures
+feed into and the Threat Matrix, is in
+`rfcs/RFC-020-non-custodial-evm-settlement.md`.
+
 ---
 
 ## 6. What This Document Deliberately Does Not Repeat

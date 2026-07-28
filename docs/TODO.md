@@ -703,8 +703,21 @@ makes the same point in more detail.
       a boot-time warning (`app.ts`'s `startServer()`) whenever
       `MOCK_ESCROW=false`, `.env.example` disclosure, `API_REFERENCE.md`
       pointer — purely additive, no behavior change, `npm test` 207/207.
-      Phase 2 (a real non-custodial settlement path) remains unscoped,
-      unstarted, no committed date.
+      **Phase 2 is no longer unscoped (2026-07-28): RFC-020**
+      (`docs/rfcs/RFC-020-non-custodial-evm-settlement.md`, accepted)
+      registers the real target design and real, tested interfaces —
+      `SailsEscrowSafe.sol` (a Safe Transaction Guard + ERC-4337, compiles
+      clean against real audited dependencies, not deployed to any
+      network), plus `@sails/sdk`'s `ERC4337CustodyProvider`,
+      `BitcoinCustodyProvider`, and `SailsSignerService` (AWS KMS
+      co-signer) with real, independently-verified cryptographic logic
+      (`packages/sails-sdk/tests/custody-*.test.ts`). **Still not done:**
+      third-party Solidity audit, testnet/mainnet deployment, live AWS
+      KMS calls, ERC-4337 bundler integration, and wiring any of it into
+      `escrow.service.ts`/`WdkSettlementProvider`'s actual release path —
+      `WdkSettlementProvider` is untouched and still signs from the
+      single server-held seed today. No committed date for closing the
+      remaining gap.
 
 ## 8. SDK (status changed — v0.1 real, partial) *(2026-07-17)*
 

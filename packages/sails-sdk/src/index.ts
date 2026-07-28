@@ -65,6 +65,28 @@ export {
 
 export type { WalletAdapter, WalletCapabilitiesDeclaration } from './wallet-adapter'
 
+// RFC-020 custody providers (fulfills RFC-019 Phase 2) — see
+// packages/sails-sdk/src/custody/types.ts's own header comment.
+export type {
+  CustodyProvider,
+  CreateEscrowAccountParams,
+  EscrowAccount,
+  UnsignedCustodyAction,
+  PackedUserOperation,
+  MuSig2Nonces,
+  MuSig2Round,
+} from './custody/types'
+export { ERC4337CustodyProvider, hashUserOp, domainSeparator, getUserOpHash, type Erc4337CustodyConfig } from './custody/evm-4337'
+export { BitcoinCustodyProvider, type EscrowRulingPath, type MuSig2SigningRound } from './custody/bitcoin-taproot'
+export {
+  SailsSignerService,
+  parseDerSignature,
+  toEthereumSignature,
+  extractUncompressedPubkeyFromSpki,
+  ethereumAddressFromUncompressedPubkey,
+  type SailsSignerServiceConfig,
+} from './custody/kms-signer'
+
 export type {
   AssetType,
   TradeSide,
