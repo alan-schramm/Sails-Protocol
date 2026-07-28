@@ -86,7 +86,7 @@ export function OfferDetail() {
     return (
       <div className="text-center py-16">
         <p className="text-brand-text-secondary">Oferta não encontrada.</p>
-        <Link to="/" className="text-sm text-brand-orange underline mt-2 inline-block">Voltar ao Marketplace</Link>
+        <Link to="/" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Voltar ao Marketplace</Link>
       </div>
     )
   }
@@ -146,7 +146,7 @@ export function OfferDetail() {
               <SideBadge side={offer.side} />
               <PaymentBadge method={offer.paymentMethod} />
             </div>
-            <div className="mt-4 text-4xl font-black tabular-nums text-brand-text">{formatByCurrency(offer.priceFiat, offer.fiatCurrency)}</div>
+            <div className="mt-4 text-4xl font-display font-bold tabular-nums text-brand-text">{formatByCurrency(offer.priceFiat, offer.fiatCurrency)}</div>
             <div className="text-sm text-brand-text-muted mt-1">
               por {ASSET_LABELS[offer.asset]}
               {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
@@ -159,7 +159,7 @@ export function OfferDetail() {
               <div>
                 <div className="font-semibold flex items-center gap-1 text-brand-text">
                   {offer.user.displayName}
-                  {offer.user.verified && <span className="text-brand-orange text-sm" title="Verificado">✓</span>}
+                  {offer.user.verified && <span className="text-brand-orange-accent text-sm" title="Verificado">✓</span>}
                 </div>
                 <div className="text-xs text-brand-text-muted">Membro desde {new Date(offer.user.createdAt).toLocaleDateString('pt-BR')}</div>
               </div>
@@ -171,7 +171,7 @@ export function OfferDetail() {
                 <span className="font-semibold text-brand-text">{offer.user.reputationScore.toFixed(1)} / 100</span>
               </div>
               <div className="h-1.5 bg-brand-elevated rounded-full">
-                <div className="h-1.5 bg-brand-orange rounded-full" style={{ width: `${offer.user.reputationScore}%` }} />
+                <div className="h-1.5 bg-brand-orange-accent rounded-full" style={{ width: `${offer.user.reputationScore}%` }} />
               </div>
             </div>
 
@@ -232,10 +232,10 @@ export function OfferDetail() {
 
               <div className="mt-4 pt-4 border-t border-brand-border">
                 <div className="text-xs text-brand-text-muted">Você {offer.side === 'SELL' ? 'paga' : 'recebe'}</div>
-                <div className="text-2xl font-black tabular-nums mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
+                <div className="text-2xl font-display font-bold tabular-nums mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
               </div>
 
-              <div className="mt-4 bg-brand-orange/5 border border-brand-orange/20 rounded-lg p-3 text-xs text-brand-text-secondary">
+              <div className="mt-4 bg-brand-orange-accent/5 border border-brand-orange-accent/20 rounded-lg p-3 text-xs text-brand-text-secondary">
                 🔒 Escrow não custodial — fundos só liberados após confirmação de pagamento.
               </div>
 

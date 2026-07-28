@@ -214,7 +214,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 </button>
                 {loading && (
                   <span className="text-xs text-brand-text-muted flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange animate-pulse" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent animate-pulse" />
                     LLAMA_3_2_1B_INST_Q4_0 · inferência local (simulada)
                   </span>
                 )}
@@ -223,8 +223,8 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           )}
 
           {result && !delegated && (
-            <div className="rounded-lg border border-brand-orange/30 bg-brand-orange/5 p-3">
-              <div className="text-xs font-semibold text-brand-orange mb-2">Intenção estruturada gerada</div>
+            <div className="rounded-lg border border-brand-orange-accent/30 bg-brand-orange-accent/5 p-3">
+              <div className="text-xs font-semibold text-brand-orange-accent mb-2">Intenção estruturada gerada</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
                 <Field label="Ativo" value={ASSET_LABELS[result.asset]} />
                 <Field label="Lado" value={result.side === 'BUY' ? 'Compra' : 'Venda'} />
@@ -237,7 +237,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 matchCount > 0 ? (
                   <button
                     onClick={() => document.getElementById('marketplace-offer-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    className="text-xs text-brand-orange underline mb-3 block"
+                    className="text-xs text-brand-orange-accent underline mb-3 block"
                   >
                     {matchCount} {matchCount === 1 ? 'oferta corresponde' : 'ofertas correspondem'} a este filtro — ver no Marketplace ↓
                   </button>
@@ -245,7 +245,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                   <div className="mb-3 rounded-md bg-brand-elevated border border-brand-border px-3 py-2 text-xs text-brand-text-secondary">
                     Nenhuma oferta encontrada com {result.currency} + {ASSET_LABELS[result.asset]}
                     {onResetFilters && (
-                      <button onClick={onResetFilters} className="ml-2 text-brand-orange underline whitespace-nowrap">
+                      <button onClick={onResetFilters} className="ml-2 text-brand-orange-accent underline whitespace-nowrap">
                         Redefinir filtros
                       </button>
                     )}
@@ -292,7 +292,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                     className={`rounded-full px-3 py-1 text-xs border transition-colors ${
                       profile === p
                         ? 'bg-brand-orange text-white border-brand-orange'
-                        : 'border-brand-border text-brand-text-secondary hover:border-brand-orange'
+                        : 'border-brand-border text-brand-text-secondary hover:border-brand-orange-accent'
                     }`}
                   >
                     {PROFILE_META[p].label}
@@ -312,9 +312,9 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           )}
 
           {result && delegated && (
-            <div className="rounded-lg border border-brand-orange/30 bg-brand-orange/5 p-3">
+            <div className="rounded-lg border border-brand-orange-accent/30 bg-brand-orange-accent/5 p-3">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-brand-orange">Status</span>
+                <span className="text-xs font-semibold text-brand-orange-accent">Status</span>
                 {!stopped && !finished && (
                   <button onClick={handleStop} className="bg-red-600 hover:bg-red-500 text-white rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors">
                     🛑 Parar Agente / Assumir Controle

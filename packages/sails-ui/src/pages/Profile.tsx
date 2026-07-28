@@ -67,9 +67,9 @@ export function Profile() {
       <div className="flex flex-col md:flex-row gap-6 items-start pb-6 border-b border-brand-border">
         <UserAvatar user={user} size="xl" />
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2 text-brand-text">
+          <h1 className="text-2xl font-display font-bold flex items-center gap-2 text-brand-text">
             {user.displayName}
-            {user.verified && <span className="text-brand-orange text-base" title="Verificado">✓</span>}
+            {user.verified && <span className="text-brand-orange-accent text-base" title="Verificado">✓</span>}
           </h1>
           {/* Real gap found directly by the owner: this key was shown with
               no label at all — after seeing Keet call the equivalent value
@@ -104,14 +104,14 @@ export function Profile() {
             <svg className="w-32 h-32 -rotate-90">
               <circle cx="64" cy="64" r="56" fill="none" stroke="rgb(var(--color-border))" strokeWidth="10" />
               <circle
-                cx="64" cy="64" r="56" fill="none" stroke="rgb(var(--color-orange))" strokeWidth="10"
+                cx="64" cy="64" r="56" fill="none" stroke="rgb(var(--color-orange-accent))" strokeWidth="10"
                 strokeDasharray={2 * Math.PI * 56}
                 strokeDashoffset={2 * Math.PI * 56 * (1 - user.reputationScore / 100)}
                 strokeLinecap="round"
               />
             </svg>
             <div className="absolute text-center">
-              <div className="text-3xl font-black text-brand-text">{user.reputationScore.toFixed(0)}</div>
+              <div className="text-3xl font-display font-bold text-brand-text">{user.reputationScore.toFixed(0)}</div>
               <div className="text-xs text-brand-text-muted">de 100</div>
             </div>
           </div>
@@ -125,7 +125,7 @@ export function Profile() {
               <div key={stars} className="flex items-center gap-3 mb-1.5">
                 <span className="text-xs w-14 text-yellow-500">{'★'.repeat(stars)}</span>
                 <div className="flex-1 h-1.5 bg-brand-elevated rounded-full">
-                  <div className="h-1.5 bg-brand-orange rounded-full" style={{ width: `${pct}%` }} />
+                  <div className="h-1.5 bg-brand-orange-accent rounded-full" style={{ width: `${pct}%` }} />
                 </div>
                 <span className="text-xs text-brand-text-muted w-8 text-right">{pct}%</span>
               </div>
@@ -218,7 +218,7 @@ export function Profile() {
       </div>
 
       <div className="mt-8">
-        <Link to="/profile/history" className="text-sm text-brand-orange underline">Ver histórico completo de trades →</Link>
+        <Link to="/profile/history" className="text-sm text-brand-orange-accent underline">Ver histórico completo de trades →</Link>
       </div>
     </div>
   )
@@ -227,7 +227,7 @@ export function Profile() {
 function Stat({ value, label }: { value: string | number; label: string }) {
   return (
     <div className="card p-3 text-center">
-      <div className="text-lg font-black text-brand-text">{value}</div>
+      <div className="text-lg font-display font-bold text-brand-text">{value}</div>
       <div className="text-xs text-brand-text-muted">{label}</div>
     </div>
   )

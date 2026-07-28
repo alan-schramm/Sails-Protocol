@@ -1,8 +1,36 @@
+import path from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      // Real, pre-existing bug (unrelated to any UI work) found while
+      // trying to start this dev server: @sails/sdk's escrow-key.ts
+      // imports '@noble/curves/secp256k1' (extensionless) and is
+      // deliberately pinned to @noble/curves@1.2.0 (see that file's own
+      // header comment — 2.x lacks a real CJS entry for this subpath).
+      // A different transitive dependency chain (@arkade-os/sdk ->
+      // @bitcoinerlab/descriptors-scure) needs @noble/curves@2.2.0, and
+      // npm's hoisting nests THAT version directly at
+      // packages/sails-sdk/node_modules — shadowing the intended 1.2.0
+      // for every resolution rooted there (`npm ls @noble/curves` flags
+      // this nested copy as literally invalid: doesn't satisfy
+      // sails-sdk's own declared ^1.2.0). Vite's dev-server dependency
+      // optimizer eagerly pre-bundles all of @sails/sdk's compiled dist
+      // (which keeps this import external, unresolved, exactly as
+      // written) and fails hard on it; `vite build` doesn't hit this
+      // because Rollup tree-shakes escrow-key.ts away when no visited
+      // page uses it. Fixing this at the root (npm overrides) touches
+      // the whole workspace's lockfile and collides with an unrelated,
+      // in-progress `contracts` workspace's own peer-dependency
+      // conflict — out of scope here. This alias forces the one
+      // specifier back to the version this repo actually intended,
+      // without touching any shared dependency file.
+      '@noble/curves/secp256k1': path.resolve(__dirname, '../../node_modules/@noble/curves/secp256k1.js'),
+    },
+  },
   // @sails/sdk (packages/sails-sdk) compiles to CommonJS (dist/index.js)
   // — fine for its Node-side consumers (tests, demo scripts), but Vite
   // resolves this npm-workspace-linked package through its real
@@ -19,7 +47,11 @@ export default defineConfig({
     include: ['@sails/sdk'],
   },
   server: {
-    port: 5173,
+    // Falls back to 5173 for a plain `npm run dev -w @sails/ui` (no env
+    // set) — reads PORT when set so multiple concurrent instances of
+    // this same dev server (e.g. two Claude Code sessions on this repo)
+    // don't collide on a hardcoded port.
+    port: Number(process.env.PORT) || 5173,
     // The real backend (src/main.ts) listens on 3000 (config.server.port) —
     // proxy so fetch('/api/...')/('/v1/...') calls work in dev without a
     // hardcoded absolute URL. Not wired to any real call yet in this pass

@@ -39,7 +39,7 @@ export function CurrencyPicker({ value, onChange }: Props) {
           <div className="absolute z-50 mt-2 w-56 card p-2 shadow-lg max-h-64 overflow-y-auto">
             <button
               onClick={() => select('Todas')}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated ${value === 'Todas' ? 'text-brand-orange font-semibold' : 'text-brand-text'}`}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated ${value === 'Todas' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
             >
               Todas as moedas
             </button>
@@ -47,7 +47,7 @@ export function CurrencyPicker({ value, onChange }: Props) {
               <button
                 key={c.code}
                 onClick={() => select(c.code)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated flex justify-between ${value === c.code ? 'text-brand-orange font-semibold' : 'text-brand-text'}`}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated flex justify-between ${value === c.code ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
               >
                 <span className="font-mono">{c.code}</span>
                 <span className="text-brand-text-muted text-xs">{c.label}</span>

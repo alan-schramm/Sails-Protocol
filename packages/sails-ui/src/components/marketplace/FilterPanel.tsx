@@ -191,7 +191,7 @@ function ToggleRow({ label, info, checked, onChange }: { label: string; info: st
       <button
         onClick={() => onChange(!checked)}
         aria-pressed={checked}
-        className={`w-10 h-5.5 rounded-full transition-colors relative shrink-0 ${checked ? 'bg-brand-orange' : 'bg-brand-elevated border border-brand-border'}`}
+        className={`w-10 h-5.5 rounded-full transition-colors relative shrink-0 ${checked ? 'bg-brand-orange-accent' : 'bg-brand-elevated border border-brand-border'}`}
         style={{ height: '22px' }}
       >
         <span
@@ -205,7 +205,7 @@ function ToggleRow({ label, info, checked, onChange }: { label: string; info: st
 function CheckRow({ label, info, checked, onChange }: { label: string; info: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center gap-2 py-2.5 border-b border-brand-border cursor-pointer">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="accent-brand-orange w-4 h-4" />
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="accent-brand-orange-accent w-4 h-4" />
       <span className="text-sm text-brand-text flex-1">{label}</span>
       <InfoTooltip text={info} />
     </label>

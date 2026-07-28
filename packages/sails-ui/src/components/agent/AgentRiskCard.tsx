@@ -49,7 +49,7 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
 
       {loading ? (
         <div className="flex items-center gap-2 text-xs text-brand-text-muted">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-orange animate-pulse" />
+          <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent animate-pulse" />
           Analisando negociação com QVAC...
         </div>
       ) : assessment ? (

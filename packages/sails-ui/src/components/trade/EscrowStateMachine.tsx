@@ -39,19 +39,19 @@ export function EscrowStateMachine({ status }: { status: EscrowStatus }) {
                     state === 'done'
                       ? 'bg-brand-orange text-white'
                       : state === 'active'
-                        ? 'border-2 border-brand-orange text-brand-orange'
+                        ? 'border-2 border-brand-orange-accent text-brand-orange-accent'
                         : 'border-2 border-brand-border text-brand-text-muted'
                   }`}
                 >
                   {state === 'active' && (
-                    <span className="absolute inset-0 rounded-full border-2 border-brand-orange animate-ping opacity-40" />
+                    <span className="absolute inset-0 rounded-full border-2 border-brand-orange-accent animate-ping opacity-40" />
                   )}
                   {state === 'done' ? '✓' : i + 1}
                 </div>
                 <span className={`text-[10px] ${state === 'pending' ? 'text-brand-text-muted' : 'text-brand-text-secondary'}`}>{step.label}</span>
               </div>
               {i < HAPPY_PATH.length - 1 && (
-                <div className={`flex-1 h-px mx-1 mb-4 ${i < activeIndex ? 'bg-brand-orange' : 'bg-brand-border'}`} />
+                <div className={`flex-1 h-px mx-1 mb-4 ${i < activeIndex ? 'bg-brand-orange-accent' : 'bg-brand-border'}`} />
               )}
             </div>
           )

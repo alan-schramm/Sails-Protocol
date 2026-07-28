@@ -56,7 +56,7 @@ export function AssetPicker({ assets, value, onChange }: Props) {
             <div className="max-h-64 overflow-y-auto">
               <button
                 onClick={() => select('Todos')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated ${value === 'Todos' ? 'text-brand-orange font-semibold' : 'text-brand-text'}`}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated ${value === 'Todos' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
               >
                 Todos os ativos
               </button>
@@ -64,7 +64,7 @@ export function AssetPicker({ assets, value, onChange }: Props) {
                 <button
                   key={asset}
                   onClick={() => select(asset)}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm font-mono hover:bg-brand-elevated ${value === asset ? 'text-brand-orange font-semibold' : 'text-brand-text'}`}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm font-mono hover:bg-brand-elevated ${value === asset ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
                 >
                   {asset}
                 </button>

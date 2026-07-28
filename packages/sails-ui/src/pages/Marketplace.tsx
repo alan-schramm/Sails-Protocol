@@ -96,7 +96,7 @@ export function Marketplace() {
 
   return (
     <div>
-      <h1 className="text-2xl font-black tracking-tight text-brand-text">Marketplace P2P</h1>
+      <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Marketplace P2P</h1>
       <p className="text-sm text-brand-text-muted mt-1">{offers.length} ofertas disponíveis · Non-custodial · Powered by Pears</p>
 
       <div className="mt-4">
@@ -153,16 +153,20 @@ export function Marketplace() {
         />
       </div>
 
-      <div id="marketplace-offer-grid" className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Single hairline-divided list (2026-07-28), not a card grid —
+          matches the Binance P2P/Airtm/El Dorado density this screen is
+          modeled on; OfferCard's own `.offer-row` class supplies the
+          divider/hover/accent-border treatment per row. */}
+      <div id="marketplace-offer-grid" className="mt-4 card overflow-hidden [&>a:last-child]:border-b-0">
         {loadingOffers ? (
-          <p className="col-span-full text-center text-brand-text-muted py-10">Carregando ofertas...</p>
+          <p className="text-center text-brand-text-muted py-10">Carregando ofertas...</p>
         ) : (
           <>
             {offers.map((offer) => (
               <OfferCard key={offer.id} offer={offer} />
             ))}
             {offers.length === 0 && (
-              <p className="col-span-full text-center text-brand-text-muted py-10">Nenhuma oferta encontrada com esses filtros.</p>
+              <p className="text-center text-brand-text-muted py-10">Nenhuma oferta encontrada com esses filtros.</p>
             )}
           </>
         )}

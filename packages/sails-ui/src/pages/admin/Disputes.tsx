@@ -21,7 +21,7 @@ export function Disputes() {
   return (
     <div>
       <div className="flex items-center gap-2">
-        <h1 className="text-2xl font-black tracking-tight text-brand-text">Disputas</h1>
+        <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Disputas</h1>
         <span className="bg-red-500/10 text-red-700 text-xs font-bold rounded-full px-2 py-0.5">
           {disputes.filter((d) => d.status !== 'RESOLVED').length}
         </span>
@@ -29,7 +29,7 @@ export function Disputes() {
 
       <div className="mt-4 space-y-3">
         {disputes.map((d) => (
-          <div key={d.id} className="bg-brand-surface border border-red-500/20 rounded-xl p-5">
+          <div key={d.id} className="bg-brand-surface border border-red-500/20 rounded-lg p-5">
             <div className="flex items-center gap-2 text-xs">
               <span className="font-mono text-brand-text-muted">{d.tradeId}</span>
               <AssetBadge asset={d.asset} />
