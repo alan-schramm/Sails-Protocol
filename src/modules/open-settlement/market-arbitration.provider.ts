@@ -27,6 +27,7 @@
 import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
 import { AssetType } from '../../common/types'
+import { eventBus } from '../../common/events/event-bus'
 import type { ArbitrationProvider } from './arbitration-provider'
 
 // RFC-021 D3 — starting parameters. Explicitly not claimed as final
@@ -46,6 +47,29 @@ export const REPUTATION_STAKE_FACTOR = 0.01
 // bonding/insurance over-collateralization ratios typically use — not
 // asserted without that comparison.
 export const K_ELIGIBILITY = 1.5
+
+// RFC-021 D6 — appeal + slashing parameters. Starting proposals, same
+// "not fixed forever" caveat as the two constants above.
+//
+// OVERTURNED_PENALTY: reputation lost when an appeal panel overturns this
+// arbiter's ruling. Roughly double reputation.service.ts's own
+// NEGATIVE_DELTA (-5) — an arbiter's wrong ruling affects two other
+// parties (the losing side AND the protocol's own credibility), not one.
+export const OVERTURNED_PENALTY = -10
+
+// SLASH_COLLATERAL_FRACTION: fraction of posted collateral forfeited on
+// a real slash (an overturned ruling). Not 100% — a single overturned
+// ruling shouldn't be a death sentence for an otherwise-good arbiter
+// (mirrors reputation.service.ts's own asymmetric-but-not-annihilating
+// penalty design), but 50% is a real, felt cost, not a token deduction.
+export const SLASH_COLLATERAL_FRACTION = 0.5
+
+// PANEL_SIZE_BASE: Kleros's own real starting jury size (verified before
+// reuse, see RFC-021 D6). Panel size for appeal round N is
+// PANEL_SIZE_BASE * 2^N — Kleros's own real escalating-jury mechanism,
+// reused for panel size only; the WEIGHTING inside that panel is
+// deliberately NOT Kleros's stake-only draw (see assignAppealPanel()).
+export const PANEL_SIZE_BASE = 3
 
 export interface ArbiterCandidate {
   participantId: string
@@ -163,6 +187,104 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
     // Floating-point edge case (roll never went <= 0 due to rounding) —
     // the last candidate is the correct fallback, not an error.
     return candidates[candidates.length - 1].participantId
+  }
+
+  /**
+   * RFC-021 D6 — appeal-round arbiter selection. Deliberately NOT
+   * stake-weighted like Kleros's real juror draw (verified before this
+   * session converged on the alternative: Kleros draws jurors purely
+   * proportional to staked PNK). Weighting here shifts toward reputation
+   * (70/30) specifically so a deep-capital actor who dominated the
+   * first-instance draw (assign(), effectiveStake-weighted) doesn't also
+   * dominate the appeal panel — the concrete mechanism for the
+   * full-node-vs-hashpower analogy this design started from. Panel size
+   * grows with round (PANEL_SIZE_BASE * 2^round); the excluded original
+   * arbiter can't be redrawn onto their own appeal.
+   */
+  async assignAppealPanel(disputeId: string, _tradeId: string, round: number, excludeParticipantId?: string): Promise<string> {
+    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!dispute) throw new EscrowError(`MarketArbitrationProvider: no dispute found for id ${disputeId}`)
+    const escrow = await prisma.escrow.findUnique({ where: { id: dispute.escrowId } })
+    if (!escrow) throw new EscrowError(`MarketArbitrationProvider: no escrow found for dispute ${disputeId}`)
+
+    let eligible = await this.eligibleFor(String(escrow.lockedAmount))
+    if (excludeParticipantId) eligible = eligible.filter((c) => c.participantId !== excludeParticipantId)
+    if (eligible.length === 0) {
+      throw new EscrowError(
+        `MarketArbitrationProvider: no eligible arbiter available for appeal round ${round} of dispute ${disputeId} ` +
+        '(excluding the original arbiter) — more arbiters need to register collateral/reputation.'
+      )
+    }
+
+    // Normalized 0..1 within the eligible pool so reputation (unbounded
+    // integer-ish score) and collateral (a decimal in whatever asset)
+    // combine on a comparable scale — a raw sum would let whichever
+    // dimension happens to have larger absolute numbers dominate
+    // regardless of the intended 70/30 split.
+    const maxReputation = Math.max(...eligible.map((c) => c.arbiterReputation), 1)
+    const maxCollateral = Math.max(...eligible.map((c) => Number(c.monetaryCollateral)), 1)
+    const weighted = eligible
+      .map((c) => ({
+        candidate: c,
+        weight: 0.7 * (c.arbiterReputation / maxReputation) + 0.3 * (Number(c.monetaryCollateral) / maxCollateral),
+      }))
+      .sort((a, b) => b.weight - a.weight)
+
+    const panelSize = PANEL_SIZE_BASE * 2 ** round
+    const panel = weighted.slice(0, panelSize)
+
+    const totalWeight = panel.reduce((sum, p) => sum + p.weight, 0)
+    let roll = Math.random() * totalWeight
+    for (const p of panel) {
+      roll -= p.weight
+      if (roll <= 0) return p.candidate.participantId
+    }
+    return panel[panel.length - 1].candidate.participantId
+  }
+
+  /**
+   * RFC-021 D6 — real penalty for an overturned ruling: forfeits
+   * SLASH_COLLATERAL_FRACTION of posted collateral and OVERTURNED_PENALTY
+   * reputation (floored at 0, never negative). `arbiter.slashed` is the
+   * durable record (RFC-010's EventStore, not a new audit table) —
+   * dispute.service.ts's resolveDispute() is the only real caller today,
+   * invoked when an appeal panel's ruling differs from the ruling being
+   * appealed.
+   */
+  async slash(participantId: string): Promise<ArbiterCandidate> {
+    const existing = await prisma.arbiterProfile.findUnique({ where: { participantId } })
+    if (!existing) throw new EscrowError(`MarketArbitrationProvider.slash: no ArbiterProfile for ${participantId}`)
+
+    const currentCollateral = Number(existing.monetaryCollateral)
+    const forfeited = currentCollateral * SLASH_COLLATERAL_FRACTION
+    const newCollateral = (currentCollateral - forfeited).toFixed(8)
+    const newReputation = Math.max(0, existing.arbiterReputation + OVERTURNED_PENALTY)
+
+    const updated = await prisma.arbiterProfile.update({
+      where: { participantId },
+      data: {
+        monetaryCollateral: newCollateral,
+        arbiterReputation: newReputation,
+        rulingsOverturned: { increment: 1 },
+      },
+    })
+
+    await eventBus.emit('arbiter.slashed', {
+      participantId,
+      forfeitedCollateral: forfeited.toFixed(8),
+      newCollateral,
+      newReputation,
+    }, participantId)
+
+    return this.toCandidate(updated)
+  }
+
+  /** Feeds the rulingsTotal/rulingsOverturned track record — called on every resolution, not just overturned ones, so the ratio means something. */
+  async recordRuling(participantId: string): Promise<void> {
+    await prisma.arbiterProfile.update({
+      where: { participantId },
+      data: { rulingsTotal: { increment: 1 } },
+    })
   }
 }
 

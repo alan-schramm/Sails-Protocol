@@ -14,6 +14,7 @@ const mockTradeFindUnique = jest.fn()
 const mockDisputeCreate = jest.fn()
 const mockDisputeFindUnique = jest.fn()
 const mockDisputeUpdate = jest.fn()
+const mockEscrowFindUnique = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -23,6 +24,7 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
       update: (...args: unknown[]) => mockDisputeUpdate(...args),
     },
+    escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
   },
 }))
 
@@ -170,5 +172,130 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
   it('rejects RELEASE without a payout address instead of fabricating one', async () => {
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
     await expect(service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE')).rejects.toThrow(/releaseToAddress/)
+  })
+})
+
+// A minimal ArbitrationProvider stub implementing the three RFC-021 D6
+// optional methods — stands in for MarketArbitrationProvider (which has
+// its own real-math unit tests in marketArbitrationProvider.test.ts) so
+// these tests can focus purely on DisputeService's own orchestration:
+// does it call assignAppealPanel/slash/recordRuling with the right
+// arguments, at the right time, and not at all when it shouldn't.
+function marketProviderStub() {
+  const mockAssignAppealPanel = jest.fn()
+  const mockSlash = jest.fn().mockResolvedValue({})
+  const mockRecordRuling = jest.fn().mockResolvedValue(undefined)
+  const provider = {
+    name: 'market-arbitration',
+    arbitrators: [] as string[],
+    assign: jest.fn(),
+    assignAppealPanel: (...args: unknown[]) => mockAssignAppealPanel(...args),
+    slash: (...args: unknown[]) => mockSlash(...args),
+    recordRuling: (...args: unknown[]) => mockRecordRuling(...args),
+  }
+  return { provider, mockAssignAppealPanel, mockSlash, mockRecordRuling }
+}
+
+describe('DisputeService — appeal() (RFC-021 D6)', () => {
+  const { provider: marketProvider, mockAssignAppealPanel } = marketProviderStub()
+  const marketService = new DisputeService(marketProvider as any)
+
+  beforeEach(() => jest.clearAllMocks())
+
+  it('rejects appealing a dispute that is not RESOLVED', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', status: 'OPENED' })
+    await expect(marketService.appeal('dispute-1', 'buyer-1')).rejects.toThrow(/only a RESOLVED dispute can be appealed/)
+  })
+
+  it('rejects an appeal from someone who is not a party to the trade', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', tradeId: 'trade-1' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    await expect(marketService.appeal('dispute-1', 'stranger')).rejects.toThrow(/not a party/)
+  })
+
+  it('surfaces a clear config error under trusted-list mode instead of a crash', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', tradeId: 'trade-1' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    const trustedService = new DisputeService(new TrustedArbitratorProvider(['arbiter-1']))
+    await expect(trustedService.appeal('dispute-1', 'buyer-1')).rejects.toThrow(/ARBITRATION_MODE=market/)
+  })
+
+  it('reopens the dispute, draws a new arbiter excluding the original, and computes the appeal fee', async () => {
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', status: 'RESOLVED', tradeId: 'trade-1', escrowId: 'escrow-1',
+      arbiterId: 'original-arbiter', ruling: 'RELEASE', appealRound: 0,
+    })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockAssignAppealPanel.mockResolvedValue('new-arbiter')
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: '1.0' })
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'APPEALED', arbiterId: 'new-arbiter', appealRound: 1 })
+
+    const result = await marketService.appeal('dispute-1', 'seller-1')
+
+    expect(mockAssignAppealPanel).toHaveBeenCalledWith('dispute-1', 'trade-1', 1, 'original-arbiter')
+    expect(mockDisputeUpdate).toHaveBeenCalledWith({
+      where: { id: 'dispute-1' },
+      data: {
+        status: 'APPEALED',
+        appealRound: 1,
+        previousRuling: 'RELEASE',
+        previousArbiterId: 'original-arbiter',
+        arbiterId: 'new-arbiter',
+        ruling: null,
+        resolvedAt: null,
+      },
+    })
+    expect(result.appealFeeRequired).toBe('2.00000000') // 1.0 * APPEAL_FEE_MULTIPLIER(2)
+    expect(mockEmit).toHaveBeenCalledWith(
+      'dispute.appealed',
+      expect.objectContaining({ disputeId: 'dispute-1', tradeId: 'trade-1', round: 1, newArbiterId: 'new-arbiter' }),
+      'trade-1'
+    )
+  })
+})
+
+describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)', () => {
+  const { provider: marketProvider, mockSlash, mockRecordRuling } = marketProviderStub()
+  const marketService = new DisputeService(marketProvider as any)
+
+  beforeEach(() => jest.clearAllMocks())
+
+  it('slashes the original arbiter when an appeal panel overturns their ruling', async () => {
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'new-arbiter', status: 'APPEALED',
+      previousRuling: 'RELEASE', previousArbiterId: 'original-arbiter',
+    })
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
+
+    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'REFUND')
+
+    expect(mockSlash).toHaveBeenCalledWith('original-arbiter')
+    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter')
+  })
+
+  it('does NOT slash when the appeal panel upholds the original ruling — a denied, not frivolous-punished, appeal', async () => {
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'new-arbiter', status: 'APPEALED',
+      previousRuling: 'RELEASE', previousArbiterId: 'original-arbiter',
+    })
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
+
+    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'RELEASE', 'bc1qbuyer')
+
+    expect(mockSlash).not.toHaveBeenCalled()
+    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter')
+  })
+
+  it('does not attempt to slash on an ordinary first-instance (non-appeal) resolution', async () => {
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED',
+      previousRuling: null, previousArbiterId: null,
+    })
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
+
+    await marketService.resolveDispute('dispute-1', 'arbiter-1', 'REFUND')
+
+    expect(mockSlash).not.toHaveBeenCalled()
+    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1')
   })
 })

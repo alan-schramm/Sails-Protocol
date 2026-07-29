@@ -892,6 +892,24 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.body).message).toMatch(/TRUSTED_ARBITRATORS/)
     })
+
+    // RFC-021 D6 — same underlying getDisputeService() config gate as the
+    // test above; appeal()'s own "ARBITRATION_MODE=market" check
+    // (marketArbitrationProvider.test.ts/disputeFlow.test.ts cover that
+    // branch directly) is only reachable once a DisputeService actually
+    // constructs, which this test environment's config never does.
+    // Still real, useful coverage: proves the route is wired and fails
+    // clearly, not with a crash.
+    it('surfaces a clear config error when appealing with no arbitration mode properly configured (not a crash)', async () => {
+      const token = await authedSession('buyer-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/disputes/dispute-1/appeal',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).message).toMatch(/TRUSTED_ARBITRATORS/)
+    })
   })
 
   describe('open-reputation', () => {

@@ -117,4 +117,15 @@ export class SailsSettlementModule {
   async resolveDispute(disputeId: string, ruling: DisputeRuling, releaseToAddress?: string): Promise<Dispute> {
     return this.transport.post<Dispute>(`/v1/settlement/disputes/${disputeId}/resolve`, { ruling, releaseToAddress }, true)
   }
+
+  /**
+   * RFC-021 D6 — requires an active session AND that the caller is a
+   * party to the trade. Only meaningful when the server is configured
+   * with ARBITRATION_MODE=market. `appealFeeRequired` is informational
+   * (see dispute.service.ts's own header comment) — this call does not
+   * itself collect payment.
+   */
+  async appealDispute(disputeId: string): Promise<{ dispute: Dispute; appealFeeRequired: string }> {
+    return this.transport.post(`/v1/settlement/disputes/${disputeId}/appeal`, undefined, true)
+  }
 }

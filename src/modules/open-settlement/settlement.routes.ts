@@ -289,6 +289,19 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send({ success: true, data: dispute })
   })
 
+  // RFC-021 D6 — only a party to the trade may appeal; only meaningful
+  // under ARBITRATION_MODE=market (dispute.service.ts's appeal() surfaces
+  // a clear config error otherwise, not a crash).
+  app.post('/v1/settlement/disputes/:id/appeal', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const participantId = (request as any).participantId as string
+    const result = await getDisputeService().appeal(id, participantId)
+    return reply.code(200).send({ success: true, data: result })
+  })
+
   // RFC-021 D2 — permissionless arbiter registration. No approval step:
   // the caller registers themselves, matching MarketArbitrationProvider's
   // own real logic. Works regardless of config.settlement.arbitrationMode

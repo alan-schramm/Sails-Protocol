@@ -30,7 +30,7 @@ export type TradeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DISPUTED' | 'CAN
 export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM' | 'SAFE_GUARD_EVM' | 'MOCK'
 export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED'
 export type PaymentMethod = 'PIX' | 'TED' | 'BANK_TRANSFER' | 'CRYPTO_DIRECT' | 'LIGHTNING_DIRECT' | 'CASH' | 'OTHER'
-export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED'
+export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED'
 export type DisputeRuling = 'RELEASE' | 'REFUND' | 'SPLIT'
 
 // RFC-012 (rfcs/RFC-012-intent-validation-and-coordination.md) — the
@@ -167,6 +167,10 @@ export interface Dispute {
   status: DisputeStatus
   ruling: DisputeRuling | null
   resolvedAt: string | null
+  // RFC-021 D6 — appeal state.
+  appealRound: number
+  previousRuling: DisputeRuling | null
+  previousArbiterId: string | null
   createdAt: string
   updatedAt: string
 }
