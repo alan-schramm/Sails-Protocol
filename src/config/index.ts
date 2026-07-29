@@ -152,6 +152,13 @@ export const config = {
     // rate, e.g. PROTOCOL_FEE_RATE=0.001 for 0.1%. escrow.service.ts's
     // releaseFunds() is the only place this is read.
     protocolFeeRate: parseFloat(process.env.PROTOCOL_FEE_RATE ?? '0'),
+    // RFC-021 D2 — which ArbitrationProvider settlement.routes.ts's
+    // getDisputeService() constructs. 'trusted-list' (default) preserves
+    // RFC-007 D4's exact original behavior for every existing deployment;
+    // 'market' opts into the new permissionless registry
+    // (MarketArbitrationProvider). Not a boolean flag — a third mode
+    // could exist later without a breaking rename.
+    arbitrationMode: (process.env.ARBITRATION_MODE ?? 'trusted-list') as 'trusted-list' | 'market',
   },
 
   // WDK_USDT_EVM SettlementProvider (wdk-settlement.provider.ts) — real

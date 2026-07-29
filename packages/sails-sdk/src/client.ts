@@ -19,6 +19,7 @@ import { SailsOpenP2PModule } from './modules/openp2p'
 import { SailsSettlementModule } from './modules/settlement'
 import { SailsPeersModule } from './modules/peers'
 import { SailsCapabilitiesModule } from './modules/capabilities'
+import { SailsArbitrationModule } from './modules/arbitration'
 import { SailsIntentFacade } from './intent-facade'
 import type { WalletAdapter } from './wallet-adapter'
 
@@ -60,6 +61,8 @@ export class SailsClient {
   readonly peers: SailsPeersModule
   /** RFC-013 Capability Registry — register/list/revoke capability grants. No friendly alias (see docs/API_STABLE.md for why). */
   readonly capabilities: SailsCapabilitiesModule
+  /** RFC-021 D2 — permissionless arbiter registration (register/getProfile). Only meaningful when the server is configured with ARBITRATION_MODE=market. No friendly alias. */
+  readonly arbitration: SailsArbitrationModule
   readonly wallet?: WalletAdapter
   private readonly intents: SailsIntentFacade
 
@@ -103,6 +106,7 @@ export class SailsClient {
     this.settlement = new SailsSettlementModule(this.transport)
     this.peers = new SailsPeersModule(this.transport)
     this.capabilities = new SailsCapabilitiesModule(this.transport)
+    this.arbitration = new SailsArbitrationModule(this.transport)
     this.intents = new SailsIntentFacade(this.transport)
     if (options.wallet) this.wallet = options.wallet
 

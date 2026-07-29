@@ -98,6 +98,7 @@ model User {
   sentMessages       Message[]
   reputationGiven    ReputationEvent[] @relation("RaterEvents")
   reputationReceived ReputationEvent[] @relation("RatedEvents")
+  arbiterProfile     ArbiterProfile?   // RFC-021 — present only if this participant has registered as an arbiter candidate
 
   @@map("users")
 }
@@ -294,6 +295,31 @@ model Dispute {
   @@index([escrowId])
   @@index([status])
   @@map("disputes")
+}
+
+// RFC-021 D1-D3 (`rfcs/RFC-021-market-based-arbitration-and-payment-trust.md`)
+// — permissionless arbiter registration, replacing TrustedArbitratorProvider's
+// static TRUSTED_ARBITRATORS allowlist. Deliberately a separate reputation
+// dimension from User.reputationScore (trader reputation): an arbiter's
+// track record and a trader's trade history measure different things and
+// must be able to diverge — see RFC-021 D3.
+model ArbiterProfile {
+  id                     String    @id @default(uuid())
+  participantId          String    @unique
+  participant            User      @relation(fields: [participantId], references: [id])
+  monetaryCollateral      Decimal  @default(0) @db.Decimal(24, 8)
+  collateralAsset         AssetType?  // null when monetaryCollateral is 0
+  arbiterReputation       Float    @default(0)
+  rulingsTotal            Int      @default(0)
+  rulingsOverturned       Int      @default(0)  // RFC-021 D6 appeal outcomes
+  cumulativeFeesObserved  Decimal  @default(0) @db.Decimal(24, 8)  // RFC-021 D4, Phase 3
+  registeredAt            DateTime @default(now())
+  slashedAt               DateTime?
+  moduleId                String   @default("opensettlement")
+  protocolVersion         String   @default("0.1")
+  updatedAt               DateTime @updatedAt
+
+  @@map("arbiter_profiles")
 }
 
 model EscrowEvent {

@@ -13,21 +13,35 @@ import { z } from 'zod'
 import { escrowService } from './escrow.service'
 import { DisputeService } from './dispute.service'
 import { TrustedArbitratorProvider } from './arbitration-provider'
+import { marketArbitrationProvider } from './market-arbitration.provider'
 import { ValidationError } from '../../common/errors'
 import { config } from '../../config'
 import { requireAuth } from '../../common/middleware/auth'
 
 // Lazy singleton — constructed on first use, not at module load, so a
-// deployment with TRUSTED_ARBITRATORS unset can still boot and serve
-// every other route; only the dispute routes below fail, with a clear
-// config error instead of the whole process refusing to start.
+// deployment with neither arbitration mode configured can still boot and
+// serve every other route; only the dispute routes below fail, with a
+// clear config error instead of the whole process refusing to start.
+//
+// RFC-021 D2 — config.settlement.arbitrationMode picks between the two
+// real ArbitrationProvider implementations: 'trusted-list' (RFC-007 D4's
+// original, curated TRUSTED_ARBITRATORS allowlist — still the right
+// choice for a closed/regulated deployment) and 'market' (RFC-021's
+// permissionless, collateral-and-reputation-weighted registry). Default
+// 'trusted-list' — changing this is a deliberate operator decision, not
+// an automatic upgrade, since 'market' requires arbiters to have
+// actually registered via MarketArbitrationProvider.register() first.
 let disputeServiceInstance: DisputeService | null = null
 function getDisputeService(): DisputeService {
   if (!disputeServiceInstance) {
-    if (config.settlement.trustedArbitrators.length === 0) {
-      throw new ValidationError('No trusted arbitrators configured — set TRUSTED_ARBITRATORS (RFC-007 D4)')
+    if (config.settlement.arbitrationMode === 'market') {
+      disputeServiceInstance = new DisputeService(marketArbitrationProvider)
+    } else {
+      if (config.settlement.trustedArbitrators.length === 0) {
+        throw new ValidationError('No trusted arbitrators configured — set TRUSTED_ARBITRATORS (RFC-007 D4)')
+      }
+      disputeServiceInstance = new DisputeService(new TrustedArbitratorProvider(config.settlement.trustedArbitrators))
     }
-    disputeServiceInstance = new DisputeService(new TrustedArbitratorProvider(config.settlement.trustedArbitrators))
   }
   return disputeServiceInstance
 }
@@ -74,6 +88,12 @@ const disputeSchema = z.object({
 const resolveSchema = z.object({
   ruling: z.enum(['RELEASE', 'REFUND', 'SPLIT']),
   releaseToAddress: z.string().optional(),
+})
+
+// RFC-021 D2 — permissionless arbiter registration.
+const registerArbiterSchema = z.object({
+  monetaryCollateral: z.string().min(1),
+  collateralAsset: z.string().optional(),
 })
 
 export async function settlementRoutes(app: FastifyInstance): Promise<void> {
@@ -258,5 +278,31 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const participantId = (request as any).participantId as string
     const dispute = await getDisputeService().resolveDispute(id, participantId, body.ruling, body.releaseToAddress)
     return reply.code(200).send({ success: true, data: dispute })
+  })
+
+  // RFC-021 D2 — permissionless arbiter registration. No approval step:
+  // the caller registers themselves, matching MarketArbitrationProvider's
+  // own real logic. Works regardless of config.settlement.arbitrationMode
+  // (a participant can register collateral/reputation ahead of a
+  // deployment switching modes) — only assign() itself is mode-gated.
+  app.post('/v1/settlement/arbitration/register', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const body = registerArbiterSchema.parse(request.body)
+    const participantId = (request as any).participantId as string
+    const profile = await marketArbitrationProvider.register(participantId, body.monetaryCollateral, body.collateralAsset)
+    return reply.code(201).send({ success: true, data: profile })
+  })
+
+  app.get('/v1/settlement/arbitration/profile/:participantId', {
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { participantId } = z.object({ participantId: z.string().min(1) }).parse(request.params)
+    const profile = await marketArbitrationProvider.getProfile(participantId)
+    if (!profile) {
+      return reply.code(404).send({ success: false, error: 'NOT_FOUND', message: `No ArbiterProfile for ${participantId}` })
+    }
+    return reply.code(200).send({ success: true, data: profile })
   })
 }
