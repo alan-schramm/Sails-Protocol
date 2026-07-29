@@ -48,6 +48,8 @@ export { signEscrowArkTx } from './modules/escrow-ark-signing'
 export { SailsPeersModule, type StaticTopic } from './modules/peers'
 export { SailsCapabilitiesModule, type RegisterCapabilityInput } from './modules/capabilities'
 export { SailsArbitrationModule, type ArbiterCandidate } from './modules/arbitration'
+export { SailsPaymentAccountModule, type PaymentAccount } from './modules/payment-account'
+export { hashPaymentAccount } from './payment-account'
 
 // SailsIntentFacade (the class) deliberately NOT re-exported here (audit
 // finding, docs/TODO.md §28): SailsClient.intents is private specifically

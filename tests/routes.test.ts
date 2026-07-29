@@ -66,6 +66,10 @@ const mockVerificationCreate = jest.fn()
 const mockArbiterProfileFindUnique = jest.fn()
 const mockArbiterProfileCreate = jest.fn()
 const mockArbiterProfileUpdate = jest.fn()
+// RFC-021 D5 — payment-account trust ramp routes.
+const mockPaymentAccountFindUnique = jest.fn()
+const mockPaymentAccountCreate = jest.fn()
+const mockPaymentAccountUpdate = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -114,6 +118,11 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockArbiterProfileFindUnique(...args),
       create: (...args: unknown[]) => mockArbiterProfileCreate(...args),
       update: (...args: unknown[]) => mockArbiterProfileUpdate(...args),
+    },
+    paymentAccount: {
+      findUnique: (...args: unknown[]) => mockPaymentAccountFindUnique(...args),
+      create: (...args: unknown[]) => mockPaymentAccountCreate(...args),
+      update: (...args: unknown[]) => mockPaymentAccountUpdate(...args),
     },
     message: {
       findMany: (...args: unknown[]) => mockMessageFindMany(...args),
@@ -806,6 +815,67 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       mockArbiterProfileFindUnique.mockResolvedValueOnce(null)
       const res = await app.inject({ method: 'GET', url: '/v1/settlement/arbitration/profile/nobody' })
       expect(res.statusCode).toBe(404)
+    })
+
+    // RFC-021 D5 — the real HTTP request -> zod validation -> PaymentAccountService
+    // path, the one integration point paymentAccountService.test.ts's own
+    // unit tests can't cover.
+    it('registers a real payment account from an already-hashed identifier (RFC-021 D5)', async () => {
+      const token = await authedSession('buyer-1')
+      mockPaymentAccountFindUnique.mockResolvedValueOnce(null)
+      mockPaymentAccountCreate.mockResolvedValueOnce({
+        accountHash: 'hash-1', ownerId: 'buyer-1', paymentMethod: 'PIX', signed: false, completedTrades: 0, chargebacks: 0,
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/payment-accounts',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { accountHash: 'hash-1', paymentMethod: 'PIX' },
+      })
+
+      expect(res.statusCode).toBe(201)
+      const body = JSON.parse(res.body)
+      expect(body.data.accountHash).toBe('hash-1')
+      expect(body.data.signed).toBe(false)
+    })
+
+    it('returns the computed trade limit alongside the account on GET', async () => {
+      // The route calls getByHash() then getTradeLimit() — each does its
+      // own prisma.paymentAccount.findUnique(), so both calls need a
+      // queued value.
+      const account = { accountHash: 'hash-1', ownerId: 'buyer-1', paymentMethod: 'PIX', signed: true, completedTrades: 1, chargebacks: 0 }
+      mockPaymentAccountFindUnique.mockResolvedValueOnce(account).mockResolvedValueOnce(account)
+
+      const res = await app.inject({ method: 'GET', url: '/v1/settlement/payment-accounts/hash-1' })
+
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body)
+      expect(body.data.accountHash).toBe('hash-1')
+      expect(body.data.tradeLimit).toBe('0.01')
+    })
+
+    it('returns 404 for an unregistered accountHash', async () => {
+      mockPaymentAccountFindUnique.mockResolvedValueOnce(null)
+      const res = await app.inject({ method: 'GET', url: '/v1/settlement/payment-accounts/never-seen' })
+      expect(res.statusCode).toBe(404)
+    })
+
+    it('signs an unsigned payment account for real', async () => {
+      const token = await authedSession('arbiter-1')
+      mockPaymentAccountFindUnique.mockResolvedValueOnce({ accountHash: 'hash-1', signed: false })
+      mockPaymentAccountUpdate.mockResolvedValueOnce({ accountHash: 'hash-1', signed: true, signedBy: 'arbiter-1' })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/payment-accounts/hash-1/sign',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body)
+      expect(body.data.signed).toBe(true)
+      expect(body.data.signedBy).toBe('arbiter-1')
     })
 
     it('surfaces a clear config error when disputing with no TRUSTED_ARBITRATORS configured (not a crash)', async () => {
