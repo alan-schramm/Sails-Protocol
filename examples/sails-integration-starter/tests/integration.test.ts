@@ -1,15 +1,16 @@
 /**
- * Fase 6 — real, pure-logic tests for the two integration helpers
- * (`intent-builder.ts`, `event-handler.ts`). No live Sails node needed
- * for these — that's what the two `examples/*.ts` scripts are for
- * (documented in this package's README as manually-run, same as
- * `examples/simple-wallet`'s own script). Written test-first, per the
- * brief's own "Regras de Execução" rule 3: this file existed and failed
- * (no `../src/sails-integration/*` modules yet) before the
- * implementation below was written.
+ * Fase 6 — real, pure-logic tests for the integration helpers
+ * (`intent-builder.ts`, `event-handler.ts`, `wallet-mock/`). No live
+ * Sails node needed for these — that's what the two `examples/*.ts`
+ * scripts are for (documented in this package's README as manually-run,
+ * same as `examples/simple-wallet`'s own script). Written test-first,
+ * per the brief's own "Regras de Execução" rule 3: each block below
+ * existed and failed (no implementation module yet) before its
+ * implementation was written.
  */
 import { buildTradeIntentPayload, buildBuyIntent, buildSellIntent } from '../src/sails-integration/intent-builder'
 import { TradeEventHandler, type ChannelLike } from '../src/sails-integration/event-handler'
+import { MockWalletAdapter } from '../src/wallet-mock'
 import type { ChatFrame, ChatMessageEvent } from '@sails/sdk'
 
 describe('buildTradeIntentPayload', () => {
@@ -144,5 +145,55 @@ describe('TradeEventHandler', () => {
 
     expect(channel.left).toBe(true)
     expect(channel.closed).toBe(true)
+  })
+})
+
+describe('MockWalletAdapter — real WalletAdapter interface, fake values (never for real funds)', () => {
+  it('getPeerId() returns a stable, deterministic id across calls', async () => {
+    const wallet = new MockWalletAdapter()
+    const a = await wallet.getPeerId()
+    const b = await wallet.getPeerId()
+    expect(a).toBe(b)
+  })
+
+  it('two independently-constructed wallets get different peer ids', async () => {
+    const a = await new MockWalletAdapter().getPeerId()
+    const b = await new MockWalletAdapter().getPeerId()
+    expect(a).not.toBe(b)
+  })
+
+  it('getAddress() is deterministic per asset and differs across assets', async () => {
+    const wallet = new MockWalletAdapter()
+    const btcA = await wallet.getAddress('BTC')
+    const btcB = await wallet.getAddress('BTC')
+    const usdt = await wallet.getAddress('USDT_ERC20')
+    expect(btcA).toBe(btcB)
+    expect(btcA).not.toBe(usdt)
+  })
+
+  it('getBalance() returns a real decimal string (RFC-009), configurable at construction', async () => {
+    const wallet = new MockWalletAdapter({ initialBalances: { BTC: '1.50000000' } })
+    expect(await wallet.getBalance('BTC')).toBe('1.50000000')
+    expect(await wallet.getBalance('USDT_ERC20')).toBe('0.00000000')
+  })
+
+  it('signTransaction() returns a clearly-labeled fake signature, never a real one', async () => {
+    const wallet = new MockWalletAdapter()
+    const signed = await wallet.signTransaction('BTC', { to: 'addr', amount: '1.0' }) as { mock: true }
+    expect(signed.mock).toBe(true)
+  })
+
+  it('broadcastTransaction() returns a fake but well-formed txid', async () => {
+    const wallet = new MockWalletAdapter()
+    const signed = await wallet.signTransaction('BTC', { to: 'addr', amount: '1.0' })
+    const txId = await wallet.broadcastTransaction('BTC', signed)
+    expect(txId).toMatch(/^mock-tx-/)
+  })
+
+  it('getCapabilities() reflects the configured asset list', async () => {
+    const wallet = new MockWalletAdapter({ assets: ['BTC', 'LN_BTC'] })
+    const caps = await wallet.getCapabilities()
+    expect(caps.assets).toEqual(['BTC', 'LN_BTC'])
+    expect(caps.supportsP2PTrading).toBe(true)
   })
 })
