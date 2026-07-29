@@ -25,6 +25,18 @@ import { escrowService } from './escrow.service'
 import type { ArbitrationProvider } from './arbitration-provider'
 import type { EvidenceDescriptor, DisputeRuling } from '@sails/p2p-schemas'
 
+// RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
+// baseline (1-2% of the disputed amount, charged as Escrow.feeCharged by
+// escrow.service.ts's Phase 0 fee collection) multiplied per round, the
+// same "escalating cost discourages frivolous appeals" reasoning Kleros
+// uses for its own appeal rounds. Informational only today:
+// appealFeeRequired is computed and returned so a caller/wallet UI can
+// display/require it, but this service does not itself collect payment —
+// no escrow/payment primitive for "pay before a ruling exists" is wired
+// yet (a real, documented gap, not a silent one — RFC-021's own "Known
+// Risks" section and BACKLOG.md should list this alongside Phase 5).
+export const APPEAL_FEE_MULTIPLIER = 2
+
 export class DisputeService {
   constructor(private readonly arbitrationProvider: ArbitrationProvider) {}
 
@@ -167,6 +179,98 @@ export class DisputeService {
       triggeredBy: arbiterId,
     }, dispute.tradeId)
 
+    // RFC-021 D6 — feeds the arbiter's track record on every real
+    // resolution, correct or not (optional: only market mode has an
+    // ArbiterProfile to update; trusted-list mode silently skips this).
+    if (this.arbitrationProvider.recordRuling) {
+      await this.arbitrationProvider.recordRuling(arbiterId)
+    }
+
+    // RFC-021 D6 — an appeal round reversing the ruling being appealed is
+    // real evidence the original arbiter got it wrong; slash them.
+    // `dispute` here is the pre-update fetch at the top of this method,
+    // so previousRuling/previousArbiterId still reflect whatever appeal()
+    // set them to before this resolution — untouched by the RESOLVED
+    // write above. If the appeal panel reaches the SAME ruling, the
+    // appeal is denied and nothing is slashed (the requester's already-
+    // computed appealFeeRequired was the real cost of a frivolous
+    // appeal).
+    if (
+      dispute.previousRuling &&
+      dispute.previousRuling !== ruling &&
+      dispute.previousArbiterId &&
+      this.arbitrationProvider.slash
+    ) {
+      await this.arbitrationProvider.slash(dispute.previousArbiterId)
+    }
+
     return updated
+  }
+
+  /**
+   * RFC-021 D6 — reopens a RESOLVED dispute for a new arbiter, drawn from
+   * a reputation-weighted appeal panel (assignAppealPanel(), growing with
+   * round count). Only meaningful under ARBITRATION_MODE=market — the
+   * configured provider must implement assignAppealPanel(); a
+   * TrustedArbitratorProvider deployment gets a clear config error
+   * instead of a silent no-op.
+   */
+  async appeal(disputeId: string, requestedBy: string) {
+    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!dispute) throw new NotFoundError('Dispute', disputeId)
+    if (dispute.status !== 'RESOLVED') {
+      throw new ValidationError(
+        `Dispute ${disputeId} cannot be appealed from status ${dispute.status} — only a RESOLVED dispute can be appealed`
+      )
+    }
+
+    const trade = await prisma.trade.findUnique({ where: { id: dispute.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
+    if (requestedBy !== trade.buyerId && requestedBy !== trade.sellerId) {
+      throw new ForbiddenError(`${requestedBy} is not a party to trade ${dispute.tradeId}`)
+    }
+
+    if (!this.arbitrationProvider.assignAppealPanel) {
+      throw new ValidationError(
+        `Appeals require ARBITRATION_MODE=market — ${this.arbitrationProvider.name} does not support appeal panels`
+      )
+    }
+
+    const nextRound = dispute.appealRound + 1
+    const newArbiterId = await this.arbitrationProvider.assignAppealPanel(
+      disputeId,
+      dispute.tradeId,
+      nextRound,
+      dispute.arbiterId ?? undefined
+    )
+
+    const escrow = await prisma.escrow.findUnique({ where: { id: dispute.escrowId } })
+    const baseFee = escrow?.feeCharged ? Number(escrow.feeCharged) : 0
+    const appealFeeRequired = (baseFee * APPEAL_FEE_MULTIPLIER).toFixed(8)
+
+    const updated = await prisma.dispute.update({
+      where: { id: disputeId },
+      data: {
+        status: 'APPEALED',
+        appealRound: nextRound,
+        previousRuling: dispute.ruling,
+        previousArbiterId: dispute.arbiterId,
+        arbiterId: newArbiterId,
+        ruling: null,
+        resolvedAt: null,
+      },
+    })
+
+    await eventBus.emit('dispute.appealed', {
+      disputeId,
+      settlementId: dispute.escrowId,
+      tradeId: dispute.tradeId,
+      round: nextRound,
+      newArbiterId,
+      previousArbiterId: dispute.arbiterId,
+      triggeredBy: requestedBy,
+    }, dispute.tradeId)
+
+    return { dispute: updated, appealFeeRequired }
   }
 }

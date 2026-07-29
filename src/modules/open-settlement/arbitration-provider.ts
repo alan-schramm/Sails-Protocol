@@ -30,6 +30,17 @@ export interface ArbitrationProvider {
   // a protocol-wide list.
   arbitrators: string[]
   assign(disputeId: string, tradeId: string): Promise<string>
+
+  // RFC-021 D6 — all three optional: TrustedArbitratorProvider implements
+  // none of them (a curated allowlist has no collateral/reputation to
+  // slash and no meaningful track record to weight an appeal panel by).
+  // Only MarketArbitrationProvider implements all three.
+  /** Reopens a resolved dispute for a new arbiter, drawn from a reputation-weighted panel that grows with `round`. */
+  assignAppealPanel?(disputeId: string, tradeId: string, round: number, excludeParticipantId?: string): Promise<string>
+  /** Penalizes an arbiter whose ruling was overturned on appeal. */
+  slash?(participantId: string): Promise<unknown>
+  /** Records that an arbiter issued a ruling, correct or not — feeds the rulingsTotal/rulingsOverturned track record. */
+  recordRuling?(participantId: string): Promise<void>
 }
 
 /**

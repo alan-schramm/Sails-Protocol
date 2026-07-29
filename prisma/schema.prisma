@@ -250,6 +250,7 @@ enum DisputeStatus {
   EVIDENCE_SUBMITTED
   ARBITRATED
   RESOLVED
+  APPEALED // RFC-021 D6 — a RESOLVED dispute reopened for a new arbiter's ruling
 }
 
 enum DisputeRuling {
@@ -271,6 +272,14 @@ model Dispute {
   status     DisputeStatus  @default(OPENED)
   ruling     DisputeRuling?
   resolvedAt DateTime?
+  // RFC-021 D6 — appeal state. appealRound is 0 until the first appeal;
+  // previousRuling/previousArbiterId snapshot the ruling being appealed
+  // so resolveDispute() can compare the appeal panel's new ruling against
+  // it and slash the original arbiter on an overturn (see
+  // dispute.service.ts's resolveDispute() for the comparison).
+  appealRound       Int             @default(0)
+  previousRuling    DisputeRuling?
+  previousArbiterId String?
   moduleId   String         @default("opensettlement")
   protocolVersion String    @default("0.1")
   createdAt  DateTime       @default(now())

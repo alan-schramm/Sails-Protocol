@@ -158,6 +158,27 @@ export interface DisputeResolvedEvent extends DisputeEvent {
   ruling: 'RELEASE' | 'REFUND' | 'SPLIT'
 }
 
+// dispute.appealed's real payload — RFC-021 D6, first real emitter is
+// dispute.service.ts's appeal().
+export interface DisputeAppealedEvent extends DisputeEvent {
+  tradeId: string
+  round: number
+  newArbiterId: string
+  previousArbiterId: string | null
+}
+
+// arbiter.slashed's real payload — RFC-021 D6, first real emitter is
+// market-arbitration.provider.ts's slash(). Not a DisputeEvent (no
+// single dispute/settlement it's scoped to from the arbiter's own
+// perspective — the same arbiter could be slashed from a future dispute
+// too), so this is its own standalone shape.
+export interface ArbiterSlashedEvent {
+  participantId: string
+  forfeitedCollateral: string
+  newCollateral: string
+  newReputation: number
+}
+
 // ─── Negotiation primitive events — PROTOCOL_SPECIFICATION.md §1.4 ───────────
 export interface NegotiationOpenedEvent {
   tradeId: string
@@ -286,6 +307,10 @@ export interface SailsEventMap {
   'dispute.evidence_submitted': DisputeEvent
   'dispute.arbitrated': DisputeEvent
   'dispute.resolved': DisputeResolvedEvent
+  'dispute.appealed': DisputeAppealedEvent // RFC-021 D6
+
+  // RFC-021 D6 — MarketArbitrationProvider slashing
+  'arbiter.slashed': ArbiterSlashedEvent
 
   // Negotiation primitive — RFC-004
   'negotiation.opened': NegotiationOpenedEvent
