@@ -2,9 +2,23 @@
  * Policy / Rules Engine — Sails Protocol Core Component
  * PROTOCOL_SPECIFICATION.md section 1.10, PROTOCOL_ECONOMY.md
  *
- * STUB — not yet implemented. This is where FeePolicy's 4-bucket split
- * (PROTOCOL_ECONOMY.md section 6.2) becomes an enforced, versioned rule
- * instead of prose in a document.
+ * STUB — get/propose/activate below (the GOVERNED, versioned
+ * policy-storage system, PROTOCOL_ECONOMY.md §7's Months 10-12
+ * multi-stakeholder governance layer) are still deliberately
+ * unimplemented — real scope, correctly out of the current MVP per this
+ * file's own original reasoning below.
+ *
+ * RFC-021 Phase 0 (`docs/rfcs/RFC-021-...md`) added the actual fee
+ * *collection* this comment used to say didn't exist: a real
+ * `config.settlement.protocolFeeRate` read directly by
+ * `escrow.service.ts`'s `releaseFunds()`, using PROTOCOL_ECONOMY.md
+ * §6.2's already-decided 40/30/20/10 split — deliberately bypassing
+ * this file's governed-policy indirection, the same way
+ * `validateFinancialSanity()` below already bypasses it for its own
+ * real, working check. A single hardcoded rate is not a governed,
+ * versioned `FeePolicy` — this file's `get`/`propose`/`activate` still
+ * throw, correctly, until that bigger governance feature is actually
+ * built.
  */
 export interface FeePolicy {
   feeRate: number

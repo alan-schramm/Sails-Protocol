@@ -145,6 +145,13 @@ export const config = {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    // RFC-021 Phase 0 — real Protocol Fee rate (PROTOCOL_ECONOMY.md §3/§6.2:
+    // "Protocol Fee is OFF (0%)" is the documented bootstrap-phase default,
+    // activating later "at a low default (e.g. 0.05%-0.15%)"). Default 0
+    // here matches that exactly — a deployment opts in by setting a real
+    // rate, e.g. PROTOCOL_FEE_RATE=0.001 for 0.1%. escrow.service.ts's
+    // releaseFunds() is the only place this is read.
+    protocolFeeRate: parseFloat(process.env.PROTOCOL_FEE_RATE ?? '0'),
   },
 
   // WDK_USDT_EVM SettlementProvider (wdk-settlement.provider.ts) — real
