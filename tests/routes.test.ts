@@ -913,14 +913,16 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
   })
 
   describe('open-reputation', () => {
-    it('returns a score breakdown for an existing participant', async () => {
-      mockUserFindUnique.mockResolvedValueOnce({ id: 'user-1', reputationScore: 7, totalTrades: 4, disputeCount: 1 })
+    it('returns a score breakdown for an existing participant, including the real RFC-021 D4 fee floor', async () => {
+      mockUserFindUnique.mockResolvedValueOnce({
+        id: 'user-1', reputationScore: 7, totalTrades: 4, disputeCount: 1, cumulativeFeesObserved: '0.0205',
+      })
 
       const res = await app.inject({ method: 'GET', url: '/v1/reputation/user-1' })
 
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body).data).toEqual(
-        expect.objectContaining({ participantId: 'user-1', total: 7, disputeRate: 0.25 })
+        expect.objectContaining({ participantId: 'user-1', total: 7, disputeRate: 0.25, cumulativeFeesObserved: '0.0205' })
       )
     })
 

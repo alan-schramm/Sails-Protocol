@@ -258,7 +258,14 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
   const { provider: marketProvider, mockSlash, mockRecordRuling } = marketProviderStub()
   const marketService = new DisputeService(marketProvider as any)
 
-  beforeEach(() => jest.clearAllMocks())
+  beforeEach(() => {
+    jest.clearAllMocks()
+    // RFC-021 D4, Phase 3 default: no fee charged on this escrow — most
+    // tests below aren't about feeObserved, so a null default keeps the
+    // recordRuling() assertions simple; the one test that IS about the
+    // fee dimension overrides this explicitly.
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: null })
+  })
 
   it('slashes the original arbiter when an appeal panel overturns their ruling', async () => {
     mockDisputeFindUnique.mockResolvedValue({
@@ -270,7 +277,7 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     await marketService.resolveDispute('dispute-1', 'new-arbiter', 'REFUND')
 
     expect(mockSlash).toHaveBeenCalledWith('original-arbiter')
-    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter')
+    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined)
   })
 
   it('does NOT slash when the appeal panel upholds the original ruling — a denied, not frivolous-punished, appeal', async () => {
@@ -283,7 +290,7 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     await marketService.resolveDispute('dispute-1', 'new-arbiter', 'RELEASE', 'bc1qbuyer')
 
     expect(mockSlash).not.toHaveBeenCalled()
-    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter')
+    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined)
   })
 
   it('does not attempt to slash on an ordinary first-instance (non-appeal) resolution', async () => {
@@ -296,6 +303,20 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     await marketService.resolveDispute('dispute-1', 'arbiter-1', 'REFUND')
 
     expect(mockSlash).not.toHaveBeenCalled()
-    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1')
+    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', undefined)
+  })
+
+  // RFC-021 D4, Phase 3 — the arbiter-side half of cumulativeFeesObserved.
+  it('passes the resolved escrow\'s real feeCharged through to recordRuling()', async () => {
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED',
+      previousRuling: null, previousArbiterId: null,
+    })
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: '0.5' })
+
+    await marketService.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyer')
+
+    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', '0.5')
   })
 })

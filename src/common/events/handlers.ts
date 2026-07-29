@@ -149,6 +149,25 @@ export function registerEventHandlers(): void {
       data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: trade.amount } },
     })
 
+    // RFC-021 D4, Phase 3 — the cost-to-fabricate-reputation floor. Only
+    // a real, non-zero fee (Phase 0's chargeProtocolFee(), gated on
+    // config.settlement.protocolFeeRate) moves this — a bootstrap-phase
+    // deployment with the fee OFF (the documented default) correctly
+    // leaves this at 0 for everyone, same as the fee itself. Both parties
+    // to the trade paid into this fee's existence, so both accrue it —
+    // neither is "the one who paid," the trade itself did.
+    const releasedEscrow = await prisma.escrow.findUnique({ where: { id: payload.escrowId } })
+    if (releasedEscrow?.feeCharged) {
+      await prisma.user.update({
+        where: { id: trade.buyerId },
+        data: { cumulativeFeesObserved: { increment: releasedEscrow.feeCharged } },
+      })
+      await prisma.user.update({
+        where: { id: trade.sellerId },
+        data: { cumulativeFeesObserved: { increment: releasedEscrow.feeCharged } },
+      })
+    }
+
     await eventBus.emit('openp2p.trade.completed', {
       tradeId: payload.tradeId,
       from: 'ACTIVE',
