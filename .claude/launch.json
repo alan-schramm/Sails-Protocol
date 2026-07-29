@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "storybook", "-w", "@sails/sdk-react"],
       "port": 6006
+    },
+    {
+      "name": "sails-integration-starter",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "@sails/example-integration-starter"],
+      "port": 3001
     }
   ]
 }

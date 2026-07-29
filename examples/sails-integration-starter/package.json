@@ -4,9 +4,9 @@
   "private": true,
   "description": "Fase 6 — Integration Playbook: a real, working Next.js starter for integrating @sails/sdk, plus two standalone runnable golden-path scripts. Workspace-linked (not published standalone) — @sails/sdk is not on the public npm registry yet, only exists inside this monorepo. See README.md for the real quick start.",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3001",
     "example:p2p-bitcoin-trade": "ts-node --transpile-only examples/p2p-bitcoin-trade.ts",
     "example:escrow-with-arbitration": "ts-node --transpile-only examples/escrow-with-arbitration.ts"
   },
@@ -19,10 +19,10 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "autoprefixer": "^10.5.4",
     "postcss": "^8.5.24",
     "tailwindcss": "^4.3.3",
     "ts-node": "^10.9.2",
