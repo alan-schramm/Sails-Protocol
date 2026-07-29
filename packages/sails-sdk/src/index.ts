@@ -47,6 +47,7 @@ export { generateEscrowKeypair, signEscrowPsbt, type EscrowKeypair } from './mod
 export { signEscrowArkTx } from './modules/escrow-ark-signing'
 export { SailsPeersModule, type StaticTopic } from './modules/peers'
 export { SailsCapabilitiesModule, type RegisterCapabilityInput } from './modules/capabilities'
+export { SailsArbitrationModule, type ArbiterCandidate } from './modules/arbitration'
 
 // SailsIntentFacade (the class) deliberately NOT re-exported here (audit
 // finding, docs/TODO.md §28): SailsClient.intents is private specifically

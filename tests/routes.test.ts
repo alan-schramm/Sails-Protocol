@@ -62,6 +62,10 @@ const mockClaimFindUnique = jest.fn()
 const mockProofCreate = jest.fn()
 const mockProofFindUnique = jest.fn()
 const mockVerificationCreate = jest.fn()
+// RFC-021 D2 — arbiter registration route.
+const mockArbiterProfileFindUnique = jest.fn()
+const mockArbiterProfileCreate = jest.fn()
+const mockArbiterProfileUpdate = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -106,6 +110,11 @@ jest.mock('../src/common/database', () => ({
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     escrowEvent: { create: (...args: unknown[]) => mockEscrowEventCreate(...args) },
+    arbiterProfile: {
+      findUnique: (...args: unknown[]) => mockArbiterProfileFindUnique(...args),
+      create: (...args: unknown[]) => mockArbiterProfileCreate(...args),
+      update: (...args: unknown[]) => mockArbiterProfileUpdate(...args),
+    },
     message: {
       findMany: (...args: unknown[]) => mockMessageFindMany(...args),
       create: jest.fn().mockResolvedValue({ id: 'msg-1', createdAt: new Date() }),
@@ -768,6 +777,35 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(201)
       expect(JSON.parse(res.body).data.id).toBe('escrow-safe-guard-1')
+    })
+
+    // RFC-021 D2 — the real HTTP request -> zod validation -> MarketArbitrationProvider
+    // path, the one integration point marketArbitrationProvider.test.ts's
+    // own unit tests can't cover.
+    it('registers a real permissionless arbiter candidate (RFC-021 D2)', async () => {
+      const token = await authedSession('arbiter-1')
+      mockArbiterProfileFindUnique.mockResolvedValueOnce(null)
+      mockArbiterProfileCreate.mockResolvedValueOnce({
+        participantId: 'arbiter-1', monetaryCollateral: '0.5', collateralAsset: 'BTC', arbiterReputation: 0,
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/arbitration/register',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { monetaryCollateral: '0.5', collateralAsset: 'BTC' },
+      })
+
+      expect(res.statusCode).toBe(201)
+      const body = JSON.parse(res.body)
+      expect(body.data.participantId).toBe('arbiter-1')
+      expect(body.data.effectiveStake).toBe(0.5)
+    })
+
+    it('returns 404 for a participant with no ArbiterProfile', async () => {
+      mockArbiterProfileFindUnique.mockResolvedValueOnce(null)
+      const res = await app.inject({ method: 'GET', url: '/v1/settlement/arbitration/profile/nobody' })
+      expect(res.statusCode).toBe(404)
     })
 
     it('surfaces a clear config error when disputing with no TRUSTED_ARBITRATORS configured (not a crash)', async () => {
