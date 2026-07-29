@@ -371,8 +371,8 @@ export class EscrowService {
     })
 
     const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
-    const buyerKey = keys.find((k) => k.role === 'buyer')
-    const sellerKey = keys.find((k) => k.role === 'seller')
+    const buyerKey = keys.find((k: { role: string }) => k.role === 'buyer')
+    const sellerKey = keys.find((k: { role: string }) => k.role === 'seller')
 
     let updatedEscrow = escrow
     if (buyerKey && sellerKey && !escrow.multisigAddr && !config.features.mockEscrow) {
@@ -427,8 +427,8 @@ export class EscrowService {
       const participantKeys = NON_CUSTODIAL_PROVIDERS[escrow.type]
         ? await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
         : []
-      const buyerPubkey = participantKeys.find((k) => k.role === 'buyer')?.pubkey
-      const sellerPubkey = participantKeys.find((k) => k.role === 'seller')?.pubkey
+      const buyerPubkey = participantKeys.find((k: { role: string; pubkey?: string }) => k.role === 'buyer')?.pubkey
+      const sellerPubkey = participantKeys.find((k: { role: string; pubkey?: string }) => k.role === 'seller')?.pubkey
       const result = await provider.lockFunds({
         ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey,
       } as unknown as EscrowRecord)
@@ -761,8 +761,8 @@ export class EscrowService {
     }
 
     const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
-    const buyerPubkey = keys.find((k) => k.role === 'buyer')?.pubkey
-    const sellerPubkey = keys.find((k) => k.role === 'seller')?.pubkey
+    const buyerPubkey = keys.find((k: { role: string; pubkey?: string }) => k.role === 'buyer')?.pubkey
+    const sellerPubkey = keys.find((k: { role: string; pubkey?: string }) => k.role === 'seller')?.pubkey
 
     const { psbtBase64, requiredSigners } = await provider.buildUnsignedRelease(
       { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey },
@@ -809,8 +809,8 @@ export class EscrowService {
     }
 
     const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
-    const buyerPubkey = keys.find((k) => k.role === 'buyer')?.pubkey
-    const sellerPubkey = keys.find((k) => k.role === 'seller')?.pubkey
+    const buyerPubkey = keys.find((k: { role: string; pubkey?: string }) => k.role === 'buyer')?.pubkey
+    const sellerPubkey = keys.find((k: { role: string; pubkey?: string }) => k.role === 'seller')?.pubkey
 
     const { psbtBase64, requiredSigners, toAddress } = await provider.buildUnsignedRefund(
       { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey }
@@ -858,8 +858,8 @@ export class EscrowService {
     })
 
     const signatures = await prisma.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id } })
-    const submittedIds = new Set(signatures.map((s) => s.participantId))
-    const allSubmitted = pending.requiredSigners.every((id) => submittedIds.has(id))
+    const submittedIds = new Set(signatures.map((s: { participantId: string }) => s.participantId))
+    const allSubmitted = pending.requiredSigners.every((id: string) => submittedIds.has(id))
 
     if (!allSubmitted) {
       return { pendingTransaction: pending, complete: false, submittedCount: signatures.length, requiredCount: pending.requiredSigners.length }
@@ -886,7 +886,7 @@ export class EscrowService {
 
     try {
       const signedList = pending.requiredSigners.map(
-        (id) => signatures.find((s) => s.participantId === id)!.signedPsbtBase64
+        (id: string) => signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)!.signedPsbtBase64
       )
       const result = pending.kind === 'release'
         ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList)

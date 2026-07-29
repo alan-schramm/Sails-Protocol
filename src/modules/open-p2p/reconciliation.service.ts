@@ -63,7 +63,7 @@ export class ReconciliationService {
       tradeId,
       currentTradeStatus: trade.status,
       currentEscrowStatus: trade.escrow?.status ?? null,
-      missedMessages: missedMessages.map((m) => ({
+      missedMessages: missedMessages.map((m: { id: string; senderId: string; content: string; msgType: string; createdAt: Date }) => ({
         id: m.id,
         senderId: m.senderId,
         content: m.content,

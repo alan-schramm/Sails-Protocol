@@ -1,4 +1,4 @@
-import { Link, Outlet } from 'react-router-dom'
+import { Link, Outlet } from 'react-router'
 import { TopNav } from './TopNav'
 import { BottomNav } from './BottomNav'
 import { ThemeToggle } from '../ui/ThemeToggle'

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { AssetBadge, SideBadge, PaymentBadge, PowerTraderBadge } from '../components/ui/StatusBadges'
 import { UserAvatar } from '../components/ui/UserAvatar'
