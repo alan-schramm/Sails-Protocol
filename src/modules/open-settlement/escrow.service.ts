@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
 import { NotFoundError, EscrowError, ForbiddenError } from '../../common/errors'
 import { AssetType } from '../../common/types'
@@ -260,6 +261,39 @@ export class EscrowService {
         `Invalid escrow transition: ${current} → ${next}. Allowed: ${allowed.join(', ') || 'none'}`
       )
     }
+  }
+
+  // RFC-021 Phase 0 — real Protocol Fee computation + PROTOCOL_ECONOMY.md
+  // §6.2's already-decided 40/30/20/10 split, persisted as a real
+  // FeeDistribution row. Returns null (not 0) when protocolFeeRate is 0
+  // (the documented bootstrap default) — see Escrow.feeCharged's own
+  // schema comment for why that distinction matters. Called from
+  // releaseFunds() only; PROTOCOL_ECONOMY.md §3 is explicit the Protocol
+  // Fee "only ever attaches to a completed Settlement," never a refund.
+  private async chargeProtocolFee(escrow: { id: string; lockedAmount: Prisma.Decimal | string; asset: string }): Promise<Prisma.Decimal | null> {
+    const rate = config.settlement.protocolFeeRate
+    if (!rate || rate <= 0) return null
+
+    // Normalize: production always hands this a real Prisma.Decimal (the
+    // raw prisma.escrow.findUnique() result), but tests mock the DB layer
+    // with plain decimal strings (RFC-009 convention) — this must work
+    // for both without asserting the type away.
+    const lockedAmount = new Prisma.Decimal(escrow.lockedAmount)
+    const totalFee = lockedAmount.times(rate)
+
+    await prisma.feeDistribution.create({
+      data: {
+        escrowId: escrow.id,
+        totalFee,
+        asset: escrow.asset as AssetType,
+        nodeOperatorShare: totalFee.times(0.4),
+        treasuryShare: totalFee.times(0.3),
+        walletRebateShare: totalFee.times(0.2),
+        arbitratorReserveShare: totalFee.times(0.1),
+      },
+    })
+
+    return totalFee
   }
 
   async createEscrow(input: CreateEscrowInput) {
@@ -548,9 +582,18 @@ export class EscrowService {
         toAddress
       )
 
+      // RFC-021 Phase 0 — real Protocol Fee (PROTOCOL_ECONOMY.md §3/§6.2).
+      // "Only ever attaches to a completed Settlement" — computed here,
+      // not in refundFunds() below, deliberately. config.settlement.
+      // protocolFeeRate defaults to 0 (the documented bootstrap-phase
+      // default), in which case feeCharged stays null and no
+      // FeeDistribution row is created — a deployment that hasn't opted
+      // into fees yet persists nothing extra.
+      const feeCharged = await this.chargeProtocolFee(escrow)
+
       const updated = await prisma.escrow.update({
         where: { id: escrowId },
-        data: { txReleaseId: result.txId, releasedAt: new Date() },
+        data: { txReleaseId: result.txId, releasedAt: new Date(), feeCharged },
       })
 
       // NOTE: previously this method also updated Trade.status/completedAt AND

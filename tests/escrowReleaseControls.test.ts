@@ -29,6 +29,7 @@ export {} // see chatUnification.test.ts's identical comment
 let enforceCapabilities = false
 let requireDualApprovalForRelease = false
 let mockEscrowFeatureFlag = true
+let protocolFeeRate = 0 // RFC-021 Phase 0 — real Protocol Fee, 0 = documented bootstrap default
 jest.mock('../src/config', () => ({
   get config() {
     return {
@@ -40,7 +41,7 @@ jest.mock('../src/config', () => ({
       // pubkey" error, same "reliable provider failure" fixture role
       // LIGHTNING_HODL always played here even back when it was a
       // permanent throw-only stub.
-      settlement: { trustedArbitrators: [] },
+      settlement: { trustedArbitrators: [], protocolFeeRate },
       arkade: { seed: '' },
     }
   },
@@ -97,6 +98,8 @@ const mockDisputeFindFirst = jest.fn()
 // a "reliably throws" stand-in, same role it always played, and its
 // error fires before partiesFor() would ever need these keys).
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
+// RFC-021 Phase 0 — real Protocol Fee split, persisted per release.
+const mockFeeDistributionCreate = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -116,6 +119,7 @@ jest.mock('../src/common/database', () => ({
     },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
+    feeDistribution: { create: (...args: unknown[]) => mockFeeDistributionCreate(...args) },
   },
 }))
 
@@ -180,6 +184,59 @@ describe('escrowService.releaseFunds — RFC-014 capability check (relocated fro
     enforceCapabilities = true
     mockCapabilityGrantFindMany.mockResolvedValue([])
     await expect(escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')).rejects.toThrow(/ForbiddenError|no active/)
+  })
+})
+
+describe('escrowService.releaseFunds — RFC-021 Phase 0 real Protocol Fee', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    enforceCapabilities = false
+    requireDualApprovalForRelease = false
+    mockEscrowFeatureFlag = true
+    protocolFeeRate = 0
+    mockEscrowFindUnique.mockResolvedValue(baseEscrow)
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+  })
+
+  it('charges no fee and persists no FeeDistribution when protocolFeeRate is 0 (the documented bootstrap default)', async () => {
+    await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
+    expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ feeCharged: null }) })
+    )
+  })
+
+  it('computes the real fee and the exact 40/30/20/10 PROTOCOL_ECONOMY.md §6.2 split when a rate is configured', async () => {
+    protocolFeeRate = 0.001 // 0.1%, PROTOCOL_ECONOMY.md §3's documented activation range (0.05%-0.15%)
+    // baseEscrow.lockedAmount = '20.5' -> fee = 20.5 * 0.001 = 0.0205
+    await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
+
+    expect(mockFeeDistributionCreate).toHaveBeenCalledTimes(1)
+    const { data } = mockFeeDistributionCreate.mock.calls[0][0]
+    expect(data.escrowId).toBe('escrow-1')
+    expect(data.totalFee.toString()).toBe('0.0205')
+    expect(data.nodeOperatorShare.toString()).toBe('0.0082')   // 40%
+    expect(data.treasuryShare.toString()).toBe('0.00615')      // 30%
+    expect(data.walletRebateShare.toString()).toBe('0.0041')   // 20%
+    expect(data.arbitratorReserveShare.toString()).toBe('0.00205') // 10%
+    // The four shares sum back to the total — no rounding leak.
+    const sum = data.nodeOperatorShare.plus(data.treasuryShare).plus(data.walletRebateShare).plus(data.arbitratorReserveShare)
+    expect(sum.toString()).toBe(data.totalFee.toString())
+
+    expect(mockEscrowUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ feeCharged: expect.anything() }) })
+    )
+    const { feeCharged } = mockEscrowUpdate.mock.calls[0][0].data
+    expect(feeCharged.toString()).toBe('0.0205')
+  })
+
+  it('never charges a fee on refund — PROTOCOL_ECONOMY.md §3: "only ever attaches to a completed Settlement"', async () => {
+    protocolFeeRate = 0.001
+    mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
+    await escrowService.refundFunds('escrow-1', 'seller-1')
+    expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
   })
 })
 
