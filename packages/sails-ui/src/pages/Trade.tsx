@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import type { Trade as SdkTrade, Escrow as SdkEscrow, Message as SdkMessage, ChatMessageEvent, WebSocketChannel } from '@sails/sdk'
 import type { EscrowStatus, Message, MessageType, User } from '../types'
