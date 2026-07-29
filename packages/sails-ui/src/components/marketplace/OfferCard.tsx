@@ -18,43 +18,68 @@ export function OfferCard({ offer }: { offer: Offer }) {
 
   return (
     <Link to={`/offer/${offer.id}`} className={`offer-row ${sideAccent}`}>
-      <div className="flex items-center gap-2 md:w-44 md:shrink-0">
-        <UserAvatar user={offer.user} size="sm" />
-        <div className="min-w-0">
-          <div className="flex items-center gap-1">
-            <span className="text-sm font-medium text-brand-text truncate">{offer.user.displayName}</span>
-            {offer.user.verified && <span className="text-xs text-brand-orange-accent shrink-0" title="Verificado">✓</span>}
+      {/* Mobile: 2 paired rows (trader+payment, asset/side+price) instead of
+          5 stacked full-width blocks — the original one-column-per-line
+          layout was technically responsive but way too tall per offer once
+          actually viewed on a phone. `lg:contents` drops these wrapper divs
+          from the desktop layout entirely so their children become direct
+          flex items of `.offer-row` (lg:flex-row) again, same as before —
+          `lg:order-*` on each child then restores the original desktop
+          left-to-right sequence, since grouping for mobile changes DOM
+          order (payment now sits right after trader, not last). */}
+      <div className="flex items-center justify-between gap-2 lg:contents">
+        <div className="flex items-center gap-2 lg:order-1 lg:w-44 lg:shrink-0">
+          <UserAvatar user={offer.user} size="sm" showPresence />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1">
+              <span className="text-sm font-medium text-brand-text truncate">{offer.user.displayName}</span>
+              {offer.user.verified && <span className="text-xs text-brand-orange-accent shrink-0" title="Verificado">✓</span>}
+            </div>
+            <div className="text-xs text-brand-text-muted">★ {offer.user.reputationScore.toFixed(0)} · {offer.user.totalTrades} trades</div>
           </div>
-          <div className="text-xs text-brand-text-muted">★ {offer.user.reputationScore.toFixed(0)} · {offer.user.totalTrades} trades</div>
+        </div>
+        <div className="lg:order-5 lg:w-32 lg:shrink-0">
+          <PaymentBadge method={offer.paymentMethod} />
         </div>
       </div>
 
-      <div className="flex items-center gap-2 md:w-32 md:shrink-0">
-        <AssetBadge asset={offer.asset} />
-        <SideBadge side={offer.side} />
-      </div>
-
-      <div className="md:flex-1 md:min-w-0">
-        <div className="text-xl font-display font-bold text-brand-text tabular-nums leading-tight">
-          {formatByCurrency(offer.priceFiat, offer.fiatCurrency)}
+      <div className="flex items-center justify-between gap-2 lg:contents">
+        <div className="flex items-center gap-2.5 lg:order-2 lg:w-48 lg:shrink-0">
+          <AssetBadge asset={offer.asset} />
+          <SideBadge side={offer.side} />
         </div>
-        <div className="text-xs text-brand-text-muted">
-          por {ASSET_LABELS[offer.asset]}
-          {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
+        <div className="text-right lg:order-3 lg:text-left lg:flex-1 lg:min-w-0">
+          <div className="text-xl font-display font-bold text-brand-text tabular-nums leading-tight">
+            {formatByCurrency(offer.priceFiat, offer.fiatCurrency)}
+          </div>
+          <div className="text-xs text-brand-text-muted">
+            por {ASSET_LABELS[offer.asset]}
+            {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
+          </div>
         </div>
       </div>
 
-      <div className="flex gap-2 text-xs text-brand-text-muted md:w-40 md:shrink-0">
-        <span className="bg-brand-elevated rounded px-1.5 py-0.5">min {formatAmount(offer.minAmount)}</span>
-        <span className="bg-brand-elevated rounded px-1.5 py-0.5">max {formatAmount(offer.maxAmount)}</span>
-      </div>
-
-      <div className="md:w-32 md:shrink-0">
-        <PaymentBadge method={offer.paymentMethod} />
+      {/* Explicit per-row CTA (Binance P2P/HodlHodl/El Dorado all put a
+          "Buy"/"Sell" button directly on the row, not just a clickable
+          card) — visual affordance only, not a real nested control: the
+          whole row is already the actual `<Link>`, and a real `<button>`
+          nested inside it would be invalid HTML (the exact bug this
+          codebase's own AgentIntentionPanel fix, see sails-ui/README,
+          already ran into once with a button-in-button). Label is the
+          viewer's action, the inverse of `offer.side` — same computation
+          OfferDetail.tsx already uses for its own amount-field label. */}
+      <div className="flex items-center justify-between gap-2 lg:contents">
+        <div className="flex gap-2 text-xs text-brand-text-muted lg:order-4 lg:w-40 lg:shrink-0">
+          <span className="bg-brand-elevated rounded px-1.5 py-0.5">min {formatAmount(offer.minAmount)}</span>
+          <span className="bg-brand-elevated rounded px-1.5 py-0.5">max {formatAmount(offer.maxAmount)}</span>
+        </div>
+        <span className="btn-primary lg:order-6 px-4 py-1.5 text-sm shrink-0">
+          {offer.side === 'SELL' ? 'Comprar' : 'Vender'}
+        </span>
       </div>
 
       {offer.description && (
-        <p className="text-xs text-brand-text-muted line-clamp-1 md:hidden">{offer.description}</p>
+        <p className="text-xs text-brand-text-muted line-clamp-1 lg:hidden">{offer.description}</p>
       )}
     </Link>
   )

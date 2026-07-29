@@ -177,8 +177,52 @@ export const CHART_DATA = Array.from({ length: 30 }, (_, i) => {
 // AssetPicker's search already scales to it with no logic change; that
 // scalability is the actual point of using a search picker instead of
 // a lateral pill row, even with only 10 assets today.
-export const ASSETS = ['BTC', 'LN_BTC', 'LIQUID_BTC', 'USDT_ERC20', 'USDT_TRC20', 'USDT_LIQUID', 'USDT_LIGHTNING', 'SPARK', 'STACKS', 'RSK_BTC'] as const
-export const PAYMENT_METHODS = ['PIX', 'TED', 'BANK_TRANSFER', 'CRYPTO_DIRECT', 'LIGHTNING_DIRECT', 'CASH', 'OTHER'] as const
+//
+// USDT_ERC20 briefly removed from this list (2026-07-28) on a wrong
+// assumption that it had no multisig escrow path — reverted the same
+// day after checking settlement.routes.ts directly: `SAFE_GUARD_EVM`
+// (SailsEscrowSafe, RFC-020) is a real, registered EscrowType, a 2-of-3
+// Safe multisig (buyer + seller + KMS co-signer) that's asset-agnostic
+// within EVM, not restricted to native ETH — it covers USDT_ERC20 the
+// same as `MultisigProvider` covers the Bitcoin-family assets here.
+// Alphabetical order (2026-07-29, requested directly) — by the asset
+// *code* itself, since AssetPicker renders the raw code, not
+// ASSET_LABELS' friendly name.
+export const ASSETS = ['BTC', 'LIQUID_BTC', 'LN_BTC', 'RSK_BTC', 'SPARK', 'STACKS', 'USDT_ERC20', 'USDT_LIGHTNING', 'USDT_LIQUID', 'USDT_TRC20'] as const
+
+// Adds DePix (types.ts's own comment has the full sourcing) on top of
+// the real list above, alphabetically merged in (not appended) — filter/
+// display + Marketplace's own discover() fan-out (lib/realOffers.ts),
+// never PublishOffer.tsx's real submission (that page deliberately keeps
+// importing `ASSETS`, not this). Note `LIQUID_BTC`/`USDT_LIQUID` above
+// already are "L-BTC"/the real Liquid-network USD stablecoin — no
+// separate value was needed for those.
+export const ASSETS_FILTERABLE = ['BTC', 'DEPIX', 'LIQUID_BTC', 'LN_BTC', 'RSK_BTC', 'SPARK', 'STACKS', 'USDT_ERC20', 'USDT_LIGHTNING', 'USDT_LIQUID', 'USDT_TRC20'] as const
+
+// The real backend `PaymentMethod` enum (prisma/schema.prisma) exactly —
+// used anywhere a value round-trips to a real @sails/sdk call
+// (PublishOffer.tsx's `liquidity.publish()`, a live POST). Alphabetical
+// by the friendly label (PAYMENT_METHOD_LABELS), matching what
+// PaymentMethodPicker/FilterPanel/PublishOffer's own <select> actually
+// render, not by this array's own raw key spelling.
+export const PAYMENT_METHODS = ['CRYPTO_DIRECT', 'CASH', 'LIGHTNING_DIRECT', 'OTHER', 'PIX', 'TED', 'BANK_TRANSFER'] as const
+
+// Adds the UI-only payment methods (see types.ts's own comment for the
+// full per-platform sourcing) on top of the real list above, alphabetized
+// by friendly label across the *whole* merged set (not real-then-extra) —
+// filter/display contexts only (Marketplace's PaymentMethodPicker,
+// FilterPanel), never PublishOffer.tsx's real submission (that page's own
+// comment on why). Exhaustive per the direct request: every method
+// actually listed by at least one of HodlHodl, Airtm, El Dorado, Noones,
+// or Binance P2P (PicPay specifically), not just the ones repeated across
+// all of them.
+export const PAYMENT_METHODS_FILTERABLE = [
+  'ADVCASH', 'BANCOLOMBIA', 'BOLETO', 'CREDIT_DEBIT_CARD', 'CASH_APP', 'CRYPTO_DIRECT',
+  'DEPIX', 'LOTERICA_DEPOSIT', 'CASH', 'MOBILE_MONEY', 'CASH_BY_MAIL', 'LIGHTNING_DIRECT',
+  'MERCADO_PAGO', 'NETELLER', 'NEQUI', 'OTHER', 'PAYEER', 'PAYONEER', 'PAYPAL', 'PERFECT_MONEY',
+  'PICPAY', 'PIX', 'REVOLUT', 'SKRILL', 'TED', 'BANK_TRANSFER', 'GIFT_CARD', 'VENMO', 'WALLY',
+  'WEBMONEY', 'WISE', 'YAPE', 'ZELLE', 'ZINLI',
+] as const
 
 export const COUNTRIES: { code: string; label: string }[] = [
   { code: 'BR', label: 'Brasil' },

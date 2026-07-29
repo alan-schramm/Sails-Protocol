@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { AssetBadge, SideBadge, PaymentBadge } from '../components/ui/Badge'
+import { AssetBadge, SideBadge, PaymentBadge, PowerTraderBadge } from '../components/ui/Badge'
 import { UserAvatar } from '../components/ui/UserAvatar'
+import { InfoTooltip } from '../components/ui/InfoTooltip'
+import { FavoriteButton } from '../components/ui/FavoriteButton'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
+import { positiveFeedbackPct, isPowerTrader } from '../lib/reputation'
 import { useAuth } from '../context/AuthContext'
 import type { Offer, User } from '../types'
 
@@ -155,19 +158,27 @@ export function OfferDetail() {
 
           <div className="mt-4 card p-5">
             <div className="flex items-center gap-3">
-              <UserAvatar user={offer.user} size="lg" />
-              <div>
-                <div className="font-semibold flex items-center gap-1 text-brand-text">
+              <UserAvatar user={offer.user} size="lg" showPresence />
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold flex items-center gap-1.5 flex-wrap text-brand-text">
                   {offer.user.displayName}
                   {offer.user.verified && <span className="text-brand-orange-accent text-sm" title="Verificado">✓</span>}
+                  {isPowerTrader(offer.user) && <PowerTraderBadge />}
                 </div>
-                <div className="text-xs text-brand-text-muted">Membro desde {new Date(offer.user.createdAt).toLocaleDateString('pt-BR')}</div>
+                <div className="text-xs text-brand-text-muted flex items-center gap-1">
+                  Membro desde {new Date(offer.user.createdAt).toLocaleDateString('pt-BR')}
+                  <InfoTooltip text="O ponto verde/cinza no avatar indica presença — ilustrativo nesta interface de referência, já que nenhuma rota real reporta o status de conexão P2P (Pears/Hyperswarm) até aqui ainda." />
+                </div>
               </div>
+              <FavoriteButton userId={offer.user.id} />
             </div>
 
             <div className="mt-4">
               <div className="flex justify-between text-xs text-brand-text-muted mb-1">
-                <span>Reputação</span>
+                <span className="flex items-center gap-1">
+                  {positiveFeedbackPct(offer.user)}% positivo
+                  <InfoTooltip text="Calculado a partir de trades concluídos sem disputa (totalTrades/disputeCount, campos reais) — não é um sistema de like/dislike por trade, que o backend ainda não expõe nesta UI (existe um rate() por estrelas 1-5, real, mas não conectado aqui)." />
+                </span>
                 <span className="font-semibold text-brand-text">{offer.user.reputationScore.toFixed(1)} / 100</span>
               </div>
               <div className="h-1.5 bg-brand-elevated rounded-full">
@@ -238,6 +249,17 @@ export function OfferDetail() {
               <div className="mt-4 bg-brand-orange-accent/5 border border-brand-orange-accent/20 rounded-lg p-3 text-xs text-brand-text-secondary">
                 🔒 Escrow não custodial — fundos só liberados após confirmação de pagamento.
               </div>
+
+              {/* HodlHodl/Binance P2P both show this exact caution before
+                  a first trade with a brand-new counterparty — real data
+                  (offer.user.totalTrades), not mocked: a real 0 here means
+                  a real trader with no completed trades yet. */}
+              {offer.user.totalTrades === 0 && (
+                <div className="mt-3 bg-yellow-500/10 border border-yellow-500/25 rounded-lg p-3 text-xs text-yellow-500 flex gap-2">
+                  <span>⚠️</span>
+                  <span>Este vendedor ainda não concluiu nenhum trade — negocie com cautela, especialmente em valores maiores.</span>
+                </div>
+              )}
 
               <button onClick={handleStartTrade} disabled={startingTrade} className="btn-primary mt-4 w-full py-3">
                 {startingTrade ? 'Iniciando...' : 'Iniciar Trade'}

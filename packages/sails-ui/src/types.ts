@@ -9,14 +9,67 @@
  * code (e.g. an intent status called "LIQUIDATED").
  */
 
+// `DEPIX` is a UI-only addition (2026-07-29, requested directly) — a
+// real, BRL-pegged stablecoin issued on the Liquid Network (Blockstream
+// sidechain; areabitcoin.com.br/depix, depix.org), not in the real
+// prisma `AssetType` enum. Not the same asset as `USDT_LIQUID` above
+// (Tether's own USDt issuance on Liquid, USD-pegged) — DePix is BRL-
+// pegged, a different issuer and peg currency, both real Liquid-network
+// assets. `LIQUID_BTC`/`USDT_LIQUID` above already cover what was asked
+// for as "LBTC"/"LUSD" (same request) — no new value needed for those;
+// "LUSD" specifically is not this project's asset at all if taken
+// literally (that ticker belongs to Liquity Protocol's Ethereum
+// stablecoin, unrelated to the Liquid Network this request means).
+// Filter/display + PublishOffer's *own* asset-picker in this case (see
+// data/mock.ts's `ASSETS` vs `ASSETS_FILTERABLE` and PublishOffer.tsx's
+// own comment) — same real-vs-UI-only split as `PaymentMethod` below.
 export type AssetType =
   | 'BTC' | 'USDT_ERC20' | 'USDT_TRC20' | 'USDT_LIQUID' | 'USDT_LIGHTNING'
   | 'LN_BTC' | 'LIQUID_BTC' | 'SPARK' | 'STACKS' | 'RSK_BTC'
+  | 'DEPIX'
 
 export type TradeSide = 'BUY' | 'SELL'
 
+// Everything from `PAYPAL` onward is a UI-only addition (2026-07-28,
+// requested directly, expanded the same day to be exhaustive: "o que
+// for repetido... ótimo mas... temos que ter o que cada uma delas já
+// tem") — one real, named payment method per platform-specific source,
+// not invented. The real prisma `PaymentMethod` enum has none of these —
+// same disclosed-gap pattern as this file's `EscrowType` comment below.
+// Filter/display contexts only — see data/mock.ts's `PAYMENT_METHODS`
+// (real) vs `PAYMENT_METHODS_FILTERABLE` (this full list) and
+// PublishOffer.tsx's own comment for why the real submission path stays
+// on the narrower list.
 export type PaymentMethod =
   | 'PIX' | 'TED' | 'BANK_TRANSFER' | 'CRYPTO_DIRECT' | 'LIGHTNING_DIRECT' | 'CASH' | 'OTHER'
+  // HodlHodl (hodlhodl.com/pages/faq; medium.com/@hodlhodl) — SEPA/wire
+  // already covered by BANK_TRANSFER/TED above; cash by mail is its own
+  // distinct method from in-person CASH.
+  | 'PAYPAL' | 'CASH_BY_MAIL'
+  // Airtm (help.airtm.com, airtm.com/en/blog/enterprise/payment-methods)
+  | 'SKRILL' | 'ADVCASH' | 'NETELLER' | 'PAYEER' | 'PAYONEER' | 'PERFECT_MONEY' | 'WEBMONEY'
+  | 'ZELLE' | 'ZINLI' | 'CREDIT_DEBIT_CARD' | 'GIFT_CARD'
+  // El Dorado (eldorado.io/en/blog, faq.eldorado.io) — LatAm-specific
+  // wallets; MERCADO_PAGO also independently confirmed for Noones.
+  | 'MERCADO_PAGO' | 'NEQUI' | 'BANCOLOMBIA' | 'WALLY' | 'YAPE'
+  // Noones (blog.noones.com/en/payment-methods) — PAYPAL/GIFT_CARD/
+  // MERCADO_PAGO above already cover Noones' own list too.
+  | 'MOBILE_MONEY' | 'REVOLUT'
+  // Brazil-specific, raised directly (2026-07-29) and confirmed against
+  // Binance P2P Brasil's own listed methods (nordinvestimentos.com.br;
+  // binance.com/pt-BR/blog) — real, commonly-used local rails distinct
+  // from PIX/TED/BANK_TRANSFER already above.
+  | 'BOLETO' | 'LOTERICA_DEPOSIT'
+  // DePix (2026-07-29, requested alongside the AssetType addition of the
+  // same name above) — paying/receiving directly in the DePix stablecoin
+  // itself, distinct from using it as a traded asset.
+  | 'DEPIX'
+  // More wallet-to-wallet apps "like Revolut" (2026-07-29, requested
+  // directly) — each independently confirmed as a real Noones payment
+  // method (noones.com/buy-bitcoin/{wise-transferwise,venmo,cash-app})
+  // except PicPay, confirmed on Binance P2P instead
+  // (binance.com/en/support/announcement — "50 New Payment Methods").
+  | 'WISE' | 'VENMO' | 'CASH_APP' | 'PICPAY'
 
 export type OfferStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'
 

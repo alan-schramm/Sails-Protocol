@@ -8,7 +8,7 @@
  */
 import type { FiatCurrency, MarketplaceFilters, PaymentMethod } from '../../types'
 import { AMOUNT_PRESETS, formatByCurrency } from '../../lib/currency'
-import { COUNTRIES, PAYMENT_METHODS } from '../../data/mock'
+import { COUNTRIES, PAYMENT_METHODS_FILTERABLE } from '../../data/mock'
 import { PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { InfoTooltip } from '../ui/InfoTooltip'
 
@@ -29,7 +29,7 @@ const TIME_LIMITS: { value: MarketplaceFilters['paymentTimeLimit']; label: strin
   { value: '24h', label: '24h' },
 ]
 
-const SORT_OPTIONS: { value: MarketplaceFilters['sortBy']; label: string }[] = [
+export const SORT_OPTIONS: { value: MarketplaceFilters['sortBy']; label: string }[] = [
   { value: 'price', label: 'Preço' },
   { value: 'trades', label: 'Trades concluídos' },
   { value: 'reputation', label: 'Reputação' },
@@ -132,7 +132,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             <InfoTooltip text="Métodos populares indicados. As moedas serão liberadas imediatamente após a confirmação do pagamento." />
           </div>
           <div className="flex gap-1.5 flex-wrap">
-            {PAYMENT_METHODS.map((m) => (
+            {PAYMENT_METHODS_FILTERABLE.map((m) => (
               <button
                 key={m}
                 onClick={() => togglePaymentMethod(m)}

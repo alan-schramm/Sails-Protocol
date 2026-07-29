@@ -1,9 +1,26 @@
 import path from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Real bug found while getting a browser to actually render this
+    // app (not caught by `tsc`/`vite build` — a pure runtime error):
+    // bitcoinjs-lib/@bitcoinerlab's ECC init path
+    // (escrow-key.ts's `bitcoin.initEccLib(ecc)`, run at module load,
+    // reachable from every page via @sails/sdk's eager optimizeDeps
+    // bundle below) calls into Node's global `Buffer`, which doesn't
+    // exist in a browser and isn't polyfilled by Vite/esbuild
+    // automatically (unlike Webpack). Uncaught, this crashes the whole
+    // React tree with no console output beyond a raw `pageerror` — the
+    // entire app rendered a permanently empty `#root` on every single
+    // page, not just Trade (where the escrow-key code is actually
+    // used). Scoped to just `Buffer` (the one global actually missing)
+    // rather than this plugin's default full Node-globals shim.
+    nodePolyfills({ globals: { Buffer: true, global: false, process: false } }),
+  ],
   resolve: {
     alias: {
       // Real, pre-existing bug (unrelated to any UI work) found while

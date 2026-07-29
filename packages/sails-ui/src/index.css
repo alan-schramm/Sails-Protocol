@@ -132,8 +132,13 @@ body {
      set per-row via a `border-l-green-500`/`border-l-red-500` utility
      class at the call site rather than baked in here (this class has
      no opinion on side). */
+  /* lg (1024px), not md (768px): at tablet width the old md-breakpoint
+     single-line row didn't have enough space for all 5 columns (found
+     by actually screenshotting at 768px — text wrapped and columns
+     overlapped). Tablet now gets the same paired-row mobile layout,
+     which scales cleanly since it has no fixed column widths. */
   .offer-row {
-    @apply flex flex-col gap-2 border-b border-brand-border border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated md:flex-row md:items-center md:gap-4 md:px-4 md:py-2.5;
+    @apply flex flex-col gap-2 border-b border-brand-border border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated lg:flex-row lg:items-center lg:gap-6 lg:px-5 lg:py-3.5;
   }
   .btn-primary {
     @apply bg-brand-orange hover:bg-brand-orange-hover text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
