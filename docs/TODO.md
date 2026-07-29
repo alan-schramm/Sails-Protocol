@@ -1532,6 +1532,57 @@ is specifically `sdk-react`'s own test environment. Not investigated
 further here since it's unrelated to the Dependabot work this pass was
 scoped to; a background task was spawned to track it.
 
+### 16D. Dependabot follow-up round 3 (2026-07-28) — RFC-020's `contracts/` workspace additions
+
+GitHub flagged 11 new alerts (2 critical, 3 high, 5 moderate, 1 low)
+after the RFC-020/`SAFE_GUARD_EVM` push. Triaged via `npm audit --json`
+(83 raw findings locally — GitHub's count is deduplicated by advisory,
+not by affected package node) and `npm ls <pkg> --all` to confirm actual
+reachability, not assumed from the package name.
+
+**All the new critical/high findings trace to one source, confirmed
+non-production-reachable:** `@safe-global/safe-contracts@1.4.1-2` (the
+real, audited Safe contracts `SailsEscrowSafe.sol` extends) bundles its
+own internal build/deploy tooling dependency on `ethers@5.4.0` →
+`@ethersproject/signing-key` → `elliptic@6.5.4` (real ECDSA
+private-key-extraction / signature-validation bugs). Verified via
+`npm ls elliptic --all`/`npm ls ethers --all`: this copy exists **only**
+inside the `contracts/` workspace, pulled in transitively by Safe's own
+package — this repo never invokes Safe's deploy scripts, only
+`npx hardhat compile` (which reads `.sol` source, never executes Safe's
+JS tooling). Production code's own real `ethers` usage
+(`WdkSettlementProvider` → `@tetherto/wdk-wallet-evm`) is a completely
+separate, unaffected `ethers@6.17.0` copy — confirmed via the same `npm
+ls` output, not assumed. `fixAvailable: false` — Safe has not published
+a release with a newer bundled `ethers`; nothing to bump.
+
+**`hardhat` itself flagged high** (its own nested `adm-zip`/`solc`/
+`@sentry/node`/`undici`/`uuid` chain) — `npm audit`'s own
+`fixAvailable` field confirms the fix is `hardhat@3.11.1`, a semver-major
+bump from the `^2.29.0` this repo deliberately pinned (`contracts/`'s own
+`package.json`, chosen specifically for lower config-API risk on a first
+Solidity toolchain — see the `contracts/` scaffold entry above). Same
+"real ceiling, no non-major fix" pattern §16C already established for
+Jest/Vitest/Storybook/Artillery — not forced this pass for the identical
+reason: `hardhat compile` against `SailsEscrowSafe.sol` was verified
+working today (5 files, zero warnings) and a major bump risks silently
+breaking that without a dedicated verification pass of its own.
+
+**Everything else in the 83-item list is the same already-triaged
+dev/test-tooling category §16C covers** (Jest/Vitest/Storybook/Artillery
+chains) plus `vite-plugin-node-polyfills` (a `packages/sails-ui`
+devDependency, out of scope for this pass — untouched, per the standing
+coordination discipline around that package while the parallel session's
+rebranding work is in flight there).
+
+**Net decision: accepted risk, nothing changed.** None of the new
+findings are reachable from this repo's actual runtime — both the Safe
+chain and the Hardhat chain are compile-time/dev-tooling only, and both
+have a real, confirmed non-major-bump-available ceiling. Revisit if this
+`contracts/` workspace ever grows beyond compile-only verification (e.g.
+if Safe's own deploy scripts are ever actually invoked, or Hardhat needs
+a feature only 3.x has).
+
 ---
 
 ## 17. Security-validation round (2026-07-19) — abandoned trade, retry safety, event replay, concurrent dispute
