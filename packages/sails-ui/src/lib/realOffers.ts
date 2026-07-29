@@ -26,6 +26,14 @@ import { sailsClient } from './sailsClient'
 import type { AssetType, Offer, PaymentMethod, TradeSide, User } from '../types'
 import { ASSETS } from '../data/mock'
 
+// `@sails/sdk`'s own `discover()` is typed against the *real* backend
+// AssetType (no `DEPIX` — see types.ts's own comment on why this UI's
+// broader `AssetType` has it). A real GET for an asset the backend
+// doesn't recognize would either 400 or, worse, silently mismatch —
+// neither is useful, and there provably can be no real DePix offers
+// yet regardless. Short-circuit instead of calling discover() at all.
+const REAL_ASSETS = new Set<string>(ASSETS)
+
 function summaryToOffer(s: LiquidityOfferSummary): Offer {
   const price = Number(s.priceUsd)
   // GET /v1/liquidity/offers doesn't return the owning User row at all
@@ -78,7 +86,10 @@ function summaryToOffer(s: LiquidityOfferSummary): Offer {
 // total/hasMore field (DiscoverResult is just {offers, sources}), so
 // "a short page means the last page" is the correct, standard way to
 // know when to stop — not a total count this route doesn't return.
-async function fetchAllPages(asset: AssetType, side: TradeSide): Promise<Offer[]> {
+// Narrower than the UI's own `AssetType` on purpose (this file's own
+// comment above on `REAL_ASSETS`) — `@sails/sdk`'s `discover()` is typed
+// against the real backend enum, which has no `DEPIX`.
+async function fetchAllPages(asset: (typeof ASSETS)[number], side: TradeSide): Promise<Offer[]> {
   const pageSize = 50 // the route's own max (docs/TODO.md §25)
   const collected: Offer[] = []
   let offset = 0
@@ -99,8 +110,18 @@ async function fetchAllPages(asset: AssetType, side: TradeSide): Promise<Offer[]
   return collected
 }
 
+function isRealAsset(a: AssetType): a is (typeof ASSETS)[number] {
+  return REAL_ASSETS.has(a)
+}
+
 export async function fetchOffers(asset: AssetType | 'Todos', side: TradeSide | 'Todos'): Promise<Offer[]> {
-  const assets: AssetType[] = asset === 'Todos' ? [...ASSETS] : [asset]
+  // DEPIX (or any future UI-only asset) has no real backend offers by
+  // definition — 'Todos' only ever needs the real `ASSETS` (not
+  // `ASSETS_FILTERABLE`, which is for the picker's *options*, not what
+  // this fans real network calls out to); a direct single-asset request
+  // for DEPIX specifically short-circuits the same way.
+  if (asset !== 'Todos' && !isRealAsset(asset)) return []
+  const assets: (typeof ASSETS)[number][] = asset === 'Todos' ? [...ASSETS] : [asset]
   const sides: TradeSide[] = side === 'Todos' ? ['BUY', 'SELL'] : [side]
 
   const results = await Promise.all(

@@ -8,6 +8,7 @@ import { useEscrowKey } from '../hooks/useEscrowKey'
 import { sailsClient } from '../lib/sailsClient'
 import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/Badge'
 import { EscrowStateMachine } from '../components/trade/EscrowStateMachine'
+import { EscrowCountdown } from '../components/trade/EscrowCountdown'
 import { EscrowActions } from '../components/trade/EscrowActions'
 import { TradeParties } from '../components/trade/TradeParties'
 import { ChatWindow } from '../components/chat/ChatWindow'
@@ -284,6 +285,12 @@ export function Trade() {
             <Row label="Quantidade" value={String(amount)} />
             <Row label="Total" value={formatByCurrency(totalBrl, 'BRL')} />
             <Row label="Status do escrow" value={<EscrowStatusBadge status={escrowStatus} />} />
+            {/* Real fields (Trade.completedAt/cancelledAt) that existed
+                on the SDK's own Trade type but were never rendered
+                anywhere in this UI before — found the same way as the
+                escrow timelock above (grepped for usages, found zero). */}
+            {trade.completedAt && <Row label="Concluído em" value={formatDateTime(trade.completedAt)} />}
+            {trade.cancelledAt && <Row label="Cancelado em" value={formatDateTime(trade.cancelledAt)} />}
           </div>
 
           {isBuyer && trade.offer && (
@@ -313,6 +320,9 @@ export function Trade() {
 
           <div className="card p-5 mt-3">
             <EscrowStateMachine status={escrowStatus} />
+            {escrow && (
+              <EscrowCountdown expiresAt={escrow.expiresAt} timelockHours={escrow.timelockHours} status={escrowStatus} />
+            )}
 
             {!escrow ? (
               isSeller ? (

@@ -21,6 +21,7 @@ export const ASSET_LABELS: Record<AssetType, string> = {
   USDT_LIGHTNING: 'USDT (Lightning)',
   SPARK: 'Spark',
   STACKS: 'Stacks (STX)',
+  DEPIX: 'DePix',
 }
 
 // Compact form for space-constrained spots (an input's inline unit
@@ -37,6 +38,7 @@ export const ASSET_SHORT_LABELS: Record<AssetType, string> = {
   USDT_LIGHTNING: 'USDT',
   SPARK: 'SPARK',
   STACKS: 'STX',
+  DEPIX: 'DEPIX',
 }
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -47,4 +49,31 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   LIGHTNING_DIRECT: 'Lightning direto',
   CASH: 'Dinheiro em espécie',
   OTHER: 'Outro',
+  PAYPAL: 'PayPal',
+  CASH_BY_MAIL: 'Dinheiro pelo correio',
+  SKRILL: 'Skrill',
+  ADVCASH: 'AdvCash',
+  NETELLER: 'Neteller',
+  PAYEER: 'Payeer',
+  PAYONEER: 'Payoneer',
+  PERFECT_MONEY: 'Perfect Money',
+  WEBMONEY: 'WebMoney',
+  ZELLE: 'Zelle',
+  ZINLI: 'Zinli',
+  CREDIT_DEBIT_CARD: 'Cartão de crédito/débito',
+  GIFT_CARD: 'Vale-presente',
+  MERCADO_PAGO: 'Mercado Pago',
+  NEQUI: 'Nequi',
+  BANCOLOMBIA: 'Bancolombia',
+  WALLY: 'Wally',
+  YAPE: 'Yape',
+  MOBILE_MONEY: 'Dinheiro móvel (M-Pesa etc.)',
+  REVOLUT: 'Revolut',
+  BOLETO: 'Boleto bancário',
+  LOTERICA_DEPOSIT: 'Depósito em lotérica/caixa eletrônico',
+  DEPIX: 'DePix',
+  WISE: 'Wise',
+  VENMO: 'Venmo',
+  CASH_APP: 'Cash App',
+  PICPAY: 'PicPay',
 }

@@ -37,7 +37,7 @@ import { MOCK_OFFERS, ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
 import { ILLUSTRATIVE_FX_TO_USD, formatByCurrency } from '../lib/currency'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { sailsClient } from '../lib/sailsClient'
-import type { AssetType, FiatCurrency, PaymentMethod, TradeSide } from '../types'
+import type { AssetType, FiatCurrency, TradeSide } from '../types'
 
 const STEPS = ['Definir tipo e preço', 'Definir valor e método', 'Definir condições']
 
@@ -53,7 +53,12 @@ export function PublishOffer() {
 
   // Step 1
   const [side, setSide] = useState<TradeSide>('SELL')
-  const [asset, setAsset] = useState<AssetType | 'Todos'>('Todos')
+  // Narrower than the UI's own `AssetType` on purpose — same reasoning
+  // as `paymentMethod` below: this page submits straight to the real
+  // `liquidity.publish()` call, which has no `DEPIX` (see types.ts's own
+  // comment). `ASSETS` (not `ASSETS_FILTERABLE`) already keeps it out of
+  // the picker's options; this keeps it out of the type too.
+  const [asset, setAsset] = useState<(typeof ASSETS)[number] | 'Todos'>('Todos')
   const [currency, setCurrency] = useState<FiatCurrency | 'Todas'>('BRL')
   const [priceType, setPriceType] = useState<'FIXED' | 'FLOATING'>('FIXED')
   const [price, setPrice] = useState('')
@@ -61,7 +66,15 @@ export function PublishOffer() {
   // Step 2
   const [minAmount, setMinAmount] = useState('')
   const [maxAmount, setMaxAmount] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('PIX')
+  // Narrower than the UI's own `PaymentMethod` type on purpose: this
+  // page submits straight to the real `liquidity.publish()` call
+  // (@sails/sdk's real, backend-matching `PaymentMethod`), which has
+  // none of the UI-only additions researched in from HodlHodl/Airtm/El
+  // Dorado/Noones (see types.ts's own comment). Derived directly from
+  // `PAYMENT_METHODS` (the real list, already what the <select>'s
+  // options use below) rather than hand-listing every UI-only value to
+  // exclude — stays correct automatically if that list ever grows again.
+  const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>('PIX')
   const [paymentDetails, setPaymentDetails] = useState('')
 
   // Step 3
@@ -193,7 +206,11 @@ export function PublishOffer() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">Ativo</label>
-                <AssetPicker assets={ASSETS} value={asset} onChange={setAsset} />
+                <AssetPicker
+                  assets={ASSETS}
+                  value={asset}
+                  onChange={(a) => setAsset(a as (typeof ASSETS)[number] | 'Todos')}
+                />
               </div>
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">com moeda fiduciária</label>
@@ -255,7 +272,11 @@ export function PublishOffer() {
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">Método de pagamento</label>
-              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)} className="input-field w-full">
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value as (typeof PAYMENT_METHODS)[number])}
+                className="input-field w-full"
+              >
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</option>
                 ))}
