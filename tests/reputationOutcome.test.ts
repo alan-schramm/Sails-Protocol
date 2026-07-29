@@ -15,12 +15,14 @@ export {} // forces this file to be an ES module — see chatUnification.test.ts
 const mockTradeUpdate = jest.fn()
 const mockDisputeFindFirst = jest.fn()
 const mockUserUpdate = jest.fn()
+const mockEscrowFindUnique = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
     trade: { update: (...args: unknown[]) => mockTradeUpdate(...args) },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
+    escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
   },
 }))
 
@@ -93,6 +95,10 @@ describe('RFC-007 D8/D9 Outcome Engine (dispute-aware, via settlement.escrow.rel
     jest.clearAllMocks()
     mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
     mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
+    // RFC-021 D4, Phase 3 default: bootstrap-phase escrow, no protocol fee
+    // charged (config.settlement.protocolFeeRate === 0, the documented
+    // default) — most tests below don't care about this dimension at all.
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: null })
   })
 
   it('happy-path completion (no dispute): both parties get POSITIVE outcomes', async () => {
@@ -136,6 +142,43 @@ describe('RFC-007 D8/D9 Outcome Engine (dispute-aware, via settlement.escrow.rel
     const scoreUpdates = mockUserUpdate.mock.calls.filter((c) => c[0]?.data?.reputationScore)
     expect(scoreUpdates.find((c) => c[0].where.id === 'buyer-1')?.[0].data.reputationScore).toEqual({ increment: -5 })
     expect(scoreUpdates.find((c) => c[0].where.id === 'seller-1')?.[0].data.reputationScore).toEqual({ increment: 2 })
+  })
+})
+
+// RFC-021 D4, Phase 3 — the cost-to-fabricate-reputation floor. Only the
+// settlement.escrow.released reaction wires this (refunds never charge a
+// protocol fee — escrow.service.ts's chargeProtocolFee() is only called
+// from releaseFunds()).
+describe('RFC-021 D4 — cumulativeFeesObserved wiring (settlement.escrow.released)', () => {
+  beforeAll(() => {
+    registerEventHandlers()
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
+    mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
+    mockDisputeFindFirst.mockResolvedValue(null)
+  })
+
+  it('accrues Escrow.feeCharged onto both parties when a real fee was charged', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: '0.0205' })
+
+    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'buyer-1', from: 'PAYMENT_PENDING', to: 'COMPLETED' })
+
+    const feeUpdates = mockUserUpdate.mock.calls.filter((c) => c[0]?.data?.cumulativeFeesObserved)
+    expect(feeUpdates).toHaveLength(2)
+    expect(feeUpdates.find((c) => c[0].where.id === 'buyer-1')?.[0].data.cumulativeFeesObserved).toEqual({ increment: '0.0205' })
+    expect(feeUpdates.find((c) => c[0].where.id === 'seller-1')?.[0].data.cumulativeFeesObserved).toEqual({ increment: '0.0205' })
+  })
+
+  it('leaves cumulativeFeesObserved untouched when no fee was charged (bootstrap-phase default)', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: null })
+
+    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'buyer-1', from: 'PAYMENT_PENDING', to: 'COMPLETED' })
+
+    const feeUpdates = mockUserUpdate.mock.calls.filter((c) => c[0]?.data?.cumulativeFeesObserved)
+    expect(feeUpdates).toHaveLength(0)
   })
 })
 

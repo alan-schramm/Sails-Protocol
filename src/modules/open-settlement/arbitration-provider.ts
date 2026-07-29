@@ -39,8 +39,16 @@ export interface ArbitrationProvider {
   assignAppealPanel?(disputeId: string, tradeId: string, round: number, excludeParticipantId?: string): Promise<string>
   /** Penalizes an arbiter whose ruling was overturned on appeal. */
   slash?(participantId: string): Promise<unknown>
-  /** Records that an arbiter issued a ruling, correct or not — feeds the rulingsTotal/rulingsOverturned track record. */
-  recordRuling?(participantId: string): Promise<void>
+  /**
+   * Records that an arbiter issued a ruling, correct or not — feeds the
+   * rulingsTotal/rulingsOverturned track record. `feeObserved` (RFC-021
+   * D4, Phase 3) is the disputed escrow's real Escrow.feeCharged, when
+   * one was charged — accrues onto the arbiter's own
+   * cumulativeFeesObserved, the same cost-to-fabricate floor D4 tracks
+   * per-trader, applied to an arbiter's real track record of disputed
+   * value handled.
+   */
+  recordRuling?(participantId: string, feeObserved?: string): Promise<void>
 }
 
 /**

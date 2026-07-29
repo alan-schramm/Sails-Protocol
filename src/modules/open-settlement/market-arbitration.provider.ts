@@ -279,11 +279,21 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
     return this.toCandidate(updated)
   }
 
-  /** Feeds the rulingsTotal/rulingsOverturned track record — called on every resolution, not just overturned ones, so the ratio means something. */
-  async recordRuling(participantId: string): Promise<void> {
+  /**
+   * Feeds the rulingsTotal/rulingsOverturned track record — called on
+   * every resolution, not just overturned ones, so the ratio means
+   * something. `feeObserved` (RFC-021 D4, Phase 3) accrues onto this
+   * arbiter's cumulativeFeesObserved when the disputed escrow actually
+   * charged a real fee (Phase 0) — absent/zero in the bootstrap phase,
+   * same as everywhere else this field is read.
+   */
+  async recordRuling(participantId: string, feeObserved?: string): Promise<void> {
     await prisma.arbiterProfile.update({
       where: { participantId },
-      data: { rulingsTotal: { increment: 1 } },
+      data: {
+        rulingsTotal: { increment: 1 },
+        ...(feeObserved ? { cumulativeFeesObserved: { increment: feeObserved } } : {}),
+      },
     })
   }
 }

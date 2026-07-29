@@ -86,6 +86,14 @@ model User {
   totalTrades     Int      @default(0)
   disputeCount    Int      @default(0)
   totalVolumeBtc  Decimal  @default(0) @db.Decimal(24, 8)
+  // RFC-021 D4, Phase 3 — the real cost-to-fabricate-reputation floor
+  // (Yuri's own mechanism, formalized): sum of Escrow.feeCharged across
+  // every trade this participant has completed (settlement.escrow.released
+  // handler, common/events/handlers.ts). A worst-case Sybil analysis can
+  // treat all of a participant's reputation as fabricated, but this
+  // number is still a real, non-fabricatable lower bound on what that
+  // fabrication cost in protocol fees — see RFC-021 D4.
+  cumulativeFeesObserved Decimal @default(0) @db.Decimal(24, 8)
   verified        Boolean  @default(false)
   moduleId        String   @default("openidentity")
   protocolVersion String   @default("0.1")

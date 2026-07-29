@@ -179,11 +179,17 @@ export class DisputeService {
       triggeredBy: arbiterId,
     }, dispute.tradeId)
 
-    // RFC-021 D6 — feeds the arbiter's track record on every real
+    // RFC-021 D6/D4 — feeds the arbiter's track record on every real
     // resolution, correct or not (optional: only market mode has an
     // ArbiterProfile to update; trusted-list mode silently skips this).
+    // feeObserved reads the escrow fresh — a RELEASE ruling's
+    // escrowService.releaseFunds() call above has already computed and
+    // persisted Escrow.feeCharged (Phase 0) by this point; REFUND never
+    // charges a fee, so this is correctly undefined for those.
     if (this.arbitrationProvider.recordRuling) {
-      await this.arbitrationProvider.recordRuling(arbiterId)
+      const resolvedEscrow = await prisma.escrow.findUnique({ where: { id: dispute.escrowId } })
+      const feeObserved = resolvedEscrow?.feeCharged ? String(resolvedEscrow.feeCharged) : undefined
+      await this.arbitrationProvider.recordRuling(arbiterId, feeObserved)
     }
 
     // RFC-021 D6 — an appeal round reversing the ruling being appealed is
