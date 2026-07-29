@@ -17,3 +17,5 @@ packages/sails-sdk/docs-api/
 *.tgz
 loadtest/users.json
 coverage/
+*.tsbuildinfo
+.next/
