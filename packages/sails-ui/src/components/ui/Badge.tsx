@@ -9,7 +9,7 @@ import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 
 function Pill({ children, className = '', title }: { children: React.ReactNode; className?: string; title?: string }) {
   return (
-    <span title={title} className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}>
+    <span title={title} className={`inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium ${className}`}>
       {children}
     </span>
   )
@@ -67,4 +67,20 @@ export const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
 export function OfferStatusBadge({ status }: { status: OfferStatus }) {
   const color = status === 'ACTIVE' ? 'border-green-500/25 bg-green-500/10 text-green-500' : 'border-brand-border bg-brand-elevated text-brand-text-muted'
   return <Pill className={color}>{OFFER_STATUS_LABEL[status]}</Pill>
+}
+
+// Noones-inspired tenure/volume badge (lib/reputation.ts's own comment
+// has the full threshold sourcing) — an achievement/brand highlight, not
+// a semantic status, so it uses the orange accent like other brand-
+// highlight marks in this UI (e.g. the "Verificado" checkmark), not a
+// universal-convention color the way Trade/Escrow/Offer status do above.
+export function PowerTraderBadge() {
+  return (
+    <Pill
+      className="border-brand-orange-accent/30 bg-brand-orange-accent/10 text-brand-orange-accent"
+      title="Power Trader: alto volume de trades com alta taxa de trades sem disputa"
+    >
+      ⚡ Power Trader
+    </Pill>
+  )
 }

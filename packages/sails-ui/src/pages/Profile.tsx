@@ -5,10 +5,11 @@ import { useAuth } from '../context/AuthContext'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { CopyButton } from '../components/ui/CopyButton'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
-import { AssetBadge, SideBadge, OfferStatusBadge, OFFER_STATUS_LABEL } from '../components/ui/Badge'
+import { AssetBadge, SideBadge, OfferStatusBadge, OFFER_STATUS_LABEL, PowerTraderBadge } from '../components/ui/Badge'
 import { getAllOffers, updateOfferStatus } from '../lib/offersStore'
 import { formatDateTime } from '../lib/format'
 import { ASSET_SHORT_LABELS } from '../lib/labels'
+import { isPowerTrader } from '../lib/reputation'
 import type { OfferStatus } from '../types'
 
 const OFFER_FILTERS: { value: OfferStatus | 'Todos'; label: string }[] = [
@@ -67,9 +68,10 @@ export function Profile() {
       <div className="flex flex-col md:flex-row gap-6 items-start pb-6 border-b border-brand-border">
         <UserAvatar user={user} size="xl" />
         <div>
-          <h1 className="text-2xl font-display font-bold flex items-center gap-2 text-brand-text">
+          <h1 className="text-2xl font-display font-bold flex items-center gap-2 flex-wrap text-brand-text">
             {user.displayName}
             {user.verified && <span className="text-brand-orange-accent text-base" title="Verificado">✓</span>}
+            {isPowerTrader(user) && <PowerTraderBadge />}
           </h1>
           {/* Real gap found directly by the owner: this key was shown with
               no label at all — after seeing Keet call the equivalent value

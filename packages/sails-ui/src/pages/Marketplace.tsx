@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ASSETS, HIGH_REPUTATION_THRESHOLD } from '../data/mock'
+import { ASSETS_FILTERABLE, HIGH_REPUTATION_THRESHOLD, PAYMENT_METHODS_FILTERABLE } from '../data/mock'
 import { fetchOffers } from '../lib/realOffers'
 import { OfferCard } from '../components/marketplace/OfferCard'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
-import { FilterPanel } from '../components/marketplace/FilterPanel'
+import { PaymentMethodPicker } from '../components/marketplace/PaymentMethodPicker'
+import { FilterPanel, SORT_OPTIONS } from '../components/marketplace/FilterPanel'
 import { AgentIntentionPanel } from '../components/agent/AgentIntentionPanel'
 import type { AssetType, FiatCurrency, MarketplaceFilters, TradeSide } from '../types'
 import { DEFAULT_FILTERS } from '../types'
@@ -116,8 +117,13 @@ export function Marketplace() {
       </div>
 
       <div className="mt-2 flex flex-wrap gap-2 items-center">
-        <AssetPicker assets={ASSETS} value={asset} onChange={setAsset} />
+        <AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} />
         <CurrencyPicker value={currency} onChange={setCurrency} />
+        <PaymentMethodPicker
+          methods={PAYMENT_METHODS_FILTERABLE}
+          value={filters.paymentMethods}
+          onChange={(paymentMethods) => setFilters({ ...filters, paymentMethods })}
+        />
 
         <button
           onClick={() => setFilterPanelOpen(true)}
@@ -145,6 +151,23 @@ export function Marketplace() {
           ))}
         </div>
 
+        {/* Quick sort (2026-07-28): reference platforms (Binance P2P/
+            Airtm/HodlHodl/El Dorado) all put sort directly on the main
+            toolbar — burying it one click deep inside the Filtros drawer
+            made it easy to miss. Same `filters.sortBy` FilterPanel's own
+            drawer already edits, just exposed here too — not a second
+            source of truth. */}
+        <select
+          value={filters.sortBy}
+          onChange={(e) => setFilters({ ...filters, sortBy: e.target.value as MarketplaceFilters['sortBy'] })}
+          className="input-field text-sm"
+          aria-label="Ordenar por"
+        >
+          {SORT_OPTIONS.map((s) => (
+            <option key={s.value} value={s.value}>Ordenar: {s.label}</option>
+          ))}
+        </select>
+
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -158,6 +181,19 @@ export function Marketplace() {
           modeled on; OfferCard's own `.offer-row` class supplies the
           divider/hover/accent-border treatment per row. */}
       <div id="marketplace-offer-grid" className="mt-4 card overflow-hidden [&>a:last-child]:border-b-0">
+        {/* Desktop-only column header (Binance P2P/HodlHodl/El Dorado all
+            label their offer-list columns) — hidden below `lg` since the
+            mobile/tablet layout groups fields into paired rows instead of
+            fixed columns, so column labels wouldn't line up with anything.
+            Widths mirror OfferCard's own `lg:w-*` values exactly. */}
+        <div className="hidden lg:flex items-center gap-6 px-5 py-2 border-b border-brand-border text-xs font-medium text-brand-text-muted uppercase tracking-wider">
+          <span className="w-44 shrink-0">Anunciante</span>
+          <span className="w-48 shrink-0">Ativo</span>
+          <span className="flex-1">Preço</span>
+          <span className="w-40 shrink-0">Limites</span>
+          <span className="w-32 shrink-0">Pagamento</span>
+          <span className="w-28 shrink-0 text-right">Ação</span>
+        </div>
         {loadingOffers ? (
           <p className="text-center text-brand-text-muted py-10">Carregando ofertas...</p>
         ) : (
