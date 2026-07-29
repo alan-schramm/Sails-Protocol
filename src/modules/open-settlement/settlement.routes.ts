@@ -14,6 +14,7 @@ import { escrowService } from './escrow.service'
 import { DisputeService } from './dispute.service'
 import { TrustedArbitratorProvider } from './arbitration-provider'
 import { marketArbitrationProvider } from './market-arbitration.provider'
+import { paymentAccountService } from './payment-account.service'
 import { ValidationError } from '../../common/errors'
 import { config } from '../../config'
 import { requireAuth } from '../../common/middleware/auth'
@@ -94,6 +95,14 @@ const resolveSchema = z.object({
 const registerArbiterSchema = z.object({
   monetaryCollateral: z.string().min(1),
   collateralAsset: z.string().optional(),
+})
+
+// RFC-021 D5 — accountHash is computed client-side (@sails/sdk's
+// hashPaymentAccount()) — the raw PIX key/bank account number is never
+// sent here, only its hash.
+const registerPaymentAccountSchema = z.object({
+  accountHash: z.string().min(1),
+  paymentMethod: z.enum(['PIX', 'TED', 'BANK_TRANSFER', 'CRYPTO_DIRECT', 'LIGHTNING_DIRECT', 'CASH', 'OTHER']),
 })
 
 export async function settlementRoutes(app: FastifyInstance): Promise<void> {
@@ -304,5 +313,39 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ success: false, error: 'NOT_FOUND', message: `No ArbiterProfile for ${participantId}` })
     }
     return reply.code(200).send({ success: true, data: profile })
+  })
+
+  // RFC-021 D5 — payment-account trust ramp. Idempotent: registering an
+  // already-known accountHash just returns the existing row.
+  app.post('/v1/settlement/payment-accounts', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const body = registerPaymentAccountSchema.parse(request.body)
+    const participantId = (request as any).participantId as string
+    const account = await paymentAccountService.getOrCreate(participantId, body.accountHash, body.paymentMethod as any)
+    return reply.code(201).send({ success: true, data: account })
+  })
+
+  app.get('/v1/settlement/payment-accounts/:accountHash', {
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { accountHash } = z.object({ accountHash: z.string().min(1) }).parse(request.params)
+    const account = await paymentAccountService.getByHash(accountHash)
+    const tradeLimit = await paymentAccountService.getTradeLimit(accountHash)
+    return reply.code(200).send({ success: true, data: { ...account, tradeLimit } })
+  })
+
+  // RFC-021 D1's narrow-attestation framing: the caller attests a
+  // specific completed trade, not the account owner's general
+  // trustworthiness.
+  app.post('/v1/settlement/payment-accounts/:accountHash/sign', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { accountHash } = z.object({ accountHash: z.string().min(1) }).parse(request.params)
+    const participantId = (request as any).participantId as string
+    const account = await paymentAccountService.signPaymentAccount(accountHash, participantId)
+    return reply.code(200).send({ success: true, data: account })
   })
 }

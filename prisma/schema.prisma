@@ -99,6 +99,7 @@ model User {
   reputationGiven    ReputationEvent[] @relation("RaterEvents")
   reputationReceived ReputationEvent[] @relation("RatedEvents")
   arbiterProfile     ArbiterProfile?   // RFC-021 — present only if this participant has registered as an arbiter candidate
+  paymentAccounts    PaymentAccount[]  // RFC-021 D5 — zero or more linked payment rails, each with its own trust ramp
 
   @@map("users")
 }
@@ -320,6 +321,39 @@ model ArbiterProfile {
   updatedAt               DateTime @updatedAt
 
   @@map("arbiter_profiles")
+}
+
+// RFC-021 D5 — payment-account trust ramp, modeled on Bisq's real
+// "Payment account age witness"/account signing (verified against
+// Bisq's own docs before proposing this). A SEPARATE risk dimension
+// from trader reputation and arbiter reputation above: this measures
+// whether a specific payment rail (a PIX key, a bank account) has
+// survived a completed trade without a chargeback, not whether the
+// identity behind it behaves well in general — the two are genuinely
+// different attacks (a stolen/mule account can belong to an otherwise
+// reputable trader's compromised identity).
+model PaymentAccount {
+  id              String        @id @default(uuid())
+  ownerId         String
+  owner           User          @relation(fields: [ownerId], references: [id])
+  // Privacy-preserving hash of the real account identifier (PIX key,
+  // bank account number) — never the raw value. Bisq's own
+  // AccountAgeWitness uses the same shape: a hash both sides can check
+  // without either seeing the other's real account data.
+  accountHash     String        @unique
+  paymentMethod   PaymentMethod
+  signed          Boolean       @default(false)
+  signedBy        String?       // the counterparty/arbiter who attested the first clean trade (RFC-021 D1's narrow factual-claim framing)
+  signedAt        DateTime?
+  firstUsedAt     DateTime      @default(now())
+  completedTrades Int           @default(0)
+  chargebacks     Int           @default(0)
+  moduleId        String        @default("opensettlement")
+  protocolVersion String        @default("0.1")
+  updatedAt       DateTime      @updatedAt
+
+  @@index([ownerId])
+  @@map("payment_accounts")
 }
 
 model EscrowEvent {

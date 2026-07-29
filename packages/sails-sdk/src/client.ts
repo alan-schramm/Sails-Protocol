@@ -20,6 +20,7 @@ import { SailsSettlementModule } from './modules/settlement'
 import { SailsPeersModule } from './modules/peers'
 import { SailsCapabilitiesModule } from './modules/capabilities'
 import { SailsArbitrationModule } from './modules/arbitration'
+import { SailsPaymentAccountModule } from './modules/payment-account'
 import { SailsIntentFacade } from './intent-facade'
 import type { WalletAdapter } from './wallet-adapter'
 
@@ -63,6 +64,8 @@ export class SailsClient {
   readonly capabilities: SailsCapabilitiesModule
   /** RFC-021 D2 — permissionless arbiter registration (register/getProfile). Only meaningful when the server is configured with ARBITRATION_MODE=market. No friendly alias. */
   readonly arbitration: SailsArbitrationModule
+  /** RFC-021 D5 — payment-account trust ramp (register/get/sign). Hash raw account identifiers client-side first with {@link hashPaymentAccount}. No friendly alias. */
+  readonly paymentAccounts: SailsPaymentAccountModule
   readonly wallet?: WalletAdapter
   private readonly intents: SailsIntentFacade
 
@@ -107,6 +110,7 @@ export class SailsClient {
     this.peers = new SailsPeersModule(this.transport)
     this.capabilities = new SailsCapabilitiesModule(this.transport)
     this.arbitration = new SailsArbitrationModule(this.transport)
+    this.paymentAccounts = new SailsPaymentAccountModule(this.transport)
     this.intents = new SailsIntentFacade(this.transport)
     if (options.wallet) this.wallet = options.wallet
 

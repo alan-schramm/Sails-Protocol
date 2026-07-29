@@ -1,0 +1,157 @@
+/**
+ * PaymentAccountService — RFC-021 D5
+ * (docs/rfcs/RFC-021-market-based-arbitration-and-payment-trust.md).
+ *
+ * Real math for the trade-limit ramp, real SHA-256 hashing (not mocked
+ * — this is the one property that must actually be correct, since
+ * @sails/sdk's hashPaymentAccount() must produce byte-identical output
+ * for the client/server privacy scheme to work at all), mocked Prisma
+ * for persistence.
+ */
+export {} // same forced-module reasoning used throughout this suite
+
+const mockPaymentAccountFindUnique = jest.fn()
+const mockPaymentAccountCreate = jest.fn()
+const mockPaymentAccountUpdate = jest.fn()
+
+jest.mock('../src/common/database', () => ({
+  prisma: {
+    paymentAccount: {
+      findUnique: (...args: unknown[]) => mockPaymentAccountFindUnique(...args),
+      create: (...args: unknown[]) => mockPaymentAccountCreate(...args),
+      update: (...args: unknown[]) => mockPaymentAccountUpdate(...args),
+    },
+  },
+}))
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const {
+  PaymentAccountService,
+  UNSIGNED_TRADE_LIMIT, SIGNED_TRADE_LIMIT, ESTABLISHED_TRADE_LIMIT,
+  ESTABLISHED_TRADE_COUNT, TRUSTED_TRADE_COUNT,
+} = require('../src/modules/open-settlement/payment-account.service')
+
+describe('PaymentAccountService — hashAccountIdentifier() (RFC-021 D5, real SHA-256)', () => {
+  it('is deterministic — same inputs, same hash, every time', () => {
+    const service = new PaymentAccountService()
+    const h1 = service.hashAccountIdentifier('PIX', 'alan@example.com')
+    const h2 = service.hashAccountIdentifier('PIX', 'alan@example.com')
+    expect(h1).toBe(h2)
+    expect(h1).toMatch(/^[0-9a-f]{64}$/) // real 32-byte SHA-256 digest, hex
+  })
+
+  it('different raw identifiers produce different hashes — no collisions on realistic input', () => {
+    const service = new PaymentAccountService()
+    const h1 = service.hashAccountIdentifier('PIX', 'alan@example.com')
+    const h2 = service.hashAccountIdentifier('PIX', 'yuri@example.com')
+    expect(h1).not.toBe(h2)
+  })
+
+  it('the same raw identifier under a different payment method hashes differently — method is part of the hashed input', () => {
+    const service = new PaymentAccountService()
+    const h1 = service.hashAccountIdentifier('PIX', '12345678900')
+    const h2 = service.hashAccountIdentifier('TED', '12345678900')
+    expect(h1).not.toBe(h2)
+  })
+
+  // Cross-check against a value computed independently (Node's own
+  // crypto.createHash, not this service's own code) — proves the
+  // format string (`${paymentMethod}:${rawIdentifier}`) really is what
+  // gets hashed, not something this test would miss if the service's
+  // own implementation and this test both drifted the same way.
+  it('matches an independently-computed SHA-256 of "PIX:test-key"', () => {
+    const { createHash } = require('node:crypto')
+    const expected = createHash('sha256').update('PIX:test-key').digest('hex')
+    const service = new PaymentAccountService()
+    expect(service.hashAccountIdentifier('PIX', 'test-key')).toBe(expected)
+  })
+})
+
+describe('PaymentAccountService — getOrCreate() (RFC-021 D5)', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('creates a new PaymentAccount for a never-seen hash', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(null)
+    mockPaymentAccountCreate.mockResolvedValue({ accountHash: 'hash-1', ownerId: 'user-1', paymentMethod: 'PIX', signed: false })
+
+    const service = new PaymentAccountService()
+    const result = await service.getOrCreate('user-1', 'hash-1', 'PIX')
+
+    expect(mockPaymentAccountCreate).toHaveBeenCalledWith({
+      data: { ownerId: 'user-1', accountHash: 'hash-1', paymentMethod: 'PIX' },
+    })
+    expect(result.accountHash).toBe('hash-1')
+  })
+
+  it('is idempotent — returns the existing row for an already-known hash, does not create a duplicate', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue({ accountHash: 'hash-1', ownerId: 'user-1', paymentMethod: 'PIX', signed: true })
+
+    const service = new PaymentAccountService()
+    const result = await service.getOrCreate('user-1', 'hash-1', 'PIX')
+
+    expect(mockPaymentAccountCreate).not.toHaveBeenCalled()
+    expect(result.signed).toBe(true)
+  })
+})
+
+describe('PaymentAccountService — signPaymentAccount() (RFC-021 D1 attestation framing)', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('signs an unsigned account for real', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue({ accountHash: 'hash-1', signed: false })
+    mockPaymentAccountUpdate.mockResolvedValue({ accountHash: 'hash-1', signed: true, signedBy: 'arbiter-1' })
+
+    const service = new PaymentAccountService()
+    const result = await service.signPaymentAccount('hash-1', 'arbiter-1')
+
+    expect(mockPaymentAccountUpdate).toHaveBeenCalledWith({
+      where: { accountHash: 'hash-1' },
+      data: { signed: true, signedBy: 'arbiter-1', signedAt: expect.any(Date) },
+    })
+    expect(result.signed).toBe(true)
+  })
+
+  it('is a no-op on an already-signed account — a second attestation adds nothing', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue({ accountHash: 'hash-1', signed: true, signedBy: 'someone-else' })
+
+    const service = new PaymentAccountService()
+    const result = await service.signPaymentAccount('hash-1', 'arbiter-2')
+
+    expect(mockPaymentAccountUpdate).not.toHaveBeenCalled()
+    expect(result.signedBy).toBe('someone-else')
+  })
+})
+
+describe('PaymentAccountService — getTradeLimit() (RFC-021 D5, the real ramp)', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('an unsigned account gets the floor limit, regardless of anything else', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue({ signed: false, completedTrades: 999, chargebacks: 0 })
+    const service = new PaymentAccountService()
+    expect(await service.getTradeLimit('hash-1')).toBe(UNSIGNED_TRADE_LIMIT)
+  })
+
+  it('a freshly-signed account with few trades gets SIGNED_TRADE_LIMIT', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue({ signed: true, completedTrades: 1, chargebacks: 0 })
+    const service = new PaymentAccountService()
+    expect(await service.getTradeLimit('hash-1')).toBe(SIGNED_TRADE_LIMIT)
+  })
+
+  it(`clears to ESTABLISHED_TRADE_LIMIT at exactly ${ESTABLISHED_TRADE_COUNT} completed trades`, async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue({ signed: true, completedTrades: ESTABLISHED_TRADE_COUNT, chargebacks: 0 })
+    const service = new PaymentAccountService()
+    expect(await service.getTradeLimit('hash-1')).toBe(ESTABLISHED_TRADE_LIMIT)
+  })
+
+  it(`clears to unlimited at exactly ${TRUSTED_TRADE_COUNT} completed trades with zero chargebacks`, async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue({ signed: true, completedTrades: TRUSTED_TRADE_COUNT, chargebacks: 0 })
+    const service = new PaymentAccountService()
+    expect(await service.getTradeLimit('hash-1')).toBe('unlimited')
+  })
+
+  it('a single real chargeback permanently caps the account at SIGNED_TRADE_LIMIT, even with many completed trades — RFC-021 D5\'s own stated rule', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue({ signed: true, completedTrades: 50, chargebacks: 1 })
+    const service = new PaymentAccountService()
+    expect(await service.getTradeLimit('hash-1')).toBe(SIGNED_TRADE_LIMIT)
+  })
+})
