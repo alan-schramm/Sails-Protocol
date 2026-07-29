@@ -24,7 +24,12 @@ use case: **payment-account trust ramping**, a defense against
 chargeback/mule-account fraud that reputation-of-trader alone does not
 cover.
 
-**Status:** Proposed. Synthesized from a design session between the
+**Status:** Proposed — formal acceptance (`GOVERNANCE.md` §6A review
+step) has not happened yet, though as of 2026-07-29 every phase in
+"Reference Implementation Plan" below except D7 (explicitly deferred)
+is implemented, tested, and committed; "Proposed" describes governance
+status, not build status — see that section for what's actually real.
+Synthesized from a design session between the
 project owner, an external developer (Yuri, via 8 transcribed voice
 messages, 2026-07-29), and this session — grounded against real
 precedent (Kleros, Bisq's `Payment account age witness`/account
@@ -118,7 +123,12 @@ Replaces `TrustedArbitratorProvider`'s static list. Any participant may
 self-register as an arbiter candidate by posting collateral (D3) —
 no protocol or application approval step, matching "nem a carteira e
 nem o protocolo irá decidir quem tem poder de arbitro" (project owner,
-this session).
+this session). **Implemented** (RFC-021 Phase 1):
+`MarketArbitrationProvider.register()`/`eligibleFor()`/`assign()`
+(`market-arbitration.provider.ts`), gated behind
+`config.settlement.arbitrationMode = 'market'` (`'trusted-list'`
+remains the default — this is an opt-in per deployment, not an
+automatic upgrade).
 
 ### D3 — Reputation as slashable collateral, eligibility scaled to dispute value
 
@@ -133,14 +143,21 @@ effectiveStake(candidate) = monetaryCollateral(candidate)
 - `monetaryCollateral` — BTC/USDT posted into escrow for this
   arbitration role, refundable only if never slashed.
 - `reputationAtRisk` — a portion of the candidate's accumulated
-  arbiter-reputation score, converted to an "at-risk" value using the
-  same cost-to-fabricate floor D4 defines. Reputation is not free to
-  lose: a veteran arbiter with little capital but years of
-  non-overturned rulings has that history itself on the line, the same
-  way Bisq Easy's burned BSQ is unrecoverable capital that *is* the
-  reputation, not separate from it (verified against Bisq's own docs —
-  the BurningMan mechanism converts burned BSQ directly into standing,
-  it is not a parallel score).
+  arbiter-reputation score, converted to an "at-risk" value. Reputation
+  is not free to lose: a veteran arbiter with little capital but years
+  of non-overturned rulings has that history itself on the line, the
+  same way Bisq Easy's burned BSQ is unrecoverable capital that *is*
+  the reputation, not separate from it (verified against Bisq's own
+  docs — the BurningMan mechanism converts burned BSQ directly into
+  standing, it is not a parallel score). **Implemented** (RFC-021 Phase
+  1, `market-arbitration.provider.ts`) as
+  `reputationAtRisk = arbiterReputation × REPUTATION_STAKE_FACTOR`, a
+  flat tunable constant (starting `0.01`) — simpler than "using the
+  same cost-to-fabricate floor D4 defines," which this RFC originally
+  proposed but the real implementation does not do; `cumulativeFeesObserved`
+  (D4) and `reputationAtRisk` (D3) ended up as two independent inputs
+  the code never mixes, not one derived from the other. Corrected here
+  to match the shipped code, not the other way around.
 - **Eligibility scales to the disputed amount**: `effectiveStake ≥ k ×
   disputeValue` for a protocol/market-tunable `k`, the same
   underwriting-ratio logic real bonding/insurance already uses. This
@@ -148,11 +165,16 @@ effectiveStake(candidate) = monetaryCollateral(candidate)
   small-to-medium disputes broadly, while large disputes require deep
   capital, deep reputation, or both — professional escalation emerges
   from the math, not from anyone appointing "senior" arbiters.
+  **Implemented** (Phase 1) with `k` = `K_ELIGIBILITY`, starting `1.5`.
 - **Slashing**: an overturned ruling (D6 appeal process) burns a
   portion of `effectiveStake` — this is what makes honest ruling the
   individual-best-response strategy (a Schelling point), the one part
   of Kleros's mechanism design this RFC does keep, decoupled from its
-  plutocratic selection weighting.
+  plutocratic selection weighting. **Implemented** (RFC-021 Phase 2,
+  `MarketArbitrationProvider.slash()`): forfeits
+  `SLASH_COLLATERAL_FRACTION` (starting `0.5`) of posted collateral
+  plus a fixed reputation penalty (`OVERTURNED_PENALTY`, starting
+  `-10`, floored at 0).
 
 ### D4 — Cost-to-fabricate floor (fee-based reputation lower bound)
 
@@ -166,8 +188,36 @@ provable lower bound on what it cost to fabricate. If
 `cumulativeFeesObserved(candidate) > k × currentTradeValue`, faking the
 reputation would have cost more than the current trade is worth
 scamming — which makes the fabrication economically irrational under
-the same worst-case assumption. This composes with D3: it is one input
-into `reputationAtRisk`.
+the same worst-case assumption.
+
+**Corrected 2026-07-29 (RFC-021 Phase 0/3 implementation):** this
+section originally claimed fee collection was "already wired via
+existing settlement flows" and that `cumulativeFeesObserved` composed
+directly into D3's `reputationAtRisk`. Neither was true when written —
+verified against the real code before implementing, not assumed:
+`src/core/policy-engine.ts`'s `FeePolicy` was a literal
+`throw new Error('Not yet implemented')` stub, and no fee was ever
+computed anywhere in `escrow.service.ts`. Real fee collection needed to
+be built first (**Phase 0**, resolving that stub) before this floor
+could be anything but a formula — `config.settlement.protocolFeeRate`
+(default `0`, matching `PROTOCOL_ECONOMY.md` §6.2's documented
+bootstrap-phase "Protocol Fee is OFF" default exactly, not a new
+number), `Escrow.feeCharged`, and a `FeeDistribution` row recording the
+same 40/30/20/10 Node Operator/Treasury/Wallet Rebate/Arbitrator
+Reserve split `PROTOCOL_ECONOMY.md` §6.2 already decided — this RFC
+reuses that accepted economics, it does not re-derive new percentages.
+`User.cumulativeFeesObserved` (**Phase 3**) now accrues real
+`Escrow.feeCharged` on every completed trade
+(`common/events/handlers.ts`'s `settlement.escrow.released` reaction);
+`ArbiterProfile.cumulativeFeesObserved` accrues the same, per-arbiter,
+via `MarketArbitrationProvider.recordRuling()`. Both are real,
+queryable numbers now (`reputation.service.ts`'s `getScore()` exposes
+the trader-side one) — and both stay `0` for every participant while
+`protocolFeeRate` is `0`, which is the honest number during the
+bootstrap phase, not a bug. **D3 correction:** `cumulativeFeesObserved`
+does **not** compose into `reputationAtRisk` in the shipped code — see
+D3's own correction above; the two ended up as independent signals, not
+one feeding the other.
 
 **Known limitation, stated plainly (Yuri, audio 07 and 08):** this
 floor grows slowly relative to trade size (many small fee-paying
@@ -191,11 +241,16 @@ this, not assumed:
   limits for that account start low and increase gradually with
   signed, uncontested history — mirroring Bisq's real 0.002 BTC
   starting cap that phases in fully over time.
-- This is genuinely new schema work (`docs/BACKLOG.md`-tracked, not
-  built yet) — no `PaymentAccount` model exists in `prisma/schema.prisma`
-  today; `paymentMethod`/`paymentDetails` on `Offer` are opaque strings
-  with no age or signature tracking. Stated here explicitly rather than
-  implied to already exist.
+- **Implemented** (RFC-021 Phase 4): `PaymentAccount` model in
+  `prisma/schema.prisma`, `payment-account.service.ts`'s
+  `hashAccountIdentifier()` (server-side SHA-256, reference/test only)
+  and `@sails/sdk`'s `hashPaymentAccount()` (`@noble/hashes`, the real
+  client-side path — verified byte-identical to the server's own hash
+  via a dedicated cross-package test), and the trade-limit ramp
+  (`UNSIGNED_TRADE_LIMIT`/`SIGNED_TRADE_LIMIT`/`ESTABLISHED_TRADE_LIMIT`/
+  `TRUSTED_TRADE_COUNT`) deliberately reusing `SECURITY_MODEL.md` §1.4's
+  exact tier values (0.001/0.01/0.05 BTC, unlimited) rather than a
+  second, conflicting scale.
 
 **Known limitation, stated plainly (raised directly by the project
 owner, this session):** a patient attacker can "warm up" a mule/stolen
@@ -221,6 +276,20 @@ nodes can refuse a majority-hashpower miner" analogy the project owner
 raised: no single deep-capital actor can reliably dominate both the
 first-instance draw *and* a wider, more reputation-weighted appeal
 pool.
+
+**Implemented** (RFC-021 Phase 2): `DisputeService.appeal()` reopens a
+`RESOLVED` dispute (new `DisputeStatus.APPEALED`), draws the new
+arbiter via `MarketArbitrationProvider.assignAppealPanel()` — panel
+size `PANEL_SIZE_BASE × 2^round` (`PANEL_SIZE_BASE = 3`, Kleros's own
+real starting jury size, reused for panel size only), weighted 70%
+`arbiterReputation` / 30% `monetaryCollateral` within that panel, and
+excludes the original arbiter. An overturned ruling triggers
+`slash()` (D3); an upheld ruling slashes nothing — a denied appeal, not
+a punished one. `appealFeeRequired` (`APPEAL_FEE_MULTIPLIER × ` the
+escrow's already-collected protocol fee) is computed and returned but
+**not yet collected** — no "pay before a ruling exists" payment
+primitive is wired yet, a real, deferred gap, not a silent one (see
+`docs/BACKLOG.md`).
 
 ### D7 — Bootstrap via external trust anchors
 
@@ -274,40 +343,54 @@ Bitcoin's own well-known theoretical attacks have.
 a new implementation alongside `TrustedArbitratorProvider`, not a
 breaking change to it:
 
+**Implemented (Phases 0-4), shipped shape — the sketch above this
+correction was written before implementation and has drifted; this is
+the real, current interface, not a plan:**
+
 ```typescript
-// New: market-based ArbitrationProvider implementation (RFC-021),
-// registered alongside — not replacing — TrustedArbitratorProvider.
-// An application may still choose the static allowlist for a closed
-// deployment; this is the permissionless option.
-interface ArbiterCandidate {
-  participantId: string
-  monetaryCollateral: string          // decimal string, RFC-009
-  reputationScore: number             // arbiter-specific, separate from trader reputationScore
-  cumulativeFeesObserved: string      // D4's fabrication-cost floor input
-  registeredAt: string                // ISO 8601
+// src/modules/open-settlement/arbitration-provider.ts — unchanged base
+// interface, three new OPTIONAL methods (TrustedArbitratorProvider
+// implements none of them).
+interface ArbitrationProvider {
+  name: string
+  arbitrators: string[]
+  assign(disputeId: string, tradeId: string): Promise<string>
+  assignAppealPanel?(disputeId: string, tradeId: string, round: number, excludeParticipantId?: string): Promise<string>
+  slash?(participantId: string): Promise<unknown>
+  recordRuling?(participantId: string, feeObserved?: string): Promise<void>
 }
 
-interface MarketArbitrationProvider extends ArbitrationProvider {
-  // D2 — permissionless; no approval step beyond posting collateral.
-  register(candidate: Omit<ArbiterCandidate, 'registeredAt'>): Promise<ArbiterCandidate>
+// market-arbitration.provider.ts
+interface ArbiterCandidate {
+  participantId: string
+  monetaryCollateral: string   // decimal string, RFC-009
+  collateralAsset: string | null
+  arbiterReputation: number
+  effectiveStake: number       // monetaryCollateral + arbiterReputation * REPUTATION_STAKE_FACTOR
+}
 
-  // D3 — effectiveStake(candidate) computed here; only candidates
-  // clearing effectiveStake >= k * disputeValue are eligible.
-  eligibleFor(disputeId: string, disputeValue: string): Promise<ArbiterCandidate[]>
+class MarketArbitrationProvider implements ArbitrationProvider {
+  register(participantId: string, monetaryCollateral: string, collateralAsset?: string): Promise<ArbiterCandidate>
+  getProfile(participantId: string): Promise<ArbiterCandidate | null>
+  eligibleFor(disputeValue: string): Promise<ArbiterCandidate[]>
+  assign(disputeId: string, tradeId: string): Promise<string>
+  assignAppealPanel(disputeId: string, tradeId: string, round: number, excludeParticipantId?: string): Promise<string>
+  slash(participantId: string): Promise<ArbiterCandidate>
+  recordRuling(participantId: string, feeObserved?: string): Promise<void>
+}
 
-  // D6 — escalation; panelSize grows, panel skews toward reputationAtRisk.
-  appeal(disputeId: string, requestedBy: string): Promise<{ panel: string[]; cost: string }>
-
-  // Slashing hook — called on an overturned ruling (D3).
-  slash(arbiterId: string, disputeId: string, amount: string): Promise<void>
+// dispute.service.ts
+class DisputeService {
+  appeal(disputeId: string, requestedBy: string): Promise<{ dispute: Dispute; appealFeeRequired: string }>
 }
 ```
 
-New Prisma schema surface needed (📋 Planned, not built this pass):
 `ArbiterProfile` (collateral, arbiter-specific reputation, slash
-history) and `PaymentAccount` (D5's age-witness hash, signed status,
-current trade-limit tier). Both extend existing models
-(`User`/`Escrow`) rather than replacing them.
+tracking) and `PaymentAccount` (D5's age-witness hash, signed status,
+trade-limit-relevant counters) both exist in `prisma/schema.prisma` and
+extend `User`, not replace it. **`docs/DATABASE.md` does not document
+either model yet** — a real, tracked gap (`docs/BACKLOG.md`), not
+implied covered here.
 
 ## Backward Compatibility
 
@@ -320,28 +403,51 @@ current trade-limit tier). Both extend existing models
   using it (e.g., for a closed/regulated context that wants a curated
   list) — `MarketArbitrationProvider` is a new, additional
   implementation of the same interface.
-- No change to `Dispute`'s Prisma fields, `DisputeRuling`, or
-  `EvidenceDescriptor` (`packages/sails-p2p-schemas/src/dispute.ts`).
+- **Correction (2026-07-29):** `Dispute`'s Prisma fields **did** change
+  — D6's appeal flow needed real state to reopen a resolved dispute:
+  `DisputeStatus` gained `APPEALED`; `Dispute` gained `appealRound Int`,
+  `previousRuling DisputeRuling?`, `previousArbiterId String?`. No
+  change to `DisputeRuling`'s own values or `EvidenceDescriptor`
+  (`packages/sails-p2p-schemas/src/dispute.ts`) — this correction is
+  scoped to what actually changed, not a broader reversal.
 
 ## Reference Implementation Plan
 
-Phased, honestly tagged per this repo's ✅/🏗️/📋 convention
-(`docs/DEVELOPER_JOURNEY.md`):
+**Status as of 2026-07-29: all five phases below are implemented and
+committed** (Phase 0 real fee collection → Phase 1 D1-D3 → Phase 4 D5 →
+Phase 2 D6 → Phase 3 D4, the actual build order — not the same order
+D1-D7 are numbered in, since D5/Phase 4 was independent and D4/Phase 3
+needed Phase 0's fee data flowing first). This section originally read
+as a punch list before any of it existed; kept below with real ✅
+status per this repo's convention (`docs/DEVELOPER_JOURNEY.md`) so the
+history of what was proposed vs. what shipped stays visible, not
+overwritten.
 
-1. 📋 `ArbiterProfile` Prisma model + `register()`/`eligibleFor()` —
-   D2/D3's core registration and eligibility math, no slashing yet.
-2. 📋 `slash()` + appeal panel draw (D6) — depends on (1) existing
-   first so there is a real stake to slash.
-3. 📋 D4's `cumulativeFeesObserved` computation — depends on real fee
-   collection already being wired (it is, via existing settlement
-   flows) but needs a query surface built.
-4. 📋 `PaymentAccount` model + age-witness hash + account signing (D5)
-   — independent of (1)-(3), can be built in parallel.
-5. 📋 D7's external-trust-anchor seeding — explicitly deferred; needs
-   its own design pass once an onboarding flow is scoped, out of this
-   RFC's boundary.
+0. ✅ Real Protocol Fee collection — resolved `policy-engine.ts`'s
+   disclosed `FeePolicy` stub (a genuine prerequisite this RFC
+   surfaced, not originally one of D1-D7): `config.settlement.protocolFeeRate`
+   (default `0`), `Escrow.feeCharged`, `FeeDistribution` (the real
+   40/30/20/10 split `PROTOCOL_ECONOMY.md` §6.2 already decided).
+1. ✅ `ArbiterProfile` Prisma model + `register()`/`eligibleFor()`/
+   `assign()` (D1-D3) — `market-arbitration.provider.ts`, gated behind
+   `config.settlement.arbitrationMode`.
+2. ✅ `slash()` + `assignAppealPanel()` + `DisputeService.appeal()`
+   (D6) — built after (1), a real stake to slash.
+3. ✅ D4's `cumulativeFeesObserved`, both the trader-side
+   (`User.cumulativeFeesObserved`, wired from Phase 0's real fee data)
+   and arbiter-side (`ArbiterProfile.cumulativeFeesObserved`, via
+   `recordRuling()`'s `feeObserved` parameter) — built after Phase 0
+   gave it a real data source, exposed via `reputation.service.ts`'s
+   `getScore()`.
+4. ✅ `PaymentAccount` model + age-witness hash + account signing (D5)
+   — `payment-account.service.ts` (server reference hash) + `@sails/sdk`'s
+   `hashPaymentAccount()` (the real client-side path).
+5. 📋 D7's external-trust-anchor seeding — **still explicitly
+   deferred**, unchanged from this RFC's original scope; needs its own
+   design pass once an onboarding flow is scoped, out of this RFC's
+   boundary.
 
-None of this is built yet as of this RFC's Proposed status — this
-section is the punch list the project owner asked for ("após isso já
-vemos o que tem para ser implementado no código"), not a claim of
-completed work.
+Not built in this pass, tracked separately (`docs/BACKLOG.md`): D6's
+`appealFeeRequired` is computed but not collected (no "pay before a
+ruling exists" payment primitive exists yet); `docs/DATABASE.md` does
+not yet document `ArbiterProfile`/`PaymentAccount`.

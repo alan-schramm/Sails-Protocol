@@ -201,6 +201,28 @@ mechanism exists in code; an arbiter's incentive today is their own
 network judges unfair (`THREAT_MODEL.md`'s "Malicious Arbiter Collusion"
 entry) — reputation-as-bond, not collateral-as-bond.
 
+**Corrected 2026-07-29 (RFC-021 implementation):** the "earlier vision"
+the 2026-07-19 correction above describes as unbuilt is now real, not
+speculative — `docs/rfcs/RFC-021-market-based-arbitration-and-payment-trust.md`
+is the deliberate, documented revival of exactly that permissionless
+model, built because the original blocker ("no bonding/collateral
+mechanism exists in code") no longer applies. `MarketArbitrationProvider`
+(`open-settlement/market-arbitration.provider.ts`) implements real
+collateral-and-reputation-weighted registration (`register()`), eligibility
+(`eligibleFor()`), first-instance selection (`assign()`), a
+reputation-weighted appeal panel that grows per round (`assignAppealPanel()`),
+and real slashing on an overturned ruling (`slash()` — forfeits
+`SLASH_COLLATERAL_FRACTION` of posted collateral plus a reputation
+penalty, `docs/DATABASE.md`'s `ArbiterProfile` model). `TrustedArbitratorProvider`
+is **not deleted** — a deployment chooses between the two via
+`config.settlement.arbitrationMode` (`'trusted-list'` default,
+`'market'` opt-in), the same "off by default, explicit env var" pattern
+`MOCK_ESCROW`/`REQUIRE_DUAL_APPROVAL_RELEASE` already use. The residual
+risk this doesn't close — capital-based Sybil attacks on the market
+model itself, no closed-form solution — is disclosed in RFC-021's own
+"Known Risks — Mitigated, Not Solved" section, not implied fixed by this
+correction.
+
 ### Resolution Principles
 
 - QVAC assists analysis locally and privately — no cloud dependency (future)
