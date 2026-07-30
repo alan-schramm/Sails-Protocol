@@ -395,6 +395,38 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body).data).toEqual(expect.objectContaining({ asset: 'BTC', bids: [], asks: [] }))
     })
+
+    it('applies paymentMethod + price-range filters to the offers query (API_REFERENCE §3)', async () => {
+      mockOfferFindMany.mockResolvedValue([])
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/liquidity/offers?asset=BTC&side=SELL&paymentMethod=PIX&minPrice=60000&maxPrice=70000',
+      })
+      expect(res.statusCode).toBe(200)
+      // Filters are applied in the provider's Prisma where clause, not
+      // post-aggregation — priceUsd bounds stay decimal strings (RFC-009).
+      expect(mockOfferFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            asset: 'BTC',
+            side: 'SELL',
+            status: 'ACTIVE',
+            paymentMethod: 'PIX',
+            priceUsd: { gte: '60000', lte: '70000' },
+          }),
+        })
+      )
+    })
+
+    it('omits paymentMethod/priceUsd from the where clause when no filters are given', async () => {
+      mockOfferFindMany.mockResolvedValue([])
+      const res = await app.inject({ method: 'GET', url: '/v1/liquidity/offers?asset=BTC&side=BUY' })
+      expect(res.statusCode).toBe(200)
+      const calls = mockOfferFindMany.mock.calls
+      const where = calls[calls.length - 1][0].where
+      expect(where).not.toHaveProperty('paymentMethod')
+      expect(where).not.toHaveProperty('priceUsd')
+    })
   })
 
   describe('open-p2p — list trades (Fase 2, SDK React)', () => {
