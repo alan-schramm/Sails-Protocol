@@ -23,10 +23,38 @@
 // Filter/display + PublishOffer's *own* asset-picker in this case (see
 // data/mock.ts's `ASSETS` vs `ASSETS_FILTERABLE` and PublishOffer.tsx's
 // own comment) — same real-vs-UI-only split as `PaymentMethod` below.
+// `LN_BTC` relabeled (2026-07-29, requested directly), not renamed at
+// the type level — see ASSET_LABELS in lib/labels.ts. Confirmed against
+// lightning-hodl.provider.ts's own header comment: real Lightning
+// (plain HTLCs) has no genuine multi-party escrow primitive, so this
+// escrow type actually settles via Arkade (Ark protocol, VTXOs) under
+// the hood — same production precedent HodlHodl/Lendasat use. The
+// asset's stored value is unchanged (still `LN_BTC`); only the label
+// shown to a person now says so.
+//
+// `SPARK` deliberately excluded from `ASSETS` (data/mock.ts) as of the
+// same date, requested directly and verified first: grepped the entire
+// real backend (`src/`) for "SPARK" and found it only as a bare enum
+// value (common/types/index.ts, intentRoutes.ts's validator) — zero
+// settlement-provider wiring anywhere, unlike USDT_ERC20's confirmed
+// SAFE_GUARD_EVM path. Still a real `AssetType` value here (unchanged),
+// just not offered as tradeable in this UI.
 export type AssetType =
   | 'BTC' | 'USDT_ERC20' | 'USDT_TRC20' | 'USDT_LIQUID' | 'USDT_LIGHTNING'
   | 'LN_BTC' | 'LIQUID_BTC' | 'SPARK' | 'STACKS' | 'RSK_BTC'
   | 'DEPIX'
+  // UI-only additions (2026-07-29, requested directly) — real, named
+  // assets, not invented, none in the real prisma `AssetType` enum.
+  // ETH/BNB/SOL/LTC are each that chain's own native asset; WBTC
+  // defaults to its most common form (ERC-20 on Ethereum) absent a
+  // chain being specified; the USDC variants are chain-qualified the
+  // same way USDT_ERC20/USDT_TRC20/USDT_LIQUID already are here, since
+  // USDC itself isn't chain-specific; SBTC_STACKS/USDCX_STACKS are the
+  // Stacks ecosystem's own real assets (stacks.co/sbtc — a trust-
+  // minimized BTC peg; Circle's own xReserve-issued USDC on Stacks).
+  | 'ETH' | 'BNB' | 'SOL' | 'LTC' | 'WBTC'
+  | 'USDC_ERC20' | 'USDC_POLYGON' | 'USDC_BASE'
+  | 'SBTC_STACKS' | 'USDCX_STACKS'
 
 export type TradeSide = 'BUY' | 'SELL'
 
@@ -70,6 +98,11 @@ export type PaymentMethod =
   // except PicPay, confirmed on Binance P2P instead
   // (binance.com/en/support/announcement — "50 New Payment Methods").
   | 'WISE' | 'VENMO' | 'CASH_APP' | 'PICPAY'
+  // Peru, confirmed alongside YAPE above on El Dorado's own help center
+  // (support.eldorado.gg/en/articles/10213898-payment-methods) — Plin is
+  // a different, competing Peruvian instant-transfer app, not a Yape
+  // rebrand.
+  | 'PLIN'
 
 export type OfferStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'
 
@@ -79,7 +112,14 @@ export type OfferStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'
 // so the Marketplace filter can offer "choose your fiat" the way real
 // P2P platforms do, but it's presentation-only until the backend grows
 // a genuine multi-fiat price field — see mock.ts's own comment on Offer.
-export type FiatCurrency = 'BRL' | 'USD' | 'EUR' | 'GBP' | 'ARS' | 'MXN' | 'NGN' | 'INR'
+//
+// VES/COP/PEN/BOB/EGP added 2026-07-29 (requested directly — "moedas
+// dos países que Airtm/El Dorado têm") to match countries those two
+// platforms actually cover: Venezuela/Colombia/Peru/Bolivia
+// (help.airtm.com's own "top regions" list; El Dorado's Nequi/
+// Bancolombia/Yape/Plin support implies COP/PEN, its own blog names BOB
+// for Bolivia directly) and Egypt (Airtm's own direct-withdrawals page).
+export type FiatCurrency = 'BRL' | 'USD' | 'EUR' | 'GBP' | 'ARS' | 'MXN' | 'NGN' | 'INR' | 'VES' | 'COP' | 'PEN' | 'BOB' | 'EGP'
 
 export type TradeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DISPUTED' | 'CANCELLED'
 

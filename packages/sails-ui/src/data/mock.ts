@@ -172,11 +172,9 @@ export const CHART_DATA = Array.from({ length: 30 }, (_, i) => {
 })
 
 // The real AssetType enum (prisma/schema.prisma) — not a fictional
-// list. When the backend supports more assets (ETH, USDC, SOL, etc. —
-// none exist in the real schema today), they get added here and the
-// AssetPicker's search already scales to it with no logic change; that
-// scalability is the actual point of using a search picker instead of
-// a lateral pill row, even with only 10 assets today.
+// list. Alphabetical order (2026-07-29, requested directly) — by the
+// asset *code* itself, since AssetPicker renders the raw code, not
+// ASSET_LABELS' friendly name.
 //
 // USDT_ERC20 briefly removed from this list (2026-07-28) on a wrong
 // assumption that it had no multisig escrow path — reverted the same
@@ -185,19 +183,25 @@ export const CHART_DATA = Array.from({ length: 30 }, (_, i) => {
 // Safe multisig (buyer + seller + KMS co-signer) that's asset-agnostic
 // within EVM, not restricted to native ETH — it covers USDT_ERC20 the
 // same as `MultisigProvider` covers the Bitcoin-family assets here.
-// Alphabetical order (2026-07-29, requested directly) — by the asset
-// *code* itself, since AssetPicker renders the raw code, not
-// ASSET_LABELS' friendly name.
-export const ASSETS = ['BTC', 'LIQUID_BTC', 'LN_BTC', 'RSK_BTC', 'SPARK', 'STACKS', 'USDT_ERC20', 'USDT_LIGHTNING', 'USDT_LIQUID', 'USDT_TRC20'] as const
+//
+// SPARK removed 2026-07-29 (requested directly, verified before acting
+// this time — see types.ts's own comment) — genuinely has zero
+// settlement-provider wiring anywhere in the real backend, unlike
+// USDT_ERC20's confirmed path above.
+export const ASSETS = ['BTC', 'LIQUID_BTC', 'LN_BTC', 'RSK_BTC', 'STACKS', 'USDT_ERC20', 'USDT_LIGHTNING', 'USDT_LIQUID', 'USDT_TRC20'] as const
 
-// Adds DePix (types.ts's own comment has the full sourcing) on top of
-// the real list above, alphabetically merged in (not appended) — filter/
-// display + Marketplace's own discover() fan-out (lib/realOffers.ts),
-// never PublishOffer.tsx's real submission (that page deliberately keeps
-// importing `ASSETS`, not this). Note `LIQUID_BTC`/`USDT_LIQUID` above
-// already are "L-BTC"/the real Liquid-network USD stablecoin — no
-// separate value was needed for those.
-export const ASSETS_FILTERABLE = ['BTC', 'DEPIX', 'LIQUID_BTC', 'LN_BTC', 'RSK_BTC', 'SPARK', 'STACKS', 'USDT_ERC20', 'USDT_LIGHTNING', 'USDT_LIQUID', 'USDT_TRC20'] as const
+// Adds the UI-only assets (types.ts's own comment has the full sourcing)
+// on top of the real list above, alphabetically merged in (not
+// appended) — filter/display + Marketplace's own discover() fan-out
+// (lib/realOffers.ts), never PublishOffer.tsx's real submission (that
+// page deliberately keeps importing `ASSETS`, not this). Note
+// `LIQUID_BTC`/`USDT_LIQUID` above already are "L-BTC"/the real Liquid-
+// network USD stablecoin — no separate value was needed for those.
+export const ASSETS_FILTERABLE = [
+  'BNB', 'BTC', 'DEPIX', 'ETH', 'LIQUID_BTC', 'LN_BTC', 'LTC', 'RSK_BTC',
+  'SBTC_STACKS', 'SOL', 'STACKS', 'USDC_BASE', 'USDC_ERC20', 'USDC_POLYGON', 'USDCX_STACKS',
+  'USDT_ERC20', 'USDT_LIGHTNING', 'USDT_LIQUID', 'USDT_TRC20', 'WBTC',
+] as const
 
 // The real backend `PaymentMethod` enum (prisma/schema.prisma) exactly —
 // used anywhere a value round-trips to a real @sails/sdk call
@@ -220,7 +224,7 @@ export const PAYMENT_METHODS_FILTERABLE = [
   'ADVCASH', 'BANCOLOMBIA', 'BOLETO', 'CREDIT_DEBIT_CARD', 'CASH_APP', 'CRYPTO_DIRECT',
   'DEPIX', 'LOTERICA_DEPOSIT', 'CASH', 'MOBILE_MONEY', 'CASH_BY_MAIL', 'LIGHTNING_DIRECT',
   'MERCADO_PAGO', 'NETELLER', 'NEQUI', 'OTHER', 'PAYEER', 'PAYONEER', 'PAYPAL', 'PERFECT_MONEY',
-  'PICPAY', 'PIX', 'REVOLUT', 'SKRILL', 'TED', 'BANK_TRANSFER', 'GIFT_CARD', 'VENMO', 'WALLY',
+  'PICPAY', 'PIX', 'PLIN', 'REVOLUT', 'SKRILL', 'TED', 'BANK_TRANSFER', 'GIFT_CARD', 'VENMO', 'WALLY',
   'WEBMONEY', 'WISE', 'YAPE', 'ZELLE', 'ZINLI',
 ] as const
 
@@ -233,6 +237,13 @@ export const COUNTRIES: { code: string; label: string }[] = [
   { code: 'NG', label: 'Nigéria' },
   { code: 'IN', label: 'Índia' },
   { code: 'PT', label: 'Portugal' },
+  // Added 2026-07-29 alongside FiatCurrency's own VES/COP/PEN/BOB/EGP —
+  // see that type's comment in types.ts for the Airtm/El Dorado sourcing.
+  { code: 'VE', label: 'Venezuela' },
+  { code: 'CO', label: 'Colômbia' },
+  { code: 'PE', label: 'Peru' },
+  { code: 'BO', label: 'Bolívia' },
+  { code: 'EG', label: 'Egito' },
 ]
 
 // Threshold for the "somente comerciantes com alta reputação" filter —
