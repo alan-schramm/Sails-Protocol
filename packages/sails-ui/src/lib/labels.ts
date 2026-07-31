@@ -12,7 +12,7 @@ import type { AssetType, PaymentMethod } from '../types'
 
 export const ASSET_LABELS: Record<AssetType, string> = {
   BTC: 'Bitcoin',
-  LN_BTC: 'Bitcoin (Lightning)',
+  LN_BTC: 'Bitcoin (Ark/Arkade)',
   LIQUID_BTC: 'Bitcoin (Liquid)',
   RSK_BTC: 'Bitcoin (RSK)',
   USDT_ERC20: 'USDT (ERC-20)',
@@ -22,6 +22,16 @@ export const ASSET_LABELS: Record<AssetType, string> = {
   SPARK: 'Spark',
   STACKS: 'Stacks (STX)',
   DEPIX: 'DePix',
+  ETH: 'Ethereum',
+  BNB: 'BNB',
+  SOL: 'Solana',
+  LTC: 'Litecoin',
+  WBTC: 'Wrapped Bitcoin (WBTC)',
+  USDC_ERC20: 'USDC (ETH)',
+  USDC_POLYGON: 'USDC (Polygon)',
+  USDC_BASE: 'USDC (Base)',
+  SBTC_STACKS: 'sBTC (Stacks)',
+  USDCX_STACKS: 'USDCx (Stacks)',
 }
 
 // Compact form for space-constrained spots (an input's inline unit
@@ -29,7 +39,7 @@ export const ASSET_LABELS: Record<AssetType, string> = {
 // ("USDT (ERC-20)") would overlap typed digits.
 export const ASSET_SHORT_LABELS: Record<AssetType, string> = {
   BTC: 'BTC',
-  LN_BTC: 'BTC-LN',
+  LN_BTC: 'ARK-BTC',
   LIQUID_BTC: 'L-BTC',
   RSK_BTC: 'RSK-BTC',
   USDT_ERC20: 'USDT',
@@ -39,6 +49,16 @@ export const ASSET_SHORT_LABELS: Record<AssetType, string> = {
   SPARK: 'SPARK',
   STACKS: 'STX',
   DEPIX: 'DEPIX',
+  ETH: 'ETH',
+  BNB: 'BNB',
+  SOL: 'SOL',
+  LTC: 'LTC',
+  WBTC: 'WBTC',
+  USDC_ERC20: 'USDC',
+  USDC_POLYGON: 'USDC',
+  USDC_BASE: 'USDC',
+  SBTC_STACKS: 'sBTC',
+  USDCX_STACKS: 'USDCx',
 }
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -76,4 +96,5 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   VENMO: 'Venmo',
   CASH_APP: 'Cash App',
   PICPAY: 'PicPay',
+  PLIN: 'Plin',
 }
