@@ -15,8 +15,8 @@
     "@sails/sdk-react": "^0.1.0",
     "@tanstack/react-query": "^5.90.5",
     "next": "^16.2.12",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
@@ -24,9 +24,9 @@
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "postcss": "^8.5.24",
+    "postcss": "^8.5.25",
     "tailwindcss": "^4.3.3",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }
