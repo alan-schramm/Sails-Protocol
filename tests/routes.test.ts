@@ -395,6 +395,39 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body).data).toEqual(expect.objectContaining({ asset: 'BTC', bids: [], asks: [] }))
     })
+
+    // Real gap found auditing packages/sails-ui's Profile screen
+    // (2026-08-01): no route ever let a caller list their own offers,
+    // including non-ACTIVE ones — see liquidity.service.ts's
+    // getOffersByUser() doc comment for the full context.
+    it('rejects listing my offers without auth', async () => {
+      const res = await app.inject({ method: 'GET', url: '/v1/liquidity/offers/mine' })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it("lists the authenticated caller's own offers, including non-ACTIVE ones", async () => {
+      const token = await authedSession('user-1')
+      mockOfferFindMany.mockResolvedValueOnce([
+        { id: 'offer-1', userId: 'user-1', asset: 'BTC', side: 'SELL', status: 'ACTIVE' },
+        { id: 'offer-2', userId: 'user-1', asset: 'BTC', side: 'SELL', status: 'PAUSED' },
+      ])
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/liquidity/offers/mine',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const data = JSON.parse(res.body).data
+      expect(data).toHaveLength(2)
+      expect(data.map((o: { status: string }) => o.status)).toEqual(['ACTIVE', 'PAUSED'])
+      // Never derived from a query param — the same INV-OP-6 discipline
+      // every other participant-scoped route in this codebase follows.
+      expect(mockOfferFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'user-1' } })
+      )
+    })
   })
 
   describe('open-p2p — list trades (Fase 2, SDK React)', () => {

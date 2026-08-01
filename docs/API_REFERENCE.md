@@ -129,7 +129,9 @@ Legacy equivalents (pre-namespacing): `POST /identity/create`, `GET
 |---|---|---|
 | GET | `/v1/liquidity/offers` | List offers, filterable by asset/side/paymentMethod/price range |
 | POST | `/v1/liquidity/offers` | Publish a new offer |
+| GET | `/v1/liquidity/offers/id/:id` | Single offer, including the seller's public profile fields |
 | GET | `/v1/liquidity/offers/:asset/book` | Order book: bids + asks + spread for one asset |
+| GET | `/v1/liquidity/offers/mine` | *(new 2026-08-01)* The authenticated caller's own offers, including non-ACTIVE ones — never a query param, always derived from the session |
 | PATCH | `/v1/liquidity/offers/:id/status` | Pause / activate / cancel an offer |
 | POST | `/v1/liquidity/match` | Find the best match for a given Intent |
 

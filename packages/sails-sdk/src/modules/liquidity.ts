@@ -111,6 +111,18 @@ export class SailsLiquidityModule {
     return this.transport.patch<Offer>(`/v1/liquidity/offers/${offerId}/status`, { status }, true)
   }
 
+  /**
+   * The authenticated caller's own offers — including non-ACTIVE ones
+   * (paused/completed/cancelled), unlike discover(). Real, persisted
+   * Offer rows, not the LiquidityOffer aggregation summary discover()/
+   * book() return. Additive method (docs/API_STABLE.md's freeze allows
+   * new methods) — added for a real caller (packages/sails-ui's Profile
+   * screen, 2026-08-01), not speculatively.
+   */
+  async getMyOffers(): Promise<Offer[]> {
+    return this.transport.get<Offer[]>('/v1/liquidity/offers/mine', undefined, true)
+  }
+
   // findBestMatch() (liquidity.service.ts) also returns a
   // LiquidityOfferSummary, not a persisted Offer — same class of bug as
   // discover()/book() above, same fix.

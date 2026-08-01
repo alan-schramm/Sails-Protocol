@@ -239,6 +239,24 @@ export class LiquidityRouter {
     return offer
   }
 
+  // Real gap found auditing packages/sails-ui's Profile screen
+  // (2026-08-01): "Minhas Ofertas" read lib/offersStore.ts/localStorage
+  // instead of the real backend, so a just-published offer never showed
+  // up on the publisher's own profile. No route/service method existed
+  // to list a participant's own offers — discover()/getAggregatedOffers()
+  // only ever filter by asset+side, never by userId, and intentionally
+  // exclude non-ACTIVE offers (a user's own paused/completed/cancelled
+  // offers must still be visible to them). Returns the raw persisted
+  // Offer rows (not the LiquidityOffer aggregation summary) — same
+  // shape getOffer() above already returns, since a self-view needs
+  // status/createdAt/etc., not an aggregation-only summary.
+  async getOffersByUser(userId: string) {
+    return prisma.offer.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    })
+  }
+
   async updateOfferStatus(offerId: string, status: OfferStatus, triggeredBy: string) {
     const offer = await prisma.offer.findUnique({ where: { id: offerId } })
     if (!offer) throw new NotFoundError('Offer', offerId)
