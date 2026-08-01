@@ -22,6 +22,7 @@ import { prisma } from '../../common/database'
 import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { escrowService } from './escrow.service'
+import type { AssetType } from '../../common/types'
 import type { ArbitrationProvider } from './arbitration-provider'
 import type { EvidenceDescriptor, DisputeRuling } from '@sails/p2p-schemas'
 
@@ -29,12 +30,20 @@ import type { EvidenceDescriptor, DisputeRuling } from '@sails/p2p-schemas'
 // baseline (1-2% of the disputed amount, charged as Escrow.feeCharged by
 // escrow.service.ts's Phase 0 fee collection) multiplied per round, the
 // same "escalating cost discourages frivolous appeals" reasoning Kleros
-// uses for its own appeal rounds. Informational only today:
-// appealFeeRequired is computed and returned so a caller/wallet UI can
-// display/require it, but this service does not itself collect payment —
-// no escrow/payment primitive for "pay before a ruling exists" is wired
-// yet (a real, documented gap, not a silent one — RFC-021's own "Known
-// Risks" section and BACKLOG.md should list this alongside Phase 5).
+// uses for its own appeal rounds.
+//
+// Real charge as of 2026-08-01 (BACKLOG.md P0, closed) — appeal() now
+// persists this as a real DisputeAppealFee row, and resolveDispute()
+// settles its outcome (FORFEITED on a denied/frivolous appeal, REFUNDED
+// on an overturn). Same "computed and persisted, not actually routed
+// on-chain" realness as the Protocol Fee itself already has
+// (escrow.service.ts's chargeProtocolFee() doesn't move funds anywhere
+// either — no SettlementProvider here has a real configured treasury/
+// arbitrator-reserve address to send anything to). A real on-chain
+// appeal-fee lock (the appellant actually posting collateral before the
+// panel convenes) is a separate, larger undertaking blocked on the same
+// missing treasury infrastructure the Protocol Fee itself already is —
+// not attempted here.
 export const APPEAL_FEE_MULTIPLIER = 2
 
 export class DisputeService {
@@ -210,6 +219,26 @@ export class DisputeService {
       await this.arbitrationProvider.slash(dispute.previousArbiterId)
     }
 
+    // RFC-021 D6 — real appeal-fee settlement, closing the "computed and
+    // returned but never collected" gap (appeal()'s own doc comment,
+    // BACKLOG.md). Only appealed disputes (appealRound > 0) have a fee
+    // row to settle at all. Same comparison the slashing check above
+    // already makes: the appeal panel reaching the SAME ruling means the
+    // appeal was denied (frivolous) — FORFEITED, the real cost this fee
+    // exists to impose; a different ruling means the appellant was right
+    // to appeal — REFUNDED. Real bookkeeping, not a simulated one — same
+    // "computed and persisted, not actually routed on-chain" precedent
+    // chargeProtocolFee() (escrow.service.ts) already established for
+    // the Protocol Fee itself: no SettlementProvider here has a real
+    // configured treasury/arbitrator-reserve address to move anything to.
+    if (dispute.appealRound > 0) {
+      const outcome = dispute.previousRuling && dispute.previousRuling !== ruling ? 'REFUNDED' : 'FORFEITED'
+      await prisma.disputeAppealFee.updateMany({
+        where: { disputeId, appealRound: dispute.appealRound, outcome: null },
+        data: { outcome, settledAt: new Date() },
+      })
+    }
+
     return updated
   }
 
@@ -253,6 +282,23 @@ export class DisputeService {
     const escrow = await prisma.escrow.findUnique({ where: { id: dispute.escrowId } })
     const baseFee = escrow?.feeCharged ? Number(escrow.feeCharged) : 0
     const appealFeeRequired = (baseFee * APPEAL_FEE_MULTIPLIER).toFixed(8)
+
+    // Real charge, not just a computed-and-returned number — closes the
+    // gap this file's own header comment on APPEAL_FEE_MULTIPLIER used
+    // to disclose ("this service does not itself collect payment").
+    // resolveDispute() settles this row's outcome (FORFEITED/REFUNDED)
+    // once the appeal panel rules. @@unique([disputeId, appealRound]) on
+    // the model means a concurrent double-appeal for the same round
+    // fails here with a real P2002 rather than double-charging.
+    await prisma.disputeAppealFee.create({
+      data: {
+        disputeId,
+        appealRound: nextRound,
+        requestedBy,
+        amount: appealFeeRequired,
+        asset: (escrow?.asset ?? 'BTC') as AssetType,
+      },
+    })
 
     const updated = await prisma.dispute.update({
       where: { id: disputeId },

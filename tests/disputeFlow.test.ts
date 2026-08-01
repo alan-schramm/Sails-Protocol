@@ -15,6 +15,10 @@ const mockDisputeCreate = jest.fn()
 const mockDisputeFindUnique = jest.fn()
 const mockDisputeUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
+// RFC-021 D6 real appeal-fee collection (2026-08-01) — appeal() charges
+// one of these per appeal round, resolveDispute() settles its outcome.
+const mockDisputeAppealFeeCreate = jest.fn().mockResolvedValue({ id: 'appeal-fee-1' })
+const mockDisputeAppealFeeUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -23,6 +27,10 @@ jest.mock('../src/common/database', () => ({
       create: (...args: unknown[]) => mockDisputeCreate(...args),
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
       update: (...args: unknown[]) => mockDisputeUpdate(...args),
+    },
+    disputeAppealFee: {
+      create: (...args: unknown[]) => mockDisputeAppealFeeCreate(...args),
+      updateMany: (...args: unknown[]) => mockDisputeAppealFeeUpdateMany(...args),
     },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
   },
@@ -251,6 +259,72 @@ describe('DisputeService — appeal() (RFC-021 D6)', () => {
       expect.objectContaining({ disputeId: 'dispute-1', tradeId: 'trade-1', round: 1, newArbiterId: 'new-arbiter' }),
       'trade-1'
     )
+    // Real charge (2026-08-01), not just a computed-and-returned number —
+    // see dispute.service.ts's own header comment on APPEAL_FEE_MULTIPLIER.
+    expect(mockDisputeAppealFeeCreate).toHaveBeenCalledWith({
+      data: {
+        disputeId: 'dispute-1',
+        appealRound: 1,
+        requestedBy: 'seller-1',
+        amount: '2.00000000',
+        asset: 'BTC',
+      },
+    })
+  })
+})
+
+// RFC-021 D6 real appeal-fee settlement (2026-08-01) — resolveDispute()'s
+// other new behavior alongside the slashing block above, same
+// dispute.previousRuling-vs-ruling comparison, different outcome table.
+describe('DisputeService — resolveDispute() appeal-fee settlement (RFC-021 D6)', () => {
+  const { provider: marketProvider } = marketProviderStub()
+  const marketService = new DisputeService(marketProvider as any)
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: null })
+  })
+
+  it('forfeits the appeal fee when the panel upholds the original ruling (denied, frivolous appeal)', async () => {
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'new-arbiter', status: 'APPEALED',
+      previousRuling: 'RELEASE', previousArbiterId: 'original-arbiter', appealRound: 1,
+    })
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
+
+    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'RELEASE', 'bc1qbuyer')
+
+    expect(mockDisputeAppealFeeUpdateMany).toHaveBeenCalledWith({
+      where: { disputeId: 'dispute-1', appealRound: 1, outcome: null },
+      data: { outcome: 'FORFEITED', settledAt: expect.any(Date) },
+    })
+  })
+
+  it('refunds the appeal fee when the panel overturns the original ruling', async () => {
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'new-arbiter', status: 'APPEALED',
+      previousRuling: 'RELEASE', previousArbiterId: 'original-arbiter', appealRound: 1,
+    })
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
+
+    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'REFUND')
+
+    expect(mockDisputeAppealFeeUpdateMany).toHaveBeenCalledWith({
+      where: { disputeId: 'dispute-1', appealRound: 1, outcome: null },
+      data: { outcome: 'REFUNDED', settledAt: expect.any(Date) },
+    })
+  })
+
+  it('does not touch appeal-fee settlement on an ordinary first-instance (non-appeal) resolution', async () => {
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED',
+      previousRuling: null, previousArbiterId: null, appealRound: 0,
+    })
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
+
+    await marketService.resolveDispute('dispute-1', 'arbiter-1', 'REFUND')
+
+    expect(mockDisputeAppealFeeUpdateMany).not.toHaveBeenCalled()
   })
 })
 

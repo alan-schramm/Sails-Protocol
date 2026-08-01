@@ -384,6 +384,47 @@ implementation, `arbitration-provider.ts`), and notifies via
 `dispute.opened` on the Event Bus; `resolveDispute()` maps
 `RELEASE`/`REFUND` onto the existing escrow release/refund paths).
 
+**Gap found 2026-08-01, not fixed here (out of scope for this pass):**
+the `Dispute` model above already predates RFC-021 D6's real fields —
+`DisputeStatus` is also missing `APPEALED`, and the model itself is
+missing `appealRound`/`previousRuling`/`previousArbiterId`/`appealFees`.
+`BACKLOG.md`'s own P0 row already flags `DATABASE.md` missing
+`ArbiterProfile`/`PaymentAccount` similarly — add this to that same
+backlog item rather than treating it as newly discovered here.
+
+### `DisputeAppealFee` — owned by `opensettlement`, RFC-021 D6's real appeal-fee charge (closed 2026-08-01)
+
+```prisma
+model DisputeAppealFee {
+  id          String    @id @default(uuid())
+  disputeId   String
+  dispute     Dispute   @relation(fields: [disputeId], references: [id])
+  appealRound Int       // which appeal round this charge is for — a Dispute can be appealed more than once
+  requestedBy String    // the appellant (participantId) — dispute.service.ts's appeal() caller
+  amount      Decimal   @db.Decimal(24, 8)
+  asset       AssetType
+  outcome     String?   // 'FORFEITED' | 'REFUNDED', set by resolveDispute(); null while pending
+  settledAt   DateTime?
+  moduleId    String    @default("opensettlement")
+  protocolVersion String @default("0.1")
+  createdAt   DateTime  @default(now())
+
+  @@unique([disputeId, appealRound])
+  @@map("dispute_appeal_fees")
+}
+```
+
+Same "computed and persisted, not actually routed on-chain" realness the
+Protocol Fee itself already has (`FeeDistribution` below/`escrow.service.ts`'s
+`chargeProtocolFee()`) — no `SettlementProvider` in this codebase has a
+real configured treasury/arbitrator-reserve address to send anything to.
+`appeal()` creates one row per round; `resolveDispute()` sets `outcome`
+once the appeal panel rules (`FORFEITED` on a denied/frivolous appeal,
+`REFUNDED` on an overturn). `outcome` is a plain `String`, not a new
+Prisma enum, for a 2-value field this narrow — the same "free-form
+string, enforced in code" choice `Claim.claimType`/`Message.msgType`
+already make elsewhere in this schema.
+
 ### `Intent`, `IntentEvent` — Core, first implementation (03-implementation_plan.md MVP)
 
 ```prisma
