@@ -288,6 +288,7 @@ model Dispute {
   appealRound       Int             @default(0)
   previousRuling    DisputeRuling?
   previousArbiterId String?
+  appealFees        DisputeAppealFee[]
   moduleId   String         @default("opensettlement")
   protocolVersion String    @default("0.1")
   createdAt  DateTime       @default(now())
@@ -313,6 +314,41 @@ model Dispute {
   @@index([escrowId])
   @@index([status])
   @@map("disputes")
+}
+
+// RFC-021 D6 — real appeal-fee collection (BACKLOG.md P0, closed
+// 2026-08-01). Real bookkeeping, same "computed and persisted, not
+// actually routed on-chain" precedent FeeDistribution above already
+// established for the Protocol Fee: no SettlementProvider in this
+// codebase has a real configured treasury/arbitrator-reserve address to
+// send anything to (chargeProtocolFee() doesn't move funds either — it
+// only records who's owed what share). appealFeeRequired used to be
+// computed and returned but never persisted anywhere; this is that
+// persistence. One row per appeal round (a Dispute can be appealed more
+// than once, appealRound incrementing each time) — @@unique enforces
+// exactly one charge per round, not one per Dispute for its whole
+// lifetime.
+model DisputeAppealFee {
+  id          String    @id @default(uuid())
+  disputeId   String
+  dispute     Dispute   @relation(fields: [disputeId], references: [id])
+  appealRound Int
+  requestedBy String    // the appellant (participantId) — dispute.service.ts's appeal() caller
+  amount      Decimal   @db.Decimal(24, 8)
+  asset       AssetType
+  // Set once the appeal resolves: FORFEITED (the appeal panel upheld the
+  // original ruling — the appellant's appeal was denied, same "cost of a
+  // frivolous appeal" this fee exists to be) or REFUNDED (the appeal
+  // overturned the original ruling — the appellant was right to appeal).
+  // Null while the appeal is still pending.
+  outcome     String?
+  settledAt   DateTime?
+  moduleId    String    @default("opensettlement")
+  protocolVersion String @default("0.1")
+  createdAt   DateTime  @default(now())
+
+  @@unique([disputeId, appealRound])
+  @@map("dispute_appeal_fees")
 }
 
 // RFC-021 D1-D3 (`rfcs/RFC-021-market-based-arbitration-and-payment-trust.md`)
