@@ -26,3 +26,22 @@ export function bytesToHex(bytes: Uint8Array): string {
 export function utf8ToBytes(text: string): Uint8Array {
   return new TextEncoder().encode(text)
 }
+
+// `btoa`/`atob` (not `Buffer`, same cross-environment reasoning as this
+// file's header) operate on binary strings, not `Uint8Array` — the
+// per-byte `String.fromCharCode`/`charCodeAt` loop is the standard,
+// dependency-free bridge between the two. Fine for chat-message-sized
+// payloads (chat-encryption.ts's only caller); not intended for large
+// binary blobs.
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
+
+export function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
