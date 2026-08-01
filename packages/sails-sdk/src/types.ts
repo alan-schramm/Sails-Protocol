@@ -257,6 +257,18 @@ export interface PeerStatus {
 
 // RFC-005 (rfcs/RFC-005-capability-model.md) — the permission-grant side
 // of the Capability model; RFC-013 gives it a real backing route.
+//
+// Checked 2026-08-01 against docs/PROTOCOL_SPECIFICATION.md's own
+// "spec-vs-implementation drift" note (2026-07-19), which claims the
+// real API returns `id`, not `grantId` — traced directly against
+// src/core/capability-registry.ts and that claim is false: `grant()`/
+// `listGrants()` both return through `toCapabilityGrant()`, which
+// explicitly maps the Prisma row's `id` column to `grantId` in the
+// response (`src/common/types/capability.ts`'s own `CapabilityGrant`
+// type confirms `grantId` is the real, intentional public field name —
+// the Prisma column name is an internal storage detail, not the API
+// contract). `grantId` below was already correct; left unchanged. See
+// that doc's note for the correction.
 export interface CapabilityGrant {
   grantId: string
   grantedTo: string

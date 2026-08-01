@@ -743,21 +743,21 @@ its own participant-facing lifecycle, cross-cutting):
   `AgentScope` (section 1.7) and `verificationLevel` (section 1.1) are
   both concrete uses of `CapabilityGrant`, unified under one mechanism.
 
-  **Spec-vs-implementation drift found 2026-07-19 (consolidation
-  audit):** the interface above — RFC-005's own design, `grantId` —
-  disagrees with what actually shipped. The real Prisma model
-  (`DATABASE.md`, `prisma/schema.prisma`) and the real
-  `GET`/`POST /v1/capabilities` routes
-  (`capability.routes.ts`) both name this field `id`, not `grantId`; the
-  SDK's `CapabilityGrant` type (`SDK_GUIDE.md`, `packages/sails-sdk/src/types.ts`)
-  copied the design interface's `grantId` rather than the real API
-  response shape it actually receives. **Callers integrating against the
-  real API today should expect `id`, not `grantId`, on every
-  `CapabilityGrant` response** until this is reconciled one way or the
-  other (renaming the live column and every consumer, or updating this
-  interface and the SDK type to match reality) — tracked in `TODO.md`'s
-  consolidation-pass entry rather than silently fixed here, since it's a
-  real API contract, not a documentation phrasing choice.
+  **Spec-vs-implementation drift claimed 2026-07-19 (consolidation
+  audit), corrected 2026-08-01 — the claim itself was wrong.** The
+  2026-07-19 note said the real API returns `id`, not `grantId`, based
+  on the Prisma model column name (`prisma/schema.prisma`) and the route
+  file's own `:grantId` URL parameter — but never traced as far as
+  `src/core/capability-registry.ts`'s `toCapabilityGrant()`, which
+  explicitly maps the Prisma row's `id` column to `grantId` before any
+  `CapabilityGrant` response leaves the server. Checked directly against
+  that mapper (and `src/common/types/capability.ts`'s own
+  `CapabilityGrant` type, which already agreed with this interface): the
+  real, live API has always returned `grantId`, exactly matching this
+  section's interface. The SDK's `CapabilityGrant` type
+  (`packages/sails-sdk/src/types.ts`) was never wrong and needed no
+  change — the Prisma column being named `id` is an internal storage
+  detail, not the public API contract.
 - **Policy** is declarative configuration (fee rates, trust-limit tables,
   routing weights), not something created/negotiated/settled between
   parties. It lives in the **Policy / Rules Engine**, another named Core

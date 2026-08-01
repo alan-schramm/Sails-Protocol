@@ -25,6 +25,10 @@ describe('SailsCapabilitiesModule', () => {
 
     const grant = await capabilities.register({ capabilityName: 'trade-coordination', scope: ['a'] })
 
+    // Checked 2026-08-01 (see types.ts's own comment on CapabilityGrant):
+    // `grantId` is correct — capability-registry.ts's toCapabilityGrant()
+    // really does map the Prisma row's `id` to `grantId` before this
+    // response ever leaves the server.
     expect(grant.grantId).toBe('grant-1')
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/capabilities/register')

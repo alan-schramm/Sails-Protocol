@@ -1192,15 +1192,15 @@ makes the same point in more detail.
          - `EscrowType` was missing `WDK_USDT_EVM` — a real, tested,
            live settlement provider — from its independently-spelled-out
            listing in `DATABASE.md` and `SDK_GUIDE.md`.
-         - `CapabilityGrant.grantId` vs. the real API's `id`: RFC-005's
-           own design interface (copied verbatim into
-           `PROTOCOL_SPECIFICATION.md` and `SDK_GUIDE.md`) names the
-           field `grantId`; the real Prisma model and the real
-           `capability.routes.ts` both call it `id`. **Not silently
-           renamed** — flagged in both docs as a live spec-vs-
-           implementation drift needing a real decision (rename the
-           column, or update the interface/SDK type), not something a
-           documentation pass should resolve unilaterally.
+         - `CapabilityGrant.grantId` vs. the real API's `id` — **claim
+           corrected 2026-08-01, it was wrong.** This row used to claim
+           the real API returns `id`, based on the Prisma column name
+           and the route's `:grantId` URL param, without tracing as far
+           as `core/capability-registry.ts`'s `toCapabilityGrant()`,
+           which explicitly maps `id` -> `grantId` before any response
+           leaves the server. The real, live API has always returned
+           `grantId` — `PROTOCOL_SPECIFICATION.md` and the SDK type were
+           never wrong; no code or interface change was needed.
          - `00-INDEX.md`'s "expected not to resolve" citation list was
            missing two internal-planning documents (
            `03-implementation_plan.md`, `04-Deepseek Review.md`) cited
