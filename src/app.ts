@@ -24,6 +24,7 @@ import { relayRoutes } from './infrastructure/p2p/relay.routes'
 import { reputationRoutes } from './modules/open-reputation/reputation.routes'
 import { capabilityRoutes } from './modules/open-agents/capability.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
+import { escrowService } from './modules/open-settlement/escrow.service'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -246,6 +247,24 @@ export async function startServer() {
     Do NOT use with real value at risk. See CRYPTOGRAPHIC_MODEL.md §5
     and rfcs/RFC-019-settlement-custody-reference-vs-normative.md.
     `)
+  }
+
+  // BACKLOG.md P0, "Escrow timelock proactive sweeper" — off by default,
+  // see config/index.ts's own comment for why. `unref()`'d so a running
+  // sweeper never keeps the process alive on its own; the process's
+  // normal `shutdown()` above already calls `process.exit(0)` directly,
+  // which terminates regardless of any pending interval either way.
+  if (config.features.escrowTimelockSweeper) {
+    const sweepInterval = setInterval(() => {
+      escrowService.sweepExpiredEscrows()
+        .then(({ refunded, failed }) => {
+          if (refunded.length || failed.length) {
+            console.log(`[escrow-sweeper] refunded ${refunded.length} expired escrow(s), ${failed.length} failed`)
+          }
+        })
+        .catch((err) => console.error('[escrow-sweeper] sweep failed:', err instanceof Error ? err.message : err))
+    }, config.trade.timelockSweepIntervalMs)
+    sweepInterval.unref()
   }
 
   return app

@@ -980,6 +980,49 @@ export class EscrowService {
     if (!escrow) throw new NotFoundError('Escrow for trade', tradeId)
     return escrow
   }
+
+  // Real gap found (BACKLOG.md P0, "Escrow timelock proactive sweeper"):
+  // lockFunds() computes and stores a real Escrow.expiresAt, but nothing
+  // ever read it back — a FUNDS_LOCKED escrow whose counterparty never
+  // returns stayed locked forever, with no automatic path back to
+  // REFUNDED. This is the "notice time has passed" trigger that row
+  // said was the only missing piece; refundFunds() itself already
+  // existed and is reused unchanged below.
+  //
+  // triggeredBy is always the trade's own sellerId, never a fabricated
+  // "system" actor — isSellerOrAssignedArbiter() only accepts the real
+  // seller or an assigned arbiter (INV-OP-1), and a timelock refund
+  // returns the seller their own locked collateral, the same effect the
+  // seller could trigger themselves by calling this route directly once
+  // expiresAt has passed. This mirrors settlement-orchestrator.ts's own
+  // `sellerTriggeredBy` precedent for automated, non-human-initiated
+  // calls into this same method.
+  //
+  // Per-escrow try/catch, same "one failure must not stop the rest"
+  // shape as getAggregatedOffers() (liquidity.service.ts) — a single
+  // stuck/already-transitioning escrow must not block every other
+  // legitimately expired one in the same sweep.
+  async sweepExpiredEscrows(): Promise<{ refunded: string[]; failed: Array<{ escrowId: string; error: string }> }> {
+    const expired = await prisma.escrow.findMany({
+      where: { status: 'FUNDS_LOCKED', expiresAt: { lt: new Date() } },
+    })
+
+    const refunded: string[] = []
+    const failed: Array<{ escrowId: string; error: string }> = []
+
+    for (const escrow of expired) {
+      try {
+        const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+        if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+        await this.refundFunds(escrow.id, trade.sellerId)
+        refunded.push(escrow.id)
+      } catch (err) {
+        failed.push({ escrowId: escrow.id, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+
+    return { refunded, failed }
+  }
 }
 
 export const escrowService = new EscrowService()
