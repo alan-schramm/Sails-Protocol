@@ -280,13 +280,14 @@ interface TradeIntent {
 type SettlementType = 'MOCK' | 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM'
 
 // RFC-005 (rfcs/RFC-005-capability-model.md) — the permission-grant side
-// of the Capability model; real as of RFC-013. Field-name drift found
-// 2026-07-19 (consolidation audit): RFC-005's own design named this
-// field `grantId`, copied here verbatim — but the real Prisma model and
-// the real GET/POST /v1/capabilities routes both call it `id`. Expect
-// `id` from the actual API today; `grantId` below matches the design
-// doc, not (yet) the live response shape. See PROTOCOL_SPECIFICATION.md
-// §1.10 for the full note and TODO.md for the reconciliation this needs.
+// of the Capability model; real as of RFC-013. A 2026-07-19 audit
+// claimed a field-name drift here (real API returns `id`, not
+// `grantId`) — corrected 2026-08-01: that claim was wrong. It missed
+// that core/capability-registry.ts's toCapabilityGrant() maps the
+// Prisma row's `id` column to `grantId` before any response leaves the
+// server — the real, live API has always returned `grantId`, exactly
+// matching this interface. See PROTOCOL_SPECIFICATION.md §1.10 for the
+// full correction.
 interface CapabilityGrant {
   grantId: string
   grantedTo: string
