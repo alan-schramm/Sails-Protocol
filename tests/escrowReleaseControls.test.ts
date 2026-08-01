@@ -74,6 +74,7 @@ jest.mock('@arkade-os/sdk', () => ({
 jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 
 const mockEscrowFindUnique = jest.fn()
+const mockEscrowFindMany = jest.fn().mockResolvedValue([])
 const mockEscrowUpdate = jest.fn()
 // Robustness-audit fix (2026-07-20) — escrow.service.ts's mutating
 // methods now claim their status transition atomically via updateMany()
@@ -105,6 +106,7 @@ jest.mock('../src/common/database', () => ({
   prisma: {
     escrow: {
       findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
+      findMany: (...args: unknown[]) => mockEscrowFindMany(...args),
       update: (...args: unknown[]) => mockEscrowUpdate(...args),
       updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
       create: (...args: unknown[]) => mockEscrowCreate(...args),
@@ -524,5 +526,96 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       const result = await escrowService.openDispute('escrow-1', 'seller-1', 'reason')
       expect(result.status).toBe('DISPUTED')
     })
+  })
+})
+
+// BACKLOG.md P0, "Escrow timelock proactive sweeper" — the "notice time
+// has passed" trigger for the already-real refundFunds() above.
+// triggeredBy is always the trade's own sellerId, never a fabricated
+// actor — see sweepExpiredEscrows()'s own doc comment for the full
+// INV-OP-1 reasoning.
+describe('escrowService.sweepExpiredEscrows', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = true
+    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+    mockDisputeFindFirst.mockResolvedValue(null)
+  })
+
+  it('queries only FUNDS_LOCKED escrows past their own expiresAt', async () => {
+    mockEscrowFindMany.mockResolvedValue([])
+
+    await escrowService.sweepExpiredEscrows()
+
+    expect(mockEscrowFindMany).toHaveBeenCalledWith({
+      where: { status: 'FUNDS_LOCKED', expiresAt: { lt: expect.any(Date) } },
+    })
+  })
+
+  it("refunds every expired escrow, attributing triggeredBy to that trade's own seller", async () => {
+    mockEscrowFindMany.mockResolvedValue([
+      { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' },
+      { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED' },
+    ])
+    mockTradeFindUnique.mockImplementation(({ where: { id } }: { where: { id: string } }) =>
+      Promise.resolve(
+        id === 'trade-1'
+          ? { id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' }
+          : { id: 'trade-2', buyerId: 'buyer-2', sellerId: 'seller-2' }
+      )
+    )
+    mockEscrowFindUnique.mockImplementation(({ where: { id } }: { where: { id: string } }) =>
+      Promise.resolve(
+        id === 'escrow-1'
+          ? { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' }
+          : { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED' }
+      )
+    )
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
+
+    const result = await escrowService.sweepExpiredEscrows()
+
+    expect(result.refunded.sort()).toEqual(['escrow-1', 'escrow-2'])
+    expect(result.failed).toEqual([])
+    // Both real refundFunds() calls went through the seller-ownership
+    // check for real (isPartyOrAgent(triggeredBy, sellerId)) — not
+    // mocked/bypassed — proving the sweep really does attribute each
+    // refund to its own trade's own seller, not a shared/fabricated id.
+    expect(mockEscrowUpdateMany).toHaveBeenCalledTimes(2)
+  })
+
+  it('a failure on one expired escrow does not stop the sweep from refunding the rest', async () => {
+    mockEscrowFindMany.mockResolvedValue([
+      { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' },
+      { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED' },
+    ])
+    mockTradeFindUnique.mockImplementation(({ where: { id } }: { where: { id: string } }) =>
+      Promise.resolve(
+        id === 'trade-1'
+          ? { id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' }
+          : { id: 'trade-2', buyerId: 'buyer-2', sellerId: 'seller-2' }
+      )
+    )
+    mockEscrowFindUnique.mockImplementation(({ where: { id } }: { where: { id: string } }) =>
+      Promise.resolve(
+        id === 'escrow-1'
+          ? { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' }
+          : { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED' }
+      )
+    )
+    // escrow-1 lost the atomic-claim race (a concurrent request already
+    // transitioned it) — refundFunds() throws for it specifically, the
+    // same real error a concurrent HTTP caller would hit.
+    mockEscrowUpdateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 })
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
+
+    const result = await escrowService.sweepExpiredEscrows()
+
+    expect(result.refunded).toEqual(['escrow-2'])
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0].escrowId).toBe('escrow-1')
+    expect(result.failed[0].error).toMatch(/already transitioned/)
   })
 })

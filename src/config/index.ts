@@ -120,10 +120,26 @@ export const config = {
     // deployment that hasn't opted in should not pay for or wait on a
     // local model call on every single chat message.
     socialEngineeringDetection: process.env.SOCIAL_ENGINEERING_DETECTION === 'true',
+    // BACKLOG.md P0, "Escrow timelock proactive sweeper" — was a real,
+    // named gap: escrow.service.ts's lockFunds() always computed and
+    // stored a real Escrow.expiresAt, but nothing ever read it back, so
+    // a FUNDS_LOCKED escrow whose counterparty never returned stayed
+    // locked forever. Default false for the same reason every other
+    // flag in this file defaults false: no test or deployment in this
+    // repo's history has ever run a background process that moves funds
+    // on a timer, and turning this on is a real behavior change (an
+    // abandoned trade now auto-refunds instead of staying stuck) that a
+    // deployment should opt into deliberately, not inherit silently.
+    escrowTimelockSweeper: process.env.ESCROW_TIMELOCK_SWEEPER === 'true',
   },
 
   trade: {
     defaultTimelockHours: parseInt(process.env.DEFAULT_TIMELOCK_HOURS ?? '24', 10),
+    // How often the sweeper above (when enabled) checks for expired
+    // FUNDS_LOCKED escrows. 5 minutes by default — frequent enough that
+    // a real abandoned trade doesn't sit stuck for hours, infrequent
+    // enough that it's not a meaningful query load on its own.
+    timelockSweepIntervalMs: parseInt(process.env.ESCROW_TIMELOCK_SWEEP_INTERVAL_MS ?? '300000', 10),
   },
 
   // Sails OpenProof (proof.service.ts) — Fase 1 Task 3(c). Evidence
