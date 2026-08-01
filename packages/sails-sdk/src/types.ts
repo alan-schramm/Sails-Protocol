@@ -128,6 +128,22 @@ export interface Escrow {
   updatedAt: string
 }
 
+// Sails OpenProof (RFC-006, PROTOCOL_SPECIFICATION.md §1.8) — real as of
+// proof.service.ts (2026-07-21). Mirrors the persisted Proof row exactly
+// (prisma/schema.prisma's Proof model): `evidenceHash` is always the
+// server's own sha256(canonicalize(evidence)), never client-supplied
+// (proof.service.ts's own submitProof() doc comment has the full
+// forgery-resistance reasoning) — that field is real proof integrity,
+// not decoration.
+export interface Proof {
+  id: string
+  claimId: string
+  evidence: unknown
+  evidenceHash: string
+  submittedBy: string
+  submittedAt: string
+}
+
 // Phase 2 (2026-07-27) — the in-flight signature-collection round for a
 // MULTISIG release/refund (escrow.service.ts's initiateRelease()/
 // initiateRefund()/submitTransactionSignature()). Mirrors
