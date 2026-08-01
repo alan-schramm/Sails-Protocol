@@ -31,9 +31,11 @@
     "@scure/btc-signer": "^2.0.1",
     "bitcoinjs-lib": "^7.0.1",
     "ecpair": "^3.0.1",
+    "ed2curve": "^0.3.0",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
+    "@types/ed2curve": "^0.2.4",
     "tsup": "^8.5.1",
     "typedoc": "^0.28.20",
     "typescript": "^5.9.3"

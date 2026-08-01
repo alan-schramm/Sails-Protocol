@@ -50,6 +50,7 @@ export { SailsCapabilitiesModule, type RegisterCapabilityInput } from './modules
 export { SailsArbitrationModule, type ArbiterCandidate } from './modules/arbitration'
 export { SailsPaymentAccountModule, type PaymentAccount } from './modules/payment-account'
 export { hashPaymentAccount } from './payment-account'
+export { encryptChatMessage, decryptChatMessage, type EncryptedChatMessage } from './chat-encryption'
 
 // SailsIntentFacade (the class) deliberately NOT re-exported here (audit
 // finding, docs/TODO.md §28): SailsClient.intents is private specifically
