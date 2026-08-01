@@ -3,16 +3,14 @@
  * primary methods; API_REFERENCE.md section 0's "Canonical Intent Verbs").
  *
  * Honesty over completeness, matching this codebase's discipline
- * throughout: `createIntent`/`cancelIntent`/`dispute` have a real
- * backing route today and are genuinely implemented below. The other
- * three — `negotiate`, `submitProof`, `releaseAsset` — are part of the
- * interface's *shape* (so `SailsClient` type-checks against
- * `SDK_GUIDE.md`'s "canonical — do not diverge from this shape"
- * contract) but throw `SailsNotImplementedError` with a specific
- * explanation and a real, working alternative, rather than faking
- * success against a route that doesn't exist:
+ * throughout: `createIntent`/`cancelIntent`/`dispute`/`submitProof`/
+ * `releaseAsset` have a real backing route today and are genuinely
+ * implemented below. Only `negotiate` still throws
+ * `SailsNotImplementedError`, with a specific explanation and a real,
+ * working alternative, rather than faking success against a shape that
+ * can't actually represent the real channel:
  *
- *   - `negotiate(intentId, event)`: not just a missing route (RFC-018
+ *   - `negotiate(intentId, event)`: not a missing route (RFC-018
  *     already links an Intent to its Trade — see `dispute()` below,
  *     which uses exactly that link). The real blocker is a shape
  *     mismatch: the canonical signature is a single fire-and-forget
@@ -21,28 +19,41 @@
  *     listens on — `openp2p.chat(tradeId)`'s actual shape. Forcing this
  *     into "send one event, get one Promise<void> back" would mean
  *     opening and immediately closing a socket per call, which isn't
- *     the same capability. Use `openp2p.chat(tradeId)` directly.
+ *     the same capability — a real fix here needs a canonical signature
+ *     change (SDK_GUIDE.md's own shape), same category as
+ *     `releaseAsset`'s fix below, just not done in this pass. Use
+ *     `openp2p.chat(tradeId)` directly for the real, working channel.
+ *
+ * Corrected 2026-08-01 — both of the below were previously believed
+ * blocked and are not:
  *   - `submitProof(intentId, proof)`: the Proof primitive (RFC-003,
- *     `PROTOCOL_SPECIFICATION.md` §1.8) has zero HTTP routes in the
- *     reference implementation — `docs/BACKLOG.md` P0 lists it "🔲 Not
- *     started — no tables, no interfaces in code." There is no
- *     alternative to point to; it genuinely does not exist yet.
- *   - `releaseAsset(intentId)`: also not the linkage gap anymore —
- *     found while fixing `dispute()` below, this is a real signature
- *     gap in `SDK_GUIDE.md`'s own canonical shape:
- *     `releaseAsset(intentId): Promise<Settlement>` takes no
- *     destination address, but the one real release route
- *     (`POST /v1/settlement/escrow/:id/release`) requires `toAddress`
- *     in its body (`settlement.routes.ts`'s own zod schema) — there is
- *     no default to fall back to. Closing this needs a decision on
- *     `SDK_GUIDE.md`'s canonical signature itself (add a parameter, or
- *     define where a default address comes from), not more plumbing —
- *     flagged, not fixed here. Use `settlement.release(escrowId,
- *     toAddress)` directly.
+ *     `PROTOCOL_SPECIFICATION.md` §1.8) was believed to have zero HTTP
+ *     routes (`docs/BACKLOG.md` P0's own claim) — checked directly
+ *     against `src/modules/open-proof/proof.service.ts`/`proof.routes.ts`
+ *     and that's false; the full `Claim → Proof → Verification` service
+ *     layer and routes are real (dated 2026-07-21, predating the stale
+ *     BACKLOG.md claim). Wired below: asserts a `Claim` scoped to this
+ *     Intent (the `Claim` model has no `intentId` column of its own, so
+ *     it's carried in `assertion` instead — the honest way to link them
+ *     without inventing a schema field), then submits `proof.evidence`
+ *     as that Claim's real, server-hashed Proof.
+ *   - `releaseAsset(intentId)`: not the linkage gap it was once
+ *     described as — a real signature gap in `SDK_GUIDE.md`'s own
+ *     canonical shape (`releaseAsset(intentId): Promise<Settlement>`
+ *     takes no destination address, but the one real release route,
+ *     `POST /v1/settlement/escrow/:id/release`, requires `toAddress`
+ *     with no default). `docs/API_STABLE.md` explicitly carves these
+ *     six-verb methods out of its freeze commitment for exactly this
+ *     reason ("their throw-vs-real status is expected to change... that
+ *     change is additive, not breaking") — so adding the required
+ *     parameter here is the sanctioned fix, not a breaking change.
+ *     There is also no `Settlement` type anywhere in this codebase; the
+ *     real return value is the `Escrow` `settlement.release()` itself
+ *     returns.
  */
 import type { SailsTransport } from './transport'
 import { SailsNotImplementedError } from './errors'
-import type { Intent, IntentStatus, TradeIntentPayload, Trade, Dispute } from './types'
+import type { Intent, IntentStatus, TradeIntentPayload, Trade, Dispute, Proof, Escrow } from './types'
 
 export interface NegotiationEvent {
   type: 'OFFER_PROPOSED' | 'COUNTER_OFFERED' | 'TERMS_ACCEPTED' | 'TERMS_REJECTED' | 'MESSAGE_EXCHANGED'
@@ -88,16 +99,43 @@ export class SailsIntentFacade {
     )
   }
 
-  async submitProof(_intentId: string, _proof: ProofSubmission): Promise<never> {
-    throw new SailsNotImplementedError(
-      'submitProof(intentId, proof) has no backing route — the Proof primitive (RFC-003) has zero HTTP routes in the reference implementation yet (docs/BACKLOG.md P0). There is no working alternative to fall back to.'
+  /**
+   * Real as of 2026-08-01 — see this file's own header for why this was
+   * previously (incorrectly) believed blocked. Two real calls, not one:
+   * `Claim` has no `intentId` column, so it's carried in `assertion`
+   * instead of inventing a schema field for a one-off caller. Both calls
+   * require the same authenticated session (`requireAuth` on both real
+   * routes) — `claimedBy`/`submittedBy` are derived server-side from it,
+   * never sent by this method.
+   */
+  async submitProof(intentId: string, proof: ProofSubmission): Promise<Proof> {
+    const claim = await this.transport.post<{ id: string }>(
+      '/v1/proof/claims',
+      { claimType: proof.claimType, assertion: { intentId } },
+      true
+    )
+    return this.transport.post<Proof>(
+      '/v1/proof/proofs',
+      { claimId: claim.id, evidence: proof.evidence },
+      true
     )
   }
 
-  async releaseAsset(_intentId: string): Promise<never> {
-    throw new SailsNotImplementedError(
-      'releaseAsset(intentId) — the canonical signature takes no destination address, but the real release route (POST /v1/settlement/escrow/:id/release) requires one with no default. This is a signature gap in SDK_GUIDE.md itself, not a missing route. Use settlement.release(escrowId, toAddress) directly.'
-    )
+  /**
+   * Real as of 2026-08-01 — `toAddress` added to the canonical signature
+   * (see this file's own header for why that's the sanctioned fix, not
+   * a breaking change). Resolves `intentId` to its Trade/Escrow the same
+   * way `dispute()` below already does, then calls the one real release
+   * route directly.
+   */
+  async releaseAsset(intentId: string, toAddress: string): Promise<Escrow> {
+    const trade = await this.transport.get<Trade>(`/v1/openp2p/trades/by-intent/${intentId}`)
+    if (!trade.escrowId) {
+      throw new SailsNotImplementedError(
+        `releaseAsset(intentId, toAddress) — Trade ${trade.id} (from Intent ${intentId}) has no Escrow yet, nothing to release. Create one first via settlement.create().`
+      )
+    }
+    return this.transport.post<Escrow>(`/v1/settlement/escrow/${trade.escrowId}/release`, { toAddress }, true)
   }
 
   /**

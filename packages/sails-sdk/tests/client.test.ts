@@ -72,14 +72,60 @@ describe('SailsClient — Intent facade', () => {
     await expect(client.negotiate('intent-1', { type: 'MESSAGE_EXCHANGED' })).rejects.toThrow(/openp2p\.chat/)
   })
 
-  it('submitProof() throws SailsNotImplementedError citing the Proof primitive gap', async () => {
-    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch })
-    await expect(client.submitProof('intent-1', { claimType: 'payment_sent', evidence: {} })).rejects.toThrow(/Proof primitive/)
+  // Real as of 2026-08-01 — the Proof primitive's routes turned out to
+  // already exist (proof.service.ts/proof.routes.ts, dated 2026-07-21),
+  // contradicting the stale docs/BACKLOG.md claim this test used to
+  // assert against. Two real calls in sequence: assertClaim (carrying
+  // intentId in `assertion`, since Claim has no intentId column) then
+  // submitProof with the real evidence.
+  it('submitProof() asserts a Claim scoped to the intent, then submits the real Proof', async () => {
+    const fetchImpl = fakeFetchSequence(
+      { status: 201, body: { success: true, data: { id: 'claim-1' } } },
+      { status: 201, body: { success: true, data: { id: 'proof-1', claimId: 'claim-1', evidenceHash: 'abc123' } } }
+    )
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-token-1')
+
+    const proof = await client.submitProof('intent-1', { claimType: 'payment_sent', evidence: { amount: '500' } })
+
+    expect(proof.id).toBe('proof-1')
+    const [claimUrl, claimInit] = fetchImpl.mock.calls[0]
+    expect(claimUrl).toBe('http://localhost:3000/v1/proof/claims')
+    expect(JSON.parse(claimInit.body)).toEqual({ claimType: 'payment_sent', assertion: { intentId: 'intent-1' } })
+    const [proofUrl, proofInit] = fetchImpl.mock.calls[1]
+    expect(proofUrl).toBe('http://localhost:3000/v1/proof/proofs')
+    expect(JSON.parse(proofInit.body)).toEqual({ claimId: 'claim-1', evidence: { amount: '500' } })
   })
 
-  it('releaseAsset() throws SailsNotImplementedError and points to settlement.release()', async () => {
-    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch })
-    await expect(client.releaseAsset('intent-1')).rejects.toThrow(/settlement\.release/)
+  // Real as of 2026-08-01 — toAddress added to the canonical signature
+  // (docs/API_STABLE.md explicitly allows this: these six-verb methods
+  // are carved out of the freeze commitment). Same intentId -> Trade ->
+  // Escrow resolution dispute() already uses.
+  it('releaseAsset() resolves intentId -> Trade -> Escrow and calls the real release route', async () => {
+    const fetchImpl = fakeFetchSequence(
+      { status: 200, body: { success: true, data: { id: 'trade-1', escrowId: 'escrow-1' } } },
+      { status: 200, body: { success: true, data: { id: 'escrow-1', status: 'COMPLETED' } } }
+    )
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-token-1')
+
+    const escrow = await client.releaseAsset('intent-1', '0xdeadbeef')
+
+    expect(escrow.status).toBe('COMPLETED')
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://localhost:3000/v1/openp2p/trades/by-intent/intent-1')
+    const [releaseUrl, releaseInit] = fetchImpl.mock.calls[1]
+    expect(releaseUrl).toBe('http://localhost:3000/v1/settlement/escrow/escrow-1/release')
+    expect(JSON.parse(releaseInit.body)).toEqual({ toAddress: '0xdeadbeef' })
+  })
+
+  it('releaseAsset() throws SailsNotImplementedError when the resolved Trade has no Escrow yet', async () => {
+    const fetchImpl = fakeFetchSequence(
+      { status: 200, body: { success: true, data: { id: 'trade-1', escrowId: null } } }
+    )
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-token-1')
+
+    await expect(client.releaseAsset('intent-1', '0xdeadbeef')).rejects.toThrow(/no Escrow yet/)
   })
 
   it('dispute() resolves intentId -> Trade -> Escrow (RFC-018) and raises a real Dispute', async () => {

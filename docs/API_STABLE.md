@@ -129,13 +129,19 @@ would just be a synonym, not a real accessibility gain.
 - `registerFromWallet(wallet)` → `CapabilityGrant`
 
 ### Top-level (Intent facade, delegated straight off `SailsClient`)
-`createIntent`, `cancelIntent`, `dispute` are real. `negotiate`,
-`submitProof`, `releaseAsset` currently throw `SailsNotImplementedError`
-— the server-side primitive/resolution path they need doesn't exist yet
-(intent-facade.ts's own header explains exactly which gap blocks each
-one; docs/BACKLOG.md tracks the work). These three are **not** frozen —
-their throw-vs-real status is expected to change before v1, and that
-change (making a throwing method real) is additive, not breaking.
+`createIntent`, `cancelIntent`, `dispute`, `submitProof(intentId,
+proof)`, and `releaseAsset(intentId, toAddress)` are all real as of
+2026-08-01 — the last two were previously believed blocked
+(`submitProof` on a missing Proof-primitive route that turned out to
+already exist; `releaseAsset` on a missing `toAddress` parameter, now
+added). Only `negotiate` still throws `SailsNotImplementedError` — the
+canonical fire-and-forget signature can't represent the real
+`WebSocketChannel` negotiation channel (`intent-facade.ts`'s own header
+has the full reasoning). `negotiate` is **not** frozen — its
+throw-vs-real status is expected to change before v1, and `releaseAsset`
+gaining a required `toAddress` parameter is this document's own
+precedent for why that kind of change is additive, not breaking, for
+these six-verb methods specifically.
 
 ### Escape hatch
 `setSessionToken(token)` / `getSessionToken()` — direct session control,
