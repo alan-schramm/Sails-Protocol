@@ -6,6 +6,11 @@ import { UserAvatar } from '../components/ui/UserAvatar'
 import { CopyButton } from '../components/ui/CopyButton'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { AssetBadge, SideBadge, OfferStatusBadge, OFFER_STATUS_LABEL, PowerTraderBadge } from '../components/ui/StatusBadges'
+import { Button } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { badgeVariants } from '../components/ui/badge'
+import { cn } from '../lib/utils'
+import { Check, Star, ChevronRight } from 'lucide-react'
 import { sailsClient } from '../lib/sailsClient'
 import { formatDateTime } from '../lib/format'
 import { ASSET_SHORT_LABELS } from '../lib/labels'
@@ -126,7 +131,11 @@ export function Profile() {
         <div>
           <h1 className="text-2xl font-display font-bold flex items-center gap-2 flex-wrap text-brand-text">
             {user.displayName}
-            {user.verified && <span className="text-brand-orange-accent text-base" title="Verificado">✓</span>}
+            {user.verified && (
+              <span title="Verificado">
+                <Check className="h-4 w-4 text-brand-orange-accent" />
+              </span>
+            )}
             {isPowerTrader(user) && <PowerTraderBadge />}
           </h1>
           {/* Real gap found directly by the owner: this key was shown with
@@ -157,7 +166,7 @@ export function Profile() {
       </div>
 
       <div className="mt-6 grid md:grid-cols-2 gap-4">
-        <div className="card p-5 flex flex-col items-center">
+        <Card className="p-5 flex flex-col items-center">
           <div className="relative w-32 h-32 flex items-center justify-center">
             <svg className="w-32 h-32 -rotate-90">
               <circle cx="64" cy="64" r="56" fill="none" stroke="rgb(var(--color-border))" strokeWidth="10" />
@@ -173,15 +182,19 @@ export function Profile() {
               <div className="text-xs text-brand-text-muted">de 100</div>
             </div>
           </div>
-        </div>
+        </Card>
 
-        <div className="card p-5">
+        <Card className="p-5">
           <h3 className="text-sm font-semibold mb-3 text-brand-text">Avaliações recentes</h3>
           {[5, 4, 3, 2, 1].map((stars) => {
             const pct = stars === 5 ? 78 : stars === 4 ? 15 : stars === 3 ? 5 : stars === 2 ? 1 : 1
             return (
               <div key={stars} className="flex items-center gap-3 mb-1.5">
-                <span className="text-xs w-14 text-yellow-500">{'★'.repeat(stars)}</span>
+                <span className="flex w-14 text-yellow-500">
+                  {Array.from({ length: stars }).map((_, i) => (
+                    <Star key={i} className="h-3 w-3" fill="currentColor" strokeWidth={0} />
+                  ))}
+                </span>
                 <div className="flex-1 h-1.5 bg-brand-elevated rounded-full">
                   <div className="h-1.5 bg-brand-orange-accent rounded-full" style={{ width: `${pct}%` }} />
                 </div>
@@ -189,18 +202,22 @@ export function Profile() {
               </div>
             )
           })}
-        </div>
+        </Card>
       </div>
 
       <div className="mt-6">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-brand-text">Minhas Ofertas</h3>
-          <button onClick={() => navigate('/profile/new-offer')} className="btn-primary text-xs px-3 py-1.5">Nova Oferta</button>
+          <Button onClick={() => navigate('/profile/new-offer')} className="text-xs px-3 py-1.5">Nova Oferta</Button>
         </div>
 
         <div className="mt-3 flex gap-2 flex-wrap">
           {OFFER_FILTERS.map((f) => (
-            <button key={f.value} onClick={() => setStatusFilter(f.value)} className={statusFilter === f.value ? 'pill-active' : 'pill-inactive'}>
+            <button
+              key={f.value}
+              onClick={() => setStatusFilter(f.value)}
+              className={cn(badgeVariants({ variant: statusFilter === f.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
+            >
               {f.label}
             </button>
           ))}
@@ -216,7 +233,7 @@ export function Profile() {
           {!loadingOffers && myOffers.map((o) => {
             const canManage = o.status === 'ACTIVE' || o.status === 'PAUSED'
             return (
-              <div key={o.id} className="card p-3">
+              <Card key={o.id} className="p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <SideBadge side={o.side} />
                   <AssetBadge asset={o.asset} />
@@ -250,7 +267,9 @@ export function Profile() {
                         </button>
                       </>
                     )}
-                    <Link to={`/offer/${o.id}`} className="text-xs text-brand-text-muted hover:text-brand-text">Ver →</Link>
+                    <Link to={`/offer/${o.id}`} className="text-xs text-brand-text-muted hover:text-brand-text flex items-center">
+                      Ver <ChevronRight className="h-3.5 w-3.5" />
+                    </Link>
                   </div>
                 </div>
 
@@ -266,18 +285,20 @@ export function Profile() {
                       >
                         Sim, cancelar
                       </button>
-                      <button onClick={() => setConfirmingCancelId(null)} className="text-xs btn-ghost px-2.5 py-1">Voltar</button>
+                      <Button variant="outline" onClick={() => setConfirmingCancelId(null)} className="text-xs px-2.5 py-1">Voltar</Button>
                     </div>
                   </div>
                 )}
-              </div>
+              </Card>
             )
           })}
         </div>
       </div>
 
       <div className="mt-8">
-        <Link to="/profile/history" className="text-sm text-brand-orange-accent underline">Ver histórico completo de trades →</Link>
+        <Link to="/profile/history" className="text-sm text-brand-orange-accent underline flex items-center gap-0.5">
+          Ver histórico completo de trades <ChevronRight className="h-4 w-4" />
+        </Link>
       </div>
     </div>
   )
@@ -285,9 +306,9 @@ export function Profile() {
 
 function Stat({ value, label }: { value: string | number; label: string }) {
   return (
-    <div className="card p-3 text-center">
+    <Card className="p-3 text-center">
       <div className="text-lg font-display font-bold text-brand-text">{value}</div>
       <div className="text-xs text-brand-text-muted">{label}</div>
-    </div>
+    </Card>
   )
 }

@@ -2,6 +2,7 @@ import type { Message } from '../../types'
 import { formatTime } from '../../lib/format'
 import { RISK_PATTERN_LABEL } from '../../lib/socialEngineering'
 import { InfoTooltip } from '../ui/InfoTooltip'
+import { AlertTriangle, Receipt } from 'lucide-react'
 
 export function ChatMessage({ message, isMine }: { message: Message; isMine: boolean }) {
   if (message.type === 'SYSTEM') {
@@ -15,7 +16,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
   if (message.type === 'RISK_WARNING') {
     return (
       <div className="self-stretch flex items-start gap-2 text-xs bg-red-500/10 border border-red-500/25 text-brand-text rounded-lg px-3.5 py-2.5 my-1">
-        <span className="text-base leading-none">⚠️</span>
+        <AlertTriangle className="h-4 w-4 shrink-0" />
         <div className="flex-1">
           <div className="flex items-center gap-1.5 font-semibold text-red-700">
             {message.riskPattern ? RISK_PATTERN_LABEL[message.riskPattern] : 'Sinal de risco detectado'}
@@ -44,7 +45,11 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
               : 'bg-brand-elevated text-brand-text rounded-bl-sm'
         } ${isMedia ? 'p-1.5' : ''}`}
       >
-        {isProof && <div className="text-xs font-semibold text-green-500 mb-1">🧾 Comprovante de Pagamento</div>}
+        {isProof && (
+          <div className="text-xs font-semibold text-green-500 mb-1 flex items-center gap-1">
+            <Receipt className="h-3.5 w-3.5" /> Comprovante de Pagamento
+          </div>
+        )}
         {message.type === 'IMAGE' && message.mediaUrl && (
           <img src={message.mediaUrl} alt={message.mediaFileName ?? 'Imagem enviada'} className="max-w-[240px] max-h-[240px] rounded-lg object-cover" />
         )}

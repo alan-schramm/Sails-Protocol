@@ -2,13 +2,14 @@ import type { User } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
 import { FavoriteButton } from '../ui/FavoriteButton'
 import { positiveFeedbackPct } from '../../lib/reputation'
+import { Card } from '../ui/card'
 
 export function TradeParties({ buyer, seller, currentUserId }: { buyer: User; seller: User; currentUserId?: string }) {
   return (
-    <div className="card p-4 mt-3 divide-y divide-brand-border">
+    <Card className="p-4 mt-3 divide-y divide-brand-border">
       <PartyRow user={buyer} role="Comprador" isYou={buyer.id === currentUserId} />
       <PartyRow user={seller} role="Vendedor" isYou={seller.id === currentUserId} />
-    </div>
+    </Card>
   )
 }
 

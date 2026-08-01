@@ -1,25 +1,25 @@
-import { useState } from 'react'
+// Real Radix Tooltip (2026-08-01) — replaces a hand-rolled hover/click
+// span that only ever responded to mouse events. A keyboard-only user
+// tabbing to the "i" button had no way to see this text at all before —
+// Tooltip.Trigger shows/hides on focus/blur too, not just hover/click.
+import { Tooltip, TooltipTrigger, TooltipContent } from './tooltip'
 
 export function InfoTooltip({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
-
   return (
-    <span className="relative inline-flex">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        aria-label="Mais informações"
-        className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-[10px] flex items-center justify-center hover:border-brand-orange-accent hover:text-brand-orange-accent transition-colors"
-      >
-        i
-      </button>
-      {open && (
-        <span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 card p-2.5 text-xs text-brand-text-secondary shadow-lg normal-case font-normal">
-          {text}
-        </span>
-      )}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {/* p-2 -m-2 on the button, visible circle kept on the inner span
+            (2026-08-01): the 16px badge is the intended look everywhere
+            it's used inline next to a label, but as the actual button
+            box it was also a 16px tap target — real mobile-testing find,
+            not hypothetical, same class of fix as FavoriteButton's own. */}
+        <button type="button" aria-label="Mais informações" className="group p-2 -m-2 flex items-center justify-center">
+          <span className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-[10px] flex items-center justify-center transition-colors group-hover:border-brand-orange-accent group-hover:text-brand-orange-accent">
+            i
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="w-56 text-xs normal-case font-normal">{text}</TooltipContent>
+    </Tooltip>
   )
 }

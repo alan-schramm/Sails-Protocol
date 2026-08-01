@@ -2,6 +2,9 @@ import { Link, NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { UserAvatar } from '../ui/UserAvatar'
 import { ThemeToggle } from '../ui/ThemeToggle'
+import { buttonVariants } from '../ui/button'
+import { cn } from '../../lib/utils'
+import { Settings, User } from 'lucide-react'
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `text-sm font-medium transition-colors ${isActive ? 'text-brand-text' : 'text-brand-text-secondary hover:text-brand-text'}`
@@ -17,6 +20,7 @@ export function TopNav() {
 
       <nav className="flex items-center gap-6 ml-10">
         <NavLink to="/" end className={linkClass}>Marketplace</NavLink>
+        <NavLink to="/profile/active" className={linkClass}>Trades Ativos</NavLink>
         <NavLink to="/profile/history" className={linkClass}>Meus Trades</NavLink>
         <NavLink to="/profile" className={linkClass}>Perfil</NavLink>
         {isOperator && <NavLink to="/admin" className={linkClass}>Operador</NavLink>}
@@ -28,9 +32,10 @@ export function TopNav() {
         <button
           type="button"
           onClick={toggleRole}
-          className="text-xs border border-brand-border rounded-lg px-2.5 py-1.5 text-brand-text-secondary hover:text-brand-text hover:border-brand-border-hover transition-colors"
+          className="text-xs flex items-center gap-1.5 border border-brand-border rounded-lg px-2.5 py-1.5 text-brand-text-secondary hover:text-brand-text hover:border-brand-border-hover transition-colors"
         >
-          {isOperator ? '⚙️ Operador' : '👤 Usuário'}
+          {isOperator ? <Settings className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
+          {isOperator ? 'Operador' : 'Usuário'}
         </button>
 
         {user ? (
@@ -39,7 +44,7 @@ export function TopNav() {
             <span className="text-sm font-medium text-brand-text">{user.displayName}</span>
           </Link>
         ) : (
-          <Link to="/login" className="btn-primary text-sm px-4 py-2">
+          <Link to="/login" className={cn(buttonVariants({ className: 'text-sm px-4 py-2' }))}>
             Conectar
           </Link>
         )}

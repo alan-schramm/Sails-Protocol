@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { assessRiskWithQvac, type AgentRiskAssessment } from '../../lib/qvacAgent'
 import { InfoTooltip } from '../ui/InfoTooltip'
+import { Card } from '../ui/card'
+import { Brain } from 'lucide-react'
 import type { AssetType, TradeSide } from '../../types'
 
 const RISK_STYLE: Record<AgentRiskAssessment['risk'], string> = {
@@ -41,9 +43,10 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
   }, [asset, side, maxValue, minValue])
 
   return (
-    <div className="card p-4 mt-3">
+    <Card className="p-4 mt-3">
       <div className="flex items-center gap-2 text-sm font-semibold text-brand-text mb-2">
-        🧠 Avaliação de risco do Agente QVAC
+        <Brain className="h-4 w-4 shrink-0" />
+        Avaliação de risco do Agente QVAC
         <InfoTooltip text="Reflete o passo real de assessIntentRisk() do backend (QvacAgentProvider, LLM local via @qvac/sdk) que roda antes da coordenação de um Intent (RFC-012). Analisa apenas dados do ativo/trade — o agente é Crypto-Native (RFC-016), sem qualquer acesso a contas bancárias ou trilhos fiat. Nesta interface o resultado é simulado — ainda não existe rota HTTP conectando o navegador a essa avaliação real." />
       </div>
 
@@ -63,6 +66,6 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
           </p>
         </div>
       ) : null}
-    </div>
+    </Card>
   )
 }

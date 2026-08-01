@@ -6,10 +6,19 @@
  */
 import type { AssetType, TradeSide, PaymentMethod, TradeStatus, EscrowStatus, OfferStatus } from '../../types'
 import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
+import { badgeVariants } from './badge'
+import { cn } from '../../lib/utils'
+import { Zap } from 'lucide-react'
 
+// Routes through badgeVariants' own base shape (shared with the generic
+// shadcn Badge) rather than a hardcoded string — but each call site below
+// still passes its own full color className (green=compra, red=venda,
+// blue=pagamento, etc.), since these are real domain-semantic colors
+// with no equivalent in Badge's own fixed default/secondary/destructive/
+// outline palette.
 function Pill({ children, className = '', title }: { children: React.ReactNode; className?: string; title?: string }) {
   return (
-    <span title={title} className={`inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium ${className}`}>
+    <span title={title} className={cn(badgeVariants({ variant: 'outline' }), 'whitespace-nowrap rounded-full px-2.5 py-1', className)}>
       {children}
     </span>
   )
@@ -77,10 +86,10 @@ export function OfferStatusBadge({ status }: { status: OfferStatus }) {
 export function PowerTraderBadge() {
   return (
     <Pill
-      className="border-brand-orange-accent/30 bg-brand-orange-accent/10 text-brand-orange-accent"
+      className="border-brand-orange-accent/30 bg-brand-orange-accent/10 text-brand-orange-accent flex items-center gap-1"
       title="Power Trader: alto volume de trades com alta taxa de trades sem disputa"
     >
-      ⚡ Power Trader
+      <Zap className="h-3 w-3" fill="currentColor" strokeWidth={0} /> Power Trader
     </Pill>
   )
 }

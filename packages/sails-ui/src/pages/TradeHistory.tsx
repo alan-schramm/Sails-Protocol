@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MOCK_TRADE_HISTORY } from '../data/mock'
-import { AssetBadge, TradeStatusBadge } from '../components/ui/Badge'
+import { AssetBadge, TradeStatusBadge } from '../components/ui/StatusBadges'
 import { formatBrl, formatAmount } from '../lib/format'
+import { Card } from '../components/ui/card'
+import { badgeVariants } from '../components/ui/badge'
+import { cn } from '../lib/utils'
 import type { TradeStatus } from '../types'
 
 const FILTERS: { value: TradeStatus | 'Todos'; label: string }[] = [
@@ -36,7 +39,11 @@ export function TradeHistory() {
 
       <div className="mt-4 flex gap-2">
         {FILTERS.map((f) => (
-          <button key={f.value} onClick={() => setFilter(f.value)} className={filter === f.value ? 'pill-active' : 'pill-inactive'}>
+          <button
+            key={f.value}
+            onClick={() => setFilter(f.value)}
+            className={cn(badgeVariants({ variant: filter === f.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
+          >
             {f.label}
           </button>
         ))}
@@ -44,7 +51,7 @@ export function TradeHistory() {
 
       <div className="mt-4 space-y-2">
         {trades.map((t) => (
-          <div key={t.id} className="card p-4 flex flex-col md:flex-row md:items-center gap-2">
+          <Card key={t.id} className="p-4 flex flex-col md:flex-row md:items-center gap-2">
             <div className="flex items-center gap-2">
               <AssetBadge asset={t.asset} />
               <span className="font-medium text-sm text-brand-text">{formatAmount(t.amount)} com {t.counterpart}</span>
@@ -60,7 +67,7 @@ export function TradeHistory() {
               <TradeStatusBadge status={t.status} />
               <Link to={`/trade/${t.tradeId}`} className="text-xs text-brand-text-muted hover:text-brand-text">Ver Trade</Link>
             </div>
-          </div>
+          </Card>
         ))}
         {trades.length === 0 && <p className="text-center text-brand-text-muted py-10">Nenhum trade encontrado.</p>}
       </div>
@@ -70,9 +77,9 @@ export function TradeHistory() {
 
 function SummaryStat({ value, label }: { value: string | number; label: string }) {
   return (
-    <div className="card p-3 text-center">
+    <Card className="p-3 text-center">
       <div className="text-lg font-display font-bold text-brand-text">{value}</div>
       <div className="text-xs text-brand-text-muted">{label}</div>
-    </div>
+    </Card>
   )
 }

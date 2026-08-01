@@ -97,4 +97,13 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CASH_APP: 'Cash App',
   PICPAY: 'PicPay',
   PLIN: 'Plin',
+  // HodlHodl (2026-08-01) — see types.ts's own comment on this same group.
+  UPI: 'UPI (Índia)',
+  INTERAC: 'Interac e-Transfer',
+  ALIPAY: 'Alipay',
+  WECHAT_PAY: 'WeChat Pay',
+  BIZUM: 'Bizum',
+  AIRTM: 'Airtm',
+  ASTROPAY: 'AstroPay',
+  BINANCE_PAY: 'Binance Pay',
 }

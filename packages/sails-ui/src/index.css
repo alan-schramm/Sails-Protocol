@@ -60,6 +60,32 @@
      so light mode keeps the same accessible hue as `--color-orange`
      above. Dark mode below is where this actually differs. */
   --color-orange-accent: 194 65 12; /* #c2410c */
+
+  /* shadcn/ui semantic tokens — aliased onto the brand vars above (not
+     new colors) so components generated later by `npx shadcn add ...`
+     inherit this theme automatically instead of shipping shadcn's
+     default zinc/slate palette. Same "R G B" triplet convention as
+     above for the same `rgb(var(--x) / <alpha-value>)` opacity trick. */
+  --background: var(--color-bg);
+  --foreground: var(--color-text);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-text);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-text);
+  --primary: var(--color-orange);
+  --primary-foreground: 255 255 255;
+  --secondary: var(--color-elevated);
+  --secondary-foreground: var(--color-text);
+  --muted: var(--color-elevated);
+  --muted-foreground: var(--color-text-muted);
+  --accent: var(--color-elevated);
+  --accent-foreground: var(--color-text);
+  --destructive: 185 28 28; /* red-700 — matches SideBadge's existing text-red-700 */
+  --destructive-foreground: 255 255 255;
+  --border: var(--color-border);
+  --input: var(--color-border);
+  --ring: var(--color-orange);
+  --radius: 0.5rem; /* rounded-lg — matches the 2026-07-28 sharper-corners redesign */
 }
 
 :root.dark {
@@ -92,6 +118,27 @@
   --color-orange-accent: 249 115 22; /* #f97316 */
   --color-orange-subtle: rgba(249, 115, 22, 0.12);
   --color-orange-border: rgba(249, 115, 22, 0.3);
+
+  /* shadcn/ui semantic tokens, dark theme — see :root's own comment. */
+  --background: var(--color-bg);
+  --foreground: var(--color-text);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-text);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-text);
+  --primary: var(--color-orange);
+  --primary-foreground: 255 255 255;
+  --secondary: var(--color-elevated);
+  --secondary-foreground: var(--color-text);
+  --muted: var(--color-elevated);
+  --muted-foreground: var(--color-text-muted);
+  --accent: var(--color-elevated);
+  --accent-foreground: var(--color-text);
+  --destructive: 185 28 28;
+  --destructive-foreground: 255 255 255;
+  --border: var(--color-border);
+  --input: var(--color-border);
+  --ring: var(--color-orange);
 }
 
 body {
@@ -103,9 +150,13 @@ body {
 }
 
 /* Component classes — the same shapes the pasted design brief described
-   (Card padrão, Botão primário, Botão ghost, Input) as real Tailwind
-   utility bundles instead of copy-pasted class strings, so retheming
-   later means editing these ~8 rules, not every component file. */
+   (Card padrão, Input, listing row/pill shapes) as real Tailwind utility
+   bundles instead of copy-pasted class strings, so retheming later means
+   editing these rules, not every component file. Buttons (.btn-primary/
+   .btn-ghost) were migrated to shadcn/ui's Button (components/ui/button.tsx)
+   2026-08-01 and removed from here — see feedback_slc_ui_philosophy memory
+   for why (single design system end to end). .btn-dark stays: dead before
+   this migration too, unrelated, out of scope to remove here. */
 @layer components {
   /* rounded-xl -> rounded-lg (2026-07-28 visual redesign): the large,
      uniform bubble radius on every single container was called out
@@ -140,28 +191,11 @@ body {
   .offer-row {
     @apply flex flex-col gap-2 border-b border-brand-border border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated lg:flex-row lg:items-center lg:gap-6 lg:px-5 lg:py-3.5;
   }
-  .btn-primary {
-    @apply bg-brand-orange hover:bg-brand-orange-hover text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-  .btn-ghost {
-    @apply bg-transparent border border-brand-border text-brand-text-secondary hover:border-brand-border-hover hover:text-brand-text rounded-lg transition-colors;
-  }
   .btn-dark {
     @apply bg-brand-text text-brand-bg hover:opacity-85 font-semibold rounded-lg transition-opacity;
   }
   .input-field {
     @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-orange transition-colors;
-  }
-  .pill {
-    @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors;
-  }
-  /* Same Tailwind v4 @apply-chaining removal as .card-hover above —
-     .pill's own utility list inlined instead of `@apply pill`. */
-  .pill-active {
-    @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors bg-brand-orange/10 border-brand-orange/30 text-brand-orange;
-  }
-  .pill-inactive {
-    @apply inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors bg-brand-elevated border-brand-border text-brand-text-secondary hover:border-brand-border-hover;
   }
 }
 

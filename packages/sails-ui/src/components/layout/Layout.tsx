@@ -4,6 +4,8 @@ import { BottomNav } from './BottomNav'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { UserAvatar } from '../ui/UserAvatar'
 import { useAuth } from '../../context/AuthContext'
+import { buttonVariants } from '../ui/button'
+import { cn } from '../../lib/utils'
 
 export function Layout() {
   // Real bug found in a cold-start UX walkthrough: on mobile, TopNav
@@ -31,7 +33,7 @@ export function Layout() {
               <UserAvatar user={user} size="sm" />
             </Link>
           ) : (
-            <Link to="/login" className="btn-primary text-xs px-3 py-1.5">
+            <Link to="/login" className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
               Conectar
             </Link>
           )}

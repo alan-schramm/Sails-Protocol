@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { AssetBadge, SideBadge, PaymentBadge, PowerTraderBadge } from '../components/ui/Badge'
+import { AssetBadge, SideBadge, PaymentBadge, PowerTraderBadge } from '../components/ui/StatusBadges'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { FavoriteButton } from '../components/ui/FavoriteButton'
+import { Button, buttonVariants } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { Input } from '../components/ui/input'
+import { cn } from '../lib/utils'
+import { ArrowLeft, Check, Lock, AlertTriangle } from 'lucide-react'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
@@ -139,11 +144,13 @@ export function OfferDetail() {
 
   return (
     <div>
-      <Link to="/" className="text-sm text-brand-text-secondary hover:text-brand-text">← Voltar ao Marketplace</Link>
+      <Link to="/" className="text-sm text-brand-text-secondary hover:text-brand-text flex items-center gap-1 w-fit">
+        <ArrowLeft className="h-4 w-4" /> Voltar ao Marketplace
+      </Link>
 
       <div className="mt-4 grid lg:grid-cols-[1fr_360px] gap-6">
         <div>
-          <div className="card p-6">
+          <Card className="p-6">
             <div className="flex gap-2">
               <AssetBadge asset={offer.asset} />
               <SideBadge side={offer.side} />
@@ -154,15 +161,19 @@ export function OfferDetail() {
               por {ASSET_LABELS[offer.asset]}
               {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
             </div>
-          </div>
+          </Card>
 
-          <div className="mt-4 card p-5">
+          <Card className="mt-4 p-5">
             <div className="flex items-center gap-3">
               <UserAvatar user={offer.user} size="lg" showPresence />
               <div className="min-w-0 flex-1">
                 <div className="font-semibold flex items-center gap-1.5 flex-wrap text-brand-text">
                   {offer.user.displayName}
-                  {offer.user.verified && <span className="text-brand-orange-accent text-sm" title="Verificado">✓</span>}
+                  {offer.user.verified && (
+                    <span title="Verificado">
+                      <Check className="h-4 w-4 text-brand-orange-accent" />
+                    </span>
+                  )}
                   {isPowerTrader(offer.user) && <PowerTraderBadge />}
                 </div>
                 <div className="text-xs text-brand-text-muted flex items-center gap-1">
@@ -200,39 +211,39 @@ export function OfferDetail() {
                 <div className="text-xs text-brand-text-muted">BTC vol</div>
               </div>
             </div>
-          </div>
+          </Card>
 
-          <div className="mt-4 card divide-y divide-brand-border">
+          <Card className="mt-4 divide-y divide-brand-border">
             <Row label="Rede" value={offer.network ?? '—'} />
             <Row label="Método de pagamento" value={PAYMENT_METHOD_LABELS[offer.paymentMethod]} />
             <Row label="Limites" value={`${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`} />
             <Row label="Requer KYC" value={offer.requiresKyc ? 'Sim' : 'Não'} />
-          </div>
+          </Card>
         </div>
 
         <div className="lg:sticky lg:top-20 h-fit">
           {isOwnOffer ? (
-            <div className="card p-5">
+            <Card className="p-5">
               <h3 className="font-semibold text-brand-text">Esta é a sua oferta</h3>
               <p className="text-sm text-brand-text-muted mt-2">
                 Você não pode iniciar uma negociação com o seu próprio anúncio.
                 Gerencie-o em "Minhas Ofertas", no seu perfil.
               </p>
-              <Link to="/profile" className="btn-ghost mt-4 w-full py-3 text-sm text-center block">
+              <Link to="/profile" className={cn(buttonVariants({ variant: 'outline', className: 'mt-4 w-full py-3 text-sm text-center block' }))}>
                 Ir para Minhas Ofertas
               </Link>
-            </div>
+            </Card>
           ) : (
-            <div className="card p-5">
+            <Card className="p-5">
               <h3 className="font-semibold text-brand-text">Iniciar negociação</h3>
 
               <label className="block text-xs text-brand-text-muted mt-4 mb-1">Quanto você quer {offer.side === 'SELL' ? 'comprar' : 'vender'}?</label>
               <div className="relative">
-                <input
+                <Input
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   type="number"
-                  className="input-field w-full text-lg font-bold"
+                  className="w-full text-lg font-bold"
                   placeholder="0.00"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
@@ -246,8 +257,9 @@ export function OfferDetail() {
                 <div className="text-2xl font-display font-bold tabular-nums mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
               </div>
 
-              <div className="mt-4 bg-brand-orange-accent/5 border border-brand-orange-accent/20 rounded-lg p-3 text-xs text-brand-text-secondary">
-                🔒 Escrow não custodial — fundos só liberados após confirmação de pagamento.
+              <div className="mt-4 bg-brand-orange-accent/5 border border-brand-orange-accent/20 rounded-lg p-3 text-xs text-brand-text-secondary flex items-start gap-2">
+                <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                Escrow não custodial — fundos só liberados após confirmação de pagamento.
               </div>
 
               {/* HodlHodl/Binance P2P both show this exact caution before
@@ -255,16 +267,16 @@ export function OfferDetail() {
                   (offer.user.totalTrades), not mocked: a real 0 here means
                   a real trader with no completed trades yet. */}
               {offer.user.totalTrades === 0 && (
-                <div className="mt-3 bg-yellow-500/10 border border-yellow-500/25 rounded-lg p-3 text-xs text-yellow-500 flex gap-2">
-                  <span>⚠️</span>
+                <div className="mt-3 bg-yellow-500/10 border border-yellow-500/25 rounded-lg p-3 text-xs text-yellow-500 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>Este vendedor ainda não concluiu nenhum trade — negocie com cautela, especialmente em valores maiores.</span>
                 </div>
               )}
 
-              <button onClick={handleStartTrade} disabled={startingTrade} className="btn-primary mt-4 w-full py-3">
+              <Button onClick={handleStartTrade} disabled={startingTrade} className="mt-4 w-full py-3">
                 {startingTrade ? 'Iniciando...' : 'Iniciar Trade'}
-              </button>
-            </div>
+              </Button>
+            </Card>
           )}
         </div>
       </div>

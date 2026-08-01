@@ -103,6 +103,25 @@ export type PaymentMethod =
   // a different, competing Peruvian instant-transfer app, not a Yape
   // rebrand.
   | 'PLIN'
+  // HodlHodl (hodlhodl.com/offers, live filter dropdown checked 2026-08-01
+  // — requested directly, "escolher os mesmos que a HodlHodl tem
+  // disponível"). HodlHodl's own list is bank-name-granular (thousands of
+  // individual banks/gift cards, e.g. "Banco do Brasil", "1822direkt") —
+  // a different data shape than this enum entirely, out of scope to
+  // replicate 1:1. These are the real, high-volume *category*-level
+  // services from that list not already covered by an existing value
+  // above (SEPA/wire itself is skipped — already covered by BANK_TRANSFER/
+  // TED, same reasoning as the original HodlHodl group's own comment).
+  // UPI: India's real-time payment rail (~300M+ users). INTERAC: Canada's
+  // dominant P2P bank transfer (e-Transfer), distinctly branded like PIX/
+  // Zelle, not just "bank transfer". ALIPAY/WECHAT_PAY: China's two
+  // dominant mobile payment rails. BIZUM: Spain's dominant instant-payment
+  // app. AIRTM: already this codebase's own reference platform elsewhere
+  // (TradeParties.tsx, FavoriteButton.tsx comments) but was missing from
+  // this enum itself. ASTROPAY: LatAm prepaid/wallet service, same
+  // stature as WISE/PAYONEER above. BINANCE_PAY: crypto-native rail,
+  // explicitly listed on HodlHodl itself.
+  | 'UPI' | 'INTERAC' | 'ALIPAY' | 'WECHAT_PAY' | 'BIZUM' | 'AIRTM' | 'ASTROPAY' | 'BINANCE_PAY'
 
 export type OfferStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'
 

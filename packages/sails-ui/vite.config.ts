@@ -23,6 +23,10 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      // shadcn/ui convention — matches the tsconfig.json "@/*" path so
+      // both the type-checker and the actual dev-server/build resolve
+      // the same way (tsconfig "paths" alone only affects tsc, not Vite).
+      '@': path.resolve(__dirname, './src'),
       // Real, pre-existing bug (unrelated to any UI work) found while
       // trying to start this dev server: @sails/sdk's escrow-key.ts
       // imports '@noble/curves/secp256k1' (extensionless) and is

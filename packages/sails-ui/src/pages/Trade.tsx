@@ -6,13 +6,17 @@ import type { EscrowStatus, Message, MessageType, User } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { useEscrowKey } from '../hooks/useEscrowKey'
 import { sailsClient } from '../lib/sailsClient'
-import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/Badge'
+import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/StatusBadges'
 import { EscrowStateMachine } from '../components/trade/EscrowStateMachine'
 import { EscrowCountdown } from '../components/trade/EscrowCountdown'
 import { EscrowActions } from '../components/trade/EscrowActions'
 import { TradeParties } from '../components/trade/TradeParties'
 import { ChatWindow } from '../components/chat/ChatWindow'
 import { AgentRiskCard } from '../components/agent/AgentRiskCard'
+import { Button } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { Textarea } from '../components/ui/textarea'
+import { Lock, Banknote, Unlock, ArrowLeft } from 'lucide-react'
 import { formatDateTime } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { detectRiskLocally } from '../lib/socialEngineering'
@@ -174,13 +178,13 @@ export function Trade() {
   const handleLockFunds = () => escrow && withGuard(async () => {
     const e = await sailsClient.settlement.lock(escrow.id)
     setEscrow(e)
-    toast.success('Escrow bloqueado 🔒')
+    toast.success('Escrow bloqueado', { icon: <Lock className="h-4 w-4" /> })
   })
 
   const handleMarkPaymentSent = () => escrow && withGuard(async () => {
     const e = await sailsClient.settlement.markPaymentSent(escrow.id)
     setEscrow(e)
-    toast.success('Pagamento marcado como enviado 💸')
+    toast.success('Pagamento marcado como enviado', { icon: <Banknote className="h-4 w-4" /> })
   })
 
   const handleReleaseFunds = () => escrow && withGuard(async () => {
@@ -273,14 +277,14 @@ export function Trade() {
   return (
     <div>
       <div className="flex items-center gap-3">
-        <Link to="/" className="text-sm text-brand-text-secondary hover:text-brand-text">←</Link>
+        <Link to="/" className="p-2 -m-2 text-sm text-brand-text-secondary hover:text-brand-text"><ArrowLeft className="h-4 w-4" /></Link>
         <span className="font-mono text-sm text-brand-text-muted">Trade #{id?.slice(0, 8)}</span>
         <TradeStatusBadge status={trade.status} />
       </div>
 
       <div className="mt-4 grid lg:grid-cols-[380px_1fr] gap-4">
         <div>
-          <div className="card p-4 divide-y divide-brand-border">
+          <Card className="p-4 divide-y divide-brand-border">
             <Row label="Ativo" value={ASSET_LABELS[trade.asset]} />
             <Row label="Quantidade" value={String(amount)} />
             <Row label="Total" value={formatByCurrency(totalBrl, 'BRL')} />
@@ -291,7 +295,7 @@ export function Trade() {
                 escrow timelock above (grepped for usages, found zero). */}
             {trade.completedAt && <Row label="Concluído em" value={formatDateTime(trade.completedAt)} />}
             {trade.cancelledAt && <Row label="Cancelado em" value={formatDateTime(trade.cancelledAt)} />}
-          </div>
+          </Card>
 
           {isBuyer && trade.offer && (
             // Found auditing this screen: paymentMethod/paymentDetails
@@ -300,7 +304,7 @@ export function Trade() {
             // already left that page had no way to see it again once
             // the trade was underway. trade.service.ts's getTrade() now
             // includes the originating Offer specifically for this.
-            <div className="card p-4 mt-3 border border-brand-orange-accent/30">
+            <Card className="p-4 mt-3 border border-brand-orange-accent/30">
               <p className="text-xs font-semibold text-brand-text-muted mb-2">
                 Como pagar — {PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
               </p>
@@ -311,14 +315,14 @@ export function Trade() {
                   O vendedor não informou os dados de pagamento aqui — combine pelo chat.
                 </p>
               )}
-            </div>
+            </Card>
           )}
 
           <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} />
 
           <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={Number(trade.totalUsd)} minValue={Number(trade.totalUsd)} />
 
-          <div className="card p-5 mt-3">
+          <Card className="p-5 mt-3">
             <EscrowStateMachine status={escrowStatus} />
             {escrow && (
               <EscrowCountdown expiresAt={escrow.expiresAt} timelockHours={escrow.timelockHours} status={escrowStatus} />
@@ -326,9 +330,16 @@ export function Trade() {
 
             {!escrow ? (
               isSeller ? (
-                <button onClick={handleCreateEscrow} disabled={acting} className="btn-primary w-full py-2.5 text-sm mt-4">
-                  {acting ? 'Criando...' : '🔓 Criar Escrow'}
-                </button>
+                <Button onClick={handleCreateEscrow} disabled={acting} className="w-full py-2.5 text-sm mt-4">
+                  {acting ? (
+                    'Criando...'
+                  ) : (
+                    <>
+                      <Unlock className="h-4 w-4" />
+                      Criar Escrow
+                    </>
+                  )}
+                </Button>
               ) : (
                 <p className="text-xs text-brand-text-muted mt-3">Aguardando o vendedor criar o escrow.</p>
               )
@@ -344,16 +355,16 @@ export function Trade() {
               />
             ) : (
               <div className="mt-4">
-                <textarea
+                <Textarea
                   value={disputeReason}
                   onChange={(e) => setDisputeReason(e.target.value)}
                   placeholder="Descreva o motivo da disputa..."
-                  className="input-field w-full"
+                  className="w-full"
                   rows={3}
                 />
                 <div className="flex gap-2 mt-2">
                   <button onClick={handleOpenDispute} disabled={acting} className="flex-1 bg-red-600 hover:bg-red-500 text-white rounded-lg py-2 text-sm font-semibold transition-colors">Confirmar Disputa</button>
-                  <button onClick={() => setShowDisputeForm(false)} className="flex-1 btn-ghost py-2 text-sm">Cancelar</button>
+                  <Button variant="outline" onClick={() => setShowDisputeForm(false)} className="flex-1 py-2 text-sm">Cancelar</Button>
                 </div>
               </div>
             )}
@@ -362,7 +373,7 @@ export function Trade() {
               <p className="text-xs text-brand-text-muted mt-3">Você não é parte deste trade — ações desabilitadas.</p>
             )}
             {!user && <p className="text-xs text-brand-text-muted mt-3">Conecte sua carteira para agir neste trade.</p>}
-          </div>
+          </Card>
 
           <details className="mt-3 card p-4">
             <summary className="text-xs font-semibold text-brand-text-muted cursor-pointer">Histórico de eventos</summary>

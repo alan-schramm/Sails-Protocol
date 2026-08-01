@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { isFavoriteTrader, toggleFavoriteTrader } from '../../lib/favorites'
+import { Star } from 'lucide-react'
 
 // Airtm-inspired (its own "pick a cashier you trust" pattern) —
 // lib/favorites.ts's own header comment has the full real-vs-UI-only
@@ -23,9 +24,13 @@ export function FavoriteButton({ userId }: { userId: string }) {
         setIsFav(toggleFavoriteTrader(userId))
       }}
       title={isFav ? 'Remover dos favoritos' : 'Favoritar este vendedor'}
-      className={`text-base leading-none transition-colors ${isFav ? 'text-brand-orange-accent' : 'text-brand-text-muted hover:text-brand-text'}`}
+      // p-2 -m-2 (2026-08-01): expands the tap target to ~32px without
+      // shifting the visible icon or its layout position — the icon
+      // alone was a 16px hit area, well under mobile's ~44px minimum
+      // (found testing this same migration's other icon buttons live).
+      className={`p-2 -m-2 transition-colors ${isFav ? 'text-brand-orange-accent' : 'text-brand-text-muted hover:text-brand-text'}`}
     >
-      {isFav ? '★' : '☆'}
+      <Star className="h-4 w-4" fill={isFav ? 'currentColor' : 'none'} />
     </button>
   )
 }
