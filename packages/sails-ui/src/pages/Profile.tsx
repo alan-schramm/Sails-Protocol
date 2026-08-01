@@ -5,12 +5,47 @@ import { useAuth } from '../context/AuthContext'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { CopyButton } from '../components/ui/CopyButton'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
-import { AssetBadge, SideBadge, OfferStatusBadge, OFFER_STATUS_LABEL, PowerTraderBadge } from '../components/ui/Badge'
-import { getAllOffers, updateOfferStatus } from '../lib/offersStore'
+import { AssetBadge, SideBadge, OfferStatusBadge, OFFER_STATUS_LABEL, PowerTraderBadge } from '../components/ui/StatusBadges'
+import { sailsClient } from '../lib/sailsClient'
 import { formatDateTime } from '../lib/format'
 import { ASSET_SHORT_LABELS } from '../lib/labels'
 import { isPowerTrader } from '../lib/reputation'
-import type { OfferStatus } from '../types'
+import type { Offer, OfferStatus, User } from '../types'
+
+// Real, persisted Offer rows (GET /v1/liquidity/offers/mine) — the
+// route doesn't join the `user` relation (a self-view never needs to
+// look itself up), so the caller's own already-known User (useAuth())
+// fills that in. Same field-by-field mapping OfferDetail.tsx's own
+// toOffer() uses, minus the user lookup. Real fix, 2026-08-01 — see
+// README.md's "What this is not" for the bug this closes (a
+// just-published real offer never showed up here, since this screen
+// used to read lib/offersStore.ts/localStorage instead).
+function toOffer(raw: Awaited<ReturnType<typeof sailsClient.liquidity.getMyOffers>>[number], user: User): Offer {
+  const priceUsd = Number(raw.priceUsd)
+  const priceBrl = raw.priceBrl ? Number(raw.priceBrl) : priceUsd
+  return {
+    id: raw.id,
+    userId: raw.userId,
+    user,
+    asset: raw.asset,
+    side: raw.side,
+    priceUsd,
+    fiatCurrency: 'BRL', // real Offer only ever models a BRL fiat price — see types.ts's own header comment
+    priceFiat: priceBrl,
+    minAmount: Number(raw.minAmount),
+    maxAmount: Number(raw.maxAmount),
+    paymentMethod: raw.paymentMethod,
+    paymentDetails: raw.paymentDetails ?? undefined,
+    status: raw.status,
+    network: raw.network ?? undefined,
+    description: raw.description ?? undefined,
+    requiresKyc: raw.requiresKyc,
+    country: 'BR', // no real country field on Offer yet — same gap types.ts's header already discloses
+    tradedWithCurrentUser: false,
+    blockedRelationship: false,
+    createdAt: raw.createdAt,
+  }
+}
 
 const OFFER_FILTERS: { value: OfferStatus | 'Todos'; label: string }[] = [
   { value: 'Todos', label: 'Todos' },
@@ -31,15 +66,26 @@ export function Profile() {
     if (!user) navigate('/login')
   }, [user, navigate])
 
-  // TODO: replace with @sails/sdk `liquidity.getOffers({ userId })` once
-  // the mock swap happens — `getAllOffers()` (lib/offersStore.ts) layers
-  // anything published via the "Publicar Anúncio" wizard, plus any local
-  // status change (see `updateOfferStatus` below), on top of the seed
-  // MOCK_OFFERS, read fresh on every mount so a just-published offer
-  // shows up immediately after navigating back here.
-  const [offers, setOffers] = useState(getAllOffers)
+  const [offers, setOffers] = useState<Offer[]>([])
+  const [loadingOffers, setLoadingOffers] = useState(true)
   const [statusFilter, setStatusFilter] = useState<OfferStatus | 'Todos'>('Todos')
   const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null)
+
+  // Real, wired to @sails/sdk (2026-08-01) — GET /v1/liquidity/offers/mine
+  // already filters by the authenticated session, so a just-published
+  // offer shows up here on the next mount (no client-side userId filter
+  // needed, unlike the old localStorage-backed version).
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    setLoadingOffers(true)
+    sailsClient.liquidity
+      .getMyOffers()
+      .then((raw) => { if (!cancelled) setOffers(raw.map((o) => toOffer(o, user))) })
+      .catch(() => { if (!cancelled) setOffers([]) })
+      .finally(() => { if (!cancelled) setLoadingOffers(false) })
+    return () => { cancelled = true }
+  }, [user])
 
   // Real gap found directly by the owner: "Minhas Ordens" had no
   // date/time and no way to know what happened or remove an order —
@@ -49,18 +95,28 @@ export function Profile() {
   // show a dated, filterable list of a user's own listings.
   const myOffers = useMemo(() => {
     return offers
-      .filter((o) => o.userId === user?.id)
       .filter((o) => statusFilter === 'Todos' || o.status === statusFilter)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [offers, user, statusFilter])
+  }, [offers, statusFilter])
 
   if (!user) return null
 
+  // Optimistic update + real PATCH /v1/liquidity/offers/:id/status
+  // (2026-08-01) — reverts the optimistic change and shows an error
+  // toast if the real call fails, instead of silently drifting from the
+  // server's actual state the way the old localStorage-only version
+  // could never detect a failure at all.
   const applyStatus = (id: string, status: OfferStatus, message: string) => {
-    updateOfferStatus(id, status)
+    const previousStatus = offers.find((o) => o.id === id)?.status
     setOffers((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)))
     setConfirmingCancelId(null)
-    toast.success(message)
+    sailsClient.liquidity
+      .updateStatus(id, status)
+      .then(() => toast.success(message))
+      .catch(() => {
+        if (previousStatus) setOffers((prev) => prev.map((o) => (o.id === id ? { ...o, status: previousStatus } : o)))
+        toast.error('Não foi possível atualizar a oferta — tente novamente.')
+      })
   }
 
   return (
@@ -151,12 +207,13 @@ export function Profile() {
         </div>
 
         <div className="mt-3 space-y-2">
-          {myOffers.length === 0 && (
+          {loadingOffers && <p className="text-sm text-brand-text-muted">Carregando ofertas...</p>}
+          {!loadingOffers && myOffers.length === 0 && (
             <p className="text-sm text-brand-text-muted">
               {statusFilter === 'Todos' ? 'Nenhuma oferta publicada ainda.' : `Nenhuma oferta com status "${OFFER_STATUS_LABEL[statusFilter]}".`}
             </p>
           )}
-          {myOffers.map((o) => {
+          {!loadingOffers && myOffers.map((o) => {
             const canManage = o.status === 'ACTIVE' || o.status === 'PAUSED'
             return (
               <div key={o.id} className="card p-3">

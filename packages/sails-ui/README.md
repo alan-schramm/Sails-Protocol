@@ -131,11 +131,28 @@ itself needs no migration — it's already a free-form `String` in
 
 ## What this is not
 
-- **Not wired to the real backend.** Every screen reads `src/data/mock.ts`.
-  No `@sails/sdk` call happens anywhere in this package yet. Every read
-  site that will eventually become a real call has a
-  `// TODO: replace with @sails/sdk ...` comment naming the real method
-  and route.
+- **Partially wired to the real backend — corrected 2026-08-01, this
+  paragraph had gone stale.** It used to claim "no `@sails/sdk` call
+  happens anywhere in this package" — checked directly against current
+  source (`grep` for `sailsClient.`/`from '@sails/sdk'`) and that's no
+  longer true. Real, live calls exist in: `context/AuthContext.tsx`
+  (Login — `identity.create`/`authenticate`), `lib/realOffers.ts`
+  (Marketplace — `liquidity.discover`), `pages/OfferDetail.tsx`
+  (`liquidity.getOffer`), `pages/PublishOffer.tsx` (the actual publish
+  action — `liquidity.publish`; only its "comparable price" helper still
+  reads `MOCK_OFFERS`, not the publish call itself), `pages/Trade.tsx`
+  (`openp2p.trade`/`getTrade`/`getMessages`, `settlement.create`/`lock`/
+  `markPaymentSent`/`release`/`dispute`, and a real `openp2p.chat()`
+  WebSocket), `hooks/useEscrowKey.ts`, and — closed same day, same pass —
+  `pages/Profile.tsx` ("Minhas Ofertas" now calls the new
+  `liquidity.getMyOffers()` / `GET /v1/liquidity/offers/mine`, and its
+  Pausar/Ativar/Cancelar actions call the real `liquidity.updateStatus()`
+  instead of `lib/offersStore.ts`/`localStorage` — a just-published real
+  offer now shows up on the publisher's own profile). Still genuinely
+  mock: the admin console (`pages/admin/Dashboard.tsx`,
+  `ManageOffers.tsx`, `Disputes.tsx`) and `pages/TradeHistory.tsx` — no
+  real route exists yet for arbiter-facing dispute resolution or a
+  participant's full trade history.
 - **Not where WDK/Pears code runs.** `wdk-settlement.provider.ts` and
   `pear.service.ts` (the real signing/P2P code) are server-only — a
   browser can never import them directly (they hold seed material /
@@ -321,13 +338,24 @@ require touching `vite.config.ts`.
 
 ## Next steps (not done here)
 
-1. Swap `src/data/mock.ts` reads for real `@sails/sdk` calls, route by
-   route (every site is already marked with a `// TODO` comment).
-2. Real auth: `identity.authenticate()`'s Ed25519 flow
-   (`packages/sails-sdk/src/modules/identity.ts`) instead of the mocked
-   `AuthContext.login()`.
-3. Real chat: `new WebSocket('/v1/openp2p/chat?token=...')` instead of
-   `ChatWindow`'s local-only `onSend`.
+> **Correction, 2026-08-01:** items 1-3 and 10 below were written before
+> the real-SDK integration pass documented in "What this is not" above
+> — they described work as fully outstanding that's now partially or
+> mostly done. Left in place (not deleted) so the remaining, genuinely
+> open piece of each is still visible: item 1's remaining scope is
+> `Profile.tsx` + the admin console + `TradeHistory.tsx` specifically,
+> not "every screen"; items 2 and 3 are done; item 10 is done for the
+> publish action itself (see the corrected section above).
+
+1. ~~Swap `src/data/mock.ts` reads for real `@sails/sdk` calls, route by
+   route~~ — done for Login/Marketplace/OfferDetail/PublishOffer/Trade/
+   Profile. Still open: the admin console + `TradeHistory.tsx` (no real
+   route exists yet for arbiter-facing dispute resolution or a
+   participant's full trade history).
+2. ~~Real auth~~ — done. `AuthContext.tsx` uses `identity.create()`/
+   `identity.authenticate()`'s real Ed25519 challenge-response flow.
+3. ~~Real chat~~ — done. `Trade.tsx` uses a real `openp2p.chat(tradeId)`
+   WebSocket, not a local-only `onSend`.
 4. A real multi-fiat price field on `Offer` (backend), or a real FX-rate
    source, to back `CurrencyPicker`/`AMOUNT_PRESETS` with something
    other than illustrative numbers.
@@ -350,8 +378,9 @@ require touching `vite.config.ts`.
    broadcasts it (RFC-017). What's needed is only replacing
    `src/lib/socialEngineering.ts`'s keyword regex with just listening
    for the real WS message.
-10. A real `POST /v1/liquidity/offers` call (`liquidity.createOffer()`)
-    instead of `lib/offersStore.ts`'s `localStorage` layer, once auth
-    (item 2) is real — `PublishOffer.tsx`'s wizard already builds the
-    exact `CreateOfferInput` shape that call needs. A real live-rate
-    source would also let "Tipo de Preço: Flutuante" stop being disabled.
+10. ~~A real `POST /v1/liquidity/offers` call~~ — done, and (2026-08-01)
+    so is the read-back side: `Profile.tsx` no longer falls through to
+    `lib/offersStore.ts`/`localStorage` at all, it calls the real
+    `liquidity.getMyOffers()`. A real live-rate source would still let
+    "Tipo de Preço: Flutuante" stop being disabled — that part remains
+    open.

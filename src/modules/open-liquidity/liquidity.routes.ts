@@ -91,6 +91,21 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send({ success: true, data: book })
   })
 
+  // A participant's own offers, including non-ACTIVE ones (paused/
+  // completed/cancelled) — never derived from a query param, always from
+  // the authenticated session, same INV-OP-6 discipline every other
+  // participant-scoped route in this codebase already follows. Real gap
+  // found auditing packages/sails-ui's Profile screen (2026-08-01) —
+  // see liquidity.service.ts's getOffersByUser() doc comment.
+  app.get('/v1/liquidity/offers/mine', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-liquidity'] },
+  }, async (request, reply) => {
+    const participantId = (request as any).participantId as string
+    const offers = await liquidityRouter.getOffersByUser(participantId)
+    return reply.code(200).send({ success: true, data: offers })
+  })
+
   app.patch('/v1/liquidity/offers/:id/status', {
     preHandler: requireAuth,
     schema: { tags: ['open-liquidity'] },

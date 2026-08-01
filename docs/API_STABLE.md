@@ -85,6 +85,11 @@ would just be a synonym, not a real accessibility gain.
 - `book(asset)` → `OrderBook`
 - `updateStatus(offerId, status)` → `Offer` *(requires session)*
 - `match({ asset, side, amount })` → `LiquidityOfferSummary | null`
+- `getMyOffers()` → `Offer[]` *(requires session; additive, 2026-08-01 —
+  the authenticated caller's own offers including non-ACTIVE ones, real
+  `Offer` rows, not the `LiquidityOfferSummary` aggregation shape
+  `discover()`/`book()` return. Added for a real caller,
+  `packages/sails-ui`'s Profile screen — `GET /v1/liquidity/offers/mine`)*
 
 ### `openp2p` / `trades`
 - `trade(offerId, amount)` → `Trade` *(requires session)*
