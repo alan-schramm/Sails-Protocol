@@ -18,6 +18,9 @@
 import { useMemo, useState } from 'react'
 import type { AssetType } from '../../types'
 import { ASSET_LABELS } from '../../lib/labels'
+import { Input } from '../ui/input'
+import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover'
+import { ChevronDown } from 'lucide-react'
 
 interface Props {
   assets: readonly AssetType[]
@@ -41,49 +44,43 @@ export function AssetPicker({ assets, value, onChange }: Props) {
   }
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="input-field flex items-center gap-2 min-w-[140px] justify-between"
-      >
+    // Real Radix Popover (2026-08-01) — replaces a hand-rolled
+    // `fixed inset-0` backdrop, which had no focus trap, no Escape-to-
+    // close, no ARIA. Trigger keeps its `.input-field` look (that part
+    // was never the problem); only the dropdown mechanics changed.
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger className="input-field flex items-center gap-2 min-w-[140px] justify-between">
         <span className="font-medium truncate">{value === 'Todos' ? 'Todos os ativos' : ASSET_LABELS[value]}</span>
-        <span className="text-brand-text-muted text-xs">▾</span>
-      </button>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute z-50 mt-2 w-72 card p-2 shadow-lg">
-            <input
-              autoFocus
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar ativo..."
-              className="input-field w-full mb-2"
-            />
-            <div className="max-h-64 overflow-y-auto">
-              <button
-                onClick={() => select('Todos')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated ${value === 'Todos' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
-              >
-                Todos os ativos
-              </button>
-              {filtered.map((asset) => (
-                <button
-                  key={asset}
-                  onClick={() => select(asset)}
-                  title={asset}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated ${value === asset ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
-                >
-                  {ASSET_LABELS[asset]}
-                </button>
-              ))}
-              {filtered.length === 0 && <p className="text-xs text-brand-text-muted px-3 py-2">Nenhum ativo encontrado.</p>}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
+        <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-2">
+        <Input
+          autoFocus
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar ativo..."
+          className="w-full mb-2"
+        />
+        <div className="max-h-64 overflow-y-auto">
+          <button
+            onClick={() => select('Todos')}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated ${value === 'Todos' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
+          >
+            Todos os ativos
+          </button>
+          {filtered.map((asset) => (
+            <button
+              key={asset}
+              onClick={() => select(asset)}
+              title={asset}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated ${value === asset ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
+            >
+              {ASSET_LABELS[asset]}
+            </button>
+          ))}
+          {filtered.length === 0 && <p className="text-xs text-brand-text-muted px-3 py-2">Nenhum ativo encontrado.</p>}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }

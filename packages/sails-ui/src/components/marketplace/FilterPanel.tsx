@@ -11,6 +11,12 @@ import { AMOUNT_PRESETS, formatByCurrency } from '../../lib/currency'
 import { COUNTRIES, PAYMENT_METHODS_FILTERABLE } from '../../data/mock'
 import { PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { InfoTooltip } from '../ui/InfoTooltip'
+import { Button } from '../ui/button'
+import { badgeVariants } from '../ui/badge'
+import { Input } from '../ui/input'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select'
+import { cn } from '../../lib/utils'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet'
 
 interface Props {
   open: boolean
@@ -36,8 +42,6 @@ export const SORT_OPTIONS: { value: MarketplaceFilters['sortBy']; label: string 
 ]
 
 export function FilterPanel({ open, onClose, filters, onChange, currency }: Props) {
-  if (!open) return null
-
   const set = <K extends keyof MarketplaceFilters>(key: K, value: MarketplaceFilters[K]) =>
     onChange({ ...filters, [key]: value })
 
@@ -47,13 +51,15 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-sm h-full bg-brand-surface border-l border-brand-border overflow-y-auto p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-brand-text">Filtros avançados</h3>
-          <button onClick={onClose} className="text-brand-text-muted hover:text-brand-text text-sm">✕</button>
-        </div>
+    // Real Radix Sheet (2026-08-01) — replaces a hand-rolled `fixed inset-0`
+    // backdrop with a manually added (but never wired) `role="dialog"
+    // aria-modal="true"`: no real focus trap, no Escape-to-close. Same fix
+    // as Disputes.tsx's own drawer — see feedback_slc_ui_philosophy memory.
+    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="right" className="w-full max-w-sm overflow-y-auto p-5">
+        <SheetHeader>
+          <SheetTitle>Filtros avançados</SheetTitle>
+        </SheetHeader>
 
         <ToggleRow
           label="Salvar filtro para o próximo"
@@ -88,19 +94,19 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             <span className="text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">Quantidade</span>
             <InfoTooltip text="A quantidade que você costuma negociar — usada para destacar ofertas com limites compatíveis." />
           </div>
-          <input
+          <Input
             value={filters.amount}
             onChange={(e) => set('amount', e.target.value)}
             type="number"
             placeholder="0.00"
-            className="input-field w-full mb-2"
+            className="w-full mb-2"
           />
           <div className="flex gap-1.5 flex-wrap">
             {AMOUNT_PRESETS[currency].map((preset) => (
               <button
                 key={preset}
                 onClick={() => set('amount', String(preset))}
-                className={filters.amount === String(preset) ? 'pill-active' : 'pill-inactive'}
+                className={cn(badgeVariants({ variant: filters.amount === String(preset) ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
               >
                 {formatByCurrency(preset, currency)}
               </button>
@@ -118,7 +124,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
               <button
                 key={t.value}
                 onClick={() => set('paymentTimeLimit', t.value)}
-                className={filters.paymentTimeLimit === t.value ? 'pill-active' : 'pill-inactive'}
+                className={cn(badgeVariants({ variant: filters.paymentTimeLimit === t.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
               >
                 {t.label}
               </button>
@@ -136,7 +142,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
               <button
                 key={m}
                 onClick={() => togglePaymentMethod(m)}
-                className={filters.paymentMethods.includes(m) ? 'pill-active' : 'pill-inactive'}
+                className={cn(badgeVariants({ variant: filters.paymentMethods.includes(m) ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
               >
                 {PAYMENT_METHOD_LABELS[m]}
               </button>
@@ -146,16 +152,17 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
 
         <div className="mt-5">
           <span className="text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">País/Região</span>
-          <select
-            value={filters.country}
-            onChange={(e) => set('country', e.target.value)}
-            className="input-field w-full mt-2"
-          >
-            <option value="Todos">Todos</option>
-            {COUNTRIES.map((c) => (
-              <option key={c.code} value={c.code}>{c.label}</option>
-            ))}
-          </select>
+          <Select value={filters.country} onValueChange={(v) => set('country', v)}>
+            <SelectTrigger aria-label="País/Região" className="w-full mt-2">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Todos">Todos</SelectItem>
+              {COUNTRIES.map((c) => (
+                <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="mt-5">
@@ -165,7 +172,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
               <button
                 key={s.value}
                 onClick={() => set('sortBy', s.value)}
-                className={filters.sortBy === s.value ? 'pill-active' : 'pill-inactive'}
+                className={cn(badgeVariants({ variant: filters.sortBy === s.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
               >
                 {s.label}
               </button>
@@ -173,11 +180,11 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
           </div>
         </div>
 
-        <button onClick={onClose} className="btn-primary w-full mt-6 py-2.5 text-sm">
+        <Button onClick={onClose} className="w-full mt-6 py-2.5 text-sm">
           Aplicar Filtros
-        </button>
-      </div>
-    </div>
+        </Button>
+      </SheetContent>
+    </Sheet>
   )
 }
 

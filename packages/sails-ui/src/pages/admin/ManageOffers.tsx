@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { MOCK_OFFERS } from '../../data/mock'
-import { AssetBadge, SideBadge, PaymentBadge, OfferStatusBadge } from '../../components/ui/Badge'
+import { AssetBadge, SideBadge, PaymentBadge, OfferStatusBadge } from '../../components/ui/StatusBadges'
+import { Button } from '../../components/ui/button'
+import { Card } from '../../components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/dialog'
 
 export function ManageOffers() {
   const [offers, setOffers] = useState(MOCK_OFFERS)
@@ -17,12 +20,12 @@ export function ManageOffers() {
     <div>
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Gerenciar Ofertas</h1>
-        <button onClick={() => setShowModal(true)} className="btn-primary text-sm px-4 py-2">
+        <Button onClick={() => setShowModal(true)} className="text-sm px-4 py-2">
           Nova Oferta
-        </button>
+        </Button>
       </div>
 
-      <div className="mt-4 card overflow-hidden">
+      <Card className="mt-4 overflow-hidden">
         {offers.map((o) => (
           <div key={o.id} className="px-5 py-3 border-b border-brand-border last:border-0 flex items-center gap-3 text-sm">
             <AssetBadge asset={o.asset} />
@@ -35,33 +38,35 @@ export function ManageOffers() {
             </button>
           </div>
         ))}
-      </div>
+      </Card>
 
-      {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
-          <div className="card p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-semibold text-brand-text">Nova Oferta</h3>
-            <p className="text-xs text-brand-text-muted mt-1">
-              {/* TODO: real POST /v1/liquidity/offers call (liquidity.routes.ts) */}
-              Formulário mockado — nenhuma chamada real é feita nesta etapa.
-            </p>
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={() => {
-                  toast.success('Oferta criada com sucesso')
-                  setShowModal(false)
-                }}
-                className="btn-primary flex-1 py-2 text-sm"
-              >
-                Criar Oferta
-              </button>
-              <button onClick={() => setShowModal(false)} className="btn-ghost flex-1 py-2 text-sm">
-                Cancelar
-              </button>
-            </div>
+      {/* Real Radix Dialog (2026-08-01) — replaces a hand-rolled
+          `fixed inset-0` backdrop + manual `stopPropagation()`, which had
+          no focus trap, no Escape-to-close, no `role="dialog"`. Real gain,
+          not just visual consistency — see feedback_slc_ui_philosophy. */}
+      <Dialog open={showModal} onOpenChange={setShowModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nova Oferta</DialogTitle>
+            {/* TODO: real POST /v1/liquidity/offers call (liquidity.routes.ts) */}
+            <DialogDescription>Formulário mockado — nenhuma chamada real é feita nesta etapa.</DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex gap-2">
+            <Button
+              onClick={() => {
+                toast.success('Oferta criada com sucesso')
+                setShowModal(false)
+              }}
+              className="flex-1 py-2 text-sm"
+            >
+              Criar Oferta
+            </Button>
+            <Button variant="outline" onClick={() => setShowModal(false)} className="flex-1 py-2 text-sm">
+              Cancelar
+            </Button>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

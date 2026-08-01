@@ -1,7 +1,8 @@
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { CHART_DATA, MOCK_TRADE_HISTORY, MOCK_OFFERS, MOCK_DISPUTES } from '../../data/mock'
-import { AssetBadge, TradeStatusBadge } from '../../components/ui/Badge'
+import { AssetBadge, TradeStatusBadge } from '../../components/ui/StatusBadges'
 import { formatBrl } from '../../lib/format'
+import { Card } from '../../components/ui/card'
 
 export function Dashboard() {
   const activeOffers = MOCK_OFFERS.filter((o) => o.status === 'ACTIVE').length
@@ -18,7 +19,7 @@ export function Dashboard() {
         <StatCard label="Disputas Abertas" value={openDisputes} tone={openDisputes > 0 ? 'danger' : 'default'} />
       </div>
 
-      <div className="mt-6 card p-5">
+      <Card className="mt-6 p-5">
         <h3 className="text-sm font-semibold text-brand-text-muted mb-3">Volume diário (30 dias) — mockado</h3>
         <ResponsiveContainer width="100%" height={220}>
           <LineChart data={CHART_DATA}>
@@ -29,9 +30,9 @@ export function Dashboard() {
             <Line type="monotone" dataKey="volume" stroke="rgb(var(--color-orange-accent))" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
-      </div>
+      </Card>
 
-      <div className="mt-6 card overflow-hidden">
+      <Card className="mt-6 overflow-hidden">
         <div className="px-5 py-3 border-b border-brand-border text-xs font-semibold text-brand-text-muted uppercase tracking-wider">
           Trades recentes
         </div>
@@ -44,16 +45,16 @@ export function Dashboard() {
             <TradeStatusBadge status={t.status} />
           </div>
         ))}
-      </div>
+      </Card>
     </div>
   )
 }
 
 function StatCard({ label, value, tone = 'default' }: { label: string; value: string | number; tone?: 'default' | 'danger' }) {
   return (
-    <div className="card p-4">
+    <Card className="p-4">
       <div className={`text-2xl font-display font-bold ${tone === 'danger' ? 'text-red-700' : 'text-brand-text'}`}>{value}</div>
       <div className="text-xs text-brand-text-muted mt-1">{label}</div>
-    </div>
+    </Card>
   )
 }

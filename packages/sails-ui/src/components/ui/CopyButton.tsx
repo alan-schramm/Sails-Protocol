@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { Check } from 'lucide-react'
 
 export function CopyButton({ value, label = 'Copiar' }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false)
@@ -17,7 +18,7 @@ export function CopyButton({ value, label = 'Copiar' }: { value: string; label?:
       onClick={handleCopy}
       className="text-xs text-brand-text-secondary hover:text-brand-text border border-brand-border rounded-md px-2 py-1 transition-colors"
     >
-      {copied ? '✓' : label}
+      {copied ? <Check className="h-3.5 w-3.5 inline" /> : label}
     </button>
   )
 }

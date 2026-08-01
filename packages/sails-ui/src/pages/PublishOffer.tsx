@@ -33,6 +33,12 @@ import { useAuth } from '../context/AuthContext'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
+import { Button } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { Input } from '../components/ui/input'
+import { Textarea } from '../components/ui/textarea'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
+import { ArrowLeft } from 'lucide-react'
 import { MOCK_OFFERS, ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
 import { ILLUSTRATIVE_FX_TO_USD, formatByCurrency } from '../lib/currency'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
@@ -161,8 +167,8 @@ export function PublishOffer() {
   return (
     <div className="max-w-lg mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => (step === 1 ? navigate('/profile') : setStep((s) => s - 1))} className="text-xl text-brand-text-secondary hover:text-brand-text">
-          ←
+        <button onClick={() => (step === 1 ? navigate('/profile') : setStep((s) => s - 1))} className="p-2 -m-2 text-brand-text-secondary hover:text-brand-text">
+          <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-lg font-display font-bold text-brand-text">Publicar Anúncio</h1>
       </div>
@@ -185,7 +191,7 @@ export function PublishOffer() {
         })}
       </div>
 
-      <div className="card p-5">
+      <Card className="p-5">
         {step === 1 && (
           <div className="space-y-4">
             <div>
@@ -223,10 +229,15 @@ export function PublishOffer() {
                 Tipo de Preço
                 <InfoTooltip text="Flutuante (atrelado a uma cotação de mercado ao vivo) ainda não é suportado — não existe integração com uma fonte de câmbio em tempo real no backend hoje. Publicar sempre envia um preço fixo." />
               </label>
-              <select value={priceType} onChange={(e) => setPriceType(e.target.value as 'FIXED' | 'FLOATING')} className="input-field w-full">
-                <option value="FIXED">Fixo</option>
-                <option value="FLOATING">Flutuante (em breve)</option>
-              </select>
+              <Select value={priceType} onValueChange={(v) => setPriceType(v as 'FIXED' | 'FLOATING')}>
+                <SelectTrigger aria-label="Tipo de Preço" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FIXED">Fixo</SelectItem>
+                  <SelectItem value="FLOATING">Flutuante (em breve)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {priceType === 'FIXED' ? (
@@ -262,33 +273,34 @@ export function PublishOffer() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">Quantidade mínima</label>
-                <input value={minAmount} onChange={(e) => setMinAmount(e.target.value)} type="number" className="input-field w-full" placeholder="0.00" />
+                <Input value={minAmount} onChange={(e) => setMinAmount(e.target.value)} type="number" className="w-full" placeholder="0.00" />
               </div>
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">Quantidade máxima</label>
-                <input value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} type="number" className="input-field w-full" placeholder="0.00" />
+                <Input value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} type="number" className="w-full" placeholder="0.00" />
               </div>
             </div>
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">Método de pagamento</label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as (typeof PAYMENT_METHODS)[number])}
-                className="input-field w-full"
-              >
-                {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</option>
-                ))}
-              </select>
+              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as (typeof PAYMENT_METHODS)[number])}>
+                <SelectTrigger aria-label="Método de pagamento" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map((m) => (
+                    <SelectItem key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">Detalhes do pagamento</label>
-              <input
+              <Input
                 value={paymentDetails}
                 onChange={(e) => setPaymentDetails(e.target.value)}
-                className="input-field w-full"
+                className="w-full"
                 placeholder={paymentMethod === 'PIX' ? 'Sua chave PIX' : 'Dados para o comprador enviar o pagamento'}
               />
             </div>
@@ -312,41 +324,46 @@ export function PublishOffer() {
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">País/Região</label>
-              <select value={country} onChange={(e) => setCountry(e.target.value)} className="input-field w-full">
-                {COUNTRIES.map((c) => (
-                  <option key={c.code} value={c.code}>{c.label}</option>
-                ))}
-              </select>
+              <Select value={country} onValueChange={setCountry}>
+                <SelectTrigger aria-label="País/Região" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {COUNTRIES.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">Descrição (opcional)</label>
-              <textarea
+              <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="input-field w-full"
+                className="w-full"
                 rows={3}
                 placeholder="Instruções extras para a contraparte..."
               />
             </div>
           </div>
         )}
-      </div>
+      </Card>
 
       <div className="mt-6 flex gap-2">
         {step > 1 && (
-          <button onClick={() => setStep((s) => s - 1)} className="btn-ghost flex-1 py-3">
+          <Button variant="outline" onClick={() => setStep((s) => s - 1)} className="flex-1 py-3">
             Voltar
-          </button>
+          </Button>
         )}
         {step < 3 ? (
-          <button onClick={goNext} className="btn-primary flex-1 py-3">
+          <Button onClick={goNext} className="flex-1 py-3">
             Próximo
-          </button>
+          </Button>
         ) : (
-          <button onClick={handlePublish} disabled={publishing} className="btn-primary flex-1 py-3">
+          <Button onClick={handlePublish} disabled={publishing} className="flex-1 py-3">
             {publishing ? 'Publicando...' : 'Publicar'}
-          </button>
+          </Button>
         )}
       </div>
     </div>

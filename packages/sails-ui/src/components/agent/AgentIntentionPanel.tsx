@@ -10,6 +10,12 @@ import {
   type NegotiationProfile,
 } from '../../lib/aiNegotiator'
 import { InfoTooltip } from '../ui/InfoTooltip'
+import { Button } from '../ui/button'
+import { Card } from '../ui/card'
+import { Input } from '../ui/input'
+import { Textarea } from '../ui/textarea'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select'
+import { Bot, OctagonX, Check, Circle, ArrowDown, ChevronUp, ChevronDown } from 'lucide-react'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import type { AssetType, FiatCurrency, TradeSide } from '../../types'
 
@@ -134,7 +140,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       setSecondsRemaining((s) => Math.max(0, s - tickMs / 1000))
     }, tickMs)
 
-    toast.success('Mandato delegado ao AI Negotiator 🤖')
+    toast.success('Mandato delegado ao AI Negotiator', { icon: <Bot className="h-4 w-4" /> })
   }
 
   useEffect(() => {
@@ -148,7 +154,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     if (intervalRef.current) clearInterval(intervalRef.current)
     intervalRef.current = null
     setStopped(true)
-    toast('Controle assumido pelo usuário', { icon: '🛑' })
+    toast('Controle assumido pelo usuário', { icon: <OctagonX className="h-4 w-4" /> })
   }
 
   const handleReset = () => {
@@ -166,18 +172,20 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
   }
 
   return (
-    <div className="card p-4 mb-4">
+    <Card className="p-4 mb-4">
       <div className="w-full flex items-center justify-between text-left">
         <button
           onClick={() => setOpen((o) => !o)}
           className="flex items-center gap-2 text-sm font-semibold text-brand-text"
         >
-          🤖 AI Negotiator — negociação assistida por IA (Agente QVAC)
+          <Bot className="h-4 w-4 shrink-0" />
+          AI Negotiator — negociação assistida por IA (Agente QVAC)
         </button>
         <div className="flex items-center gap-2">
           <InfoTooltip text={BOUNDARY_TEXT} />
-          <button onClick={() => setOpen((o) => !o)} className="text-brand-text-muted text-xs">
-            {open ? 'fechar ▲' : 'abrir ▼'}
+          <button onClick={() => setOpen((o) => !o)} className="text-brand-text-muted text-xs flex items-center gap-1">
+            {open ? 'fechar' : 'abrir'}
+            {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
@@ -200,18 +208,18 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 ))}
               </div>
 
-              <textarea
+              <Textarea
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
                 placeholder={GOAL_PLACEHOLDER}
-                className="input-field w-full"
+                className="w-full"
                 rows={2}
               />
 
               <div className="flex items-center gap-3 mt-2">
-                <button onClick={handleGenerate} disabled={loading} className="btn-primary px-4 py-2 text-sm disabled:opacity-60">
+                <Button onClick={handleGenerate} disabled={loading} className="px-4 py-2 text-sm disabled:opacity-60">
                   {loading ? 'QVAC pensando...' : 'Gerar com QVAC'}
-                </button>
+                </Button>
                 {loading && (
                   <span className="text-xs text-brand-text-muted flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent animate-pulse" />
@@ -237,9 +245,10 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 matchCount > 0 ? (
                   <button
                     onClick={() => document.getElementById('marketplace-offer-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    className="text-xs text-brand-orange-accent underline mb-3 block"
+                    className="text-xs text-brand-orange-accent underline mb-3 flex items-center gap-1"
                   >
-                    {matchCount} {matchCount === 1 ? 'oferta corresponde' : 'ofertas correspondem'} a este filtro — ver no Marketplace ↓
+                    {matchCount} {matchCount === 1 ? 'oferta corresponde' : 'ofertas correspondem'} a este filtro — ver no Marketplace
+                    <ArrowDown className="h-3 w-3" />
                   </button>
                 ) : (
                   <div className="mb-3 rounded-md bg-brand-elevated border border-brand-border px-3 py-2 text-xs text-brand-text-secondary">
@@ -257,27 +266,32 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <label className="text-xs text-brand-text-muted">
                   Quantidade ({ASSET_SHORT_LABELS[result.asset]})
-                  <input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Ex: 100" className="input-field w-full mt-1 text-sm" />
+                  <Input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Ex: 100" className="w-full mt-1 text-sm" />
                 </label>
                 <label className="text-xs text-brand-text-muted">
                   Preço {side === 'BUY' ? 'máximo' : 'mínimo'} ({result.currency}/un.)
-                  <input value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} placeholder="Ex: 5.61" className="input-field w-full mt-1 text-sm" />
+                  <Input value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} placeholder="Ex: 5.61" className="w-full mt-1 text-sm" />
                 </label>
-                <label className="text-xs text-brand-text-muted">
+                <div className="text-xs text-brand-text-muted">
                   Prazo (minutos)
-                  <select value={deadlineMinutes} onChange={(e) => setDeadlineMinutes(Number(e.target.value))} className="input-field w-full mt-1 text-sm">
-                    {[15, 20, 30, 45, 60].map((m) => (
-                      <option key={m} value={m}>{m} min</option>
-                    ))}
-                  </select>
-                </label>
+                  <Select value={String(deadlineMinutes)} onValueChange={(v) => setDeadlineMinutes(Number(v))}>
+                    <SelectTrigger aria-label="Prazo (minutos)" className="w-full mt-1 text-sm h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[15, 20, 30, 45, 60].map((m) => (
+                        <SelectItem key={m} value={String(m)}>{m} min</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <label className="text-xs text-brand-text-muted">
                   Tolerância (%)
-                  <input
+                  <Input
                     type="number" step="0.05" min="0"
                     value={tolerancePct}
                     onChange={(e) => setTolerancePct(Number(e.target.value))}
-                    className="input-field w-full mt-1 text-sm"
+                    className="w-full mt-1 text-sm"
                   />
                 </label>
               </div>
@@ -301,12 +315,13 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               </div>
 
               <div className="flex gap-2">
-                <button onClick={handleDelegate} className="btn-primary px-3 py-1.5 text-xs">
-                  🤖 Delegar para IA
-                </button>
-                <button onClick={handleReset} className="btn-ghost px-3 py-1.5 text-xs">
+                <Button onClick={handleDelegate} className="px-3 py-1.5 text-xs">
+                  <Bot className="h-3.5 w-3.5" />
+                  Delegar para IA
+                </Button>
+                <Button variant="outline" onClick={handleReset} className="px-3 py-1.5 text-xs">
                   Cancelar
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -316,8 +331,9 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold text-brand-orange-accent">Status</span>
                 {!stopped && !finished && (
-                  <button onClick={handleStop} className="bg-red-600 hover:bg-red-500 text-white rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors">
-                    🛑 Parar Agente / Assumir Controle
+                  <button onClick={handleStop} className="flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors">
+                    <OctagonX className="h-3.5 w-3.5" />
+                    Parar Agente / Assumir Controle
                   </button>
                 )}
               </div>
@@ -326,7 +342,13 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 {steps.map((step, i) => (
                   <div key={step.id} className="flex items-center gap-2 text-xs">
                     <span className={i <= stepIndex ? 'text-green-500' : 'text-brand-text-muted'}>
-                      {i < stepIndex ? '✓' : i === stepIndex ? '●' : '○'}
+                      {i < stepIndex ? (
+                        <Check className="h-3.5 w-3.5" />
+                      ) : i === stepIndex ? (
+                        <Circle className="h-3.5 w-3.5" fill="currentColor" />
+                      ) : (
+                        <Circle className="h-3.5 w-3.5" />
+                      )}
                     </span>
                     <span className={i <= stepIndex ? 'text-brand-text' : 'text-brand-text-muted'}>{step.label}</span>
                   </div>
@@ -351,15 +373,15 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               </div>
 
               {(stopped || finished) && (
-                <button onClick={handleReset} className="btn-ghost px-3 py-1.5 text-xs">
+                <Button variant="outline" onClick={handleReset} className="px-3 py-1.5 text-xs">
                   Novo mandato
-                </button>
+                </Button>
               )}
             </div>
           )}
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 

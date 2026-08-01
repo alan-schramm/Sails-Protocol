@@ -4,6 +4,8 @@ import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
+import { Button } from '../components/ui/button'
+import { Lock, Zap, Globe, KeyRound, ShieldCheck, type LucideIcon } from 'lucide-react'
 
 export function Login() {
   const { login } = useAuth()
@@ -57,9 +59,9 @@ export function Login() {
         <p className="text-neutral-400 text-lg mt-4">Sem custódia. Sem intermediários. Seus fundos, suas chaves.</p>
 
         <ul className="mt-10 space-y-4 text-sm">
-          <Feature icon="🔒" title="Escrow não custodial" desc="Seus fundos bloqueados, nunca em posse nossa" />
-          <Feature icon="⚡" title="P2P direto" desc="Negocie direto com a contraparte via chat criptografado" />
-          <Feature icon="🌐" title="Multi-chain" desc="BTC, Lightning, Liquid, USDT e mais" />
+          <Feature icon={Lock} title="Escrow não custodial" desc="Seus fundos bloqueados, nunca em posse nossa" />
+          <Feature icon={Zap} title="P2P direto" desc="Negocie direto com a contraparte via chat criptografado" />
+          <Feature icon={Globe} title="Multi-chain" desc="BTC, Lightning, Liquid, USDT e mais" />
         </ul>
 
         <p className="mt-16 text-xs text-neutral-500">Powered by Pears · WDK · QVAC · Holepunch</p>
@@ -84,13 +86,20 @@ export function Login() {
         </div>
         <p className="text-sm text-brand-text-muted mt-1">Conecte sua carteira para comprar e vender com segurança</p>
 
-        <button onClick={handleConnect} disabled={connecting} className="btn-primary mt-8 h-14">
-          {connecting ? 'Conectando...' : '🔑 Conectar Carteira'}
-        </button>
+        <Button onClick={handleConnect} disabled={connecting} className="mt-8 h-14">
+          {connecting ? (
+            'Conectando...'
+          ) : (
+            <>
+              <KeyRound className="h-4 w-4" />
+              Conectar Carteira
+            </>
+          )}
+        </Button>
         <p className="text-xs text-brand-text-muted text-center mt-2">Powered by Tether WDK</p>
 
         <div className="mt-8 bg-brand-elevated border border-brand-border rounded-lg p-4 flex gap-3">
-          <span className="text-brand-text-secondary">🛡️</span>
+          <ShieldCheck className="h-4 w-4 text-brand-text-secondary shrink-0" />
           <p className="text-xs text-brand-text-secondary">
             Sua chave privada nunca sai do seu dispositivo. O Sails Protocol só verifica sua assinatura.
           </p>
@@ -100,10 +109,12 @@ export function Login() {
   )
 }
 
-function Feature({ icon, title, desc }: { icon: string; title: string; desc: string }) {
+function Feature({ icon: Icon, title, desc }: { icon: LucideIcon; title: string; desc: string }) {
   return (
     <li className="flex gap-3">
-      <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center shrink-0">{icon}</span>
+      <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
+        <Icon className="h-4 w-4" />
+      </span>
       <div>
         <div className="font-semibold">{title}</div>
         <div className="text-neutral-400 text-xs">{desc}</div>

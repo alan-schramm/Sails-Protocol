@@ -1,10 +1,13 @@
 import { Link } from 'react-router-dom'
 import type { Offer } from '../../types'
-import { AssetBadge, SideBadge, PaymentBadge } from '../ui/Badge'
+import { AssetBadge, SideBadge, PaymentBadge } from '../ui/StatusBadges'
 import { UserAvatar } from '../ui/UserAvatar'
 import { formatAmount } from '../../lib/format'
 import { formatByCurrency } from '../../lib/currency'
 import { ASSET_LABELS } from '../../lib/labels'
+import { buttonVariants } from '../ui/button'
+import { cn } from '../../lib/utils'
+import { Check, Star } from 'lucide-react'
 
 // Dense list-row layout (2026-07-28 visual redesign) replacing the
 // bordered-card-in-a-grid shape — matches Marketplace.tsx's switch from
@@ -33,9 +36,15 @@ export function OfferCard({ offer }: { offer: Offer }) {
           <div className="min-w-0">
             <div className="flex items-center gap-1">
               <span className="text-sm font-medium text-brand-text truncate">{offer.user.displayName}</span>
-              {offer.user.verified && <span className="text-xs text-brand-orange-accent shrink-0" title="Verificado">✓</span>}
+              {offer.user.verified && (
+                <span title="Verificado" className="shrink-0">
+                  <Check className="h-3.5 w-3.5 text-brand-orange-accent" />
+                </span>
+              )}
             </div>
-            <div className="text-xs text-brand-text-muted">★ {offer.user.reputationScore.toFixed(0)} · {offer.user.totalTrades} trades</div>
+            <div className="text-xs text-brand-text-muted flex items-center gap-1">
+              <Star className="h-3 w-3" fill="currentColor" strokeWidth={0} /> {offer.user.reputationScore.toFixed(0)} · {offer.user.totalTrades} trades
+            </div>
           </div>
         </div>
         <div className="lg:order-5 lg:w-32 lg:shrink-0">
@@ -73,7 +82,7 @@ export function OfferCard({ offer }: { offer: Offer }) {
           <span className="bg-brand-elevated rounded px-1.5 py-0.5">min {formatAmount(offer.minAmount)}</span>
           <span className="bg-brand-elevated rounded px-1.5 py-0.5">max {formatAmount(offer.maxAmount)}</span>
         </div>
-        <span className="btn-primary lg:order-6 px-4 py-1.5 text-sm shrink-0">
+        <span className={cn(buttonVariants({ className: 'lg:order-6 px-4 py-1.5 text-sm shrink-0' }))}>
           {offer.side === 'SELL' ? 'Comprar' : 'Vender'}
         </span>
       </div>

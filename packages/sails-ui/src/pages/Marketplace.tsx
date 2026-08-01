@@ -7,6 +7,11 @@ import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
 import { PaymentMethodPicker } from '../components/marketplace/PaymentMethodPicker'
 import { FilterPanel, SORT_OPTIONS } from '../components/marketplace/FilterPanel'
 import { AgentIntentionPanel } from '../components/agent/AgentIntentionPanel'
+import { Button } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { Input } from '../components/ui/input'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
+import { SlidersHorizontal } from 'lucide-react'
 import type { AssetType, FiatCurrency, MarketplaceFilters, TradeSide } from '../types'
 import { DEFAULT_FILTERS } from '../types'
 
@@ -125,17 +130,19 @@ export function Marketplace() {
           onChange={(paymentMethods) => setFilters({ ...filters, paymentMethods })}
         />
 
-        <button
+        <Button
+          variant="outline"
           onClick={() => setFilterPanelOpen(true)}
-          className="btn-ghost flex items-center gap-1.5 px-3 py-2 text-sm relative"
+          className="flex items-center gap-1.5 px-3 py-2 text-sm relative"
         >
-          🎚️ Filtros
+          <SlidersHorizontal className="h-4 w-4" />
+          Filtros
           {activeFilterCount > 0 && (
             <span className="w-4 h-4 flex items-center justify-center bg-brand-orange text-white text-[10px] rounded-full">
               {activeFilterCount}
             </span>
           )}
-        </button>
+        </Button>
 
         <div className="flex gap-1 bg-brand-elevated rounded-lg p-1">
           {SIDE_FILTERS.map((s) => (
@@ -157,22 +164,25 @@ export function Marketplace() {
             made it easy to miss. Same `filters.sortBy` FilterPanel's own
             drawer already edits, just exposed here too — not a second
             source of truth. */}
-        <select
+        <Select
           value={filters.sortBy}
-          onChange={(e) => setFilters({ ...filters, sortBy: e.target.value as MarketplaceFilters['sortBy'] })}
-          className="input-field text-sm"
-          aria-label="Ordenar por"
+          onValueChange={(v) => setFilters({ ...filters, sortBy: v as MarketplaceFilters['sortBy'] })}
         >
-          {SORT_OPTIONS.map((s) => (
-            <option key={s.value} value={s.value}>Ordenar: {s.label}</option>
-          ))}
-        </select>
+          <SelectTrigger aria-label="Ordenar por" className="text-sm w-auto">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((s) => (
+              <SelectItem key={s.value} value={s.value}>Ordenar: {s.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-        <input
+        <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por vendedor..."
-          className="input-field ml-auto"
+          className="ml-auto"
         />
       </div>
 
@@ -180,7 +190,7 @@ export function Marketplace() {
           matches the Binance P2P/Airtm/El Dorado density this screen is
           modeled on; OfferCard's own `.offer-row` class supplies the
           divider/hover/accent-border treatment per row. */}
-      <div id="marketplace-offer-grid" className="mt-4 card overflow-hidden [&>a:last-child]:border-b-0">
+      <Card id="marketplace-offer-grid" className="mt-4 overflow-hidden [&>a:last-child]:border-b-0">
         {/* Desktop-only column header (Binance P2P/HodlHodl/El Dorado all
             label their offer-list columns) — hidden below `lg` since the
             mobile/tablet layout groups fields into paired rows instead of
@@ -206,7 +216,7 @@ export function Marketplace() {
             )}
           </>
         )}
-      </div>
+      </Card>
 
       <FilterPanel
         open={filterPanelOpen}

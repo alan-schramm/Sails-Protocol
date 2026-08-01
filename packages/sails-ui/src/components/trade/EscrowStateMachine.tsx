@@ -6,6 +6,7 @@
  * of forced into a 4-step line that doesn't represent them well.
  */
 import type { EscrowStatus } from '../../types'
+import { AlertTriangle, Undo2, Check } from 'lucide-react'
 
 const HAPPY_PATH: { status: EscrowStatus; label: string }[] = [
   { status: 'CREATED', label: 'Criado' },
@@ -17,8 +18,9 @@ const HAPPY_PATH: { status: EscrowStatus; label: string }[] = [
 export function EscrowStateMachine({ status }: { status: EscrowStatus }) {
   if (status === 'DISPUTED' || status === 'REFUNDED') {
     return (
-      <div className={`rounded-lg p-4 text-sm border ${status === 'DISPUTED' ? 'bg-red-500/10 text-red-700 border-red-500/25' : 'bg-brand-elevated text-brand-text-secondary border-brand-border'}`}>
-        {status === 'DISPUTED' ? '⚠️ Este trade está em disputa — aguardando resolução do árbitro.' : '↩️ Fundos reembolsados ao vendedor.'}
+      <div className={`rounded-lg p-4 text-sm border flex items-start gap-2 ${status === 'DISPUTED' ? 'bg-red-500/10 text-red-700 border-red-500/25' : 'bg-brand-elevated text-brand-text-secondary border-brand-border'}`}>
+        {status === 'DISPUTED' ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" /> : <Undo2 className="h-4 w-4 shrink-0 mt-0.5" />}
+        {status === 'DISPUTED' ? 'Este trade está em disputa — aguardando resolução do árbitro.' : 'Fundos reembolsados ao vendedor.'}
       </div>
     )
   }
@@ -46,7 +48,7 @@ export function EscrowStateMachine({ status }: { status: EscrowStatus }) {
                   {state === 'active' && (
                     <span className="absolute inset-0 rounded-full border-2 border-brand-orange-accent animate-ping opacity-40" />
                   )}
-                  {state === 'done' ? '✓' : i + 1}
+                  {state === 'done' ? <Check className="h-3.5 w-3.5" /> : i + 1}
                 </div>
                 <span className={`text-[10px] ${state === 'pending' ? 'text-brand-text-muted' : 'text-brand-text-secondary'}`}>{step.label}</span>
               </div>

@@ -28,6 +28,10 @@ import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Message, MessageType } from '../../types'
 import { ChatMessage } from './ChatMessage'
+import { Button } from '../ui/button'
+import { Card } from '../ui/card'
+import { Input } from '../ui/input'
+import { Paperclip } from 'lucide-react'
 
 const MAX_MEDIA_BYTES = 15 * 1024 * 1024 // 15MB — arbitrary client-side guard, not a backend limit (none exists yet)
 
@@ -74,7 +78,7 @@ export function ChatWindow({ messages, currentUserId, onSend, onSendMedia }: Pro
   }
 
   return (
-    <div className="flex flex-col h-[520px] card overflow-hidden">
+    <Card className="flex flex-col h-[520px] overflow-hidden">
       <div className="px-4 py-3 border-b border-brand-border flex items-center justify-between">
         <span className="text-sm font-semibold text-brand-text">Chat P2P</span>
         <span className="text-xs text-green-500 flex items-center gap-1">
@@ -97,25 +101,26 @@ export function ChatWindow({ messages, currentUserId, onSend, onSendMedia }: Pro
           className="hidden"
           onChange={handleFileSelect}
         />
-        <button
+        <Button
+          variant="outline"
           onClick={() => fileInputRef.current?.click()}
           title="Enviar imagem ou vídeo"
           aria-label="Enviar imagem ou vídeo"
-          className="btn-ghost px-3 text-sm"
+          className="px-3 text-sm"
         >
-          📎
-        </button>
-        <input
+          <Paperclip className="h-4 w-4" />
+        </Button>
+        <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
           placeholder="Digite uma mensagem..."
-          className="input-field flex-1"
+          className="flex-1"
         />
-        <button onClick={handleSend} className="btn-primary px-4 text-sm">
+        <Button onClick={handleSend} className="px-4 text-sm">
           Enviar
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   )
 }

@@ -1,9 +1,11 @@
 import { NavLink } from 'react-router-dom'
+import { ShoppingCart, Hourglass, ArrowLeftRight, User } from 'lucide-react'
 
 const items = [
-  { to: '/', label: 'Comprar', icon: '🛒', end: true },
-  { to: '/profile/history', label: 'Trades', icon: '↔️', end: false },
-  { to: '/profile', label: 'Perfil', icon: '👤', end: false },
+  { to: '/', label: 'Comprar', icon: ShoppingCart, end: true },
+  { to: '/profile/active', label: 'Ativos', icon: Hourglass, end: false },
+  { to: '/profile/history', label: 'Trades', icon: ArrowLeftRight, end: false },
+  { to: '/profile', label: 'Perfil', icon: User, end: false },
 ]
 
 export function BottomNav() {
@@ -20,7 +22,7 @@ export function BottomNav() {
             }`
           }
         >
-          <span className="text-base">{item.icon}</span>
+          <item.icon className="h-5 w-5" />
           {item.label}
         </NavLink>
       ))}

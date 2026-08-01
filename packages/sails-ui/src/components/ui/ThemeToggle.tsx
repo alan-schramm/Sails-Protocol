@@ -1,4 +1,5 @@
 import { useTheme } from '../../context/ThemeContext'
+import { Sun, Moon } from 'lucide-react'
 
 export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme()
@@ -9,7 +10,7 @@ export function ThemeToggle() {
       aria-label="Alternar tema"
       className="w-8 h-8 flex items-center justify-center rounded-lg border border-brand-border text-brand-text-secondary hover:border-brand-border-hover hover:text-brand-text transition-colors"
     >
-      {theme === 'dark' ? '☀️' : '🌙'}
+      {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </button>
   )
 }
