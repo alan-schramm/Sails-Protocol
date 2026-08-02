@@ -36,3 +36,14 @@ const POWER_TRADER_MIN_POSITIVE_PCT = 95
 export function isPowerTrader(user: Pick<User, 'totalTrades' | 'disputeCount'>): boolean {
   return user.totalTrades >= POWER_TRADER_MIN_TRADES && positiveFeedbackPct(user) >= POWER_TRADER_MIN_POSITIVE_PCT
 }
+
+// RFC-021 D7 (real peer vouching) — mirrors vouch.service.ts's own
+// server-enforced eligibility bar (MIN_VOUCHER_TRADES = 3, reputationScore
+// > 0) purely so VouchButton.tsx can hide/disable itself instead of
+// letting someone tap a button guaranteed to 400. The server remains the
+// real gate; this is UX only, not a security boundary.
+const MIN_VOUCHER_TRADES = 3
+
+export function canVouch(user: Pick<User, 'totalTrades' | 'reputationScore'>): boolean {
+  return user.totalTrades >= MIN_VOUCHER_TRADES && user.reputationScore > 0
+}
