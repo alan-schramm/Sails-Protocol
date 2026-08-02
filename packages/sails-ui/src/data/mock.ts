@@ -153,12 +153,31 @@ export const MOCK_DISPUTES: Dispute[] = [
     buyer: MOCK_USERS[1], seller: MOCK_USERS[2],
     reason: 'Payment sent but seller claims not received. PIX receipt attached.',
     status: 'OPENED', openedAt: '2026-07-16T12:00:00Z', openedBy: 'u2',
+    appealRound: 0, previousRuling: null, previousArbiterId: null,
+    autoResolutionRecommendation: null, autoResolutionConfidence: null,
+    autoResolutionReasoning: null, autoResolutionDeadline: null, autoResolved: false,
   },
   {
     id: 'd2', tradeId: 'trade-009', asset: 'BTC', amount: 0.02,
     buyer: MOCK_USERS[0], seller: MOCK_USERS[1],
     reason: 'Seller unresponsive for 6 hours after funds locked.',
     status: 'ARBITRATED', openedAt: '2026-07-17T18:00:00Z', openedBy: 'u1',
+    appealRound: 0, previousRuling: null, previousArbiterId: null,
+    autoResolutionRecommendation: null, autoResolutionConfidence: null,
+    autoResolutionReasoning: null, autoResolutionDeadline: null, autoResolved: false,
+  },
+  // RFC-021 D8 — QVAC-assisted first-pass resolution demo, illustrating
+  // the AUTO_PROPOSED state Disputes.tsx now renders (off by default in
+  // the real backend, config.features.qvacAutoResolutionEnabled).
+  {
+    id: 'd3', tradeId: 'trade-014', asset: 'BTC', amount: 0.05,
+    buyer: MOCK_USERS[2], seller: MOCK_USERS[0],
+    reason: 'Buyer says payment sent via TED, seller says never arrived. No proof attached by buyer.',
+    status: 'AUTO_PROPOSED', openedAt: '2026-08-01T09:00:00Z', openedBy: 'u3',
+    appealRound: 0, previousRuling: null, previousArbiterId: null,
+    autoResolutionRecommendation: 'REFUND', autoResolutionConfidence: 0.82,
+    autoResolutionReasoning: 'Nenhum comprovante de pagamento foi anexado pelo comprador dentro da janela esperada; o histórico do vendedor não mostra reclamações semelhantes anteriores.',
+    autoResolutionDeadline: '2026-08-03T09:00:00Z', autoResolved: false,
   },
 ]
 

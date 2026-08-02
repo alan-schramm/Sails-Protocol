@@ -142,17 +142,40 @@ export type FiatCurrency = 'BRL' | 'USD' | 'EUR' | 'GBP' | 'ARS' | 'MXN' | 'NGN'
 
 export type TradeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DISPUTED' | 'CANCELLED'
 
-// Only MOCK and WDK_USDT_EVM are real settlement providers as of this
-// writing (escrow.service.ts's PROVIDERS map) — MULTISIG/LIGHTNING_HODL/
-// LIQUID_COVENANT exist as enum values but throw "not yet implemented."
-// The UI still lists all five (an escrow can reference any of them) but
-// see EscrowTypeBadge for how the not-yet-real ones are labeled.
-export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM' | 'MOCK'
+// MOCK/WDK_USDT_EVM/MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM are real
+// settlement providers now (escrow.service.ts's PROVIDERS map,
+// SAFE_GUARD_EVM added RFC-020, 2026-08-02, real lockFunds/verifyLock/
+// broadcast) — only LIQUID_COVENANT remains a reserved, unimplemented
+// enum value (BACKLOG.md's 2026-08-01 product decision: left as-is,
+// not prioritized). Kept in sync with the sdk's own EscrowType
+// (packages/sails-sdk/src/types.ts) — this file is a hand-maintained
+// mirror, not an import, so it can silently drift if not rechecked.
+export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM' | 'SAFE_GUARD_EVM' | 'MOCK'
 
 export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED'
 
-export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED'
+// APPEALED/AUTO_PROPOSED added 2026-08-02 (RFC-021 D7/D8) — see Dispute's
+// own comment below for the fields that go with each.
+export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED'
 export type DisputeRuling = 'RELEASE' | 'REFUND' | 'SPLIT'
+
+// RFC-021 D7 (real peer vouching) — packages/sails-sdk/src/modules/
+// reputation.ts's vouchFor(voucheeId), backed by a real Vouch Prisma
+// model. Pre-signs the vouchee's PaymentAccount to the signed trade-
+// limit tier; if the vouchee loses their first dispute while the vouch
+// is active, the voucher's own reputationScore takes a real penalty
+// (VOUCH_BURN_PENALTY, -5) — `burnedAt` is set at that point, null
+// otherwise. Server-enforced eligibility (vouch.service.ts): voucher
+// needs totalTrades >= 3 and reputationScore > 0, no self-vouch, no
+// duplicate (voucherId, voucheeId) pair — mirror these client-side to
+// avoid a guaranteed-to-fail call, but the server is the real gate.
+export interface Vouch {
+  id: string
+  voucherId: string
+  voucheeId: string
+  createdAt: string
+  burnedAt: string | null
+}
 
 // RFC-012's real Intent lifecycle — not used by the mocked trade flow
 // below directly (that's TradeStatus/EscrowStatus, the OpenP2P/
@@ -302,6 +325,24 @@ export interface Dispute {
   status: DisputeStatus
   openedAt: string
   openedBy: string
+  // RFC-021 D7 (appeals) — appealRound starts at 0 for the original
+  // ruling; previousRuling/previousArbiterId are null until at least
+  // one appeal has happened.
+  appealRound: number
+  previousRuling: DisputeRuling | null
+  previousArbiterId: string | null
+  // RFC-021 D8 (QVAC-assisted first-pass resolution, off by default —
+  // config.features.qvacAutoResolutionEnabled). Set together by
+  // proposeAutoResolution() when status becomes 'AUTO_PROPOSED'; all
+  // four cleared back to null by contestAutoResolution(). If uncontested
+  // past autoResolutionDeadline, sweepExpiredAutoResolutions() applies
+  // the recommendation via the assigned human arbiter's own identity
+  // and sets autoResolved: true.
+  autoResolutionRecommendation: DisputeRuling | null
+  autoResolutionConfidence: number | null
+  autoResolutionReasoning: string | null
+  autoResolutionDeadline: string | null
+  autoResolved: boolean
 }
 
 export type PaymentTimeLimit = 'Todos' | '15' | '30' | '45' | '60' | '24h'

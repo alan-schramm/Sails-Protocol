@@ -1,6 +1,7 @@
 import type { User } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
 import { FavoriteButton } from '../ui/FavoriteButton'
+import { VouchButton } from '../ui/VouchButton'
 import { positiveFeedbackPct } from '../../lib/reputation'
 import { Card } from '../ui/card'
 
@@ -26,8 +27,14 @@ function PartyRow({ user, role, isYou }: { user: User; role: string; isYou: bool
       {/* Only the other party — real `user.id` here comes from a real
           `identity.get()` call (Trade.tsx's own `toParticipantUser`),
           so favoriting yourself would be a meaningless no-op the
-          feature isn't meant to support. */}
-      {!isYou && <FavoriteButton userId={user.id} />}
+          feature isn't meant to support. Same reasoning for VouchButton
+          (RFC-021 D7) — the server rejects self-vouch anyway. */}
+      {!isYou && (
+        <div className="flex items-center gap-1">
+          <VouchButton voucheeId={user.id} />
+          <FavoriteButton userId={user.id} />
+        </div>
+      )}
     </div>
   )
 }

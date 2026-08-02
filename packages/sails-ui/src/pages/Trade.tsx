@@ -41,6 +41,13 @@ const DEMO_RELEASE_ADDRESS = 'demo-buyer-payout-address'
 const DEMO_RELEASE_ADDRESS_MULTISIG = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
 const DEMO_RELEASE_SCRIPT_HEX_ARKADE = '0014' + '00'.repeat(20)
 
+// SAFE_GUARD_EVM's own signature-collection path (safe-guard-evm.provider.ts's
+// buildUnsignedRelease()/releaseFunds()) encodes toAddress into a real
+// ethers.js UserOperation — an all-lowercase hex address skips EIP-55
+// checksum validation entirely (ethers only enforces checksum on mixed-case
+// input), so this is a valid placeholder unlike DEMO_RELEASE_ADDRESS above.
+const DEMO_RELEASE_ADDRESS_EVM = '0x000000000000000000000000000000000000dead'
+
 function toParticipantUser(p: Awaited<ReturnType<typeof sailsClient.identity.get>>): User {
   return {
     id: p.id, publicKey: p.publicKey, displayName: p.displayName, peerId: p.peerId,
@@ -237,14 +244,21 @@ export function Trade() {
   const handleReleaseFunds = () => escrow && withGuard(async () => {
     // Phase 2 (2026-07-27) — MULTISIG and LIGHTNING_HODL both use
     // client-signature collection now, since buyer/seller keys are
-    // client-held. The seller (normal path) or assigned arbiter (disputed
-    // path) initiates the round here; if this user is also one of its
-    // required signers (the normal path), sign and submit immediately
-    // rather than requiring a second visit to this page — the other
-    // required party still needs to open the page once to trigger their
-    // own auto-sign (see the escrow-fetch effect above).
-    if (escrow.type === 'MULTISIG' || escrow.type === 'LIGHTNING_HODL') {
-      const toAddress = escrow.type === 'MULTISIG' ? DEMO_RELEASE_ADDRESS_MULTISIG : DEMO_RELEASE_SCRIPT_HEX_ARKADE
+    // client-held. SAFE_GUARD_EVM joined this group 2026-08-02 (RFC-020) —
+    // its own releaseFunds() throws "not directly callable" for the same
+    // reason (escrow.service.ts's SIGNATURE_COLLECTION_PROVIDERS), so it
+    // must go through initiateRelease() too, not the plain release() call
+    // below. The seller (normal path) or assigned arbiter (disputed path)
+    // initiates the round here; if this user is also one of its required
+    // signers (the normal path), sign and submit immediately rather than
+    // requiring a second visit to this page — the other required party
+    // still needs to open the page once to trigger their own auto-sign
+    // (see the escrow-fetch effect above).
+    if (escrow.type === 'MULTISIG' || escrow.type === 'LIGHTNING_HODL' || escrow.type === 'SAFE_GUARD_EVM') {
+      const toAddress =
+        escrow.type === 'MULTISIG' ? DEMO_RELEASE_ADDRESS_MULTISIG
+          : escrow.type === 'LIGHTNING_HODL' ? DEMO_RELEASE_SCRIPT_HEX_ARKADE
+            : DEMO_RELEASE_ADDRESS_EVM
       await sailsClient.settlement.initiateRelease(escrow.id, toAddress)
       if (user) await signAndSubmitPendingTransactionIfNeeded(escrow.type, escrow.id, user.id).catch(() => {})
       const e = await sailsClient.settlement.get(escrow.id)

@@ -54,15 +54,31 @@ function loadOrCreateEscrowKeypair(): StoredEscrowKeypair {
 
 // Escrow types whose address/script depends on a client-submitted pubkey
 // — see NON_CUSTODIAL_PROVIDERS in escrow.service.ts, the server-side
-// source of truth this list mirrors.
-const CLIENT_KEY_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL'])
+// source of truth this list mirrors. SAFE_GUARD_EVM added 2026-08-02
+// (RFC-020) — its own getDepositAddress()/owners() need the same
+// 33-byte compressed secp256k1 pubkey format MULTISIG already submits
+// (safe-guard-evm.provider.ts's own SafeGuardEvmEscrowInput comment:
+// "same as MULTISIG"), so no new key format is needed here.
+const PUBKEY_SUBMISSION_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
+
+// Deliberately narrower than PUBKEY_SUBMISSION_ESCROW_TYPES above —
+// submitting a pubkey is just data, but SIGNING for SAFE_GUARD_EVM means
+// producing a real ECDSA signature over an ERC-4337 UserOperation hash,
+// a different routine from signEscrowPsbt()/signEscrowArkTx() (Bitcoin
+// PSBT / Ark tx formats) even though all three ultimately use secp256k1.
+// @sails/sdk has no such signing primitive yet (only parseSafeGuardBundle()
+// to read the bundle, nothing to sign it) — calling either existing
+// signer on a SAFE_GUARD_EVM bundle would produce a garbage signature,
+// not a "not yet implemented" error, so this stays MULTISIG/LIGHTNING_HODL
+// only until that primitive is real.
+const CLIENT_SIGNING_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL'])
 
 export function useEscrowKey() {
   // Idempotent (the server upserts by role, see submitParticipantKey()) —
   // safe to call every time an escrow of the right type loads, no need to
   // track "already submitted" state client-side.
   const submitEscrowKeyIfNeeded = async (escrowType: string, escrowId: string) => {
-    if (!CLIENT_KEY_ESCROW_TYPES.has(escrowType)) return null
+    if (!PUBKEY_SUBMISSION_ESCROW_TYPES.has(escrowType)) return null
     const { publicKeyHex } = loadOrCreateEscrowKeypair()
     return sailsClient.settlement.submitKey(escrowId, publicKeyHex)
   }
@@ -82,7 +98,7 @@ export function useEscrowKey() {
   // participant isn't a required signer — same "call speculatively"
   // pattern as submitEscrowKeyIfNeeded above.
   const signAndSubmitPendingTransactionIfNeeded = async (escrowType: string, escrowId: string, participantId: string) => {
-    if (!CLIENT_KEY_ESCROW_TYPES.has(escrowType)) return null
+    if (!CLIENT_SIGNING_ESCROW_TYPES.has(escrowType)) return null
     let pending
     try {
       pending = await sailsClient.settlement.getPendingTransaction(escrowId)
