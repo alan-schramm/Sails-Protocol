@@ -193,7 +193,11 @@ makes the same point in more detail.
       `LiquidCovenantProvider` remains genuinely unimplemented — doesn't
       exist as a file at all yet (needs a real Elements node plus a new
       `liquidjs-lib` dependency), no Arkade-equivalent precedent found for
-      it yet.
+      it yet. **Decision (2026-08-01, project owner):** consciously not
+      prioritized — `LIQUID_COVENANT` stays a reserved, documented
+      `EscrowType` value (`DATABASE.md` §2) rather than being built or
+      removed, same decision covering the other 6 `AssetType` values with
+      no real provider (`BACKLOG.md`'s OpenSettlement row).
 - [x] Real Multisig 2-of-3 Bitcoin escrow — **done** (`multisig.provider.ts`,
       2026-07-27). Real `bitcoinjs-lib`/`bip32`/`ecpair`/`tiny-secp256k1`
       P2WSH script + PSBT construction/signing/finalization, verified

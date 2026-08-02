@@ -49,7 +49,23 @@ enum AssetType {
   STACKS
   RSK_BTC
 }
+```
 
+**Consciously unsupported for real escrow, 2026-08-01 (multisig-coverage-per-asset
+audit)** — a real product decision, not an oversight: of the 10 values above,
+only `BTC` (`MULTISIG`) and `LN_BTC` (`LIGHTNING_HODL`) have a genuinely
+non-custodial provider today; `USDT_ERC20` has real on-chain execution but
+single-seed custody (`WDK_USDT_EVM`). `USDT_TRC20`, `USDT_LIQUID`,
+`USDT_LIGHTNING`, `LIQUID_BTC`, `SPARK`, `STACKS`, `RSK_BTC` have no real
+`SettlementProvider` wired at all — `recommendedEscrowType()`
+(`escrow.service.ts`) throws a clear error for any of them rather than
+guessing or silently falling back to `MOCK`. Deliberately left in the enum
+(not removed) — the values themselves are real and correct, only escrow
+custody for them is unbuilt. Revisit when a real provider exists for one
+of them (`LIQUID_COVENANT` below is the natural candidate for
+`LIQUID_BTC`/`USDT_LIQUID` specifically).
+
+```prisma
 enum TradeSide {
   BUY
   SELL
@@ -73,7 +89,7 @@ enum TradeStatus {
 enum EscrowType {
   MULTISIG
   LIGHTNING_HODL
-  LIQUID_COVENANT
+  LIQUID_COVENANT  // reserved, zero implementation since this value was first added — a real product decision (2026-08-01 multisig-coverage-per-asset audit), not an oversight. No LiquidCovenantProvider exists; getProvider() (escrow.service.ts) refuses to silently fall back to MOCK for it, same as any other unregistered real type. Natural candidate for LIQUID_BTC/USDT_LIQUID once someone builds it — not currently planned or scheduled.
   WDK_USDT_EVM  // real @tetherto/wdk-wallet-evm USDT (ERC-20) settlement — see wdk-settlement.provider.ts. Missing here until a 2026-07-19 consolidation audit caught this file drifting from the real schema.
   MOCK
 }
