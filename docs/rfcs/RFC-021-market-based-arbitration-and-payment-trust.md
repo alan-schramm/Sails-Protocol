@@ -26,10 +26,10 @@ cover.
 
 **Status:** Proposed — formal acceptance (`GOVERNANCE.md` §6A review
 step) has not happened yet, though as of 2026-08-02 every phase in
-"Reference Implementation Plan" below except D7 (explicitly deferred)
-is implemented, tested, and committed; "Proposed" describes governance
-status, not build status — see that section for what's actually real.
-Synthesized from a design session between the
+"Reference Implementation Plan" below (D1 through D8, no remaining
+deferred item) is implemented, tested, and committed; "Proposed"
+describes governance status, not build status — see that section for
+what's actually real. Synthesized from a design session between the
 project owner, an external developer (Yuri, via 8 transcribed voice
 messages, 2026-07-29), and this session — grounded against real
 precedent (Kleros, Bisq's `Payment account age witness`/account
@@ -291,21 +291,76 @@ escrow's already-collected protocol fee) is computed and returned but
 primitive is wired yet, a real, deferred gap, not a silent one (see
 `docs/BACKLOG.md`).
 
-### D7 — Bootstrap via external trust anchors
+### D7 — Bootstrap via peer vouching (real, built — corrected 2026-08-02)
+
+**This section previously described the cold-start fix as needing "an
+onboarding/KYC-optional identity-linking flow" that ships later,
+out of scope.** That framing was a lazy reading of this RFC's own
+draft, corrected directly by the project owner: this protocol does not
+do KYC, full stop, and the real fix needed no identity-linking
+infrastructure at all — see the correction below for what actually got
+built.
 
 The cold-start problem Yuri named directly (audio 08): if every
 brand-new keypair starts at zero and the system always assumes
 worst-case for zero-reputation parties, two new participants can never
 transact with each other — real-world trust has to be able to anchor
 the first transaction, the same way Bisq's own account-age witness
-needs a *first* trade to establish any history at all. This RFC does
-not invent a new mechanism for this — it registers the requirement
-that whatever onboarding/KYC-optional identity-linking flow ships
-later (out of scope here) must allow a real-world trust signal
-(a vouch, a signed introduction, a linked existing reputation source)
-to seed a non-zero starting trust tier, rather than forcing every
-identity through the same fee-accumulation bootstrap from absolute
-zero.
+needs a *first* trade to establish any history at all (his own
+"handshake at Anarcapulco" analogy for what that first anchor looks
+like in person).
+
+**Verified before building anything further, not assumed:** the system
+does not actually block this today — a brand-new participant can
+already trade with anyone, including another brand-new participant,
+capped at `UNSIGNED_TRADE_LIMIT` (D5) until their account is signed.
+D7 closes a real UX friction (how long a newcomer sits at the floor
+limit), not a functional block — worth stating plainly so this section
+isn't read as "nothing worked before this."
+
+**The real fix: peer vouching, the same "reputation as slashable
+collateral" principle from D3, extended one hop further out.** A
+participant with real trade history (`MIN_VOUCHER_TRADES`, starting 3
+completed trades, and positive `reputationScore`) may vouch for a
+newcomer — a real `Vouch` row (`voucher.service.ts`,
+`prisma/schema.prisma`'s new `Vouch` model), one per
+(voucher, vouchee) pair ever, enforced at the database level. This
+pre-signs the vouchee's *first* `PaymentAccount`
+(`payment-account.service.ts`'s `getOrCreate()`) — skipping
+`UNSIGNED_TRADE_LIMIT` entirely, straight to `SIGNED_TRADE_LIMIT`,
+treating a real peer's attestation as equivalent trust to "this account
+already survived one clean trade." Explicitly scoped to a genuinely
+new owner's first account only — an already-established participant
+adding a second payment method gets no special treatment from a vouch.
+
+**Real skin in the game, closing the obvious two-fresh-Sybils-vouch-
+for-each-other loophole:** if the vouchee's first lost dispute happens
+while the vouch is still active, the voucher's own reputation takes a
+real penalty (`reputation.service.ts`'s `penalizeForBurnedVouch()`,
+`VOUCH_BURN_PENALTY = -5` — the same magnitude as an ordinary trade
+loss, `NEGATIVE_DELTA`, deliberately lighter than an arbiter's
+professional `OVERTURNED_PENALTY = -10` since vouching is a social
+attestation between peers, not a paid role committing capital to
+adjudicate). This is the actual Sybil defense: a real, established
+account has to put its own real standing at risk to bootstrap a
+newcomer — the eligibility bar alone (needing real trade history)
+already keeps two zero-reputation accounts from vouching for each
+other for free.
+
+**Implemented** (2026-08-02): `Vouch` model; `vouch.service.ts`'s
+`vouchFor()`/`hasActiveVouch()`/`burnVouchesFor()`;
+`reputation.service.ts`'s `penalizeForBurnedVouch()` (a second,
+explicitly disclosed legitimate input to `User.reputationScore`,
+alongside `recordOutcome()`); `payment-account.service.ts`'s
+`getOrCreate()` pre-signing check (a cross-module Prisma read, same
+boundary `escrow.service.ts`'s own Trade reads already established);
+`common/events/handlers.ts`'s `settlement.escrow.released`/`refunded`
+reactions burn the losing party's active vouch, if any, as part of the
+same dispute-aware branch that already scores `recordOutcome()`; new
+route `POST /v1/reputation/vouch`; `@sails/sdk`'s `reputation.vouchFor()`.
+27 new tests across `tests/vouchService.test.ts`,
+`tests/paymentAccountService.test.ts`, `tests/reputationOutcome.test.ts`,
+and `tests/routes.test.ts`.
 
 ### D8 — QVAC-assisted automated first-pass resolution (arbiters as a fallback, not the default)
 
@@ -450,6 +505,17 @@ Bitcoin's own well-known theoretical attacks have.
    own dispute (unlike an ordinary dispute, where the two parties are
    adversarial by definition) — a narrower, higher-coordination-cost
    attack than ordinary reputation fabrication, but not impossible.
+7. **D7 vouching, worst case**: an established account with real
+   reputation could spend it deliberately, vouching for a sockpuppet it
+   controls and accepting the `VOUCH_BURN_PENALTY` hit as a cost of
+   doing business, if the newcomer's inflated trust tier lets it scam a
+   counterparty for more than the reputation lost is worth. Bounded the
+   same way D4's cost-to-fabricate floor bounds trader reputation
+   generally: the voucher's own real, accumulated reputation is what
+   gets spent, not a free action, and `SIGNED_TRADE_LIMIT` (D5) is
+   itself a real, capped ceiling — the newcomer isn't jumping to
+   `unlimited`, only past the floor. Not a closed-form solution, the
+   same disclosed character as every other risk in this section.
 
 ## Specification
 
@@ -559,19 +625,25 @@ overwritten.
 4. ✅ `PaymentAccount` model + age-witness hash + account signing (D5)
    — `payment-account.service.ts` (server reference hash) + `@sails/sdk`'s
    `hashPaymentAccount()` (the real client-side path).
-5. 📋 D7's external-trust-anchor seeding — **still explicitly
-   deferred**, unchanged from this RFC's original scope; needs its own
-   design pass once an onboarding flow is scoped, out of this RFC's
-   boundary.
+5. ✅ D7's peer vouching (2026-08-02, corrected from the earlier
+   "external onboarding/KYC-optional flow" framing — this protocol does
+   not do KYC) — `Vouch` model, `vouch.service.ts`'s
+   `vouchFor()`/`hasActiveVouch()`/`burnVouchesFor()`,
+   `reputation.service.ts`'s `penalizeForBurnedVouch()`,
+   `payment-account.service.ts`'s pre-signing check, the
+   `settlement.escrow.released`/`refunded` burn reaction, new route
+   `POST /v1/reputation/vouch`.
 6. ✅ D8's QVAC-assisted automated first-pass resolution (2026-08-02) —
    `assessDisputeEvidence()`, `submitEvidence()`/`proposeAutoResolution()`/
    `contestAutoResolution()`/`sweepExpiredAutoResolutions()`, the
    config-gated event reaction, two new routes, the sweeper interval.
    Off end-to-end by default.
 
-**Resolved since this section was last updated:** D6's `appealFeeRequired`
-is now really collected, not just computed (`DisputeAppealFee` model,
-2026-08-01) — `resolveDispute()` settles its outcome
-(FORFEITED/REFUNDED). Still tracked separately (`docs/BACKLOG.md`,
-`docs/DATABASE.md`'s own §2 note): `docs/DATABASE.md` does not yet
-document `ArbiterProfile`/`PaymentAccount`/`DisputeAppealFee`.
+**Every phase in this section is now implemented** — D1 through D8, no
+remaining deferred item. **Resolved since this section was last
+updated:** D6's `appealFeeRequired` is now really collected, not just
+computed (`DisputeAppealFee` model, 2026-08-01) — `resolveDispute()`
+settles its outcome (FORFEITED/REFUNDED). Still tracked separately
+(`docs/BACKLOG.md`, `docs/DATABASE.md`'s own §2 note):
+`docs/DATABASE.md` does not yet document
+`ArbiterProfile`/`PaymentAccount`/`DisputeAppealFee`/`Vouch`.

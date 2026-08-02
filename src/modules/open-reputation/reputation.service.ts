@@ -6,12 +6,23 @@
  * this one had no service layer at all, not just missing routes.
  *
  * RFC-007 D8/D9's rule, enforced structurally here, not just by
- * convention: `recordOutcome()` is the *sole* input to
- * `User.reputationScore`. `rate()` (star ratings) is informational
- * feedback only — persisted, displayed, never mixed into the score. A
- * trade cancelled by mutual agreement (no dispute ever raised) always
- * classifies Neutral, never Negative — see `recordOutcome`'s callers in
- * `common/events/handlers.ts` for how that's actually decided.
+ * convention: `recordOutcome()` was the *sole* input to
+ * `User.reputationScore` through RFC-021 D6. `rate()` (star ratings)
+ * remains informational feedback only — persisted, displayed, never
+ * mixed into the score. A trade cancelled by mutual agreement (no
+ * dispute ever raised) always classifies Neutral, never Negative — see
+ * `recordOutcome`'s callers in `common/events/handlers.ts` for how
+ * that's actually decided.
+ *
+ * **Second legitimate input, added RFC-021 D7 (2026-08-02):**
+ * `penalizeForBurnedVouch()` — a real, disclosed exception to "sole
+ * input," not a silent violation of it. Peer vouching (D7) extends D3's
+ * "reputation as slashable collateral" principle from arbiters to
+ * anyone who vouches for a newcomer: if the vouchee's first dispute is
+ * lost while the vouch is still active, the voucher's own reputation
+ * takes a real hit — the same "skin in the game" reasoning, applied one
+ * hop further out. Only ever called from `vouch.service.ts`'s
+ * `burnVouchesFor()`, never directly from a route.
  *
  * Known simplification (documented, not hidden — same discipline
  * `DATABASE.md` uses for `Offer.intentType` standing in for
@@ -27,6 +38,15 @@ import { NotFoundError, ValidationError, ForbiddenError } from '../../common/err
 import { eventBus } from '../../common/events/event-bus'
 
 export type ReputationOutcome = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL'
+
+// RFC-021 D7 — same magnitude as ReputationService's own NEGATIVE_DELTA:
+// a voucher who backed someone whose first trade went badly takes the
+// same hit they'd take for a bad outcome of their own. Deliberately
+// lighter than an arbiter's OVERTURNED_PENALTY (-10,
+// market-arbitration.provider.ts) — vouching is a social attestation
+// between peers, not a paid professional role committing capital to
+// adjudicate, so the penalty scale reflects that difference.
+export const VOUCH_BURN_PENALTY = -5
 
 export class ReputationService {
   // Asymmetric by design: a disputed loss should cost more than a clean
@@ -51,6 +71,28 @@ export class ReputationService {
       tradeId,
       ratingGiven: 0, // outcome-based update, not a rate() star rating — see rate() below
     }, tradeId)
+
+    return user
+  }
+
+  // RFC-021 D7 — this class's own header comment has the full "second
+  // legitimate input" disclosure. No tradeId parameter (unlike
+  // recordOutcome()) — a burned vouch isn't scoped to one trade in the
+  // reputation.score.updated event shape, so tradeId is reported as null
+  // there rather than fabricated.
+  async penalizeForBurnedVouch(voucherId: string) {
+    const user = await prisma.user.update({
+      where: { id: voucherId },
+      data: { reputationScore: { increment: VOUCH_BURN_PENALTY } },
+    })
+
+    await eventBus.emit('reputation.score.updated', {
+      userId: voucherId,
+      newScore: user.reputationScore,
+      totalTrades: user.totalTrades,
+      tradeId: null,
+      ratingGiven: 0,
+    }, voucherId)
 
     return user
   }

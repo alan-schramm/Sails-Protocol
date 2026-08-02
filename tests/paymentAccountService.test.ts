@@ -13,6 +13,8 @@ export {} // same forced-module reasoning used throughout this suite
 const mockPaymentAccountFindUnique = jest.fn()
 const mockPaymentAccountCreate = jest.fn()
 const mockPaymentAccountUpdate = jest.fn()
+const mockPaymentAccountCount = jest.fn().mockResolvedValue(0)
+const mockVouchFindFirst = jest.fn().mockResolvedValue(null)
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -20,6 +22,10 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockPaymentAccountFindUnique(...args),
       create: (...args: unknown[]) => mockPaymentAccountCreate(...args),
       update: (...args: unknown[]) => mockPaymentAccountUpdate(...args),
+      count: (...args: unknown[]) => mockPaymentAccountCount(...args),
+    },
+    vouch: {
+      findFirst: (...args: unknown[]) => mockVouchFindFirst(...args),
     },
   },
 }))
@@ -91,6 +97,74 @@ describe('PaymentAccountService — getOrCreate() (RFC-021 D5)', () => {
 
     expect(mockPaymentAccountCreate).not.toHaveBeenCalled()
     expect(result.signed).toBe(true)
+  })
+})
+
+describe('PaymentAccountService — getOrCreate() vouch-based pre-signing (RFC-021 D7)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockPaymentAccountCount.mockResolvedValue(0)
+    mockVouchFindFirst.mockResolvedValue(null)
+  })
+
+  it('creates a brand-new owner\'s first account already signed, when an active vouch exists', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(null)
+    mockPaymentAccountCount.mockResolvedValue(0) // genuinely the owner's first account
+    mockVouchFindFirst.mockResolvedValue({ id: 'vouch-1', voucherId: 'voucher-1', voucheeId: 'user-1', burnedAt: null })
+    mockPaymentAccountCreate.mockResolvedValue({ accountHash: 'hash-1', signed: true, signedBy: 'voucher-1' })
+
+    const service = new PaymentAccountService()
+    const result = await service.getOrCreate('user-1', 'hash-1', 'PIX')
+
+    expect(mockVouchFindFirst).toHaveBeenCalledWith({ where: { voucheeId: 'user-1', burnedAt: null } })
+    expect(mockPaymentAccountCreate).toHaveBeenCalledWith({
+      data: { ownerId: 'user-1', accountHash: 'hash-1', paymentMethod: 'PIX', signed: true, signedBy: 'voucher-1', signedAt: expect.any(Date) },
+    })
+    expect(result.signed).toBe(true)
+  })
+
+  it('does NOT check for a vouch, or pre-sign, when the owner already has an existing account — only the genuine first one qualifies', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(null)
+    mockPaymentAccountCount.mockResolvedValue(1) // owner already has at least one account
+    mockPaymentAccountCreate.mockResolvedValue({ accountHash: 'hash-2', signed: false })
+
+    const service = new PaymentAccountService()
+    await service.getOrCreate('user-1', 'hash-2', 'TED')
+
+    expect(mockVouchFindFirst).not.toHaveBeenCalled()
+    expect(mockPaymentAccountCreate).toHaveBeenCalledWith({
+      data: { ownerId: 'user-1', accountHash: 'hash-2', paymentMethod: 'TED' },
+    })
+  })
+
+  it('creates an unsigned account normally when no active vouch exists, even for a genuine first account', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(null)
+    mockPaymentAccountCount.mockResolvedValue(0)
+    mockVouchFindFirst.mockResolvedValue(null)
+    mockPaymentAccountCreate.mockResolvedValue({ accountHash: 'hash-1', signed: false })
+
+    const service = new PaymentAccountService()
+    const result = await service.getOrCreate('user-1', 'hash-1', 'PIX')
+
+    expect(mockPaymentAccountCreate).toHaveBeenCalledWith({
+      data: { ownerId: 'user-1', accountHash: 'hash-1', paymentMethod: 'PIX' },
+    })
+    expect(result.signed).toBe(false)
+  })
+
+  it('ignores a burned vouch — burnedAt: null is required, matching the query itself', async () => {
+    // The query filters burnedAt: null server-side; this test documents
+    // that a burned vouch (mocked as "not found" by the same filter) is
+    // correctly treated as no vouch at all, not a stale/expired one.
+    mockPaymentAccountFindUnique.mockResolvedValue(null)
+    mockPaymentAccountCount.mockResolvedValue(0)
+    mockVouchFindFirst.mockResolvedValue(null) // a burned vouch never matches burnedAt: null
+    mockPaymentAccountCreate.mockResolvedValue({ accountHash: 'hash-1', signed: false })
+
+    const service = new PaymentAccountService()
+    const result = await service.getOrCreate('user-1', 'hash-1', 'PIX')
+
+    expect(result.signed).toBe(false)
   })
 })
 
