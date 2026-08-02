@@ -101,6 +101,7 @@ enum EscrowStatus {
   COMPLETED
   DISPUTED
   REFUNDED
+  SPLIT  // RFC-021 D9 (2026-08-02) — only reachable from DISPUTED; a real settlement action now exists for MOCK/WDK_USDT_EVM/MULTISIG (see that RFC's own D9 section for why SAFE_GUARD_EVM/LIGHTNING_HODL can't support it)
 }
 ```
 
@@ -399,6 +400,61 @@ RFC's Decision §3 for why re-requiring the two counterparties' agreement
 after a dispute has already been raised would defeat arbitration's
 purpose.
 
+### `EscrowPendingTransaction` — owned by `opensettlement` (Phase 2 client-signature collection, documented here 2026-08-02)
+
+```prisma
+model EscrowPendingTransaction {
+  id                 String   @id @default(uuid())
+  escrowId           String   @unique
+  kind               String   // 'release' | 'refund' | 'split'
+  toAddress          String
+  toAddressSecondary String?  // RFC-021 D9 — only set for kind: 'split' (the seller's payout, alongside toAddress's buyer's)
+  unsignedPsbtBase64 String
+  requiredSigners    String[]
+  triggeredBy        String
+  createdAt          DateTime @default(now())
+
+  signatures EscrowTransactionSignature[]
+
+  @@map("escrow_pending_transactions")
+}
+
+model EscrowTransactionSignature {
+  id                 String                   @id @default(uuid())
+  pendingTxId        String
+  pendingTx          EscrowPendingTransaction @relation(fields: [pendingTxId], references: [id], onDelete: Cascade)
+  participantId      String
+  signedPsbtBase64   String
+  createdAt          DateTime                 @default(now())
+
+  @@unique([pendingTxId, participantId])
+  @@map("escrow_transaction_signatures")
+}
+```
+
+`MULTISIG`/`LIGHTNING_HODL`/`SAFE_GUARD_EVM` never hold a private key
+that alone can sign a release/refund/split — buyer and seller keys are
+client-held (`multisig.provider.ts`'s own header comment). This is the
+async signature-collection round those three types need instead of a
+single synchronous `SettlementProvider.releaseFunds()` call:
+`escrow.service.ts`'s `initiateRelease()`/`initiateRefund()`/
+`initiateSplit()` build and persist an unsigned PSBT here (`kind` says
+which); each id in `requiredSigners` calls
+`POST /v1/settlement/escrow/:id/submit-transaction-signature` with
+their own independently-signed copy, upserted into
+`EscrowTransactionSignature`; once every required signer has submitted,
+`submitTransactionSignature()` combines them and finalizes for real
+(`provider.finalizeRelease()`/`finalizeRefund()`/`finalizeSplit()`),
+then deletes this row (`onDelete: Cascade` clears its signatures too) —
+a completed round leaves no pending row behind, only `Escrow.txReleaseId`
+as the durable record. On a `DISPUTED` release/refund, `requiredSigners`
+has only one entry (the arbiter's own signature is pre-embedded in
+`unsignedPsbtBase64` at build time, since the arbiter's key is still
+server-derived); a `DISPUTED` split (RFC-021 D9) is the same shape, one
+entry, for a real cryptographic reason, not a stylistic mirror — see
+that RFC's own D9 section for why a 2-of-3 script can't take a third
+independent signature on top of the arbiter's.
+
 ### `Dispute` — owned by `opensettlement`, first implementation of §1.9's primitive
 
 ```prisma
@@ -414,7 +470,7 @@ enum DisputeStatus {
 enum DisputeRuling {
   RELEASE // buyer wins — "dispute_resolved_buyer" in @sails/p2p-schemas' TradeState vocabulary
   REFUND  // seller wins — "dispute_resolved_seller"
-  SPLIT   // §1.9's third option — recorded, but no automated settlement action exists for it yet
+  SPLIT   // §1.9's third option — RFC-021 D9 (2026-08-02): a real settlement action now exists for MOCK/WDK_USDT_EVM/MULTISIG (escrowService.splitFunds()/initiateSplit()); SAFE_GUARD_EVM/LIGHTNING_HODL each reject it with a specific, real, provider-level reason (see that RFC's own D9 section)
 }
 
 model Dispute {

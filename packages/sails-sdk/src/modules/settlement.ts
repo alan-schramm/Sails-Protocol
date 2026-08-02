@@ -200,9 +200,26 @@ export class SailsSettlementModule {
    * Requires an active session AND that the caller is the dispute's
    * assigned arbiter (RFC-007 D4) — the server rejects this otherwise.
    * `releaseToAddress` is required when `ruling` is `'RELEASE'`.
+   *
+   * RFC-021 D9 (2026-08-02) — for `ruling: 'SPLIT'`, all three of
+   * `releaseToAddress` (buyer's payout), `refundToAddress` (seller's
+   * payout), and `splitBuyerBps` (buyer's share, out of 10000 — the
+   * seller gets the exact remainder) are required. Only supported for
+   * escrows backed by MOCK, WDK_USDT_EVM, or MULTISIG — SAFE_GUARD_EVM's
+   * immutable Guard contract and LIGHTNING_HODL's fixed-leaf VtxoScript
+   * each have a real, provider-specific reason they can't represent a
+   * partial payout (see each provider's own source for the full
+   * reasoning); the server returns a clear error for those, not a silent
+   * no-op.
    */
-  async resolveDispute(disputeId: string, ruling: DisputeRuling, releaseToAddress?: string): Promise<Dispute> {
-    return this.transport.post<Dispute>(`/v1/settlement/disputes/${disputeId}/resolve`, { ruling, releaseToAddress }, true)
+  async resolveDispute(
+    disputeId: string,
+    ruling: DisputeRuling,
+    releaseToAddress?: string,
+    refundToAddress?: string,
+    splitBuyerBps?: number
+  ): Promise<Dispute> {
+    return this.transport.post<Dispute>(`/v1/settlement/disputes/${disputeId}/resolve`, { ruling, releaseToAddress, refundToAddress, splitBuyerBps }, true)
   }
 
   /**

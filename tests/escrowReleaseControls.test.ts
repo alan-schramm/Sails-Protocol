@@ -495,6 +495,59 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
     })
   })
 
+  // RFC-021 D9 (2026-08-02) — real settlement action for the third §1.9
+  // dispute-ruling option. Only reachable from DISPUTED (VALID_TRANSITIONS),
+  // unlike release/refund which also have a non-disputed happy path.
+  describe('splitFunds', () => {
+    beforeEach(() => {
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
+      mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'SPLIT' })
+    })
+
+    it('rejects buyerBps of 0 (that is a REFUND, not a real split)', async () => {
+      await expect(escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 0, 'seller-1')).rejects.toThrow(
+        /buyerBps must be strictly between 0 and 10000/
+      )
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    })
+
+    it('rejects buyerBps of 10000 (that is a RELEASE, not a real split)', async () => {
+      await expect(escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 10000, 'seller-1')).rejects.toThrow(
+        /buyerBps must be strictly between 0 and 10000/
+      )
+    })
+
+    it('rejects a caller who is neither the seller nor an assigned arbiter', async () => {
+      mockDisputeFindFirst.mockResolvedValue(null)
+      await expect(escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 5000, 'stranger-1')).rejects.toThrow(
+        /neither the seller.*nor its assigned dispute arbiter/
+      )
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    })
+
+    it('allows the assigned arbiter and moves funds via the MOCK provider (real 2-transfer split)', async () => {
+      mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+      const result = await escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')
+      expect(result.status).toBe('SPLIT')
+      // Real MockSettlementProvider.splitFunds() produces two distinct txIds.
+      const updateCall = mockEscrowUpdate.mock.calls[0][0]
+      expect(updateCall.data.txReleaseId).toMatch(/mock-split-.*,mock-split-/)
+    })
+
+    it('rejects a SAFE_GUARD_EVM escrow — that provider has no direct splitFunds() (signature-collection type, use initiateSplit instead)', async () => {
+      // getProvider() short-circuits to MOCK whenever config.features.mockEscrow
+      // is true (this file's own header comment) — must disable it here to
+      // actually reach the real safeGuardEvmProvider instance and its
+      // (deliberately absent) splitFunds().
+      mockEscrowFeatureFlag = false
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, type: 'SAFE_GUARD_EVM', status: 'DISPUTED' })
+      mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+      await expect(escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')).rejects.toThrow(
+        /does not support a SPLIT settlement action/
+      )
+    })
+  })
+
   describe('openDispute', () => {
     beforeEach(() => {
       mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })

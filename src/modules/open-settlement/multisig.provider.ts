@@ -271,11 +271,21 @@ export class MultisigProvider implements SettlementProvider {
     return (await res.text()).trim()
   }
 
-  // Shared by buildUnsignedRelease()/buildUnsignedRefund() below — builds
-  // the unsigned spend PSBT against the escrow's recorded funding UTXO.
-  // Does not sign anything; the caller decides whether the arbiter
-  // pre-signs (disputed path) before handing the result to clients.
-  private async buildUnsignedSpend(escrow: MultisigEscrowInput, parties: MultisigParties, toAddress: string): Promise<bitcoin.Psbt> {
+  // Shared by buildUnsignedRelease()/buildUnsignedRefund()/
+  // buildUnsignedSplit() below — builds the unsigned spend PSBT against
+  // the escrow's recorded funding UTXO. Does not sign anything; the
+  // caller decides whether the arbiter pre-signs (disputed path) before
+  // handing the result to clients. Takes an output-computing callback
+  // rather than a fixed toAddress/value (RFC-021 D9, 2026-08-02) so
+  // buildUnsignedSplit() can add two outputs against the same
+  // fee-adjusted spendable value release/refund each add just one against
+  // — the script itself (2-of-3, no per-output covenant) doesn't care how
+  // many outputs a valid spend has.
+  private async buildUnsignedSpend(
+    escrow: MultisigEscrowInput,
+    parties: MultisigParties,
+    computeOutputs: (spendableValue: bigint) => Array<{ address: string; value: bigint }>
+  ): Promise<bitcoin.Psbt> {
     this.assertArbiterMatchesScript(escrow)
     const { p2ms, p2wsh, network } = this.buildScript(parties)
 
@@ -292,8 +302,8 @@ export class MultisigProvider implements SettlementProvider {
     // explorer's fee-estimate endpoint instead of a hardcoded constant;
     // documented here rather than silently arbitrary.
     const feeSats = 1000n
-    const outputValue = BigInt(utxo.value) - feeSats
-    if (outputValue <= 0n) {
+    const spendableValue = BigInt(utxo.value) - feeSats
+    if (spendableValue <= 0n) {
       throw new EscrowError(`UTXO value ${utxo.value} sats too small to cover the ${feeSats} sat reference fee`)
     }
 
@@ -304,7 +314,9 @@ export class MultisigProvider implements SettlementProvider {
       witnessUtxo: { script: p2wsh.output!, value: BigInt(utxo.value) },
       witnessScript: p2ms.output!,
     })
-    psbt.addOutput({ address: toAddress, value: outputValue })
+    for (const output of computeOutputs(spendableValue)) {
+      psbt.addOutput({ address: output.address, value: output.value })
+    }
     return psbt
   }
 
@@ -317,7 +329,7 @@ export class MultisigProvider implements SettlementProvider {
   // buyer as a required (real, client) signer.
   async buildUnsignedRelease(escrow: MultisigEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
     const parties = this.partiesFor(escrow)
-    const psbt = await this.buildUnsignedSpend(escrow, parties, toAddress)
+    const psbt = await this.buildUnsignedSpend(escrow, parties, (spendableValue) => [{ address: toAddress, value: spendableValue }])
 
     if (escrow.status === 'DISPUTED') {
       const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
@@ -346,7 +358,7 @@ export class MultisigProvider implements SettlementProvider {
     const network = networkFor(config.multisig.network)
     const sellerRefundAddress = bitcoin.payments.p2wpkh({ pubkey: parties.sellerPubkey, network }).address!
 
-    const psbt = await this.buildUnsignedSpend(escrow, parties, sellerRefundAddress)
+    const psbt = await this.buildUnsignedSpend(escrow, parties, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
 
     if (escrow.status === 'DISPUTED') {
       const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
@@ -361,6 +373,42 @@ export class MultisigProvider implements SettlementProvider {
       throw new EscrowError(`MULTISIG provider: missing buyerId/sellerId for refund of trade ${escrow.tradeId}`)
     }
     return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.sellerId, escrow.buyerId], toAddress: sellerRefundAddress }
+  }
+
+  // RFC-021 D9 (2026-08-02) — real, unlike SAFE_GUARD_EVM/LIGHTNING_HODL's
+  // own buildUnsignedSplit() overrides: this script is a plain 2-of-3
+  // P2WSH multisig with no per-output covenant, so it validates a spend
+  // with two outputs exactly as readily as one. Always the disputed
+  // shape (SPLIT is only ever reached via VALID_TRANSITIONS.DISPUTED ->
+  // 'SPLIT' — escrow.service.ts's assertTransition already enforces this
+  // before calling here) — the arbiter pre-signs, and (real constraint
+  // found writing tests/multisigProvider.test.ts, not a design choice)
+  // only ONE more party can be a required signer, same as a disputed
+  // release/refund: this is still a 2-of-3 script, and finalizeSpend()
+  // combines independently-signed copies sequentially — collecting BOTH
+  // buyer's and seller's copies on top of the arbiter's already-embedded
+  // signature yields 3 valid signatures for a threshold of 2, which
+  // bitcoinjs-lib correctly refuses to finalize ("Too many signatures").
+  // Picking the buyer here, mirroring buildUnsignedRelease()'s own
+  // arbiter+buyer disputed pairing above — arbitrary (the split amounts
+  // are already fixed by the arbiter's ruling either way), but consistent.
+  async buildUnsignedSplit(escrow: MultisigEscrowInput, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
+    const parties = this.partiesFor(escrow)
+    const psbt = await this.buildUnsignedSpend(escrow, parties, (spendableValue) => {
+      const buyerValue = (spendableValue * BigInt(buyerBps)) / 10000n
+      const sellerValue = spendableValue - buyerValue
+      return [
+        { address: buyerAddress, value: buyerValue },
+        { address: sellerAddress, value: sellerValue },
+      ]
+    })
+
+    const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
+    psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+    if (!escrow.buyerId) {
+      throw new EscrowError(`MULTISIG provider: missing buyerId for disputed split of trade ${escrow.tradeId}`)
+    }
+    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId] }
   }
 
   // Shared finalize: combines the unsigned PSBT with every independently-
@@ -395,6 +443,10 @@ export class MultisigProvider implements SettlementProvider {
   }
 
   async finalizeRefund(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+    return this.finalizeSpend(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+  }
+
+  async finalizeSplit(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
     return this.finalizeSpend(escrow, unsignedPsbtBase64, signedPsbtBase64List)
   }
 

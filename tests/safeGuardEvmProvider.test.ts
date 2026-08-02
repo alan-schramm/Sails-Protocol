@@ -411,3 +411,19 @@ describe('SafeGuardEvmProvider — releaseFunds()/refundFunds() are not directly
     await expect(provider.refundFunds(baseEscrow())).rejects.toThrow(/not directly callable/)
   })
 })
+
+// RFC-021 D9 (2026-08-02) — a real contract-level limitation, not a
+// missing wire-up: SailsEscrowSafe.sol's checkTransaction() reverts
+// WrongAmount() unless value === the immutable lockedAmount, so the
+// deployed guard can never authorize a partial transfer to either
+// address, let alone two. Confirmed by reading the actual deployed
+// contract source before writing this — see this provider's own
+// buildUnsignedSplit() comment.
+describe('SafeGuardEvmProvider — buildUnsignedSplit() is not supported (immutable Guard contract)', () => {
+  it('throws a clear, specific error rather than attempting an unenforceable split', async () => {
+    const provider = new SafeGuardEvmProvider()
+    await expect(
+      provider.buildUnsignedSplit(baseEscrow(), '0x' + '11'.repeat(20), '0x' + '22'.repeat(20), 6000)
+    ).rejects.toThrow(/SPLIT is not supported/)
+  })
+})

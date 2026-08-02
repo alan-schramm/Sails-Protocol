@@ -60,6 +60,12 @@ enum EscrowStatus {
   COMPLETED
   DISPUTED
   REFUNDED
+  // RFC-021 D9 (2026-08-02) — §1.9's third dispute-ruling option
+  // (DisputeRuling.SPLIT) finally has a real settlement action for the
+  // escrow types that can actually represent a partial payout (MOCK,
+  // WDK_USDT_EVM, MULTISIG). Only reachable from DISPUTED — see
+  // escrow.service.ts's VALID_TRANSITIONS.
+  SPLIT
 }
 
 enum PaymentMethod {
@@ -656,15 +662,23 @@ model EscrowParticipantKey {
 model EscrowPendingTransaction {
   id                 String   @id @default(uuid())
   escrowId           String   @unique
-  kind               String   // 'release' | 'refund'
+  kind               String   // 'release' | 'refund' | 'split'
   toAddress          String
+  // Only set for kind='split' — the seller's payout address, alongside
+  // toAddress (buyer's) above. A split PSBT has two real outputs, unlike
+  // release/refund's one, so it needs a second address column rather than
+  // reusing toAddress twice.
+  toAddressSecondary String?
   unsignedPsbtBase64 String
   // Participant ids who must each submit their own signed copy. On a
   // DISPUTED release/refund this list has only ONE entry (buyer or
   // seller) — the arbiter's own required signature is pre-embedded into
   // unsignedPsbtBase64 above at build time, since the arbiter's key is
   // still server-derived (multisig.provider.ts's own header comment) and
-  // never needed a client submission to begin with.
+  // never needed a client submission to begin with. A DISPUTED split has
+  // only ONE entry too (buyer, by convention — see multisig.provider.ts's
+  // buildUnsignedSplit()) — still a 2-of-3 script underneath, so only one
+  // more signature can combine with the arbiter's already-embedded one.
   requiredSigners    String[]
   triggeredBy        String
   createdAt          DateTime @default(now())

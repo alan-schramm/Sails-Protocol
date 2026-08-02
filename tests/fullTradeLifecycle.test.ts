@@ -374,6 +374,54 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     expect(users.rows.get('seller-1')?.reputationScore).toBe(2)
     expect(users.rows.get('buyer-1')?.reputationScore).toBe(-5)
   })
+
+  // RFC-021 D9 (2026-08-02) — the same real chain as the REFUND test above,
+  // proving the third §1.9 dispute-ruling option actually moves funds and
+  // reaches every module's own real terminal state, not just dispute.
+  // service.ts's own unit-mocked applyRuling() dispatch (disputeFlow.test.ts).
+  it('a SPLIT dispute ruling resolves through the real chain — funds move, both sides score NEUTRAL, Intent reaches FULFILLED', async () => {
+    const offer = await liquidityRouter.createOffer({
+      userId: 'seller-1',
+      asset: 'USDT_ERC20',
+      side: 'SELL',
+      priceUsd: '1.00',
+      minAmount: '10',
+      maxAmount: '100',
+      paymentMethod: 'PIX',
+    })
+    const trade = await tradeService.createTrade({
+      offerId: offer.id,
+      counterpartyId: 'buyer-1',
+      amount: '20',
+    })
+    const escrow = await escrowService.createEscrow({
+      tradeId: trade.id,
+      lockedAmount: '20',
+      asset: 'USDT_ERC20',
+    })
+    await flush()
+    await escrowService.lockFunds(escrow.id, 'seller-1')
+    await flush()
+
+    const disputeService = new DisputeService(new TrustedArbitratorProvider(['arbiter-1']))
+    const dispute = await disputeService.raiseDispute(trade.id, 'buyer-1', 'PIX payment only partially confirmed')
+    expect(escrows.rows.get(escrow.id)?.status).toBe('DISPUTED')
+
+    const resolved = await disputeService.resolveDispute(dispute.id, 'arbiter-1', 'SPLIT', '0xBuyerAddress', '0xSellerAddress', 6000)
+    await flush()
+
+    expect(resolved.status).toBe('RESOLVED')
+    expect(resolved.ruling).toBe('SPLIT')
+    expect(escrows.rows.get(escrow.id)?.status).toBe('SPLIT')
+    expect(escrows.rows.get(escrow.id)?.txReleaseId).toMatch(/mock-split-.*,mock-split-/) // real 2-transfer MockSettlementProvider.splitFunds()
+    expect(trades.rows.get(trade.id)?.status).toBe('COMPLETED')
+
+    // RFC-021 D9 — neither party "lost" a split ruling; both score NEUTRAL.
+    expect(users.rows.get('buyer-1')?.reputationScore).toBe(0)
+    expect(users.rows.get('seller-1')?.reputationScore).toBe(0)
+
+    expect(intents.rows.get(offer.intentId)?.status).toBe('FULFILLED')
+  })
 })
 
 // Security-validation round (2026-07-19, "replay de evento / idempotência"

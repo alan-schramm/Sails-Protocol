@@ -332,6 +332,7 @@ export interface SailsEventMap {
   'settlement.escrow.released': SettlementEscrowStatusChangedEvent
   'settlement.escrow.disputed': SettlementEscrowStatusChangedEvent
   'settlement.escrow.refunded': SettlementEscrowStatusChangedEvent
+  'settlement.escrow.split': SettlementEscrowStatusChangedEvent // RFC-021 D9
 
   // Sails OpenReputation
   'reputation.score.updated': ReputationUpdatedEvent

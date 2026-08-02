@@ -16,7 +16,12 @@ const mockDisputeFindUnique = jest.fn()
 const mockDisputeFindMany = jest.fn().mockResolvedValue([])
 const mockDisputeUpdate = jest.fn()
 const mockDisputeUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
-const mockEscrowFindUnique = jest.fn()
+// RFC-021 D9 (2026-08-02) — applyRuling() now looks up the escrow itself
+// (isSignatureCollectionType() dispatch) even for RELEASE/REFUND, so every
+// test needs a real default here, not just the new SPLIT-specific ones.
+// 'MOCK' keeps isSignatureCollectionType() false, preserving this file's
+// existing tests' direct-call expectations unchanged.
+const mockEscrowFindUnique = jest.fn().mockResolvedValue({ id: 'escrow-1', type: 'MOCK' })
 // RFC-021 D6 real appeal-fee collection (2026-08-01) — appeal() charges
 // one of these per appeal round, resolveDispute() settles its outcome.
 const mockDisputeAppealFeeCreate = jest.fn().mockResolvedValue({ id: 'appeal-fee-1' })
@@ -56,11 +61,22 @@ jest.mock('../src/common/events/event-bus', () => ({
 const mockOpenDispute = jest.fn().mockResolvedValue({})
 const mockReleaseFunds = jest.fn().mockResolvedValue({})
 const mockRefundFunds = jest.fn().mockResolvedValue({})
+// RFC-021 D9 (2026-08-02)
+const mockSplitFunds = jest.fn().mockResolvedValue({})
+const mockInitiateRelease = jest.fn().mockResolvedValue({})
+const mockInitiateRefund = jest.fn().mockResolvedValue({})
+const mockInitiateSplit = jest.fn().mockResolvedValue({})
+const mockIsSignatureCollectionType = jest.fn().mockReturnValue(false)
 jest.mock('../src/modules/open-settlement/escrow.service', () => ({
   escrowService: {
     openDispute: (...args: unknown[]) => mockOpenDispute(...args),
     releaseFunds: (...args: unknown[]) => mockReleaseFunds(...args),
     refundFunds: (...args: unknown[]) => mockRefundFunds(...args),
+    splitFunds: (...args: unknown[]) => mockSplitFunds(...args),
+    initiateRelease: (...args: unknown[]) => mockInitiateRelease(...args),
+    initiateRefund: (...args: unknown[]) => mockInitiateRefund(...args),
+    initiateSplit: (...args: unknown[]) => mockInitiateSplit(...args),
+    isSignatureCollectionType: (...args: unknown[]) => mockIsSignatureCollectionType(...args),
   },
 }))
 
@@ -192,6 +208,89 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
   it('rejects RELEASE without a payout address instead of fabricating one', async () => {
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
     await expect(service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE')).rejects.toThrow(/releaseToAddress/)
+  })
+
+  // RFC-021 D9 (2026-08-02) — the third §1.9 dispute-ruling option finally
+  // has a real settlement action.
+  describe('resolveDispute SPLIT (RFC-021 D9)', () => {
+    it('rejects SPLIT missing any of releaseToAddress/refundToAddress/splitBuyerBps', async () => {
+      mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+      await expect(service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer')).rejects.toThrow(/refundToAddress/)
+      await expect(service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller')).rejects.toThrow(/splitBuyerBps/)
+      expect(mockSplitFunds).not.toHaveBeenCalled()
+    })
+
+    it('calls escrowService.splitFunds() directly for a MOCK/WDK-style escrow', async () => {
+      mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+      mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'SPLIT' })
+
+      await service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 6000)
+
+      expect(mockSplitFunds).toHaveBeenCalledWith('escrow-1', 'bc1qbuyer', 'bc1qseller', 6000, 'arbiter-1')
+      expect(mockInitiateSplit).not.toHaveBeenCalled()
+      expect(mockEmit).toHaveBeenCalledWith(
+        'dispute.resolved',
+        expect.objectContaining({ ruling: 'SPLIT', tradeId: 'trade-1' }),
+        'trade-1'
+      )
+    })
+
+    it('routes to initiateSplit() instead for a signature-collection escrow (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM)', async () => {
+      mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+      mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'SPLIT' })
+      mockIsSignatureCollectionType.mockReturnValueOnce(true)
+
+      await service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 4000)
+
+      expect(mockInitiateSplit).toHaveBeenCalledWith('escrow-1', 'bc1qbuyer', 'bc1qseller', 4000, 'arbiter-1')
+      expect(mockSplitFunds).not.toHaveBeenCalled()
+    })
+
+    it('reverts the dispute to its prior state if the underlying settlement action throws (e.g. SAFE_GUARD_EVM/LIGHTNING_HODL rejecting an unsupported split)', async () => {
+      mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+      mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'SPLIT' })
+      mockIsSignatureCollectionType.mockReturnValueOnce(true)
+      mockInitiateSplit.mockRejectedValueOnce(new Error('SPLIT is not supported for this escrow type'))
+
+      await expect(service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 4000)).rejects.toThrow(
+        /SPLIT is not supported/
+      )
+      // Reverted back to the dispute's own pre-resolution status, ruling cleared.
+      expect(mockDisputeUpdate).toHaveBeenLastCalledWith({
+        where: { id: 'dispute-1' },
+        data: { status: 'OPENED', ruling: null, resolvedAt: null },
+      })
+    })
+  })
+
+  // RFC-021 D9 (2026-08-02) — real bug found while building SPLIT:
+  // applyRuling() used to call escrowService.releaseFunds()/refundFunds()
+  // unconditionally, but those throw "not directly callable" for
+  // MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM (client-held keys). Fixed for
+  // all three rulings, not just SPLIT — see escrowService.
+  // isSignatureCollectionType()'s own comment.
+  describe('resolveDispute RELEASE/REFUND — signature-collection dispatch fix (RFC-021 D9)', () => {
+    it('routes RELEASE to initiateRelease() instead of releaseFunds() for a signature-collection escrow', async () => {
+      mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+      mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
+      mockIsSignatureCollectionType.mockReturnValueOnce(true)
+
+      await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyeraddress')
+
+      expect(mockInitiateRelease).toHaveBeenCalledWith('escrow-1', 'bc1qbuyeraddress', 'arbiter-1')
+      expect(mockReleaseFunds).not.toHaveBeenCalled()
+    })
+
+    it('routes REFUND to initiateRefund() instead of refundFunds() for a signature-collection escrow', async () => {
+      mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+      mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
+      mockIsSignatureCollectionType.mockReturnValueOnce(true)
+
+      await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND')
+
+      expect(mockInitiateRefund).toHaveBeenCalledWith('escrow-1', 'arbiter-1')
+      expect(mockRefundFunds).not.toHaveBeenCalled()
+    })
   })
 })
 

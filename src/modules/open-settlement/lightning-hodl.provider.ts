@@ -417,6 +417,32 @@ export class LightningHodlProvider implements SettlementProvider {
     return { psbtBase64: this.serializeBundle(arkTx, checkpoints, expectedPubkeys), requiredSigners: [escrow.sellerId, escrow.buyerId], toAddress: toScriptHex }
   }
 
+  // RFC-021 D9 (2026-08-02) — not supported, for a real structural reason
+  // specific to this provider (found by reading buildScript() below, not
+  // assumed from the EscrowType's name): unlike MULTISIG's flexible 2-of-3
+  // P2MS script (any 2 of the 3 keys validate a spend regardless of its
+  // output structure), this VtxoScript has exactly THREE FIXED 2-of-2
+  // leaves — buyerSeller, buyerArbiter, sellerArbiter — and a spend must
+  // pick one leaf and provide exactly that leaf's two signatures; a
+  // buyer's signature is not even checkable under the sellerArbiter leaf.
+  // A disputed SPLIT needs the arbiter's signature to be enforceable
+  // without both parties' voluntary cooperation (the same property that
+  // makes disputed release/refund work today — the arbiter co-signs with
+  // only the WINNING party, the loser cannot block it), but there is no
+  // leaf where the arbiter co-signs a transaction paying BOTH buyer and
+  // seller — buyerArbiter excludes the seller, sellerArbiter excludes the
+  // buyer, and buyerSeller excludes the arbiter entirely. Building this
+  // for real would mean adding a genuinely new leaf/script construction
+  // (e.g. a 3-key threshold leaf), a real protocol-level change, not a
+  // service-layer wire-up — not attempted here.
+  async buildUnsignedSplit(escrow: ArkEscrowInput, _buyerToScriptHex: string, _sellerToScriptHex: string, _buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
+    throw new EscrowError(
+      `LIGHTNING_HODL (Arkade) provider: SPLIT is not supported for trade ${escrow.tradeId} — this provider's VtxoScript only has ` +
+      'fixed 2-of-2 leaves (buyer+seller, buyer+arbiter, seller+arbiter), none of which let the arbiter co-sign a payout to both ' +
+      'parties at once. See this method\'s own comment for the full reasoning. Use RELEASE or REFUND instead.'
+    )
+  }
+
   // Shared finalize: combines the unsigned bundle with every
   // independently-signed copy submitted by the required signers
   // (combineTapscriptSigs — the Ark equivalent of Psbt.combine()),

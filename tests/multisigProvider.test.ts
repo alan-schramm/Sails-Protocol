@@ -374,4 +374,77 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64()])
     expect(result.txId).toBe('8'.repeat(64))
   })
+
+  // RFC-021 D9 (2026-08-02) — real 2-output PSBT construction. Always the
+  // disputed shape (SPLIT is only ever reached via a dispute ruling) — the
+  // arbiter pre-signs, and only ONE more required signer (the buyer, by
+  // convention — mirrors buildUnsignedRelease()'s own arbiter+buyer
+  // disputed pairing). Real constraint found writing these tests, not a
+  // design choice: this is still a 2-of-3 script, so a third independent
+  // signature (e.g. also collecting the seller's) would exceed the
+  // threshold and fail to finalize ("Too many signatures") — see
+  // multisig.provider.ts's buildUnsignedSplit() own comment.
+  describe('buildUnsignedSplit/finalizeSplit', () => {
+    it('builds a 2-output PSBT — buyer/seller shares sum exactly to the fee-adjusted UTXO value, split per buyerBps', async () => {
+      const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const txid = '9'.repeat(64)
+      mockUtxoFetch(txid, 100_000)
+      const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedSplit(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+        'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
+        bitcoin.payments.p2wpkh({ pubkey: sellerKey.publicKey, network }).address,
+        6000
+      )
+      expect(requiredSigners).toEqual(['buyer-1'])
+
+      const psbt = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+      const spendableValue = 100_000 - 1000 // fee-adjusted, this file's own reference fee constant
+      expect(psbt.txOutputs).toHaveLength(2)
+      expect(psbt.txOutputs[0].value).toBe(BigInt(Math.floor(spendableValue * 0.6)))
+      expect(psbt.txOutputs[1].value).toBe(BigInt(spendableValue) - psbt.txOutputs[0].value)
+      expect(psbt.txOutputs[0].value + psbt.txOutputs[1].value).toBe(BigInt(spendableValue))
+
+      // Already pre-signed by the arbiter — the buyer's signature alone
+      // (2 of 3 total) is enough to finalize.
+      const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+      buyerCopy.signInput(0, buyerKey)
+      expect(() => buyerCopy.finalizeAllInputs()).not.toThrow()
+    })
+
+    it('end-to-end: the buyer signature combines with the arbiter pre-signature and broadcasts to a real txid', async () => {
+      const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const txid = 'aa'.repeat(32)
+      mockUtxoFetch(txid, 100_000)
+      const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedSplit(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+        'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
+        bitcoin.payments.p2wpkh({ pubkey: sellerKey.publicKey, network }).address,
+        3000
+      )
+      expect(requiredSigners).toEqual(['buyer-1'])
+
+      const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+      buyerCopy.signInput(0, buyerKey)
+
+      fetchMock.mockResolvedValueOnce({ ok: true, text: async () => 'bb'.repeat(32) })
+      const result = await multisigProvider.finalizeSplit({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])
+      expect(result.txId).toBe('bb'.repeat(32))
+    })
+
+    it('finalizeSplit fails to combine/finalize with only the arbiter pre-signature and no client signature at all', async () => {
+      const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const txid = 'cc'.repeat(32)
+      mockUtxoFetch(txid, 100_000)
+      const { psbtBase64 } = await multisigProvider.buildUnsignedSplit(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+        'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
+        bitcoin.payments.p2wpkh({ pubkey: sellerKey.publicKey, network }).address,
+        5000
+      )
+
+      await expect(
+        multisigProvider.finalizeSplit({ tradeId: 't1' }, psbtBase64, [])
+      ).rejects.toThrow('failed to combine/finalize')
+    })
+  })
 })

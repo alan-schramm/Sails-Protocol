@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
 import { AssetType } from '../../common/types'
 import { EscrowStatus, EscrowType } from '../../common/types/trade'
 import { config } from '../../config'
@@ -71,8 +71,12 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   FUNDS_LOCKED: ['PAYMENT_PENDING', 'DISPUTED', 'REFUNDED'],
   PAYMENT_PENDING: ['COMPLETED', 'DISPUTED'],
   COMPLETED: [],
-  DISPUTED: ['COMPLETED', 'REFUNDED'],
+  // RFC-021 D9 — SPLIT only ever reaches an escrow via a dispute ruling
+  // (§1.9's third option has no non-disputed equivalent, unlike
+  // RELEASE/REFUND which both also have a normal happy-path route here).
+  DISPUTED: ['COMPLETED', 'REFUNDED', 'SPLIT'],
   REFUNDED: [],
+  SPLIT: [],
 }
 
 // ─── SettlementProvider — the protocol interface (Sails Protocol Spec) ────────
@@ -82,6 +86,14 @@ export interface SettlementProvider {
   releaseFunds(escrow: EscrowRecord, toAddress: string): Promise<{ txId: string }>
   refundFunds(escrow: EscrowRecord): Promise<{ txId: string }>
   verifyLock(escrow: EscrowRecord): Promise<boolean>
+  // RFC-021 D9 — optional: only the providers where a partial payout is
+  // actually representable implement this (MOCK, WDK_USDT_EVM this pass).
+  // buyerBps is the buyer's share in basis points out of 10000 (the
+  // seller gets the remainder) — strictly between 0 and 10000; a caller
+  // wanting an all-or-nothing outcome should use release/refund instead.
+  // Two real transfers, not one, since neither of this pass's direct
+  // providers has an atomic multi-recipient primitive.
+  splitFunds?(escrow: EscrowRecord, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ txIds: string[] }>
 }
 
 class MockSettlementProvider implements SettlementProvider {
@@ -100,6 +112,15 @@ class MockSettlementProvider implements SettlementProvider {
   }
   async verifyLock(_escrow: EscrowRecord) {
     return true
+  }
+  async splitFunds(_escrow: EscrowRecord, buyerAddress: string, sellerAddress: string) {
+    await new Promise((r) => setTimeout(r, 100))
+    return {
+      txIds: [
+        `mock-split-${uuidv4()}-to-${buyerAddress.slice(0, 8)}`,
+        `mock-split-${uuidv4()}-to-${sellerAddress.slice(0, 8)}`,
+      ],
+    }
   }
 }
 
@@ -163,6 +184,15 @@ interface SignatureCollectionProvider {
   buildUnsignedRefund(escrow: unknown): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string }>
   finalizeRelease(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
   finalizeRefund(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
+  // RFC-021 D9 — optional, same reasoning as SettlementProvider.splitFunds
+  // above. Unlike that direct-call version, this is a single PSBT with two
+  // real outputs (one transaction, one txid) — a signature-collection
+  // provider's own script (2-of-3, output-structure-agnostic) doesn't care
+  // how many outputs it spends to. Only MULTISIG implements this pass;
+  // LIGHTNING_HODL/SAFE_GUARD_EVM each have a real, provider-specific
+  // reason they can't (see each one's own buildUnsignedSplit() override).
+  buildUnsignedSplit?(escrow: unknown, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[] }>
+  finalizeSplit?(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
 }
 const SIGNATURE_COLLECTION_PROVIDERS: Record<string, SignatureCollectionProvider> = {
   MULTISIG: multisigProvider,
@@ -265,6 +295,27 @@ export class EscrowService {
     if (isPartyOrAgent(triggeredBy, sellerId)) return true
     const dispute = await prisma.dispute.findFirst({ where: { tradeId, arbiterId: triggeredBy } })
     return dispute !== null
+  }
+
+  // RFC-021 D9 — exposed so dispute.service.ts's applyRuling() can route a
+  // ruling to the right fund-movement mechanism. Bug found while building
+  // SPLIT (2026-08-02): applyRuling() previously called releaseFunds()/
+  // refundFunds() unconditionally for every escrow type, but those throw
+  // "not directly callable" for MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM
+  // (client-held keys — see each provider's own releaseFunds() stub) —
+  // meaning a disputed RELEASE/REFUND on those three escrow types could
+  // never actually resolve through resolveDispute() at all; the dispute
+  // row's RESOLVED status got written then immediately reverted by
+  // applyRuling()'s own catch block. Never caught before because no test
+  // exercised resolveDispute() against a non-MOCK/WDK escrow. Fixed here,
+  // for all three rulings uniformly, not just SPLIT: a signature-collection
+  // type now routes through initiateRelease()/initiateRefund()/
+  // initiateSplit() instead, which is consistent with how the *cooperative*
+  // (non-disputed) path already works for these types — funds finish
+  // moving once the winning party submits their own signature, not
+  // synchronously inside resolveDispute() itself.
+  isSignatureCollectionType(type: string): boolean {
+    return type in SIGNATURE_COLLECTION_PROVIDERS
   }
 
   private async transition(
@@ -746,6 +797,70 @@ export class EscrowService {
     }
   }
 
+  // RFC-021 D9 (2026-08-02) — the direct-call half of SPLIT's real
+  // settlement action, for providers in PROVIDERS that move funds
+  // synchronously in one call (MOCK, WDK_USDT_EVM this pass). Mirrors
+  // releaseFunds()/refundFunds() above exactly (same authorization check,
+  // same atomic-claim-before-provider-call race protection) — only
+  // reachable from DISPUTED (VALID_TRANSITIONS), since SPLIT has no
+  // non-disputed happy path. See initiateSplit() below for the
+  // client-signature-collection equivalent (MULTISIG).
+  async splitFunds(escrowId: string, buyerAddress: string, sellerAddress: string, buyerBps: number, triggeredBy: string) {
+    if (!(buyerBps > 0 && buyerBps < 10000)) {
+      throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
+    }
+    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    if (!escrow) throw new NotFoundError('Escrow', escrowId)
+    this.assertTransition(escrow.status, 'SPLIT')
+
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+    if (!(await this.isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
+      throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
+    }
+
+    const provider = this.getProvider(escrow.type)
+    if (!provider.splitFunds) {
+      throw new EscrowError(
+        `Escrow type '${escrow.type}' does not support a SPLIT settlement action — see that provider's own splitFunds()/buildUnsignedSplit() comment for the specific reason (contract/protocol limitation, not a missing wire-up).`
+      )
+    }
+
+    const claim = await prisma.escrow.updateMany({
+      where: { id: escrowId, status: escrow.status },
+      data: { status: 'SPLIT' },
+    })
+    if (claim.count === 0) {
+      throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
+    }
+
+    try {
+      const result = await provider.splitFunds(
+        { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
+        buyerAddress,
+        sellerAddress,
+        buyerBps
+      )
+
+      const updated = await prisma.escrow.update({
+        where: { id: escrowId },
+        data: { txReleaseId: result.txIds.join(','), releasedAt: new Date() },
+      })
+
+      // Joined into the shared txId?: string field (SettlementEscrowStatusChangedEvent)
+      // rather than widening that event's payload for the one settlement
+      // action that can produce two transaction hashes instead of one.
+      await this.transition(escrowId, escrow.tradeId, escrow.status, 'SPLIT', triggeredBy, 'settlement.escrow.split', {
+        txId: result.txIds.join(','),
+      })
+
+      return updated
+    } catch (err) {
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: escrow.status } }).catch(() => {})
+      throw err
+    }
+  }
+
   // Phase 2 client-signature-collection flow (2026-07-27) — the real
   // replacement for the direct releaseFunds() call above, for providers in
   // SIGNATURE_COLLECTION_PROVIDERS (MULTISIG only this pass). Runs the
@@ -866,6 +981,66 @@ export class EscrowService {
     }
   }
 
+  // RFC-021 D9 — client-signature-collection equivalent of splitFunds()
+  // above, for providers in SIGNATURE_COLLECTION_PROVIDERS (MULTISIG this
+  // pass — LIGHTNING_HODL/SAFE_GUARD_EVM each throw their own specific
+  // reason from buildUnsignedSplit(), same as this method does generically
+  // when a provider doesn't implement it at all). Only reachable from
+  // DISPUTED, same as splitFunds().
+  async initiateSplit(escrowId: string, buyerAddress: string, sellerAddress: string, buyerBps: number, triggeredBy: string) {
+    if (!(buyerBps > 0 && buyerBps < 10000)) {
+      throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
+    }
+    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    if (!escrow) throw new NotFoundError('Escrow', escrowId)
+
+    const provider = SIGNATURE_COLLECTION_PROVIDERS[escrow.type]
+    if (!provider) {
+      throw new EscrowError(
+        `Escrow type '${escrow.type}' does not use the client-signature-collection split flow`
+      )
+    }
+    if (!provider.buildUnsignedSplit) {
+      throw new EscrowError(
+        `Escrow type '${escrow.type}' does not support a SPLIT settlement action — see that provider's own buildUnsignedSplit() comment for the specific reason (contract/protocol limitation, not a missing wire-up).`
+      )
+    }
+    this.assertTransition(escrow.status, 'SPLIT')
+
+    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+    if (!(await this.isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
+      throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
+    }
+
+    const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
+    if (existingPending) {
+      throw new EscrowError(`Escrow ${escrowId} already has a pending ${existingPending.kind} transaction awaiting signatures`)
+    }
+
+    const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
+    const buyerPubkey = keys.find((k: { role: string; pubkey?: string }) => k.role === 'buyer')?.pubkey
+    const sellerPubkey = keys.find((k: { role: string; pubkey?: string }) => k.role === 'seller')?.pubkey
+
+    const { psbtBase64, requiredSigners } = await provider.buildUnsignedSplit(
+      { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey },
+      buyerAddress,
+      sellerAddress,
+      buyerBps
+    )
+
+    try {
+      return await prisma.escrowPendingTransaction.create({
+        data: { escrowId, kind: 'split', toAddress: buyerAddress, toAddressSecondary: sellerAddress, unsignedPsbtBase64: psbtBase64, requiredSigners, triggeredBy },
+      })
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new EscrowError(`Escrow ${escrowId} already has a pending transaction awaiting signatures (concurrent initiate)`)
+      }
+      throw err
+    }
+  }
+
   // The signature-collection write path — each required signer (from
   // EscrowPendingTransaction.requiredSigners) calls this once, submitting
   // their own independently-signed copy of the unsigned PSBT
@@ -881,7 +1056,7 @@ export class EscrowService {
 
     const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
     if (!pending) {
-      throw new EscrowError(`Escrow ${escrowId} has no pending transaction awaiting signatures — call initiate-release/initiate-refund first`)
+      throw new EscrowError(`Escrow ${escrowId} has no pending transaction awaiting signatures — call initiate-release/initiate-refund (or, for a dispute SPLIT ruling, resolveDispute()) first`)
     }
     if (!pending.requiredSigners.includes(participantId)) {
       throw new ForbiddenError(
@@ -910,7 +1085,7 @@ export class EscrowService {
       // rather than silently, consistent with getProvider()'s own comment.
       throw new EscrowError(`Escrow type '${escrow.type}' has a pending transaction but no registered SignatureCollectionProvider`)
     }
-    const targetStatus = pending.kind === 'release' ? 'COMPLETED' : 'REFUNDED'
+    const targetStatus = pending.kind === 'release' ? 'COMPLETED' : pending.kind === 'refund' ? 'REFUNDED' : 'SPLIT'
 
     // Atomic claim before ever calling the real, side-effecting provider —
     // same idiom as releaseFunds()/refundFunds() above.
@@ -928,14 +1103,20 @@ export class EscrowService {
       )
       const result = pending.kind === 'release'
         ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList)
-        : await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList)
+        : pending.kind === 'refund'
+        ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList)
+        : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
 
-      const updateData = pending.kind === 'release'
-        ? { txReleaseId: result.txId, releasedAt: new Date() }
-        : { txReleaseId: result.txId }
+      const updateData = pending.kind === 'refund'
+        ? { txReleaseId: result.txId }
+        : { txReleaseId: result.txId, releasedAt: new Date() }
       const updated = await prisma.escrow.update({ where: { id: escrowId }, data: updateData })
 
-      const eventName = pending.kind === 'release' ? 'settlement.escrow.released' : 'settlement.escrow.refunded'
+      const eventName = pending.kind === 'release'
+        ? 'settlement.escrow.released'
+        : pending.kind === 'refund'
+        ? 'settlement.escrow.refunded'
+        : 'settlement.escrow.split'
       await this.transition(escrowId, escrow.tradeId, escrow.status, targetStatus, pending.triggeredBy, eventName, {
         txId: result.txId,
       })

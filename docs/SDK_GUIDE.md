@@ -163,6 +163,7 @@ interface SailsClient {
     // does not alter ReputationScore. Do not build UI that implies this
     // is "leaving a rating that affects reputation."
     leaderboard(limit?: number): Promise<ReputationScore[]>
+    vouchFor(voucheeId: string): Promise<Vouch>   // requires an active session — RFC-021 D7 peer vouching. Caller must have real trade history; the caller's own reputation is slashed if the vouchee's first payment account is later abused
   }
 
   // Sails OpenLiquidity (alias: offers) — advanced/direct use;
@@ -184,12 +185,21 @@ interface SailsClient {
   settlement: {
     create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session
     get(escrowId: string): Promise<Escrow>
+    submitKey(escrowId: string, pubkeyHex: string): Promise<{ escrow: Escrow; buyerKeySubmitted: boolean; sellerKeySubmitted: boolean }>   // requires an active session — MULTISIG/LIGHTNING_HODL client-held-keys path
     lock(escrowId: string): Promise<Escrow>   // requires an active session
     markPaymentSent(escrowId: string): Promise<Escrow>   // requires an active session
     release(escrowId: string, toAddress: string): Promise<Escrow>   // requires an active session
     dispute(escrowId: string, reason: string, evidence?: unknown[]): Promise<Dispute>   // requires an active session
     refund(escrowId: string): Promise<Escrow>   // requires an active session
+    initiateRelease(escrowId: string, toAddress: string): Promise<EscrowPendingTransaction>   // requires an active session — MULTISIG multi-signer release, does not itself move funds
+    initiateRefund(escrowId: string): Promise<EscrowPendingTransaction>   // requires an active session — mirror of initiateRelease
+    submitTransactionSignature(escrowId: string, signedPsbtBase64: string): Promise<{ complete: boolean }>   // requires an active session
+    getPendingTransaction(escrowId: string): Promise<EscrowPendingTransaction>
     resolveDispute(disputeId: string, ruling: 'RELEASE' | 'REFUND' | 'SPLIT', releaseToAddress?: string): Promise<Dispute>   // requires an active session + assigned arbiter
+    appealDispute(disputeId: string): Promise<{ dispute: Dispute; appealFeeRequired: string }>   // requires an active session + trade party — RFC-021 D6, market arbitration mode only
+    submitDisputeEvidence(disputeId: string, descriptor: { type: string; uri?: string; note?: string }): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, may trigger a QVAC auto-resolution attempt server-side
+    contestAutoResolution(disputeId: string): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, rejects a proposed automated ruling
+    parseSafeGuardBundle(unsignedPsbtBase64: string): SafeGuardBundle   // pure parsing helper, no network call — SAFE_GUARD_EVM only
   }
 
   // Sails OpenP2P (alias: trades) — advanced/direct use; negotiate()

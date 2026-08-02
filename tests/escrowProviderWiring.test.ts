@@ -66,6 +66,9 @@ const mockBuildUnsignedRelease = jest.fn()
 const mockBuildUnsignedRefund = jest.fn()
 const mockFinalizeRelease = jest.fn()
 const mockFinalizeRefund = jest.fn()
+// RFC-021 D9 (2026-08-02)
+const mockBuildUnsignedSplit = jest.fn()
+const mockFinalizeSplit = jest.fn()
 jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
   multisigProvider: {
     name: 'MULTISIG',
@@ -78,6 +81,8 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     buildUnsignedRefund: (...args: unknown[]) => mockBuildUnsignedRefund(...args),
     finalizeRelease: (...args: unknown[]) => mockFinalizeRelease(...args),
     finalizeRefund: (...args: unknown[]) => mockFinalizeRefund(...args),
+    buildUnsignedSplit: (...args: unknown[]) => mockBuildUnsignedSplit(...args),
+    finalizeSplit: (...args: unknown[]) => mockFinalizeSplit(...args),
   },
 }))
 
@@ -448,6 +453,69 @@ describe('initiateRelease()/initiateRefund() — Phase 2 signature-collection ro
   })
 })
 
+// RFC-021 D9 (2026-08-02) — the client-signature-collection equivalent of
+// escrowReleaseControls.test.ts's own splitFunds() coverage. SPLIT only
+// ever reaches an escrow via a dispute ruling (VALID_TRANSITIONS), so
+// status is 'DISPUTED' throughout, unlike initiateRelease/initiateRefund's
+// own PAYMENT_PENDING fixtures above.
+describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockParticipantKeyFindMany.mockResolvedValue([
+      { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
+      { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
+    ])
+    mockPendingTxFindUnique.mockResolvedValue(null)
+  })
+
+  it('builds an unsigned split PSBT via the provider and persists both payout addresses', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'DISPUTED' })
+    // Real MultisigProvider.buildUnsignedSplit() only requires ONE more
+    // signer alongside the arbiter's pre-embedded one (still a 2-of-3
+    // script — see that method's own comment); mocked here as buyer-1,
+    // matching its real default pairing.
+    mockBuildUnsignedSplit.mockResolvedValue({ psbtBase64: 'unsigned-split-psbt', requiredSigners: ['buyer-1'] })
+    mockPendingTxCreate.mockResolvedValue({ id: 'ptx-3', escrowId: 'escrow-1', kind: 'split', requiredSigners: ['buyer-1'] })
+
+    const result = await escrowService.initiateSplit('escrow-1', 'tb1qbuyer', 'tb1qseller', 6000, 'seller-1')
+
+    expect(mockBuildUnsignedSplit).toHaveBeenCalledWith(
+      expect.objectContaining({ buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY }),
+      'tb1qbuyer',
+      'tb1qseller',
+      6000
+    )
+    expect(mockPendingTxCreate).toHaveBeenCalledWith({
+      data: {
+        escrowId: 'escrow-1', kind: 'split', toAddress: 'tb1qbuyer', toAddressSecondary: 'tb1qseller',
+        unsignedPsbtBase64: 'unsigned-split-psbt', requiredSigners: ['buyer-1'], triggeredBy: 'seller-1',
+      },
+    })
+    expect(result.id).toBe('ptx-3')
+  })
+
+  it('rejects buyerBps of 0 or 10000 — those are RELEASE/REFUND in disguise, not a real split', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'DISPUTED' })
+    await expect(escrowService.initiateSplit('escrow-1', 'tb1qbuyer', 'tb1qseller', 0, 'seller-1')).rejects.toThrow(
+      /buyerBps must be strictly between 0 and 10000/
+    )
+    await expect(escrowService.initiateSplit('escrow-1', 'tb1qbuyer', 'tb1qseller', 10000, 'seller-1')).rejects.toThrow(
+      /buyerBps must be strictly between 0 and 10000/
+    )
+    expect(mockBuildUnsignedSplit).not.toHaveBeenCalled()
+  })
+
+  it('rejects an escrow type with no registered SignatureCollectionProvider', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-2', tradeId: 'trade-2', type: 'MOCK', status: 'DISPUTED' })
+    await expect(escrowService.initiateSplit('escrow-2', 'tb1qbuyer', 'tb1qseller', 6000, 'seller-1')).rejects.toThrow(
+      'does not use the client-signature-collection split flow'
+    )
+  })
+})
+
 describe('submitTransactionSignature() — collects signatures, finalizes only once every required signer has submitted', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -517,6 +585,34 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'])
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'REFUNDED' } })
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-refund-txid' } })
+    expect(result.complete).toBe(true)
+  })
+
+  it('finalizes for real once every required signer has submitted — split path (RFC-021 D9)', async () => {
+    // Real MultisigProvider.buildUnsignedSplit() requires only ONE more
+    // signer alongside the arbiter's pre-embedded one (see that method's
+    // own comment) — mocked here as buyer-1, its real default pairing.
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'DISPUTED' })
+    mockPendingTxFindUnique.mockResolvedValue({
+      id: 'ptx-3', escrowId: 'escrow-1', kind: 'split', requiredSigners: ['buyer-1'],
+      unsignedPsbtBase64: 'unsigned-split-psbt', triggeredBy: 'arbiter-1',
+    })
+    mockTxSignatureFindMany.mockResolvedValue([
+      { participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
+    ])
+    mockFinalizeSplit.mockResolvedValue({ txId: 'real-split-txid' })
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', status: 'SPLIT', txReleaseId: 'real-split-txid' })
+
+    const result = await escrowService.submitTransactionSignature('escrow-1', 'buyer-1', 'buyer-signed')
+
+    expect(mockFinalizeSplit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'escrow-1' }),
+      'unsigned-split-psbt',
+      ['buyer-signed']
+    )
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'DISPUTED' }, data: { status: 'SPLIT' } })
+    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-split-txid', releasedAt: expect.any(Date) } })
+    expect(mockPendingTxDelete).toHaveBeenCalledWith({ where: { id: 'ptx-3' } })
     expect(result.complete).toBe(true)
   })
 

@@ -155,6 +155,54 @@ describe('RFC-007 D8/D9 Outcome Engine (dispute-aware, via settlement.escrow.rel
   })
 })
 
+// RFC-021 D9 (2026-08-02) — settlement.escrow.split has no happy-path
+// equivalent (SPLIT only ever comes from a dispute ruling) and no clean
+// winner/loser, unlike released/refunded above — both parties get NEUTRAL,
+// same "always Neutral, never Negative" precedent RFC-007 D9 already sets
+// for a plain refund, and no vouch is burned on either side.
+describe('settlement.escrow.split (RFC-021 D9) — NEUTRAL for both, no vouch burned, Trade -> COMPLETED', () => {
+  beforeAll(() => {
+    registerEventHandlers()
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
+    mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
+  })
+
+  it('scores both parties NEUTRAL and never touches vouches', async () => {
+    await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
+
+    expect(mockTradeUpdate).toHaveBeenCalledWith({
+      where: { id: 'trade-1' },
+      data: { status: 'COMPLETED', completedAt: expect.any(Date) },
+    })
+
+    const scoreUpdates = mockUserUpdate.mock.calls.filter((c) => c[0]?.data?.reputationScore)
+    expect(scoreUpdates.find((c) => c[0].where.id === 'buyer-1')?.[0].data.reputationScore).toEqual({ increment: 0 })
+    expect(scoreUpdates.find((c) => c[0].where.id === 'seller-1')?.[0].data.reputationScore).toEqual({ increment: 0 })
+
+    expect(mockVouchFindMany).not.toHaveBeenCalled()
+    expect(mockVouchUpdate).not.toHaveBeenCalled()
+  })
+
+  it('increments totalTrades/totalVolumeBtc for both parties, same as a real settlement action', async () => {
+    await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
+
+    const volumeUpdates = mockUserUpdate.mock.calls.filter((c) => c[0]?.data?.totalTrades)
+    expect(volumeUpdates.find((c) => c[0].where.id === 'buyer-1')?.[0].data).toMatchObject({ totalTrades: { increment: 1 }, totalVolumeBtc: { increment: '0.01' } })
+    expect(volumeUpdates.find((c) => c[0].where.id === 'seller-1')?.[0].data).toMatchObject({ totalTrades: { increment: 1 }, totalVolumeBtc: { increment: '0.01' } })
+  })
+
+  it('walks the Intent through SETTLING then FULFILLED, in order', async () => {
+    await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
+
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(1, 'intent-1', 'SETTLING', 'system:trade-lifecycle', 'intent.settling', expect.objectContaining({ intentId: 'intent-1' }))
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(2, 'intent-1', 'FULFILLED', 'system:trade-lifecycle', 'intent.fulfilled', expect.objectContaining({ intentId: 'intent-1', outcome: 'SPLIT' }))
+  })
+})
+
 // RFC-021 D4, Phase 3 — the cost-to-fabricate-reputation floor. Only the
 // settlement.escrow.released reaction wires this (refunds never charge a
 // protocol fee — escrow.service.ts's chargeProtocolFee() is only called
