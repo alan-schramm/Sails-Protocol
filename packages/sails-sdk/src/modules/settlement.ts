@@ -23,6 +23,63 @@ export interface CreateEscrowInput {
   timelockHours?: number
 }
 
+/**
+ * SAFE_GUARD_EVM's real bundle shape (server-side `SafeGuardBundle`,
+ * `safe-guard-evm.provider.ts`) — every other escrow type's
+ * `unsignedPsbtBase64` is genuinely opaque to this SDK (the server never
+ * inspects it either, per that file's own comment), but SAFE_GUARD_EVM's
+ * `guardDeployment` is the one piece a caller structurally cannot get
+ * anywhere else: deploying `SailsEscrowSafe` needs no trade-party
+ * signature at all (its constructor args are immutable and fixed by the
+ * time this bundle exists), so ANY funded account — typically the
+ * seller, motivated to move the trade forward — can permissionlessly
+ * submit `{ to, data }` with their own gas, before the actual
+ * release/refund signature round below even begins. Found and closed as
+ * a real gap (2026-08-02, multisig-coverage-per-asset audit
+ * follow-through): the server has computed this since `safe-guard-evm.provider.ts`
+ * shipped, but no SDK surface ever let a caller reach it.
+ */
+export interface SafeGuardBundle {
+  path: 'COOPERATIVE' | 'DISPUTED_RELEASE' | 'DISPUTED_REFUND'
+  userOpHash: string
+  toAddress: string
+  guardAddress: string
+  guardDeployment: { to: string; data: string }
+}
+
+/**
+ * Parses a SAFE_GUARD_EVM escrow's `unsignedPsbtBase64` (from
+ * `initiateRelease()`/`initiateRefund()`/`getPendingTransaction()`) into
+ * its real structured shape. Throws a clear error for any other escrow
+ * type's bundle (MULTISIG's literal PSBT, LIGHTNING_HODL's Ark tx JSON)
+ * rather than returning a nonsense partial parse — this is deliberately
+ * not a generic "try to parse whatever" helper.
+ *
+ * Deliberately does NOT submit `guardDeployment` itself — this SDK has
+ * no hard dependency on ethers/viem/any specific EVM library (browser +
+ * Node compatibility, `encoding.ts`'s own header comment), so the
+ * caller submits `{ to, data }` via whatever wallet/provider they
+ * already use, e.g. `provider.sendTransaction({ to, data })` (ethers) or
+ * `walletClient.sendTransaction({ to, data })` (viem). No value field —
+ * this transaction deploys a contract, it never carries native currency.
+ */
+export function parseSafeGuardBundle(unsignedPsbtBase64: string): SafeGuardBundle {
+  let bundle: unknown
+  try {
+    bundle = JSON.parse(unsignedPsbtBase64)
+  } catch (err) {
+    throw new Error(`parseSafeGuardBundle: not valid JSON — this isn't a SAFE_GUARD_EVM bundle: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  const b = bundle as Partial<SafeGuardBundle>
+  if (!b.guardAddress || !b.guardDeployment?.to || !b.guardDeployment?.data) {
+    throw new Error(
+      'parseSafeGuardBundle: missing guardAddress/guardDeployment — this is not a SAFE_GUARD_EVM bundle ' +
+      '(MULTISIG/LIGHTNING_HODL PSBTs have a different, opaque shape entirely)'
+    )
+  }
+  return b as SafeGuardBundle
+}
+
 // Mirrors escrow.service.ts's RECOMMENDED_ESCROW_TYPE exactly (found during
 // the multisig-coverage-per-asset audit: `create()` used to forward
 // whatever `type` the caller passed, including undefined — the server then

@@ -263,6 +263,14 @@ model Escrow {
   txLockId        String?
   txReleaseId     String?
   timelockHours   Int          @default(24)
+  // RFC-021 Phase 0 — real fee collection (PROTOCOL_ECONOMY.md §6.2).
+  // Nullable, not defaulted to 0: null means "no fee was computed for
+  // this escrow" (protocolFeeRate was 0 at release time, or this escrow
+  // predates Phase 0), vs. 0 meaning "a fee was computed and it rounded
+  // to zero" — worth telling apart later. Only ever set on release
+  // (PROTOCOL_ECONOMY.md §3: the Protocol Fee only ever attaches to a
+  // completed Settlement) — never on refund.
+  feeCharged      Decimal?     @db.Decimal(24, 8)
   moduleId        String       @default("opensettlement")
   protocolVersion String       @default("0.1")
   lockedAt        DateTime?
@@ -276,6 +284,47 @@ model Escrow {
   @@map("escrows")
 }
 ```
+
+**Corrected 2026-08-02** (the same `docs/BACKLOG.md` gap-consolidation
+item that also flagged `FeeDistribution` missing entirely, closed below,
+and `ArbiterProfile`/`PaymentAccount`, closed further down this file):
+`feeCharged` above was missing from this listing since Phase 0 shipped —
+now matches `prisma/schema.prisma` exactly.
+
+### `FeeDistribution` — owned by `opensettlement`, RFC-021 Phase 0's real Protocol Fee split
+
+```prisma
+model FeeDistribution {
+  id                     String   @id @default(uuid())
+  escrowId               String   @unique
+  escrow                 Escrow   @relation(fields: [escrowId], references: [id])
+  totalFee               Decimal  @db.Decimal(24, 8)
+  asset                  AssetType
+  nodeOperatorShare      Decimal  @db.Decimal(24, 8) // 40%
+  treasuryShare          Decimal  @db.Decimal(24, 8) // 30%
+  walletRebateShare      Decimal  @db.Decimal(24, 8) // 20%
+  arbitratorReserveShare Decimal  @db.Decimal(24, 8) // 10%
+  moduleId               String   @default("opensettlement")
+  protocolVersion        String   @default("0.1")
+  createdAt              DateTime @default(now())
+
+  @@map("fee_distributions")
+}
+```
+
+One row per fee-charging release, created by `escrow.service.ts`'s
+`chargeProtocolFee()` (`releaseFunds()` only — refunds never charge a
+fee) whenever `config.settlement.protocolFeeRate` is non-zero. The
+40/30/20/10 split is `PROTOCOL_ECONOMY.md` §6.2's already-decided
+economics, not re-derived here — this table just persists the real
+computed shares. Same "computed and persisted, not actually routed
+on-chain" realness as `DisputeAppealFee` below: no `SettlementProvider`
+in this codebase has a real configured treasury/node-operator/
+wallet-rebate/arbitrator-reserve address to send any share to yet.
+`Escrow.feeCharged` (above) is the same `totalFee` value, denormalized
+onto the escrow itself so `User.cumulativeFeesObserved`/
+`ArbiterProfile.cumulativeFeesObserved` (RFC-021 D4) can read it without
+a join.
 
 **Escrow state machine — valid transitions (enforced in application code,
 not the database):**
@@ -358,6 +407,8 @@ enum DisputeStatus {
   EVIDENCE_SUBMITTED
   ARBITRATED
   RESOLVED
+  APPEALED       // RFC-021 D6 — a RESOLVED dispute reopened for a new arbiter's ruling
+  AUTO_PROPOSED  // RFC-021 D8 — QVAC proposed an automated ruling, open for contest
 }
 
 enum DisputeRuling {
@@ -379,12 +430,27 @@ model Dispute {
   status     DisputeStatus  @default(OPENED)
   ruling     DisputeRuling?
   resolvedAt DateTime?
+  // RFC-021 D6 — appeal state. appealRound is 0 until the first appeal;
+  // previousRuling/previousArbiterId snapshot the ruling being appealed
+  // so resolveDispute() can slash the original arbiter on an overturn.
+  appealRound       Int                @default(0)
+  previousRuling    DisputeRuling?
+  previousArbiterId String?
+  appealFees        DisputeAppealFee[]
+  // RFC-021 D8 — QVAC-assisted automated first-pass resolution (see that
+  // model's own section below). Populated only while status is
+  // AUTO_PROPOSED (or after, for audit — see autoResolved).
+  autoResolutionRecommendation DisputeRuling?
+  autoResolutionConfidence     Float?
+  autoResolutionReasoning      String?
+  autoResolutionDeadline       DateTime?
+  autoResolved                 Boolean         @default(false)
   moduleId   String         @default("opensettlement")
   protocolVersion String    @default("0.1")
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt
 
-  @@index([tradeId])
+  @@unique([tradeId]) // one Dispute per Trade for its entire lifetime — see dispute.service.ts's own comment
   @@index([escrowId])
   @@index([status])
   @@map("disputes")
@@ -400,18 +466,92 @@ implementation, `arbitration-provider.ts`), and notifies via
 `dispute.opened` on the Event Bus; `resolveDispute()` maps
 `RELEASE`/`REFUND` onto the existing escrow release/refund paths).
 
-**Gap found 2026-08-01, widened 2026-08-02, not fixed here (out of scope
-for this pass):** the `Dispute` model above already predates RFC-021 D6's
-real fields — `DisputeStatus` is also missing `APPEALED`, and the model
-itself is missing `appealRound`/`previousRuling`/`previousArbiterId`/
-`appealFees`. As of RFC-021 D8 (2026-08-02) it is now also missing
-`AUTO_PROPOSED` (`DisputeStatus`) and `autoResolutionRecommendation`/
-`autoResolutionConfidence`/`autoResolutionReasoning`/
-`autoResolutionDeadline`/`autoResolved` — see RFC-021's own D8 section
-and `prisma/schema.prisma` directly for the real, current shape.
-`BACKLOG.md`'s own P0 row already flags `DATABASE.md` missing
-`ArbiterProfile`/`PaymentAccount` similarly — add this to that same
-backlog item rather than treating it as newly discovered here.
+**Corrected 2026-08-02** (closing a gap first found 2026-08-01, widened
+the same day RFC-021 D8 landed, both times left "not fixed here" until
+now): the model above now matches `prisma/schema.prisma` exactly,
+including D6's appeal fields and D8's auto-resolution fields.
+
+### `ArbiterProfile` — owned by `opensettlement`, RFC-021 D2/D3's real permissionless-registration + reputation-as-collateral state
+
+```prisma
+model ArbiterProfile {
+  id                     String     @id @default(uuid())
+  participantId          String     @unique
+  participant            User       @relation(fields: [participantId], references: [id])
+  monetaryCollateral     Decimal    @default(0) @db.Decimal(24, 8)
+  collateralAsset        AssetType? // null when monetaryCollateral is 0
+  arbiterReputation      Float      @default(0)
+  rulingsTotal           Int        @default(0)
+  rulingsOverturned      Int        @default(0) // RFC-021 D6 appeal outcomes
+  cumulativeFeesObserved Decimal    @default(0) @db.Decimal(24, 8) // RFC-021 D4, Phase 3
+  registeredAt           DateTime   @default(now())
+  slashedAt              DateTime?
+  moduleId               String     @default("opensettlement")
+  protocolVersion        String     @default("0.1")
+  updatedAt              DateTime   @updatedAt
+
+  @@map("arbiter_profiles")
+}
+```
+
+One row per self-registered arbiter candidate (`MarketArbitrationProvider.register()`,
+only meaningful under `ARBITRATION_MODE=market` — the default
+`'trusted-list'` mode never creates or reads this table at all).
+`effectiveStake = monetaryCollateral + arbiterReputation × REPUTATION_STAKE_FACTOR`
+(RFC-021 D3, computed on read, not stored) determines eligibility for a
+given dispute's value; `slash()` (D6, an overturned appeal) forfeits
+`SLASH_COLLATERAL_FRACTION` of `monetaryCollateral` and applies
+`OVERTURNED_PENALTY` to `arbiterReputation` — a separate field from
+`User.reputationScore`, since an arbiter's professional track record and
+a trader's own reputation are different things about the same person.
+`slashedAt` is set on the first slash and never cleared — a slashed
+arbiter's history stays visible, it isn't a one-time penalty that resets.
+
+### `PaymentAccount` — owned by `opensettlement`, RFC-021 D5's real payment-account trust ramp
+
+```prisma
+model PaymentAccount {
+  id              String        @id @default(uuid())
+  ownerId         String
+  owner           User          @relation(fields: [ownerId], references: [id])
+  accountHash     String        @unique // sha256(paymentMethod:rawIdentifier) — never the raw account identifier
+  paymentMethod   PaymentMethod
+  signed          Boolean       @default(false)
+  signedBy        String?       // the counterparty/arbiter (or RFC-021 D7 voucher) who attested this account
+  signedAt        DateTime?
+  firstUsedAt     DateTime      @default(now())
+  completedTrades Int           @default(0)
+  chargebacks     Int           @default(0)
+  moduleId        String        @default("opensettlement")
+  protocolVersion String        @default("0.1")
+  updatedAt       DateTime      @updatedAt
+
+  @@index([ownerId])
+  @@map("payment_accounts")
+}
+```
+
+Modeled directly on Bisq's real "Payment account age witness"/account
+signing — a SEPARATE risk dimension from `User.reputationScore`: this
+measures whether a specific payment rail (a PIX key, a bank account) has
+survived a completed trade without a chargeback, which trader reputation
+alone doesn't cover (an otherwise reputable trader's account can still be
+stolen/compromised — the "conta laranja"/mule-account risk). `accountHash`
+is the privacy-preserving hash both `payment-account.service.ts` (server)
+and `@sails/sdk`'s `hashPaymentAccount()` (client) compute
+byte-identically — the raw account identifier is never stored anywhere.
+`getTradeLimit()`'s real ramp reads directly off this row:
+`!signed` → `UNSIGNED_TRADE_LIMIT` (the floor, including a brand-new
+account with no history at all) → `SIGNED_TRADE_LIMIT` once `signed` →
+`ESTABLISHED_TRADE_LIMIT` at `ESTABLISHED_TRADE_COUNT` completed trades →
+`'unlimited'` at `TRUSTED_TRADE_COUNT` completed trades with zero
+`chargebacks` — a single real chargeback permanently caps the account at
+`SIGNED_TRADE_LIMIT` regardless of `completedTrades`, by design (D5's own
+stated rule: one reversal is a real, disqualifying signal, not averaged
+away by later good trades). RFC-021 D7 (2026-08-02) added a second way
+`signed` can become `true` at creation time: `getOrCreate()` pre-signs a
+genuinely-new owner's first account when an active `Vouch` exists for
+them (see `Vouch`'s own section below).
 
 ### `DisputeAppealFee` — owned by `opensettlement`, RFC-021 D6's real appeal-fee charge (closed 2026-08-01)
 
