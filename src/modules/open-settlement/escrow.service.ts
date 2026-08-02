@@ -132,12 +132,18 @@ const PROVIDERS: Record<string, SettlementProvider> = {
 }
 
 // Providers that never push funds into escrow themselves (MULTISIG,
-// LIGHTNING_HODL/Arkade) and whose buyer/seller keys are client-held —
-// their deposit address can only be derived once both pubkeys have been
-// submitted (submitParticipantKey() below), not at creation time.
+// LIGHTNING_HODL/Arkade, SAFE_GUARD_EVM) and whose buyer/seller keys are
+// client-held — their deposit address can only be derived once both
+// pubkeys have been submitted (submitParticipantKey() below), not at
+// creation time. SAFE_GUARD_EVM added 2026-08-01 (real CREATE2 address
+// prediction landed, safe-guard-evm.provider.ts's own header comment) —
+// previously absent here entirely, meaning submitParticipantKey() never
+// derived/persisted a Safe address for it and lockFunds() had no
+// multisigAddr to verify a balance against.
 const NON_CUSTODIAL_PROVIDERS: Record<string, { getDepositAddress(tradeId: string, buyerPubkey: string, sellerPubkey: string): Promise<string> }> = {
   MULTISIG: multisigProvider,
   LIGHTNING_HODL: lightningHodlProvider,
+  SAFE_GUARD_EVM: safeGuardEvmProvider,
 }
 
 // Phase 2 (2026-07-27) — providers whose release/refund now goes through

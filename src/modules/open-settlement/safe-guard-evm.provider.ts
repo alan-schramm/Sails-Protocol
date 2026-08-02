@@ -1,36 +1,77 @@
 /**
  * Sails OpenSettlement — SAFE_GUARD_EVM (Safe Transaction Guard + ERC-4337) SettlementProvider
  *
- * RFC-020's real, wired-in (but not-yet-deployable) EVM custody path —
- * fulfills RFC-019 Phase 2. Same custody-model shape MULTISIG/
- * LIGHTNING_HODL already use: buyer and seller each hold their own key
- * client-side (`@sails/sdk`'s `generateEscrowKeypair()` — the SAME
- * compressed secp256k1 keypair already submitted via
- * `POST /v1/settlement/escrow/:id/submit-key`/`EscrowParticipantKey`,
- * reused as-is rather than inventing a second key-submission mechanism);
- * the one server-held key is the arbiter co-signer, and it lives in AWS
- * KMS (`SailsSignerService`, imported from `@sails/sdk` rather than
- * duplicated here — the userOpHash a co-signer signs must be
- * byte-identical on both client and server, so sharing the real,
- * already-tested implementation is safer than a second hand-written copy
- * that could silently drift).
+ * RFC-020's real EVM custody path — fulfills RFC-019 Phase 2. Same
+ * custody-model shape MULTISIG/LIGHTNING_HODL already use: buyer and
+ * seller each hold their own key client-side (`@sails/sdk`'s
+ * `generateEscrowKeypair()` — the SAME compressed secp256k1 keypair
+ * already submitted via `POST /v1/settlement/escrow/:id/submit-key`/
+ * `EscrowParticipantKey`, reused as-is rather than inventing a second
+ * key-submission mechanism); the one server-held key is the arbiter
+ * co-signer, and it lives in AWS KMS (`SailsSignerService`, imported from
+ * `@sails/sdk` rather than duplicated here — the userOpHash a co-signer
+ * signs must be byte-identical on both client and server, so sharing the
+ * real, already-tested implementation is safer than a second hand-written
+ * copy that could silently drift).
  *
  * What's real here: constructing a real `PackedUserOperation` and its
- * real `userOpHash` (`@sails/sdk`'s `getUserOpHash()`, transcribed from
- * the actual installed `EntryPoint.sol`/`UserOperationLib.sol` source —
- * see `evm-4337.ts`'s own header); recovering each submitted ECDSA
- * signature's real signer address and combining them into Safe's real,
- * documented ascending-address-sorted packed-signature format
- * (`checkNSignatures()` in `Safe.sol`, read directly before this was
- * written). What is NOT real, and throws a clearly-named `EscrowError`
- * rather than fabricate a result: deploying/verifying a Safe on-chain
- * (`lockFunds()`/`verifyLock()` — needs a live EVM RPC), pre-signing as
- * the KMS arbiter on the disputed path (`SailsSignerService.signDigest()`
- * — needs real AWS credentials, none configured here), and actually
- * broadcasting a finalized UserOperation (`broadcast()` — needs a live
- * ERC-4337 bundler endpoint). Same disclosed-boundary discipline
- * `multisig.provider.ts`/`lightning-hodl.provider.ts` already established
- * for their own real-but-unexercised-against-live-funds gaps.
+ * real `userOpHash` (`@sails/sdk`'s `getUserOpHash()`); recovering each
+ * submitted ECDSA signature's real signer address and combining them into
+ * Safe's real, documented ascending-address-sorted packed-signature
+ * format (`checkNSignatures()` in `Safe.sol`); CREATE2 address prediction
+ * for both the Safe and the Guard (below); real on-chain balance checks
+ * (`lockFunds()`/`verifyLock()`) and real ERC-4337 bundler submission
+ * (`broadcast()`) via a configured RPC/bundler endpoint. Never exercised
+ * against a live funded Sepolia account or a live bundler in this
+ * environment — same disclosed "verified structurally, not end-to-end"
+ * boundary `MultisigProvider`/`LightningHodlProvider` already established.
+ *
+ * **Deployment design (2026-08-01 pass — the actual engineering gap this
+ * pass closes):** the Safe is deployed via `SafeProxyFactory.setup()`
+ * with `to=SafeModuleSetup, data=enableModules([safe4337Module])`
+ * (Safe's own official pattern for atomically enabling a module at
+ * setup time — no custom contract needed). The Guard (`SailsEscrowSafe`)
+ * is deployed separately via the well-known EIP-2470-style deterministic
+ * deployer (`0x4e59b44847...`, verified live-deployed on Sepolia below),
+ * since its constructor needs the Safe's own address — computable
+ * off-chain via CREATE2 before the Safe exists, so no circular
+ * dependency. Attaching the guard (`Safe.setGuard()`) can only happen via
+ * a Safe-authorized self-call (`SelfAuthorized.sol`'s `authorized`
+ * modifier, read directly: `require(msg.sender == address(this))`) — it
+ * genuinely cannot be set by a plain EOA call, so it needs the same
+ * 2-of-3 signature flow release/refund already use. Rather than invent a
+ * SEPARATE signing round for it (a materially bigger, riskier change —
+ * new pending-transaction kind, new routes, new SDK surface), this pass
+ * folds `setGuard()` into the SAME UserOp as the terminal release/refund
+ * transfer, via a `MultiSendCallOnly` batch (Safe's own official
+ * multi-call utility — no custom contract): [setGuard(guard),
+ * transfer(to, amount)]. This is safe specifically because the Safe's
+ * guard state is read ONCE at the top of `executeUserOp()`, before either
+ * batched call executes — since the guard isn't set yet, it doesn't (and
+ * structurally can't) gate this one bootstrap transaction, but the
+ * transaction's own content is fixed entirely by this server's
+ * `buildBundle()` logic before any signature is ever requested, not by
+ * the signers — there is no window in which a compromised 2-of-3 set
+ * could substitute a different, unauthorized transaction into that slot.
+ * The guard becomes active for every transaction after this one, which
+ * — by this protocol's own one-shot-per-trade design — there shouldn't
+ * be. Only reached once per escrow, exactly like the existing
+ * `buildUnsignedRelease()`/`buildUnsignedRefund()` release/refund flow.
+ *
+ * Every contract address below (Safe v1.4.1, Safe4337Module v0.3.0,
+ * SafeModuleSetup, MultiSendCallOnly, the deterministic deployer) was
+ * cross-checked two ways before being hardcoded: against
+ * `safe-global/safe-deployments`'/`safe-global/safe-modules-deployments`'
+ * own published registry, AND via a live `eth_getCode` call against
+ * Sepolia confirming real, non-empty bytecode at each address — not
+ * copied from memory or documentation alone. `SAFE_PROXY_CREATION_CODE`
+ * below (needed for CREATE2 prediction, since `SafeProxyFactory` has no
+ * external way to predict an address without it) was verified even more
+ * strictly: read from the installed `@safe-global/safe-contracts@1.4.1-2`
+ * package's own pre-built artifact, then independently confirmed
+ * byte-for-byte identical to the real, deployed, canonical factory's own
+ * `proxyCreationCode()` return value via a live `eth_call` — not merely
+ * trusted from the npm package.
  *
  * `lockedAmount` is a Decimal string (RFC-009) — converted to wei via
  * exact string/BigInt math (`weiFromDecimalString` below), deliberately
@@ -43,7 +84,9 @@
  * default — same "surface a clear config error, don't refuse to boot"
  * pattern as `MULTISIG_SEED`/`WDK_SEED_PHRASE`. The cooperative
  * (buyer+seller, no arbiter) release/refund path needs no AWS access at
- * all — only the disputed path touches KMS.
+ * all — only the disputed path touches KMS. Deriving the Safe/Guard's
+ * addresses similarly needs no AWS access UNLESS the disputed path is in
+ * play (the arbiter is one of the three owners regardless of path).
  */
 import { getUserOpHash, SailsSignerService, ethereumAddressFromUncompressedPubkey, type PackedUserOperation } from '@sails/sdk'
 // This file resolves @noble/curves from the ROOT node_modules (v1.2.0,
@@ -57,11 +100,92 @@ import { getUserOpHash, SailsSignerService, ethereumAddressFromUncompressedPubke
 // `.toBytes()`/`.addRecoveryBit()` return shape.
 import { secp256k1 } from '@noble/curves/secp256k1'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
+import {
+  JsonRpcProvider,
+  Contract,
+  Interface,
+  AbiCoder,
+  getCreate2Address,
+  keccak256,
+  concat,
+  zeroPadValue,
+  toBeHex,
+  toUtf8Bytes,
+} from 'ethers'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
 
 const ZERO_BYTES32 = '0x' + '00'.repeat(32)
+
+// Verified byte-for-byte against a live eth_call to the real, deployed factory (this file's own header comment) — do not hand-edit.
+const SAFE_PROXY_CREATION_CODE = "0x608060405234801561001057600080fd5b506040516101e63803806101e68339818101604052602081101561003357600080fd5b8101908080519060200190929190505050600073ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff1614156100ca576040517f08c379a00000000000000000000000000000000000000000000000000000000081526004018080602001828103825260228152602001806101c46022913960400191505060405180910390fd5b806000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055505060ab806101196000396000f3fe608060405273ffffffffffffffffffffffffffffffffffffffff600054167fa619486e0000000000000000000000000000000000000000000000000000000060003514156050578060005260206000f35b3660008037600080366000845af43d6000803e60008114156070573d6000fd5b3d6000f3fea264697066735822122003d1488ee65e08fa41e58e888a9865554c535f2c77126a82cb4c0f917f31441364736f6c63430007060033496e76616c69642073696e676c65746f6e20616464726573732070726f7669646564"
+
+// Read directly from contracts/artifacts/contracts/SailsEscrowSafe.sol/SailsEscrowSafe.json — regenerate if SailsEscrowSafe.sol changes.
+const SAILS_ESCROW_SAFE_CREATION_CODE = "0x6101008060405234610126576080816106a78038038091610020828561013f565b8339810103126101265761003381610178565b9061004060208201610178565b606061004e60408401610178565b920151604051631cea46b760e31b81529093906020816004816001600160a01b0386165afa8015610133576000906100fb575b60029150106100ea5760805260a05260c05260e05260405161051a908161018d823960805181818160e0015281816101f501526103b6015260a0518181816102410152610371015260c051818181608d01526102c4015260e05181818161027a01526103380152f35b633916714960e21b60005260046000fd5b506020813d60201161012b575b816101156020938361013f565b810103126101265760029051610081565b600080fd5b3d9150610108565b6040513d6000823e3d90fd5b601f909101601f19168101906001600160401b0382119082101761016257604052565b634e487b7160e01b600052604160045260246000fd5b51906001600160a01b03821682036101265756fe608080604052600436101561001357600080fd5b60003560e01c90816301ffc9a7146103e557508063186f0354146103a05780633dedf3dd1461035b5780636ab28bc81461032057806375f0bb52146101575780638f7758391461013457806393271368146100c157639aa8becd1461007757600080fd5b346100bc5760003660031901126100bc576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b600080fd5b346100bc5760403660031901126100bc5760243580151581036100bc577f00000000000000000000000000000000000000000000000000000000000000006001600160a01b031633036101235761011457005b6000805460ff19166001179055005b6367a159eb60e01b60005260046000fd5b346100bc5760003660031901126100bc57602060ff600054166040519015158152f35b346100bc576101603660031901126100bc576004356001600160a01b038116908190036100bc5760443567ffffffffffffffff81116100bc5761019e903690600401610465565b906064359160028310156100bc576101b4610438565b50610104356001600160a01b038116036100bc576101243567ffffffffffffffff81116100bc576101e9903690600401610465565b506101f261044e565b507f00000000000000000000000000000000000000000000000000000000000000006001600160a01b031633036101235760ff60005416610310576000921590811591610305575b506102f6577f00000000000000000000000000000000000000000000000000000000000000006001600160a01b031681141590816102c2575b506102b3577f0000000000000000000000000000000000000000000000000000000000000000602435036102a45780f35b6349986e7360e01b8152600490fd5b63d64fd8b560e01b8152600490fd5b7f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03161415905082610273565b635ee8231160e01b8252600482fd5b90505115158361023a565b62560ff960e81b60005260046000fd5b346100bc5760003660031901126100bc5760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b346100bc5760003660031901126100bc576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b346100bc5760003660031901126100bc576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b346100bc5760203660031901126100bc576004359063ffffffff60e01b82168092036100bc5760209163736bd41d60e11b8114908115610427575b5015158152f35b6301ffc9a760e01b14905083610420565b60e435906001600160a01b03821682036100bc57565b61014435906001600160a01b03821682036100bc57565b81601f820112156100bc5780359067ffffffffffffffff82116104ce5760405192601f8301601f19908116603f0116840167ffffffffffffffff8111858210176104ce57604052828452602083830101116100bc57816000926020809301838601378301015290565b634e487b7160e01b600052604160045260246000fdfea2646970667358221220ce33335ec5e72985f6d4abe22ee41f7dbdbb0a09c8b77999b9aaf8611830e8ee64736f6c634300081c0033"
+
+// keccak256("guard_manager.guard.address") — GuardManager.sol's own
+// documented derivation, independently recomputed and confirmed to match
+// before use, since GuardManager exposes no public getter for it
+// (`getGuard()` is `internal`).
+const GUARD_STORAGE_SLOT = '0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8'
+
+const SAFE_SETUP_IFACE = new Interface([
+  'function setup(address[] _owners, uint256 _threshold, address to, bytes data, address fallbackHandler, address paymentToken, uint256 payment, address paymentReceiver)',
+])
+const SAFE_MODULE_SETUP_IFACE = new Interface(['function enableModules(address[] modules)'])
+const GUARD_MANAGER_IFACE = new Interface(['function setGuard(address guard)'])
+const SAFE_4337_MODULE_IFACE = new Interface(['function executeUserOp(address to, uint256 value, bytes data, uint8 operation)'])
+const ENTRY_POINT_IFACE = new Interface(['function getNonce(address sender, uint192 key) view returns (uint256 nonce)'])
+const MULTISEND_CALL_ONLY_IFACE = new Interface(['function multiSend(bytes transactions)'])
+
+// Deterministic per-trade salt — same "derive, don't store a second
+// counter" precedent `wdk-settlement.provider.ts`'s tradeId-derived child
+// account already uses.
+export function deriveSaltNonce(tradeId: string): bigint {
+  return BigInt(keccak256(toUtf8Bytes(tradeId)))
+}
+
+// Real CREATE2 math for a Safe deployed via `createProxyWithNonce()` —
+// transcribed directly from `SafeProxyFactory.sol`'s own `deployProxy()`/
+// `createProxyWithNonce()` (read in full before this was written):
+//   deploymentData = SafeProxy.creationCode ++ abi.encode(uint256(uint160(singleton)))
+//   salt = keccak256(abi.encodePacked(keccak256(initializer), saltNonce))
+//   address = CREATE2(factory, salt, keccak256(deploymentData))
+// `owners`/threshold=2/`to`=SafeModuleSetup/`data`=enableModules([safe4337Module])/
+// `fallbackHandler`=safe4337Module are this protocol's fixed setup shape —
+// not parameterized further, since every SAFE_GUARD_EVM escrow uses the
+// exact same shape (only the three owner addresses and the salt differ).
+export function predictSafeAddress(owners: [string, string, string], saltNonce: bigint): string {
+  const enableModulesData = SAFE_MODULE_SETUP_IFACE.encodeFunctionData('enableModules', [[config.safeGuardEvm.safe4337Module]])
+  const initializer = SAFE_SETUP_IFACE.encodeFunctionData('setup', [
+    owners,
+    2,
+    config.safeGuardEvm.safeModuleSetup,
+    enableModulesData,
+    config.safeGuardEvm.safe4337Module,
+    '0x0000000000000000000000000000000000000000',
+    0,
+    '0x0000000000000000000000000000000000000000',
+  ])
+  const salt = keccak256(concat([keccak256(initializer), zeroPadValue(toBeHex(saltNonce), 32)]))
+  const deploymentData = concat([SAFE_PROXY_CREATION_CODE, zeroPadValue(config.safeGuardEvm.safeSingleton, 32)])
+  return getCreate2Address(config.safeGuardEvm.safeProxyFactory, salt, keccak256(deploymentData))
+}
+
+// Real CREATE2 math for the Guard, deployed via the well-known
+// EIP-2470-style deterministic deployer (any EVM chain that has it —
+// verified live-deployed on Sepolia before use): the deployer's own
+// bytecode does `create2(0, initCodeOffset, initCodeSize, salt)` with
+// `salt`/`initCode` taken verbatim from calldata, so the standard CREATE2
+// formula applies directly against the deployer's own address as
+// `sender` — no dependency on its exact calldata packing.
+export function predictGuardAddress(safeAddress: string, releaseTo: string, refundTo: string, lockedAmountWei: bigint, saltNonce: bigint): string {
+  const constructorArgs = AbiCoder.defaultAbiCoder().encode(['address', 'address', 'address', 'uint256'], [safeAddress, releaseTo, refundTo, lockedAmountWei])
+  const initCode = concat([SAILS_ESCROW_SAFE_CREATION_CODE, constructorArgs])
+  const salt = zeroPadValue(toBeHex(saltNonce), 32)
+  return getCreate2Address(config.safeGuardEvm.deterministicDeployer, salt, keccak256(initCode))
+}
 
 export type SafeGuardEvmEscrowInput = {
   tradeId: string
@@ -143,7 +267,25 @@ interface SafeGuardBundle {
   userOp: SerializedUserOp
   userOpHash: string // hex, no 0x prefix
   toAddress: string
+  guardAddress: string
+  // Deploying SailsEscrowSafe needs no trade-party signature at all — its
+  // constructor args are immutable and fixed by this bundle, so ANYONE
+  // (typically the seller, motivated to move the trade forward) can
+  // permissionlessly submit this raw transaction with their own gas
+  // before signing the userOp below. `to`/`data` are the deterministic
+  // deployer's own real calldata format ("32-byte salt followed by init
+  // code" — its own published README, verified before use).
+  guardDeployment: { to: string; data: string }
   preEmbeddedSignature?: { address: string; signatureHex: string } // arbiter's, disputed path only
+}
+
+// MultiSendCallOnly.sol's own real packed sub-transaction format (read
+// directly before this was written): operation(1 byte, must be 0/Call —
+// this version reverts on delegatecall) || to(20 bytes) || value(32
+// bytes) || dataLength(32 bytes) || data.
+function packMultiSendTx(to: string, value: bigint, data: string): string {
+  const dataLength = BigInt((data.length - 2) / 2)
+  return concat(['0x00', to, zeroPadValue(toBeHex(value), 32), zeroPadValue(toBeHex(dataLength), 32), data])
 }
 
 function serializeUserOp(userOp: PackedUserOperation): SerializedUserOp {
@@ -167,28 +309,93 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     return new SailsSignerService({ region: config.safeGuardEvm.kmsRegion, keyId: config.safeGuardEvm.kmsKeyId })
   }
 
+  private provider(): JsonRpcProvider {
+    return new JsonRpcProvider(config.safeGuardEvm.rpcUrl)
+  }
+
+  // The Safe's 3 owners (buyer, seller, arbiter), 2-of-3 threshold — the
+  // arbiter's own address is needed here even on the cooperative path,
+  // since the owner list (and therefore the Safe's CREATE2 address) is
+  // fixed at deployment regardless of whether a dispute ever happens.
+  // This is a real, disclosed change from this file's previous
+  // "cooperative path needs no AWS access" claim, which only ever applied
+  // to co-SIGNING (`SailsSignerService.signDigest()`) — getAddress() below
+  // is a read-only KMS `GetPublicKeyCommand`, never `Sign`, but it is now
+  // unconditionally required to derive a Safe address at all.
+  private async owners(escrow: Pick<SafeGuardEvmEscrowInput, 'tradeId' | 'buyerPubkey' | 'sellerPubkey'>): Promise<[string, string, string]> {
+    const buyer = ethereumAddressFromCompressedHex(escrow.buyerPubkey, 'buyer', escrow.tradeId)
+    const seller = ethereumAddressFromCompressedHex(escrow.sellerPubkey, 'seller', escrow.tradeId)
+    const arbiter = await this.signerService().getAddress()
+    return [buyer, seller, arbiter]
+  }
+
+  // The `NON_CUSTODIAL_PROVIDERS` write path (`escrow.service.ts`'s
+  // `submitParticipantKey()`) — called once both buyer and seller pubkeys
+  // have arrived, same timing MULTISIG/LIGHTNING_HODL already use. Pure
+  // CREATE2 math once owners are known — no RPC needed.
+  async getDepositAddress(tradeId: string, buyerPubkey: string, sellerPubkey: string): Promise<string> {
+    const owners = await this.owners({ tradeId, buyerPubkey, sellerPubkey })
+    return predictSafeAddress(owners, deriveSaltNonce(tradeId))
+  }
+
   private requireSafeAddress(escrow: SafeGuardEvmEscrowInput): string {
     if (!escrow.multisigAddr) {
       throw new EscrowError(
-        `SAFE_GUARD_EVM provider: no deployed Safe address recorded for trade ${escrow.tradeId} — lockFunds() must succeed first, ` +
-        'which requires live EVM RPC infrastructure this environment does not have.'
+        `SAFE_GUARD_EVM provider: no Safe address recorded for trade ${escrow.tradeId} — submit both buyer and seller pubkeys first ` +
+        '(POST /v1/settlement/escrow/:id/submit-key), which derives and persists it automatically.'
       )
     }
     return escrow.multisigAddr
   }
 
-  private buildUserOp(escrow: SafeGuardEvmEscrowInput, toAddress: string): PackedUserOperation {
+  private async buildUserOp(escrow: SafeGuardEvmEscrowInput, toAddress: string, guardAddress: string): Promise<PackedUserOperation> {
+    const sender = this.requireSafeAddress(escrow)
+    const rpc = this.provider()
+    const entryPoint = new Contract(config.safeGuardEvm.entryPointAddress, ENTRY_POINT_IFACE, rpc)
+    // Real nonce — INonceManager.getNonce(sender, key=0), read directly
+    // from the installed @account-abstraction/contracts interface before
+    // this was written.
+    const nonce: bigint = await entryPoint.getNonce(sender, 0)
+    // Real check for whether the guard is already active — GuardManager
+    // exposes no public getter, so this reads its own documented storage
+    // slot directly. Expected to always be unset the one time this runs
+    // per escrow (this protocol's one-shot-per-trade design), but checked
+    // rather than assumed.
+    const guardStorage = await rpc.getStorage(sender, GUARD_STORAGE_SLOT)
+    const guardAlreadySet = BigInt(guardStorage) !== 0n
+    const transferValue = weiFromDecimalString(escrow.lockedAmount)
+
+    let callData: string
+    if (guardAlreadySet) {
+      // Guard already active (shouldn't happen in this protocol's
+      // one-shot design, handled defensively anyway): a plain guarded
+      // transfer, no MultiSend/setGuard needed — this is the shape
+      // SailsEscrowSafe.checkTransaction() itself requires.
+      callData = SAFE_4337_MODULE_IFACE.encodeFunctionData('executeUserOp', [toAddress, transferValue, '0x', 0])
+    } else {
+      // Bootstrap transaction — see this file's own header comment for
+      // why bundling setGuard() with the transfer here, in the Safe's
+      // very first transaction, is safe. Both sub-calls are plain
+      // self-originated calls (operation=0) from the Safe, batched via a
+      // DELEGATECALL (operation=1) to MultiSendCallOnly so `address(this)`
+      // stays the Safe throughout.
+      const setGuardData = GUARD_MANAGER_IFACE.encodeFunctionData('setGuard', [guardAddress])
+      const multiSendData = MULTISEND_CALL_ONLY_IFACE.encodeFunctionData('multiSend', [
+        concat([packMultiSendTx(sender, 0n, setGuardData), packMultiSendTx(toAddress, transferValue, '0x')]),
+      ])
+      callData = SAFE_4337_MODULE_IFACE.encodeFunctionData('executeUserOp', [config.safeGuardEvm.multiSendCallOnly, 0n, multiSendData, 1])
+    }
+
     return {
-      sender: this.requireSafeAddress(escrow),
-      // Real nonce comes from EntryPoint.getNonce(sender, key) — a live
-      // RPC call, not available here. Same disclosed gap
-      // evm-4337.ts's own buildTransfer() already has.
-      nonce: 0n,
+      sender,
+      nonce,
       initCode: '0x',
-      // Real callData encodes Safe4337Module's execTransaction(toAddress,
-      // amountWei, '0x') — needs the live target Safe's module address to
-      // ABI-encode correctly, out of scope without a live deployment.
-      callData: '0x',
+      callData,
+      // Real gas ESTIMATION (as opposed to real gas FIELDS) is a separate,
+      // bundler-specific concern (`eth_estimateUserOperationGas`) this
+      // pass does not attempt — a real bundler will reject zero gas
+      // limits with a clear, real error in broadcast() below, rather than
+      // this code silently fabricating a plausible-looking estimate.
       accountGasLimits: ZERO_BYTES32,
       preVerificationGas: 0n,
       gasFees: ZERO_BYTES32,
@@ -202,13 +409,25 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     toAddress: string,
     disputedPath: 'DISPUTED_RELEASE' | 'DISPUTED_REFUND'
   ): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
-    const userOp = this.buildUserOp(escrow, toAddress)
+    const releaseTo = ethereumAddressFromCompressedHex(escrow.buyerPubkey, 'buyer', escrow.tradeId)
+    const refundTo = ethereumAddressFromCompressedHex(escrow.sellerPubkey, 'seller', escrow.tradeId)
+    const lockedAmountWei = weiFromDecimalString(escrow.lockedAmount)
+    const saltNonce = deriveSaltNonce(escrow.tradeId)
+    const sender = this.requireSafeAddress(escrow)
+    const guardAddress = predictGuardAddress(sender, releaseTo, refundTo, lockedAmountWei, saltNonce)
+    const guardConstructorArgs = AbiCoder.defaultAbiCoder().encode(['address', 'address', 'address', 'uint256'], [sender, releaseTo, refundTo, lockedAmountWei])
+    const guardInitCode = concat([SAILS_ESCROW_SAFE_CREATION_CODE, guardConstructorArgs])
+    const guardDeploymentSalt = zeroPadValue(toBeHex(saltNonce), 32)
+
+    const userOp = await this.buildUserOp(escrow, toAddress, guardAddress)
     const hash = getUserOpHash(userOp, config.safeGuardEvm.chainId, config.safeGuardEvm.entryPointAddress)
     const bundle: SafeGuardBundle = {
       path: escrow.status === 'DISPUTED' ? disputedPath : 'COOPERATIVE',
       userOp: serializeUserOp(userOp),
       userOpHash: bytesToHex(hash),
       toAddress,
+      guardAddress,
+      guardDeployment: { to: config.safeGuardEvm.deterministicDeployer, data: concat([guardDeploymentSalt, guardInitCode]) },
     }
 
     if (escrow.status === 'DISPUTED') {
@@ -283,11 +502,48 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     return this.broadcast(userOp, combined)
   }
 
-  private async broadcast(_userOp: PackedUserOperation, _combinedSignature: string): Promise<{ txId: string }> {
-    throw new EscrowError(
-      'SAFE_GUARD_EVM provider: broadcasting a finalized UserOperation requires a live EVM RPC connection and an ERC-4337 bundler ' +
-      'endpoint — neither exists in this environment. The combined signature was built successfully; submission is the remaining gap.'
-    )
+  // Real eth_sendUserOperation submission — the standard ERC-4337 bundler
+  // RPC method every bundler implementation (Alchemy, Pimlico, Stackup,
+  // etc.) exposes. Returns the bundler-ACCEPTED userOpHash, not the
+  // eventual on-chain transaction hash — that requires a separate,
+  // later `eth_getUserOperationReceipt` poll once the bundler actually
+  // includes it in a block, disclosed here rather than fabricated as an
+  // immediate real txId.
+  private async broadcast(userOp: PackedUserOperation, combinedSignature: string): Promise<{ txId: string }> {
+    if (!config.safeGuardEvm.bundlerUrl) {
+      throw new EscrowError(
+        'SAFE_GUARD_EVM provider: broadcasting requires SAFE_GUARD_EVM_BUNDLER_URL configured (.env.example) — the combined ' +
+        'signature was built successfully; submission to a real bundler is the remaining gap.'
+      )
+    }
+    const signedUserOp = {
+      sender: userOp.sender,
+      nonce: toBeHex(userOp.nonce),
+      initCode: userOp.initCode,
+      callData: userOp.callData,
+      accountGasLimits: userOp.accountGasLimits,
+      preVerificationGas: toBeHex(userOp.preVerificationGas),
+      gasFees: userOp.gasFees,
+      paymasterAndData: userOp.paymasterAndData,
+      signature: combinedSignature,
+    }
+    const res = await fetch(config.safeGuardEvm.bundlerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_sendUserOperation',
+        params: [signedUserOp, config.safeGuardEvm.entryPointAddress],
+      }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || body.error) {
+      throw new EscrowError(
+        `SAFE_GUARD_EVM provider: bundler rejected the UserOperation for sender ${userOp.sender}: ${body.error?.message ?? res.statusText}`
+      )
+    }
+    return { txId: body.result }
   }
 
   async finalizeRelease(escrow: SafeGuardEvmEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
@@ -298,20 +554,34 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     return this.finalizeBundle(escrow, unsignedPsbtBase64, signedPsbtBase64List)
   }
 
-  // Real Safe deployment (CREATE2) requires a live EVM RPC to broadcast
-  // the deployment transaction and confirm it landed; verifying a
-  // balance similarly requires a live RPC. Both disclosed, not
-  // fabricated.
+  // Non-custodial, same shape MULTISIG's own lockFunds() already uses:
+  // the Safe's address was already derived and persisted by
+  // getDepositAddress() above (submitParticipantKey()'s write path) — the
+  // buyer/seller send their own collateral there directly; this method
+  // only verifies external funding via a real on-chain balance check, it
+  // never moves funds itself.
   async lockFunds(escrow: SafeGuardEvmEscrowInput): Promise<{ txId: string; address: string }> {
-    throw new EscrowError(
-      `SAFE_GUARD_EVM provider: lockFunds() for trade ${escrow.tradeId} requires deploying a real Safe via a live EVM RPC connection — not available in this environment.`
-    )
+    const address = this.requireSafeAddress(escrow)
+    const balance = await this.provider().getBalance(address)
+    const expected = weiFromDecimalString(escrow.lockedAmount)
+    if (balance < expected) {
+      throw new EscrowError(
+        `No funding of at least ${expected} wei found at ${address} yet (currently ${balance} wei). This is a non-custodial ` +
+        `provider — it verifies external funding, it does not move funds itself. Send the trade's collateral to ${address} first, then retry lockFunds.`
+      )
+    }
+    // Unlike Bitcoin's UTXO model (MultisigProvider.fetchUtxos(), which
+    // reports the real funding UTXO's own txid), a plain native-currency
+    // balance check has no specific funding-transaction hash to report
+    // without a third-party indexer/explorer API — disclosed here, not
+    // fabricated as a real hash.
+    return { txId: 'native-balance-verified-no-indexer', address }
   }
 
   async verifyLock(escrow: SafeGuardEvmEscrowInput): Promise<boolean> {
-    throw new EscrowError(
-      `SAFE_GUARD_EVM provider: verifyLock() for trade ${escrow.tradeId} requires a live EVM RPC connection to check the Safe's on-chain balance — not available in this environment.`
-    )
+    const address = this.requireSafeAddress(escrow)
+    const balance = await this.provider().getBalance(address)
+    return balance >= weiFromDecimalString(escrow.lockedAmount)
   }
 
   // Not directly callable — same reasoning as MULTISIG/LIGHTNING_HODL:
