@@ -178,6 +178,38 @@ export interface CreateEscrowInput {
   timelockHours?: number
 }
 
+// Found during the multisig-coverage-per-asset audit: createEscrow() used
+// to default an omitted `type` to a hardcoded 'MULTISIG' regardless of
+// `asset` — the real live call site (sails-ui's Trade.tsx) never sends
+// `type` at all, so in a non-mock deployment EVERY trade of EVERY asset
+// silently became a Bitcoin PSBT escrow, correct only by accident for BTC.
+// This is the single source of truth for "which real provider actually
+// fits this asset" — BTC/LN_BTC map to the two genuinely non-custodial
+// (client-held-keys, 2-of-3) providers; USDT_ERC20 maps to WDK_USDT_EVM,
+// the best REAL option today even though its own header discloses it's
+// single-seed, not multisig (SAFE_GUARD_EVM would be the right answer but
+// its lockFunds/verifyLock/broadcast are still throw-only — routing USDT
+// there would just fail every trade). Every other AssetType has no real
+// provider at all yet (LIQUID_COVENANT/SPARK/STACKS/etc. — see
+// BACKLOG.md's asset x custody coverage note) and intentionally has no
+// entry here, so createEscrow() throws instead of guessing.
+const RECOMMENDED_ESCROW_TYPE: Partial<Record<AssetType, EscrowType>> = {
+  BTC: 'MULTISIG',
+  LN_BTC: 'LIGHTNING_HODL',
+  USDT_ERC20: 'WDK_USDT_EVM',
+}
+
+export function recommendedEscrowType(asset: AssetType): EscrowType {
+  const type = RECOMMENDED_ESCROW_TYPE[asset]
+  if (!type) {
+    throw new EscrowError(
+      `No real SettlementProvider is wired for asset '${asset}' yet — refusing to guess an escrow type. ` +
+      "Pass type: 'MOCK' explicitly if a fake/test escrow for this asset is actually intended."
+    )
+  }
+  return type
+}
+
 // Found during a general gap audit (not tied to any single RFC): none of
 // this class's mutating methods verified `triggeredBy` was actually a
 // party to the trade before this fix — any authenticated participant on
@@ -304,7 +336,7 @@ export class EscrowService {
     if (!trade) throw new NotFoundError('Trade', input.tradeId)
     if (trade.escrowId) throw new EscrowError('Trade already has an escrow')
 
-    const type = input.type ?? (config.features.mockEscrow ? 'MOCK' : 'MULTISIG')
+    const type = input.type ?? (config.features.mockEscrow ? 'MOCK' : recommendedEscrowType(input.asset))
 
     // MULTISIG/LIGHTNING_HODL's buyer/seller keys are now client-held
     // (each provider's own header comment) — the deposit address

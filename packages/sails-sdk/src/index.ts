@@ -42,7 +42,7 @@ export {
   type DiscoverResult,
 } from './modules/liquidity'
 export { SailsOpenP2PModule, WebSocketChannel, type ChatFrame, type ChatMessageEvent } from './modules/openp2p'
-export { SailsSettlementModule, type CreateEscrowInput } from './modules/settlement'
+export { SailsSettlementModule, type CreateEscrowInput, recommendedEscrowType } from './modules/settlement'
 export { generateEscrowKeypair, signEscrowPsbt, type EscrowKeypair } from './modules/escrow-key'
 export { signEscrowArkTx } from './modules/escrow-ark-signing'
 export { SailsPeersModule, type StaticTopic } from './modules/peers'

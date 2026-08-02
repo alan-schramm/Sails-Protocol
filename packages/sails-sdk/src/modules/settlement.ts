@@ -23,12 +23,42 @@ export interface CreateEscrowInput {
   timelockHours?: number
 }
 
+// Mirrors escrow.service.ts's RECOMMENDED_ESCROW_TYPE exactly (found during
+// the multisig-coverage-per-asset audit: `create()` used to forward
+// whatever `type` the caller passed, including undefined — the server then
+// defaulted every omitted type to a hardcoded 'MULTISIG' regardless of
+// `asset`, which is how sails-ui's Trade.tsx create() call, which never
+// sets `type`, silently created a Bitcoin-shaped escrow for every asset).
+// Failing fast here, client-side, before ever hitting the network, is the
+// better DX — the same "don't let the integrator hold the footgun"
+// standard Breez SDK/WDK apply to their own SDKs.
+const RECOMMENDED_ESCROW_TYPE: Partial<Record<AssetType, EscrowType>> = {
+  BTC: 'MULTISIG',
+  LN_BTC: 'LIGHTNING_HODL',
+  USDT_ERC20: 'WDK_USDT_EVM',
+}
+
+export function recommendedEscrowType(asset: AssetType): EscrowType | undefined {
+  return RECOMMENDED_ESCROW_TYPE[asset]
+}
+
 export class SailsSettlementModule {
   constructor(private readonly transport: SailsTransport) {}
 
-  /** Requires an active session. */
+  /**
+   * Requires an active session. If `type` is omitted, it's resolved via
+   * `recommendedEscrowType(input.asset)` — throws immediately, before any
+   * network call, for an asset with no real SettlementProvider yet, rather
+   * than silently sending an unrelated escrow type to the server.
+   */
   async create(input: CreateEscrowInput): Promise<Escrow> {
-    return this.transport.post<Escrow>('/v1/settlement/escrow', input, true)
+    const type = input.type ?? recommendedEscrowType(input.asset)
+    if (!type) {
+      throw new Error(
+        `@sails/sdk: no real SettlementProvider exists yet for asset '${input.asset}' — pass type: 'MOCK' explicitly if a fake/test escrow is actually intended.`
+      )
+    }
+    return this.transport.post<Escrow>('/v1/settlement/escrow', { ...input, type }, true)
   }
 
   async get(escrowId: string): Promise<Escrow> {

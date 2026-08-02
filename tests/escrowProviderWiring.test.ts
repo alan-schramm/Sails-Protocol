@@ -122,7 +122,7 @@ jest.mock('../src/common/database', () => ({
   },
 }))
 
-import { escrowService } from '../src/modules/open-settlement/escrow.service'
+import { escrowService, recommendedEscrowType } from '../src/modules/open-settlement/escrow.service'
 
 const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
 const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
@@ -152,6 +152,82 @@ describe('createEscrow() — no longer populates multisigAddr immediately (clien
 
     expect(mockGetDepositAddress).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).not.toHaveBeenCalled()
+  })
+})
+
+describe('createEscrow() — asset-aware default type (multisig-coverage-per-asset audit)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+  })
+
+  it('defaults an omitted type to MULTISIG for a BTC trade', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-1', lockedAmount: '0.001', asset: 'BTC' as any })
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
+  })
+
+  it('defaults an omitted type to LIGHTNING_HODL for an LN_BTC trade', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-2', tradeId: 'trade-2', type: 'LIGHTNING_HODL', asset: 'LN_BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-2', lockedAmount: '0.001', asset: 'LN_BTC' as any })
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'LIGHTNING_HODL' }) }))
+  })
+
+  it('defaults an omitted type to WDK_USDT_EVM for a USDT_ERC20 trade', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-3', tradeId: 'trade-3', type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', lockedAmount: '5' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-3', lockedAmount: '5', asset: 'USDT_ERC20' as any })
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'WDK_USDT_EVM' }) }))
+  })
+
+  it('does NOT silently default to MULTISIG for an asset with no real provider — throws instead', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(escrowService.createEscrow({ tradeId: 'trade-4', lockedAmount: '10', asset: 'SPARK' as any })).rejects.toThrow(
+      "No real SettlementProvider is wired for asset 'SPARK'"
+    )
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('MOCK_ESCROW=true still defaults every asset to MOCK regardless of recommendedEscrowType', async () => {
+    mockEscrowFeatureFlag = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-5', tradeId: 'trade-5', type: 'MOCK', asset: 'SPARK', lockedAmount: '10' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-5', lockedAmount: '10', asset: 'SPARK' as any })
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
+  })
+
+  it('an explicitly passed type is never overridden, even for an asset with a different recommendation', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-6', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-6', tradeId: 'trade-6', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-6', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any })
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
+  })
+})
+
+describe('recommendedEscrowType()', () => {
+  it('matches the audited real-provider coverage exactly', () => {
+    expect(recommendedEscrowType('BTC' as any)).toBe('MULTISIG')
+    expect(recommendedEscrowType('LN_BTC' as any)).toBe('LIGHTNING_HODL')
+    expect(recommendedEscrowType('USDT_ERC20' as any)).toBe('WDK_USDT_EVM')
+  })
+
+  it('throws for every asset with no real SettlementProvider yet, instead of guessing', () => {
+    for (const asset of ['USDT_TRC20', 'USDT_LIQUID', 'USDT_LIGHTNING', 'LIQUID_BTC', 'SPARK', 'STACKS', 'RSK_BTC']) {
+      expect(() => recommendedEscrowType(asset as any)).toThrow(`No real SettlementProvider is wired for asset '${asset}'`)
+    }
   })
 })
 
