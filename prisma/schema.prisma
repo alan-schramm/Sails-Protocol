@@ -108,6 +108,8 @@ model User {
   reputationReceived ReputationEvent[] @relation("RatedEvents")
   arbiterProfile     ArbiterProfile?   // RFC-021 — present only if this participant has registered as an arbiter candidate
   paymentAccounts    PaymentAccount[]  // RFC-021 D5 — zero or more linked payment rails, each with its own trust ramp
+  vouchesGiven       Vouch[]           @relation("VouchesGiven")   // RFC-021 D7 — peer vouches this participant has extended to newcomers
+  vouchesReceived    Vouch[]           @relation("VouchesReceived") // RFC-021 D7 — peer vouches this participant has received
 
   @@map("users")
 }
@@ -427,6 +429,34 @@ model PaymentAccount {
 
   @@index([ownerId])
   @@map("payment_accounts")
+}
+
+// RFC-021 D7 — peer vouching, the real bootstrap mechanism for two
+// brand-new participants who would otherwise both start at zero (Yuri's
+// "handshake at Anarcapulco" analogy, project owner's own 2026-08-02
+// correction: this is NOT a KYC/identity-linking flow — it is a
+// protocol-native attestation with the voucher's own reputation on the
+// line, the same "reputation as slashable collateral" principle D3
+// already applies to arbiters, extended here). One vouch per
+// (voucher, vouchee) pair, ever — @@unique enforces this at the database
+// level, not just in application code. burnedAt is set (once, real skin
+// in the game) if the vouchee's first lost dispute happens while this
+// vouch is still active — see reputation.service.ts's
+// penalizeForBurnedVouch() and vouch.service.ts's burnVouchesFor().
+model Vouch {
+  id          String    @id @default(uuid())
+  voucherId   String
+  voucher     User      @relation("VouchesGiven", fields: [voucherId], references: [id])
+  voucheeId   String
+  vouchee     User      @relation("VouchesReceived", fields: [voucheeId], references: [id])
+  createdAt   DateTime  @default(now())
+  burnedAt    DateTime?
+  moduleId    String    @default("openreputation")
+  protocolVersion String @default("0.1")
+
+  @@unique([voucherId, voucheeId])
+  @@index([voucheeId])
+  @@map("vouches")
 }
 
 model EscrowEvent {

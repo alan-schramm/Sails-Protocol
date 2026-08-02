@@ -8,7 +8,7 @@
  * build UI that implies otherwise.
  */
 import type { SailsTransport } from '../transport'
-import type { ReputationScore } from '../types'
+import type { ReputationScore, Vouch } from '../types'
 
 export interface RateInput {
   tradeId: string
@@ -31,5 +31,18 @@ export class SailsReputationModule {
   /** Requires an active session. Informational only — see this file's header. */
   async rate(input: RateInput): Promise<unknown> {
     return this.transport.post('/v1/reputation/rate', input, true)
+  }
+
+  /**
+   * RFC-021 D7 — requires an active session. Vouches for `voucheeId` with
+   * the caller's own reputation on the line, NOT a KYC/identity check —
+   * this protocol does not do KYC. The server rejects the call if the
+   * caller doesn't meet the real eligibility bar (trade history + positive
+   * reputation) — see `vouch.service.ts`'s own header for the full
+   * mechanics, including the real reputation penalty the caller takes if
+   * the vouchee's first dispute is lost while this vouch is still active.
+   */
+  async vouchFor(voucheeId: string): Promise<Vouch> {
+    return this.transport.post<Vouch>('/v1/reputation/vouch', { voucheeId }, true)
   }
 }

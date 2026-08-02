@@ -45,10 +45,42 @@ export class PaymentAccountService {
     return createHash('sha256').update(`${paymentMethod}:${rawIdentifier}`).digest('hex')
   }
 
-  /** Idempotent: returns the existing PaymentAccount if this hash was already seen, otherwise creates it. */
+  /**
+   * Idempotent: returns the existing PaymentAccount if this hash was
+   * already seen, otherwise creates it.
+   *
+   * RFC-021 D7 — a brand-new owner's FIRST payment account is created
+   * already `signed` if a peer vouched for them (`Vouch`,
+   * `vouch.service.ts`, OpenReputation's own table). This is a
+   * cross-module READ done directly against Prisma, not a call into
+   * `vouchService` — the same "reading another module's table directly
+   * is fine, only writes must go through the owning module" boundary
+   * `escrow.service.ts` already relies on for its own Trade reads.
+   * Explicitly scoped to a NEW account only: an owner's second/third
+   * payment account gets no special treatment from a vouch — the vouch
+   * bootstraps the person's first rail, exactly the cold-start gap D7
+   * exists to close, not a blanket exemption from ever needing to sign
+   * an account for real.
+   */
   async getOrCreate(ownerId: string, accountHash: string, paymentMethod: PaymentMethod) {
     const existing = await prisma.paymentAccount.findUnique({ where: { accountHash } })
     if (existing) return existing
+
+    // "First rail" checked precisely, not just "this exact hash is new" —
+    // an already-established owner adding a second/third payment method
+    // gets no special treatment from a vouch, only a genuinely new owner
+    // does.
+    const isOwnersFirstAccount = (await prisma.paymentAccount.count({ where: { ownerId } })) === 0
+    const activeVouch = isOwnersFirstAccount
+      ? await prisma.vouch.findFirst({ where: { voucheeId: ownerId, burnedAt: null } })
+      : null
+
+    if (activeVouch) {
+      return prisma.paymentAccount.create({
+        data: { ownerId, accountHash, paymentMethod, signed: true, signedBy: activeVouch.voucherId, signedAt: new Date() },
+      })
+    }
+
     return prisma.paymentAccount.create({ data: { ownerId, accountHash, paymentMethod } })
   }
 

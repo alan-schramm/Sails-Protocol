@@ -19,6 +19,7 @@ const mockUserFindUnique = jest.fn()
 const mockUserCreate = jest.fn()
 const mockUserFindMany = jest.fn()
 const mockReputationEventCreate = jest.fn()
+const mockVouchCreate = jest.fn() // RFC-021 D7
 const mockOfferFindUnique = jest.fn()
 const mockOfferFindMany = jest.fn()
 const mockOfferCreate = jest.fn()
@@ -89,6 +90,10 @@ jest.mock('../src/common/database', () => ({
       update: jest.fn().mockResolvedValue({ id: 'user-1', reputationScore: 2, totalTrades: 1 }),
     },
     reputationEvent: { create: (...args: unknown[]) => mockReputationEventCreate(...args) },
+    vouch: {
+      create: (...args: unknown[]) => mockVouchCreate(...args),
+      findFirst: jest.fn().mockResolvedValue(null), // RFC-021 D7 — payment-account.service.ts's getOrCreate() check
+    },
     offer: {
       findUnique: (...args: unknown[]) => mockOfferFindUnique(...args),
       findMany: (...args: unknown[]) => mockOfferFindMany(...args),
@@ -123,6 +128,7 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockPaymentAccountFindUnique(...args),
       create: (...args: unknown[]) => mockPaymentAccountCreate(...args),
       update: (...args: unknown[]) => mockPaymentAccountUpdate(...args),
+      count: jest.fn().mockResolvedValue(0), // RFC-021 D7 — getOrCreate()'s "genuine first account" check
     },
     message: {
       findMany: (...args: unknown[]) => mockMessageFindMany(...args),
@@ -1080,6 +1086,47 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.body).message).toMatch(/already rated/)
+    })
+
+    // RFC-021 D7
+    it('rejects vouching without auth', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/reputation/vouch', payload: { voucheeId: 'newcomer-1' } })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('creates a real vouch for an eligible, authenticated voucher', async () => {
+      const token = await authedSession('voucher-1')
+      mockUserFindUnique
+        .mockResolvedValueOnce({ id: 'voucher-1', totalTrades: 5, reputationScore: 3 })
+        .mockResolvedValueOnce({ id: 'newcomer-1', totalTrades: 0, reputationScore: 0 })
+      mockVouchCreate.mockResolvedValueOnce({ id: 'vouch-1', voucherId: 'voucher-1', voucheeId: 'newcomer-1' })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/reputation/vouch',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { voucheeId: 'newcomer-1' },
+      })
+
+      expect(res.statusCode).toBe(201)
+      expect(JSON.parse(res.body).data).toEqual(expect.objectContaining({ voucherId: 'voucher-1', voucheeId: 'newcomer-1' }))
+    })
+
+    it('rejects an ineligible voucher with a clear 400, not a crash', async () => {
+      const token = await authedSession('voucher-1')
+      mockUserFindUnique
+        .mockResolvedValueOnce({ id: 'voucher-1', totalTrades: 0, reputationScore: 0 })
+        .mockResolvedValueOnce({ id: 'newcomer-1', totalTrades: 0, reputationScore: 0 })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/reputation/vouch',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { voucheeId: 'newcomer-1' },
+      })
+
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).message).toMatch(/eligibility bar/)
     })
   })
 

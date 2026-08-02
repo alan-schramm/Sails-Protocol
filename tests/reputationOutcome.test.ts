@@ -16,6 +16,12 @@ const mockTradeUpdate = jest.fn()
 const mockDisputeFindFirst = jest.fn()
 const mockUserUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
+// RFC-021 D7 — vouch.service.ts's burnVouchesFor() is now called from the
+// same settlement.escrow.released/refunded reactions this file tests.
+// Defaults to "no active vouch" so every pre-existing test above is
+// unaffected; the dedicated D7 describe block below overrides these.
+const mockVouchFindMany = jest.fn().mockResolvedValue([])
+const mockVouchUpdate = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -23,6 +29,10 @@ jest.mock('../src/common/database', () => ({
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
+    vouch: {
+      findMany: (...args: unknown[]) => mockVouchFindMany(...args),
+      update: (...args: unknown[]) => mockVouchUpdate(...args),
+    },
   },
 }))
 
@@ -260,5 +270,62 @@ describe('RFC-018 gap fix — settlement.escrow.created persists Trade.escrowId'
       where: { id: 'trade-1' },
       data: { escrowId: 'escrow-1' },
     })
+  })
+})
+
+// RFC-021 D7 — the losing party's active vouch (if any) is burned as part
+// of the SAME dispute-aware branch reputationOutcome's own describe block
+// above tests, not a separate reaction.
+describe('RFC-021 D7 — vouch burned on the losing party of a resolved dispute', () => {
+  beforeAll(() => {
+    registerEventHandlers()
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
+    mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: null })
+    mockVouchFindMany.mockResolvedValue([])
+  })
+
+  it('burns the seller\'s active vouch on a RELEASE ruling (seller lost)', async () => {
+    mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED', ruling: 'RELEASE' })
+    mockVouchFindMany.mockResolvedValueOnce([{ id: 'vouch-1', voucherId: 'voucher-1', voucheeId: 'seller-1', burnedAt: null }])
+
+    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'COMPLETED' })
+
+    expect(mockVouchFindMany).toHaveBeenCalledWith({ where: { voucheeId: 'seller-1', burnedAt: null } })
+    expect(mockVouchUpdate).toHaveBeenCalledWith({ where: { id: 'vouch-1' }, data: { burnedAt: expect.any(Date) } })
+    const voucherPenalty = mockUserUpdate.mock.calls.find((c) => c[0].where.id === 'voucher-1')
+    expect(voucherPenalty?.[0].data.reputationScore).toEqual({ increment: -5 })
+  })
+
+  it('burns the buyer\'s active vouch on a REFUND ruling (buyer lost)', async () => {
+    mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED', ruling: 'REFUND' })
+    mockVouchFindMany.mockResolvedValueOnce([{ id: 'vouch-1', voucherId: 'voucher-1', voucheeId: 'buyer-1', burnedAt: null }])
+
+    await handlers['settlement.escrow.refunded']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'REFUNDED' })
+
+    expect(mockVouchFindMany).toHaveBeenCalledWith({ where: { voucheeId: 'buyer-1', burnedAt: null } })
+    const voucherPenalty = mockUserUpdate.mock.calls.find((c) => c[0].where.id === 'voucher-1')
+    expect(voucherPenalty?.[0].data.reputationScore).toEqual({ increment: -5 })
+  })
+
+  it('does nothing when the losing party has no active vouch', async () => {
+    mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED', ruling: 'RELEASE' })
+    mockVouchFindMany.mockResolvedValueOnce([])
+
+    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'COMPLETED' })
+
+    expect(mockVouchUpdate).not.toHaveBeenCalled()
+  })
+
+  it('does NOT burn anything on a happy-path completion (no dispute at all)', async () => {
+    mockDisputeFindFirst.mockResolvedValueOnce(null)
+
+    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'buyer-1', from: 'PAYMENT_PENDING', to: 'COMPLETED' })
+
+    expect(mockVouchFindMany).not.toHaveBeenCalled()
   })
 })

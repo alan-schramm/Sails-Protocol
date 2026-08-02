@@ -65,8 +65,23 @@ export interface ReputationUpdatedEvent {
   userId: string
   newScore: number
   totalTrades: number
-  tradeId: string
+  // null for a RFC-021 D7 burned-vouch penalty (reputation.service.ts's
+  // penalizeForBurnedVouch()) — that update isn't scoped to one trade,
+  // unlike every recordOutcome()-driven update, which always has one.
+  tradeId: string | null
   ratingGiven: number
+}
+
+// RFC-021 D7 — real emitters are vouch.service.ts's vouchFor()/burnVouchesFor().
+export interface VouchCreatedEvent {
+  voucherId: string
+  voucheeId: string
+  vouchId: string
+}
+export interface VouchBurnedEvent {
+  voucherId: string
+  voucheeId: string
+  vouchId: string
 }
 
 // ─── Sails OpenLiquidity events ────────────────────────────────────────────────
@@ -320,6 +335,8 @@ export interface SailsEventMap {
 
   // Sails OpenReputation
   'reputation.score.updated': ReputationUpdatedEvent
+  'reputation.vouch.created': VouchCreatedEvent // RFC-021 D7
+  'reputation.vouch.burned': VouchBurnedEvent // RFC-021 D7
 
   // Sails OpenLiquidity — offers
   'liquidity.offer.created': LiquidityOfferCreatedEvent

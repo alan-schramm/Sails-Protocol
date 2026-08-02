@@ -255,6 +255,7 @@ ERROR
 | GET | `/v1/reputation/peer/:peerId` | Same score breakdown, looked up by portable Pears identity (RFC-013) instead of internal `participantId` |
 | GET | `/v1/reputation/leaderboard` | Top participants by score |
 | POST | `/v1/reputation/rate` | Rate a completed trade (score 1-5) |
+| POST | `/v1/reputation/vouch` | RFC-021 D7, added 2026-08-02. Body: `{ voucheeId }`. Not a KYC/identity check — a real protocol-native attestation with the caller's own reputation on the line. `400` if the caller doesn't meet the eligibility bar (`>= 3` completed trades, positive reputation) or has already vouched for this vouchee. Pre-signs the vouchee's first `PaymentAccount` once they register one. |
 
 Legacy equivalents: `GET /reputation/:userId`, `GET
 /reputation/leaderboard`, `POST /reputation/rate`.

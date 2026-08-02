@@ -117,6 +117,13 @@ const escrows = makeTable('escrow', { status: 'CREATED' })
 const escrowEvents = makeTable('escrowEvent')
 const disputes = makeTable('dispute', { status: 'OPENED' })
 const intents = makeTable('intent', { expiresAt: null })
+// RFC-021 D7 — vouch.service.ts's burnVouchesFor() (called from
+// handlers.ts's settlement.escrow.released/refunded reactions) needs a
+// real vouch table too, even though no test in this file creates any
+// vouches — findMany() correctly returns [] (no active vouch for anyone
+// here), matching this file's own "every table round-trips for real"
+// discipline rather than a separately-mocked no-op.
+const vouches = makeTable('vouch', { burnedAt: null })
 
 // intentEvent's hash-chain (writeIntentEvent(), core/intent-engine.ts) needs
 // findFirst ordered by createdAt desc, not just any match — the generic
@@ -147,6 +154,7 @@ jest.mock('../src/common/database', () => ({
     dispute: disputes,
     intent: intents,
     intentEvent: intentEvents,
+    vouch: vouches,
   },
 }))
 

@@ -446,6 +446,42 @@ Prisma enum, for a 2-value field this narrow — the same "free-form
 string, enforced in code" choice `Claim.claimType`/`Message.msgType`
 already make elsewhere in this schema.
 
+### `Vouch` — owned by `openreputation`, RFC-021 D7's real peer-vouching bootstrap (2026-08-02)
+
+```prisma
+model Vouch {
+  id          String    @id @default(uuid())
+  voucherId   String
+  voucher     User      @relation("VouchesGiven", fields: [voucherId], references: [id])
+  voucheeId   String
+  vouchee     User      @relation("VouchesReceived", fields: [voucheeId], references: [id])
+  createdAt   DateTime  @default(now())
+  burnedAt    DateTime? // set once, real skin in the game — see vouch.service.ts's burnVouchesFor()
+  moduleId    String    @default("openreputation")
+  protocolVersion String @default("0.1")
+
+  @@unique([voucherId, voucheeId])
+  @@index([voucheeId])
+  @@map("vouches")
+}
+```
+
+Not a KYC/identity-linking primitive — corrected directly by the project
+owner after an earlier RFC-021 draft used that framing (RFC-021's own D7
+section has the full correction). A real protocol-native attestation:
+`vouch.service.ts`'s `vouchFor()` requires the voucher to have real trade
+history (`MIN_VOUCHER_TRADES = 3`) and positive `reputationScore` before
+the vouch is even created; `@@unique([voucherId, voucheeId])` is the
+actual one-vouch-per-pair-ever enforcement, not just application logic.
+`payment-account.service.ts`'s `getOrCreate()` checks for an active
+(`burnedAt: null`) vouch on a genuinely new owner's first `PaymentAccount`
+and pre-signs it if one exists. `burnedAt` is set by
+`burnVouchesFor()` (called from `common/events/handlers.ts`'s
+`settlement.escrow.released`/`refunded` reactions) when the vouchee's
+first lost dispute happens while the vouch is still active — the
+voucher's own `User.reputationScore` takes a real penalty via
+`reputation.service.ts`'s `penalizeForBurnedVouch()` at the same moment.
+
 ### `Intent`, `IntentEvent` — Core, first implementation (03-implementation_plan.md MVP)
 
 ```prisma

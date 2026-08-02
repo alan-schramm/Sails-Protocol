@@ -218,6 +218,15 @@ export interface ReputationScore {
   disputeCount: number
 }
 
+// RFC-021 D7 — real peer vouching, not a KYC/identity-linking primitive.
+export interface Vouch {
+  id: string
+  voucherId: string
+  voucheeId: string
+  createdAt: string
+  burnedAt: string | null
+}
+
 export interface Intent<T = Record<string, unknown>> {
   id: string
   type: string

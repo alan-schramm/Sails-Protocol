@@ -2,6 +2,7 @@ import { prisma } from '../database'
 import { eventBus } from './event-bus'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
 import { reputationService } from '../../modules/open-reputation/reputation.service'
+import { vouchService } from '../../modules/open-reputation/vouch.service'
 import { broadcastToTrade } from '../../modules/open-p2p/chat-room-registry'
 import { executeSettlement } from '../../modules/open-settlement/settlement-orchestrator'
 import { wdkSettlementProvider, buyerIndexFor } from '../../modules/open-settlement/wdk-settlement.provider'
@@ -28,11 +29,14 @@ const INTENT_LIFECYCLE_TRIGGER = 'system:trade-lifecycle'
  *   - settlement.escrow.locked    → OpenP2P reacts (Trade.status = ACTIVE)
  *   - settlement.escrow.released  → OpenP2P reacts (Trade.status = COMPLETED)
  *                                   OpenReputation reacts (increment stats,
- *                                   recordOutcome() — dispute-aware, see below)
+ *                                   recordOutcome() — dispute-aware, see below;
+ *                                   RFC-021 D7 — burns the losing seller's
+ *                                   active vouch, if any, on a dispute loss)
  *   - settlement.escrow.disputed  → OpenP2P reacts (Trade.status = DISPUTED)
  *   - settlement.escrow.refunded  → OpenP2P reacts (Trade.status = CANCELLED)
  *                                   OpenReputation reacts (recordOutcome() —
- *                                   dispute-aware, see below)
+ *                                   dispute-aware, see below; RFC-021 D7 —
+ *                                   same vouch-burn reaction, for the buyer)
  *   - peer.connected              → OpenP2P reacts (RFC-011: reconcile every
  *                                   active trade shared with the peer that
  *                                   just (re)connected against Postgres, the
@@ -185,6 +189,11 @@ export function registerEventHandlers(): void {
     if (resolvedRelease) {
       await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'POSITIVE')
       await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEGATIVE')
+      // RFC-021 D7 — the seller lost this dispute; if a peer vouched for
+      // them and that vouch is still active (their first-ever trade), the
+      // trust was misplaced and the voucher's own reputation takes the
+      // real hit this file's own vouch.service.ts import exists for.
+      await vouchService.burnVouchesFor(trade.sellerId)
     } else {
       await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'POSITIVE')
       await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'POSITIVE')
@@ -240,6 +249,8 @@ export function registerEventHandlers(): void {
     if (resolvedRefund) {
       await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'POSITIVE')
       await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEGATIVE')
+      // RFC-021 D7 — same reasoning as settlement.escrow.released above, for the buyer.
+      await vouchService.burnVouchesFor(trade.buyerId)
     } else {
       await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEUTRAL')
       await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEUTRAL')

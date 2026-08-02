@@ -4,6 +4,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { reputationService } from './reputation.service'
+import { vouchService } from './vouch.service'
 import { requireAuth } from '../../common/middleware/auth'
 
 const rateSchema = z.object({
@@ -11,6 +12,11 @@ const rateSchema = z.object({
   ratedId: z.string().min(1),
   score: z.number().int().min(1).max(5),
   comment: z.string().optional(),
+})
+
+// RFC-021 D7
+const vouchSchema = z.object({
+  voucheeId: z.string().min(1),
 })
 
 export async function reputationRoutes(app: FastifyInstance): Promise<void> {
@@ -53,5 +59,19 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
     const raterId = (request as any).participantId as string
     const event = await reputationService.rate(body.tradeId, raterId, body.ratedId, body.score, body.comment)
     return reply.code(201).send({ success: true, data: event })
+  })
+
+  // RFC-021 D7 — real skin in the game, not a KYC/identity-linking flow:
+  // the caller vouches for `voucheeId` with their own reputation on the
+  // line. See vouch.service.ts's own header for the full eligibility/
+  // burn-on-loss mechanics.
+  app.post('/v1/reputation/vouch', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-reputation'] },
+  }, async (request, reply) => {
+    const body = vouchSchema.parse(request.body)
+    const voucherId = (request as any).participantId as string
+    const vouch = await vouchService.vouchFor(voucherId, body.voucheeId)
+    return reply.code(201).send({ success: true, data: vouch })
   })
 }
