@@ -7,7 +7,7 @@
  */
 import { SailsTransport } from '../src/transport'
 import { SailsLiquidityModule } from '../src/modules/liquidity'
-import { SailsSettlementModule } from '../src/modules/settlement'
+import { SailsSettlementModule, recommendedEscrowType } from '../src/modules/settlement'
 import { SailsPeersModule } from '../src/modules/peers'
 import { SailsOpenP2PModule, WebSocketChannel } from '../src/modules/openp2p'
 
@@ -65,6 +65,43 @@ describe('SailsLiquidityModule', () => {
 })
 
 describe('SailsSettlementModule', () => {
+  it('create() resolves an omitted type via recommendedEscrowType and sends it to the server', async () => {
+    const fetchImpl = fakeFetch(201, { success: true, data: { id: 'escrow-1', type: 'MULTISIG' } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    await settlement.create({ tradeId: 'trade-1', lockedAmount: '0.001', asset: 'BTC' })
+
+    const [, init] = fetchImpl.mock.calls[0]
+    expect(JSON.parse(init.body)).toEqual({ tradeId: 'trade-1', lockedAmount: '0.001', asset: 'BTC', type: 'MULTISIG' })
+  })
+
+  it('create() never overrides an explicitly passed type, even for an asset with a different recommendation', async () => {
+    const fetchImpl = fakeFetch(201, { success: true, data: { id: 'escrow-1', type: 'MOCK' } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    await settlement.create({ tradeId: 'trade-1', lockedAmount: '0.001', asset: 'BTC', type: 'MOCK' })
+
+    const [, init] = fetchImpl.mock.calls[0]
+    expect(JSON.parse(init.body).type).toBe('MOCK')
+  })
+
+  it('create() throws client-side, before any network call, for an asset with no real SettlementProvider yet', async () => {
+    const fetchImpl = fakeFetch(201, { success: true, data: {} })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    await expect(settlement.create({ tradeId: 'trade-1', lockedAmount: '10', asset: 'SPARK' as any })).rejects.toThrow(
+      "no real SettlementProvider exists yet for asset 'SPARK'"
+    )
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('recommendedEscrowType() matches the real backend mapping for BTC/LN_BTC/USDT_ERC20, undefined otherwise', () => {
+    expect(recommendedEscrowType('BTC')).toBe('MULTISIG')
+    expect(recommendedEscrowType('LN_BTC')).toBe('LIGHTNING_HODL')
+    expect(recommendedEscrowType('USDT_ERC20')).toBe('WDK_USDT_EVM')
+    expect(recommendedEscrowType('SPARK' as any)).toBeUndefined()
+  })
+
   it('release() posts toAddress to /v1/settlement/escrow/:id/release with auth', async () => {
     const fetchImpl = fakeFetch(200, { success: true, data: { id: 'escrow-1', status: 'COMPLETED' } })
     const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
