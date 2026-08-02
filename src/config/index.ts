@@ -227,11 +227,37 @@ export const config = {
   // real, well-known canonical ERC-4337 v0.7 EntryPoint address (same one
   // used throughout `packages/sails-sdk/src/custody/evm-4337.ts`'s own
   // tests) — inert public values, safe to ship as defaults.
+  // rpcUrl defaults to the same public Sepolia RPC `wdk.rpcUrl` already
+  // uses, for the same reason. bundlerUrl has no project precedent to
+  // match (ERC-4337 bundlers are their own distinct infra, not served by
+  // a plain RPC) — empty by default, same "clear config error, don't
+  // refuse to boot" pattern, surfaced only when broadcast() is actually
+  // reached. The four contract addresses below are real, canonical,
+  // chain-agnostic deployments (Safe v1.4.1 / Safe4337Module v0.3.0) —
+  // verified live against Sepolia (`eth_getCode`, all five non-empty)
+  // before being hardcoded here, and `safeProxy.creationCode` (used for
+  // CREATE2 address prediction) was verified byte-for-byte identical to
+  // the real deployed factory's own `proxyCreationCode()` return value
+  // via a live `eth_call`, not merely copied from the installed npm
+  // package on trust. `deterministicDeployer` is the well-known
+  // Arachnid/EIP-2470-style singleton factory (same address on every EVM
+  // chain that has it deployed, including Sepolia — also verified live)
+  // used to deploy `SailsEscrowSafe` itself deterministically, so its
+  // address can be predicted off-chain before the Safe exists and baked
+  // into the Safe's own guard-setup step later.
   safeGuardEvm: {
     chainId: BigInt(process.env.SAFE_GUARD_EVM_CHAIN_ID ?? '11155111'),
     entryPointAddress: process.env.SAFE_GUARD_EVM_ENTRY_POINT ?? '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
     kmsKeyId: process.env.AWS_KMS_KEY_ID ?? '',
     kmsRegion: process.env.AWS_REGION ?? 'us-east-1',
+    rpcUrl: process.env.SAFE_GUARD_EVM_RPC_URL ?? 'https://sepolia.drpc.org',
+    bundlerUrl: process.env.SAFE_GUARD_EVM_BUNDLER_URL ?? '',
+    safeProxyFactory: process.env.SAFE_GUARD_EVM_PROXY_FACTORY ?? '0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67',
+    safeSingleton: process.env.SAFE_GUARD_EVM_SINGLETON ?? '0x29fcB43b46531BcA003ddC8FCB67FFE91900C762',
+    safe4337Module: process.env.SAFE_GUARD_EVM_4337_MODULE ?? '0x75cf11467937ce3F2f357CE24ffc3DBF8fD5c226',
+    safeModuleSetup: process.env.SAFE_GUARD_EVM_MODULE_SETUP ?? '0x2dd68b007B46fBe91B9A7c3EDa5A7a1063cB5b47',
+    multiSendCallOnly: process.env.SAFE_GUARD_EVM_MULTISEND_CALL_ONLY ?? '0x9641d764fc13c8B624c04430C7356C1C7C8102e2',
+    deterministicDeployer: process.env.SAFE_GUARD_EVM_DETERMINISTIC_DEPLOYER ?? '0x4e59b44847b379578588920ca78fbf26c0b4956c',
   },
 }
 

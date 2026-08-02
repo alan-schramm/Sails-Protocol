@@ -724,19 +724,49 @@ makes the same point in more detail.
       hash identically for a signature to verify), and real signature
       recovery + Safe's actual ascending-address-sorted packed-signature
       combination (20 tests, `tests/safeGuardEvmProvider.test.ts`).
-      **Still not done, same disclosed boundary as before, just now
-      localized to fewer methods:** `lockFunds()`/`verifyLock()`/the
-      final bundler-submission step inside `finalizeRelease()`/
-      `finalizeRefund()` all throw a clear, named error — deploying/
-      checking a Safe and submitting to a bundler need live EVM RPC
-      infrastructure this environment doesn't have, and the disputed-path
-      KMS arbiter co-sign throws without a real `AWS_KMS_KEY_ID`
-      configured (the cooperative buyer+seller path needs no AWS access
-      at all). `WdkSettlementProvider` itself is untouched and still
-      signs from the single server-held seed — `SAFE_GUARD_EVM` is a new,
-      parallel provider, not a replacement, and no escrow is forced onto
-      it. No committed date for a third-party audit, real deployment, or
-      cutover.
+      **`lockFunds()`/`verifyLock()`/`broadcast()` now real (2026-08-01,
+      multisig-coverage-per-asset audit follow-through):** real CREATE2
+      address prediction for both the Safe (`predictSafeAddress()`,
+      `SafeProxyFactory.createProxyWithNonce()`'s own formula, transcribed
+      from its real source) and the Guard (`predictGuardAddress()`, via
+      the well-known EIP-2470-style deterministic deployer); real
+      `provider.getBalance()` checks for `lockFunds()`/`verifyLock()` (same
+      non-custodial "verify external funding, don't move it" shape
+      MULTISIG already uses); real `eth_sendUserOperation` bundler
+      submission in `broadcast()`. Every hardcoded contract address (Safe
+      v1.4.1, Safe4337Module v0.3.0, SafeModuleSetup, MultiSendCallOnly,
+      the deterministic deployer) was cross-checked against
+      `safe-deployments`'/`safe-modules-deployments`'s own registry AND a
+      live `eth_getCode` call against Sepolia; `SafeProxy`'s creation
+      bytecode (needed for CREATE2 prediction) was additionally confirmed
+      byte-for-byte identical to the real factory's own live
+      `proxyCreationCode()` return value. **Guard-attachment design
+      (the actual remaining engineering gap this pass closed):**
+      `Safe.setGuard()` can only be called via a Safe-authorized self-call
+      (`SelfAuthorized.sol`), so it needs the same 2-of-3 signature flow
+      release/refund already use — rather than a new, separate signing
+      round (materially bigger: new pending-transaction kind, new routes),
+      `setGuard()` is folded into the SAME UserOp as the terminal
+      release/refund transfer via a `MultiSendCallOnly` batch, safe
+      specifically because the Safe's guard state is read once before
+      either batched call executes, and the transaction's content is
+      fixed by the server before any signature is requested — see
+      `safe-guard-evm.provider.ts`'s own header comment for the full
+      reasoning. 31 tests (`tests/safeGuardEvmProvider.test.ts`, RPC/bundler
+      mocked, all CREATE2/ABI-encoding logic real). **Still disclosed, not
+      fabricated:** none of this has been exercised against a live funded
+      Sepolia account or a live bundler in this environment — same
+      "verified structurally, not end-to-end" boundary as always. Deriving
+      a Safe/Guard address now unconditionally needs `AWS_KMS_KEY_ID`
+      configured (a read-only KMS `GetPublicKeyCommand`, never `Sign`) —
+      a real, disclosed change from the previous "cooperative path needs
+      no AWS access at all" claim, which only ever applied to co-signing,
+      not to knowing the arbiter's own address (the Safe's owner list is
+      fixed at deployment regardless of dispute status). `WdkSettlementProvider`
+      itself is untouched and still signs from the single server-held
+      seed — `SAFE_GUARD_EVM` is a new, parallel provider, not a
+      replacement, and no escrow is forced onto it. No committed date for
+      a third-party audit, real deployment, or cutover.
 
 ## 8. SDK (status changed — v0.1 real, partial) *(2026-07-17)*
 

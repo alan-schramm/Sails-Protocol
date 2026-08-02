@@ -395,3 +395,19 @@ live AWS KMS exercise — all separately scoped, unstarted, and not committed
 to a timeline, consistent with `GOVERNANCE.md` §5 step 4: accepting this RFC
 is not a commitment to any of those dates, only that the destination and the
 verified-real building blocks are now the recorded target.
+
+**Update, 2026-08-01 (multisig-coverage-per-asset audit follow-through):**
+route wiring landed the same day this RFC was accepted (`escrow.service.ts`'s
+`PROVIDERS`/`SIGNATURE_COLLECTION_PROVIDERS` maps, `TODO.md` §7); this later
+pass closes the ERC-4337 bundler integration and the Safe/Guard deployment
+design specifically — `lockFunds()`/`verifyLock()`/`broadcast()` are now
+real (CREATE2 address prediction, on-chain balance checks, real
+`eth_sendUserOperation` submission), and `Safe.setGuard()`'s access-control
+requirement (a Safe-authorized self-call, `SelfAuthorized.sol`) is resolved
+by folding it into the same UserOp as the terminal release/refund transfer
+via `MultiSendCallOnly`, not a new signing round. See
+`safe-guard-evm.provider.ts`'s own header comment and `TODO.md` §7 for the
+full detail. Still not done: third-party Solidity audit, any exercise
+against a live funded Sepolia account or a live bundler, and any live AWS
+KMS call — all still separately scoped, unstarted, not committed to a
+timeline.
