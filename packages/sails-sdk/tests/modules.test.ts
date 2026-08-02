@@ -7,7 +7,7 @@
  */
 import { SailsTransport } from '../src/transport'
 import { SailsLiquidityModule } from '../src/modules/liquidity'
-import { SailsSettlementModule, recommendedEscrowType } from '../src/modules/settlement'
+import { SailsSettlementModule, recommendedEscrowType, parseSafeGuardBundle } from '../src/modules/settlement'
 import { SailsPeersModule } from '../src/modules/peers'
 import { SailsOpenP2PModule, WebSocketChannel } from '../src/modules/openp2p'
 
@@ -134,6 +134,38 @@ describe('SailsSettlementModule', () => {
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/settlement/disputes/dispute-1/resolve')
     expect(JSON.parse(init.body)).toEqual({ ruling: 'RELEASE', releaseToAddress: '0xbuyer' })
+  })
+})
+
+describe('parseSafeGuardBundle() — the SAFE_GUARD_EVM guard-deployment gap closed 2026-08-02', () => {
+  const realBundle = JSON.stringify({
+    path: 'COOPERATIVE',
+    userOpHash: 'abc123',
+    toAddress: '0x' + '22'.repeat(20),
+    guardAddress: '0x' + '33'.repeat(20),
+    guardDeployment: { to: '0x4e59b44847b379578588920ca78fbf26c0b4956c', data: '0xdeadbeef' },
+    userOp: { sender: '0x' + '11'.repeat(20) },
+  })
+
+  it('parses a real SAFE_GUARD_EVM bundle into its structured shape', () => {
+    const parsed = parseSafeGuardBundle(realBundle)
+    expect(parsed.guardAddress).toBe('0x' + '33'.repeat(20))
+    expect(parsed.guardDeployment).toEqual({ to: '0x4e59b44847b379578588920ca78fbf26c0b4956c', data: '0xdeadbeef' })
+    expect(parsed.toAddress).toBe('0x' + '22'.repeat(20))
+  })
+
+  it('rejects a MULTISIG-shaped PSBT (a literal base64 string, not JSON) with a clear error, not a garbage parse', () => {
+    expect(() => parseSafeGuardBundle('cHNidP8BAHECAAAAAA==')).toThrow(/not valid JSON/)
+  })
+
+  it('rejects valid JSON that is missing guardAddress/guardDeployment (e.g. a different escrow type\'s bundle shape)', () => {
+    const notASafeGuardBundle = JSON.stringify({ path: 'COOPERATIVE', userOpHash: 'abc', toAddress: '0x123' })
+    expect(() => parseSafeGuardBundle(notASafeGuardBundle)).toThrow(/not a SAFE_GUARD_EVM bundle/)
+  })
+
+  it('rejects a bundle with guardAddress but no guardDeployment (malformed, not a real case, but must fail loudly)', () => {
+    const malformed = JSON.stringify({ guardAddress: '0x' + '33'.repeat(20) })
+    expect(() => parseSafeGuardBundle(malformed)).toThrow(/not a SAFE_GUARD_EVM bundle/)
   })
 })
 
