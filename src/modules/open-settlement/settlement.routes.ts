@@ -11,41 +11,10 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { escrowService } from './escrow.service'
-import { DisputeService } from './dispute.service'
-import { TrustedArbitratorProvider } from './arbitration-provider'
+import { getDisputeService } from './dispute.service'
 import { marketArbitrationProvider } from './market-arbitration.provider'
 import { paymentAccountService } from './payment-account.service'
-import { ValidationError } from '../../common/errors'
-import { config } from '../../config'
 import { requireAuth } from '../../common/middleware/auth'
-
-// Lazy singleton — constructed on first use, not at module load, so a
-// deployment with neither arbitration mode configured can still boot and
-// serve every other route; only the dispute routes below fail, with a
-// clear config error instead of the whole process refusing to start.
-//
-// RFC-021 D2 — config.settlement.arbitrationMode picks between the two
-// real ArbitrationProvider implementations: 'trusted-list' (RFC-007 D4's
-// original, curated TRUSTED_ARBITRATORS allowlist — still the right
-// choice for a closed/regulated deployment) and 'market' (RFC-021's
-// permissionless, collateral-and-reputation-weighted registry). Default
-// 'trusted-list' — changing this is a deliberate operator decision, not
-// an automatic upgrade, since 'market' requires arbiters to have
-// actually registered via MarketArbitrationProvider.register() first.
-let disputeServiceInstance: DisputeService | null = null
-function getDisputeService(): DisputeService {
-  if (!disputeServiceInstance) {
-    if (config.settlement.arbitrationMode === 'market') {
-      disputeServiceInstance = new DisputeService(marketArbitrationProvider)
-    } else {
-      if (config.settlement.trustedArbitrators.length === 0) {
-        throw new ValidationError('No trusted arbitrators configured — set TRUSTED_ARBITRATORS (RFC-007 D4)')
-      }
-      disputeServiceInstance = new DisputeService(new TrustedArbitratorProvider(config.settlement.trustedArbitrators))
-    }
-  }
-  return disputeServiceInstance
-}
 
 const createEscrowSchema = z.object({
   tradeId: z.string().min(1),
@@ -89,6 +58,13 @@ const disputeSchema = z.object({
 const resolveSchema = z.object({
   ruling: z.enum(['RELEASE', 'REFUND', 'SPLIT']),
   releaseToAddress: z.string().optional(),
+})
+
+// RFC-021 D8
+const submitEvidenceSchema = z.object({
+  type: z.string().min(1),
+  uri: z.string().optional(),
+  note: z.string().optional(),
 })
 
 // RFC-021 D2 — permissionless arbiter registration.
@@ -299,6 +275,34 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
     const participantId = (request as any).participantId as string
     const result = await getDisputeService().appeal(id, participantId)
+    return reply.code(200).send({ success: true, data: result })
+  })
+
+  // RFC-021 D8 — either trade party may attach more evidence to their own
+  // open dispute. Triggers a QVAC auto-resolution attempt (config-gated)
+  // via the dispute.evidence_submitted event, not directly from this route.
+  app.post('/v1/settlement/disputes/:id/evidence', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const body = submitEvidenceSchema.parse(request.body)
+    const participantId = (request as any).participantId as string
+    const result = await getDisputeService().submitEvidence(id, participantId, body)
+    return reply.code(200).send({ success: true, data: result })
+  })
+
+  // RFC-021 D8 — either trade party can reject a proposed automated
+  // ruling before its deadline, forcing the dispute back onto its
+  // already-assigned human arbiter. No new arbiter assignment happens
+  // here — one was already assigned at raiseDispute() time.
+  app.post('/v1/settlement/disputes/:id/contest', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const participantId = (request as any).participantId as string
+    const result = await getDisputeService().contestAutoResolution(id, participantId)
     return reply.code(200).send({ success: true, data: result })
   })
 

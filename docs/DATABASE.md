@@ -400,10 +400,15 @@ implementation, `arbitration-provider.ts`), and notifies via
 `dispute.opened` on the Event Bus; `resolveDispute()` maps
 `RELEASE`/`REFUND` onto the existing escrow release/refund paths).
 
-**Gap found 2026-08-01, not fixed here (out of scope for this pass):**
-the `Dispute` model above already predates RFC-021 D6's real fields —
-`DisputeStatus` is also missing `APPEALED`, and the model itself is
-missing `appealRound`/`previousRuling`/`previousArbiterId`/`appealFees`.
+**Gap found 2026-08-01, widened 2026-08-02, not fixed here (out of scope
+for this pass):** the `Dispute` model above already predates RFC-021 D6's
+real fields — `DisputeStatus` is also missing `APPEALED`, and the model
+itself is missing `appealRound`/`previousRuling`/`previousArbiterId`/
+`appealFees`. As of RFC-021 D8 (2026-08-02) it is now also missing
+`AUTO_PROPOSED` (`DisputeStatus`) and `autoResolutionRecommendation`/
+`autoResolutionConfidence`/`autoResolutionReasoning`/
+`autoResolutionDeadline`/`autoResolved` — see RFC-021's own D8 section
+and `prisma/schema.prisma` directly for the real, current shape.
 `BACKLOG.md`'s own P0 row already flags `DATABASE.md` missing
 `ArbiterProfile`/`PaymentAccount` similarly — add this to that same
 backlog item rather than treating it as newly discovered here.

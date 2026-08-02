@@ -30,7 +30,7 @@ export type TradeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DISPUTED' | 'CAN
 export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM' | 'SAFE_GUARD_EVM' | 'MOCK'
 export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED'
 export type PaymentMethod = 'PIX' | 'TED' | 'BANK_TRANSFER' | 'CRYPTO_DIRECT' | 'LIGHTNING_DIRECT' | 'CASH' | 'OTHER'
-export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED'
+export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED'
 export type DisputeRuling = 'RELEASE' | 'REFUND' | 'SPLIT'
 
 // RFC-012 (rfcs/RFC-012-intent-validation-and-coordination.md) — the
@@ -187,6 +187,14 @@ export interface Dispute {
   appealRound: number
   previousRuling: DisputeRuling | null
   previousArbiterId: string | null
+  // RFC-021 D8 — QVAC-assisted automated first-pass resolution state.
+  // Populated only while status is AUTO_PROPOSED (or after, for audit —
+  // see autoResolved).
+  autoResolutionRecommendation: DisputeRuling | null
+  autoResolutionConfidence: number | null
+  autoResolutionReasoning: string | null
+  autoResolutionDeadline: string | null
+  autoResolved: boolean
   createdAt: string
   updatedAt: string
 }

@@ -131,6 +131,13 @@ export const config = {
     // abandoned trade now auto-refunds instead of staying stuck) that a
     // deployment should opt into deliberately, not inherit silently.
     escrowTimelockSweeper: process.env.ESCROW_TIMELOCK_SWEEPER === 'true',
+    // RFC-021 D8 — off by default, same reasoning as escrowTimelockSweeper
+    // above: a real background process applying real dispute rulings on a
+    // timer is a real behavior change a deployment opts into deliberately.
+    // Only meaningful when qvacAutoResolutionEnabled (settlement config,
+    // below) is also true — otherwise no dispute is ever AUTO_PROPOSED for
+    // this to find.
+    disputeAutoResolutionSweeper: process.env.DISPUTE_AUTO_RESOLUTION_SWEEPER === 'true',
   },
 
   trade: {
@@ -140,6 +147,10 @@ export const config = {
     // a real abandoned trade doesn't sit stuck for hours, infrequent
     // enough that it's not a meaningful query load on its own.
     timelockSweepIntervalMs: parseInt(process.env.ESCROW_TIMELOCK_SWEEP_INTERVAL_MS ?? '300000', 10),
+    // How often the RFC-021 D8 sweeper (when enabled) checks for
+    // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
+    // default as the escrow sweeper above, same reasoning.
+    disputeAutoResolutionSweepIntervalMs: parseInt(process.env.DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS ?? '300000', 10),
   },
 
   // Sails OpenProof (proof.service.ts) — Fase 1 Task 3(c). Evidence
@@ -175,6 +186,21 @@ export const config = {
     // (MarketArbitrationProvider). Not a boolean flag — a third mode
     // could exist later without a breaking rename.
     arbitrationMode: (process.env.ARBITRATION_MODE ?? 'trusted-list') as 'trusted-list' | 'market',
+    // RFC-021 D8 — QVAC-assisted automated first-pass dispute resolution.
+    // Off by default, same "opt-in per deployment" pattern arbitrationMode
+    // itself uses — a fresh deployment keeps today's exact behavior
+    // (every dispute goes straight to the assigned human arbiter) until
+    // this is explicitly turned on. Payment-method-agnostic by design —
+    // nothing about this config is PIX-specific or rail-specific.
+    qvacAutoResolutionEnabled: process.env.QVAC_AUTO_RESOLUTION_ENABLED === 'true',
+    // Only a recommendation at or above this confidence (0-1) is even
+    // proposed — anything lower falls straight through to the human
+    // arbiter, unchanged. Starting conservative (high bar), tunable per
+    // deployment as real-world calibration data accumulates.
+    qvacAutoResolutionConfidenceThreshold: parseFloat(process.env.QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD ?? '0.85'),
+    // How long either trade party has to contest a proposed automated
+    // ruling before sweepExpiredAutoResolutions() applies it.
+    qvacAutoResolutionWindowHours: parseFloat(process.env.QVAC_AUTO_RESOLUTION_WINDOW_HOURS ?? '24'),
   },
 
   // WDK_USDT_EVM SettlementProvider (wdk-settlement.provider.ts) — real

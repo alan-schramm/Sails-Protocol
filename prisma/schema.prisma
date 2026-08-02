@@ -259,6 +259,7 @@ enum DisputeStatus {
   ARBITRATED
   RESOLVED
   APPEALED // RFC-021 D6 — a RESOLVED dispute reopened for a new arbiter's ruling
+  AUTO_PROPOSED // RFC-021 D8 — QVAC proposed an automated ruling; open for contest until autoResolutionDeadline
 }
 
 enum DisputeRuling {
@@ -289,6 +290,25 @@ model Dispute {
   previousRuling    DisputeRuling?
   previousArbiterId String?
   appealFees        DisputeAppealFee[]
+  // RFC-021 D8 — QVAC-assisted automated first-pass resolution. QVAC never
+  // decides unilaterally (same "attestor, not mover" principle D1 already
+  // establishes for human arbiters): a high-confidence recommendation
+  // opens a contest window (either trade party can call POST
+  // .../disputes/:id/contest to force human arbitration, exactly D6's
+  // escalation framing); if uncontested, sweepExpiredAutoResolutions()
+  // (dispute.service.ts) applies it via the SAME already-assigned human
+  // arbiter's authorized slot (escrow.service.ts's isSellerOrAssignedArbiter()
+  // check is untouched — this never grants a new kind of caller authority
+  // to move funds, it only automates when the assigned arbiter doesn't
+  // need to personally act). autoResolved distinguishes "the assigned
+  // arbiter personally ruled" from "their slot auto-resolved, uncontested"
+  // in the audit trail — the arbiter's own recordRuling()/slash()
+  // eligibility (RFC-021 D3/D4) is unaffected either way.
+  autoResolutionRecommendation DisputeRuling?
+  autoResolutionConfidence     Float?
+  autoResolutionReasoning      String?
+  autoResolutionDeadline       DateTime?
+  autoResolved                 Boolean         @default(false)
   moduleId   String         @default("opensettlement")
   protocolVersion String    @default("0.1")
   createdAt  DateTime       @default(now())

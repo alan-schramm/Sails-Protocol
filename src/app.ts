@@ -25,6 +25,7 @@ import { reputationRoutes } from './modules/open-reputation/reputation.routes'
 import { capabilityRoutes } from './modules/open-agents/capability.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
+import { getDisputeService } from './modules/open-settlement/dispute.service'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -265,6 +266,21 @@ export async function startServer() {
         .catch((err) => console.error('[escrow-sweeper] sweep failed:', err instanceof Error ? err.message : err))
     }, config.trade.timelockSweepIntervalMs)
     sweepInterval.unref()
+  }
+
+  // RFC-021 D8 — off by default, see config/index.ts's own comment.
+  // unref()'d for the same reason the escrow sweeper above is.
+  if (config.features.disputeAutoResolutionSweeper) {
+    const disputeSweepInterval = setInterval(() => {
+      getDisputeService().sweepExpiredAutoResolutions()
+        .then(({ resolved, failed }) => {
+          if (resolved.length || failed.length) {
+            console.log(`[dispute-auto-resolution-sweeper] resolved ${resolved.length} dispute(s), ${failed.length} failed`)
+          }
+        })
+        .catch((err) => console.error('[dispute-auto-resolution-sweeper] sweep failed:', err instanceof Error ? err.message : err))
+    }, config.trade.disputeAutoResolutionSweepIntervalMs)
+    disputeSweepInterval.unref()
   }
 
   return app
