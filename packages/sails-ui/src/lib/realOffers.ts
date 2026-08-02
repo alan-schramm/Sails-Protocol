@@ -89,7 +89,7 @@ function summaryToOffer(s: LiquidityOfferSummary): Offer {
 // Narrower than the UI's own `AssetType` on purpose (this file's own
 // comment above on `REAL_ASSETS`) — `@sails/sdk`'s `discover()` is typed
 // against the real backend enum, which has no `DEPIX`.
-async function fetchAllPages(asset: (typeof ASSETS)[number], side: TradeSide): Promise<Offer[]> {
+async function fetchAllPages(asset: (typeof ASSETS)[number], side: TradeSide): Promise<{ offers: Offer[]; failed: boolean }> {
   const pageSize = 50 // the route's own max (docs/TODO.md §25)
   const collected: Offer[] = []
   let offset = 0
@@ -100,27 +100,35 @@ async function fetchAllPages(asset: (typeof ASSETS)[number], side: TradeSide): P
       page = (await sailsClient.liquidity.discover({ asset, side, limit: pageSize, offset })).offers
     } catch (err) {
       console.error(`[realOffers] discover(${asset}, ${side}, offset=${offset}) failed:`, err)
-      break
+      return { offers: collected, failed: true }
     }
     for (const s of page) collected.push(summaryToOffer(s))
     if (page.length < pageSize) break // short page — no more pages
     offset += pageSize
   }
 
-  return collected
+  return { offers: collected, failed: false }
 }
 
 function isRealAsset(a: AssetType): a is (typeof ASSETS)[number] {
   return REAL_ASSETS.has(a)
 }
 
-export async function fetchOffers(asset: AssetType | 'Todos', side: TradeSide | 'Todos'): Promise<Offer[]> {
+// `hadError` (2026-08-02) — closes a real SLC-audit finding: every
+// discover() failure used to be swallowed silently (only console.error'd
+// above), so a total backend outage rendered identically to "no offers
+// match your filters" in Marketplace.tsx. Fanning out up to 20 requests
+// means a single boolean can't mean "the whole page errored" — it means
+// "at least one (asset, side) pair's fetch failed," which is enough for
+// Marketplace.tsx to show a real warning without pretending a partial
+// failure is a total one.
+export async function fetchOffers(asset: AssetType | 'Todos', side: TradeSide | 'Todos'): Promise<{ offers: Offer[]; hadError: boolean }> {
   // DEPIX (or any future UI-only asset) has no real backend offers by
   // definition — 'Todos' only ever needs the real `ASSETS` (not
   // `ASSETS_FILTERABLE`, which is for the picker's *options*, not what
   // this fans real network calls out to); a direct single-asset request
   // for DEPIX specifically short-circuits the same way.
-  if (asset !== 'Todos' && !isRealAsset(asset)) return []
+  if (asset !== 'Todos' && !isRealAsset(asset)) return { offers: [], hadError: false }
   const assets: (typeof ASSETS)[number][] = asset === 'Todos' ? [...ASSETS] : [asset]
   const sides: TradeSide[] = side === 'Todos' ? ['BUY', 'SELL'] : [side]
 
@@ -129,8 +137,10 @@ export async function fetchOffers(asset: AssetType | 'Todos', side: TradeSide | 
   )
 
   const seen = new Map<string, Offer>()
-  for (const offers of results) {
-    for (const o of offers) seen.set(o.id, o)
+  let hadError = false
+  for (const result of results) {
+    if (result.failed) hadError = true
+    for (const o of result.offers) seen.set(o.id, o)
   }
-  return [...seen.values()]
+  return { offers: [...seen.values()], hadError }
 }
