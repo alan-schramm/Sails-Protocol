@@ -13,6 +13,7 @@ import { ArrowLeft, Check, Lock, AlertTriangle } from 'lucide-react'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
+import { SailsTransportError } from '@sails/sdk'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { positiveFeedbackPct, isPowerTrader } from '../lib/reputation'
 import { useAuth } from '../context/AuthContext'
@@ -65,6 +66,13 @@ export function OfferDetail() {
   const [offer, setOffer] = useState<Offer | null>(null)
   const [loading, setLoading] = useState(true)
   const [startingTrade, setStartingTrade] = useState(false)
+  // fetchError (2026-08-02) — a genuine 404 (offer really doesn't exist/
+  // was cancelled) and a network/backend outage both used to render as
+  // the same "Oferta não encontrada." (SLC audit's 🟡 finding: these
+  // must not look identical). SailsTransportError carries a real
+  // statusCode; only that specific 404 counts as "not found" — anything
+  // else (500, timeout, offline) is a real, distinct error state.
+  const [fetchError, setFetchError] = useState(false)
   // Prefilled when arriving back here after being bounced to /login mid
   // way through starting a trade (see handleStartTrade below) — without
   // this, a round trip through login silently dropped whatever amount
@@ -78,10 +86,15 @@ export function OfferDetail() {
     if (!id) return
     let cancelled = false
     setLoading(true)
+    setFetchError(false)
     sailsClient.liquidity
       .getOffer(id)
       .then((raw) => { if (!cancelled) setOffer(toOffer(raw)) })
-      .catch(() => { if (!cancelled) setOffer(null) })
+      .catch((err) => {
+        if (cancelled) return
+        setOffer(null)
+        if (!(err instanceof SailsTransportError) || err.statusCode !== 404) setFetchError(true)
+      })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [id])
@@ -93,7 +106,9 @@ export function OfferDetail() {
   if (!offer) {
     return (
       <div className="text-center py-16">
-        <p className="text-brand-text-secondary">Oferta não encontrada.</p>
+        <p className={fetchError ? 'text-red-700' : 'text-brand-text-secondary'}>
+          {fetchError ? 'Não foi possível carregar esta oferta agora — tente novamente.' : 'Oferta não encontrada.'}
+        </p>
         <Link to="/" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Voltar ao Marketplace</Link>
       </div>
     )

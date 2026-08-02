@@ -73,6 +73,10 @@ export function Profile() {
 
   const [offers, setOffers] = useState<Offer[]>([])
   const [loadingOffers, setLoadingOffers] = useState(true)
+  // offersError (2026-08-02) — a fetch failure used to silently become
+  // `setOffers([])`, rendering identically to "you haven't published
+  // anything yet" (SLC audit's 🟡 finding). Now a distinct message.
+  const [offersError, setOffersError] = useState(false)
   const [statusFilter, setStatusFilter] = useState<OfferStatus | 'Todos'>('Todos')
   const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null)
 
@@ -84,10 +88,15 @@ export function Profile() {
     if (!user) return
     let cancelled = false
     setLoadingOffers(true)
+    setOffersError(false)
     sailsClient.liquidity
       .getMyOffers()
       .then((raw) => { if (!cancelled) setOffers(raw.map((o) => toOffer(o, user))) })
-      .catch(() => { if (!cancelled) setOffers([]) })
+      .catch(() => {
+        if (cancelled) return
+        setOffers([])
+        setOffersError(true)
+      })
       .finally(() => { if (!cancelled) setLoadingOffers(false) })
     return () => { cancelled = true }
   }, [user])
@@ -225,7 +234,10 @@ export function Profile() {
 
         <div className="mt-3 space-y-2">
           {loadingOffers && <p className="text-sm text-brand-text-muted">Carregando ofertas...</p>}
-          {!loadingOffers && myOffers.length === 0 && (
+          {!loadingOffers && offersError && (
+            <p className="text-sm text-red-700">Não foi possível carregar suas ofertas agora — tente novamente.</p>
+          )}
+          {!loadingOffers && !offersError && myOffers.length === 0 && (
             <p className="text-sm text-brand-text-muted">
               {statusFilter === 'Todos' ? 'Nenhuma oferta publicada ainda.' : `Nenhuma oferta com status "${OFFER_STATUS_LABEL[statusFilter]}".`}
             </p>

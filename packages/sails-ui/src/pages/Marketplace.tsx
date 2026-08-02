@@ -11,7 +11,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
-import { SlidersHorizontal } from 'lucide-react'
+import { SlidersHorizontal, AlertTriangle } from 'lucide-react'
 import type { AssetType, FiatCurrency, MarketplaceFilters, TradeSide } from '../types'
 import { DEFAULT_FILTERS } from '../types'
 
@@ -57,12 +57,22 @@ export function Marketplace() {
   // against liquidity.routes.ts directly).
   const [allOffers, setAllOffers] = useState<import('../types').Offer[]>([])
   const [loadingOffers, setLoadingOffers] = useState(true)
+  // hadError (2026-08-02) — distinguishes "backend unreachable" from
+  // "no offers match" (SLC audit's own 🟡 finding: these rendered
+  // identically before). fetchOffers() never throws itself (it fans out
+  // per asset/side and can't map a partial failure to a single reject),
+  // so this reads its own hadError flag instead of a .catch().
+  const [offersError, setOffersError] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setLoadingOffers(true)
     fetchOffers(asset, side)
-      .then((offers) => { if (!cancelled) setAllOffers(offers) })
+      .then(({ offers, hadError }) => {
+        if (cancelled) return
+        setAllOffers(offers)
+        setOffersError(hadError)
+      })
       .finally(() => { if (!cancelled) setLoadingOffers(false) })
     return () => { cancelled = true }
   }, [asset, side])
@@ -190,6 +200,16 @@ export function Marketplace() {
           matches the Binance P2P/Airtm/El Dorado density this screen is
           modeled on; OfferCard's own `.offer-row` class supplies the
           divider/hover/accent-border treatment per row. */}
+      {/* Partial-failure banner — shown alongside whatever offers DID
+          load successfully, since a total-outage message would be
+          dishonest when some (asset, side) pairs actually succeeded. */}
+      {!loadingOffers && offersError && offers.length > 0 && (
+        <div className="mt-4 flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/25 text-yellow-700 text-xs rounded-lg px-3.5 py-2.5">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Algumas ofertas podem não ter carregado — houve falha ao buscar parte do Marketplace.
+        </div>
+      )}
+
       <Card id="marketplace-offer-grid" className="mt-4 overflow-hidden [&>a:last-child]:border-b-0">
         {/* Desktop-only column header (Binance P2P/HodlHodl/El Dorado all
             label their offer-list columns) — hidden below `lg` since the
@@ -212,7 +232,11 @@ export function Marketplace() {
               <OfferCard key={offer.id} offer={offer} />
             ))}
             {offers.length === 0 && (
-              <p className="text-center text-brand-text-muted py-10">Nenhuma oferta encontrada com esses filtros.</p>
+              <p className="text-center text-brand-text-muted py-10">
+                {offersError
+                  ? 'Não foi possível carregar as ofertas agora — verifique sua conexão e tente novamente.'
+                  : 'Nenhuma oferta encontrada com esses filtros.'}
+              </p>
             )}
           </>
         )}
