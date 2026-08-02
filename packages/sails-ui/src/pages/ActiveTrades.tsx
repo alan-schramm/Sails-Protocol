@@ -13,7 +13,8 @@ const ACTIVE_STATUSES: ReadonlyArray<Trade['status']> = ['PENDING', 'ACTIVE', 'D
 
 // GET /v1/openp2p/trades (openp2p.ts's own getTrades() comment: "Fase 2
 // addition ... no such endpoint existed before" — sails-ui had no page
-// consuming it yet, TradeHistory.tsx still runs on MOCK_TRADE_HISTORY).
+// consuming it yet; TradeHistory.tsx closed that same gap for the
+// COMPLETED/DISPUTED/CANCELLED statuses, 2026-08-02).
 // `onRelease` is intentionally never passed to TradeCard below — the real
 // release flow (MULTISIG/LIGHTNING_HODL signing) only exists on Trade.tsx,
 // and rendering a `<button>` inside this page's own `<Link>` per row would
