@@ -1,12 +1,13 @@
 /**
  * Real Sails chat is a WebSocket protocol (chat.routes.ts's
- * `GET /v1/openp2p/chat`, real events: JOIN_TRADE/SEND_MESSAGE/...) that
- * relays through the OpenP2P/Pears path. This mocked window has no
- * socket — sending a message just appends to local state. The real swap
- * is `new WebSocket('/v1/openp2p/chat?token=...')`, never a direct
- * import of `pear.service.ts` (that's Node-only, hyperdht/hyperswarm —
- * a browser cannot run it, and it would mean shipping server-only P2P
- * code into a client bundle either way).
+ * `GET /v1/openp2p/chat`, real events: JOIN_TRADE/SEND_MESSAGE/USER_ONLINE/
+ * USER_OFFLINE/...) that relays through the OpenP2P/Pears path. This
+ * component itself is presentational only — Trade.tsx owns the real
+ * `WebSocketChannel` (`@sails/sdk`'s `openp2p.chat()`) and passes down
+ * `messages`/`counterpartyOnline` already derived from it; nothing here
+ * is mocked as of 2026-08-02 (this header used to say otherwise — stale,
+ * fixed — see Trade.tsx's own `channel.onEvent()` wiring for presence and
+ * `channel.onMessage()` for messages).
  *
  * Image/video attach: `handleFileSelect` below creates a local
  * `URL.createObjectURL(file)` blob — the file never leaves this browser
@@ -50,11 +51,17 @@ interface Props {
   // hasn't loaded yet — the toggle is disabled rather than silently
   // failing to encrypt if flipped on too early.
   encryptionAvailable: boolean
+  // Real presence (2026-08-02) — see Trade.tsx's own comment on
+  // counterpartyOnline. null = no USER_ONLINE/USER_OFFLINE frame observed
+  // yet this session, not a guess either way.
+  counterpartyName?: string
+  counterpartyOnline?: boolean | null
 }
 
 export function ChatWindow({
   messages, currentUserId, onSend, onSendMedia,
   encryptionEnabled, onToggleEncryption, encryptionAvailable,
+  counterpartyName, counterpartyOnline,
 }: Props) {
   const [input, setInput] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
@@ -106,8 +113,22 @@ export function ChatWindow({
               aria-label="Ativar criptografia de ponta a ponta no chat"
             />
           </div>
-          <span className="text-xs text-green-500 flex items-center gap-1 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> <span className="hidden sm:inline">Conectado via Pears</span>
+          <span
+            className={`text-xs flex items-center gap-1 shrink-0 ${
+              counterpartyOnline === null ? 'text-brand-text-muted' : counterpartyOnline ? 'text-green-500' : 'text-brand-text-muted'
+            }`}
+            title={
+              counterpartyOnline === null
+                ? 'Ainda não observamos esta pessoa entrar na sala de chat'
+                : counterpartyOnline
+                  ? `${counterpartyName ?? 'A contraparte'} está no chat agora`
+                  : `${counterpartyName ?? 'A contraparte'} não está no chat agora`
+            }
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${counterpartyOnline ? 'bg-green-500' : 'bg-brand-text-muted/50'}`} />
+            <span className="hidden sm:inline">
+              {counterpartyOnline === null ? 'Presença desconhecida' : counterpartyOnline ? `${counterpartyName ?? 'Contraparte'} online` : `${counterpartyName ?? 'Contraparte'} offline`}
+            </span>
           </span>
         </div>
       </div>

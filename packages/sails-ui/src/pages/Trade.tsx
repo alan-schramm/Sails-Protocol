@@ -130,6 +130,12 @@ export function Trade() {
   // plaintext history, so this starts off and only the sender's own new
   // messages are affected.
   const [encryptionEnabled, setEncryptionEnabled] = useState(false)
+  // Real presence (2026-08-02) — null until a USER_ONLINE/USER_OFFLINE
+  // frame for the counterparty specifically has actually arrived over
+  // this trade's chat WebSocketChannel (chat.routes.ts broadcasts these
+  // on room join/leave/socket close) — see UserAvatar.tsx's own comment
+  // on why null is a distinct "not yet observed" state, never guessed.
+  const [counterpartyOnline, setCounterpartyOnline] = useState<boolean | null>(null)
   const channelRef = useRef<WebSocketChannel | null>(null)
 
   // Real fetch — openp2p.getTrade() + identity.get() for both real
@@ -178,6 +184,8 @@ export function Trade() {
         // b/s (just-fetched) rather than the `buyer`/`seller` state, which
         // hasn't re-rendered yet at this point in the same async run.
         const counterpartyPublicKeyHex = user.id === t.buyerId ? s.publicKey : user.id === t.sellerId ? b.publicKey : undefined
+        const counterpartyId = user.id === t.buyerId ? t.sellerId : t.buyerId
+        setCounterpartyOnline(null) // unknown again on every new trade/channel
 
         const history = await sailsClient.openp2p.getMessages(t.id).catch(() => [])
         if (!cancelled) setMessages(history.map((m) => toUiMessage(m, b, s, keypair, counterpartyPublicKeyHex)))
@@ -186,6 +194,16 @@ export function Trade() {
         // frames appended as they arrive, same channel used to send.
         const channel = sailsClient.openp2p.chat(t.id)
         channel.onMessage((m) => setMessages((prev) => [...prev, toUiMessageFromEvent(m, b, s, keypair, counterpartyPublicKeyHex)]))
+        // Real presence — USER_ONLINE/USER_OFFLINE are the only two frame
+        // types onEvent() needs to react to here; everything else
+        // (TRADE_STATUS_UPDATE/ESCROW_STATUS_UPDATE/...) is a separate,
+        // not-yet-built live-sync improvement, not attempted in this pass.
+        channel.onEvent((frame) => {
+          if (frame.type !== 'USER_ONLINE' && frame.type !== 'USER_OFFLINE') return
+          const payload = frame.payload as { participantId?: string }
+          if (payload.participantId !== counterpartyId) return
+          setCounterpartyOnline(frame.type === 'USER_ONLINE')
+        })
         channelRef.current = channel
       }
     })().finally(() => { if (!cancelled) setLoading(false) })
@@ -203,6 +221,7 @@ export function Trade() {
   // above — fine here, since handleSend can't fire before this page has
   // finished loading and rendered a real chat compose box.
   const counterpartyPublicKeyHex = isBuyer ? seller?.publicKey : isSeller ? buyer?.publicKey : undefined
+  const counterpartyName = isBuyer ? seller?.displayName : isSeller ? buyer?.displayName : undefined
 
   const events = useMemo(() => {
     if (!escrow) return []
@@ -386,7 +405,7 @@ export function Trade() {
             </Card>
           )}
 
-          <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} />
+          <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} counterpartyOnline={counterpartyOnline} />
 
           <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={Number(trade.totalUsd)} minValue={Number(trade.totalUsd)} />
 
@@ -466,6 +485,8 @@ export function Trade() {
           encryptionEnabled={encryptionEnabled}
           onToggleEncryption={setEncryptionEnabled}
           encryptionAvailable={!!keypair && !!counterpartyPublicKeyHex}
+          counterpartyName={counterpartyName ?? undefined}
+          counterpartyOnline={counterpartyOnline}
         />
       </div>
     </div>
