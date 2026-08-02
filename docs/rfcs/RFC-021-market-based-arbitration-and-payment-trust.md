@@ -26,7 +26,7 @@ cover.
 
 **Status:** Proposed — formal acceptance (`GOVERNANCE.md` §6A review
 step) has not happened yet, though as of 2026-08-02 every phase in
-"Reference Implementation Plan" below (D1 through D8, no remaining
+"Reference Implementation Plan" below (D1 through D9, no remaining
 deferred item) is implemented, tested, and committed; "Proposed"
 describes governance status, not build status — see that section for
 what's actually real. Synthesized from a design session between the
@@ -462,6 +462,127 @@ arbiter) until explicitly turned on. 48 new tests across
 `tests/qvacDisputeEvidence.test.ts`, `tests/disputeFlow.test.ts`,
 `tests/qvacAutoResolutionHandler.test.ts`, and `tests/routes.test.ts`.
 
+### D9 — SPLIT ruling: a real settlement action for §1.9's third option (2026-08-02)
+
+`DisputeRuling.SPLIT` has existed in the schema since RFC-007's own
+Dispute primitive (`PROTOCOL_SPECIFICATION.md` §1.9's "third option"),
+but `dispute.service.ts`'s `applyRuling()` only ever recorded it — no
+`SettlementProvider` method existed to actually move a *partial*
+payout, so a SPLIT ruling changed the `Dispute` row and nothing else.
+Closed for real, for the escrow types where a partial payout is
+genuinely representable:
+
+- **`MOCK`/`WDK_USDT_EVM`** — `SettlementProvider.splitFunds(escrow,
+  buyerAddress, sellerAddress, buyerBps)`, a new optional interface
+  method. `buyerBps` is the buyer's share out of 10000 (strictly
+  between 0 and 10000 — 0 or 10000 is a REFUND/RELEASE in disguise,
+  rejected rather than silently accepted); the seller gets the exact
+  remainder, computed from what's left over so the two legs always sum
+  to the full locked amount with no truncation dust unaccounted for.
+  `WDK_USDT_EVM`'s implementation is two real, separate on-chain
+  transfers (no atomic multi-recipient primitive on that provider's
+  API, same constraint `releaseFunds()`/`refundFunds()` already live
+  with).
+- **`MULTISIG`** — the signature-collection equivalent,
+  `buildUnsignedSplit()`/`finalizeSplit()`, a genuine 2-output Bitcoin
+  PSBT: the 2-of-3 P2WSH script has no per-output covenant, so it
+  validates a spend with two outputs exactly as readily as one. Always
+  the disputed shape (SPLIT is only ever reached via
+  `VALID_TRANSITIONS.DISPUTED -> 'SPLIT'`, no non-disputed happy path
+  exists for it) — the arbiter pre-signs, and only **one** more
+  required signer (the buyer, mirroring `buildUnsignedRelease()`'s own
+  arbiter+buyer disputed pairing). This is a real constraint found
+  while writing `tests/multisigProvider.test.ts`, not a design choice:
+  it is still a 2-of-3 script, and `finalizeSpend()` combines
+  independently-signed copies sequentially — requiring both buyer's
+  and seller's copies on top of the arbiter's already-embedded
+  signature yields 3 valid signatures for a threshold of 2, which
+  bitcoinjs-lib correctly refuses to finalize ("Too many signatures").
+  The split amounts are already fixed by the arbiter's ruling either
+  way, so which single party is required is arbitrary but must be
+  exactly one.
+- **`SAFE_GUARD_EVM` and `LIGHTNING_HODL` do not support SPLIT — a
+  real limitation of each provider's own architecture, not a missing
+  wire-up**, and each throws a specific, documented error rather than
+  either faking it or falling through to a generic message:
+  - `SAFE_GUARD_EVM`'s `SailsEscrowSafe.sol` Transaction Guard is
+    immutable once deployed: `checkTransaction()` reverts
+    `WrongAmount()` unless `value == lockedAmount` exactly, checked
+    against the constructor's own immutable `releaseTo`/`refundTo`/
+    `lockedAmount`. Confirmed by reading the actual deployed contract
+    source (`contracts/contracts/SailsEscrowSafe.sol`) before writing
+    this, not assumed from the escrow type's name — that guard is the
+    entire non-custodial guarantee (no server/arbiter can ever
+    redirect this Safe's funds anywhere else), so there is no
+    transaction it will ever authorize for a partial amount. A real
+    SPLIT here needs a genuinely different guard contract (new
+    constructor shape, new `checkTransaction()` logic, new bytecode/
+    CREATE2 address) — a separate contracts-side undertaking, out of
+    this pass's scope.
+  - `LIGHTNING_HODL` (really Arkade/Ark VTXO-Taproot, not a literal
+    BOLT11 hold invoice — see `lightning-hodl.provider.ts`'s own header
+    comment) has a *different* real limitation, found by reading its
+    actual `VtxoScript` construction rather than assumed from the
+    escrow type's Lightning-sounding name (an earlier draft of this
+    section wrongly reasoned from generic hold-invoice semantics —
+    corrected here once the real code was read): its `VtxoScript` has
+    exactly three **fixed 2-of-2** leaves (buyer+seller, buyer+arbiter,
+    seller+arbiter) — a spend must pick one leaf and provide exactly
+    that leaf's two signatures. A disputed SPLIT needs the arbiter's
+    signature to be enforceable without both parties' voluntary
+    cooperation (the same property that makes a disputed release/
+    refund work today), but no leaf lets the arbiter co-sign a payout
+    to *both* buyer and seller at once — `buyerArbiter` excludes the
+    seller, `sellerArbiter` excludes the buyer, `buyerSeller` excludes
+    the arbiter entirely. Fixing this for real needs a genuinely new
+    leaf/script construction (e.g. a 3-key threshold leaf), not
+    attempted here.
+
+**Reputation/Trade/Intent classification for a completed SPLIT** — a
+real, disclosed judgment call (made with the project owner, 2026-08-02):
+`Trade.status`/`IntentStatus` only have binary terminal states (no
+partial-outcome value exists in either enum), so a SPLIT is classified
+as `Trade.status: 'COMPLETED'`/`Intent: 'FULFILLED'` (real funds did
+leave the escrow via a real settlement action, the same trigger a
+RELEASE's own classification rests on) with **both parties scored
+NEUTRAL** (RFC-007 D9's "always Neutral, never Negative" precedent,
+applied here since a SPLIT ruling means the arbiter found both sides
+share the outcome, not that one clearly lost) and **no vouch burned on
+either side** (RFC-021 D7's vouch-burn reaction only fires on a clear
+dispute loss — applying it to a SPLIT would misrepresent an outcome
+that isn't one). New `EscrowStatus.SPLIT` (terminal, only reachable
+from `DISPUTED`), new `settlement.escrow.split` event, new
+`EscrowPendingTransaction.toAddressSecondary` column (the seller's
+payout address, alongside the existing `toAddress` for the buyer's,
+only populated for `kind: 'split'`).
+
+**A second, unrelated bug found and fixed while building this**:
+`applyRuling()` previously called `escrowService.releaseFunds()`/
+`refundFunds()` unconditionally for every escrow type — those throw
+"not directly callable" for `MULTISIG`/`LIGHTNING_HODL`/
+`SAFE_GUARD_EVM` (client-held keys), meaning a disputed RELEASE/REFUND
+on those three escrow types could never actually resolve through
+`resolveDispute()` at all before today; never caught because no test
+exercised `resolveDispute()` against a non-`MOCK`/`WDK` escrow. Fixed
+uniformly for all three rulings, not just SPLIT — a signature-collection
+type now routes through `initiateRelease()`/`initiateRefund()`/
+`initiateSplit()` instead, consistent with how the cooperative
+(non-disputed) path already works for these types.
+
+`resolveDispute(disputeId, arbiterId, ruling, releaseToAddress?,
+refundToAddress?, splitBuyerBps?)` — the two new trailing parameters
+are additive per `docs/API_STABLE.md`'s own freeze commitment, required
+only when `ruling === 'SPLIT'`. New route body fields
+(`refundToAddress`, `splitBuyerBps`) on the existing
+`POST /v1/settlement/disputes/:id/resolve`. 26 new tests across
+`tests/escrowReleaseControls.test.ts`, `tests/escrowProviderWiring.test.ts`,
+`tests/multisigProvider.test.ts`, `tests/lightningHodlProvider.test.ts`,
+`tests/safeGuardEvmProvider.test.ts`, `tests/disputeFlow.test.ts`,
+`tests/reputationOutcome.test.ts`, `tests/fullTradeLifecycle.test.ts`
+(a real end-to-end SPLIT resolution through the actual event chain, not
+just mocked service-level dispatch), `tests/routes.test.ts`, and
+`packages/sails-sdk/tests/modules.test.ts`.
+
 ## Known Risks — Mitigated, Not Solved
 
 Stated explicitly and separately, per this RFC's own governing
@@ -516,6 +637,16 @@ Bitcoin's own well-known theoretical attacks have.
    itself a real, capped ceiling — the newcomer isn't jumping to
    `unlimited`, only past the floor. Not a closed-form solution, the
    same disclosed character as every other risk in this section.
+8. **D9's SPLIT coverage is real but partial, by architecture, not
+   oversight**: two of the five escrow types (`SAFE_GUARD_EVM`,
+   `LIGHTNING_HODL`) cannot represent a partial payout at all today —
+   an arbiter presiding over a dispute on one of those two escrow types
+   is limited to RELEASE or REFUND, an all-or-nothing outcome, even
+   when the facts genuinely warrant a split. Closing this for
+   `SAFE_GUARD_EVM` needs a new Guard contract variant; closing it for
+   `LIGHTNING_HODL` needs a new VtxoScript leaf construction — both
+   real, separate, contracts/protocol-level undertakings, not service-
+   layer wiring, and neither is attempted by this RFC.
 
 ## Specification
 
@@ -638,8 +769,14 @@ overwritten.
    `contestAutoResolution()`/`sweepExpiredAutoResolutions()`, the
    config-gated event reaction, two new routes, the sweeper interval.
    Off end-to-end by default.
+7. ✅ D9's SPLIT settlement action (2026-08-02) — `splitFunds()`/
+   `buildUnsignedSplit()`/`finalizeSplit()` for `MOCK`/`WDK_USDT_EVM`/
+   `MULTISIG`; a documented, specific rejection for `SAFE_GUARD_EVM`/
+   `LIGHTNING_HODL` (real per-provider limitations, not gaps); the
+   `applyRuling()` signature-collection dispatch fix for RELEASE/REFUND/
+   SPLIT alike.
 
-**Every phase in this section is now implemented** — D1 through D8, no
+**Every phase in this section is now implemented** — D1 through D9, no
 remaining deferred item. **Resolved since this section was last
 updated:** D6's `appealFeeRequired` is now really collected, not just
 computed (`DisputeAppealFee` model, 2026-08-01) — `resolveDispute()`

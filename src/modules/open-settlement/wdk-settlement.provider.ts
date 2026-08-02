@@ -169,6 +169,25 @@ export class WdkSettlementProvider implements SettlementProvider {
     return { txId: result.hash }
   }
 
+  // RFC-021 D9 (2026-08-02) — real, two separate on-chain transfers (no
+  // atomic multi-recipient primitive on this provider's transfer() API,
+  // same constraint releaseFunds()/refundFunds() above already live
+  // with). buyerBps is out of 10000; the seller gets the exact remainder
+  // (computed from what's left over, not a second independent
+  // percentage) so the two legs always sum to the full lockedAmount with
+  // no truncation dust unaccounted for.
+  async splitFunds(escrow: { id: string; tradeId: string; lockedAmount: string }, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ txIds: string[] }> {
+    const escrowAcct = await this.escrowAccount(escrow.tradeId)
+    const total = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
+    const buyerAmount = (total * BigInt(buyerBps)) / 10000n
+    const sellerAmount = total - buyerAmount
+
+    const buyerResult = await escrowAcct.transfer({ token: config.wdk.usdtContract, recipient: buyerAddress, amount: buyerAmount })
+    const sellerResult = await escrowAcct.transfer({ token: config.wdk.usdtContract, recipient: sellerAddress, amount: sellerAmount })
+
+    return { txIds: [buyerResult.hash, sellerResult.hash] }
+  }
+
   async verifyLock(escrow: { tradeId: string; lockedAmount: string }): Promise<boolean> {
     const escrowAcct = await this.escrowAccount(escrow.tradeId)
     const balance = await escrowAcct.getTokenBalance(config.wdk.usdtContract)

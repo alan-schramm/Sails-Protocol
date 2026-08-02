@@ -28,7 +28,7 @@ export type TradeSide = 'BUY' | 'SELL'
 export type OfferStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'
 export type TradeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DISPUTED' | 'CANCELLED'
 export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM' | 'SAFE_GUARD_EVM' | 'MOCK'
-export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED'
+export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'SPLIT'
 export type PaymentMethod = 'PIX' | 'TED' | 'BANK_TRANSFER' | 'CRYPTO_DIRECT' | 'LIGHTNING_DIRECT' | 'CASH' | 'OTHER'
 export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED'
 export type DisputeRuling = 'RELEASE' | 'REFUND' | 'SPLIT'
@@ -160,8 +160,11 @@ export interface EscrowTransactionSignature {
 export interface EscrowPendingTransaction {
   id: string
   escrowId: string
-  kind: 'release' | 'refund'
+  kind: 'release' | 'refund' | 'split'
   toAddress: string
+  // Only set for kind: 'split' — the seller's payout address, alongside
+  // toAddress (buyer's) above.
+  toAddressSecondary?: string
   unsignedPsbtBase64: string
   requiredSigners: string[]
   triggeredBy: string

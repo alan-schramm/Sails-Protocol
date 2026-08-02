@@ -132,7 +132,9 @@ export class DisputeService {
     dispute: { id: string; escrowId: string; tradeId: string; status: string },
     ruling: DisputeRuling,
     releaseToAddress: string | undefined,
-    triggeredBy: string
+    triggeredBy: string,
+    refundToAddress?: string,
+    splitBuyerBps?: number
   ) {
     // Real bug found by tests/fullTradeLifecycle.test.ts (end-to-end
     // chain, added investigating the CTO-role "validate the full flow"
@@ -155,16 +157,48 @@ export class DisputeService {
     })
 
     try {
+      // Second real bug found while building SPLIT (RFC-021 D9,
+      // 2026-08-02) — see escrowService.isSignatureCollectionType()'s own
+      // comment for the full story: MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM
+      // escrows need the client-signature-collection flow
+      // (initiateRelease/initiateRefund/initiateSplit), not the direct
+      // releaseFunds()/refundFunds()/splitFunds() calls those types'
+      // providers throw "not directly callable" from. Applies uniformly to
+      // all three rulings now, not just the new one.
+      const escrow = await prisma.escrow.findUnique({ where: { id: dispute.escrowId } })
+      if (!escrow) throw new NotFoundError('Escrow', dispute.escrowId)
+      const needsSignatureCollection = escrowService.isSignatureCollectionType(escrow.type)
+
       if (ruling === 'RELEASE') {
-        await escrowService.releaseFunds(dispute.escrowId, releaseToAddress as string, triggeredBy)
+        if (needsSignatureCollection) {
+          await escrowService.initiateRelease(dispute.escrowId, releaseToAddress as string, triggeredBy)
+        } else {
+          await escrowService.releaseFunds(dispute.escrowId, releaseToAddress as string, triggeredBy)
+        }
       } else if (ruling === 'REFUND') {
-        await escrowService.refundFunds(dispute.escrowId, triggeredBy)
+        if (needsSignatureCollection) {
+          await escrowService.initiateRefund(dispute.escrowId, triggeredBy)
+        } else {
+          await escrowService.refundFunds(dispute.escrowId, triggeredBy)
+        }
+      } else if (ruling === 'SPLIT') {
+        // RFC-021 D9 — the third §1.9 option finally has a real settlement
+        // action, for the escrow types that can actually represent a
+        // partial payout (MOCK, WDK_USDT_EVM, MULTISIG). SAFE_GUARD_EVM's
+        // immutable Guard contract and LIGHTNING_HODL's fixed-leaf
+        // VtxoScript each have a real, provider-specific reason they
+        // can't — see their own buildUnsignedSplit() overrides — surfaced
+        // here as a normal thrown error (reverting this ruling below), not
+        // silently no-op'd.
+        if (!releaseToAddress || !refundToAddress || splitBuyerBps === undefined) {
+          throw new ValidationError('SPLIT requires releaseToAddress (buyer payout), refundToAddress (seller payout), and splitBuyerBps')
+        }
+        if (needsSignatureCollection) {
+          await escrowService.initiateSplit(dispute.escrowId, releaseToAddress, refundToAddress, splitBuyerBps, triggeredBy)
+        } else {
+          await escrowService.splitFunds(dispute.escrowId, releaseToAddress, refundToAddress, splitBuyerBps, triggeredBy)
+        }
       }
-      // SPLIT: no automated settlement action exists for this today (the
-      // existing SettlementProvider interface only has release/refund,
-      // not a split operation) — the ruling is recorded, but does not
-      // itself move funds. Documented here rather than silently no-op'd
-      // without explanation.
     } catch (err) {
       await prisma.dispute.update({
         where: { id: dispute.id },
@@ -188,11 +222,18 @@ export class DisputeService {
     disputeId: string,
     arbiterId: string,
     ruling: DisputeRuling,
-    // Required only for RELEASE — escrowService.releaseFunds() needs a
-    // real payout address, and no field in the current schema models a
+    // Required for RELEASE (buyer's payout) and SPLIT (same, buyer's
+    // share) — escrowService.releaseFunds()/splitFunds() need a real
+    // payout address, and no field in the current schema models a
     // participant's payout address (a real, separate gap — BACKLOG.md).
     // Not fabricated here; the caller must supply it.
-    releaseToAddress?: string
+    releaseToAddress?: string,
+    // RFC-021 D9 (2026-08-02) — required for SPLIT only: the seller's
+    // payout address (mirrors releaseToAddress's buyer role) and the
+    // buyer's share in basis points out of 10000 (seller gets the exact
+    // remainder). Unused for RELEASE/REFUND.
+    refundToAddress?: string,
+    splitBuyerBps?: number
   ) {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
@@ -206,8 +247,11 @@ export class DisputeService {
     if (ruling === 'RELEASE' && !releaseToAddress) {
       throw new ValidationError('releaseToAddress is required when ruling is RELEASE')
     }
+    if (ruling === 'SPLIT' && (!releaseToAddress || !refundToAddress || splitBuyerBps === undefined)) {
+      throw new ValidationError('releaseToAddress, refundToAddress, and splitBuyerBps are all required when ruling is SPLIT')
+    }
 
-    const updated = await this.applyRuling(dispute, ruling, releaseToAddress, arbiterId)
+    const updated = await this.applyRuling(dispute, ruling, releaseToAddress, arbiterId, refundToAddress, splitBuyerBps)
 
     // RFC-021 D6/D4 — feeds the arbiter's track record on every real
     // resolution, correct or not (optional: only market mode has an

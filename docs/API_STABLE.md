@@ -102,17 +102,27 @@ would just be a synonym, not a real accessibility gain.
 ### `settlement` / `escrow`
 - `create(input)` → `Escrow` *(requires session)*
 - `get(escrowId)` → `Escrow`
+- `submitKey(escrowId, pubkeyHex)` → `{ escrow, buyerKeySubmitted, sellerKeySubmitted }` *(requires session; MULTISIG/LIGHTNING_HODL client-held-keys path)*
 - `lock(escrowId)` → `Escrow` *(requires session)*
 - `markPaymentSent(escrowId)` → `Escrow` *(requires session)*
 - `release(escrowId, toAddress)` → `Escrow` *(requires session)*
 - `dispute(escrowId, reason, evidence?)` → `Dispute` *(requires session)*
 - `refund(escrowId)` → `Escrow` *(requires session)*
+- `initiateRelease(escrowId, toAddress)` → `EscrowPendingTransaction` *(requires session; MULTISIG multi-signer release, does not itself move funds)*
+- `initiateRefund(escrowId)` → `EscrowPendingTransaction` *(requires session; mirror of `initiateRelease`)*
+- `submitTransactionSignature(escrowId, signedPsbtBase64)` → `{ complete }` *(requires session)*
+- `getPendingTransaction(escrowId)` → `EscrowPendingTransaction`
 - `resolveDispute(disputeId, ruling, releaseToAddress?)` → `Dispute` *(requires session + assigned arbiter)*
+- `appealDispute(disputeId)` → `{ dispute, appealFeeRequired }` *(requires session + trade party; RFC-021 D6, market arbitration mode only)*
+- `submitDisputeEvidence(disputeId, descriptor)` → `Dispute` *(requires session + trade party; RFC-021 D8, may trigger a QVAC auto-resolution attempt server-side)*
+- `contestAutoResolution(disputeId)` → `Dispute` *(requires session + trade party; RFC-021 D8, rejects a proposed automated ruling)*
+- `parseSafeGuardBundle(unsignedPsbtBase64)` → `SafeGuardBundle` *(pure parsing helper, no transport call; SAFE_GUARD_EVM only — decodes the Safe Guard deployment info a `create()`/`initiateRelease()` response carries for that escrow type)*
 
 ### `reputation` / `trustScore`
 - `get(participantId)` → `ReputationScore`
 - `leaderboard(limit?)` → `ReputationScore[]`
 - `rate(input)` → informational only, does not affect the score `get()` returns *(requires session)*
+- `vouchFor(voucheeId)` → `Vouch` *(requires session; RFC-021 D7 peer vouching — caller must have real trade history, own reputation is slashed if the vouchee's first payment account is later abused)*
 
 ### `peers`
 - `start(secretKeyBase64)` → `{ peerId }`

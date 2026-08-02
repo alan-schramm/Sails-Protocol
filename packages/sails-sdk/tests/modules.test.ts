@@ -135,6 +135,20 @@ describe('SailsSettlementModule', () => {
     expect(url).toBe('http://localhost:3000/v1/settlement/disputes/dispute-1/resolve')
     expect(JSON.parse(init.body)).toEqual({ ruling: 'RELEASE', releaseToAddress: '0xbuyer' })
   })
+
+  // RFC-021 D9 (2026-08-02) — additive params on an already-frozen method
+  // (docs/API_STABLE.md's own "new optional parameters... are additive,
+  // not breaking" precedent).
+  it('resolveDispute() posts refundToAddress+splitBuyerBps for a SPLIT ruling', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'dispute-1', ruling: 'SPLIT' } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    await settlement.resolveDispute('dispute-1', 'SPLIT', '0xbuyer', '0xseller', 6000)
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/disputes/dispute-1/resolve')
+    expect(JSON.parse(init.body)).toEqual({ ruling: 'SPLIT', releaseToAddress: '0xbuyer', refundToAddress: '0xseller', splitBuyerBps: 6000 })
+  })
 })
 
 describe('parseSafeGuardBundle() — the SAFE_GUARD_EVM guard-deployment gap closed 2026-08-02', () => {

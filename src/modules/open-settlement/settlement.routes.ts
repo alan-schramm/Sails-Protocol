@@ -58,6 +58,11 @@ const disputeSchema = z.object({
 const resolveSchema = z.object({
   ruling: z.enum(['RELEASE', 'REFUND', 'SPLIT']),
   releaseToAddress: z.string().optional(),
+  // RFC-021 D9 (2026-08-02) — SPLIT-only: seller's payout address and the
+  // buyer's share in basis points (0-10000, exclusive of both ends — a
+  // real split, not an all-or-nothing RELEASE/REFUND in disguise).
+  refundToAddress: z.string().optional(),
+  splitBuyerBps: z.number().int().min(1).max(9999).optional(),
 })
 
 // RFC-021 D8
@@ -261,7 +266,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
     const body = resolveSchema.parse(request.body)
     const participantId = (request as any).participantId as string
-    const dispute = await getDisputeService().resolveDispute(id, participantId, body.ruling, body.releaseToAddress)
+    const dispute = await getDisputeService().resolveDispute(id, participantId, body.ruling, body.releaseToAddress, body.refundToAddress, body.splitBuyerBps)
     return reply.code(200).send({ success: true, data: dispute })
   })
 

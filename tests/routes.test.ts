@@ -991,6 +991,23 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.body).message).toMatch(/TRUSTED_ARBITRATORS/)
     })
+
+    // RFC-021 D9 (2026-08-02) — same underlying getDisputeService() config
+    // gate as the tests above; resolveDispute()'s own SPLIT dispatch logic
+    // is covered directly in disputeFlow.test.ts. This proves resolveSchema
+    // actually accepts the three new SPLIT-only body fields (a zod
+    // rejection would surface as a different 400 message, not this one).
+    it('surfaces a clear config error when resolving a SPLIT ruling with no arbitration mode configured (not a crash) — proves resolveSchema accepts the new fields', async () => {
+      const token = await authedSession('arbiter-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/disputes/dispute-1/resolve',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { ruling: 'SPLIT', releaseToAddress: '0xbuyer', refundToAddress: '0xseller', splitBuyerBps: 6000 },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).message).toMatch(/TRUSTED_ARBITRATORS/)
+    })
   })
 
   describe('open-reputation', () => {

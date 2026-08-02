@@ -37,6 +37,12 @@ const INTENT_LIFECYCLE_TRIGGER = 'system:trade-lifecycle'
  *                                   OpenReputation reacts (recordOutcome() —
  *                                   dispute-aware, see below; RFC-021 D7 —
  *                                   same vouch-burn reaction, for the buyer)
+ *   - settlement.escrow.split     → OpenP2P reacts (Trade.status = COMPLETED
+ *                                   — RFC-021 D9, only ever a dispute
+ *                                   outcome, no happy-path equivalent)
+ *                                   OpenReputation reacts (recordOutcome()
+ *                                   NEUTRAL for both — no vouch burned,
+ *                                   see that handler's own comment)
  *   - peer.connected              → OpenP2P reacts (RFC-011: reconcile every
  *                                   active trade shared with the peer that
  *                                   just (re)connected against Postgres, the
@@ -265,6 +271,59 @@ export function registerEventHandlers(): void {
       await intentEngine.transition(
         trade.intentId, 'FAILED', INTENT_LIFECYCLE_TRIGGER, 'intent.failed',
         { intentId: trade.intentId, reason: resolvedRefund ? 'Escrow refunded per dispute ruling' : 'Escrow refunded' }
+      )
+    }
+  })
+
+  // RFC-021 D9 (2026-08-02) — SPLIT only ever reaches an escrow via a
+  // dispute ruling (§1.9's third option), unlike released/refunded above
+  // which each also have a happy, non-disputed path — so there's no
+  // "was this actually disputed?" branch to make here, and no clean
+  // winner/loser to score: the arbiter decided both parties share the
+  // outcome, not that one of them lost. Reputation is NEUTRAL for both
+  // (same "always Neutral, never Negative" precedent RFC-007 D9 already
+  // sets for a plain refund) and no vouch is burned on either side —
+  // burning one would misapply RFC-021 D7's "the vouched-for party
+  // clearly lost" reasoning to an outcome that isn't a clear loss.
+  // Trade/Intent classification (a real, disclosed judgment call, made
+  // with the project owner 2026-08-02 — TradeStatus/IntentStatus only
+  // have binary terminal states, no partial-outcome value exists):
+  // COMPLETED/FULFILLED, since real funds did leave the escrow via a
+  // real settlement action, the same trigger released's own COMPLETED/
+  // FULFILLED classification rests on.
+  eventBus.on('settlement.escrow.split', async (payload) => {
+    const trade = await prisma.trade.update({
+      where: { id: payload.tradeId },
+      data: { status: 'COMPLETED', completedAt: new Date() },
+    })
+
+    await prisma.user.update({
+      where: { id: trade.buyerId },
+      data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: trade.amount } },
+    })
+    await prisma.user.update({
+      where: { id: trade.sellerId },
+      data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: trade.amount } },
+    })
+
+    await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEUTRAL')
+    await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEUTRAL')
+
+    await eventBus.emit('openp2p.trade.completed', {
+      tradeId: payload.tradeId,
+      from: 'DISPUTED',
+      to: 'COMPLETED',
+      triggeredBy: payload.triggeredBy,
+    }, payload.tradeId)
+
+    if (trade.intentId) {
+      await intentEngine.transition(
+        trade.intentId, 'SETTLING', INTENT_LIFECYCLE_TRIGGER, 'intent.settling',
+        { intentId: trade.intentId, settlementId: payload.escrowId }
+      )
+      await intentEngine.transition(
+        trade.intentId, 'FULFILLED', INTENT_LIFECYCLE_TRIGGER, 'intent.fulfilled',
+        { intentId: trade.intentId, settlementId: payload.escrowId, outcome: 'SPLIT' }
       )
     }
   })

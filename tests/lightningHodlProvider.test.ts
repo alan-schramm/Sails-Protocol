@@ -202,6 +202,23 @@ describe('LightningHodlProvider — releaseFunds()/refundFunds() are not directl
   })
 })
 
+// RFC-021 D9 (2026-08-02) — a real structural limitation, not a missing
+// wire-up: this provider's VtxoScript only has fixed 2-of-2 leaves
+// (buyer+seller, buyer+arbiter, seller+arbiter), none of which let the
+// arbiter co-sign a payout to both parties at once. See
+// lightning-hodl.provider.ts's own buildUnsignedSplit() comment.
+describe('LightningHodlProvider — buildUnsignedSplit() is not supported (fixed 2-of-2 leaf structure)', () => {
+  it('throws a clear, specific error rather than attempting an unenforceable split', async () => {
+    const { lightningHodlProvider } = loadProvider({ ARKADE_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    await expect(
+      lightningHodlProvider.buildUnsignedSplit(
+        { tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005', txLockId: 'a'.repeat(64), status: 'DISPUTED' },
+        'buyer-script-hex', 'seller-script-hex', 6000
+      )
+    ).rejects.toThrow(/SPLIT is not supported/)
+  })
+})
+
 // Phase 2 (2026-07-27) — orchestration-level tests against the fake SDK
 // above (real crypto verified separately, see this file's own header
 // comment). Covers: which leaf/signers get picked per status, the

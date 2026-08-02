@@ -468,6 +468,28 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     return { ...result, toAddress }
   }
 
+  // RFC-021 D9 (2026-08-02) — not supported, and not a service-layer gap:
+  // SailsEscrowSafe.sol (contracts/contracts/SailsEscrowSafe.sol), the
+  // Transaction Guard this whole provider is built around, hardcodes
+  // `releaseTo`/`refundTo`/`lockedAmount` as immutable constructor
+  // arguments and its checkTransaction() reverts with WrongAmount()
+  // unless `value == lockedAmount` exactly — read directly from the
+  // deployed contract source before writing this, not assumed. That's the
+  // entire point of the guard (no server/arbiter can ever redirect this
+  // Safe's funds anywhere else, non-custodial by construction) — it also
+  // means there is no transaction this guard will ever authorize for a
+  // partial amount to either address, let alone two. A real SPLIT here
+  // would need a genuinely different guard contract (new constructor
+  // shape, new checkTransaction() logic, new bytecode/CREATE2 address) —
+  // a separate contracts-side undertaking, not attempted this pass.
+  async buildUnsignedSplit(escrow: SafeGuardEvmEscrowInput, _buyerAddress: string, _sellerAddress: string, _buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
+    throw new EscrowError(
+      `SAFE_GUARD_EVM provider: SPLIT is not supported for trade ${escrow.tradeId} — the deployed SailsEscrowSafe guard contract only ` +
+      'authorizes a transfer of the exact full lockedAmount to one of its two immutable releaseTo/refundTo addresses (checkTransaction() ' +
+      'reverts WrongAmount() otherwise), by design, so no server-side change can make it accept a partial split. Use RELEASE or REFUND instead.'
+    )
+  }
+
   // Real, tested logic: recovers each submitted signature's real signer
   // address, adds the pre-embedded arbiter one if present, sorts
   // ascending by address (Safe's real, documented checkNSignatures()
