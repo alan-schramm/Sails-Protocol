@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import type { Offer } from '../../types'
 import { AssetBadge, SideBadge, PaymentBadge } from '../ui/StatusBadges'
 import { UserAvatar } from '../ui/UserAvatar'

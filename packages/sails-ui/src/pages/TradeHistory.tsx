@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { MOCK_TRADE_HISTORY } from '../data/mock'
 import { AssetBadge, TradeStatusBadge } from '../components/ui/StatusBadges'
 import { formatBrl, formatAmount } from '../lib/format'

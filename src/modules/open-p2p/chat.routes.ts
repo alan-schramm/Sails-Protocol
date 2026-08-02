@@ -23,12 +23,18 @@
  * genuinely nothing to relay — not a bug, a structural limit of
  * peer-to-peer transports.
  *
- * A deeper, separate gap found while investigating this: incoming Pears
- * messages have no consumer at all today — `HumanChatChannel.onEvent()`
- * is defined but never called anywhere in this codebase, for either
- * transport's messages. Not fixed in this pass (it needs a live
- * two-node Pears/HyperDHT setup to verify against, the same limitation
- * `PearsTransportProvider`'s own tests already decline to fake) — see
+ * A deeper, separate gap found while investigating this and fixed in a
+ * later pass: incoming Pears messages had no consumer at all —
+ * `HumanChatChannel.onEvent()` was defined but never called anywhere.
+ * JOIN_TRADE below now wires one via `wireInboundNegotiationChannel()`
+ * (negotiation.service.ts), which also closed a second issue found
+ * alongside it: the handler had no check that an inbound event's claimed
+ * sender matched the connection's actual handshake-verified identity.
+ * The wiring and its same-process dedup guard are covered by
+ * `tests/negotiationInboundChannel.test.ts` against a mocked PearNode —
+ * a live two-node Pears/HyperDHT setup is still needed to verify the
+ * real wire round trip end-to-end (the same limitation
+ * `PearsTransportProvider`'s own tests already decline to fake); see
  * `BACKLOG.md` P0's Transport Provider row and `TODO.md` §1.
  */
 import type { FastifyInstance } from 'fastify'
@@ -40,6 +46,7 @@ import { requireAuth } from '../../common/middleware/auth'
 import { resolveParticipantFromToken } from '../../common/middleware/ws-auth'
 import { joinRoom, leaveRoom, broadcastToTrade, type RoomMember } from './chat-room-registry'
 import { pearNodeRegistry } from '../../infrastructure/p2p/pear.service'
+import { wireInboundNegotiationChannel } from './negotiation.service'
 
 // Auto-push escrow/trade status changes to whoever's currently watching
 // that trade's room — API_REFERENCE.md's TRADE_STATUS_UPDATE/
@@ -109,6 +116,14 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           joinRoom(tradeId, member)
           joined.add(tradeId)
           broadcastToTrade(tradeId, { type: 'USER_ONLINE', payload: { tradeId, participantId } }, socket)
+
+          // Consume negotiation events arriving over this participant's
+          // own Pears/HyperDHT connection for this trade — see this
+          // file's header comment for the gap this closes. No-ops if the
+          // participant never called POST /v1/peers/start (no local
+          // PearNode to attach to).
+          const counterpartyId = participantId === trade.buyerId ? trade.sellerId : trade.buyerId
+          wireInboundNegotiationChannel(participantId, counterpartyId, tradeId)
           return
         }
 

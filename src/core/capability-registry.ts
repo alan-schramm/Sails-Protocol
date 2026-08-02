@@ -87,7 +87,7 @@ export const capabilityRegistry: CapabilityRegistry = {
     })
 
     const now = new Date()
-    return grants.some((g) => {
+    return grants.some((g: { scope: string[]; constraints: unknown }) => {
       if (!g.scope.includes(requiredScope)) return false
       const expiresAt = (g.constraints as { expiresAt?: string } | null)?.expiresAt
       if (expiresAt && new Date(expiresAt) <= now) return false

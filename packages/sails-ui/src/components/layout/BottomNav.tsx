@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink } from 'react-router'
 import { ShoppingCart, Hourglass, ArrowLeftRight, User } from 'lucide-react'
 
 const items = [
@@ -16,7 +16,7 @@ export function BottomNav() {
           key={item.to}
           to={item.to}
           end={item.end}
-          className={({ isActive }) =>
+          className={({ isActive }: { isActive: boolean }) =>
             `flex-1 flex flex-col items-center gap-0.5 py-2.5 text-xs transition-colors ${
               isActive ? 'text-brand-orange-accent font-semibold' : 'text-brand-text-muted'
             }`
