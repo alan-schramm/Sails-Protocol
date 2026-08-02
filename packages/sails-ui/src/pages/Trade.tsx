@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import type { Trade as SdkTrade, Escrow as SdkEscrow, Message as SdkMessage, ChatMessageEvent, WebSocketChannel } from '@sails/sdk'
+import type { Trade as SdkTrade, Escrow as SdkEscrow, Message as SdkMessage, ChatMessageEvent, WebSocketChannel, Ed25519Keypair, EncryptedChatMessage } from '@sails/sdk'
+import { encryptChatMessage, decryptChatMessage } from '@sails/sdk'
 import type { EscrowStatus, Message, MessageType, User } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { useEscrowKey } from '../hooks/useEscrowKey'
@@ -48,11 +49,41 @@ function toParticipantUser(p: Awaited<ReturnType<typeof sailsClient.identity.get
   }
 }
 
-function toUiMessage(m: SdkMessage, buyer: User, seller: User): Message {
+// ENCRYPTED_TEXT's `content` holds JSON.stringify(EncryptedChatMessage) on
+// the wire (types.ts's own comment on MessageType) — opportunistically
+// decrypted here so every read path (REST history + live WS) shows the
+// same plaintext. Falls back to a user-facing placeholder + `decryptionFailed`
+// rather than throwing, since a missing keypair/counterparty key (still
+// loading) or a genuinely corrupted message must not crash the whole page.
+function decryptIncoming(
+  content: string,
+  msgType: string | null | undefined,
+  myKeypair: Ed25519Keypair | null,
+  counterpartyPublicKeyHex: string | undefined
+): { content: string; type: MessageType; decryptionFailed?: boolean } {
+  if (msgType !== 'ENCRYPTED_TEXT') {
+    return { content, type: (msgType as MessageType) ?? 'TEXT' }
+  }
+  if (!myKeypair || !counterpartyPublicKeyHex) {
+    return { content: 'Mensagem criptografada — carregando chaves...', type: 'ENCRYPTED_TEXT', decryptionFailed: true }
+  }
+  try {
+    const encrypted: EncryptedChatMessage = JSON.parse(content)
+    const plain = decryptChatMessage(encrypted, counterpartyPublicKeyHex, myKeypair)
+    return { content: plain, type: 'ENCRYPTED_TEXT' }
+  } catch {
+    return { content: 'Não foi possível decifrar esta mensagem.', type: 'ENCRYPTED_TEXT', decryptionFailed: true }
+  }
+}
+
+function toUiMessage(
+  m: SdkMessage, buyer: User, seller: User,
+  myKeypair: Ed25519Keypair | null, counterpartyPublicKeyHex: string | undefined
+): Message {
   const sender = m.senderId === buyer.id ? buyer : m.senderId === seller.id ? seller : null
   return {
     id: m.id, senderId: m.senderId, sender,
-    content: m.content, type: (m.msgType as MessageType) ?? 'TEXT',
+    ...decryptIncoming(m.content, m.msgType, myKeypair, counterpartyPublicKeyHex),
     createdAt: m.createdAt,
   }
 }
@@ -61,18 +92,21 @@ function toUiMessage(m: SdkMessage, buyer: User, seller: User): Message {
 // the same day in @sails/sdk's openp2p.ts — see that file's own comment)
 // genuinely differs from getMessages()'s REST history shape (SdkMessage
 // above): messageId/timestamp, not id/createdAt.
-function toUiMessageFromEvent(m: ChatMessageEvent, buyer: User, seller: User): Message {
+function toUiMessageFromEvent(
+  m: ChatMessageEvent, buyer: User, seller: User,
+  myKeypair: Ed25519Keypair | null, counterpartyPublicKeyHex: string | undefined
+): Message {
   const sender = m.senderId === buyer.id ? buyer : m.senderId === seller.id ? seller : null
   return {
     id: m.messageId, senderId: m.senderId, sender,
-    content: m.content, type: (m.msgType as MessageType) ?? 'TEXT',
+    ...decryptIncoming(m.content, m.msgType, myKeypair, counterpartyPublicKeyHex),
     createdAt: m.timestamp,
   }
 }
 
 export function Trade() {
   const { id } = useParams()
-  const { user } = useAuth()
+  const { user, keypair } = useAuth()
   const { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded } = useEscrowKey()
 
   const [trade, setTrade] = useState<SdkTrade | null>(null)
@@ -84,6 +118,11 @@ export function Trade() {
   const [acting, setActing] = useState(false)
   const [showDisputeForm, setShowDisputeForm] = useState(false)
   const [disputeReason, setDisputeReason] = useState('')
+  // Opt-in per BACKLOG.md's own note on chat-encryption.ts — encrypting
+  // by default would silently change behaviour for every existing
+  // plaintext history, so this starts off and only the sender's own new
+  // messages are affected.
+  const [encryptionEnabled, setEncryptionEnabled] = useState(false)
   const channelRef = useRef<WebSocketChannel | null>(null)
 
   // Real fetch — openp2p.getTrade() + identity.get() for both real
@@ -129,13 +168,17 @@ export function Trade() {
       }
 
       if (user) {
+        // b/s (just-fetched) rather than the `buyer`/`seller` state, which
+        // hasn't re-rendered yet at this point in the same async run.
+        const counterpartyPublicKeyHex = user.id === t.buyerId ? s.publicKey : user.id === t.sellerId ? b.publicKey : undefined
+
         const history = await sailsClient.openp2p.getMessages(t.id).catch(() => [])
-        if (!cancelled) setMessages(history.map((m) => toUiMessage(m, b, s)))
+        if (!cancelled) setMessages(history.map((m) => toUiMessage(m, b, s, keypair, counterpartyPublicKeyHex)))
 
         // Real WS chat (RFC-004/API_REFERENCE.md §5) — live NEW_MESSAGE
         // frames appended as they arrive, same channel used to send.
         const channel = sailsClient.openp2p.chat(t.id)
-        channel.onMessage((m) => setMessages((prev) => [...prev, toUiMessageFromEvent(m, b, s)]))
+        channel.onMessage((m) => setMessages((prev) => [...prev, toUiMessageFromEvent(m, b, s, keypair, counterpartyPublicKeyHex)]))
         channelRef.current = channel
       }
     })().finally(() => { if (!cancelled) setLoading(false) })
@@ -145,10 +188,14 @@ export function Trade() {
       channelRef.current?.close()
       channelRef.current = null
     }
-  }, [id, user])
+  }, [id, user, keypair])
 
   const isBuyer = !!user && !!trade && user.id === trade.buyerId
   const isSeller = !!user && !!trade && user.id === trade.sellerId
+  // Only valid once buyer/seller state has settled from the fetch effect
+  // above — fine here, since handleSend can't fire before this page has
+  // finished loading and rendered a real chat compose box.
+  const counterpartyPublicKeyHex = isBuyer ? seller?.publicKey : isSeller ? buyer?.publicKey : undefined
 
   const events = useMemo(() => {
     if (!escrow) return []
@@ -228,7 +275,14 @@ export function Trade() {
   })
 
   const handleSend = (content: string) => {
-    channelRef.current?.send({ content, msgType: 'TEXT' })
+    if (encryptionEnabled && keypair && counterpartyPublicKeyHex) {
+      const encrypted = encryptChatMessage(content, counterpartyPublicKeyHex, keypair)
+      channelRef.current?.send({ content: JSON.stringify(encrypted), msgType: 'ENCRYPTED_TEXT' })
+    } else {
+      channelRef.current?.send({ content, msgType: 'TEXT' })
+    }
+    // Risk detection always runs on the plaintext the user actually typed —
+    // unaffected by whether the outgoing wire content ends up encrypted.
     // Mocked reflection of RFC-017's SocialEngineeringAgent — see
     // lib/socialEngineering.ts's own comment for what's real vs simulated.
     // Client-local only, never sent over the real chat channel.
@@ -390,7 +444,15 @@ export function Trade() {
           </details>
         </div>
 
-        <ChatWindow messages={messages} currentUserId={user?.id} onSend={handleSend} onSendMedia={handleSendMedia} />
+        <ChatWindow
+          messages={messages}
+          currentUserId={user?.id}
+          onSend={handleSend}
+          onSendMedia={handleSendMedia}
+          encryptionEnabled={encryptionEnabled}
+          onToggleEncryption={setEncryptionEnabled}
+          encryptionAvailable={!!keypair && !!counterpartyPublicKeyHex}
+        />
       </div>
     </div>
   )

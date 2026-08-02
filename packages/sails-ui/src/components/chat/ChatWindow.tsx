@@ -31,7 +31,9 @@ import { ChatMessage } from './ChatMessage'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
 import { Input } from '../ui/input'
-import { Paperclip } from 'lucide-react'
+import { Switch } from '../ui/switch'
+import { InfoTooltip } from '../ui/InfoTooltip'
+import { Paperclip, Lock } from 'lucide-react'
 
 const MAX_MEDIA_BYTES = 15 * 1024 * 1024 // 15MB — arbitrary client-side guard, not a backend limit (none exists yet)
 
@@ -40,9 +42,20 @@ interface Props {
   currentUserId?: string
   onSend: (content: string) => void
   onSendMedia: (media: { url: string; fileName: string; type: MessageType }) => void
+  // Opt-in end-to-end encryption (@sails/sdk's encryptChatMessage/
+  // decryptChatMessage) — see Trade.tsx's own comment for the full wiring.
+  encryptionEnabled: boolean
+  onToggleEncryption: (enabled: boolean) => void
+  // False while the counterparty's public key / this user's own keypair
+  // hasn't loaded yet — the toggle is disabled rather than silently
+  // failing to encrypt if flipped on too early.
+  encryptionAvailable: boolean
 }
 
-export function ChatWindow({ messages, currentUserId, onSend, onSendMedia }: Props) {
+export function ChatWindow({
+  messages, currentUserId, onSend, onSendMedia,
+  encryptionEnabled, onToggleEncryption, encryptionAvailable,
+}: Props) {
   const [input, setInput] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -79,11 +92,24 @@ export function ChatWindow({ messages, currentUserId, onSend, onSendMedia }: Pro
 
   return (
     <Card className="flex flex-col h-[520px] overflow-hidden">
-      <div className="px-4 py-3 border-b border-brand-border flex items-center justify-between">
+      <div className="px-4 py-3 border-b border-brand-border flex items-center justify-between gap-2 flex-wrap">
         <span className="text-sm font-semibold text-brand-text">Chat P2P</span>
-        <span className="text-xs text-green-500 flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Conectado via Pears
-        </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs text-brand-text-muted">
+            <Lock className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline">Criptografado</span>
+            <InfoTooltip text="Cifra as próximas mensagens de ponta a ponta (só você e a contraparte conseguem ler). Mensagens antigas continuam em texto simples." />
+            <Switch
+              checked={encryptionEnabled}
+              onCheckedChange={onToggleEncryption}
+              disabled={!encryptionAvailable}
+              aria-label="Ativar criptografia de ponta a ponta no chat"
+            />
+          </div>
+          <span className="text-xs text-green-500 flex items-center gap-1 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> <span className="hidden sm:inline">Conectado via Pears</span>
+          </span>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
@@ -114,7 +140,7 @@ export function ChatWindow({ messages, currentUserId, onSend, onSendMedia }: Pro
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder="Digite uma mensagem..."
+          placeholder={encryptionEnabled ? 'Mensagem criptografada...' : 'Digite uma mensagem...'}
           className="flex-1"
         />
         <Button onClick={handleSend} className="px-4 text-sm">

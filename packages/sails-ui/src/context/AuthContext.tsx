@@ -64,6 +64,11 @@ interface AuthContextType {
   logout: () => void
   isOperator: boolean
   toggleRole: () => void
+  // The same Ed25519Keypair already used for identity.authenticate() —
+  // exposed here so a real caller (Trade.tsx's chat) can pass it into
+  // @sails/sdk's encryptChatMessage()/decryptChatMessage() without this
+  // module's own storage/loading details leaking outside AuthContext.
+  keypair: Ed25519Keypair | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -72,6 +77,7 @@ const ROLE_STORAGE_KEY = 'sails_ui_mock_role' // presentation-only role toggle, 
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
+  const [keypair, setKeypair] = useState<Ed25519Keypair | null>(null)
   const [loading, setLoading] = useState(true)
   const [isOperator, setIsOperator] = useState(() => localStorage.getItem(ROLE_STORAGE_KEY) === 'operator')
 
@@ -100,6 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await sailsClient.identity.authenticate(keypair)
       const participant = await sailsClient.identity.me()
       setUser(toUser(participant))
+      setKeypair(keypair)
     } finally {
       setLoading(false)
     }
@@ -107,6 +114,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     setUser(null)
+    setKeypair(null)
     sailsClient.setSessionToken(null)
   }
 
@@ -123,13 +131,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     sailsClient.identity
       .authenticate(keypair)
       .then(() => sailsClient.identity.me())
-      .then((participant) => setUser(toUser(participant)))
+      .then((participant) => {
+        setUser(toUser(participant))
+        setKeypair(keypair)
+      })
       .catch(() => setUser(null))
       .finally(() => setLoading(false))
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, isOperator, toggleRole }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, isOperator, toggleRole, keypair }}>
       {children}
     </AuthContext.Provider>
   )
