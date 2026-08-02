@@ -25,7 +25,7 @@ chargeback/mule-account fraud that reputation-of-trader alone does not
 cover.
 
 **Status:** Proposed — formal acceptance (`GOVERNANCE.md` §6A review
-step) has not happened yet, though as of 2026-07-29 every phase in
+step) has not happened yet, though as of 2026-08-02 every phase in
 "Reference Implementation Plan" below except D7 (explicitly deferred)
 is implemented, tested, and committed; "Proposed" describes governance
 status, not build status — see that section for what's actually real.
@@ -307,6 +307,106 @@ to seed a non-zero starting trust tier, rather than forcing every
 identity through the same fee-accumulation bootstrap from absolute
 zero.
 
+### D8 — QVAC-assisted automated first-pass resolution (arbiters as a fallback, not the default)
+
+Synthesized from a second design session (project owner + dev partners,
+2026-08-02), building directly on D1's "attestor, not mover" framing
+rather than introducing a new authority model: *"os árbitros só são
+assionados quando não tiver mais como resolver"* — a human arbiter should
+be the fallback path, not the automatic first step, for the large share of
+disputes a straightforward evidence check can settle on its own. QVAC
+(`qvac-agent.provider.ts`, the same real local-LLM integration
+`assessIntentRisk()`/`assessSocialEngineeringRisk()` already use — not a
+new dependency) gets a first, non-binding look at submitted evidence
+before a dispute leans on its assigned arbiter.
+
+**Deliberately payment-method-agnostic** (explicit project-owner
+correction during this same session): earlier QVAC prompts elsewhere in
+this codebase (e.g. `assessSocialEngineeringRisk()`'s own example text)
+default to PIX-flavored language, a reasonable shortcut for a
+Brazil-first MVP but wrong for a protocol positioned as a worldwide P2P
+marketplace SDK. D8's own prompt (`DISPUTE_EVIDENCE_SYSTEM_PROMPT`) never
+names a specific payment rail — it always reasons over whichever real
+`PaymentMethod` enum value (`PIX`, `TED`, `BANK_TRANSFER`,
+`CRYPTO_DIRECT`, `LIGHTNING_DIRECT`, `CASH`, `OTHER`) the trade actually
+used, verified with a dedicated test asserting the string `"pix"` never
+appears in the system prompt.
+
+**QVAC never has decision-making power** — the exact same "attestor, not
+mover" boundary D1 already draws around human arbiters, applied here to
+software instead: `assessDisputeEvidence()` only ever returns a
+recommendation plus a confidence score. Nothing calls
+`escrowService.releaseFunds()`/`refundFunds()` directly off the back of
+it. Three things must all be true before anything is even proposed:
+
+1. Evidence actually exists (`submitEvidence()`, below — an omission is
+   simply not analyzed, not treated as a signal either way).
+2. The recommendation isn't `INCONCLUSIVE` — the prompt explicitly
+   instructs the model that saying "unsure" is always the safer answer
+   than guessing.
+3. Confidence is at or above `qvacAutoResolutionConfidenceThreshold`
+   (config, default `0.85`) — a real, tunable number, not a fixed
+   assumption.
+
+Even then, the recommendation is only *proposed* (`DisputeStatus.AUTO_PROPOSED`),
+with a visible confidence score and reasoning, and a contest window
+(`qvacAutoResolutionWindowHours`, default 24h) during which **either**
+trade party can reject it (`POST .../disputes/:id/contest`) and fall back
+to their already-assigned human arbiter — the same one `raiseDispute()`
+already assigns immediately and unconditionally, unchanged by this
+feature. If uncontested, a background sweep
+(`sweepExpiredAutoResolutions()`, same `unref()`'d-interval shape the
+escrow timelock sweeper already established) applies it.
+
+**The mechanically important design constraint, found while
+implementing this**: `escrowService.releaseFunds()`/`refundFunds()`
+already enforce (`isSellerOrAssignedArbiter()`) that only the trade's
+seller or the dispute's *own assigned arbiter* may trigger a fund
+movement — `INV-OP-1`, unchanged by D2 or by this section. An automated
+resolution does not, and structurally cannot, invent a new kind of
+authorized caller: `sweepExpiredAutoResolutions()` applies an uncontested
+recommendation using the dispute's own already-assigned human arbiter's
+identity as `triggeredBy` — the exact same identity that would have
+triggered it had they read the dispute and ruled personally. This is not
+a workaround; it is the direct consequence of D1's framing taken
+literally: the arbiter's authorized slot is exercised automatically, on
+their behalf, when they don't need to personally intervene. No slashing
+or `recordRuling()` happens for an auto-resolution — those track a human
+arbiter's own decision-making track record (D3/D4), which is not what
+took place.
+
+**A real, disclosed limitation found during implementation, not
+papered over**: a `RELEASE` ruling needs a real crypto payout address,
+and — the same gap `resolveDispute()`'s own doc comment already
+states — this schema stores no participant payout address anywhere. A
+human arbiter calling `resolveDispute()` directly gets one supplied by
+whatever route/UI called them; the automated sweep has no such caller to
+ask. Rather than fabricate one from a participant id (which is not a
+crypto address), `sweepExpiredAutoResolutions()` throws a clear, visible
+error for a `RELEASE` recommendation specifically, leaving the dispute
+`AUTO_PROPOSED` for its human arbiter to resolve normally with a real
+address. `REFUND` has no such gap (it returns collateral to the seller's
+own escrow) and auto-applies cleanly.
+
+**Implemented** (2026-08-02): `qvac-agent.provider.ts`'s
+`assessDisputeEvidence()`; `dispute.service.ts`'s `submitEvidence()`
+(finally makes `DisputeStatus.EVIDENCE_SUBMITTED` reachable — it existed
+in the schema since the Dispute primitive was first built with no code
+path ever producing it), `proposeAutoResolution()` (atomic claim, same
+race-protection idiom `escrow.service.ts`'s `lockFunds()` established),
+`contestAutoResolution()`, and `sweepExpiredAutoResolutions()`;
+`common/events/handlers.ts`'s config-gated `dispute.evidence_submitted`
+reaction (lazy-`require`s both QVAC and dispute.service.ts, same reason
+the existing social-engineering handler does); two new routes
+(`POST .../disputes/:id/evidence`, `POST .../disputes/:id/contest`); the
+sweeper interval in `app.ts` (`DISPUTE_AUTO_RESOLUTION_SWEEPER`, off by
+default). Off end-to-end by default
+(`QVAC_AUTO_RESOLUTION_ENABLED=false`) — a fresh deployment keeps today's
+exact behavior (every dispute goes straight to its assigned human
+arbiter) until explicitly turned on. 48 new tests across
+`tests/qvacDisputeEvidence.test.ts`, `tests/disputeFlow.test.ts`,
+`tests/qvacAutoResolutionHandler.test.ts`, and `tests/routes.test.ts`.
+
 ## Known Risks — Mitigated, Not Solved
 
 Stated explicitly and separately, per this RFC's own governing
@@ -333,6 +433,23 @@ Bitcoin's own well-known theoretical attacks have.
    attacking. This is a real, structural dampener but is an emergent
    market property, not something D1–D7 enforce directly — stated here
    so it isn't silently relied upon as if it were.
+5. **QVAC calibration drift (D8)**: `qvacAutoResolutionConfidenceThreshold`
+   is a starting number (`0.85`), not one validated against real-world
+   outcome data yet — an under-tuned threshold could auto-propose
+   resolutions more often than warranted, or (the safer failure
+   direction) rarely enough that D8 barely reduces arbiter load at all.
+   The contest window is the actual backstop against the first failure
+   mode (either party can always force human review), not the confidence
+   number itself — stated so the threshold isn't mistaken for a solved,
+   precisely-calibrated value.
+6. **A collusive buyer+seller pair could in principle try to game D8's
+   automation** (e.g. submitting evidence crafted to read as a clear
+   match when it isn't) to avoid a human arbiter's scrutiny entirely.
+   Bounded, not eliminated, the same way D3's Sybil mitigation is
+   bounded: both parties would need to actively cooperate against their
+   own dispute (unlike an ordinary dispute, where the two parties are
+   adversarial by definition) — a narrower, higher-coordination-cost
+   attack than ordinary reputation fabrication, but not impossible.
 
 ## Specification
 
@@ -446,8 +563,15 @@ overwritten.
    deferred**, unchanged from this RFC's original scope; needs its own
    design pass once an onboarding flow is scoped, out of this RFC's
    boundary.
+6. ✅ D8's QVAC-assisted automated first-pass resolution (2026-08-02) —
+   `assessDisputeEvidence()`, `submitEvidence()`/`proposeAutoResolution()`/
+   `contestAutoResolution()`/`sweepExpiredAutoResolutions()`, the
+   config-gated event reaction, two new routes, the sweeper interval.
+   Off end-to-end by default.
 
-Not built in this pass, tracked separately (`docs/BACKLOG.md`): D6's
-`appealFeeRequired` is computed but not collected (no "pay before a
-ruling exists" payment primitive exists yet); `docs/DATABASE.md` does
-not yet document `ArbiterProfile`/`PaymentAccount`.
+**Resolved since this section was last updated:** D6's `appealFeeRequired`
+is now really collected, not just computed (`DisputeAppealFee` model,
+2026-08-01) — `resolveDispute()` settles its outcome
+(FORFEITED/REFUNDED). Still tracked separately (`docs/BACKLOG.md`,
+`docs/DATABASE.md`'s own §2 note): `docs/DATABASE.md` does not yet
+document `ArbiterProfile`/`PaymentAccount`/`DisputeAppealFee`.

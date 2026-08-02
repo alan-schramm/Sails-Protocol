@@ -22,8 +22,10 @@ import { prisma } from '../../common/database'
 import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { escrowService } from './escrow.service'
+import { config } from '../../config'
+import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitration-provider'
+import { marketArbitrationProvider } from './market-arbitration.provider'
 import type { AssetType } from '../../common/types'
-import type { ArbitrationProvider } from './arbitration-provider'
 import type { EvidenceDescriptor, DisputeRuling } from '@sails/p2p-schemas'
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
@@ -118,6 +120,70 @@ export class DisputeService {
     return updated
   }
 
+  // Extracted from resolveDispute() (RFC-021 D8, 2026-08-02) so
+  // sweepExpiredAutoResolutions() below can reuse the exact same
+  // mechanical release/refund + revert-on-failure logic — including the
+  // hard-won ordering fix in its own comment — without duplicating it.
+  // Shared by both the human-ruling path and the QVAC auto-resolution
+  // path; slashing/recordRuling/appeal-fee settlement are NOT here — those
+  // are specific to a human arbiter's own track record and stay in
+  // resolveDispute() itself.
+  private async applyRuling(
+    dispute: { id: string; escrowId: string; tradeId: string; status: string },
+    ruling: DisputeRuling,
+    releaseToAddress: string | undefined,
+    triggeredBy: string
+  ) {
+    // Real bug found by tests/fullTradeLifecycle.test.ts (end-to-end
+    // chain, added investigating the CTO-role "validate the full flow"
+    // follow-up): this used to call escrowService.releaseFunds()/
+    // refundFunds() BEFORE marking the Dispute RESOLVED below. Those
+    // calls emit settlement.escrow.released/refunded, which
+    // common/events/handlers.ts reacts to with RFC-007 D8/D9's
+    // dispute-aware branch — a query for a Dispute row with
+    // `status: 'RESOLVED'` on this exact tradeId. That query always
+    // raced this function's own not-yet-run update() below and lost:
+    // every disputed resolution was silently scored as an ordinary
+    // no-dispute outcome (both parties POSITIVE/NEUTRAL) instead of the
+    // asymmetric win/loss RFC-007 D8/D9 specifies. Fixed by marking
+    // RESOLVED first; if the fund movement then fails, the ruling is
+    // reverted rather than left claiming a resolution that never
+    // actually moved funds.
+    const updated = await prisma.dispute.update({
+      where: { id: dispute.id },
+      data: { status: 'RESOLVED', ruling, resolvedAt: new Date() },
+    })
+
+    try {
+      if (ruling === 'RELEASE') {
+        await escrowService.releaseFunds(dispute.escrowId, releaseToAddress as string, triggeredBy)
+      } else if (ruling === 'REFUND') {
+        await escrowService.refundFunds(dispute.escrowId, triggeredBy)
+      }
+      // SPLIT: no automated settlement action exists for this today (the
+      // existing SettlementProvider interface only has release/refund,
+      // not a split operation) — the ruling is recorded, but does not
+      // itself move funds. Documented here rather than silently no-op'd
+      // without explanation.
+    } catch (err) {
+      await prisma.dispute.update({
+        where: { id: dispute.id },
+        data: { status: dispute.status as any, ruling: null, resolvedAt: null },
+      })
+      throw err
+    }
+
+    await eventBus.emit('dispute.resolved', {
+      disputeId: dispute.id,
+      settlementId: dispute.escrowId,
+      tradeId: dispute.tradeId,
+      ruling,
+      triggeredBy,
+    }, dispute.tradeId)
+
+    return updated
+  }
+
   async resolveDispute(
     disputeId: string,
     arbiterId: string,
@@ -141,52 +207,7 @@ export class DisputeService {
       throw new ValidationError('releaseToAddress is required when ruling is RELEASE')
     }
 
-    // Real bug found by tests/fullTradeLifecycle.test.ts (end-to-end
-    // chain, added investigating the CTO-role "validate the full flow"
-    // follow-up): this used to call escrowService.releaseFunds()/
-    // refundFunds() BEFORE marking the Dispute RESOLVED below. Those
-    // calls emit settlement.escrow.released/refunded, which
-    // common/events/handlers.ts reacts to with RFC-007 D8/D9's
-    // dispute-aware branch — a query for a Dispute row with
-    // `status: 'RESOLVED'` on this exact tradeId. That query always
-    // raced this function's own not-yet-run update() below and lost:
-    // every disputed resolution was silently scored as an ordinary
-    // no-dispute outcome (both parties POSITIVE/NEUTRAL) instead of the
-    // asymmetric win/loss RFC-007 D8/D9 specifies. Fixed by marking
-    // RESOLVED first; if the fund movement then fails, the ruling is
-    // reverted rather than left claiming a resolution that never
-    // actually moved funds.
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
-      data: { status: 'RESOLVED', ruling, resolvedAt: new Date() },
-    })
-
-    try {
-      if (ruling === 'RELEASE') {
-        await escrowService.releaseFunds(dispute.escrowId, releaseToAddress as string, arbiterId)
-      } else if (ruling === 'REFUND') {
-        await escrowService.refundFunds(dispute.escrowId, arbiterId)
-      }
-      // SPLIT: no automated settlement action exists for this today (the
-      // existing SettlementProvider interface only has release/refund,
-      // not a split operation) — the ruling is recorded, but does not
-      // itself move funds. Documented here rather than silently no-op'd
-      // without explanation.
-    } catch (err) {
-      await prisma.dispute.update({
-        where: { id: disputeId },
-        data: { status: 'OPENED', ruling: null, resolvedAt: null },
-      })
-      throw err
-    }
-
-    await eventBus.emit('dispute.resolved', {
-      disputeId,
-      settlementId: dispute.escrowId,
-      tradeId: dispute.tradeId,
-      ruling,
-      triggeredBy: arbiterId,
-    }, dispute.tradeId)
+    const updated = await this.applyRuling(dispute, ruling, releaseToAddress, arbiterId)
 
     // RFC-021 D6/D4 — feeds the arbiter's track record on every real
     // resolution, correct or not (optional: only market mode has an
@@ -325,4 +346,228 @@ export class DisputeService {
 
     return { dispute: updated, appealFeeRequired }
   }
+
+  /**
+   * RFC-021 D8 — either trade party may attach more evidence to their own
+   * open dispute after it's been raised (raiseDispute()'s own `evidence`
+   * param only covers what existed at open time). Finally makes
+   * `DisputeStatus.EVIDENCE_SUBMITTED` reachable — it has existed in the
+   * schema since the Dispute primitive was first built but no code path
+   * ever produced it before this. Emits `dispute.evidence_submitted`,
+   * which `common/events/handlers.ts` reacts to by attempting a QVAC
+   * auto-resolution pass (config-gated, `qvacAutoResolutionEnabled`) —
+   * this method itself has no QVAC dependency, matching this codebase's
+   * module-boundary convention of reacting to events rather than one
+   * module calling into another's service directly.
+   */
+  async submitEvidence(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note'>) {
+    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!dispute) throw new NotFoundError('Dispute', disputeId)
+
+    const trade = await prisma.trade.findUnique({ where: { id: dispute.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
+    if (submittedBy !== trade.buyerId && submittedBy !== trade.sellerId) {
+      throw new ForbiddenError(`${submittedBy} is not a party to trade ${dispute.tradeId}`)
+    }
+
+    if (dispute.status !== 'OPENED' && dispute.status !== 'EVIDENCE_SUBMITTED') {
+      throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${dispute.status}`)
+    }
+
+    const entry: EvidenceDescriptor = { ...descriptor, submittedBy, submittedAt: new Date().toISOString() }
+    const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
+
+    const updated = await prisma.dispute.update({
+      where: { id: disputeId },
+      data: { evidence: [...existing, entry] as unknown as object, status: 'EVIDENCE_SUBMITTED' },
+    })
+
+    await eventBus.emit('dispute.evidence_submitted', {
+      disputeId,
+      settlementId: dispute.escrowId,
+      tradeId: dispute.tradeId,
+      triggeredBy: submittedBy,
+    }, dispute.tradeId)
+
+    return updated
+  }
+
+  /**
+   * RFC-021 D8 — called by the `dispute.evidence_submitted` event handler
+   * once QVAC has produced a confident recommendation. Never called with
+   * `recommendation: 'INCONCLUSIVE'` or below-threshold confidence — the
+   * event handler filters those out before reaching here, so a dispute
+   * simply stays on its normal human-arbiter path with no trace of a
+   * failed automation attempt. The atomic claim below (same idiom
+   * escrow.service.ts's lockFunds() established) means a human arbiter
+   * who already resolved or appealed this dispute always wins the race —
+   * this never overwrites a real decision, it can only ever act on a
+   * dispute still genuinely open.
+   */
+  async proposeAutoResolution(disputeId: string, recommendation: 'RELEASE' | 'REFUND', confidence: number, reasoning: string) {
+    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!dispute) throw new NotFoundError('Dispute', disputeId)
+
+    const deadline = new Date(Date.now() + config.settlement.qvacAutoResolutionWindowHours * 3600 * 1000)
+
+    const claim = await prisma.dispute.updateMany({
+      where: { id: disputeId, status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] }, ruling: null },
+      data: {
+        status: 'AUTO_PROPOSED',
+        autoResolutionRecommendation: recommendation,
+        autoResolutionConfidence: confidence,
+        autoResolutionReasoning: reasoning,
+        autoResolutionDeadline: deadline,
+      },
+    })
+    if (claim.count === 0) return null // lost the race to a real human decision — not an error
+
+    await eventBus.emit('dispute.auto_resolution_proposed', {
+      disputeId,
+      settlementId: dispute.escrowId,
+      tradeId: dispute.tradeId,
+      recommendation,
+      confidence,
+      deadline: deadline.toISOString(),
+      triggeredBy: 'qvac-auto',
+    }, dispute.tradeId)
+
+    return prisma.dispute.findUnique({ where: { id: disputeId } })
+  }
+
+  /**
+   * RFC-021 D8 — either trade party can reject a proposed automated
+   * ruling at any point before its deadline, forcing the dispute back
+   * onto its already-assigned human arbiter (assigned back at
+   * raiseDispute() time and never touched by the auto-resolution
+   * attempt) — no new arbiter assignment needed, matching D1's "the
+   * market/parties decide, not software unilaterally" framing.
+   */
+  async contestAutoResolution(disputeId: string, contestedBy: string) {
+    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!dispute) throw new NotFoundError('Dispute', disputeId)
+
+    const trade = await prisma.trade.findUnique({ where: { id: dispute.tradeId } })
+    if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
+    if (contestedBy !== trade.buyerId && contestedBy !== trade.sellerId) {
+      throw new ForbiddenError(`${contestedBy} is not a party to trade ${dispute.tradeId}`)
+    }
+
+    if (dispute.status !== 'AUTO_PROPOSED') {
+      throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${dispute.status})`)
+    }
+    if (dispute.autoResolutionDeadline && dispute.autoResolutionDeadline.getTime() < Date.now()) {
+      throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
+    }
+
+    const updated = await prisma.dispute.update({
+      where: { id: disputeId },
+      data: {
+        status: 'EVIDENCE_SUBMITTED',
+        autoResolutionRecommendation: null,
+        autoResolutionConfidence: null,
+        autoResolutionReasoning: null,
+        autoResolutionDeadline: null,
+      },
+    })
+
+    await eventBus.emit('dispute.auto_resolution_contested', {
+      disputeId,
+      settlementId: dispute.escrowId,
+      tradeId: dispute.tradeId,
+      contestedBy,
+      triggeredBy: contestedBy,
+    }, dispute.tradeId)
+
+    return updated
+  }
+
+  /**
+   * RFC-021 D8 — the background sweep (app.ts, DISPUTE_AUTO_RESOLUTION_SWEEPER,
+   * same pattern escrow.service.ts's sweepExpiredEscrows() established):
+   * applies every AUTO_PROPOSED dispute's recommendation once its contest
+   * window has closed uncontested. `triggeredBy` for the resulting
+   * releaseFunds()/refundFunds() call is the dispute's own already-assigned
+   * `arbiterId` — the SAME identity raiseDispute() assigned at open time —
+   * so escrow.service.ts's isSellerOrAssignedArbiter() check is completely
+   * untouched by this feature: no new kind of caller ever gains authority
+   * to move funds, an already-authorized arbiter's slot is just exercised
+   * automatically when they don't need to personally act. `autoResolved`
+   * flags the row so the audit trail always shows whether the assigned
+   * arbiter ruled personally or their slot auto-resolved. Deliberately does
+   * NOT call recordRuling()/slash() (RFC-021 D3/D4) — those track a human
+   * arbiter's own decision-making track record, which is not what happened
+   * here.
+   */
+  async sweepExpiredAutoResolutions(): Promise<{ resolved: string[]; failed: Array<{ disputeId: string; error: string }> }> {
+    const expired = await prisma.dispute.findMany({
+      where: { status: 'AUTO_PROPOSED', autoResolutionDeadline: { lt: new Date() } },
+    })
+
+    const resolved: string[] = []
+    const failed: Array<{ disputeId: string; error: string }> = []
+    for (const dispute of expired) {
+      try {
+        if (!dispute.arbiterId) throw new ValidationError(`Dispute ${dispute.id} has an auto-proposed resolution but no assigned arbiterId`)
+        if (!dispute.autoResolutionRecommendation) throw new ValidationError(`Dispute ${dispute.id} is AUTO_PROPOSED with no recommendation recorded`)
+
+        // RELEASE needs a real crypto payout address, same disclosed gap
+        // resolveDispute()'s own doc comment states: no field in this
+        // schema stores a participant's payout address, so a human
+        // arbiter calling resolveDispute() directly must be supplied one
+        // externally (by the route caller/UI). There is no such caller
+        // here — this sweep runs with nobody to ask — so a RELEASE
+        // recommendation cannot be safely auto-applied yet. Thrown as a
+        // real, visible failure (not silently skipped, not fabricated
+        // from a participant id, which is NOT a crypto address) so it
+        // surfaces in this method's own `failed` list and the dispute
+        // stays AUTO_PROPOSED for its already-assigned human arbiter to
+        // resolve normally. REFUND has no such gap — refundFunds()
+        // returns collateral to the seller's own escrow, no external
+        // address input needed.
+        if (dispute.autoResolutionRecommendation === 'RELEASE') {
+          throw new ValidationError(
+            `Dispute ${dispute.id}: auto-applying a RELEASE recommendation needs a real payout address this system ` +
+            'does not yet store for any participant — falling through to the assigned human arbiter instead of guessing one.'
+          )
+        }
+
+        await this.applyRuling(dispute, dispute.autoResolutionRecommendation, undefined, dispute.arbiterId)
+        await prisma.dispute.update({ where: { id: dispute.id }, data: { autoResolved: true } })
+        resolved.push(dispute.id)
+      } catch (err) {
+        failed.push({ disputeId: dispute.id, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+    return { resolved, failed }
+  }
+}
+
+// Lazy singleton — constructed on first use, not at module load, so a
+// deployment with neither arbitration mode configured can still boot and
+// serve every other route/handler; only dispute-touching code paths fail,
+// with a clear config error instead of the whole process refusing to
+// start. Moved here (2026-08-02, RFC-021 D8) from settlement.routes.ts,
+// which held the only previous copy — common/events/handlers.ts's new
+// dispute.evidence_submitted reaction and app.ts's new sweeper interval
+// both need the exact same instance a route handler would get, not a
+// second, independently-constructed one.
+//
+// RFC-021 D2 — config.settlement.arbitrationMode picks between the two
+// real ArbitrationProvider implementations: 'trusted-list' (RFC-007 D4's
+// original, curated TRUSTED_ARBITRATORS allowlist) and 'market' (RFC-021's
+// permissionless, collateral-and-reputation-weighted registry).
+let disputeServiceInstance: DisputeService | null = null
+export function getDisputeService(): DisputeService {
+  if (!disputeServiceInstance) {
+    if (config.settlement.arbitrationMode === 'market') {
+      disputeServiceInstance = new DisputeService(marketArbitrationProvider)
+    } else {
+      if (config.settlement.trustedArbitrators.length === 0) {
+        throw new ValidationError('No trusted arbitrators configured — set TRUSTED_ARBITRATORS (RFC-007 D4)')
+      }
+      disputeServiceInstance = new DisputeService(new TrustedArbitratorProvider(config.settlement.trustedArbitrators))
+    }
+  }
+  return disputeServiceInstance
 }

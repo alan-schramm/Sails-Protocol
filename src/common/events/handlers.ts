@@ -272,6 +272,70 @@ export function registerEventHandlers(): void {
     })
   })
 
+  // ── Sails OpenSettlement: QVAC-assisted dispute auto-resolution (RFC-021 D8) ──
+  // Off by default (config.settlement.qvacAutoResolutionEnabled) — a real
+  // QVAC call per evidence submission is real latency and real
+  // model-inference cost, same reasoning socialEngineeringDetection's own
+  // handler above already established. Uses onDurable() for the same
+  // reason that handler does: this must survive a process restart between
+  // evidence being submitted and QVAC finishing its analysis, not be lost
+  // if it raced a redeploy. qvac-agent.provider.ts and dispute.service.ts
+  // are both required lazily, after the flag check — the QVAC one
+  // transitively imports the real @qvac/sdk (ESM-only), the same "don't
+  // make every test mock this" reasoning the social-engineering handler's
+  // own comment explains.
+  //
+  // Deliberately payment-method-agnostic (project owner, 2026-08-02): the
+  // trade's own real PaymentMethod is passed through as-is, never assumed
+  // to be any specific rail.
+  eventBus.onDurable('dispute.evidence_submitted', async (event) => {
+    if (!config.settlement.qvacAutoResolutionEnabled) return
+
+    try {
+      const payload = event.payload as { disputeId: string; tradeId: string }
+      const dispute = await prisma.dispute.findUnique({ where: { id: payload.disputeId } })
+      if (!dispute || dispute.status === 'RESOLVED' || dispute.status === 'AUTO_PROPOSED' || dispute.status === 'APPEALED') return
+
+      // paymentMethod lives on Offer, not Trade — Trade only copies
+      // asset/amount at creation time (this model's own field list).
+      const trade = await prisma.trade.findUnique({ where: { id: payload.tradeId }, include: { offer: true } })
+      if (!trade) return
+
+      const evidence = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as Array<{ type: string; note?: string; submittedBy: string }>) : []
+      if (evidence.length === 0) return // nothing for QVAC to assess yet
+
+      const { qvacAgentProvider } = require('../../modules/open-agents/qvac-agent.provider') // eslint-disable-line @typescript-eslint/no-var-requires
+      const assessment = await qvacAgentProvider.assessDisputeEvidence({
+        paymentMethod: trade.offer.paymentMethod,
+        asset: trade.asset,
+        amount: trade.amount.toString(),
+        reason: dispute.reason,
+        evidence: evidence.map((e) => ({
+          type: e.type,
+          note: e.note,
+          submittedBy: e.submittedBy === trade.buyerId ? 'buyer' as const : 'seller' as const,
+        })),
+      })
+
+      if (
+        assessment.recommendation === 'INCONCLUSIVE' ||
+        assessment.confidence < config.settlement.qvacAutoResolutionConfidenceThreshold
+      ) {
+        return // falls straight through to the already-assigned human arbiter, unchanged
+      }
+
+      const { getDisputeService } = require('../../modules/open-settlement/dispute.service') // eslint-disable-line @typescript-eslint/no-var-requires
+      await getDisputeService().proposeAutoResolution(
+        payload.disputeId,
+        assessment.recommendation,
+        assessment.confidence,
+        assessment.reasoning
+      )
+    } catch (err) {
+      console.error(`[handlers] qvacAutoResolution failed for dispute event ${event.eventId}:`, err instanceof Error ? err.message : err)
+    }
+  })
+
   // ── Sails OpenP2P reacts to a peer reconnecting (RFC-011) ──────────────────
   eventBus.on('peer.connected', async (payload) => {
     // Only a real two-party handshake (pear.service.ts's handleNewConnection)

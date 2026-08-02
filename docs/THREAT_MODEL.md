@@ -25,7 +25,7 @@
 | **API Abuse / DDoS** | Low | Rate limiting per IP is real (`@fastify/rate-limit`, resolved 2026-07-18 — see §4 below for the exact config and its still-open gaps). Per-keypair/API-key limiting and "API keys carrying their own reputation score" remain design intentions, not built. Sandbox environment kept separate from production. |
 | **Custody Creep** | High | Architectural guarantee: no Sails server ever holds user keys or funds. The `SettlementProvider` interface enforces this at the code level — implementations must go through escrow, never direct custody. |
 | **Malicious Arbiter Collusion** *(v7.4 — CTO review finding; updated 2026-07-29, RFC-021)* | High | An arbiter colluding with one counterparty to rule unfairly. Under `ARBITRATION_MODE=trusted-list` (default), mitigated by the Reputation-as-bond mechanism (`SECURITY_MODEL.md` §3) — a bad ruling damages the arbiter's `ReputationScore` publicly and permanently. Under `ARBITRATION_MODE=market` (`docs/rfcs/RFC-021-market-based-arbitration-and-payment-trust.md`), the mitigation is real, not just reputational: an appealed-and-overturned ruling triggers `MarketArbitrationProvider.slash()` — a real forfeit of posted collateral plus a reputation penalty, and the appeal panel that overturns the ruling is drawn weighted 70% toward reputation (not stake), so the same deep-capital arbiter who won first-instance selection doesn't also dominate the panel judging them. **Honestly disclosed residual risk, not closed by either mode:** capital-based Sybil collusion (an attacker funding both a colluding arbiter and the counterparty) has no closed-form solution here — RFC-021's own "Known Risks — Mitigated, Not Solved" section states this explicitly; slashing raises the real cost of collusion, it does not make it impossible. |
-| **Fabricated Dispute Evidence** *(v7.4)* | Medium | A party submits falsified `Proof` (`PROTOCOL_SPECIFICATION.md` §1.8) to win a dispute. Mitigated by requiring `Proof.verifiedBy` from an independent party where possible, and by QVAC-assisted evidence analysis (future — see `THREAT_MODEL.md` §4 for current-gap honesty on QVAC status). |
+| **Fabricated Dispute Evidence** *(v7.4, updated 2026-08-02 — RFC-021 D8)* | Medium | A party submits falsified `Proof` (`PROTOCOL_SPECIFICATION.md` §1.8) to win a dispute. Mitigated by requiring `Proof.verifiedBy` from an independent party where possible, and — no longer purely future — by real, config-gated QVAC evidence analysis (`assessDisputeEvidence()`, off by default, `QVAC_AUTO_RESOLUTION_ENABLED`). This does not stop fabrication itself: a low-confidence or `INCONCLUSIVE` read from QVAC changes nothing (the dispute falls straight through to its assigned human arbiter, exactly today's behavior), and QVAC's own recommendation is never final on its own — either trade party can contest it within a window, forcing human review. QVAC being fooled by a convincing fabrication is a real, undiscovered-until-contested residual risk, not eliminated by this mitigation — see RFC-021's own "Known Risks" §D8 entries. |
 | **Arbitration Griefing** *(v7.4)* | Low | A party opens disputes in bad faith purely to delay settlement. Mitigated by the Dispute primitive's `openedBy` field feeding directly into Reputation's dispute-rate component (`PROTOCOL_SPECIFICATION.md` §1.6) — frequent bad-faith disputes are visible and penalized. |
 
 ---
@@ -136,10 +136,19 @@ failure modes:
   (`ROADMAP.md`) allocates 20% of grant funding specifically to third-party
   audits, scoped initially to OpenP2P + OpenSettlement (the two modules with
   real code).
-- **QVAC-based fraud detection is entirely unimplemented** — every
-  mitigation above that references "QVAC (future)" is a design intention,
-  not a working control. Do not represent it as active protection in any
-  external-facing material until it exists.
+- **QVAC-based fraud detection is mostly still unimplemented, with one
+  real exception (updated 2026-08-02).** Every mitigation above that
+  still reads "QVAC (future)" — Fake Liquidity's offer trust scoring,
+  PIX/Fiat Proof Fraud's image analysis, Chat Phishing's URL detection —
+  remains a design intention, not a working control; do not represent
+  those as active protection in any external-facing material until they
+  exist. The one exception: **Fabricated Dispute Evidence**'s row above
+  is real, working, tested code (`qvac-agent.provider.ts`'s
+  `assessDisputeEvidence()`, RFC-021 D8) — off by default
+  (`QVAC_AUTO_RESOLUTION_ENABLED=false`), bounded (never final without a
+  contest window either party can invoke), and deliberately
+  payment-method-agnostic (not scoped to PIX specifically, this being a
+  worldwide protocol).
 - **The `PearPeerManager` singleton bug** (documented and fixed in
   `NODE_ARCHITECTURE.md`) was itself a threat — a second user's node could
   silently corrupt state. This is resolved as of this handoff, but is a

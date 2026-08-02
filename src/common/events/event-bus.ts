@@ -167,6 +167,36 @@ export interface DisputeAppealedEvent extends DisputeEvent {
   previousArbiterId: string | null
 }
 
+// dispute.evidence_submitted's real payload — RFC-021 D8, first real
+// emitter is dispute.service.ts's submitEvidence() (2026-08-02). The
+// `dispute.evidence_submitted` key itself already existed in the map
+// below with the bare DisputeEvent shape; no emitter ever fired it until
+// this pass — tradeId is added here the same way DisputeOpenedEvent/
+// DisputeResolvedEvent already extend the base shape with it.
+export interface DisputeEvidenceSubmittedEvent extends DisputeEvent {
+  tradeId: string
+}
+
+// dispute.auto_resolution_proposed's real payload — RFC-021 D8. QVAC's
+// recommendation is never final on its own (this file's own header
+// comment on the map below has the "attestor, not mover" framing) — this
+// event exists so a UI/notification layer can surface the contest window
+// to both trade parties, not to trigger any fund movement itself.
+export interface DisputeAutoResolutionProposedEvent extends DisputeEvent {
+  tradeId: string
+  recommendation: 'RELEASE' | 'REFUND'
+  confidence: number
+  deadline: string // ISO 8601
+}
+
+// dispute.auto_resolution_contested's real payload — either trade party
+// rejected QVAC's proposal within the window; the dispute falls back to
+// its already-assigned human arbiter, unchanged.
+export interface DisputeAutoResolutionContestedEvent extends DisputeEvent {
+  tradeId: string
+  contestedBy: string
+}
+
 // arbiter.slashed's real payload — RFC-021 D6, first real emitter is
 // market-arbitration.provider.ts's slash(). Not a DisputeEvent (no
 // single dispute/settlement it's scoped to from the arbiter's own
@@ -304,10 +334,12 @@ export interface SailsEventMap {
 
   // Dispute primitive
   'dispute.opened': DisputeOpenedEvent
-  'dispute.evidence_submitted': DisputeEvent
+  'dispute.evidence_submitted': DisputeEvidenceSubmittedEvent // RFC-021 D8 — first real emitter 2026-08-02
   'dispute.arbitrated': DisputeEvent
   'dispute.resolved': DisputeResolvedEvent
   'dispute.appealed': DisputeAppealedEvent // RFC-021 D6
+  'dispute.auto_resolution_proposed': DisputeAutoResolutionProposedEvent // RFC-021 D8
+  'dispute.auto_resolution_contested': DisputeAutoResolutionContestedEvent // RFC-021 D8
 
   // RFC-021 D6 — MarketArbitrationProvider slashing
   'arbiter.slashed': ArbiterSlashedEvent

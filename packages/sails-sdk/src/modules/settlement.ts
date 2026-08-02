@@ -158,4 +158,27 @@ export class SailsSettlementModule {
   async appealDispute(disputeId: string): Promise<{ dispute: Dispute; appealFeeRequired: string }> {
     return this.transport.post(`/v1/settlement/disputes/${disputeId}/appeal`, undefined, true)
   }
+
+  /**
+   * RFC-021 D8 — requires an active session AND that the caller is a
+   * party to the trade. Attaches more evidence to an already-open
+   * dispute (raiseDispute()'s own initial `evidence` param only covers
+   * what existed at open time). May trigger a QVAC auto-resolution
+   * attempt server-side (config-gated, opt-in per deployment) — this
+   * call itself never returns a ruling, only the updated Dispute row.
+   */
+  async submitDisputeEvidence(disputeId: string, descriptor: { type: string; uri?: string; note?: string }): Promise<Dispute> {
+    return this.transport.post<Dispute>(`/v1/settlement/disputes/${disputeId}/evidence`, descriptor, true)
+  }
+
+  /**
+   * RFC-021 D8 — requires an active session AND that the caller is a
+   * party to the trade. Rejects a proposed automated ruling while the
+   * dispute is `AUTO_PROPOSED` and its contest window hasn't closed,
+   * forcing the dispute back onto its already-assigned human arbiter —
+   * no new arbiter assignment happens as a result of this call.
+   */
+  async contestAutoResolution(disputeId: string): Promise<Dispute> {
+    return this.transport.post<Dispute>(`/v1/settlement/disputes/${disputeId}/contest`, undefined, true)
+  }
 }

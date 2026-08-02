@@ -943,6 +943,48 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.body).message).toMatch(/TRUSTED_ARBITRATORS/)
     })
+
+    // RFC-021 D8 — same underlying getDisputeService() config gate as the
+    // two tests above; submitEvidence()'s/contestAutoResolution()'s own
+    // logic (authorization, status transitions, race protection) is
+    // covered directly in disputeFlow.test.ts. This proves the routes are
+    // real, wired, and requireAuth-gated, not a crash.
+    it('rejects submitting dispute evidence without auth', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/disputes/dispute-1/evidence',
+        payload: { type: 'payment_receipt' },
+      })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('surfaces a clear config error when submitting dispute evidence with no arbitration mode configured (not a crash)', async () => {
+      const token = await authedSession('buyer-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/disputes/dispute-1/evidence',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { type: 'payment_receipt', note: 'bank confirmation' },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).message).toMatch(/TRUSTED_ARBITRATORS/)
+    })
+
+    it('rejects contesting an auto-resolution without auth', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/settlement/disputes/dispute-1/contest' })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('surfaces a clear config error when contesting with no arbitration mode configured (not a crash)', async () => {
+      const token = await authedSession('buyer-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/disputes/dispute-1/contest',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).message).toMatch(/TRUSTED_ARBITRATORS/)
+    })
   })
 
   describe('open-reputation', () => {
