@@ -2,7 +2,7 @@ import type { Message } from '../../types'
 import { formatTime } from '../../lib/format'
 import { RISK_PATTERN_LABEL } from '../../lib/socialEngineering'
 import { InfoTooltip } from '../ui/InfoTooltip'
-import { AlertTriangle, Receipt } from 'lucide-react'
+import { AlertTriangle, Receipt, Lock } from 'lucide-react'
 
 export function ChatMessage({ message, isMine }: { message: Message; isMine: boolean }) {
   if (message.type === 'SYSTEM') {
@@ -30,6 +30,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
 
   const isProof = message.type === 'PAYMENT_PROOF'
   const isMedia = message.type === 'IMAGE' || message.type === 'VIDEO'
+  const isEncrypted = message.type === 'ENCRYPTED_TEXT'
 
   return (
     <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
@@ -38,11 +39,13 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
       )}
       <div
         className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
-          isProof
-            ? 'bg-green-500/10 border border-green-500/25 text-brand-text'
-            : isMine
-              ? 'bg-brand-orange text-white rounded-br-sm'
-              : 'bg-brand-elevated text-brand-text rounded-bl-sm'
+          message.decryptionFailed
+            ? 'bg-brand-elevated border border-dashed border-brand-border text-brand-text-muted italic'
+            : isProof
+              ? 'bg-green-500/10 border border-green-500/25 text-brand-text'
+              : isMine
+                ? 'bg-brand-orange text-white rounded-br-sm'
+                : 'bg-brand-elevated text-brand-text rounded-bl-sm'
         } ${isMedia ? 'p-1.5' : ''}`}
       >
         {isProof && (
@@ -56,7 +59,12 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
         {message.type === 'VIDEO' && message.mediaUrl && (
           <video src={message.mediaUrl} controls className="max-w-[240px] max-h-[240px] rounded-lg" />
         )}
-        {!isMedia && message.content}
+        {!isMedia && (
+          <span className="inline-flex items-start gap-1">
+            {isEncrypted && !message.decryptionFailed && <Lock className="h-3 w-3 mt-0.5 shrink-0 opacity-70" />}
+            <span>{message.content}</span>
+          </span>
+        )}
         {isMedia && message.content && (
           <div className={`text-xs px-1.5 pt-1 ${isMine ? 'text-white/80' : 'text-brand-text-muted'}`}>{message.content}</div>
         )}

@@ -234,7 +234,16 @@ export interface Escrow {
 // -> RISK_WARNING broadcast) — not a UI-only invention. What IS UI-only
 // here is the detection itself: see lib/socialEngineering.ts's own
 // comment for exactly what's simulated vs real.
-export type MessageType = 'TEXT' | 'SYSTEM' | 'PAYMENT_PROOF' | 'IMAGE' | 'VIDEO' | 'RISK_WARNING'
+// ENCRYPTED_TEXT (2026-08-01) — same "free String, no migration needed"
+// pattern as IMAGE/VIDEO above. Set by the sender on the real
+// SEND_MESSAGE payload when @sails/sdk's encryptChatMessage() was used
+// (packages/sails-sdk/src/chat-encryption.ts) instead of a raw string —
+// an explicit sentinel rather than sniffing `content` for JSON shape
+// (a plaintext message that happens to look like `{"ciphertext":...}` —
+// however unlikely — would otherwise be misread as encrypted). Kept on
+// the Message even after a successful decrypt (content is replaced with
+// the real plaintext) so ChatMessage.tsx can still show a lock icon.
+export type MessageType = 'TEXT' | 'SYSTEM' | 'PAYMENT_PROOF' | 'IMAGE' | 'VIDEO' | 'RISK_WARNING' | 'ENCRYPTED_TEXT'
 
 export interface Message {
   id: string
@@ -245,6 +254,10 @@ export interface Message {
   mediaUrl?: string // local blob: URL only in this UI — see ChatWindow's comment
   mediaFileName?: string
   riskPattern?: 'off_channel_migration' | 'payment_instruction_change' // RISK_WARNING only
+  // ENCRYPTED_TEXT only — decryptChatMessage() threw (wrong keypair,
+  // wrong counterparty key, or corrupted data). `content` holds a
+  // user-facing explanation instead of the real plaintext in this case.
+  decryptionFailed?: boolean
   createdAt: string
 }
 
