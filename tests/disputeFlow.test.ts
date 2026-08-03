@@ -14,6 +14,7 @@ const mockTradeFindUnique = jest.fn()
 const mockDisputeCreate = jest.fn()
 const mockDisputeFindUnique = jest.fn()
 const mockDisputeFindMany = jest.fn().mockResolvedValue([])
+const mockDisputeCount = jest.fn().mockResolvedValue(0)
 const mockDisputeUpdate = jest.fn()
 const mockDisputeUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 // RFC-021 D9 (2026-08-02) — applyRuling() now looks up the escrow itself
@@ -34,6 +35,7 @@ jest.mock('../src/common/database', () => ({
       create: (...args: unknown[]) => mockDisputeCreate(...args),
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
       findMany: (...args: unknown[]) => mockDisputeFindMany(...args),
+      count: (...args: unknown[]) => mockDisputeCount(...args),
       update: (...args: unknown[]) => mockDisputeUpdate(...args),
       updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),
     },
@@ -700,5 +702,57 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8)', () => 
 
     expect(result.failed).toEqual([{ disputeId: 'dispute-1', error: expect.stringContaining('no assigned arbiterId') }])
     expect(result.resolved).toEqual(['dispute-2'])
+  })
+})
+
+// UI-audit gap (2026-08-03, sails-ui SLC audit relayed via the parallel UI
+// session) — every dispute action above was real and callable, but the
+// operator/arbiter console had no way to discover a disputeId to call
+// them with. getDispute()/listForArbiter() are the fetch this closes.
+describe('DisputeService — getDispute() / listForArbiter() (UI-audit gap, 2026-08-03)', () => {
+  const service = new DisputeService(new TrustedArbitratorProvider(['arbiter-1']))
+
+  beforeEach(() => jest.clearAllMocks())
+
+  it('getDispute returns the real dispute row for a valid id', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+    const dispute = await service.getDispute('dispute-1')
+    expect(dispute).toEqual({ id: 'dispute-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+  })
+
+  it('getDispute throws NotFoundError for an unknown id', async () => {
+    mockDisputeFindUnique.mockResolvedValue(null)
+    await expect(service.getDispute('nope')).rejects.toThrow(/Dispute/)
+  })
+
+  it('listForArbiter scopes the query to the given arbiterId — never a client-supplied filter', async () => {
+    mockDisputeFindMany.mockResolvedValue([{ id: 'dispute-1', arbiterId: 'arbiter-1' }])
+    mockDisputeCount.mockResolvedValue(1)
+
+    const result = await service.listForArbiter('arbiter-1')
+
+    expect(mockDisputeFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { arbiterId: 'arbiter-1' } })
+    )
+    expect(mockDisputeCount).toHaveBeenCalledWith(expect.objectContaining({ where: { arbiterId: 'arbiter-1' } }))
+    expect(result).toEqual({ disputes: [{ id: 'dispute-1', arbiterId: 'arbiter-1' }], total: 1, hasMore: false })
+  })
+
+  it('clamps pagination the same way trade.service.ts\'s getTrades() does (limit 1-50, default 10)', async () => {
+    mockDisputeFindMany.mockResolvedValue([])
+    mockDisputeCount.mockResolvedValue(0)
+
+    await service.listForArbiter('arbiter-1', { limit: 500, offset: -5 })
+
+    expect(mockDisputeFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 50, skip: 0 }))
+  })
+
+  it('hasMore is true when more rows exist beyond this page', async () => {
+    mockDisputeFindMany.mockResolvedValue([{ id: 'd1' }, { id: 'd2' }])
+    mockDisputeCount.mockResolvedValue(5)
+
+    const result = await service.listForArbiter('arbiter-1', { limit: 2, offset: 0 })
+
+    expect(result.hasMore).toBe(true)
   })
 })

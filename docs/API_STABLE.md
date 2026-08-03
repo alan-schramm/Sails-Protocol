@@ -114,11 +114,14 @@ would just be a synonym, not a real accessibility gain.
 - `initiateRefund(escrowId)` → `EscrowPendingTransaction` *(requires session; mirror of `initiateRelease`)*
 - `submitTransactionSignature(escrowId, signedPsbtBase64)` → `{ complete }` *(requires session)*
 - `getPendingTransaction(escrowId)` → `EscrowPendingTransaction`
+- `listDisputes(pagination?)` → `PaginatedDisputes` *(requires session; UI-audit gap closed 2026-08-03 — always scoped to the caller's own arbiterId, never a client-supplied filter)*
+- `getDispute(disputeId)` → `Dispute` *(public read; UI-audit gap closed 2026-08-03)*
 - `resolveDispute(disputeId, ruling, releaseToAddress?)` → `Dispute` *(requires session + assigned arbiter)*
 - `appealDispute(disputeId)` → `{ dispute, appealFeeRequired }` *(requires session + trade party; RFC-021 D6, market arbitration mode only)*
 - `submitDisputeEvidence(disputeId, descriptor)` → `Dispute` *(requires session + trade party; RFC-021 D8, may trigger a QVAC auto-resolution attempt server-side)*
 - `contestAutoResolution(disputeId)` → `Dispute` *(requires session + trade party; RFC-021 D8, rejects a proposed automated ruling)*
 - `parseSafeGuardBundle(unsignedPsbtBase64)` → `SafeGuardBundle` *(pure parsing helper, no transport call; SAFE_GUARD_EVM only — decodes the Safe Guard deployment info a `create()`/`initiateRelease()` response carries for that escrow type)*
+- `signEscrowSafeUserOp(unsignedPsbtBase64, privateKey)` → `string` *(top-level SDK export, not a `settlement` method — same client-held-key pattern as `signEscrowPsbt()`/`signEscrowArkTx()`; produces a `0x`-prefixed 65-byte ECDSA signature over the bundle's `userOpHash`, ready for `submitTransactionSignature()`; UI-audit gap closed 2026-08-03 — SAFE_GUARD_EVM disputes were previously stuck forever with no way to actually produce this signature client-side)*
 
 ### `reputation` / `trustScore`
 - `get(participantId)` → `ReputationScore`

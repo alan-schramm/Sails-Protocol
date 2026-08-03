@@ -256,6 +256,36 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send({ success: true, data: escrow })
   })
 
+  // UI-audit gap (2026-08-03) — the operator/arbiter console had every
+  // dispute *action* (resolve/appeal/evidence/contest, all below) but no
+  // way to discover a disputeId to call them with. Scoped to the calling
+  // participant's own arbiterId — see dispute.service.ts's
+  // listForArbiter() for why this ignores any client-supplied arbiterId
+  // rather than trusting a query param.
+  app.get('/v1/settlement/disputes', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { limit, offset } = z.object({
+      limit: z.coerce.number().int().optional(),
+      offset: z.coerce.number().int().optional(),
+    }).parse(request.query)
+    const participantId = (request as any).participantId as string
+    const result = await getDisputeService().listForArbiter(participantId, { limit, offset })
+    return reply.code(200).send({ success: true, data: result })
+  })
+
+  // Public read, same as GET /v1/settlement/escrow/:id above — no
+  // participant-scoping on a fetch-by-id (only the write actions below
+  // enforce who may act on a dispute).
+  app.get('/v1/settlement/disputes/:id', {
+    schema: { tags: ['open-settlement'] },
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const dispute = await getDisputeService().getDispute(id)
+    return reply.code(200).send({ success: true, data: dispute })
+  })
+
   // Not yet in API_REFERENCE.md's section 4 table — added alongside this
   // file's own doc update. Only the assigned arbiter may call this
   // (enforced in dispute.service.ts's resolveDispute).

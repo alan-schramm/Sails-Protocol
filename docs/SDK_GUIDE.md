@@ -197,12 +197,21 @@ interface SailsClient {
     initiateRefund(escrowId: string): Promise<EscrowPendingTransaction>   // requires an active session — mirror of initiateRelease
     submitTransactionSignature(escrowId: string, signedPsbtBase64: string): Promise<{ complete: boolean }>   // requires an active session
     getPendingTransaction(escrowId: string): Promise<EscrowPendingTransaction>
+    listDisputes(pagination?: { limit?: number; offset?: number }): Promise<PaginatedDisputes>   // requires an active session — always scoped to the caller's own arbiterId, added 2026-08-03 (UI-audit gap)
+    getDispute(disputeId: string): Promise<Dispute>   // public read, added 2026-08-03 (UI-audit gap)
     resolveDispute(disputeId: string, ruling: 'RELEASE' | 'REFUND' | 'SPLIT', releaseToAddress?: string): Promise<Dispute>   // requires an active session + assigned arbiter
     appealDispute(disputeId: string): Promise<{ dispute: Dispute; appealFeeRequired: string }>   // requires an active session + trade party — RFC-021 D6, market arbitration mode only
     submitDisputeEvidence(disputeId: string, descriptor: { type: string; uri?: string; note?: string }): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, may trigger a QVAC auto-resolution attempt server-side
     contestAutoResolution(disputeId: string): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, rejects a proposed automated ruling
     parseSafeGuardBundle(unsignedPsbtBase64: string): SafeGuardBundle   // pure parsing helper, no network call — SAFE_GUARD_EVM only
   }
+
+  // Top-level exports (not under `settlement` above) — client-held-key
+  // signing helpers, one per escrow type's wire format:
+  generateEscrowKeypair(): EscrowKeypair   // raw secp256k1 keypair — MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM all use this same key format
+  signEscrowPsbt(psbtBase64: string, privateKey: Uint8Array): string   // MULTISIG
+  signEscrowArkTx(bundleJson: string, privateKey: Uint8Array): Promise<string>   // LIGHTNING_HODL
+  signEscrowSafeUserOp(unsignedPsbtBase64: string, privateKey: Uint8Array): string   // SAFE_GUARD_EVM — added 2026-08-03 (UI-audit gap: parseSafeGuardBundle() could read a bundle's userOpHash but nothing could sign it, so a disputed SAFE_GUARD_EVM trade was stuck forever)
 
   // Sails OpenP2P (alias: trades) — advanced/direct use; negotiate()
   // above is the path most applications should use instead. Chat also
