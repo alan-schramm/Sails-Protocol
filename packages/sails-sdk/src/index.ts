@@ -41,7 +41,14 @@ export {
   type LiquidityOfferSummary,
   type DiscoverResult,
 } from './modules/liquidity'
-export { SailsOpenP2PModule, WebSocketChannel, type ChatFrame, type ChatMessageEvent } from './modules/openp2p'
+export {
+  SailsOpenP2PModule,
+  WebSocketChannel,
+  type ChatFrame,
+  type ChatMessageEvent,
+  type WebSocketChannelOptions,
+  type WebSocketConnectionState,
+} from './modules/openp2p'
 export {
   SailsSettlementModule,
   type CreateEscrowInput,

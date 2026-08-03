@@ -62,6 +62,19 @@ export class SailsIdentityModule {
     return { participant, keypair: kp }
   }
 
+  /**
+   * Wallet-backed equivalent of create() — registration only ever needs
+   * the public key (see create()'s own body: `kp.secretKey` is never
+   * touched), so a wallet-based caller shouldn't need to construct a fake
+   * `Ed25519Keypair` with a secret half it doesn't have and never should
+   * hand over, just to call this. Closes the same
+   * PRODUCTION_READINESS_REVIEW.md finding #3 gap authenticateWithWallet()
+   * below closes for the sign-in half of the flow.
+   */
+  async createWithPublicKey(publicKeyHex: string, displayName?: string): Promise<Participant> {
+    return this.transport.post<Participant>('/v1/identity/participants', { publicKey: publicKeyHex, displayName })
+  }
+
   async get(participantId: string): Promise<Participant> {
     return this.transport.get<Participant>(`/v1/identity/participants/${participantId}`)
   }
@@ -88,6 +101,28 @@ export class SailsIdentityModule {
     const { challenge } = await this.challenge(publicKey)
     const signature = sign(challenge, keypair.secretKey)
     const result = await this.transport.post<AuthenticateResult>('/v1/identity/authenticate', { publicKey, signature })
+    this.transport.setSessionToken(result.sessionToken)
+    return result
+  }
+
+  /**
+   * Wallet-backed equivalent of authenticate() — PRODUCTION_READINESS_REVIEW.md's
+   * High-severity finding #3 (client key custody), closed on the SDK side
+   * 2026-08-02. Same exact challenge-response wire protocol and the same
+   * exact byte encoding `sign()` above reproduces (`utf8ToBytes(challenge)`
+   * — see this module's own header comment for why that specific encoding
+   * matters), just delegated to `wallet.signMessage()` instead of computing
+   * the signature here from a raw secretKey this method never receives or
+   * holds. Takes a minimal structural type, not the full `WalletAdapter`
+   * interface from `../wallet-adapter` — every other WalletAdapter
+   * capability (balances, tx signing, broadcast) is irrelevant to signing
+   * in.
+   */
+  async authenticateWithWallet(publicKeyHex: string, wallet: { signMessage(message: Uint8Array): Promise<Uint8Array> }): Promise<AuthenticateResult> {
+    const { challenge } = await this.challenge(publicKeyHex)
+    const signatureBytes = await wallet.signMessage(utf8ToBytes(challenge))
+    const signature = bytesToHex(signatureBytes)
+    const result = await this.transport.post<AuthenticateResult>('/v1/identity/authenticate', { publicKey: publicKeyHex, signature })
     this.transport.setSessionToken(result.sessionToken)
     return result
   }

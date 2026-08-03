@@ -183,6 +183,7 @@ describe('SailsClient — module assembly', () => {
       signTransaction: async (_asset: string, tx: unknown) => tx,
       broadcastTransaction: async () => 'txid',
       getCapabilities: async () => ({ assets: [], fiatRails: [], supportsP2PTrading: true, supportsOnchainSettlement: true }),
+      signMessage: async (message: Uint8Array) => message,
     }
     const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch, wallet })
     expect(client.wallet).toBe(wallet)

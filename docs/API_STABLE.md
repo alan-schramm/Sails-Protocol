@@ -72,10 +72,12 @@ would just be a synonym, not a real accessibility gain.
 
 ### `identity` / `auth`
 - `create(keypair?, displayName?)` → `{ participant, keypair }`
+- `createWithPublicKey(publicKeyHex, displayName?)` → `Participant` *(wallet-backed registration — no keypair object, no secretKey; closes `PRODUCTION_READINESS_REVIEW.md`'s finding #3, 2026-08-02)*
 - `get(participantId)` → `Participant`
 - `me()` → `Participant` *(requires session)*
 - `challenge(publicKeyHex)` → `{ challenge, expiresIn }`
 - `authenticate(keypair)` → `{ participantId, sessionToken }` — also stores the session on the client
+- `authenticateWithWallet(publicKeyHex, wallet)` → `{ participantId, sessionToken }` *(wallet-backed sign-in — `wallet: { signMessage(message: Uint8Array): Promise<Uint8Array> }`, never touches a raw secretKey; same session-storage side effect as `authenticate()`)*
 - Standalone helper: `generateKeypair()` (not a method — a top-level SDK export)
 
 ### `liquidity` / `offers`
@@ -97,7 +99,7 @@ would just be a synonym, not a real accessibility gain.
 - `getTradeByIntent(intentId)` → `Trade`
 - `updateTradeStatus(tradeId, status)` → `Trade` *(requires session)*
 - `getMessages(tradeId)` → `Message[]` *(requires session)*
-- `chat(tradeId)` → `WebSocketChannel` *(requires session)* — `.onMessage()`, `.onEvent()`, `.send()`, `.leave()`, `.close()`
+- `chat(tradeId, options?)` → `WebSocketChannel` *(requires session)* — `.onMessage()`, `.onEvent()`, `.send()`, `.leave()`, `.close()`, `.onConnectionStateChange()`. Real reconnect-with-backoff by default as of 2026-08-02 (`options: WebSocketChannelOptions` — additive, `chat()`'s own signature was never frozen beyond its return type); `WebSocketChannel`'s own constructor changed shape (a socket factory, not a bare `WebSocket`) to make that possible — a disclosed, deliberate exception, not something `chat()` callers ever see
 
 ### `settlement` / `escrow`
 - `create(input)` → `Escrow` *(requires session)*

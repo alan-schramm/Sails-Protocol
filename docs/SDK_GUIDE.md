@@ -144,8 +144,10 @@ interface SailsClient {
   // Sails OpenIdentity (alias: auth)
   identity: {
     create(keypair?: Ed25519Keypair, displayName?: string): Promise<{ participant: Participant; keypair: Ed25519Keypair }>
+    createWithPublicKey(publicKeyHex: string, displayName?: string): Promise<Participant>   // wallet-backed registration — no keypair object, no secretKey (2026-08-02)
     challenge(publicKeyHex: string): Promise<{ challenge: string; expiresIn: number }>
     authenticate(keypair: Ed25519Keypair): Promise<{ participantId: string; sessionToken: string }>
+    authenticateWithWallet(publicKeyHex: string, wallet: { signMessage(message: Uint8Array): Promise<Uint8Array> }): Promise<{ participantId: string; sessionToken: string }>   // wallet-backed sign-in — never touches a raw secretKey (2026-08-02)
     get(participantId: string): Promise<Participant>
     me(): Promise<Participant>   // requires an active session
   }
@@ -210,7 +212,7 @@ interface SailsClient {
     getTrade(tradeId: string): Promise<Trade>
     getTradeByIntent(intentId: string): Promise<Trade>
     updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade>   // requires an active session
-    chat(tradeId: string): WebSocketChannel   // requires an active session
+    chat(tradeId: string, options?: WebSocketChannelOptions): WebSocketChannel   // requires an active session — real reconnect-with-backoff by default (2026-08-02); onConnectionStateChange() reports 'open'/'reconnecting'/'closed'
     getMessages(tradeId: string): Promise<Message[]>   // requires an active session
   }
 
@@ -325,6 +327,12 @@ interface WalletAdapter {
     supportsP2PTrading: boolean
     supportsOnchainSettlement: boolean
   }>
+  // Added 2026-08-02, required — lets identity.authenticateWithWallet()
+  // sign the Ed25519 challenge-response flow without this SDK (or the
+  // page it's running in) ever holding the raw secretKey. Generic on
+  // purpose: works for an Ed25519 identity key, a secp256k1 one, or a
+  // hardware-backed signer — the interface doesn't care which.
+  signMessage(message: Uint8Array): Promise<Uint8Array>
 }
 
 interface ReputationScore {

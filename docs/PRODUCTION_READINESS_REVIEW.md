@@ -3,6 +3,29 @@
 Date: 2026-07-29
 Scope: public-release readiness for the SDK, reference UI, escrow flows, and integration ergonomics.
 
+**Status update, 2026-08-02** — re-verified live against the current code
+before starting new work, not assumed stale: findings #2, #4, #5, #6 below
+were all still exactly as described (nothing in RFC-020/021's protocol-
+logic work since this review touched the SDK transport/UI layers at
+all). Finding #1 (network reliability) is now closed on the SDK side —
+`@sails/sdk`'s `transport.ts` has real per-request timeouts
+(`AbortController`) and exponential-backoff retry for `GET` (never for
+mutating verbs — no idempotency-key mechanism exists server-side to make
+that safe, see `transport.ts`'s own `SailsTransportOptions` comment), and
+`WebSocketChannel` (`modules/openp2p.ts`) now reconnects itself with
+backoff + jitter, re-`JOIN_TRADE`-ing automatically, with a new
+`onConnectionStateChange()` hook. Finding #3 (client key custody) — its SDK-side prerequisite is now
+closed too: `WalletAdapter` previously had no way to authenticate a
+session at all (`identity.authenticate()` needed the raw secretKey
+directly), so migrating `AuthContext.tsx` off `localStorage` was
+structurally impossible, not just undone. `WalletAdapter.signMessage()`
++ `identity.authenticateWithWallet()`/`createWithPublicKey()` now make
+that migration actually buildable. The UI-side migration itself
+(`packages/sails-ui`'s `AuthContext.tsx`/`useEscrowKey.ts`) is a
+different session's own exclusive ownership boundary in this repo's
+current working setup — a concrete handoff spec was given to the project
+owner directly rather than edited here.
+
 ## Executive summary
 
 The repository has moved past “it compiles” and into a much healthier state from a correctness perspective. The most important win is that the core monetary flows now include stronger race protection around escrow transitions, especially in [src/modules/open-settlement/escrow.service.ts](src/modules/open-settlement/escrow.service.ts), where conditional DB claims prevent double-payment-style races before provider calls occur.

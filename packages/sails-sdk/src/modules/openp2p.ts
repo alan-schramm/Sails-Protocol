@@ -37,22 +37,69 @@ export interface ChatMessageEvent {
   timestamp: string
 }
 
+export type WebSocketConnectionState = 'open' | 'reconnecting' | 'closed'
+
+export interface WebSocketChannelOptions {
+  /** Default true — a dropped connection reopens itself with backoff instead of silently dying (PRODUCTION_READINESS_REVIEW.md's High-severity finding #1, closed 2026-08-02). Set false to get the pre-2026-08-02 "dies silently on close" behavior back, if a caller wants to manage this itself. */
+  reconnect?: boolean
+  /** Default 10 — after this many consecutive failed reconnect attempts, gives up and reports 'closed'. Resets to 0 on every successful reconnect. */
+  maxReconnectAttempts?: number
+  /** Default 500ms — first retry delay; doubles each subsequent attempt (capped at maxReconnectDelayMs), with ±20% jitter so many clients reconnecting at once don't all retry in lockstep. */
+  initialReconnectDelayMs?: number
+  /** Default 30000ms. */
+  maxReconnectDelayMs?: number
+}
+
+const DEFAULT_WS_OPTIONS: Required<WebSocketChannelOptions> = {
+  reconnect: true,
+  maxReconnectAttempts: 10,
+  initialReconnectDelayMs: 500,
+  maxReconnectDelayMs: 30_000,
+}
+
 /**
  * Wraps the real WS protocol at `GET /v1/openp2p/chat?token=...`
  * (API_REFERENCE.md section 5). Auto-joins `tradeId`'s room once the
- * socket opens — matches SDK_GUIDE.md section 4's usage example
- * (`chat.onMessage(...)`, `chat.send(...)` with no further JOIN_TRADE
- * plumbing exposed to the caller).
+ * socket opens (including every reconnect, not just the first time) —
+ * matches SDK_GUIDE.md section 4's usage example (`chat.onMessage(...)`,
+ * `chat.send(...)` with no further JOIN_TRADE plumbing exposed to the
+ * caller).
+ *
+ * Real reconnect-with-backoff (PRODUCTION_READINESS_REVIEW.md's
+ * High-severity finding #1 / docs/TODO.md's own "No WebSocket
+ * reconnection logic anywhere in the client stack" entry, closed
+ * 2026-08-02): a real WebSocket can't be reopened once closed, so this
+ * takes a *factory* (`openSocket`) rather than an already-constructed
+ * socket, and calls it again for each reconnect attempt. **Disclosed,
+ * deliberate breaking change to this class's own constructor** (not to
+ * `chat(tradeId)`'s own signature, which is unchanged and still frozen
+ * per docs/API_STABLE.md) — the same kind of justified pre-v1 exception
+ * that doc's own freeze commitment allows; a caller constructing this
+ * directly (rather than via `chat()`) now passes `() => new WebSocket(...)`
+ * instead of a bare instance.
  */
 export class WebSocketChannel {
+  private ws: WebSocket
   private messageHandlers: Array<(msg: ChatMessageEvent) => void> = []
   private eventHandlers: Array<(frame: ChatFrame) => void> = []
+  private connectionStateHandlers: Array<(state: WebSocketConnectionState) => void> = []
+  private readonly options: Required<WebSocketChannelOptions>
+  private reconnectAttempts = 0
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private closedByCaller = false
 
-  constructor(private readonly ws: WebSocket, private readonly tradeId: string) {
-    this.ws.addEventListener('open', () => {
+  constructor(private readonly openSocket: () => WebSocket, private readonly tradeId: string, options: WebSocketChannelOptions = {}) {
+    this.options = { ...DEFAULT_WS_OPTIONS, ...options }
+    this.ws = this.attachSocket(this.openSocket())
+  }
+
+  private attachSocket(ws: WebSocket): WebSocket {
+    ws.addEventListener('open', () => {
+      this.reconnectAttempts = 0
+      this.emitConnectionState('open')
       this.sendFrame('JOIN_TRADE', { tradeId: this.tradeId })
     })
-    this.ws.addEventListener('message', (event: MessageEvent) => {
+    ws.addEventListener('message', (event: MessageEvent) => {
       let frame: ChatFrame
       try {
         frame = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data))
@@ -64,6 +111,38 @@ export class WebSocketChannel {
         for (const handler of this.messageHandlers) handler(frame.payload as ChatMessageEvent)
       }
     })
+    // A real browser WebSocket always follows 'error' with 'close' (the
+    // spec guarantees it) — reconnect scheduling lives entirely in the
+    // 'close' handler below so it only ever runs once per drop, not
+    // twice for the same disconnect.
+    ws.addEventListener('close', () => {
+      if (this.closedByCaller) {
+        this.emitConnectionState('closed')
+        return
+      }
+      this.scheduleReconnect()
+    })
+    return ws
+  }
+
+  private scheduleReconnect(): void {
+    if (!this.options.reconnect || this.reconnectAttempts >= this.options.maxReconnectAttempts) {
+      this.emitConnectionState('closed')
+      return
+    }
+    this.reconnectAttempts += 1
+    this.emitConnectionState('reconnecting')
+    const baseDelay = Math.min(this.options.initialReconnectDelayMs * 2 ** (this.reconnectAttempts - 1), this.options.maxReconnectDelayMs)
+    const jitter = baseDelay * 0.2 * (Math.random() * 2 - 1)
+    const delay = Math.max(0, baseDelay + jitter)
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.ws = this.attachSocket(this.openSocket())
+    }, delay)
+  }
+
+  private emitConnectionState(state: WebSocketConnectionState): void {
+    for (const handler of this.connectionStateHandlers) handler(state)
   }
 
   private sendFrame(type: string, payload: unknown): void {
@@ -80,6 +159,11 @@ export class WebSocketChannel {
     this.eventHandlers.push(handler)
   }
 
+  /** Real connection-state signal (closed 2026-08-02) — 'open' (including after every successful reconnect), 'reconnecting' (a drop just happened, a retry is scheduled), 'closed' (either close() was called, or reconnect gave up after maxReconnectAttempts). Lets a UI show a real "reconectando..." indicator instead of silently going stale. */
+  onConnectionStateChange(handler: (state: WebSocketConnectionState) => void): void {
+    this.connectionStateHandlers.push(handler)
+  }
+
   send(input: { content: string; msgType?: string }): void {
     this.sendFrame('SEND_MESSAGE', { tradeId: this.tradeId, content: input.content, msgType: input.msgType ?? 'TEXT' })
   }
@@ -88,7 +172,13 @@ export class WebSocketChannel {
     this.sendFrame('LEAVE_TRADE', { tradeId: this.tradeId })
   }
 
+  /** Closes for real and disables reconnect — the only way to stop this channel from trying to come back. */
   close(): void {
+    this.closedByCaller = true
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     this.ws.close()
   }
 }
@@ -138,13 +228,22 @@ export class SailsOpenP2PModule {
     return this.transport.get<Message[]>(`/v1/openp2p/chat/${tradeId}/messages`, undefined, true)
   }
 
-  /** Requires an active session (token passed as a WS query param — the real route's own auth shape, distinct from the Bearer header every other authenticated call uses). */
-  chat(tradeId: string): WebSocketChannel {
+  /**
+   * Requires an active session (token passed as a WS query param — the
+   * real route's own auth shape, distinct from the Bearer header every
+   * other authenticated call uses). Real reconnect-with-backoff by
+   * default (closed 2026-08-02, `options` param added — additive, this
+   * method's own signature was never in the frozen inventory beyond its
+   * return type) — the socket factory re-reads the session token fresh
+   * on every reconnect attempt rather than closing over the value
+   * captured here, in case it rotated meanwhile.
+   */
+  chat(tradeId: string, options?: WebSocketChannelOptions): WebSocketChannel {
     const token = this.transport.getSessionToken()
     if (!token) {
       throw new SailsTransportError('openp2p.chat() requires an active session — call identity.authenticate() first.')
     }
-    const ws = this.transport.openWebSocket('/v1/openp2p/chat', { token })
-    return new WebSocketChannel(ws, tradeId)
+    const openSocket = () => this.transport.openWebSocket('/v1/openp2p/chat', { token: this.transport.getSessionToken() ?? token })
+    return new WebSocketChannel(openSocket, tradeId, options)
   }
 }
