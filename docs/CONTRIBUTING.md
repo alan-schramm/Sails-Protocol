@@ -5,6 +5,14 @@
 > that found and fixed real violations (see git history / `TODO.md`
 > "Resolved Items"). They are not stylistic preferences — each one exists
 > because breaking it caused a real bug or a real coupling problem.
+>
+> **This document covers architecture** (where code goes, module
+> boundaries, naming). **`docs/CODE_STYLE.md` (added 2026-08-03) covers
+> voice** — comment style, error handling, testing conventions, the
+> line-level patterns that make this codebase read as one consistent
+> author's work. Read both before contributing, especially if you're a
+> different AI tool joining a repo more than one is already working in —
+> that's exactly the scenario `CODE_STYLE.md` exists to keep coherent.
 
 ---
 
