@@ -110,6 +110,16 @@ export interface PaginatedTrades {
   hasMore: boolean
 }
 
+// GET /v1/settlement/disputes (dispute.service.ts's listForArbiter()) —
+// same shape/pagination convention as PaginatedTrades above, scoped to
+// the calling participant's own arbiterId server-side (never a
+// client-supplied filter — see that method's own doc comment).
+export interface PaginatedDisputes {
+  disputes: Dispute[]
+  total: number
+  hasMore: boolean
+}
+
 export interface Escrow {
   id: string
   tradeId: string

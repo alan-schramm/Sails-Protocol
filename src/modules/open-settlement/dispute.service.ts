@@ -120,6 +120,45 @@ export class DisputeService {
     return updated
   }
 
+  async getDispute(disputeId: string) {
+    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!dispute) throw new NotFoundError('Dispute', disputeId)
+    return dispute
+  }
+
+  // UI-audit gap (2026-08-03, sails-ui SLC audit relayed via the parallel
+  // UI session): every existing read path here was scoped to a trade
+  // party (getDispute by id above still has no participant check, same
+  // "escrow.service.ts's getEscrow() is a public read" precedent), but
+  // nothing let an arbiter discover which disputes are actually assigned
+  // to them — the resolve/appeal/evidence/contest actions above were all
+  // real and callable, they just had no corresponding fetch to find a
+  // disputeId to call them with. This is that fetch: scoped to the
+  // calling participant's own arbiterId only (never an arbitrary
+  // `?arbiterId=` from the query string — same "scoped to whoever is
+  // actually authenticated, not whoever the caller claims to be" rule
+  // trade.service.ts's getTrades()/liquidity.service.ts's getMyOffers()
+  // already follow), so this can't be used to enumerate another
+  // arbiter's caseload.
+  async listForArbiter(arbiterId: string, pagination?: { limit?: number; offset?: number }) {
+    const limit = Math.min(Math.max(pagination?.limit ?? 10, 1), 50)
+    const offset = Math.max(pagination?.offset ?? 0, 0)
+
+    const where = { arbiterId }
+
+    const [disputes, total] = await Promise.all([
+      prisma.dispute.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      prisma.dispute.count({ where }),
+    ])
+
+    return { disputes, total, hasMore: offset + disputes.length < total }
+  }
+
   // Extracted from resolveDispute() (RFC-021 D8, 2026-08-02) so
   // sweepExpiredAutoResolutions() below can reuse the exact same
   // mechanical release/refund + revert-on-failure logic — including the

@@ -151,6 +151,9 @@ export async function main() {
   const sellerSigned = signEscrowPsbt(pending.unsignedPsbtBase64, sellerKeys.privateKey)
   await escrowService.submitTransactionSignature(escrow.id, buyer.id, buyerSigned)
   const result = await escrowService.submitTransactionSignature(escrow.id, seller.id, sellerSigned)
+  if (!result.complete || !result.escrow) {
+    throw new Error(`Esperava a 2ª assinatura completar o release, mas recebi: ${JSON.stringify(result)}`)
+  }
 
   console.log('\n=== Ensaio completo — escrow MULTISIG liberado via 2-de-3 real em testnet ===')
   console.log(`   Escrow status: ${result.escrow.status}`)

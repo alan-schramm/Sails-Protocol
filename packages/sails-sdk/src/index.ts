@@ -58,6 +58,7 @@ export {
 } from './modules/settlement'
 export { generateEscrowKeypair, signEscrowPsbt, type EscrowKeypair } from './modules/escrow-key'
 export { signEscrowArkTx } from './modules/escrow-ark-signing'
+export { signEscrowSafeUserOp } from './modules/escrow-safe-signing'
 export { SailsPeersModule, type StaticTopic } from './modules/peers'
 export { SailsCapabilitiesModule, type RegisterCapabilityInput } from './modules/capabilities'
 export { SailsArbitrationModule, type ArbiterCandidate } from './modules/arbitration'

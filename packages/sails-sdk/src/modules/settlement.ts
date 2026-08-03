@@ -12,7 +12,7 @@
  * exactly like the server route does.
  */
 import type { SailsTransport } from '../transport'
-import type { AssetType, Dispute, DisputeRuling, Escrow, EscrowPendingTransaction, EscrowType } from '../types'
+import type { AssetType, Dispute, DisputeRuling, Escrow, EscrowPendingTransaction, EscrowType, PaginatedDisputes } from '../types'
 
 export interface CreateEscrowInput {
   tradeId: string
@@ -120,6 +120,27 @@ export class SailsSettlementModule {
 
   async get(escrowId: string): Promise<Escrow> {
     return this.transport.get<Escrow>(`/v1/settlement/escrow/${escrowId}`)
+  }
+
+  /**
+   * Requires an active session. UI-audit gap (2026-08-03) — the operator/
+   * arbiter console's resolve/appeal/evidence/contest actions were all
+   * real and callable but had nothing to fetch a disputeId from. Always
+   * scoped server-side to the calling participant's own arbiterId
+   * (dispute.service.ts's listForArbiter()) — there is no way to pass a
+   * different arbiter's id and see their caseload instead of your own.
+   */
+  async listDisputes(pagination?: { limit?: number; offset?: number }): Promise<PaginatedDisputes> {
+    return this.transport.get<PaginatedDisputes>(
+      '/v1/settlement/disputes',
+      { limit: pagination?.limit, offset: pagination?.offset },
+      true
+    )
+  }
+
+  /** Public read, no session required — same as get() above for escrows. */
+  async getDispute(disputeId: string): Promise<Dispute> {
+    return this.transport.get<Dispute>(`/v1/settlement/disputes/${disputeId}`)
   }
 
   /**
