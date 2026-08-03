@@ -23,6 +23,31 @@ export interface SailsTransportOptions {
   baseUrl: string
   fetchImpl?: typeof fetch
   webSocketImpl?: typeof WebSocket
+  // Real network reliability (PRODUCTION_READINESS_REVIEW.md's High-
+  // severity finding #1, closed 2026-08-02) — every request gets a real
+  // timeout via AbortController; GET requests additionally get automatic
+  // exponential-backoff retry. POST/PATCH/DELETE are deliberately NEVER
+  // auto-retried here: this backend has no client-generated idempotency-
+  // key mechanism, so a retried mutating call after a timeout genuinely
+  // cannot be told apart from "the first attempt actually succeeded
+  // server-side, this is now a duplicate" (the exact risk that review
+  // called out) — silently retrying those would trade a visible timeout
+  // error for an invisible double-submission, a worse failure mode.
+  // Callers get a real timeout so they don't hang forever either way.
+  timeoutMs?: number       // default 15000
+  maxRetries?: number      // default 2 — GET only
+  retryDelayMs?: number    // base delay for exponential backoff (doubles each attempt), default 300
+}
+
+// 502/503/504 are the transient, infrastructure-level failures worth
+// retrying (bad gateway / unavailable / timeout at a proxy/LB) — a real
+// 4xx or an ordinary 500 means the request was understood and rejected
+// (or the server errored on that specific input), and retrying it
+// identically will not change the outcome.
+const RETRYABLE_STATUS_CODES = new Set([502, 503, 504])
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export interface SailsApiEnvelope<T> {
@@ -35,9 +60,15 @@ export class SailsTransport {
   private readonly baseUrl: string
   private readonly fetchImpl: typeof fetch
   private readonly webSocketImpl: typeof WebSocket | undefined
+  private readonly timeoutMs: number
+  private readonly maxRetries: number
+  private readonly retryDelayMs: number
 
   constructor(options: SailsTransportOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '')
+    this.timeoutMs = options.timeoutMs ?? 15_000
+    this.maxRetries = options.maxRetries ?? 2
+    this.retryDelayMs = options.retryDelayMs ?? 300
     // Falls back to the global fetch — present in every modern browser
     // and Node 18+ — rather than bundling a polyfill this package
     // doesn't need in either target environment. Bound to globalThis,
@@ -104,31 +135,68 @@ export class SailsTransport {
       headers['authorization'] = `Bearer ${this.sessionToken}`
     }
 
-    let response: Response
-    try {
-      response = await this.fetchImpl(this.url(fullPath), {
-        method,
-        headers,
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-      })
-    } catch (err) {
-      throw new SailsTransportError(
-        `Network request failed: ${method} ${fullPath} — ${err instanceof Error ? err.message : String(err)}`
-      )
+    // GET is the only verb retried automatically — see SailsTransportOptions's
+    // own comment for why POST/PATCH/DELETE aren't (no idempotency-key
+    // mechanism on this backend to tell "retry" apart from "duplicate").
+    const maxAttempts = method === 'GET' ? this.maxRetries + 1 : 1
+
+    let lastError: unknown
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        // Exponential backoff with jitter (±20%) — avoids every client
+        // retrying in lockstep against a server that's already struggling.
+        const baseDelay = this.retryDelayMs * 2 ** (attempt - 1)
+        const jitter = baseDelay * 0.2 * (Math.random() * 2 - 1)
+        await sleep(Math.max(0, baseDelay + jitter))
+      }
+
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined
+      const timer = controller ? setTimeout(() => controller.abort(), this.timeoutMs) : undefined
+
+      let response: Response
+      try {
+        response = await this.fetchImpl(this.url(fullPath), {
+          method,
+          headers,
+          body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+          signal: controller?.signal,
+        })
+      } catch (err) {
+        if (timer) clearTimeout(timer)
+        const timedOut = controller?.signal.aborted
+        lastError = new SailsTransportError(
+          timedOut
+            ? `Request timed out after ${this.timeoutMs}ms: ${method} ${fullPath}`
+            : `Network request failed: ${method} ${fullPath} — ${err instanceof Error ? err.message : String(err)}`
+        )
+        if (attempt < maxAttempts - 1) continue
+        throw lastError
+      }
+      if (timer) clearTimeout(timer)
+
+      if (!response.ok && RETRYABLE_STATUS_CODES.has(response.status) && attempt < maxAttempts - 1) {
+        lastError = new SailsTransportError(`${method} ${fullPath} returned a retryable status ${response.status}`)
+        continue
+      }
+
+      let json: unknown
+      try {
+        json = await response.json()
+      } catch {
+        throw new SailsTransportError(`${method} ${fullPath} returned a non-JSON response (status ${response.status})`)
+      }
+
+      if (!response.ok || (json as { success?: boolean }).success === false) {
+        throw errorFromResponseBody(json as SailsErrorResponseBody)
+      }
+
+      return (json as SailsApiEnvelope<T>).data
     }
 
-    let json: unknown
-    try {
-      json = await response.json()
-    } catch {
-      throw new SailsTransportError(`${method} ${fullPath} returned a non-JSON response (status ${response.status})`)
-    }
-
-    if (!response.ok || (json as { success?: boolean }).success === false) {
-      throw errorFromResponseBody(json as SailsErrorResponseBody)
-    }
-
-    return (json as SailsApiEnvelope<T>).data
+    // Unreachable in practice (the loop above always returns or throws on
+    // its final attempt) — satisfies the compiler's control-flow analysis
+    // without an `as never`/non-null assertion.
+    throw lastError instanceof Error ? lastError : new SailsTransportError(`${method} ${fullPath} failed after ${maxAttempts} attempt(s)`)
   }
 
   get<T>(path: string, query?: Record<string, string | number | undefined>, auth = false): Promise<T> {

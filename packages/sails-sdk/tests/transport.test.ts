@@ -99,10 +99,105 @@ describe('SailsTransport', () => {
     await expect(transport.get('/health')).rejects.toThrow(SailsTransportError)
   })
 
-  it('throws SailsTransportError when the network request itself fails', async () => {
+  it('throws SailsTransportError when the network request itself fails (no retry configured here — see the dedicated retry describe block below)', async () => {
     const fetchImpl = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'))
-    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, maxRetries: 0 })
 
     await expect(transport.get('/health')).rejects.toThrow(SailsTransportError)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})
+
+// PRODUCTION_READINESS_REVIEW.md's High-severity finding #1, closed
+// 2026-08-02 — real timeout (AbortController) on every request, real
+// exponential-backoff retry for GET only. retryDelayMs is set tiny in
+// every test below so these stay fast — the backoff math itself doesn't
+// depend on the delay's magnitude, only on the attempt count.
+describe('SailsTransport — network reliability (timeout + retry, RFC PRODUCTION_READINESS_REVIEW.md)', () => {
+  it('retries a GET on network failure up to maxRetries, then succeeds', async () => {
+    const fetchImpl = jest.fn()
+      .mockRejectedValueOnce(new Error('ECONNRESET'))
+      .mockRejectedValueOnce(new Error('ECONNRESET'))
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true, data: { ok: true } }) })
+    const transport = new SailsTransport({
+      baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, maxRetries: 2, retryDelayMs: 1,
+    })
+
+    const result = await transport.get('/health')
+
+    expect(result).toEqual({ ok: true })
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+
+  it('gives up after maxRetries and throws the last error', async () => {
+    const fetchImpl = jest.fn().mockRejectedValue(new Error('ECONNRESET'))
+    const transport = new SailsTransport({
+      baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, maxRetries: 2, retryDelayMs: 1,
+    })
+
+    await expect(transport.get('/health')).rejects.toThrow(SailsTransportError)
+    expect(fetchImpl).toHaveBeenCalledTimes(3) // 1 initial + 2 retries
+  })
+
+  it('retries a GET on a retryable 503 status, then succeeds', async () => {
+    const fetchImpl = jest.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ success: false, error: 'UNAVAILABLE' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true, data: { ok: true } }) })
+    const transport = new SailsTransport({
+      baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, maxRetries: 2, retryDelayMs: 1,
+    })
+
+    const result = await transport.get('/health')
+
+    expect(result).toEqual({ ok: true })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a non-retryable 4xx status (e.g. 404) — retrying identical input changes nothing', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue({
+      ok: false, status: 404, json: async () => ({ success: false, error: 'NOT_FOUND', message: 'nope', details: [] }),
+    })
+    const transport = new SailsTransport({
+      baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, maxRetries: 2, retryDelayMs: 1,
+    })
+
+    await expect(transport.get('/health')).rejects.toThrow()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('never retries a mutating request (POST) on network failure — no idempotency-key mechanism to make that safe', async () => {
+    const fetchImpl = jest.fn().mockRejectedValue(new Error('ECONNRESET'))
+    const transport = new SailsTransport({
+      baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, maxRetries: 2, retryDelayMs: 1,
+    })
+
+    await expect(transport.post('/v1/settlement/escrow', { foo: 'bar' })).rejects.toThrow(SailsTransportError)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('never retries a mutating request (POST) on a retryable 503 either', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ success: false, error: 'UNAVAILABLE' }) })
+    const transport = new SailsTransport({
+      baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, maxRetries: 2, retryDelayMs: 1,
+    })
+
+    await expect(transport.post('/v1/settlement/escrow', {})).rejects.toThrow()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('aborts and throws a clear timeout error when a request hangs past timeoutMs', async () => {
+    // fetchImpl that never resolves on its own — only settles if its
+    // AbortSignal actually fires, proving the real AbortController wiring
+    // (not just a Promise.race timer racing an unrelated fetch).
+    const fetchImpl = jest.fn().mockImplementation((_url: string, init: { signal?: AbortSignal }) => {
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+    })
+    const transport = new SailsTransport({
+      baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, timeoutMs: 20, maxRetries: 0,
+    })
+
+    await expect(transport.get('/health')).rejects.toThrow(/timed out after 20ms/)
   })
 })

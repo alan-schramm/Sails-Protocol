@@ -30,4 +30,18 @@ export interface WalletAdapter {
   signTransaction(asset: string, tx: unknown): Promise<unknown>
   broadcastTransaction(asset: string, signedTx: unknown): Promise<string>
   getCapabilities(): Promise<WalletCapabilitiesDeclaration>
+  // PRODUCTION_READINESS_REVIEW.md's High-severity finding #3 (client key
+  // custody), closed on the SDK side 2026-08-02 — before this, nothing in
+  // WalletAdapter could authenticate a session at all: `identity.
+  // authenticate()` needed the raw Ed25519 secretKey directly (this
+  // interface's own header already disclosed that the reference UI's
+  // localStorage-backed keypair was a demo shortcut, not a template). A
+  // real wallet signs an opaque message with whatever key it holds
+  // internally (Ed25519, secp256k1, hardware-backed, doesn't matter to
+  // this interface) and returns just the signature bytes — the caller
+  // (identity.ts's new `authenticateWithWallet()`) never needs to see,
+  // hold, or store the private key itself. Required, not optional: a
+  // wallet that can't prove identity can't do anything else useful in
+  // this protocol's trust model either.
+  signMessage(message: Uint8Array): Promise<Uint8Array>
 }

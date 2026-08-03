@@ -34,6 +34,13 @@ export interface SailsClientOptions {
   // capabilities.registerFromWallet() and is where a wallet's own
   // signing stack (WDK-based or otherwise) plugs in going forward.
   wallet?: WalletAdapter
+  // Network reliability (PRODUCTION_READINESS_REVIEW.md's High-severity
+  // finding #1, closed 2026-08-02) — passed straight through to
+  // SailsTransport; see that class's own SailsTransportOptions doc for
+  // what each one does and why only GET is auto-retried.
+  timeoutMs?: number
+  maxRetries?: number
+  retryDelayMs?: number
 }
 
 export class SailsClient {
@@ -100,6 +107,9 @@ export class SailsClient {
     const transportOptions: SailsTransportOptions = { baseUrl: options.baseUrl }
     if (options.fetchImpl) transportOptions.fetchImpl = options.fetchImpl
     if (options.webSocketImpl) transportOptions.webSocketImpl = options.webSocketImpl
+    if (options.timeoutMs !== undefined) transportOptions.timeoutMs = options.timeoutMs
+    if (options.maxRetries !== undefined) transportOptions.maxRetries = options.maxRetries
+    if (options.retryDelayMs !== undefined) transportOptions.retryDelayMs = options.retryDelayMs
     this.transport = new SailsTransport(transportOptions)
 
     this.identity = new SailsIdentityModule(this.transport)

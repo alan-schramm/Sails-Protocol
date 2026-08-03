@@ -11,6 +11,7 @@
  *   signTransaction(asset: string, tx: unknown): Promise<unknown>
  *   broadcastTransaction(asset: string, signedTx: unknown): Promise<string>
  *   getCapabilities(): Promise<WalletCapabilitiesDeclaration>
+ *   signMessage(message: Uint8Array): Promise<Uint8Array>  // added 2026-08-02
  * }
  * ```
  *
@@ -71,6 +72,20 @@ export class MockWalletAdapter implements WalletAdapter {
 
   async signTransaction(asset: string, tx: unknown): Promise<unknown> {
     return { mock: true as const, asset, tx, signedAt: new Date().toISOString() }
+  }
+
+  // 2026-08-02 — WalletAdapter's own new required method (see that
+  // interface's doc comment). A fake, deterministic-per-instance "signature"
+  // like every other value this mock returns — never anything resembling
+  // a real cryptographic signature, so a real server would reject it; this
+  // exists to show the wiring shape (identity.authenticateWithWallet()
+  // calling through to here), not to actually authenticate against a real
+  // backend.
+  async signMessage(message: Uint8Array): Promise<Uint8Array> {
+    const fakeSig = new Uint8Array(64)
+    fakeSig[0] = this.seed % 256
+    fakeSig.set(message.slice(0, Math.min(message.length, 63)), 1)
+    return fakeSig
   }
 
   async broadcastTransaction(_asset: string, _signedTx: unknown): Promise<string> {

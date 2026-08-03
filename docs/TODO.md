@@ -1975,18 +1975,20 @@ weakened).
 
 ### Found, not fixed — registered precisely, per the "no new features" scope
 
-- **No WebSocket reconnection logic anywhere in the client stack.**
-  `@sails/sdk`'s `WebSocketChannel` (`openp2p.ts`) has no reconnect-on-
-  `close`/`error` handling at all, and `Trade.tsx` never listens for
-  either event either — a dropped connection (network blip, server
-  restart, laptop sleep) silently stops chat/live-update delivery with no
-  recovery and no user-visible signal. Confirmed by reading both files
-  directly, not assumed. Not fixed here — building real reconnect-with-
-  backoff logic is new client functionality, not a fix to something that
-  already existed, out of this pass's explicit scope. Next step if
-  prioritized: exponential-backoff reconnect in `WebSocketChannel` itself
-  (so every caller gets it for free), re-`JOIN_TRADE` on reconnect, and a
-  visible "reconectando..." state in `Trade.tsx`.
+- **No WebSocket reconnection logic anywhere in the client stack — ✅ closed on the SDK side, 2026-08-02.**
+  `@sails/sdk`'s `WebSocketChannel` (`openp2p.ts`) now takes a socket
+  factory instead of a bare `WebSocket` (a closed real socket can never
+  be reopened) and reconnects itself with exponential backoff + jitter on
+  an unexpected `close`, re-`JOIN_TRADE`-ing on every reconnect, capped at
+  `maxReconnectAttempts` (default 10) before giving up; a new
+  `onConnectionStateChange()` hook reports `'open'`/`'reconnecting'`/
+  `'closed'`. `chat(tradeId, options?)` wires it through automatically —
+  every caller gets it for free with zero code changes, exactly this
+  entry's own "next step" plan. **Still open: `Trade.tsx` itself** (in
+  `packages/sails-ui`, a separate session's own ownership boundary this
+  pass didn't cross) doesn't yet call `onConnectionStateChange()` to show
+  a real "reconectando..." indicator — the SDK-side capability now exists
+  for it to use, but the UI wiring is a separate, still-open follow-up.
 - **`trade.service.ts`'s `updateStatus()` and `capability-registry.ts`'s
   `revoke()` have the same read-check-write shape as the escrow/intent
   bugs above, but lower severity** — neither guards a real fund movement

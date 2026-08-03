@@ -68,6 +68,7 @@ describe('SailsCapabilitiesModule', () => {
       getBalance: async () => '0',
       signTransaction: async (_asset, tx) => tx,
       broadcastTransaction: async () => 'txid',
+      signMessage: async (message) => message,
       getCapabilities: async () => ({
         assets: ['USDT', 'BTC'],
         fiatRails: ['PIX'],
@@ -94,6 +95,7 @@ describe('SailsCapabilitiesModule', () => {
       getBalance: async () => '0',
       signTransaction: async (_asset, tx) => tx,
       broadcastTransaction: async () => 'txid',
+      signMessage: async (message) => message,
       getCapabilities: async () => ({
         assets: ['USDT'],
         fiatRails: ['PIX'],

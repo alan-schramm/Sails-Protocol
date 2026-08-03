@@ -260,6 +260,7 @@ describe('SailsOpenP2PModule', () => {
 // uses (addEventListener/send/close) — no real socket/network involved.
 class FakeSocket {
   sent: string[] = []
+  closed = false
   private listeners: Record<string, Array<(e: any) => void>> = {}
   addEventListener(type: string, handler: (e: any) => void) {
     (this.listeners[type] ??= []).push(handler)
@@ -267,19 +268,24 @@ class FakeSocket {
   send(data: string) {
     this.sent.push(data)
   }
-  close() {}
+  close() {
+    this.closed = true
+  }
   emitOpen() {
     (this.listeners['open'] ?? []).forEach((h) => h({}))
   }
   emitMessage(data: unknown) {
     (this.listeners['message'] ?? []).forEach((h) => h({ data: JSON.stringify(data) }))
   }
+  emitClose() {
+    (this.listeners['close'] ?? []).forEach((h) => h({}))
+  }
 }
 
 describe('WebSocketChannel', () => {
   it('auto-joins the trade room as soon as the socket opens', () => {
     const socket = new FakeSocket()
-    new WebSocketChannel(socket as unknown as WebSocket, 'trade-1')
+    new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1')
 
     socket.emitOpen()
 
@@ -288,7 +294,7 @@ describe('WebSocketChannel', () => {
 
   it('send() wraps content in a SEND_MESSAGE frame scoped to the channel\'s tradeId', () => {
     const socket = new FakeSocket()
-    const channel = new WebSocketChannel(socket as unknown as WebSocket, 'trade-1')
+    const channel = new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1')
 
     channel.send({ content: 'Sending payment now' })
 
@@ -300,7 +306,7 @@ describe('WebSocketChannel', () => {
 
   it('onMessage() fires only for NEW_MESSAGE frames, onEvent() fires for every frame', () => {
     const socket = new FakeSocket()
-    const channel = new WebSocketChannel(socket as unknown as WebSocket, 'trade-1')
+    const channel = new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1')
     const messages: unknown[] = []
     const events: unknown[] = []
     channel.onMessage((m) => messages.push(m))
@@ -311,5 +317,126 @@ describe('WebSocketChannel', () => {
 
     expect(messages).toEqual([{ id: 'msg-1', content: 'hi' }])
     expect(events).toHaveLength(2)
+  })
+})
+
+// PRODUCTION_READINESS_REVIEW.md's High-severity finding #1 / docs/TODO.md's
+// "No WebSocket reconnection logic anywhere in the client stack" entry,
+// closed 2026-08-02. The factory (`() => socket`) below returns a NEW
+// FakeSocket each call, exactly like a real WebSocket reconnect needs to
+// (a closed real socket can never be reopened) — reconnectDelayMs kept
+// tiny in every test so these stay fast.
+describe('WebSocketChannel — reconnect with backoff', () => {
+  it('reopens via the factory and re-JOINs the trade after the socket closes unexpectedly', async () => {
+    const sockets: FakeSocket[] = []
+    const channel = new WebSocketChannel(
+      () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s as unknown as WebSocket
+      },
+      'trade-1',
+      { initialReconnectDelayMs: 1, maxReconnectDelayMs: 2 }
+    )
+    sockets[0].emitOpen()
+    expect(sockets).toHaveLength(1)
+
+    sockets[0].emitClose() // unexpected drop, not a close() call
+    await new Promise((r) => setTimeout(r, 20)) // let the scheduled reconnect fire
+
+    expect(sockets).toHaveLength(2) // the factory was called again
+    sockets[1].emitOpen()
+    expect(JSON.parse(sockets[1].sent[0])).toEqual({ type: 'JOIN_TRADE', payload: { tradeId: 'trade-1' } })
+  })
+
+  it('does not reconnect after close() — the caller asked it to stop', async () => {
+    const sockets: FakeSocket[] = []
+    const channel = new WebSocketChannel(
+      () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s as unknown as WebSocket
+      },
+      'trade-1',
+      { initialReconnectDelayMs: 1 }
+    )
+    sockets[0].emitOpen()
+
+    channel.close()
+    sockets[0].emitClose()
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(sockets).toHaveLength(1) // no new socket opened
+    expect(sockets[0].closed).toBe(true)
+  })
+
+  it('gives up after maxReconnectAttempts and reports connection state closed', async () => {
+    const sockets: FakeSocket[] = []
+    const states: string[] = []
+    const channel = new WebSocketChannel(
+      () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s as unknown as WebSocket
+      },
+      'trade-1',
+      { initialReconnectDelayMs: 1, maxReconnectDelayMs: 1, maxReconnectAttempts: 2 }
+    )
+    channel.onConnectionStateChange((s) => states.push(s))
+
+    // Every reconnected socket immediately closes again — never reaches 'open'.
+    for (let i = 0; i < 5 && states[states.length - 1] !== 'closed'; i++) {
+      sockets[sockets.length - 1].emitClose()
+      await new Promise((r) => setTimeout(r, 10))
+    }
+
+    expect(sockets).toHaveLength(3) // 1 initial + 2 retries, then gives up
+    expect(states).toEqual(['reconnecting', 'reconnecting', 'closed'])
+  })
+
+  it('reconnect: false disables reconnection entirely — same behavior as before this pass', async () => {
+    const sockets: FakeSocket[] = []
+    const states: string[] = []
+    const channel = new WebSocketChannel(
+      () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s as unknown as WebSocket
+      },
+      'trade-1',
+      { reconnect: false }
+    )
+    channel.onConnectionStateChange((s) => states.push(s))
+
+    sockets[0].emitClose()
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(sockets).toHaveLength(1)
+    expect(states).toEqual(['closed'])
+  })
+
+  it('resets the reconnect-attempt counter after a successful reconnect', async () => {
+    const sockets: FakeSocket[] = []
+    const states: string[] = []
+    new WebSocketChannel(
+      () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s as unknown as WebSocket
+      },
+      'trade-1',
+      { initialReconnectDelayMs: 1, maxReconnectDelayMs: 1, maxReconnectAttempts: 1 }
+    ).onConnectionStateChange((s) => states.push(s))
+
+    sockets[0].emitClose() // attempt 1 of 1
+    await new Promise((r) => setTimeout(r, 10))
+    expect(sockets).toHaveLength(2)
+    sockets[1].emitOpen() // succeeds — resets the counter back to 0
+
+    sockets[1].emitClose() // a second, independent drop — should get a fresh budget, not "already used up"
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(sockets).toHaveLength(3)
+    expect(states.filter((s) => s === 'closed')).toHaveLength(0)
   })
 })
