@@ -1,133 +1,270 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
-import { MOCK_DISPUTES } from '../../data/mock'
+import { useAuth } from '../../context/AuthContext'
+import { sailsClient } from '../../lib/sailsClient'
+import type { Dispute, DisputeRuling, Escrow, EscrowType } from '@sails/sdk'
 import { AssetBadge } from '../../components/ui/StatusBadges'
 import { formatAmount, formatDateTime } from '../../lib/format'
-import type { Dispute } from '../../types'
 import { Button } from '../../components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../../components/ui/sheet'
-import { Swords, ArrowRight, Bot, ShieldCheck, ShieldX } from 'lucide-react'
+import { ArrowRight, Bot, ShieldCheck, ShieldX, Scissors } from 'lucide-react'
 
 const AUTO_RULING_LABEL: Record<string, string> = { RELEASE: 'liberar para o comprador', REFUND: 'reembolsar o vendedor', SPLIT: 'dividir entre as partes' }
 
+// Same disclosed-gap demo payout addresses Trade.tsx's own DEMO_RELEASE_*
+// constants use (no real per-user payout address onboarding yet in this
+// reference implementation) — duplicated here rather than imported since
+// this is a distinct, arbiter-triggered resolution path, not the buyer/
+// seller-triggered one Trade.tsx wires.
+const DEMO_ADDR: Record<EscrowType, string> = {
+  MULTISIG: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
+  LIGHTNING_HODL: '0014' + '00'.repeat(20),
+  SAFE_GUARD_EVM: '0x000000000000000000000000000000000000dead',
+  WDK_USDT_EVM: '0x000000000000000000000000000000000000dead',
+  LIQUID_COVENANT: 'demo-buyer-payout-address',
+  MOCK: 'demo-buyer-payout-address',
+}
+
+// RFC-021 D9 — SPLIT only works for these three; SAFE_GUARD_EVM's
+// immutable Guard contract and LIGHTNING_HODL's fixed-leaf VtxoScript
+// each can't represent a partial payout (settlement.ts's own
+// resolveDispute() doc comment has the full per-provider reasoning).
+const SPLIT_SUPPORTED: ReadonlySet<EscrowType> = new Set(['MOCK', 'WDK_USDT_EVM', 'MULTISIG'])
+
+// MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM all use client-held keys — a
+// RELEASE/SPLIT ruling here starts a signature round (escrow.service.ts's
+// initiateRelease(), the same one Trade.tsx's own handleReleaseFunds()
+// already triggers on the happy path) rather than moving funds
+// immediately, so the toast says so instead of implying it's instant.
+const SIGNATURE_COLLECTION_TYPES: ReadonlySet<EscrowType> = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
+
+interface Row {
+  dispute: Dispute
+  escrow: Escrow | null // null if this specific escrow fetch failed — row still shows, just without asset/amount/type-aware actions
+}
+
 export function Disputes() {
-  const [disputes, setDisputes] = useState(MOCK_DISPUTES)
-  const [selected, setSelected] = useState<Dispute | null>(null)
+  const { user, loading: authLoading } = useAuth()
+  const [rows, setRows] = useState<Row[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [acting, setActing] = useState(false)
 
-  const resolve = (id: string, ruling: 'RELEASE' | 'REFUND') => {
-    // TODO: real POST /v1/settlement/disputes/:id/resolve
-    // (dispute.service.ts's resolveDispute() — only the assigned
-    // arbiter, TRUSTED_ARBITRATORS-configured, may call this for real)
-    setDisputes((prev) => prev.map((d) => (d.id === id ? { ...d, status: 'RESOLVED' } : d)))
-    toast.success(ruling === 'RELEASE' ? 'Resolvido a favor do comprador' : 'Resolvido a favor do vendedor')
-    setSelected(null)
-  }
-
-  // RFC-021 D8 — QVAC-assisted first-pass resolution. Accepting just
-  // applies the recommendation now instead of waiting for
-  // autoResolutionDeadline to pass uncontested (sweepExpiredAutoResolutions()'s
-  // real job); SPLIT has no dedicated UI action yet in this reference
-  // page (resolve() itself only models RELEASE/REFUND), same disclosed
-  // gap as everywhere else this page is still mocked.
-  const acceptAutoResolution = (d: Dispute) => {
-    if (d.autoResolutionRecommendation === 'SPLIT') {
-      toast.error('Divisão parcial (SPLIT) ainda não tem ação dedicada nesta tela de referência')
+  // Real GET /v1/settlement/disputes (2026-08-03, closes the exact gap
+  // this page was blocked on: every resolve/appeal/evidence/contest
+  // action was already real, but nothing could discover a disputeId to
+  // call them with). Always scoped server-side to the caller's own
+  // arbiterId — there is no "view another arbiter's caseload" here, by
+  // design (same doc comment as the SDK's own listDisputes()).
+  const load = () => {
+    if (!user) {
+      setLoading(false)
       return
     }
-    if (d.autoResolutionRecommendation) resolve(d.id, d.autoResolutionRecommendation)
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    sailsClient.settlement
+      .listDisputes({ limit: 50 })
+      .then(async (page) => {
+        if (cancelled) return
+        // One extra settlement.get() per dispute — needed functionally,
+        // not just cosmetically: resolveDispute()'s RELEASE/SPLIT rulings
+        // need a payout address in the right format for this specific
+        // escrow.type (bech32/script-hex/EVM-hex/arbitrary), so the type
+        // has to be known before a ruling button can even be built.
+        const withEscrow = await Promise.all(
+          page.disputes.map(async (dispute): Promise<Row> => {
+            const escrow = await sailsClient.settlement.get(dispute.escrowId).catch(() => null)
+            return { dispute, escrow }
+          })
+        )
+        if (!cancelled) setRows(withEscrow)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Falha ao carregar disputas')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }
 
-  // TODO: real POST /v1/settlement/disputes/:id/contest-auto-resolution
-  // (dispute.service.ts's contestAutoResolution() — clears the four
-  // autoResolution* fields server-side and reverts status for real
-  // human review, same shape mirrored here client-side).
-  const contestAutoResolution = (id: string) => {
-    setDisputes((prev) => prev.map((d) => (d.id === id ? {
-      ...d, status: 'EVIDENCE_SUBMITTED',
-      autoResolutionRecommendation: null, autoResolutionConfidence: null,
-      autoResolutionReasoning: null, autoResolutionDeadline: null,
-    } : d)))
-    toast('Recomendação automática contestada — disputa voltou para revisão humana')
-    setSelected(null)
+  useEffect(load, [user])
+
+  const selected = rows.find((r) => r.dispute.id === selectedId) ?? null
+
+  const resolve = async (row: Row, ruling: DisputeRuling) => {
+    if (!row.escrow) {
+      toast.error('O escrow desta disputa não pôde ser carregado — tente novamente')
+      return
+    }
+    const addr = DEMO_ADDR[row.escrow.type]
+    const needsSignature = SIGNATURE_COLLECTION_TYPES.has(row.escrow.type)
+    setActing(true)
+    try {
+      if (ruling === 'RELEASE') {
+        await sailsClient.settlement.resolveDispute(row.dispute.id, 'RELEASE', addr)
+        toast.success(needsSignature ? 'Resolvido a favor do comprador — aguardando assinatura pra liberar os fundos' : 'Resolvido a favor do comprador')
+      } else if (ruling === 'REFUND') {
+        await sailsClient.settlement.resolveDispute(row.dispute.id, 'REFUND')
+        toast.success('Resolvido a favor do vendedor')
+      } else {
+        await sailsClient.settlement.resolveDispute(row.dispute.id, 'SPLIT', addr, addr, 5000)
+        toast.success(needsSignature ? 'Dividido 50/50 — aguardando assinatura pra liberar os fundos' : 'Dividido 50/50 entre comprador e vendedor')
+      }
+      setSelectedId(null)
+      load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao resolver disputa')
+    } finally {
+      setActing(false)
+    }
   }
+
+  // RFC-021 D8 — accepting just applies the recommendation now instead
+  // of waiting for autoResolutionDeadline to pass uncontested
+  // (sweepExpiredAutoResolutions()'s own job).
+  const acceptAutoResolution = (row: Row) => {
+    if (row.dispute.autoResolutionRecommendation) resolve(row, row.dispute.autoResolutionRecommendation)
+  }
+
+  const contestAutoResolution = async (row: Row) => {
+    setActing(true)
+    try {
+      await sailsClient.settlement.contestAutoResolution(row.dispute.id)
+      toast('Recomendação automática contestada — disputa voltou para revisão humana')
+      setSelectedId(null)
+      load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao contestar')
+    } finally {
+      setActing(false)
+    }
+  }
+
+  if (authLoading || loading) {
+    return <div className="text-center py-16 text-brand-text-muted">Carregando disputas...</div>
+  }
+
+  if (!user) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-brand-text-secondary">Conecte sua carteira para ver disputas atribuídas a você.</p>
+        <Link to="/login" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Conectar</Link>
+      </div>
+    )
+  }
+
+  if (error) {
+    return <p className="text-center text-red-700 py-16">{error}</p>
+  }
+
+  const openCount = rows.filter((r) => r.dispute.status !== 'RESOLVED').length
 
   return (
     <div>
       <div className="flex items-center gap-2">
         <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Disputas</h1>
-        <span className="bg-red-500/10 text-red-700 text-xs font-bold rounded-full px-2 py-0.5">
-          {disputes.filter((d) => d.status !== 'RESOLVED').length}
-        </span>
+        {openCount > 0 && (
+          <span className="bg-red-500/10 text-red-700 text-xs font-bold rounded-full px-2 py-0.5">{openCount}</span>
+        )}
       </div>
 
-      <div className="mt-4 space-y-3">
-        {disputes.map((d) => (
-          <div key={d.id} className="bg-brand-surface border border-red-500/20 rounded-lg p-5">
-            <div className="flex items-center gap-2 text-xs">
-              <span className="font-mono text-brand-text-muted">{d.tradeId}</span>
-              <AssetBadge asset={d.asset} />
-              <span className="text-brand-text-muted">{formatDateTime(d.openedAt)}</span>
-              <span
-                className={`ml-auto px-2 py-0.5 rounded-full font-medium flex items-center gap-1 ${
-                  d.status === 'RESOLVED'
-                    ? 'bg-green-500/10 text-green-500'
-                    : d.status === 'AUTO_PROPOSED'
-                      ? 'bg-purple-500/10 text-purple-500'
-                      : 'bg-red-500/10 text-red-700'
-                }`}
-              >
-                {d.status === 'AUTO_PROPOSED' && <Bot className="h-3 w-3" />}
-                {d.status === 'AUTO_PROPOSED' ? 'Resolução automática proposta' : d.status}
-              </span>
-            </div>
-            <div className="mt-2 text-sm font-medium text-brand-text flex items-center gap-1.5">
-              {d.buyer.displayName} <Swords className="h-3.5 w-3.5 text-brand-text-muted" /> {d.seller.displayName}
-            </div>
-            <p className="text-sm text-brand-text-muted mt-1 line-clamp-2">{d.reason}</p>
-
-            {/* RFC-021 D8 — QVAC-assisted first-pass resolution, off by
-                default server-side (config.features.qvacAutoResolutionEnabled).
-                A confidence score and reasoning are shown so a human
-                arbiter can judge the recommendation, not just accept it
-                blindly — the deadline is when it auto-applies if left
-                uncontested (sweepExpiredAutoResolutions()). */}
-            {d.status === 'AUTO_PROPOSED' && d.autoResolutionRecommendation && (
-              <div className="mt-3 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-xs">
-                <div className="flex items-center gap-1.5 font-semibold text-purple-500">
-                  <Bot className="h-3.5 w-3.5" /> Recomendação: {AUTO_RULING_LABEL[d.autoResolutionRecommendation]}
-                  <span className="ml-auto font-normal text-brand-text-muted">{Math.round((d.autoResolutionConfidence ?? 0) * 100)}% de confiança</span>
+      {rows.length === 0 ? (
+        <p className="text-center text-brand-text-muted py-10">Nenhuma disputa atribuída a você no momento.</p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {rows.map((row) => {
+            const d = row.dispute
+            const splitAllowed = row.escrow ? SPLIT_SUPPORTED.has(row.escrow.type) : false
+            return (
+              <div key={d.id} className="bg-brand-surface border border-red-500/20 rounded-lg p-5">
+                <div className="flex items-center gap-2 text-xs flex-wrap">
+                  <Link to={`/trade/${d.tradeId}`} className="font-mono text-brand-text-muted hover:text-brand-text underline-offset-2 hover:underline">
+                    Trade #{d.tradeId.slice(0, 8)}
+                  </Link>
+                  {row.escrow && <AssetBadge asset={row.escrow.asset} />}
+                  <span className="text-brand-text-muted">{formatDateTime(d.createdAt)}</span>
+                  <span
+                    className={`ml-auto px-2 py-0.5 rounded-full font-medium flex items-center gap-1 ${
+                      d.status === 'RESOLVED'
+                        ? 'bg-green-500/10 text-green-500'
+                        : d.status === 'AUTO_PROPOSED'
+                          ? 'bg-purple-500/10 text-purple-500'
+                          : 'bg-red-500/10 text-red-700'
+                    }`}
+                  >
+                    {d.status === 'AUTO_PROPOSED' && <Bot className="h-3 w-3" />}
+                    {d.status === 'AUTO_PROPOSED' ? 'Resolução automática proposta' : d.status}
+                  </span>
                 </div>
-                <p className="text-brand-text-secondary mt-1">{d.autoResolutionReasoning}</p>
-                {d.autoResolutionDeadline && (
-                  <p className="text-brand-text-muted mt-1">Aplica automaticamente em {formatDateTime(d.autoResolutionDeadline)} se ninguém contestar</p>
+                {row.escrow && (
+                  <div className="mt-1.5 text-xs text-brand-text-muted">{formatAmount(Number(row.escrow.lockedAmount))} em escrow</div>
+                )}
+                <p className="text-sm text-brand-text-muted mt-1 line-clamp-2">{d.reason}</p>
+                {d.status === 'RESOLVED' && d.ruling && (
+                  <p className="text-xs text-green-500 mt-1">Decisão: {AUTO_RULING_LABEL[d.ruling] ?? d.ruling}{d.resolvedAt && ` — ${formatDateTime(d.resolvedAt)}`}</p>
+                )}
+
+                {/* RFC-021 D8 — QVAC-assisted first-pass resolution, off by
+                    default server-side (config.features.qvacAutoResolutionEnabled).
+                    Confidence + reasoning shown so a human arbiter can
+                    judge the recommendation, not just accept it blindly. */}
+                {d.status === 'AUTO_PROPOSED' && d.autoResolutionRecommendation && (
+                  <div className="mt-3 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-xs">
+                    <div className="flex items-center gap-1.5 font-semibold text-purple-500">
+                      <Bot className="h-3.5 w-3.5" /> Recomendação: {AUTO_RULING_LABEL[d.autoResolutionRecommendation]}
+                      <span className="ml-auto font-normal text-brand-text-muted">{Math.round((d.autoResolutionConfidence ?? 0) * 100)}% de confiança</span>
+                    </div>
+                    <p className="text-brand-text-secondary mt-1">{d.autoResolutionReasoning}</p>
+                    {d.autoResolutionDeadline && (
+                      <p className="text-brand-text-muted mt-1">Aplica automaticamente em {formatDateTime(d.autoResolutionDeadline)} se ninguém contestar</p>
+                    )}
+                  </div>
+                )}
+
+                {d.status === 'AUTO_PROPOSED' ? (
+                  <div className="mt-3 flex gap-2 flex-wrap">
+                    <Button variant="outline" onClick={() => setSelectedId(d.id)} disabled={acting} className="text-xs px-3 py-1.5">Revisar</Button>
+                    <Button onClick={() => acceptAutoResolution(row)} disabled={acting} className="text-xs px-3 py-1.5">
+                      <ShieldCheck className="h-3.5 w-3.5" /> Aceitar recomendação
+                    </Button>
+                    <Button variant="outline" onClick={() => contestAutoResolution(row)} disabled={acting} className="text-xs px-3 py-1.5">
+                      <ShieldX className="h-3.5 w-3.5" /> Contestar
+                    </Button>
+                  </div>
+                ) : d.status !== 'RESOLVED' && (
+                  <div className="mt-3 flex gap-2 flex-wrap">
+                    <Button variant="outline" onClick={() => setSelectedId(d.id)} disabled={acting} className="text-xs px-3 py-1.5">Revisar</Button>
+                    <Button onClick={() => resolve(row, 'RELEASE')} disabled={acting} className="text-xs px-3 py-1.5">
+                      Resolver <ArrowRight className="h-3.5 w-3.5" /> Comprador
+                    </Button>
+                    <Button variant="outline" onClick={() => resolve(row, 'REFUND')} disabled={acting} className="text-xs px-3 py-1.5">
+                      Resolver <ArrowRight className="h-3.5 w-3.5" /> Vendedor
+                    </Button>
+                    {splitAllowed && (
+                      <Button
+                        variant="outline"
+                        onClick={() => resolve(row, 'SPLIT')}
+                        disabled={acting}
+                        title="Divide 50/50 entre comprador e vendedor"
+                        className="text-xs px-3 py-1.5"
+                      >
+                        <Scissors className="h-3.5 w-3.5" /> Dividir 50/50
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-
-            {d.status === 'AUTO_PROPOSED' ? (
-              <div className="mt-3 flex gap-2">
-                <Button variant="outline" onClick={() => setSelected(d)} className="text-xs px-3 py-1.5">Revisar</Button>
-                <Button onClick={() => acceptAutoResolution(d)} className="text-xs px-3 py-1.5">
-                  <ShieldCheck className="h-3.5 w-3.5" /> Aceitar recomendação
-                </Button>
-                <Button variant="outline" onClick={() => contestAutoResolution(d.id)} className="text-xs px-3 py-1.5">
-                  <ShieldX className="h-3.5 w-3.5" /> Contestar
-                </Button>
-              </div>
-            ) : d.status !== 'RESOLVED' && (
-              <div className="mt-3 flex gap-2">
-                <Button variant="outline" onClick={() => setSelected(d)} className="text-xs px-3 py-1.5">Revisar</Button>
-                <Button onClick={() => resolve(d.id, 'RELEASE')} className="text-xs px-3 py-1.5">
-                  Resolver <ArrowRight className="h-3.5 w-3.5" /> Comprador
-                </Button>
-                <Button variant="outline" onClick={() => resolve(d.id, 'REFUND')} className="text-xs px-3 py-1.5">
-                  Resolver <ArrowRight className="h-3.5 w-3.5" /> Vendedor
-                </Button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* Real Radix Sheet (2026-08-01) — replaces a hand-rolled
           `fixed inset-0` backdrop + manual `stopPropagation()` + a
@@ -135,52 +272,68 @@ export function Disputes() {
           accessible close control). Real gain (focus trap, Escape,
           role="dialog"), not just visual consistency — see
           feedback_slc_ui_philosophy. */}
-      <Sheet open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
+      <Sheet open={!!selected} onOpenChange={(open) => !open && setSelectedId(null)}>
         <SheetContent className="w-full max-w-md overflow-y-auto">
           {selected && (
             <>
               <SheetHeader>
-                <SheetTitle>Disputa — {selected.tradeId}</SheetTitle>
-                <SheetDescription>{selected.reason}</SheetDescription>
+                <SheetTitle>
+                  Disputa — <Link to={`/trade/${selected.dispute.tradeId}`} className="underline underline-offset-2">Trade #{selected.dispute.tradeId.slice(0, 8)}</Link>
+                </SheetTitle>
+                <SheetDescription>{selected.dispute.reason}</SheetDescription>
               </SheetHeader>
               <div className="mt-4 text-sm space-y-1">
-                <div><span className="text-brand-text-muted">Ativo:</span> <span className="text-brand-text">{selected.asset}</span></div>
-                <div><span className="text-brand-text-muted">Valor:</span> <span className="text-brand-text">{formatAmount(selected.amount)}</span></div>
-                <div><span className="text-brand-text-muted">Aberto por:</span> <span className="text-brand-text">{selected.openedBy === selected.buyer.id ? selected.buyer.displayName : selected.seller.displayName}</span></div>
-                {selected.appealRound > 0 && (
-                  <div><span className="text-brand-text-muted">Rodada de apelação:</span> <span className="text-brand-text">#{selected.appealRound}{selected.previousRuling ? ` (decisão anterior: ${AUTO_RULING_LABEL[selected.previousRuling] ?? selected.previousRuling})` : ''}</span></div>
+                {selected.escrow && (
+                  <>
+                    <div><span className="text-brand-text-muted">Ativo:</span> <span className="text-brand-text">{selected.escrow.asset}</span></div>
+                    <div><span className="text-brand-text-muted">Valor:</span> <span className="text-brand-text">{formatAmount(Number(selected.escrow.lockedAmount))}</span></div>
+                  </>
+                )}
+                {selected.dispute.appealRound > 0 && (
+                  <div>
+                    <span className="text-brand-text-muted">Rodada de apelação:</span>{' '}
+                    <span className="text-brand-text">
+                      #{selected.dispute.appealRound}
+                      {selected.dispute.previousRuling ? ` (decisão anterior: ${AUTO_RULING_LABEL[selected.dispute.previousRuling] ?? selected.dispute.previousRuling})` : ''}
+                    </span>
+                  </div>
                 )}
               </div>
 
-              {selected.status === 'AUTO_PROPOSED' && selected.autoResolutionRecommendation ? (
+              {selected.dispute.status === 'AUTO_PROPOSED' && selected.dispute.autoResolutionRecommendation ? (
                 <>
                   <div className="mt-4 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-sm">
                     <div className="flex items-center gap-1.5 font-semibold text-purple-500">
-                      <Bot className="h-4 w-4" /> Recomendação da QVAC: {AUTO_RULING_LABEL[selected.autoResolutionRecommendation]}
+                      <Bot className="h-4 w-4" /> Recomendação da QVAC: {AUTO_RULING_LABEL[selected.dispute.autoResolutionRecommendation]}
                     </div>
-                    <p className="text-brand-text-secondary mt-1.5">{selected.autoResolutionReasoning}</p>
+                    <p className="text-brand-text-secondary mt-1.5">{selected.dispute.autoResolutionReasoning}</p>
                     <p className="text-brand-text-muted mt-1.5 text-xs">
-                      {Math.round((selected.autoResolutionConfidence ?? 0) * 100)}% de confiança
-                      {selected.autoResolutionDeadline && ` — aplica automaticamente em ${formatDateTime(selected.autoResolutionDeadline)} se ninguém contestar`}
+                      {Math.round((selected.dispute.autoResolutionConfidence ?? 0) * 100)}% de confiança
+                      {selected.dispute.autoResolutionDeadline && ` — aplica automaticamente em ${formatDateTime(selected.dispute.autoResolutionDeadline)} se ninguém contestar`}
                     </p>
                   </div>
                   <div className="mt-4 flex gap-2">
-                    <Button onClick={() => acceptAutoResolution(selected)} className="flex-1 py-2 text-sm">
+                    <Button onClick={() => acceptAutoResolution(selected)} disabled={acting} className="flex-1 py-2 text-sm">
                       <ShieldCheck className="h-4 w-4" /> Aceitar recomendação
                     </Button>
-                    <Button variant="outline" onClick={() => contestAutoResolution(selected.id)} className="flex-1 py-2 text-sm">
+                    <Button variant="outline" onClick={() => contestAutoResolution(selected)} disabled={acting} className="flex-1 py-2 text-sm">
                       <ShieldX className="h-4 w-4" /> Contestar
                     </Button>
                   </div>
                 </>
               ) : (
-                <div className="mt-6 flex gap-2">
-                  <Button onClick={() => resolve(selected.id, 'RELEASE')} className="flex-1 py-2 text-sm">
+                <div className="mt-6 flex gap-2 flex-wrap">
+                  <Button onClick={() => resolve(selected, 'RELEASE')} disabled={acting} className="flex-1 py-2 text-sm">
                     Liberar p/ Comprador
                   </Button>
-                  <Button variant="outline" onClick={() => resolve(selected.id, 'REFUND')} className="flex-1 py-2 text-sm">
+                  <Button variant="outline" onClick={() => resolve(selected, 'REFUND')} disabled={acting} className="flex-1 py-2 text-sm">
                     Reembolsar Vendedor
                   </Button>
+                  {selected.escrow && SPLIT_SUPPORTED.has(selected.escrow.type) && (
+                    <Button variant="outline" onClick={() => resolve(selected, 'SPLIT')} disabled={acting} className="flex-1 py-2 text-sm">
+                      <Scissors className="h-4 w-4" /> Dividir 50/50
+                    </Button>
+                  )}
                 </div>
               )}
             </>

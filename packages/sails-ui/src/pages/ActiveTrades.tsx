@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import type { Trade } from '@sails/sdk'
 import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'

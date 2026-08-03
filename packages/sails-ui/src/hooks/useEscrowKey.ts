@@ -1,22 +1,22 @@
 /**
- * Client-held escrow key (MULTISIG/LIGHTNING_HODL) — the buyer/seller
- * half of the non-custodial upgrade to those two escrow types
+ * Client-held escrow key (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM) — the
+ * buyer/seller half of the non-custodial upgrade to those escrow types
  * (`src/modules/open-settlement/multisig.provider.ts`,
- * `lightning-hodl.provider.ts`). Same disclosed demo-shortcut pattern
- * `AuthContext.tsx` already uses for the Ed25519 identity key: the
- * private key is generated and held in this browser's own localStorage,
- * never sent anywhere — only the public key ever leaves, via
- * `sailsClient.settlement.submitKey()`. A real wallet integration would
- * keep this in the wallet's own secure storage instead.
+ * `lightning-hodl.provider.ts`, `safe-guard-evm.provider.ts`). Same
+ * disclosed demo-shortcut pattern `AuthContext.tsx` already uses for the
+ * Ed25519 identity key: the private key is generated and held in this
+ * browser's own localStorage, never sent anywhere — only the public key
+ * ever leaves, via `sailsClient.settlement.submitKey()`. A real wallet
+ * integration would keep this in the wallet's own secure storage instead.
  *
- * One key is reused across every MULTISIG/LIGHTNING_HODL escrow this
- * browser profile participates in, rather than a fresh key per trade
- * (HodlHodl's own real design derives one per contract) — kept simple
- * here since this is a reference implementation, not production custody;
- * a real wallet integration could derive per-trade keys instead without
- * changing anything on the server side (it only ever sees a pubkey).
+ * One key is reused across every such escrow this browser profile
+ * participates in, rather than a fresh key per trade (HodlHodl's own
+ * real design derives one per contract) — kept simple here since this
+ * is a reference implementation, not production custody; a real wallet
+ * integration could derive per-trade keys instead without changing
+ * anything on the server side (it only ever sees a pubkey).
  */
-import { generateEscrowKeypair, signEscrowPsbt, signEscrowArkTx } from '@sails/sdk'
+import { generateEscrowKeypair, signEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp } from '@sails/sdk'
 import { sailsClient } from '../lib/sailsClient'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
@@ -61,17 +61,16 @@ function loadOrCreateEscrowKeypair(): StoredEscrowKeypair {
 // "same as MULTISIG"), so no new key format is needed here.
 const PUBKEY_SUBMISSION_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
 
-// Deliberately narrower than PUBKEY_SUBMISSION_ESCROW_TYPES above —
-// submitting a pubkey is just data, but SIGNING for SAFE_GUARD_EVM means
-// producing a real ECDSA signature over an ERC-4337 UserOperation hash,
-// a different routine from signEscrowPsbt()/signEscrowArkTx() (Bitcoin
-// PSBT / Ark tx formats) even though all three ultimately use secp256k1.
-// @sails/sdk has no such signing primitive yet (only parseSafeGuardBundle()
-// to read the bundle, nothing to sign it) — calling either existing
-// signer on a SAFE_GUARD_EVM bundle would produce a garbage signature,
-// not a "not yet implemented" error, so this stays MULTISIG/LIGHTNING_HODL
-// only until that primitive is real.
-const CLIENT_SIGNING_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL'])
+// SAFE_GUARD_EVM added 2026-08-03 — @sails/sdk's signEscrowSafeUserOp()
+// closes the gap this comment used to describe (only parseSafeGuardBundle()
+// existed before, nothing to sign with). Produces a real ECDSA signature
+// over the ERC-4337 UserOperation hash — a different routine from
+// signEscrowPsbt()/signEscrowArkTx() (Bitcoin PSBT / Ark tx formats)
+// even though all three ultimately use the same secp256k1 curve and the
+// SAME client-held private key (no new key format needed, verified
+// against the real backend's recoverSignerAddress() per that function's
+// own doc comment).
+const CLIENT_SIGNING_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
 
 export function useEscrowKey() {
   // Idempotent (the server upserts by role, see submitParticipantKey()) —
@@ -111,7 +110,9 @@ export function useEscrowKey() {
     const privateKey = hexToBytes(privateKeyHex)
     const signedPsbtBase64 = escrowType === 'LIGHTNING_HODL'
       ? await signEscrowArkTx(pending.unsignedPsbtBase64, privateKey)
-      : signEscrowPsbt(pending.unsignedPsbtBase64, privateKey)
+      : escrowType === 'SAFE_GUARD_EVM'
+        ? signEscrowSafeUserOp(pending.unsignedPsbtBase64, privateKey)
+        : signEscrowPsbt(pending.unsignedPsbtBase64, privateKey)
     return sailsClient.settlement.submitTransactionSignature(escrowId, signedPsbtBase64)
   }
 
