@@ -72,21 +72,45 @@ theater-escrow in production.
 
 ## 3. Setup
 
+**Docker-first path (2026-08-03) — no Node/npm on the host at all**, the
+one this project now recommends by default (real per-service reasoning:
+letting a non-technical project owner or a brand-new contributor get a
+real, working instance up without installing a JS toolchain first):
+
 ```bash
 git clone https://github.com/alan-schramm/Sails-Protocol.git
 cd Sails-Protocol
+docker compose up -d --build      # Postgres + Redis + the server itself — http://localhost:3000
+```
+
+That's the whole setup. `docker-compose.yml` (repo root) now has three
+services: `postgres`/`redis` (real local infra, unchanged from before),
+plus `migrate` (a one-shot `npx prisma db push` against `postgres`,
+built from the Dockerfile's own `builder` stage so the real `prisma` CLI
+is present) and `app` (the server itself, also built from `builder` —
+deliberately not the slim `runtime` stage the production Dockerfile path
+uses, since local dev wants `pino-pretty`'s readable logs, a
+devDependency the production stage prunes). `app` waits for `migrate` to
+finish successfully before starting, so a schema always exists before
+the first request. `MOCK_ESCROW`/`MOCK_SETTLEMENT` stay `true` here —
+this is the safe, no-secrets onboarding path; see section 8 for the real
+AWS/`MULTISIG`-mainnet production path, which is deliberately separate.
+**Verified against a real, cold run before this was written**, not just
+reviewed — `docker compose down -v` first for a genuinely clean retry.
+
+**If you're actively editing code** (hot-reload on save, not a Docker
+rebuild per change):
+
+```bash
 cp .env.example .env              # defaults already match docker-compose.yml below
-docker compose up -d              # Postgres + Redis, real local infra
-npm install                       # also runs @prisma/client's own postinstall (prisma generate)
-npm run db:migrate                # applies prisma/schema.prisma, including RFC-013's CapabilityGrant table
+docker compose up -d postgres redis   # just the two real dependencies, not the app container
+npm install
+npm run db:migrate                # real command is `npx prisma db push` (package.json, corrected 2026-08-02) — applies prisma/schema.prisma, including RFC-013's CapabilityGrant table
 npm run dev                       # http://localhost:3000 — hot-reload dev server
 ```
 
-`docker-compose.yml` (repo root) defines `postgres:16-alpine` and
-`redis:7-alpine` with healthchecks and named volumes, matching the
-`DATABASE_URL`/`REDIS_URL` in `.env.example` exactly — no values to edit
-for local dev. `docker compose down -v` removes the volumes if you want
-a clean database.
+`docker compose down -v` removes the volumes if you want a clean database
+either way.
 
 **Not yet built:** `npm run db:seed` (`src/test/seeds/seed.ts`) is
 referenced by `package.json` but the file doesn't exist — seeding is
@@ -94,7 +118,7 @@ still manual (via the routes, or `docs/HANDOFF.md`'s `npm run demo:qvac`
 flow, which creates real participants/offers/intents/escrow as it runs).
 
 **Verify it actually boots** rather than trusting this document — run
-`npm test` first (159 tests, no external infra required, see section 4)
+`npm test` first (600+ tests as of 2026-08-03, no external infra required, see section 4)
 to confirm the code itself is sound, then `npm run dev` against the
 Docker-composed Postgres/Redis above. `docs/HANDOFF.md` has the exact
 current status of what's been verified live vs. only against mocks —

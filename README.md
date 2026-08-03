@@ -143,18 +143,35 @@ docs/rfcs/              Every structural decision, numbered, including
 
 ## Setup
 
+**Fastest path — no Node/npm on your host at all** (2026-08-03,
+`docker-compose.yml`): one command brings up real Postgres + Redis, applies
+the schema, and starts the server, safe-by-default (mock escrow, no
+secrets needed):
+
 ```bash
-cp .env.example .env    # defaults already match docker-compose.yml
-docker compose up -d    # real local Postgres + Redis
-npm install
-npm run db:migrate
-npm run dev              # server — http://localhost:3000
-npm run demo:qvac         # full QVAC + Pears + Intent Engine + WDK flow
-npm test                  # 159 tests, no external infra needed
+docker compose up -d --build   # Postgres + Redis + the server itself — http://localhost:3000
 ```
 
-See `docs/DEPLOYMENT.md` for the full setup and `docs/HANDOFF.md` for
-what's actually been verified live vs. only against mocks so far.
+That's genuinely the whole setup — no `npm install`, no manual schema
+step, nothing to configure. Verified against a real, cold `docker compose
+up` (not just reviewed) before this was written.
+
+**If you're actively editing code** (hot-reload, not a rebuild per
+change):
+
+```bash
+cp .env.example .env    # defaults already match docker-compose.yml
+docker compose up -d postgres redis   # just the two real dependencies
+npm install
+npm run db:migrate       # real command is `prisma db push` — see package.json
+npm run dev              # server — http://localhost:3000, hot-reload
+npm run demo:qvac         # full QVAC + Pears + Intent Engine + WDK flow
+npm test                  # 600+ tests, no external infra needed
+```
+
+See `docs/DEPLOYMENT.md` for the full setup (including the real AWS
+production path) and `docs/HANDOFF.md` for what's actually been verified
+live vs. only against mocks so far.
 `docs/TODO.md` has the exact current gap list — the server boots and
 every module's routes are real and tested (identity, peers, liquidity,
 open-p2p trade/chat, settlement, reputation, the Intent API, and now
