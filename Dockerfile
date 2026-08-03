@@ -34,7 +34,20 @@ WORKDIR /app
 # machine — not a from-scratch Docker-specific dependency resolution.
 COPY . .
 
-RUN npm ci
+# --ignore-scripts: found the hard way (first real `docker build` attempt,
+# 2026-08-03) — `redis-memory-server`/`embedded-postgres` (devDependencies
+# used only for local test infra, see docs/DEPLOYMENT.md section 3) each
+# have a postinstall that tries to compile/download a full server binary
+# from source (Redis with RedisBloom/RediSearch/RedisJSON modules, in
+# redis-memory-server's case — needs cmake/pkg-config/a Python
+# interpreter, none of which this image has or needs). Neither package is
+# ever imported by the production server; skipping install scripts
+# entirely avoids paying for infrastructure this image will never use.
+# The one script that DOES matter — `@prisma/client`'s own `prisma
+# generate` — is run explicitly right after, since skipping scripts
+# means it no longer fires automatically.
+RUN npm ci --ignore-scripts
+RUN npx prisma generate
 
 # Same build this repo's own package.json script runs everywhere else:
 # @sails/p2p-schemas -> @sails/sdk -> the server's own tsc.
@@ -61,6 +74,20 @@ WORKDIR /app
 # at container start. Both dist/ (the built JS) and package.json (whose
 # "main"/"exports" field is what actually gets resolved through the
 # symlink) are copied for each; src/tsconfig/tests are not needed here.
+#
+# packages/sails-sdk/node_modules/@noble — found the hard way (first
+# real `docker run`, 2026-08-03): npm nests a SEPARATE @noble/curves
+# v2.x here because escrow-key.ts/kms-signer.ts need it, while the root
+# tree stays on v1.2.0 for everything else (that version split is
+# exactly what those two files' own header comments already disclose).
+# Without this nested copy, Node's module resolution silently falls
+# through to the root's incompatible v1.2.0 and crashes at import time
+# with ERR_PACKAGE_PATH_NOT_EXPORTED — invisible in `npm test` (Jest's
+# own transformIgnorePatterns sidesteps this entirely, see
+# jest.config.js's own comment) and invisible in every `tsc --noEmit`/
+# `npm run build` check this repo has ever run, since none of those
+# actually execute the compiled output the way `node dist/src/main.js`
+# does. Only a real run of the built artifact surfaces it.
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
@@ -69,6 +96,7 @@ COPY --from=builder /app/packages/sails-p2p-schemas/dist ./packages/sails-p2p-sc
 COPY --from=builder /app/packages/sails-p2p-schemas/package.json ./packages/sails-p2p-schemas/package.json
 COPY --from=builder /app/packages/sails-sdk/dist ./packages/sails-sdk/dist
 COPY --from=builder /app/packages/sails-sdk/package.json ./packages/sails-sdk/package.json
+COPY --from=builder /app/packages/sails-sdk/node_modules ./packages/sails-sdk/node_modules
 
 EXPOSE 3000
 
