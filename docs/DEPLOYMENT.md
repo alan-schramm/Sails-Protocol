@@ -4,14 +4,19 @@
 > Covers the Satsails reference implementation only. The protocol itself
 > has no deployment requirements — see `PROTOCOL_SPECIFICATION.md` section 5.
 >
-> **Rewritten 2026-07-18** — the previous version of this document
-> predated almost the entire build-out documented in `docs/TODO.md`/
-> `docs/BACKLOG.md` and had drifted badly from what's actually true (it
-> claimed `npm run dev` couldn't start, zero tests existed, Ed25519 auth
-> and rate limiting weren't in place, and referenced a `JWT_SECRET`/
-> `PEAR_PEER_ID` env vars that were never real). Every claim below was
-> checked against the actual code/config before being written, not
-> carried over from the old draft.
+> **Rewritten 2026-07-18, updated 2026-08-02** — the 2026-07-18 rewrite
+> predated `RFC-020`/`RFC-021`'s entire build-out and had already drifted
+> in one concrete way: it documented `npm run db:migrate` (`prisma migrate
+> dev`) as the schema-apply command, but every real schema change in this
+> repo since Prisma 7 landed has actually been applied via `npx prisma db
+> push` — no `prisma/migrations/` directory has ever existed here.
+> `package.json`'s own `db:migrate` script was silently wrong (still
+> invoking `migrate dev`) until this pass fixed it to run `db push` for
+> real, matching what actually works. This update also adds section 8 —
+> a real AWS production deployment, written because a real deployment
+> (real infrastructure, real MULTISIG custody, a self-funded live test —
+> not opened to the public) is now actually happening, not a hypothetical
+> future reader's problem.
 
 ---
 
@@ -102,7 +107,7 @@ read that before assuming either way.
 | `dev` | `ts-node-dev --respawn --transpile-only src/main.ts` | Hot-reload dev server |
 | `build` | `npm run build -w @sails/p2p-schemas && npm run build -w @sails/sdk && tsc` | Builds both workspace packages, then the server (`dist/`) |
 | `start` | `node dist/src/main.js` | Run the compiled build (note the `dist/src/` path — `tsc`'s inferred rootDir includes `packages/` via a `paths` alias, so output isn't flat under `dist/`) |
-| `db:migrate` | `npx prisma migrate dev` | Apply schema migrations |
+| `db:migrate` | `npx prisma db push` | Apply the current `schema.prisma` state directly — no migration history exists in this repo (corrected 2026-08-02; the script name is legacy, the command underneath is what's actually real) |
 | `db:generate` | `npx prisma generate` | Regenerate the Prisma client (also runs automatically on `npm install`) |
 | `db:seed` | `ts-node src/test/seeds/seed.ts` | ⚠️ Still not built — see section 3 |
 | `db:studio` | `npx prisma studio` | Visual database browser |
@@ -146,13 +151,21 @@ required for local development.
 
 ## 7. Production Considerations
 
-- [ ] Reverse proxy (nginx or similar) + TLS termination — not yet set
-      up. If you put one in front of this server, also set Fastify's own
-      `trustProxy` option (`app.ts`) so rate limiting's per-IP tracking
-      (section below) sees the real client IP, not the proxy's.
-- [ ] `MOCK_ESCROW=false`, `MOCK_SETTLEMENT=false`, and a funded
-      `WDK_SEED_PHRASE` — required for real settlement; the app refuses
-      to boot with mock settlement in `NODE_ENV=production` (section 2).
+- [ ] Reverse proxy/TLS — closed differently than originally planned:
+      AWS App Runner terminates TLS itself (real HTTPS on its own
+      `*.awsapprunner.com` domain, zero nginx/cert config needed) — see
+      section 8. If a custom domain is later put in front via
+      CloudFront/ALB instead, set Fastify's own `trustProxy` option
+      (`app.ts`) so rate limiting's per-IP tracking sees the real client
+      IP, not the proxy's.
+- [x] **`MOCK_ESCROW=false`/`MOCK_SETTLEMENT=false` decision made,
+      2026-08-02**: real custody goes live via **`MULTISIG`, not
+      `WDK_USDT_EVM`** — deliberately. `MULTISIG` is a genuine 2-of-3
+      (buyer/seller hold their own keys, only the arbiter is a server
+      key); `WDK_USDT_EVM` is explicitly single-seed custody, and its own
+      header comment says testnet-only for exactly that reason. See
+      section 8 for the real `MULTISIG_NETWORK=bitcoin` production
+      checklist.
 - [x] **Rate limiting is in place** — `@fastify/rate-limit`, global +
       tighter auth-route tier (`docs/THREAT_MODEL.md`). Still open: no
       per-API-key tier, only per-IP.
@@ -167,20 +180,129 @@ required for local development.
       everything). Turning `REQUIRE_DUAL_APPROVAL_RELEASE` on changes the
       required calling pattern for a release — read RFC-015's Decision §5
       before enabling it, it is not a drop-in flag flip.
-- [ ] Custody is still single-seed, not real multisig —
-      `WDK_SEED_PHRASE` controls the treasury account and every per-trade
-      escrow sub-account (two-hop derivation, not independent keys; see
-      `wdk-settlement.provider.ts`'s own doc comment). RFC-015's
-      two-person control is a real, application-layer mitigation for
-      *who may trigger* a release, not a replacement for real on-chain
-      multisig — that remains future work (RFC-015's Alternatives
-      Considered #1: `@tetherto/wdk-wallet-evm-erc-4337` is
-      single-owner-only, checked against its real compiled types before
-      choosing this pass's design).
-- [ ] A real Postgres migration run (`npm run db:migrate`) against
-      production infra — every schema change in this repo so far has
-      only been verified via `prisma generate` (client types) in an
-      environment with no live Postgres reachable; the actual `migrate
-      dev` application has never been run outside a developer's own
-      local Docker setup (see `docs/HANDOFF.md` for the exact scope of
-      what's been live-verified vs. not).
+- [x] **`MULTISIG`'s release/refund/split fee is a real rate lookup**
+      (`mempool.space /v1/fees/recommended`, 2026-08-02) — the flat
+      1000-sat placeholder this file previously left as future work is
+      gone; a real Bitcoin spend now pays a real, current fee instead of
+      risking an unconfirmed stuck transaction.
+- [ ] **Not yet closed, stated plainly rather than glossed over now that
+      real funds are actually in scope**: no external security audit of
+      this codebase has happened. The plan (per the project owner,
+      2026-08-02) is to have a real, working deployment first — small,
+      self-funded, not opened to the public — specifically so an
+      external reviewer (the intended next step, tied to a Tether grant
+      conversation) has something real to evaluate rather than a
+      hypothetical design. This is a deliberate, informed sequencing
+      choice, not an oversight being carried forward silently.
+- [ ] **`MULTISIG`'s single-arbiter limitation still applies** —
+      exactly one `TRUSTED_ARBITRATORS` entry is baked into each escrow's
+      script at creation time (`multisig.provider.ts`'s own comment). Not
+      a blocker for a self-funded test with no disputes expected, but a
+      real constraint before any third party's funds are involved.
+- [x] **A real Postgres run against production infra is happening as
+      part of this deployment** (section 8) — every schema change before
+      this was only ever verified via `prisma generate` against no live
+      Postgres. `npx prisma db push` (not `migrate dev`/`migrate deploy`
+      — no migration history exists in this repo, see this file's own
+      2026-08-02 header note) is the real, tested command, run once
+      against the new RDS instance before the service's first real
+      traffic.
+
+## 8. AWS Production Deployment (2026-08-02)
+
+**Scope, stated explicitly rather than assumed**: a real, live deployment
+— real domain, real Postgres, real `MULTISIG` custody on Bitcoin mainnet
+— funded by the project owner's own balance to validate the full flow in
+practice, not opened to the public. The plan is to have this working
+first, then bring in external security review with something real to
+evaluate (tied to a Tether grant conversation) — a deliberate sequencing
+choice, not a shortcut around review.
+
+Architecture, chosen for this stage specifically (SLC: simple and
+complete, not maximal):
+
+- **Compute: AWS App Runner** — a container-based managed service with a
+  real HTTPS endpoint out of the box (`*.awsapprunner.com`), no
+  nginx/ALB/ACM certificate configuration needed to get real TLS. Builds
+  from the repo's own `Dockerfile` (root, added 2026-08-02).
+- **Database: Amazon RDS for PostgreSQL**, smallest real instance class
+  (`db.t4g.micro`), single-AZ — a managed real Postgres, not the local
+  Docker Compose one section 3 uses for development.
+- **Secrets: AWS Secrets Manager** — `DATABASE_URL`, `MULTISIG_SEED`,
+  and any other sensitive value are stored here and referenced by App
+  Runner's own environment-variable-from-secret binding, never typed
+  directly into the App Runner console's plain env var fields and never
+  passed through a chat/AI session.
+
+### 8.1 Dockerfile
+
+Root `Dockerfile` (2026-08-02) — a two-stage build: `builder` installs
+the full workspace (`npm ci`) and runs this repo's own `npm run build`
+(the exact same command `section 4`'s table already documents, not a
+Docker-specific build path), then `runtime` copies only the pruned
+`node_modules`, `dist/`, `prisma/`, and the two workspace packages'
+build output (`packages/sails-sdk`, `packages/sails-p2p-schemas` —
+npm-workspaces symlinks, both sides need to exist). `node:20-bookworm-slim`
+(glibc), not `alpine`: this project's native dependencies
+(`sodium-native`, `tiny-secp256k1`) are markedly more reliable to build
+against glibc than musl. **Not build-tested against a live Docker daemon
+as of this writing** (this pass had no `docker` CLI available) — the
+first real `docker build .` (locally, if Docker Desktop is available, or
+via App Runner's own build service) is the actual first real test; if it
+fails, the error will point at exactly which assumption above was wrong.
+
+### 8.2 Setup order
+
+1. **IAM** — a dedicated IAM user for deployment (not the AWS root
+   account) with an access key, used only from your own machine/AWS
+   CLI — never pasted into a chat session.
+2. **RDS** — create the Postgres instance, keep it *not* publicly
+   accessible (App Runner reaches it via a VPC connector, not the public
+   internet).
+3. **Secrets Manager** — store `DATABASE_URL` (built from the RDS
+   endpoint + master password from step 2) and `MULTISIG_SEED` (a real,
+   securely-generated seed — generate it locally, e.g. `openssl rand
+   -hex 32`, and paste it directly into Secrets Manager, never into a
+   chat session or a file that gets committed).
+4. **App Runner** — create a service from the GitHub source, Dockerfile
+   build mode, port 3000, environment variables per section 8.3 below
+   (non-secret ones set directly, secret ones referenced from step 3).
+5. **`npx prisma db push`** against the RDS instance — run once, from a
+   machine that can reach the database (locally via an SSH
+   tunnel/bastion, or as a one-off App Runner/ECS task), *before* the
+   service serves its first real request. This is the "real Postgres
+   migration run" section 7 flags as newly closed.
+
+### 8.3 Production environment variables (real values, not the
+    `.env.example` local-dev defaults)
+
+```bash
+NODE_ENV=production
+DATABASE_URL=                      # from Secrets Manager — the real RDS endpoint
+PORT=3000
+HOST=0.0.0.0
+
+MOCK_ESCROW=false
+MOCK_SETTLEMENT=false
+
+# MULTISIG — the real-custody path for this deployment (not WDK_USDT_EVM,
+# see section 7's own reasoning). MULTISIG_SEED from Secrets Manager.
+MULTISIG_SEED=                     # from Secrets Manager
+MULTISIG_NETWORK=bitcoin
+MULTISIG_EXPLORER_API_URL=https://mempool.space/api
+
+# Exactly one arbiter identity — multisig.provider.ts's single-arbiter
+# limitation (section 7) requires this to stay a single entry.
+TRUSTED_ARBITRATORS=<one-participant-id>
+ARBITRATION_MODE=trusted-list
+
+# Everything else (RATE_LIMIT_*, AUTH_*, PROTOCOL_FEE_RATE, the sweeper
+# flags) can stay at .env.example's own documented defaults unless this
+# deployment specifically needs otherwise — see each variable's own
+# comment there before changing it.
+```
+
+Deliberately **not** set for this deployment: `WDK_SEED_PHRASE`,
+`AWS_KMS_KEY_ID` (`SAFE_GUARD_EVM`) — both stay empty, keeping those two
+providers inert, consistent with the decision to bring exactly one real
+custody path live at a time.

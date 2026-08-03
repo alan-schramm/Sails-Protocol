@@ -1,0 +1,28 @@
+# Keep the build context to what the image actually needs — a smaller
+# context means faster `docker build` uploads/rebuilds, not just a
+# smaller final image (that's what multi-stage COPY --from already
+# handles).
+
+node_modules
+**/node_modules
+dist
+**/dist
+.next
+**/.next
+
+.git
+.env
+.env.*
+!.env.example
+
+graphify-out
+loadtest
+e2e
+*.log
+
+# Local dev artifacts unrelated to the production server build.
+packages/sails-ui/node_modules
+examples/*/node_modules
+contracts/node_modules
+contracts/cache
+contracts/artifacts
