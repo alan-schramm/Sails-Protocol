@@ -24,7 +24,7 @@
     "db:local:stop": "node scripts/local-postgres.js stop",
     "redis:local:start": "node scripts/local-redis.js start",
     "redis:local:stop": "node scripts/local-redis.js stop",
-    "db:migrate": "npx prisma migrate dev",
+    "db:migrate": "npx prisma db push",
     "db:generate": "npx prisma generate",
     "db:seed": "ts-node src/test/seeds/seed.ts",
     "db:studio": "npx prisma studio",

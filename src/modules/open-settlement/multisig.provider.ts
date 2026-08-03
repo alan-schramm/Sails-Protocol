@@ -271,6 +271,51 @@ export class MultisigProvider implements SettlementProvider {
     return (await res.text()).trim()
   }
 
+  // Real fee estimation (2026-08-02) — closes this provider's own former
+  // "a real deployment would query the explorer's fee-estimate endpoint"
+  // gap, now that a real deployment is exactly what's happening.
+  // mempool.space's real, documented `/v1/fees/recommended` endpoint
+  // works identically against both its mainnet and testnet hosts (same
+  // path, config.multisig.explorerApiUrl already points at whichever
+  // one is configured). `halfHourFee` — a real confirmation target, not
+  // the priciest `fastestFee` tier — since an escrow release/refund/split
+  // is not typically racing a mempool-fee war. Throws rather than
+  // guessing on failure: a wrong fee for a real Bitcoin spend either
+  // overpays or gets stuck unconfirmed, neither of which this provider
+  // should ever silently risk by falling back to a made-up number.
+  private async fetchFeeRateSatsPerVByte(): Promise<number> {
+    let res: Response
+    try {
+      res = await fetch(`${config.multisig.explorerApiUrl}/v1/fees/recommended`)
+    } catch (err) {
+      throw new EscrowError(
+        `MULTISIG provider: failed to reach the fee-estimate endpoint (${config.multisig.explorerApiUrl}/v1/fees/recommended) — refusing to guess a fee for a real Bitcoin spend: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+    if (!res.ok) {
+      throw new EscrowError(`MULTISIG provider: fee-estimate endpoint returned ${res.status}`)
+    }
+    const fees = (await res.json()) as { halfHourFee?: number; fastestFee?: number }
+    const rate = fees.halfHourFee ?? fees.fastestFee
+    if (!rate || rate <= 0) {
+      throw new EscrowError(`MULTISIG provider: fee-estimate endpoint returned no usable rate (${JSON.stringify(fees)})`)
+    }
+    return rate
+  }
+
+  // Conservative, documented vByte estimate for a 2-of-3 P2WSH spend —
+  // one witness input (base ~11 vB overhead + ~110 vB for the input:
+  // two ~72-byte DER signatures plus the ~105-byte 2-of-3 witness
+  // script, segwit-discounted) plus ~43 vB per output (the P2WSH-sized
+  // figure, not the cheaper P2WPKH one, since a caller's address could
+  // be either — generous rather than exact, the same "err toward
+  // overpaying, never toward a stuck tx" bias the real rate lookup
+  // above already has).
+  private estimateFeeSats(feeRateSatsPerVByte: number, outputCount: number): bigint {
+    const estimatedVBytes = 11 + 110 + 43 * outputCount
+    return BigInt(Math.ceil(feeRateSatsPerVByte * estimatedVBytes))
+  }
+
   // Shared by buildUnsignedRelease()/buildUnsignedRefund()/
   // buildUnsignedSplit() below — builds the unsigned spend PSBT against
   // the escrow's recorded funding UTXO. Does not sign anything; the
@@ -284,6 +329,7 @@ export class MultisigProvider implements SettlementProvider {
   private async buildUnsignedSpend(
     escrow: MultisigEscrowInput,
     parties: MultisigParties,
+    outputCount: number,
     computeOutputs: (spendableValue: bigint) => Array<{ address: string; value: bigint }>
   ): Promise<bitcoin.Psbt> {
     this.assertArbiterMatchesScript(escrow)
@@ -298,13 +344,13 @@ export class MultisigProvider implements SettlementProvider {
       throw new EscrowError(`Funding UTXO ${escrow.txLockId} for ${p2wsh.address} not found by the explorer — it may already be spent`)
     }
 
-    // A flat, generous reference fee — a real deployment would query the
-    // explorer's fee-estimate endpoint instead of a hardcoded constant;
-    // documented here rather than silently arbitrary.
-    const feeSats = 1000n
+    // Real fee estimation (2026-08-02) — see fetchFeeRateSatsPerVByte()/
+    // estimateFeeSats()'s own comments for the reasoning.
+    const feeRateSatsPerVByte = await this.fetchFeeRateSatsPerVByte()
+    const feeSats = this.estimateFeeSats(feeRateSatsPerVByte, outputCount)
     const spendableValue = BigInt(utxo.value) - feeSats
     if (spendableValue <= 0n) {
-      throw new EscrowError(`UTXO value ${utxo.value} sats too small to cover the ${feeSats} sat reference fee`)
+      throw new EscrowError(`UTXO value ${utxo.value} sats too small to cover the estimated ${feeSats} sat fee (${feeRateSatsPerVByte} sat/vB)`)
     }
 
     const psbt = new bitcoin.Psbt({ network })
@@ -329,7 +375,7 @@ export class MultisigProvider implements SettlementProvider {
   // buyer as a required (real, client) signer.
   async buildUnsignedRelease(escrow: MultisigEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
     const parties = this.partiesFor(escrow)
-    const psbt = await this.buildUnsignedSpend(escrow, parties, (spendableValue) => [{ address: toAddress, value: spendableValue }])
+    const psbt = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: toAddress, value: spendableValue }])
 
     if (escrow.status === 'DISPUTED') {
       const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
@@ -358,7 +404,7 @@ export class MultisigProvider implements SettlementProvider {
     const network = networkFor(config.multisig.network)
     const sellerRefundAddress = bitcoin.payments.p2wpkh({ pubkey: parties.sellerPubkey, network }).address!
 
-    const psbt = await this.buildUnsignedSpend(escrow, parties, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
+    const psbt = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
 
     if (escrow.status === 'DISPUTED') {
       const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
@@ -394,7 +440,7 @@ export class MultisigProvider implements SettlementProvider {
   // are already fixed by the arbiter's ruling either way), but consistent.
   async buildUnsignedSplit(escrow: MultisigEscrowInput, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
     const parties = this.partiesFor(escrow)
-    const psbt = await this.buildUnsignedSpend(escrow, parties, (spendableValue) => {
+    const psbt = await this.buildUnsignedSpend(escrow, parties, 2, (spendableValue) => {
       const buyerValue = (spendableValue * BigInt(buyerBps)) / 10000n
       const sellerValue = spendableValue - buyerValue
       return [

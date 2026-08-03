@@ -226,12 +226,75 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     ;(global as any).fetch = fetchMock
   })
 
-  function mockUtxoFetch(txid: string, value: number) {
+  // Real fee estimation (2026-08-02) — every buildUnsigned*() call now
+  // does two fetches, in order: the UTXO lookup, then the real
+  // mempool.space fee-rate lookup (multisig.provider.ts's own
+  // fetchFeeRateSatsPerVByte()). Default rate (10 sat/vB) is a plausible
+  // real-world value that doesn't matter for tests that don't assert
+  // exact output amounts; pass an explicit rate for those that do.
+  function mockUtxoFetch(txid: string, value: number, feeRateSatsPerVByte = 10) {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => [{ txid, vout: 0, value, status: { confirmed: true } }],
     })
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ halfHourFee: feeRateSatsPerVByte }),
+    })
   }
+
+  // Real fee estimation (2026-08-02) — closes this provider's own former
+  // "a real deployment would query the explorer's fee-estimate endpoint"
+  // placeholder now that a real deployment is exactly what's happening.
+  describe('real fee estimation (mempool.space /v1/fees/recommended)', () => {
+    it('uses the real fee rate to compute a non-flat fee — a higher rate produces a smaller spendable value from the same UTXO', async () => {
+      const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+
+      const txidLow = 'b1'.repeat(32)
+      mockUtxoFetch(txidLow, 100_000, 2)
+      const lowRate = await multisigProvider.buildUnsignedRelease(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txidLow, status: 'PAYMENT_PENDING' },
+        REFUND_ADDRESS_UNUSED
+      )
+      const txidHigh = 'b2'.repeat(32)
+      mockUtxoFetch(txidHigh, 100_000, 50)
+      const highRate = await multisigProvider.buildUnsignedRelease(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txidHigh, status: 'PAYMENT_PENDING' },
+        REFUND_ADDRESS_UNUSED
+      )
+
+      const outputValue = (psbtBase64: string) => bitcoin.Psbt.fromBase64(psbtBase64, { network }).txOutputs[0].value
+      expect(outputValue(highRate.psbtBase64)).toBeLessThan(outputValue(lowRate.psbtBase64))
+    })
+
+    it('throws a clear error rather than guessing a fee when the fee-estimate endpoint is unreachable', async () => {
+      const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const txid = 'c1'.repeat(32)
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] })
+      fetchMock.mockRejectedValueOnce(new Error('ECONNRESET'))
+
+      await expect(
+        multisigProvider.buildUnsignedRelease(
+          { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+          REFUND_ADDRESS_UNUSED
+        )
+      ).rejects.toThrow(/refusing to guess a fee/)
+    })
+
+    it('throws a clear error rather than guessing a fee when the endpoint returns no usable rate', async () => {
+      const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const txid = 'c2'.repeat(32)
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] })
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+
+      await expect(
+        multisigProvider.buildUnsignedRelease(
+          { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+          REFUND_ADDRESS_UNUSED
+        )
+      ).rejects.toThrow(/no usable rate/)
+    })
+  })
 
   it('buildUnsignedRelease returns a fully unsigned PSBT requiring both buyer and seller on the normal path', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
@@ -388,7 +451,10 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     it('builds a 2-output PSBT — buyer/seller shares sum exactly to the fee-adjusted UTXO value, split per buyerBps', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
       const txid = '9'.repeat(64)
-      mockUtxoFetch(txid, 100_000)
+      // 1 sat/vB keeps the expected fee a clean, exact number: 11 + 110 +
+      // 43*2 (2 outputs) = 207 vBytes * 1 = 207 sats — matches multisig.
+      // provider.ts's own estimateFeeSats() formula exactly.
+      mockUtxoFetch(txid, 100_000, 1)
       const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedSplit(
         { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
         'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
@@ -398,7 +464,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
       expect(requiredSigners).toEqual(['buyer-1'])
 
       const psbt = bitcoin.Psbt.fromBase64(psbtBase64, { network })
-      const spendableValue = 100_000 - 1000 // fee-adjusted, this file's own reference fee constant
+      const spendableValue = 100_000 - 207 // fee-adjusted, real estimateFeeSats(1, 2)
       expect(psbt.txOutputs).toHaveLength(2)
       expect(psbt.txOutputs[0].value).toBe(BigInt(Math.floor(spendableValue * 0.6)))
       expect(psbt.txOutputs[1].value).toBe(BigInt(spendableValue) - psbt.txOutputs[0].value)
