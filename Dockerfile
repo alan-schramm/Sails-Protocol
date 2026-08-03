@@ -53,8 +53,19 @@ RUN npx prisma generate
 # @sails/p2p-schemas -> @sails/sdk -> the server's own tsc.
 RUN npm run build
 
-# Drop devDependencies now that the build output exists — the runtime
-# stage below only needs what's left after this.
+# `builder` (this exact point, full devDependencies still present) is
+# what docker-compose.yml's local `migrate`/`app` services target
+# directly — local dev wants `pino-pretty`'s readable logs (app.ts only
+# enables that transport when NODE_ENV=development, and devDependencies
+# have to actually be present for it to load) and the real `prisma` CLI.
+# Production, below, prunes them — a separate named stage so "local dev
+# wants devDependencies, production must not ship them" doesn't fight
+# itself in one stage (found the hard way, 2026-08-03: pointing
+# docker-compose at this stage `AS builder` after the prune already ran
+# crashed on the exact same missing-pino-pretty error the runtime image
+# has, defeating the entire reason to target `builder` in the first
+# place).
+FROM builder AS pruned
 RUN npm prune --omit=dev
 
 FROM node:20-bookworm-slim AS runtime
@@ -88,15 +99,15 @@ WORKDIR /app
 # `npm run build` check this repo has ever run, since none of those
 # actually execute the compiled output the way `node dist/src/main.js`
 # does. Only a real run of the built artifact surfaces it.
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/packages/sails-p2p-schemas/dist ./packages/sails-p2p-schemas/dist
-COPY --from=builder /app/packages/sails-p2p-schemas/package.json ./packages/sails-p2p-schemas/package.json
-COPY --from=builder /app/packages/sails-sdk/dist ./packages/sails-sdk/dist
-COPY --from=builder /app/packages/sails-sdk/package.json ./packages/sails-sdk/package.json
-COPY --from=builder /app/packages/sails-sdk/node_modules ./packages/sails-sdk/node_modules
+COPY --from=pruned /app/node_modules ./node_modules
+COPY --from=pruned /app/dist ./dist
+COPY --from=pruned /app/prisma ./prisma
+COPY --from=pruned /app/package.json ./package.json
+COPY --from=pruned /app/packages/sails-p2p-schemas/dist ./packages/sails-p2p-schemas/dist
+COPY --from=pruned /app/packages/sails-p2p-schemas/package.json ./packages/sails-p2p-schemas/package.json
+COPY --from=pruned /app/packages/sails-sdk/dist ./packages/sails-sdk/dist
+COPY --from=pruned /app/packages/sails-sdk/package.json ./packages/sails-sdk/package.json
+COPY --from=pruned /app/packages/sails-sdk/node_modules ./packages/sails-sdk/node_modules
 
 EXPOSE 3000
 
