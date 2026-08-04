@@ -7,10 +7,13 @@ black + orange, light and dark theme, orange constant across both. See
 
 ## What this is
 
-10 screens, fully navigable, real routing (`react-router-dom`):
-Marketplace, Offer Detail, Trade (chat + escrow state machine), Login,
-Profile, Publish Offer (3-step wizard), Trade History, Admin Dashboard,
-Manage Offers, Disputes.
+**Screen list corrected 2026-08-04** — no more Admin Dashboard/Manage
+Offers (removed the same day, see "What this is not" below), routing is
+`react-router` v8 (not `react-router-dom`, dropped in a dependency audit
+between then and now). 9 screens, fully navigable: Marketplace, Offer
+Detail, Trade (chat + escrow state machine + real dispute view), Login,
+Profile, Publish Offer (3-step wizard), Trade History, Disputes
+(arbiter-scoped, not an admin console — see below).
 
 **Publish Offer** (`PublishOffer.tsx`, `/profile/new-offer`): a 3-step
 wizard matching the Binance P2P ad-posting flow, requested directly with
@@ -26,16 +29,18 @@ selectable for fidelity to the reference screenshot but disabled with a
 tooltip explaining why) and `priceUsd` itself when pricing in a non-USD
 currency (derived via `lib/currency.ts`'s new `ILLUSTRATIVE_FX_TO_USD`,
 same "illustrative, not live" honesty boundary `AMOUNT_PRESETS` already
-uses). `lib/offersStore.ts` persists a published offer to
-`localStorage` (same pattern Marketplace's filters already use) layered
-on top of the seed `MOCK_OFFERS` — `Marketplace`/`Profile`/`OfferDetail`
-all read through it now, so a just-published offer shows up everywhere
-immediately. No `POST /v1/liquidity/offers` call happens — see this
-file's own `// TODO: replace with @sails/sdk liquidity.createOffer()`
-comment. Verified live in browser: full 3-step flow, validation on
-under-filled steps, the published offer appearing correctly in
-Marketplace, Profile, and its own detail page with the right
-side/price/limits.
+uses). **Corrected 2026-08-04:** `handlePublish()` calls the real
+`sailsClient.liquidity.publish()` (`POST /v1/liquidity/offers`) directly
+— `lib/offersStore.ts`/`localStorage` is gone (deleted, along with the
+fake "operator" admin console it also used to back — see "What this is
+not"). The one remaining mock touchpoint is the "suggested price range"
+helper, which still reads the seed `MOCK_OFFERS` for comparable prices
+instead of a real `liquidity.discover()` call — a real gap, not a
+custody/visibility one (comparable prices are already public
+marketplace data, same as `Marketplace.tsx` itself shows). Verified live
+in browser: full 3-step flow, validation on under-filled steps, the
+published offer appearing correctly in Marketplace, Profile, and its
+own detail page with the right side/price/limits.
 
 **Design system** (`src/index.css`, `tailwind.config.js`): CSS custom
 properties define the full palette for both themes — `:root` (light)
@@ -142,17 +147,36 @@ itself needs no migration — it's already a free-form `String` in
   action — `liquidity.publish`; only its "comparable price" helper still
   reads `MOCK_OFFERS`, not the publish call itself), `pages/Trade.tsx`
   (`openp2p.trade`/`getTrade`/`getMessages`, `settlement.create`/`lock`/
-  `markPaymentSent`/`release`/`dispute`, and a real `openp2p.chat()`
-  WebSocket), `hooks/useEscrowKey.ts`, and — closed same day, same pass —
-  `pages/Profile.tsx` ("Minhas Ofertas" now calls the new
-  `liquidity.getMyOffers()` / `GET /v1/liquidity/offers/mine`, and its
-  Pausar/Ativar/Cancelar actions call the real `liquidity.updateStatus()`
-  instead of `lib/offersStore.ts`/`localStorage` — a just-published real
-  offer now shows up on the publisher's own profile). Still genuinely
-  mock: the admin console (`pages/admin/Dashboard.tsx`,
-  `ManageOffers.tsx`, `Disputes.tsx`) and `pages/TradeHistory.tsx` — no
-  real route exists yet for arbiter-facing dispute resolution or a
-  participant's full trade history.
+  `markPaymentSent`/`release`/`dispute`/`submitDisputeEvidence`/
+  `contestAutoResolution`/`appealDispute`, and a real `openp2p.chat()`
+  WebSocket with real presence via `USER_ONLINE`/`USER_OFFLINE` frames),
+  `hooks/useEscrowKey.ts` (now signs MULTISIG/LIGHTNING_HODL/
+  SAFE_GUARD_EVM release rounds for real), and `pages/Profile.tsx`
+  ("Minhas Ofertas" calls `liquidity.getMyOffers()`/`updateStatus()`
+  directly, no `localStorage` fallback). **Corrected further, 2026-08-04:**
+  `pages/TradeHistory.tsx` is real now too (`openp2p.getTrades()`), and
+  `pages/Disputes.tsx` (moved out of `pages/admin/`, real
+  `settlement.listDisputes()`/`getDispute()` + all four dispute actions).
+  Only remaining mock reads: `PublishOffer.tsx`'s comparable-price helper
+  and `pages/admin/Dashboard.tsx`/`ManageOffers.tsx` — except those two
+  don't exist anymore, deleted the same day (next bullet).
+- **No platform-operator/admin tier — removed 2026-08-04, not just left
+  unbuilt.** `pages/admin/Dashboard.tsx` (platform-wide stats) and
+  `ManageOffers.tsx` (manage-everyone's-offers) used to exist here as
+  mocked stand-ins for a role this protocol's authorization model has no
+  real concept of — every actual read endpoint stays scoped to the
+  calling participant or a genuine assigned role like `Dispute.arbiterId`
+  (`Disputes.tsx`, real, correctly scoped, never was the problem — it was
+  just misfiled under `admin/`). Not custodying funds and not
+  centralizing visibility into every user's data are the same
+  non-custodial commitment seen from two angles: an operator who could
+  see everyone's trades/disputes would be a custodian-like privileged
+  position in all but name. `context/AuthContext.tsx`'s `isOperator`/
+  `toggleRole` (a client-side, self-assignable role toggle with no real
+  backend behind it) went with them. If this tier is ever genuinely
+  needed, it requires a real authorization primitive designed on
+  purpose, not a UI checkbox — see the CTO-level architecture decision
+  this was escalated as, rather than built.
 - **Not where WDK/Pears code runs.** `wdk-settlement.provider.ts` and
   `pear.service.ts` (the real signing/P2P code) are server-only — a
   browser can never import them directly (they hold seed material /
@@ -349,9 +373,10 @@ require touching `vite.config.ts`.
 
 1. ~~Swap `src/data/mock.ts` reads for real `@sails/sdk` calls, route by
    route~~ — done for Login/Marketplace/OfferDetail/PublishOffer/Trade/
-   Profile. Still open: the admin console + `TradeHistory.tsx` (no real
-   route exists yet for arbiter-facing dispute resolution or a
-   participant's full trade history).
+   Profile/TradeHistory/Disputes (2026-08-04). Still open:
+   `PublishOffer.tsx`'s comparable-price helper. The admin console isn't
+   "still open" — it was deleted, not left for a future real backend
+   (see "What this is not").
 2. ~~Real auth~~ — done. `AuthContext.tsx` uses `identity.create()`/
    `identity.authenticate()`'s real Ed25519 challenge-response flow.
 3. ~~Real chat~~ — done. `Trade.tsx` uses a real `openp2p.chat(tradeId)`

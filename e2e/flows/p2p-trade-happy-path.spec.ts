@@ -96,9 +96,11 @@ test('golden path: register, publish, discover, trade, chat, escrow, settle', as
   })
 
   await test.step('seller opens the same real Trade', async () => {
-    // A real goto() — no in-app link reaches an arbitrary trade today
-    // (TradeHistory.tsx still shows MOCK_TRADE_HISTORY), so a fresh page
-    // load is unavoidable here, unlike the offer-publish step above.
+    // A real goto() rather than clicking through nav — simpler test
+    // setup, not a real gap: ActiveTrades.tsx/TradeHistory.tsx both link
+    // to a real trade now (corrected 2026-08-04; this comment used to
+    // say no in-app link existed, back when TradeHistory.tsx was still
+    // MOCK_TRADE_HISTORY).
     await seller.goto(tradeUrl)
     await sellerTrade.waitForAuthenticated()
     await expect(sellerTrade.createEscrowButton).toBeVisible()
