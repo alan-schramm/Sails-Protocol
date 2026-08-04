@@ -1,9 +1,17 @@
 /**
- * Mocked data for this skeleton pass — no real @sails/sdk or backend
- * call happens anywhere in this UI yet (docs/TODO.md section 11). Every
- * screen that will eventually read this from a real API call has a
- * `// TODO: replace with @sails/sdk call` comment at the read site, not
- * just here, so the swap-in points are easy to find later.
+ * Corrected 2026-08-04 — this header used to claim "no real @sails/sdk
+ * or backend call happens anywhere in this UI yet," long since false
+ * (README.md's own "What this is not" has the real, dated migration
+ * history). Most of what's left here is reference/seed data, not fake
+ * user data standing in for a real API: `ASSETS`/`ASSETS_FILTERABLE`,
+ * `PAYMENT_METHODS`/`PAYMENT_METHODS_FILTERABLE`, `COUNTRIES` back real
+ * pickers/filters. Genuinely still mock: `MOCK_OFFERS` (only
+ * `PublishOffer.tsx`'s "suggested price range" helper reads it now —
+ * everywhere else moved to `lib/realOffers.ts`'s real `discover()` fan-
+ * out). `MOCK_USERS`/`CURRENT_USER`/`MOCK_TRADE` (and `lib/buildTrade.ts`,
+ * which consumes it) are dead code, not wired to anything real or
+ * shown anywhere — kept here undisturbed rather than deleted as a side
+ * effect of an unrelated pass, but not a gap to fill either.
  */
 import type { User, Offer, Trade, EscrowEvent } from '../types'
 
