@@ -9,14 +9,17 @@ import { TradePage } from '../pages/trade.page'
  * settlement.service.ts's dispute(), which persists a Dispute row and
  * assigns an arbiter per RFC-007 D4).
  *
- * Resolution is deliberately NOT covered here (confirmed with the user
- * before writing this file): packages/sails-ui/src/pages/admin/Disputes.tsx
- * is 100% mock today — `MOCK_DISPUTES`, and its own `resolve()` has a
- * `// TODO: real POST /v1/settlement/disputes/:id/resolve` comment and
- * never calls the real API. There is no real UI path to drive a
- * resolution through today; wiring that page to the real endpoint is a
- * separate, out-of-scope gap (tracked, not fixed as a side effect of
- * writing this E2E test).
+ * Resolution was deliberately NOT covered here when this file was
+ * written (confirmed with the user at the time): `packages/sails-ui/
+ * src/pages/admin/Disputes.tsx` was 100% mock then. **Corrected
+ * 2026-08-04 — no longer true, this test's own scope note is stale:**
+ * that page moved to `pages/Disputes.tsx` (no longer under `admin/`,
+ * which implied a platform-operator tier this protocol's authorization
+ * model doesn't have) and is wired to real `settlement.listDisputes()`/
+ * `getDispute()`/`resolveDispute()`/`appealDispute()`/
+ * `submitDisputeEvidence()`/`contestAutoResolution()`. A real resolution
+ * e2e flow is now possible; still not added here, a genuine coverage
+ * gap rather than a blocked one.
  */
 test.setTimeout(60_000)
 
