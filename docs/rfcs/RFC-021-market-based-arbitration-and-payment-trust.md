@@ -224,6 +224,31 @@ floor grows slowly relative to trade size (many small fee-paying
 transactions are needed before the floor exceeds a meaningful trade
 value), and it cannot bootstrap a brand-new keypair from zero — see D7.
 
+**Wired for real, 2026-08-04 — into D6 only, deliberately not into D3:**
+until this pass, `cumulativeFeesObserved` was real (accrued from actual
+`Escrow.feeCharged` data) but never actually *read* anywhere except a
+read-only profile display — verified via a real grep across `src/`
+before writing anything, not assumed. The formula above
+(`cumulativeFeesObserved(candidate) > k × currentTradeValue`, `k = 1`,
+`COST_FLOOR_FACTOR` in `market-arbitration.provider.ts`) is now
+evaluated inside `assignAppealPanel()` (D6): a candidate whose fee
+history hasn't cleared the floor for the disputed value has their
+reputation term zeroed for that panel's 70/30 weighting, falling back to
+pure collateral. **Deliberately not folded into D3's baseline
+`eligibleFor()`/`effectiveStake`** — project owner's own explicit
+decision (2026-08-04): `protocolFeeRate` defaults to `0` during the
+bootstrap phase, so `cumulativeFeesObserved` stays `0` for everyone
+until real fee volume exists; gating ordinary first-instance eligibility
+on it would zero out every reputation-heavy, low-capital arbiter's
+eligibility exactly during the phase D3's "veteran with little capital
+can still compete" design goal matters most. Applying the floor to the
+appeal panel only targets the actual concern it exists for — a
+deep-capital actor topping up cheap, unproven reputation specifically to
+also dominate the reputation-weighted appeal pool — without touching
+ordinary dispute resolution. 3 new tests
+(`tests/marketArbitrationProvider.test.ts`), including one proving D3's
+`eligibleFor()` is unaffected.
+
 ### D5 — Payment-account trust ramp (chargeback mitigation)
 
 A separate mechanism from trader reputation, addressing a separate
