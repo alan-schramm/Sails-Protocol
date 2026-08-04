@@ -169,7 +169,7 @@ environment. See `rfcs/RFC-020-non-custodial-evm-settlement.md` and
 | Method | Path | Description |
 |---|---|---|
 | POST | `/v1/settlement/escrow` | Create an escrow for a trade |
-| GET | `/v1/settlement/escrow/:id` | Escrow detail + event history |
+| GET | `/v1/settlement/escrow/:id` | Escrow detail + event history. `data.disputes` (added 2026-08-03) — at most one entry in practice (`Dispute.@@unique([tradeId])`), the only way for a trade party who didn't open a dispute to ever learn its `disputeId` (previously only the opener's own `POST .../dispute` response carried it). |
 | POST | `/v1/settlement/escrow/:id/submit-key` | `MULTISIG`/`LIGHTNING_HODL` only (2026-07-27 client-held-keys pass). Buyer or seller submits only their own public key (generated client-side, `@sails/sdk`'s `generateEscrowKeypair()`) — `403` if the caller isn't a counterparty. Once both have submitted, the real deposit address is derived and persisted onto `Escrow.multisigAddr` (null until then). Idempotent per role. `SAFE_GUARD_EVM` reuses this same route/mechanism for its own buyer/seller keys (the compressed secp256k1 pubkey is decompressed and turned into a real Ethereum address, see `safe-guard-evm.provider.ts`'s `ethereumAddressFromCompressedHex()`) — but `Escrow.multisigAddr` is never actually populated for it, since deploying the real Safe needs live EVM RPC infrastructure this environment doesn't have. |
 | POST | `/v1/settlement/escrow/:id/lock` | `CREATED → FUNDS_LOCKED` |
 | POST | `/v1/settlement/escrow/:id/payment-sent` | `FUNDS_LOCKED → PAYMENT_PENDING` |

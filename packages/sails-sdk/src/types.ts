@@ -136,6 +136,13 @@ export interface Escrow {
   releasedAt: string | null
   createdAt: string
   updatedAt: string
+  // Added 2026-08-03 (UI-audit follow-up) — `escrow.service.ts`'s
+  // `getEscrow()` now includes this: the only way a trade party who
+  // didn't open a dispute could ever learn its disputeId before was the
+  // dispute-opener's own POST response. At most one entry in practice
+  // (`Dispute`'s `@@unique([tradeId])`), but real Prisma `include` shape,
+  // so this stays an array rather than `Dispute | null`.
+  disputes?: Dispute[]
 }
 
 // Sails OpenProof (RFC-006, PROTOCOL_SPECIFICATION.md §1.8) — real as of
