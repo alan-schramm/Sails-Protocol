@@ -1182,10 +1182,20 @@ export class EscrowService {
     return count >= 2
   }
 
+  // `disputes` — real gap found while closing the arbiter's own dispute-
+  // discovery gap (settlement.routes.ts's new GET /v1/settlement/disputes):
+  // whoever CALLS raiseDispute() gets the created Dispute row directly in
+  // that response, but the OTHER trade party — who didn't open it — had no
+  // way to ever learn the disputeId at all. No listener reacts to
+  // `dispute.opened` to push it over the trade's WebSocket room either.
+  // `Escrow.disputes` (schema.prisma) already existed as a relation; this
+  // just includes it, so the same public GET a trade party already polls
+  // for escrow status now also answers "is there a dispute, and what's its
+  // id" — no schema change, no new route needed.
   async getEscrow(escrowId: string) {
     const escrow = await prisma.escrow.findUnique({
       where: { id: escrowId },
-      include: { events: { orderBy: { createdAt: 'asc' } } },
+      include: { events: { orderBy: { createdAt: 'asc' } }, disputes: true },
     })
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     return escrow
@@ -1194,7 +1204,7 @@ export class EscrowService {
   async getEscrowByTrade(tradeId: string) {
     const escrow = await prisma.escrow.findUnique({
       where: { tradeId },
-      include: { events: { orderBy: { createdAt: 'asc' } } },
+      include: { events: { orderBy: { createdAt: 'asc' } }, disputes: true },
     })
     if (!escrow) throw new NotFoundError('Escrow for trade', tradeId)
     return escrow

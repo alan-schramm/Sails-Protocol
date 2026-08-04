@@ -655,3 +655,41 @@ describe('getPendingTransaction()', () => {
     await expect(escrowService.getPendingTransaction('escrow-1')).rejects.toThrow('EscrowPendingTransaction')
   })
 })
+
+// UI-audit follow-up gap (2026-08-03) — found while confirming buyer/
+// seller/arbiter dispute visibility was actually complete: only whoever
+// CALLED raiseDispute() ever learned the resulting disputeId (in that
+// POST's own response). The other trade party had no REST or WS way to
+// discover it at all. getEscrow()/getEscrowByTrade() now include the
+// already-existing Escrow.disputes relation so the same public GET a
+// trade party already polls for status answers this too.
+describe('getEscrow() / getEscrowByTrade() — includes disputes (UI-audit gap, 2026-08-03)', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('getEscrow requests the disputes relation and returns it', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', disputes: [{ id: 'dispute-1', tradeId: 'trade-1' }] })
+
+    const result = await escrowService.getEscrow('escrow-1')
+
+    expect(mockEscrowFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining({ disputes: true }) })
+    )
+    expect(result.disputes).toEqual([{ id: 'dispute-1', tradeId: 'trade-1' }])
+  })
+
+  it('getEscrow returns an empty disputes array for an escrow with no dispute', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', disputes: [] })
+    const result = await escrowService.getEscrow('escrow-1')
+    expect(result.disputes).toEqual([])
+  })
+
+  it('getEscrowByTrade also requests the disputes relation', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', disputes: [] })
+
+    await escrowService.getEscrowByTrade('trade-1')
+
+    expect(mockEscrowFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tradeId: 'trade-1' }, include: expect.objectContaining({ disputes: true }) })
+    )
+  })
+})
