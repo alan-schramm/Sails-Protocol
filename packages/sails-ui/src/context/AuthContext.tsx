@@ -15,6 +15,16 @@
  * browser sessions (e.g. a normal window + an incognito window) — this
  * key/session storage is per-origin, shared across tabs in the same
  * browser profile, same as any localStorage-backed session.
+ *
+ * `isOperator`/`toggleRole` removed 2026-08-04 — a self-assigned,
+ * localStorage-toggled "operator" role had no real backend counterpart
+ * (Sails' authorization model has no platform-operator/admin tier at
+ * all, by design: every real read stays scoped to the calling
+ * participant or a genuine assigned role like `Dispute.arbiterId`). It
+ * gated a nav link to `pages/admin/Dashboard.tsx`/`ManageOffers.tsx`,
+ * both deleted the same day for the same reason — see
+ * feedback_no_platform_operator_visibility (memory) for the full
+ * non-custodial reasoning.
  */
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { generateKeypair, hexToBytes, type Ed25519Keypair } from '@sails/sdk'
@@ -62,8 +72,6 @@ interface AuthContextType {
   loading: boolean
   login: () => Promise<void>
   logout: () => void
-  isOperator: boolean
-  toggleRole: () => void
   // The same Ed25519Keypair already used for identity.authenticate() —
   // exposed here so a real caller (Trade.tsx's chat) can pass it into
   // @sails/sdk's encryptChatMessage()/decryptChatMessage() without this
@@ -73,21 +81,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const ROLE_STORAGE_KEY = 'sails_ui_mock_role' // presentation-only role toggle, unrelated to real auth
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
   const [keypair, setKeypair] = useState<Ed25519Keypair | null>(null)
   const [loading, setLoading] = useState(true)
-  const [isOperator, setIsOperator] = useState(() => localStorage.getItem(ROLE_STORAGE_KEY) === 'operator')
-
-  const toggleRole = () => {
-    setIsOperator((prev) => {
-      const next = !prev
-      localStorage.setItem(ROLE_STORAGE_KEY, next ? 'operator' : 'user')
-      return next
-    })
-  }
 
   const login = async () => {
     setLoading(true)
@@ -140,7 +137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, isOperator, toggleRole, keypair }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, keypair }}>
       {children}
     </AuthContext.Provider>
   )

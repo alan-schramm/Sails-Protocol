@@ -307,9 +307,16 @@ export function Profile() {
         </div>
       </div>
 
-      <div className="mt-8">
+      <div className="mt-8 flex flex-col gap-2">
         <Link to="/profile/history" className="text-sm text-brand-orange-accent underline flex items-center gap-0.5">
           Ver histórico completo de trades <ChevronRight className="h-4 w-4" />
+        </Link>
+        {/* Mobile parity — TopNav (desktop-only) links here directly;
+            BottomNav has no dedicated tab for this (a real, but
+            infrequent, arbiter-only feature — see Disputes.tsx's own
+            comment on why it has no client-side role gate either). */}
+        <Link to="/disputes" className="text-sm text-brand-orange-accent underline flex items-center gap-0.5">
+          Disputas atribuídas a você <ChevronRight className="h-4 w-4" />
         </Link>
       </div>
     </div>

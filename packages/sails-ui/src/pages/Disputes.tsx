@@ -1,13 +1,26 @@
+/**
+ * Moved out of pages/admin/ (2026-08-04) — this page was never a
+ * privileged "operator" view to begin with, real listDisputes() is
+ * scoped server-side to the caller's own arbiterId, same as any other
+ * participant-scoped read (getTrades()/getMyOffers()). Grouping it under
+ * "admin" implied a platform-operator tier that doesn't exist in this
+ * protocol's authorization model — see feedback_no_platform_operator_
+ * visibility (memory) for why that's a deliberate non-custodial design
+ * choice, not a gap. No client-side role gate needed either: if the
+ * caller isn't a real assigned arbiter for anything, listDisputes()
+ * legitimately returns an empty list, handled by this page's own empty
+ * state below.
+ */
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
-import { useAuth } from '../../context/AuthContext'
-import { sailsClient } from '../../lib/sailsClient'
+import { useAuth } from '../context/AuthContext'
+import { sailsClient } from '../lib/sailsClient'
 import type { Dispute, DisputeRuling, Escrow, EscrowType } from '@sails/sdk'
-import { AssetBadge } from '../../components/ui/StatusBadges'
-import { formatAmount, formatDateTime } from '../../lib/format'
-import { Button } from '../../components/ui/button'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../../components/ui/sheet'
+import { AssetBadge } from '../components/ui/StatusBadges'
+import { formatAmount, formatDateTime } from '../lib/format'
+import { Button } from '../components/ui/button'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet'
 import { ArrowRight, Bot, ShieldCheck, ShieldX, Scissors } from 'lucide-react'
 
 const AUTO_RULING_LABEL: Record<string, string> = { RELEASE: 'liberar para o comprador', REFUND: 'reembolsar o vendedor', SPLIT: 'dividir entre as partes' }

@@ -12,9 +12,7 @@ import { Profile } from './pages/Profile'
 import { PublishOffer } from './pages/PublishOffer'
 import { TradeHistory } from './pages/TradeHistory'
 import { ActiveTrades } from './pages/ActiveTrades'
-import { Dashboard } from './pages/admin/Dashboard'
-import { ManageOffers } from './pages/admin/ManageOffers'
-import { Disputes } from './pages/admin/Disputes'
+import { Disputes } from './pages/Disputes'
 
 function ThemedToaster() {
   const { theme } = useTheme()
@@ -38,9 +36,7 @@ export default function App() {
                 <Route path="/profile/active" element={<ActiveTrades />} />
                 <Route path="/profile/history" element={<TradeHistory />} />
                 <Route path="/profile/new-offer" element={<PublishOffer />} />
-                <Route path="/admin" element={<Dashboard />} />
-                <Route path="/admin/offers" element={<ManageOffers />} />
-                <Route path="/admin/disputes" element={<Disputes />} />
+                <Route path="/disputes" element={<Disputes />} />
               </Route>
             </Routes>
           </BrowserRouter>

@@ -154,11 +154,6 @@ export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WD
 
 export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED'
 
-// APPEALED/AUTO_PROPOSED added 2026-08-02 (RFC-021 D7/D8) — see Dispute's
-// own comment below for the fields that go with each.
-export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED'
-export type DisputeRuling = 'RELEASE' | 'REFUND' | 'SPLIT'
-
 // RFC-021 D7 (real peer vouching) — packages/sails-sdk/src/modules/
 // reputation.ts's vouchFor(voucheeId), backed by a real Vouch Prisma
 // model. Pre-signs the vouchee's PaymentAccount to the signed trade-
@@ -302,48 +297,14 @@ export interface Trade {
   messages: Message[]
 }
 
-export interface TradeHistoryEntry {
-  id: string
-  tradeId: string
-  asset: AssetType
-  amount: number
-  totalBrl: number
-  status: TradeStatus
-  counterpart: string
-  role: 'BUYER' | 'SELLER'
-  date: string
-}
-
-export interface Dispute {
-  id: string
-  tradeId: string
-  asset: AssetType
-  amount: number
-  buyer: User
-  seller: User
-  reason: string
-  status: DisputeStatus
-  openedAt: string
-  openedBy: string
-  // RFC-021 D7 (appeals) — appealRound starts at 0 for the original
-  // ruling; previousRuling/previousArbiterId are null until at least
-  // one appeal has happened.
-  appealRound: number
-  previousRuling: DisputeRuling | null
-  previousArbiterId: string | null
-  // RFC-021 D8 (QVAC-assisted first-pass resolution, off by default —
-  // config.features.qvacAutoResolutionEnabled). Set together by
-  // proposeAutoResolution() when status becomes 'AUTO_PROPOSED'; all
-  // four cleared back to null by contestAutoResolution(). If uncontested
-  // past autoResolutionDeadline, sweepExpiredAutoResolutions() applies
-  // the recommendation via the assigned human arbiter's own identity
-  // and sets autoResolved: true.
-  autoResolutionRecommendation: DisputeRuling | null
-  autoResolutionConfidence: number | null
-  autoResolutionReasoning: string | null
-  autoResolutionDeadline: string | null
-  autoResolved: boolean
-}
+// TradeHistoryEntry/Dispute (local, hand-mocked interfaces) removed
+// 2026-08-04 — they only ever backed MOCK_TRADE_HISTORY/MOCK_DISPUTES
+// (data/mock.ts), deleted the same day along with the fake "operator"
+// pages that consumed them (see mock.ts's own comment,
+// feedback_no_platform_operator_visibility memory). TradeHistory.tsx and
+// pages/Disputes.tsx both type directly against @sails/sdk's real
+// Trade/Dispute now — a real backend shape is the actual source of
+// truth here, never a local approximation of one.
 
 export type PaymentTimeLimit = 'Todos' | '15' | '30' | '45' | '60' | '24h'
 export type MarketplaceSort = 'price' | 'trades' | 'reputation'

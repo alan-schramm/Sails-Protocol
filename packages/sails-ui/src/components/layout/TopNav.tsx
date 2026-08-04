@@ -4,13 +4,12 @@ import { UserAvatar } from '../ui/UserAvatar'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
-import { Settings, User } from 'lucide-react'
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `text-sm font-medium transition-colors ${isActive ? 'text-brand-text' : 'text-brand-text-secondary hover:text-brand-text'}`
 
 export function TopNav() {
-  const { user, isOperator, toggleRole } = useAuth()
+  const { user } = useAuth()
 
   return (
     <header className="hidden md:flex h-14 items-center border-b border-brand-border bg-brand-bg/90 backdrop-blur px-6 sticky top-0 z-40">
@@ -23,20 +22,15 @@ export function TopNav() {
         <NavLink to="/profile/active" className={linkClass}>Trades Ativos</NavLink>
         <NavLink to="/profile/history" className={linkClass}>Meus Trades</NavLink>
         <NavLink to="/profile" className={linkClass}>Perfil</NavLink>
-        {isOperator && <NavLink to="/admin" className={linkClass}>Operador</NavLink>}
+        {/* No role gate — real listDisputes() is scoped server-side to
+            the caller's own arbiterId; there's no operator/admin tier to
+            check client-side (see Disputes.tsx's own header comment). A
+            non-arbiter just sees a real, honest empty state there. */}
+        {user && <NavLink to="/disputes" className={linkClass}>Disputas</NavLink>}
       </nav>
 
       <div className="ml-auto flex items-center gap-3">
         <ThemeToggle />
-
-        <button
-          type="button"
-          onClick={toggleRole}
-          className="text-xs flex items-center gap-1.5 border border-brand-border rounded-lg px-2.5 py-1.5 text-brand-text-secondary hover:text-brand-text hover:border-brand-border-hover transition-colors"
-        >
-          {isOperator ? <Settings className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
-          {isOperator ? 'Operador' : 'Usuário'}
-        </button>
 
         {user ? (
           <Link to="/profile" className="flex items-center gap-2">

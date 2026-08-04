@@ -5,7 +5,7 @@
  * `// TODO: replace with @sails/sdk call` comment at the read site, not
  * just here, so the swap-in points are easy to find later.
  */
-import type { User, Offer, Trade, TradeHistoryEntry, Dispute, EscrowEvent } from '../types'
+import type { User, Offer, Trade, EscrowEvent } from '../types'
 
 export const MOCK_USERS: User[] = [
   {
@@ -140,55 +140,16 @@ export const MOCK_TRADE: Trade = {
   ],
 }
 
-export const MOCK_TRADE_HISTORY: TradeHistoryEntry[] = [
-  { id: 'th1', tradeId: 'trade-001', asset: 'BTC', amount: 0.01, totalBrl: 3400, status: 'COMPLETED', counterpart: 'alice_btc', role: 'BUYER', date: '2026-06-01' },
-  { id: 'th2', tradeId: 'trade-002', asset: 'LN_BTC', amount: 0.002, totalBrl: 676, status: 'COMPLETED', counterpart: 'carol_hodl', role: 'SELLER', date: '2026-05-22' },
-  { id: 'th3', tradeId: 'trade-003', asset: 'USDT_ERC20', amount: 500, totalBrl: 2495, status: 'DISPUTED', counterpart: 'bob_sats', role: 'BUYER', date: '2026-05-10' },
-  { id: 'th4', tradeId: 'trade-004', asset: 'BTC', amount: 0.005, totalBrl: 1680, status: 'COMPLETED', counterpart: 'alice_btc', role: 'BUYER', date: '2026-04-30' },
-]
-
-export const MOCK_DISPUTES: Dispute[] = [
-  {
-    id: 'd1', tradeId: 'trade-003', asset: 'USDT_ERC20', amount: 500,
-    buyer: MOCK_USERS[1], seller: MOCK_USERS[2],
-    reason: 'Payment sent but seller claims not received. PIX receipt attached.',
-    status: 'OPENED', openedAt: '2026-07-16T12:00:00Z', openedBy: 'u2',
-    appealRound: 0, previousRuling: null, previousArbiterId: null,
-    autoResolutionRecommendation: null, autoResolutionConfidence: null,
-    autoResolutionReasoning: null, autoResolutionDeadline: null, autoResolved: false,
-  },
-  {
-    id: 'd2', tradeId: 'trade-009', asset: 'BTC', amount: 0.02,
-    buyer: MOCK_USERS[0], seller: MOCK_USERS[1],
-    reason: 'Seller unresponsive for 6 hours after funds locked.',
-    status: 'ARBITRATED', openedAt: '2026-07-17T18:00:00Z', openedBy: 'u1',
-    appealRound: 0, previousRuling: null, previousArbiterId: null,
-    autoResolutionRecommendation: null, autoResolutionConfidence: null,
-    autoResolutionReasoning: null, autoResolutionDeadline: null, autoResolved: false,
-  },
-  // RFC-021 D8 — QVAC-assisted first-pass resolution demo, illustrating
-  // the AUTO_PROPOSED state Disputes.tsx now renders (off by default in
-  // the real backend, config.features.qvacAutoResolutionEnabled).
-  {
-    id: 'd3', tradeId: 'trade-014', asset: 'BTC', amount: 0.05,
-    buyer: MOCK_USERS[2], seller: MOCK_USERS[0],
-    reason: 'Buyer says payment sent via TED, seller says never arrived. No proof attached by buyer.',
-    status: 'AUTO_PROPOSED', openedAt: '2026-08-01T09:00:00Z', openedBy: 'u3',
-    appealRound: 0, previousRuling: null, previousArbiterId: null,
-    autoResolutionRecommendation: 'REFUND', autoResolutionConfidence: 0.82,
-    autoResolutionReasoning: 'Nenhum comprovante de pagamento foi anexado pelo comprador dentro da janela esperada; o histórico do vendedor não mostra reclamações semelhantes anteriores.',
-    autoResolutionDeadline: '2026-08-03T09:00:00Z', autoResolved: false,
-  },
-]
-
-export const CHART_DATA = Array.from({ length: 30 }, (_, i) => {
-  const d = new Date(Date.now() - (29 - i) * 86400000)
-  return {
-    date: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-    volume: Number((Math.random() * 2 + 0.5).toFixed(2)),
-    trades: Math.floor(Math.random() * 20 + 5),
-  }
-})
+// MOCK_TRADE_HISTORY, MOCK_DISPUTES, and CHART_DATA removed 2026-08-04 —
+// they existed only to feed pages/admin/Dashboard.tsx's and
+// ManageOffers.tsx's fake "operator sees every user's trades/disputes/
+// platform-wide volume" view, deleted the same day (see
+// feedback_no_platform_operator_visibility, memory: this protocol's
+// authorization model has no platform-operator tier, by design — the
+// mock data existed only to make that non-existent tier look real).
+// TradeHistory.tsx uses real openp2p.getTrades() instead;
+// pages/Disputes.tsx uses real settlement.listDisputes(), correctly
+// scoped to the caller's own arbiterId, not "every dispute."
 
 // The real AssetType enum (prisma/schema.prisma) — not a fictional
 // list. Alphabetical order (2026-07-29, requested directly) — by the
