@@ -71,12 +71,37 @@ export const SLASH_COLLATERAL_FRACTION = 0.5
 // deliberately NOT Kleros's stake-only draw (see assignAppealPanel()).
 export const PANEL_SIZE_BASE = 3
 
+// D4's own formula — real, tracked data (`cumulativeFeesObserved`, wired
+// since RFC-021 Phase 3) that was never actually CONSUMED anywhere until
+// now (verified via a real grep across src/ before writing this — the
+// only prior reads were a read-only profile display and this file's own
+// doc comments citing D4). The RFC's own "D3 correction" already
+// recorded a deliberate decision NOT to fold this into D3's baseline
+// `effectiveStake`/`eligibleFor()` — doing so would zero out every
+// reputation-heavy arbiter's eligibility for ordinary disputes for as
+// long as `protocolFeeRate` stays at its bootstrap-phase default of 0
+// (nobody has meaningful `cumulativeFeesObserved` yet), directly undoing
+// D3's own "veteran with low capital can still compete" design goal.
+// Project owner's own decision (2026-08-04, after Yuri's audio 06-08
+// discussion): apply the floor narrowly to `assignAppealPanel()`'s
+// reputation-weighted 70% term instead — that panel is exactly where a
+// cheaply-fabricated reputation gaming the "full node vs. hashpower"
+// concern this design started from would matter, and D3's baseline
+// selection is left untouched.
+//
+// k=1 — Yuri's own plain formula ("cumulativeFeesObserved(candidate) >
+// k × currentTradeValue"), no extra margin (unlike K_ELIGIBILITY's 1.5x
+// bonding-style buffer above): this is a pass/fail worst-case-Sybil
+// validity check, not a collateral bond.
+export const COST_FLOOR_FACTOR = 1
+
 export interface ArbiterCandidate {
   participantId: string
   monetaryCollateral: string // decimal string, RFC-009
   collateralAsset: string | null
   arbiterReputation: number
   effectiveStake: number
+  cumulativeFeesObserved: string // decimal string, RFC-009 — D4's cost-to-fabricate floor input
 }
 
 export class MarketArbitrationProvider implements ArbitrationProvider {
@@ -125,10 +150,16 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
     monetaryCollateral: unknown
     collateralAsset: string | null
     arbiterReputation: number
+    cumulativeFeesObserved?: unknown
   }): ArbiterCandidate {
     const monetaryCollateral = Number(profile.monetaryCollateral)
     const effectiveStake = monetaryCollateral + profile.arbiterReputation * REPUTATION_STAKE_FACTOR
     return {
+      // cumulativeFeesObserved defaults to 0 when absent — real
+      // ArbiterProfile rows always have it (schema `@default(0)`), this
+      // fallback only matters for older test fixtures predating D4's
+      // wiring here.
+      cumulativeFeesObserved: String(profile.cumulativeFeesObserved ?? 0),
       participantId: profile.participantId,
       monetaryCollateral: String(profile.monetaryCollateral),
       collateralAsset: profile.collateralAsset,
@@ -223,11 +254,24 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
     // regardless of the intended 70/30 split.
     const maxReputation = Math.max(...eligible.map((c) => c.arbiterReputation), 1)
     const maxCollateral = Math.max(...eligible.map((c) => Number(c.monetaryCollateral)), 1)
+    const disputeValue = Number(escrow.lockedAmount)
     const weighted = eligible
-      .map((c) => ({
-        candidate: c,
-        weight: 0.7 * (c.arbiterReputation / maxReputation) + 0.3 * (Number(c.monetaryCollateral) / maxCollateral),
-      }))
+      .map((c) => {
+        // D4's cost-to-fabricate floor, applied here and only here (see
+        // COST_FLOOR_FACTOR's own header comment for why not D3) — a
+        // candidate whose cumulativeFeesObserved hasn't cleared the
+        // floor for THIS dispute's value gets a zeroed reputation term:
+        // worst-case, an unproven reputation score is indistinguishable
+        // from a free Sybil loop, so it shouldn't buy weight in the
+        // panel that leans 70% on reputation. The 30% capital term is
+        // untouched — real posted collateral was never in question.
+        const feeFloorCleared = Number(c.cumulativeFeesObserved) >= COST_FLOOR_FACTOR * disputeValue
+        const reputationTerm = feeFloorCleared ? c.arbiterReputation / maxReputation : 0
+        return {
+          candidate: c,
+          weight: 0.7 * reputationTerm + 0.3 * (Number(c.monetaryCollateral) / maxCollateral),
+        }
+      })
       .sort((a, b) => b.weight - a.weight)
 
     const panelSize = PANEL_SIZE_BASE * 2 ** round

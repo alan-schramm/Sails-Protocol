@@ -36,7 +36,7 @@ jest.mock('../src/common/events/event-bus', () => ({
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const {
   MarketArbitrationProvider, REPUTATION_STAKE_FACTOR, K_ELIGIBILITY,
-  OVERTURNED_PENALTY, SLASH_COLLATERAL_FRACTION, PANEL_SIZE_BASE,
+  OVERTURNED_PENALTY, SLASH_COLLATERAL_FRACTION, PANEL_SIZE_BASE, COST_FLOOR_FACTOR,
 } = require('../src/modules/open-settlement/market-arbitration.provider')
 
 describe('MarketArbitrationProvider — RFC-021 D2, register()', () => {
@@ -259,9 +259,14 @@ describe('MarketArbitrationProvider — assignAppealPanel() (RFC-021 D6)', () =>
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', escrowId: 'escrow-1' })
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', lockedAmount: '0.0001' })
     mockArbiterProfileFindMany.mockResolvedValue([
-      // high reputation, low collateral vs. low reputation, high collateral
-      { participantId: 'reputable', monetaryCollateral: '0.01', collateralAsset: 'BTC', arbiterReputation: 1000, slashedAt: null },
-      { participantId: 'rich', monetaryCollateral: '100', collateralAsset: 'BTC', arbiterReputation: 1, slashedAt: null },
+      // high reputation, low collateral vs. low reputation, high collateral.
+      // cumulativeFeesObserved clears D4's cost floor for this dispute's
+      // tiny 0.0001 value — this test is specifically about the 70/30
+      // weighting once reputation is already trusted, not about the
+      // floor gate itself (see the dedicated "cost-to-fabricate floor"
+      // describe block below for that).
+      { participantId: 'reputable', monetaryCollateral: '0.01', collateralAsset: 'BTC', arbiterReputation: 1000, cumulativeFeesObserved: '1', slashedAt: null },
+      { participantId: 'rich', monetaryCollateral: '100', collateralAsset: 'BTC', arbiterReputation: 1, cumulativeFeesObserved: '1', slashedAt: null },
     ])
 
     const provider = new MarketArbitrationProvider()
@@ -274,6 +279,67 @@ describe('MarketArbitrationProvider — assignAppealPanel() (RFC-021 D6)', () =>
     // smaller margin (1.5x) keeps this non-flaky while still proving
     // reputation, not collateral, is the dominant factor.
     expect(picks.reputable).toBeGreaterThan(picks.rich * 1.5)
+  })
+
+  // D4's cost-to-fabricate floor, wired 2026-08-04 (project owner's own
+  // decision, after Yuri's audio 06-08 discussion) into this panel's
+  // reputation term only — see COST_FLOOR_FACTOR's own header comment in
+  // market-arbitration.provider.ts for why D3's baseline eligibility is
+  // deliberately left untouched.
+  describe('cost-to-fabricate floor (RFC-021 D4, applied to this panel only)', () => {
+    it('a candidate whose cumulativeFeesObserved has NOT cleared the floor loses the reputation term entirely — falls back to pure collateral', async () => {
+      mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', escrowId: 'escrow-1' })
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', lockedAmount: '10' }) // large dispute — floor is hard to clear
+      mockArbiterProfileFindMany.mockResolvedValue([
+        // Huge reputation, but built with zero observed fees — worst-case
+        // Sybil, per D4. Should NOT win the 70% reputation term here.
+        { participantId: 'unproven-reputation', monetaryCollateral: '0.01', collateralAsset: 'BTC', arbiterReputation: 10000, cumulativeFeesObserved: '0', slashedAt: null },
+        // Modest reputation, but real collateral — should dominate once
+        // the other candidate's reputation term is zeroed.
+        { participantId: 'real-collateral', monetaryCollateral: '50', collateralAsset: 'BTC', arbiterReputation: 1, cumulativeFeesObserved: '0', slashedAt: null },
+      ])
+
+      const provider = new MarketArbitrationProvider()
+      const picks: Record<string, number> = { 'unproven-reputation': 0, 'real-collateral': 0 }
+      for (let i = 0; i < 200; i++) {
+        const id = await provider.assignAppealPanel('dispute-1', 'trade-1', 3)
+        picks[id] = (picks[id] ?? 0) + 1
+      }
+      // Without the floor, 'unproven-reputation' would dominate 70/30 the
+      // same way 'reputable' did in the test above — the floor gate
+      // flips that outcome entirely.
+      expect(picks['real-collateral']).toBeGreaterThan(picks['unproven-reputation'])
+    })
+
+    it('a candidate whose cumulativeFeesObserved DOES clear the floor keeps the full reputation term', async () => {
+      mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', escrowId: 'escrow-1' })
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', lockedAmount: '0.0001' }) // tiny dispute — trivial to clear
+      mockArbiterProfileFindMany.mockResolvedValue([
+        { participantId: 'proven-reputation', monetaryCollateral: '0.01', collateralAsset: 'BTC', arbiterReputation: 1000, cumulativeFeesObserved: String(COST_FLOOR_FACTOR * 0.0001), slashedAt: null },
+        { participantId: 'rich', monetaryCollateral: '100', collateralAsset: 'BTC', arbiterReputation: 1, cumulativeFeesObserved: '0', slashedAt: null },
+      ])
+
+      const provider = new MarketArbitrationProvider()
+      const picks: Record<string, number> = { 'proven-reputation': 0, rich: 0 }
+      for (let i = 0; i < 400; i++) {
+        const id = await provider.assignAppealPanel('dispute-1', 'trade-1', 3)
+        picks[id] = (picks[id] ?? 0) + 1
+      }
+      expect(picks['proven-reputation']).toBeGreaterThan(picks.rich * 1.5)
+    })
+
+    it('D3 baseline eligibility (eligibleFor/assign) is unaffected by the floor — a low-capital, high-reputation arbiter stays eligible for ordinary disputes', async () => {
+      mockArbiterProfileFindMany.mockResolvedValue([
+        // Same shape as the pre-existing 'veteran-low-capital' eligibility
+        // test — reputation counts fully here even with cumulativeFeesObserved: 0,
+        // proving the floor was NOT folded into D3 (project owner's own
+        // explicit decision, not an oversight).
+        { participantId: 'veteran-low-capital', monetaryCollateral: '0.1', collateralAsset: 'BTC', arbiterReputation: 140, cumulativeFeesObserved: '0', slashedAt: null },
+      ])
+      const provider = new MarketArbitrationProvider()
+      const eligible = await provider.eligibleFor('1') // K_ELIGIBILITY(1.5) * 1 = 1.5 threshold; 0.1 + 140*0.01 = 1.5
+      expect(eligible.map((c: { participantId: string }) => c.participantId)).toContain('veteran-low-capital')
+    })
   })
 
   it('throws a clear error when no eligible arbiter remains after excluding the original', async () => {
