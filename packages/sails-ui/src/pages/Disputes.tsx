@@ -21,7 +21,7 @@ import { AssetBadge } from '../components/ui/StatusBadges'
 import { formatAmount, formatDateTime } from '../lib/format'
 import { Button } from '../components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet'
-import { ArrowRight, Bot, ShieldCheck, ShieldX, Scissors } from 'lucide-react'
+import { ArrowRight, Bot, ShieldCheck, Scissors } from 'lucide-react'
 
 const AUTO_RULING_LABEL: Record<string, string> = { RELEASE: 'liberar para o comprador', REFUND: 'reembolsar o vendedor', SPLIT: 'dividir entre as partes' }
 
@@ -141,23 +141,18 @@ export function Disputes() {
 
   // RFC-021 D8 — accepting just applies the recommendation now instead
   // of waiting for autoResolutionDeadline to pass uncontested
-  // (sweepExpiredAutoResolutions()'s own job).
+  // (sweepExpiredAutoResolutions()'s own job). Note there is no
+  // "reject recommendation" action here for the arbiter — resolveDispute()
+  // has no status guard against AUTO_PROPOSED (only "not already
+  // RESOLVED"), so the arbiter can just resolve directly with their own
+  // ruling below, superseding the pending automation. Contesting it is a
+  // real action, but it's the TRADE PARTY's (buyer/seller), not the
+  // arbiter's — contestAutoResolution() is server-rejected for anyone
+  // else (dispute.service.ts: `contestedBy !== trade.buyerId &&
+  // contestedBy !== trade.sellerId` throws Forbidden) — see Trade.tsx's
+  // own dispute section for where that button actually belongs.
   const acceptAutoResolution = (row: Row) => {
     if (row.dispute.autoResolutionRecommendation) resolve(row, row.dispute.autoResolutionRecommendation)
-  }
-
-  const contestAutoResolution = async (row: Row) => {
-    setActing(true)
-    try {
-      await sailsClient.settlement.contestAutoResolution(row.dispute.id)
-      toast('Recomendação automática contestada — disputa voltou para revisão humana')
-      setSelectedId(null)
-      load()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao contestar')
-    } finally {
-      setActing(false)
-    }
   }
 
   if (authLoading || loading) {
@@ -241,20 +236,20 @@ export function Disputes() {
                   </div>
                 )}
 
-                {d.status === 'AUTO_PROPOSED' ? (
+                {d.status !== 'RESOLVED' && (
                   <div className="mt-3 flex gap-2 flex-wrap">
                     <Button variant="outline" onClick={() => setSelectedId(d.id)} disabled={acting} className="text-xs px-3 py-1.5">Revisar</Button>
-                    <Button onClick={() => acceptAutoResolution(row)} disabled={acting} className="text-xs px-3 py-1.5">
-                      <ShieldCheck className="h-3.5 w-3.5" /> Aceitar recomendação
-                    </Button>
-                    <Button variant="outline" onClick={() => contestAutoResolution(row)} disabled={acting} className="text-xs px-3 py-1.5">
-                      <ShieldX className="h-3.5 w-3.5" /> Contestar
-                    </Button>
-                  </div>
-                ) : d.status !== 'RESOLVED' && (
-                  <div className="mt-3 flex gap-2 flex-wrap">
-                    <Button variant="outline" onClick={() => setSelectedId(d.id)} disabled={acting} className="text-xs px-3 py-1.5">Revisar</Button>
-                    <Button onClick={() => resolve(row, 'RELEASE')} disabled={acting} className="text-xs px-3 py-1.5">
+                    {/* Accepting the AI recommendation is a convenience
+                        shortcut, never the only option — resolveDispute()
+                        has no status guard against AUTO_PROPOSED, so the
+                        arbiter can independently override with any ruling
+                        below regardless of what QVAC proposed. */}
+                    {d.status === 'AUTO_PROPOSED' && d.autoResolutionRecommendation && (
+                      <Button onClick={() => acceptAutoResolution(row)} disabled={acting} className="text-xs px-3 py-1.5">
+                        <ShieldCheck className="h-3.5 w-3.5" /> Aceitar recomendação
+                      </Button>
+                    )}
+                    <Button variant="outline" onClick={() => resolve(row, 'RELEASE')} disabled={acting} className="text-xs px-3 py-1.5">
                       Resolver <ArrowRight className="h-3.5 w-3.5" /> Comprador
                     </Button>
                     <Button variant="outline" onClick={() => resolve(row, 'REFUND')} disabled={acting} className="text-xs px-3 py-1.5">
@@ -313,30 +308,26 @@ export function Disputes() {
                 )}
               </div>
 
-              {selected.dispute.status === 'AUTO_PROPOSED' && selected.dispute.autoResolutionRecommendation ? (
-                <>
-                  <div className="mt-4 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-sm">
-                    <div className="flex items-center gap-1.5 font-semibold text-purple-500">
-                      <Bot className="h-4 w-4" /> Recomendação da QVAC: {AUTO_RULING_LABEL[selected.dispute.autoResolutionRecommendation]}
-                    </div>
-                    <p className="text-brand-text-secondary mt-1.5">{selected.dispute.autoResolutionReasoning}</p>
-                    <p className="text-brand-text-muted mt-1.5 text-xs">
-                      {Math.round((selected.dispute.autoResolutionConfidence ?? 0) * 100)}% de confiança
-                      {selected.dispute.autoResolutionDeadline && ` — aplica automaticamente em ${formatDateTime(selected.dispute.autoResolutionDeadline)} se ninguém contestar`}
-                    </p>
+              {selected.dispute.status === 'AUTO_PROPOSED' && selected.dispute.autoResolutionRecommendation && (
+                <div className="mt-4 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-sm">
+                  <div className="flex items-center gap-1.5 font-semibold text-purple-500">
+                    <Bot className="h-4 w-4" /> Recomendação da QVAC: {AUTO_RULING_LABEL[selected.dispute.autoResolutionRecommendation]}
                   </div>
-                  <div className="mt-4 flex gap-2">
+                  <p className="text-brand-text-secondary mt-1.5">{selected.dispute.autoResolutionReasoning}</p>
+                  <p className="text-brand-text-muted mt-1.5 text-xs">
+                    {Math.round((selected.dispute.autoResolutionConfidence ?? 0) * 100)}% de confiança
+                    {selected.dispute.autoResolutionDeadline && ` — aplica automaticamente em ${formatDateTime(selected.dispute.autoResolutionDeadline)} se ninguém contestar`}
+                  </p>
+                </div>
+              )}
+              {selected.dispute.status !== 'RESOLVED' && (
+                <div className="mt-4 flex gap-2 flex-wrap">
+                  {selected.dispute.status === 'AUTO_PROPOSED' && selected.dispute.autoResolutionRecommendation && (
                     <Button onClick={() => acceptAutoResolution(selected)} disabled={acting} className="flex-1 py-2 text-sm">
                       <ShieldCheck className="h-4 w-4" /> Aceitar recomendação
                     </Button>
-                    <Button variant="outline" onClick={() => contestAutoResolution(selected)} disabled={acting} className="flex-1 py-2 text-sm">
-                      <ShieldX className="h-4 w-4" /> Contestar
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="mt-6 flex gap-2 flex-wrap">
-                  <Button onClick={() => resolve(selected, 'RELEASE')} disabled={acting} className="flex-1 py-2 text-sm">
+                  )}
+                  <Button variant="outline" onClick={() => resolve(selected, 'RELEASE')} disabled={acting} className="flex-1 py-2 text-sm">
                     Liberar p/ Comprador
                   </Button>
                   <Button variant="outline" onClick={() => resolve(selected, 'REFUND')} disabled={acting} className="flex-1 py-2 text-sm">
