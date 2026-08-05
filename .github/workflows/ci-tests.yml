@@ -8,17 +8,21 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      REDISMS_DISABLE_POSTINSTALL: true
+      REDISMS_SYSTEM_BINARY: /usr/bin/redis-server
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Run tests (capture output)
         run: |
-          npx jest --runInBand --colors 2>&1 | tee jest-output.txt || true
+          set -o pipefail
+          npx jest --runInBand --colors 2>&1 | tee jest-output.txt
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v4
