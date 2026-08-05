@@ -1,0 +1,1897 @@
+{
+  ".claude/launch.json": {
+    "mtime": 1785288293.866999,
+    "ast_hash": "702a45856044bb5b3f6d95747fd7f778",
+    "semantic_hash": "702a45856044bb5b3f6d95747fd7f778"
+  },
+  "contracts/hardhat.config.ts": {
+    "mtime": 1785249120.9786587,
+    "ast_hash": "9eb8ac44b6a929a9bdef351654266290",
+    "semantic_hash": "9eb8ac44b6a929a9bdef351654266290"
+  },
+  "contracts/package.json": {
+    "mtime": 1785249120.980654,
+    "ast_hash": "4373ce11786e98844d1dddb9362a9d32",
+    "semantic_hash": "4373ce11786e98844d1dddb9362a9d32"
+  },
+  "demo-satsails-qvac.ts": {
+    "mtime": 1784326682.0725565,
+    "ast_hash": "f946bb594d962fad0881a4803e920a5e",
+    "semantic_hash": "f946bb594d962fad0881a4803e920a5e"
+  },
+  "e2e/accessibility/a11y.spec.ts": {
+    "mtime": 1785121227.2121458,
+    "ast_hash": "bf8917f4878025c25c72897e89580636",
+    "semantic_hash": "bf8917f4878025c25c72897e89580636"
+  },
+  "e2e/fixtures/sails.fixture.ts": {
+    "mtime": 1785118809.5308125,
+    "ast_hash": "1b5ffbb45d8d1bf18bb58d543037710e",
+    "semantic_hash": "1b5ffbb45d8d1bf18bb58d543037710e"
+  },
+  "e2e/fixtures/settlement.fixture.ts": {
+    "mtime": 1785118791.3328633,
+    "ast_hash": "2cf6968d0fc999a3cd4e82e572f5f9b3",
+    "semantic_hash": "2cf6968d0fc999a3cd4e82e572f5f9b3"
+  },
+  "e2e/fixtures/wallet.fixture.ts": {
+    "mtime": 1785118803.0275953,
+    "ast_hash": "ffa035d488c226cc005d8f24f110fb17",
+    "semantic_hash": "ffa035d488c226cc005d8f24f110fb17"
+  },
+  "e2e/flows/concurrency.spec.ts": {
+    "mtime": 1784573137.8866813,
+    "ast_hash": "af83665727327a629ee1a03ff68c6eab",
+    "semantic_hash": "af83665727327a629ee1a03ff68c6eab"
+  },
+  "e2e/flows/dispute-flow.spec.ts": {
+    "mtime": 1785121607.4575448,
+    "ast_hash": "785103cc1db8798784389ba2af4ebc9b",
+    "semantic_hash": "785103cc1db8798784389ba2af4ebc9b"
+  },
+  "e2e/flows/network-reconnection.spec.ts": {
+    "mtime": 1785121840.477086,
+    "ast_hash": "8bee24d1d5bd4a661041272afe4dfb2a",
+    "semantic_hash": "8bee24d1d5bd4a661041272afe4dfb2a"
+  },
+  "e2e/flows/p2p-trade-happy-path.spec.ts": {
+    "mtime": 1785121199.9633212,
+    "ast_hash": "53c1f945d9d140bc903a78949ae6c529",
+    "semantic_hash": "53c1f945d9d140bc903a78949ae6c529"
+  },
+  "e2e/flows/timeout-flow.spec.ts": {
+    "mtime": 1785121644.449236,
+    "ast_hash": "6d26716a3e8717d245f2b9fbac827b90",
+    "semantic_hash": "6d26716a3e8717d245f2b9fbac827b90"
+  },
+  "e2e/global-setup.ts": {
+    "mtime": 1785118862.9402125,
+    "ast_hash": "fbb8417b91f4def94154a04d107e83e8",
+    "semantic_hash": "fbb8417b91f4def94154a04d107e83e8"
+  },
+  "e2e/global-teardown.ts": {
+    "mtime": 1785118870.6648905,
+    "ast_hash": "fab5a80efaeb02cf5d6c8ddc176c98ef",
+    "semantic_hash": "fab5a80efaeb02cf5d6c8ddc176c98ef"
+  },
+  "e2e/pages/create-trade.page.ts": {
+    "mtime": 1785121586.8335567,
+    "ast_hash": "347cdd11d287c09213e68cc41f77911b",
+    "semantic_hash": "347cdd11d287c09213e68cc41f77911b"
+  },
+  "e2e/pages/home.page.ts": {
+    "mtime": 1785118656.623249,
+    "ast_hash": "eb6685516bb0a549507f2e2bc9fb1173",
+    "semantic_hash": "eb6685516bb0a549507f2e2bc9fb1173"
+  },
+  "e2e/pages/trade.page.ts": {
+    "mtime": 1785118677.3048532,
+    "ast_hash": "a73f534da06688fbd67c6ea0287ce3d6",
+    "semantic_hash": "a73f534da06688fbd67c6ea0287ce3d6"
+  },
+  "e2e/pages/wallet.page.ts": {
+    "mtime": 1785118643.3581183,
+    "ast_hash": "5341ff58c8dce883ed45b39ed3b3ba0b",
+    "semantic_hash": "5341ff58c8dce883ed45b39ed3b3ba0b"
+  },
+  "e2e/playwright.config.ts": {
+    "mtime": 1785119896.3182855,
+    "ast_hash": "b0b921e267e193667479a3ec298e982a",
+    "semantic_hash": "b0b921e267e193667479a3ec298e982a"
+  },
+  "e2e/visual/visual-regression.spec.ts": {
+    "mtime": 1785122162.8366702,
+    "ast_hash": "503d55305b7928109d8f104c945f493b",
+    "semantic_hash": "503d55305b7928109d8f104c945f493b"
+  },
+  "examples/sails-integration-starter/examples/escrow-with-arbitration.ts": {
+    "mtime": 1785289244.4081066,
+    "ast_hash": "94d396728271c40e92c5968e19fdf8af",
+    "semantic_hash": "94d396728271c40e92c5968e19fdf8af"
+  },
+  "examples/sails-integration-starter/examples/p2p-bitcoin-trade.ts": {
+    "mtime": 1785289159.2489357,
+    "ast_hash": "54f6f4d192f2c664980508fa4f090641",
+    "semantic_hash": "54f6f4d192f2c664980508fa4f090641"
+  },
+  "examples/sails-integration-starter/next-env.d.ts": {
+    "mtime": 1785288618.8687446,
+    "ast_hash": "29f60a376e12bf72b67d4994fcc84214",
+    "semantic_hash": "29f60a376e12bf72b67d4994fcc84214"
+  },
+  "examples/sails-integration-starter/next.config.ts": {
+    "mtime": 1785288079.7017815,
+    "ast_hash": "00e1e46b44cfb2339e9bc7e470ed75b8",
+    "semantic_hash": "00e1e46b44cfb2339e9bc7e470ed75b8"
+  },
+  "examples/sails-integration-starter/package.json": {
+    "mtime": 1785289293.1016033,
+    "ast_hash": "2c49b49b8bf36ba86c263e025b12502f",
+    "semantic_hash": "2c49b49b8bf36ba86c263e025b12502f"
+  },
+  "examples/sails-integration-starter/postcss.config.mjs": {
+    "mtime": 1785288074.5930252,
+    "ast_hash": "ac0b55c52895a6dc8a9c2be39b99adda",
+    "semantic_hash": "ac0b55c52895a6dc8a9c2be39b99adda"
+  },
+  "examples/sails-integration-starter/src/app/layout.tsx": {
+    "mtime": 1785288097.980996,
+    "ast_hash": "970971616538b8d50f06aa53d27e78bd",
+    "semantic_hash": "970971616538b8d50f06aa53d27e78bd"
+  },
+  "examples/sails-integration-starter/src/app/page.tsx": {
+    "mtime": 1785288232.2652993,
+    "ast_hash": "33e8d0fd363d2cec8efcf6a4006fe4f2",
+    "semantic_hash": "33e8d0fd363d2cec8efcf6a4006fe4f2"
+  },
+  "examples/sails-integration-starter/src/app/providers.tsx": {
+    "mtime": 1785288092.197067,
+    "ast_hash": "e6da9ffffae00fda5e402a783cd50988",
+    "semantic_hash": "e6da9ffffae00fda5e402a783cd50988"
+  },
+  "examples/sails-integration-starter/src/sails-integration/client.ts": {
+    "mtime": 1785287580.5875762,
+    "ast_hash": "73bf4d54defa1f6240c8770bb55cd305",
+    "semantic_hash": "73bf4d54defa1f6240c8770bb55cd305"
+  },
+  "examples/sails-integration-starter/src/sails-integration/event-handler.ts": {
+    "mtime": 1785287566.277249,
+    "ast_hash": "b32377ce3ba0e9493f456862f8d0d9c0",
+    "semantic_hash": "b32377ce3ba0e9493f456862f8d0d9c0"
+  },
+  "examples/sails-integration-starter/src/sails-integration/intent-builder.ts": {
+    "mtime": 1785287547.5224116,
+    "ast_hash": "dd2fc08b29b0ffa6b121c0a26ded7958",
+    "semantic_hash": "dd2fc08b29b0ffa6b121c0a26ded7958"
+  },
+  "examples/sails-integration-starter/src/ui/StatusBadge.tsx": {
+    "mtime": 1785287927.8950372,
+    "ast_hash": "ca426baf9fd43c45d738509e023b4b46",
+    "semantic_hash": "ca426baf9fd43c45d738509e023b4b46"
+  },
+  "examples/sails-integration-starter/src/ui/TradeCard.tsx": {
+    "mtime": 1785287916.2953374,
+    "ast_hash": "527df61d0757a1cb977a56b96e38911a",
+    "semantic_hash": "527df61d0757a1cb977a56b96e38911a"
+  },
+  "examples/sails-integration-starter/src/wallet-mock/index.ts": {
+    "mtime": 1785287843.4272966,
+    "ast_hash": "8d73e87bf207183b659b2532cab35660",
+    "semantic_hash": "8d73e87bf207183b659b2532cab35660"
+  },
+  "examples/sails-integration-starter/tests/integration.test.ts": {
+    "mtime": 1785287806.537785,
+    "ast_hash": "36bfb803c8ce22e3fb9cb1892e883eec",
+    "semantic_hash": "36bfb803c8ce22e3fb9cb1892e883eec"
+  },
+  "examples/sails-integration-starter/tsconfig.json": {
+    "mtime": 1785288618.8578627,
+    "ast_hash": "341ecd3ca2a8e7cfccc42bd60d30dd8e",
+    "semantic_hash": "341ecd3ca2a8e7cfccc42bd60d30dd8e"
+  },
+  "examples/simple-wallet/package.json": {
+    "mtime": 1784576225.393142,
+    "ast_hash": "45c6073bbd3ba89f6f2832d3e6067ad3",
+    "semantic_hash": "45c6073bbd3ba89f6f2832d3e6067ad3"
+  },
+  "examples/simple-wallet/src/index.ts": {
+    "mtime": 1784589906.0882876,
+    "ast_hash": "d628ee1d0abaa546b36dd31d9043441c",
+    "semantic_hash": "d628ee1d0abaa546b36dd31d9043441c"
+  },
+  "examples/simple-wallet/tsconfig.json": {
+    "mtime": 1784576228.641497,
+    "ast_hash": "9d03f4a5a1e2cca4f9bcd48daa9d7422",
+    "semantic_hash": "9d03f4a5a1e2cca4f9bcd48daa9d7422"
+  },
+  "jest.config.js": {
+    "mtime": 1785249899.5863454,
+    "ast_hash": "eb7c7e493022843a55abbfd752eb98e2",
+    "semantic_hash": "eb7c7e493022843a55abbfd752eb98e2"
+  },
+  "load-tests/k6.config.js": {
+    "mtime": 1785125663.338236,
+    "ast_hash": "685c4298bb7074012569f0a29d7812ce",
+    "semantic_hash": "685c4298bb7074012569f0a29d7812ce"
+  },
+  "load-tests/scenarios/_shared-workload.js": {
+    "mtime": 1785126033.2096162,
+    "ast_hash": "4182240576c01ecf976c6b90ab941551",
+    "semantic_hash": "4182240576c01ecf976c6b90ab941551"
+  },
+  "load-tests/scenarios/average-load.js": {
+    "mtime": 1785126052.703511,
+    "ast_hash": "0519ea1001868fb7fb22dea21a3ebbda",
+    "semantic_hash": "0519ea1001868fb7fb22dea21a3ebbda"
+  },
+  "load-tests/scenarios/smoke-test.js": {
+    "mtime": 1785126045.7041185,
+    "ast_hash": "98f45614b84ae5714d99fee59a6870e3",
+    "semantic_hash": "98f45614b84ae5714d99fee59a6870e3"
+  },
+  "load-tests/scenarios/soak-test.js": {
+    "mtime": 1785126071.9946034,
+    "ast_hash": "1194b39d55fa3b008f44471f4a3d7a32",
+    "semantic_hash": "1194b39d55fa3b008f44471f4a3d7a32"
+  },
+  "load-tests/scenarios/spike-test.js": {
+    "mtime": 1785126082.0017238,
+    "ast_hash": "44e3a8baf67fa3d91ec959efd42325bb",
+    "semantic_hash": "44e3a8baf67fa3d91ec959efd42325bb"
+  },
+  "load-tests/scenarios/stress-test.js": {
+    "mtime": 1785126060.6605322,
+    "ast_hash": "6fd1d569af0192619759801be70b5ee8",
+    "semantic_hash": "6fd1d569af0192619759801be70b5ee8"
+  },
+  "load-tests/tests/escrow-operations.js": {
+    "mtime": 1785125943.390554,
+    "ast_hash": "35831ae89d5e376019cfea1f40c43b4e",
+    "semantic_hash": "35831ae89d5e376019cfea1f40c43b4e"
+  },
+  "load-tests/tests/intent-creation.js": {
+    "mtime": 1785125923.6045504,
+    "ast_hash": "fdb63acb2014ad37a2ab8b478fc3a12a",
+    "semantic_hash": "fdb63acb2014ad37a2ab8b478fc3a12a"
+  },
+  "load-tests/tests/reconciliation.js": {
+    "mtime": 1785125835.0320566,
+    "ast_hash": "53a64b2ab22382992d146368b4b2db82",
+    "semantic_hash": "53a64b2ab22382992d146368b4b2db82"
+  },
+  "load-tests/tests/reputation-lookup.js": {
+    "mtime": 1785125851.1023312,
+    "ast_hash": "c7c455062166ecf67103043b51bd43ab",
+    "semantic_hash": "c7c455062166ecf67103043b51bd43ab"
+  },
+  "load-tests/tests/trade-lifecycle.js": {
+    "mtime": 1785125943.360346,
+    "ast_hash": "63568506d7e6112bac46c35603051dff",
+    "semantic_hash": "63568506d7e6112bac46c35603051dff"
+  },
+  "load-tests/utils/data-generator.js": {
+    "mtime": 1785125915.5328948,
+    "ast_hash": "4aa6c8ead3bc6ace1038831f51025181",
+    "semantic_hash": "4aa6c8ead3bc6ace1038831f51025181"
+  },
+  "load-tests/utils/metrics.js": {
+    "mtime": 1785125637.3356786,
+    "ast_hash": "09cfd19c2c72ecb6c21bc69a7ffed457",
+    "semantic_hash": "09cfd19c2c72ecb6c21bc69a7ffed457"
+  },
+  "load-tests/utils/thresholds.js": {
+    "mtime": 1785125654.3462553,
+    "ast_hash": "b93e36e08775f2d4db15d241036baca4",
+    "semantic_hash": "b93e36e08775f2d4db15d241036baca4"
+  },
+  "loadtest/pregenerate-users.js": {
+    "mtime": 1784639922.2604547,
+    "ast_hash": "08d593e146605ace487282898ecd587a",
+    "semantic_hash": "08d593e146605ace487282898ecd587a"
+  },
+  "loadtest/processor.js": {
+    "mtime": 1784639940.5408366,
+    "ast_hash": "af3424fad1f1f6e99005727fea324cbc",
+    "semantic_hash": "af3424fad1f1f6e99005727fea324cbc"
+  },
+  "package.json": {
+    "mtime": 1785249203.4869301,
+    "ast_hash": "d0e73fd9b913b09b3ec3f04210dd21b3",
+    "semantic_hash": "d0e73fd9b913b09b3ec3f04210dd21b3"
+  },
+  "packages/sails-p2p-schemas/package.json": {
+    "mtime": 1784501813.115225,
+    "ast_hash": "3748d2bbeb93f02c698ef22c54dcc285",
+    "semantic_hash": "3748d2bbeb93f02c698ef22c54dcc285"
+  },
+  "packages/sails-p2p-schemas/src/dispute.ts": {
+    "mtime": 1784244322.250065,
+    "ast_hash": "cd4a1045cc0a7556723004e3ce4cd49e",
+    "semantic_hash": "cd4a1045cc0a7556723004e3ce4cd49e"
+  },
+  "packages/sails-p2p-schemas/src/index.ts": {
+    "mtime": 1784247391.037054,
+    "ast_hash": "219c32383558e8ece76e9ee9a2f70063",
+    "semantic_hash": "219c32383558e8ece76e9ee9a2f70063"
+  },
+  "packages/sails-p2p-schemas/src/offer.ts": {
+    "mtime": 1784244292.8630743,
+    "ast_hash": "cb212d2a139fbcb73853ba71830f1211",
+    "semantic_hash": "cb212d2a139fbcb73853ba71830f1211"
+  },
+  "packages/sails-p2p-schemas/src/trade.ts": {
+    "mtime": 1784244308.7198944,
+    "ast_hash": "139d63e8173e239b9ddb3194fea4d1cf",
+    "semantic_hash": "139d63e8173e239b9ddb3194fea4d1cf"
+  },
+  "packages/sails-p2p-schemas/tsconfig.json": {
+    "mtime": 1784501813.1162324,
+    "ast_hash": "c09d9be2ce60d1cb79856a63c7d79097",
+    "semantic_hash": "c09d9be2ce60d1cb79856a63c7d79097"
+  },
+  "packages/sails-sdk/package.json": {
+    "mtime": 1785249121.0396595,
+    "ast_hash": "50690362b2be740c2971ace7a14a4783",
+    "semantic_hash": "50690362b2be740c2971ace7a14a4783"
+  },
+  "packages/sails-sdk/src/client.ts": {
+    "mtime": 1785366816.518126,
+    "ast_hash": "1feaf9b7e8fd221a4140ce7cf482ab49",
+    "semantic_hash": "1feaf9b7e8fd221a4140ce7cf482ab49"
+  },
+  "packages/sails-sdk/src/custody/bitcoin-taproot.ts": {
+    "mtime": 1785249121.0436528,
+    "ast_hash": "5d5a0ca06121afee517d2cc17e8e3750",
+    "semantic_hash": "5d5a0ca06121afee517d2cc17e8e3750"
+  },
+  "packages/sails-sdk/src/custody/evm-4337.ts": {
+    "mtime": 1785249121.0466528,
+    "ast_hash": "b8b05712672e92e9e92a0a0110848dc8",
+    "semantic_hash": "b8b05712672e92e9e92a0a0110848dc8"
+  },
+  "packages/sails-sdk/src/custody/kms-signer.ts": {
+    "mtime": 1785249121.0497766,
+    "ast_hash": "f875739961536c8d06619f14e0026bdf",
+    "semantic_hash": "f875739961536c8d06619f14e0026bdf"
+  },
+  "packages/sails-sdk/src/custody/types.ts": {
+    "mtime": 1785249121.051772,
+    "ast_hash": "6c2fe30a6001c61503b5e732fa5b394d",
+    "semantic_hash": "6c2fe30a6001c61503b5e732fa5b394d"
+  },
+  "packages/sails-sdk/src/encoding.ts": {
+    "mtime": 1784330952.1371262,
+    "ast_hash": "eb178c69936bd076a85252985baea9a8",
+    "semantic_hash": "eb178c69936bd076a85252985baea9a8"
+  },
+  "packages/sails-sdk/src/errors.ts": {
+    "mtime": 1784330870.800884,
+    "ast_hash": "aedd88c60f8f17310b3db52ec3c20b37",
+    "semantic_hash": "aedd88c60f8f17310b3db52ec3c20b37"
+  },
+  "packages/sails-sdk/src/index.ts": {
+    "mtime": 1785366823.9298184,
+    "ast_hash": "b1d67b36042c7f866f2ec1946d44f63d",
+    "semantic_hash": "b1d67b36042c7f866f2ec1946d44f63d"
+  },
+  "packages/sails-sdk/src/intent-facade.ts": {
+    "mtime": 1784561793.758263,
+    "ast_hash": "94bde18e6d7c1bf3b36e3be8c7670ab9",
+    "semantic_hash": "94bde18e6d7c1bf3b36e3be8c7670ab9"
+  },
+  "packages/sails-sdk/src/modules/arbitration.ts": {
+    "mtime": 1785366355.0581994,
+    "ast_hash": "fcc8ee1cff21c27e1078a22a77862f43",
+    "semantic_hash": "fcc8ee1cff21c27e1078a22a77862f43"
+  },
+  "packages/sails-sdk/src/modules/capabilities.ts": {
+    "mtime": 1784343704.4024434,
+    "ast_hash": "4c6e63b80429a26b07b1be6d996b14f3",
+    "semantic_hash": "4c6e63b80429a26b07b1be6d996b14f3"
+  },
+  "packages/sails-sdk/src/modules/escrow-ark-signing.ts": {
+    "mtime": 1785194858.0300262,
+    "ast_hash": "5d416d680de877d7c7e8b519ff5d5b00",
+    "semantic_hash": "5d416d680de877d7c7e8b519ff5d5b00"
+  },
+  "packages/sails-sdk/src/modules/escrow-key.ts": {
+    "mtime": 1785249121.057767,
+    "ast_hash": "fa9945d32930dbdf2cad78bbc62e6251",
+    "semantic_hash": "fa9945d32930dbdf2cad78bbc62e6251"
+  },
+  "packages/sails-sdk/src/modules/identity.ts": {
+    "mtime": 1784330980.1131296,
+    "ast_hash": "47da8d3ec6247d17c215a327f585fe34",
+    "semantic_hash": "47da8d3ec6247d17c215a327f585fe34"
+  },
+  "packages/sails-sdk/src/modules/liquidity.ts": {
+    "mtime": 1784576528.5412369,
+    "ast_hash": "84316d37789641f523b8d64ce19f2dbe",
+    "semantic_hash": "84316d37789641f523b8d64ce19f2dbe"
+  },
+  "packages/sails-sdk/src/modules/openp2p.ts": {
+    "mtime": 1785107407.6135147,
+    "ast_hash": "7d637573c69fbdad92da0bf4fd36d724",
+    "semantic_hash": "7d637573c69fbdad92da0bf4fd36d724"
+  },
+  "packages/sails-sdk/src/modules/payment-account.ts": {
+    "mtime": 1785366759.286875,
+    "ast_hash": "41184ad791538b51d10dfa61ae772785",
+    "semantic_hash": "41184ad791538b51d10dfa61ae772785"
+  },
+  "packages/sails-sdk/src/modules/peers.ts": {
+    "mtime": 1784331104.6953666,
+    "ast_hash": "52488739bb248e2bb58ab5439cdcec0f",
+    "semantic_hash": "52488739bb248e2bb58ab5439cdcec0f"
+  },
+  "packages/sails-sdk/src/modules/reputation.ts": {
+    "mtime": 1784331018.2065032,
+    "ast_hash": "817ec9d9eb1b12984c29bb9d8668533a",
+    "semantic_hash": "817ec9d9eb1b12984c29bb9d8668533a"
+  },
+  "packages/sails-sdk/src/modules/settlement.ts": {
+    "mtime": 1785367791.057088,
+    "ast_hash": "2e15be0061a66e6f8c07555893554d4e",
+    "semantic_hash": "2e15be0061a66e6f8c07555893554d4e"
+  },
+  "packages/sails-sdk/src/payment-account.ts": {
+    "mtime": 1785366743.9645126,
+    "ast_hash": "9e4e752d081a9a6e7f178af0574f6118",
+    "semantic_hash": "9e4e752d081a9a6e7f178af0574f6118"
+  },
+  "packages/sails-sdk/src/transport.ts": {
+    "mtime": 1784589466.6088376,
+    "ast_hash": "dd4dd2cbaaed24d6b445e83a5c8231e6",
+    "semantic_hash": "dd4dd2cbaaed24d6b445e83a5c8231e6"
+  },
+  "packages/sails-sdk/src/types.ts": {
+    "mtime": 1785367783.8508196,
+    "ast_hash": "2f9c77c34db9c4a1150e9ad9e83b6450",
+    "semantic_hash": "2f9c77c34db9c4a1150e9ad9e83b6450"
+  },
+  "packages/sails-sdk/src/wallet-adapter.ts": {
+    "mtime": 1784343659.6987863,
+    "ast_hash": "2aeb4fdc265dde8c58a356f72ae83009",
+    "semantic_hash": "2aeb4fdc265dde8c58a356f72ae83009"
+  },
+  "packages/sails-sdk/tests/capabilities.test.ts": {
+    "mtime": 1784343990.4919508,
+    "ast_hash": "e54ee4910f431413de1c987c93427d11",
+    "semantic_hash": "e54ee4910f431413de1c987c93427d11"
+  },
+  "packages/sails-sdk/tests/client.test.ts": {
+    "mtime": 1784577352.7785609,
+    "ast_hash": "24b6a7ca28009ea59afd07a6428968bd",
+    "semantic_hash": "24b6a7ca28009ea59afd07a6428968bd"
+  },
+  "packages/sails-sdk/tests/custody-kms-signer.test.ts": {
+    "mtime": 1785249121.059781,
+    "ast_hash": "234f44c4cd9d3f5db7bae39864b51ae3",
+    "semantic_hash": "234f44c4cd9d3f5db7bae39864b51ae3"
+  },
+  "packages/sails-sdk/tests/custody-musig2.test.ts": {
+    "mtime": 1785249121.0627248,
+    "ast_hash": "4440496b12c27048608907b6b11eecdc",
+    "semantic_hash": "4440496b12c27048608907b6b11eecdc"
+  },
+  "packages/sails-sdk/tests/custody-userop.test.ts": {
+    "mtime": 1785249121.066131,
+    "ast_hash": "12dd05b550825021f2cf91945bd3005e",
+    "semantic_hash": "12dd05b550825021f2cf91945bd3005e"
+  },
+  "packages/sails-sdk/tests/escrow-key.test.ts": {
+    "mtime": 1785189264.7221444,
+    "ast_hash": "faa9a9f82b91bc98fb651a612f3913af",
+    "semantic_hash": "faa9a9f82b91bc98fb651a612f3913af"
+  },
+  "packages/sails-sdk/tests/identity.test.ts": {
+    "mtime": 1784331387.0961022,
+    "ast_hash": "e0ac0f9ec2b115f8f7fbc313196f822c",
+    "semantic_hash": "e0ac0f9ec2b115f8f7fbc313196f822c"
+  },
+  "packages/sails-sdk/tests/modules.test.ts": {
+    "mtime": 1785107472.325492,
+    "ast_hash": "ebb202d962f76d6aacef49461e0c17a9",
+    "semantic_hash": "ebb202d962f76d6aacef49461e0c17a9"
+  },
+  "packages/sails-sdk/tests/transport.test.ts": {
+    "mtime": 1784331367.9172995,
+    "ast_hash": "cd6f20efcf69a85631f709c34bc3dc7c",
+    "semantic_hash": "cd6f20efcf69a85631f709c34bc3dc7c"
+  },
+  "packages/sails-sdk/tsconfig.json": {
+    "mtime": 1784501813.117888,
+    "ast_hash": "a87aea4f661905e26f88ffbad56984d8",
+    "semantic_hash": "a87aea4f661905e26f88ffbad56984d8"
+  },
+  "packages/sails-sdk/tsup.config.ts": {
+    "mtime": 1784640242.6766653,
+    "ast_hash": "e8a076cb884d3b9bbfc2a1fa6171674e",
+    "semantic_hash": "e8a076cb884d3b9bbfc2a1fa6171674e"
+  },
+  "packages/sails-sdk/typedoc.json": {
+    "mtime": 1784583333.852022,
+    "ast_hash": "f2b28441bcc0f463c0928f4d98994fcd",
+    "semantic_hash": "f2b28441bcc0f463c0928f4d98994fcd"
+  },
+  "packages/sails-ui/package.json": {
+    "mtime": 1785353981.5488868,
+    "ast_hash": "357e5c3ed5e4713d78ddf849dc049fb0",
+    "semantic_hash": "357e5c3ed5e4713d78ddf849dc049fb0"
+  },
+  "packages/sails-ui/postcss.config.js": {
+    "mtime": 1784501813.118948,
+    "ast_hash": "88cd7fd8381b4cf4221c81596727cbbf",
+    "semantic_hash": "88cd7fd8381b4cf4221c81596727cbbf"
+  },
+  "packages/sails-ui/src/App.tsx": {
+    "mtime": 1784468195.1000335,
+    "ast_hash": "19868f77c7d0e355dde47e2f57a120a4",
+    "semantic_hash": "19868f77c7d0e355dde47e2f57a120a4"
+  },
+  "packages/sails-ui/src/components/agent/AgentIntentionPanel.tsx": {
+    "mtime": 1785249012.8475134,
+    "ast_hash": "2ee749c5b031934127d1ee972ba3496a",
+    "semantic_hash": "2ee749c5b031934127d1ee972ba3496a"
+  },
+  "packages/sails-ui/src/components/agent/AgentRiskCard.tsx": {
+    "mtime": 1785249012.8535047,
+    "ast_hash": "46a4c1ac4f8e049a1a7b216be552c268",
+    "semantic_hash": "46a4c1ac4f8e049a1a7b216be552c268"
+  },
+  "packages/sails-ui/src/components/chat/ChatMessage.tsx": {
+    "mtime": 1785249012.8605156,
+    "ast_hash": "0cc6c0545438a88c5fc1abe6dc114838",
+    "semantic_hash": "0cc6c0545438a88c5fc1abe6dc114838"
+  },
+  "packages/sails-ui/src/components/chat/ChatWindow.tsx": {
+    "mtime": 1784416616.169724,
+    "ast_hash": "2e5e3a8c853c9a19ea7a32685f69ca32",
+    "semantic_hash": "2e5e3a8c853c9a19ea7a32685f69ca32"
+  },
+  "packages/sails-ui/src/components/layout/BottomNav.tsx": {
+    "mtime": 1785249012.8745565,
+    "ast_hash": "d1c1ed37e03c3247333ebf978fb5e693",
+    "semantic_hash": "d1c1ed37e03c3247333ebf978fb5e693"
+  },
+  "packages/sails-ui/src/components/layout/Layout.tsx": {
+    "mtime": 1785249012.8805366,
+    "ast_hash": "e399c2533879565efbdb84f3197f4f98",
+    "semantic_hash": "e399c2533879565efbdb84f3197f4f98"
+  },
+  "packages/sails-ui/src/components/layout/TopNav.tsx": {
+    "mtime": 1785249012.8870738,
+    "ast_hash": "7ec24786e85b16042a3b471408db9946",
+    "semantic_hash": "7ec24786e85b16042a3b471408db9946"
+  },
+  "packages/sails-ui/src/components/marketplace/AssetPicker.tsx": {
+    "mtime": 1785384229.4157715,
+    "ast_hash": "9ddf15879be295f49745a468fe2931e6",
+    "semantic_hash": "9ddf15879be295f49745a468fe2931e6"
+  },
+  "packages/sails-ui/src/components/marketplace/CurrencyPicker.tsx": {
+    "mtime": 1785249012.9000776,
+    "ast_hash": "4fcdfd68be7dc58737dbf927f926699f",
+    "semantic_hash": "4fcdfd68be7dc58737dbf927f926699f"
+  },
+  "packages/sails-ui/src/components/marketplace/FilterPanel.tsx": {
+    "mtime": 1785353981.5508323,
+    "ast_hash": "0c17012a75ec6963d97050a295eff8b8",
+    "semantic_hash": "0c17012a75ec6963d97050a295eff8b8"
+  },
+  "packages/sails-ui/src/components/marketplace/OfferCard.tsx": {
+    "mtime": 1785353981.5518308,
+    "ast_hash": "21b2bace969e0be6538cdf1bbe9aaff1",
+    "semantic_hash": "21b2bace969e0be6538cdf1bbe9aaff1"
+  },
+  "packages/sails-ui/src/components/marketplace/PaymentMethodPicker.tsx": {
+    "mtime": 1785353981.5528314,
+    "ast_hash": "3e3a51627b26759a1deebfbe2b4ac2cc",
+    "semantic_hash": "3e3a51627b26759a1deebfbe2b4ac2cc"
+  },
+  "packages/sails-ui/src/components/trade/EscrowActions.tsx": {
+    "mtime": 1785124121.1533191,
+    "ast_hash": "2e227fda92623ec090e74df3f9469403",
+    "semantic_hash": "2e227fda92623ec090e74df3f9469403"
+  },
+  "packages/sails-ui/src/components/trade/EscrowCountdown.tsx": {
+    "mtime": 1785353981.5538402,
+    "ast_hash": "9055143e2e3f487b5c10759d816d6a6b",
+    "semantic_hash": "9055143e2e3f487b5c10759d816d6a6b"
+  },
+  "packages/sails-ui/src/components/trade/EscrowStateMachine.tsx": {
+    "mtime": 1785249012.9160733,
+    "ast_hash": "8573533d437ee848ff0f9c74fb28eac6",
+    "semantic_hash": "8573533d437ee848ff0f9c74fb28eac6"
+  },
+  "packages/sails-ui/src/components/trade/TradeParties.tsx": {
+    "mtime": 1785353981.554876,
+    "ast_hash": "762181770965e78a0983393daebf4fed",
+    "semantic_hash": "762181770965e78a0983393daebf4fed"
+  },
+  "packages/sails-ui/src/components/ui/Badge.tsx": {
+    "mtime": 1785353981.5558388,
+    "ast_hash": "87a06f5209415ec77d906ffbcd4637fa",
+    "semantic_hash": "87a06f5209415ec77d906ffbcd4637fa"
+  },
+  "packages/sails-ui/src/components/ui/CopyButton.tsx": {
+    "mtime": 1784400929.4862278,
+    "ast_hash": "e85e705419fd5869bd153fd2c0d209f6",
+    "semantic_hash": "e85e705419fd5869bd153fd2c0d209f6"
+  },
+  "packages/sails-ui/src/components/ui/FavoriteButton.tsx": {
+    "mtime": 1785353981.5568335,
+    "ast_hash": "4dd395837a30684547ec4ddd6a2ee8d4",
+    "semantic_hash": "4dd395837a30684547ec4ddd6a2ee8d4"
+  },
+  "packages/sails-ui/src/components/ui/InfoTooltip.tsx": {
+    "mtime": 1785249012.926075,
+    "ast_hash": "829893200717f38927997a0cadf9ebd3",
+    "semantic_hash": "829893200717f38927997a0cadf9ebd3"
+  },
+  "packages/sails-ui/src/components/ui/ThemeToggle.tsx": {
+    "mtime": 1784400853.4454932,
+    "ast_hash": "fd1d53d8a77cddfce7b7fe8a770cf413",
+    "semantic_hash": "fd1d53d8a77cddfce7b7fe8a770cf413"
+  },
+  "packages/sails-ui/src/components/ui/UserAvatar.tsx": {
+    "mtime": 1785353981.5578318,
+    "ast_hash": "4967129de9dccaa09626cbc2a2b43f95",
+    "semantic_hash": "4967129de9dccaa09626cbc2a2b43f95"
+  },
+  "packages/sails-ui/src/context/AuthContext.tsx": {
+    "mtime": 1784512643.482594,
+    "ast_hash": "942363f216143b63219fc194959cc186",
+    "semantic_hash": "942363f216143b63219fc194959cc186"
+  },
+  "packages/sails-ui/src/context/ThemeContext.tsx": {
+    "mtime": 1785249012.9360719,
+    "ast_hash": "093f045b9b051daa33f05f35fb1e9e0c",
+    "semantic_hash": "093f045b9b051daa33f05f35fb1e9e0c"
+  },
+  "packages/sails-ui/src/data/mock.ts": {
+    "mtime": 1785369340.3541522,
+    "ast_hash": "69c260ceca1e3a5b37b3a6906170d2bf",
+    "semantic_hash": "69c260ceca1e3a5b37b3a6906170d2bf"
+  },
+  "packages/sails-ui/src/hooks/useEscrowKey.ts": {
+    "mtime": 1785194967.363156,
+    "ast_hash": "f385858f15e57272a171b8930b049c84",
+    "semantic_hash": "f385858f15e57272a171b8930b049c84"
+  },
+  "packages/sails-ui/src/lib/aiNegotiator.ts": {
+    "mtime": 1784417802.3912008,
+    "ast_hash": "f7594723c929ae857aae9801cfb7a69b",
+    "semantic_hash": "f7594723c929ae857aae9801cfb7a69b"
+  },
+  "packages/sails-ui/src/lib/buildTrade.ts": {
+    "mtime": 1784419987.8137274,
+    "ast_hash": "64721a3a55a8e31a5552e1bee0aa5fff",
+    "semantic_hash": "64721a3a55a8e31a5552e1bee0aa5fff"
+  },
+  "packages/sails-ui/src/lib/currency.ts": {
+    "mtime": 1785369232.606655,
+    "ast_hash": "a073c956d034b1b0b6546e4831c3c89e",
+    "semantic_hash": "a073c956d034b1b0b6546e4831c3c89e"
+  },
+  "packages/sails-ui/src/lib/favorites.ts": {
+    "mtime": 1785353981.5608418,
+    "ast_hash": "509dae6291afe79a9366d6759ef5f07f",
+    "semantic_hash": "509dae6291afe79a9366d6759ef5f07f"
+  },
+  "packages/sails-ui/src/lib/format.ts": {
+    "mtime": 1784398170.369802,
+    "ast_hash": "2c540728c199bd9371ccd40dd91202b2",
+    "semantic_hash": "2c540728c199bd9371ccd40dd91202b2"
+  },
+  "packages/sails-ui/src/lib/labels.ts": {
+    "mtime": 1785369199.513866,
+    "ast_hash": "2e2f37cd91a5c41eff479f5a259916cf",
+    "semantic_hash": "2e2f37cd91a5c41eff479f5a259916cf"
+  },
+  "packages/sails-ui/src/lib/offersStore.ts": {
+    "mtime": 1784472038.504998,
+    "ast_hash": "fe8bbdf1424e78b9b18b1071cb138496",
+    "semantic_hash": "fe8bbdf1424e78b9b18b1071cb138496"
+  },
+  "packages/sails-ui/src/lib/qvacAgent.ts": {
+    "mtime": 1784470448.6214511,
+    "ast_hash": "abd9170d4ac808cabf985b3fcdf63db9",
+    "semantic_hash": "abd9170d4ac808cabf985b3fcdf63db9"
+  },
+  "packages/sails-ui/src/lib/realOffers.ts": {
+    "mtime": 1785353981.5628312,
+    "ast_hash": "cdc2046c32dcec04c2b33a25c8bec9b2",
+    "semantic_hash": "cdc2046c32dcec04c2b33a25c8bec9b2"
+  },
+  "packages/sails-ui/src/lib/reputation.ts": {
+    "mtime": 1785353981.5638335,
+    "ast_hash": "8b6a112eb5700ca09d116a95e751fc66",
+    "semantic_hash": "8b6a112eb5700ca09d116a95e751fc66"
+  },
+  "packages/sails-ui/src/lib/sailsClient.ts": {
+    "mtime": 1784512585.7586727,
+    "ast_hash": "48d104cd905a87c511bea7ae7a639bf9",
+    "semantic_hash": "48d104cd905a87c511bea7ae7a639bf9"
+  },
+  "packages/sails-ui/src/lib/socialEngineering.ts": {
+    "mtime": 1784421807.6623468,
+    "ast_hash": "328a947c1b2df1bbfa13471f2d0e8d8a",
+    "semantic_hash": "328a947c1b2df1bbfa13471f2d0e8d8a"
+  },
+  "packages/sails-ui/src/main.tsx": {
+    "mtime": 1784398065.4352205,
+    "ast_hash": "329a5d6504d3584b1d98335026d30874",
+    "semantic_hash": "329a5d6504d3584b1d98335026d30874"
+  },
+  "packages/sails-ui/src/pages/Login.tsx": {
+    "mtime": 1785249012.9520767,
+    "ast_hash": "6d781c0d76e8161ee5fa58a07dccbc45",
+    "semantic_hash": "6d781c0d76e8161ee5fa58a07dccbc45"
+  },
+  "packages/sails-ui/src/pages/Marketplace.tsx": {
+    "mtime": 1785353981.565833,
+    "ast_hash": "a221f7da91c94714d83a9a7c4c25bd4a",
+    "semantic_hash": "a221f7da91c94714d83a9a7c4c25bd4a"
+  },
+  "packages/sails-ui/src/pages/OfferDetail.tsx": {
+    "mtime": 1785353981.5668392,
+    "ast_hash": "8566f3a95fa0bdccf1b37c5d58db6135",
+    "semantic_hash": "8566f3a95fa0bdccf1b37c5d58db6135"
+  },
+  "packages/sails-ui/src/pages/Profile.tsx": {
+    "mtime": 1785353981.5678408,
+    "ast_hash": "d993a43b7ae6b9bc157fb42f2368d7ca",
+    "semantic_hash": "d993a43b7ae6b9bc157fb42f2368d7ca"
+  },
+  "packages/sails-ui/src/pages/PublishOffer.tsx": {
+    "mtime": 1785353981.5688326,
+    "ast_hash": "6b989e5bf146f84b84c6d6c93ea71888",
+    "semantic_hash": "6b989e5bf146f84b84c6d6c93ea71888"
+  },
+  "packages/sails-ui/src/pages/Trade.tsx": {
+    "mtime": 1785353981.5708342,
+    "ast_hash": "27bc2ca702f0cf35ae74cc1f69786f01",
+    "semantic_hash": "27bc2ca702f0cf35ae74cc1f69786f01"
+  },
+  "packages/sails-ui/src/pages/TradeHistory.tsx": {
+    "mtime": 1785249012.9781048,
+    "ast_hash": "c76c10c6f856e88bd639090bd9ecc8e4",
+    "semantic_hash": "c76c10c6f856e88bd639090bd9ecc8e4"
+  },
+  "packages/sails-ui/src/pages/admin/Dashboard.tsx": {
+    "mtime": 1785249012.9852543,
+    "ast_hash": "d7f6c5312bde4c047a1342a2af989529",
+    "semantic_hash": "d7f6c5312bde4c047a1342a2af989529"
+  },
+  "packages/sails-ui/src/pages/admin/Disputes.tsx": {
+    "mtime": 1785249012.9902675,
+    "ast_hash": "0d94199d30d5674e0ae25a7bccc941b5",
+    "semantic_hash": "0d94199d30d5674e0ae25a7bccc941b5"
+  },
+  "packages/sails-ui/src/pages/admin/ManageOffers.tsx": {
+    "mtime": 1785249012.9952505,
+    "ast_hash": "5057521ac2e353ca6321f6326520c976",
+    "semantic_hash": "5057521ac2e353ca6321f6326520c976"
+  },
+  "packages/sails-ui/src/types.ts": {
+    "mtime": 1785369150.7021334,
+    "ast_hash": "caf9d75188c22c0bc5fe1923c3be4dbc",
+    "semantic_hash": "caf9d75188c22c0bc5fe1923c3be4dbc"
+  },
+  "packages/sails-ui/src/vite-env.d.ts": {
+    "mtime": 1784398060.6534894,
+    "ast_hash": "0352474ba2918efe13895edbc3780d94",
+    "semantic_hash": "0352474ba2918efe13895edbc3780d94"
+  },
+  "packages/sails-ui/tailwind.config.js": {
+    "mtime": 1785249013.0032535,
+    "ast_hash": "ed1f12a93ed403eaabfaeaccf3b16c97",
+    "semantic_hash": "ed1f12a93ed403eaabfaeaccf3b16c97"
+  },
+  "packages/sails-ui/tsconfig.json": {
+    "mtime": 1784398014.430734,
+    "ast_hash": "ffa21762ab92b116febeb319077b6a4e",
+    "semantic_hash": "ffa21762ab92b116febeb319077b6a4e"
+  },
+  "packages/sails-ui/vite.config.ts": {
+    "mtime": 1785353981.5728319,
+    "ast_hash": "ea953f18deaaf46283f879b385e44341",
+    "semantic_hash": "ea953f18deaaf46283f879b385e44341"
+  },
+  "packages/sdk-react/.storybook/main.ts": {
+    "mtime": 1785108192.7933743,
+    "ast_hash": "2a79e2750ea80f4fe330b2a06627f01e",
+    "semantic_hash": "2a79e2750ea80f4fe330b2a06627f01e"
+  },
+  "packages/sdk-react/.storybook/preview.tsx": {
+    "mtime": 1785108251.5983226,
+    "ast_hash": "41511548635d666c6808031c57e8fc6a",
+    "semantic_hash": "41511548635d666c6808031c57e8fc6a"
+  },
+  "packages/sdk-react/package.json": {
+    "mtime": 1785111201.9920683,
+    "ast_hash": "46aa177132bea2fff6fe4b20745af81b",
+    "semantic_hash": "46aa177132bea2fff6fe4b20745af81b"
+  },
+  "packages/sdk-react/src/components/feedback/Skeleton.stories.tsx": {
+    "mtime": 1785108497.3476257,
+    "ast_hash": "87c642dd796dbfd25c686447957a8e66",
+    "semantic_hash": "87c642dd796dbfd25c686447957a8e66"
+  },
+  "packages/sdk-react/src/components/feedback/Skeleton.tsx": {
+    "mtime": 1785108148.4451907,
+    "ast_hash": "02a9c9dff8524caa18e85fbbaeb332b0",
+    "semantic_hash": "02a9c9dff8524caa18e85fbbaeb332b0"
+  },
+  "packages/sdk-react/src/components/feedback/Toast.stories.tsx": {
+    "mtime": 1785108493.5973434,
+    "ast_hash": "6fbee74b9d95ac824543315b470b7358",
+    "semantic_hash": "6fbee74b9d95ac824543315b470b7358"
+  },
+  "packages/sdk-react/src/components/feedback/Toast.tsx": {
+    "mtime": 1785108047.4566617,
+    "ast_hash": "f5de19c98ca444141291cb386d2ac3fe",
+    "semantic_hash": "f5de19c98ca444141291cb386d2ac3fe"
+  },
+  "packages/sdk-react/src/components/identity/ReputationBadge.stories.tsx": {
+    "mtime": 1785108488.3589106,
+    "ast_hash": "2e752f05f4c4658476f91c7de9d3d161",
+    "semantic_hash": "2e752f05f4c4658476f91c7de9d3d161"
+  },
+  "packages/sdk-react/src/components/identity/ReputationBadge.tsx": {
+    "mtime": 1785108025.7188947,
+    "ast_hash": "431acbe23a54131b443db060591e5603",
+    "semantic_hash": "431acbe23a54131b443db060591e5603"
+  },
+  "packages/sdk-react/src/components/trade/StatusBadge.stories.tsx": {
+    "mtime": 1785108451.4615185,
+    "ast_hash": "037ce91c6f3df36b277c758a3a91435f",
+    "semantic_hash": "037ce91c6f3df36b277c758a3a91435f"
+  },
+  "packages/sdk-react/src/components/trade/StatusBadge.tsx": {
+    "mtime": 1785107843.8881605,
+    "ast_hash": "0c408ba2b95eda9da42eaf3614517ba1",
+    "semantic_hash": "0c408ba2b95eda9da42eaf3614517ba1"
+  },
+  "packages/sdk-react/src/components/trade/TradeCard.stories.tsx": {
+    "mtime": 1785108273.3243876,
+    "ast_hash": "5da104da22fb0cb448136d82f14d09dd",
+    "semantic_hash": "5da104da22fb0cb448136d82f14d09dd"
+  },
+  "packages/sdk-react/src/components/trade/TradeCard.tsx": {
+    "mtime": 1785108009.6169975,
+    "ast_hash": "5047140f083a73d8afedf553e215498d",
+    "semantic_hash": "5047140f083a73d8afedf553e215498d"
+  },
+  "packages/sdk-react/src/hooks/useSailsClient.ts": {
+    "mtime": 1785107772.2123375,
+    "ast_hash": "399008cd6a5cca2c4a987b5fe2e1820e",
+    "semantic_hash": "399008cd6a5cca2c4a987b5fe2e1820e"
+  },
+  "packages/sdk-react/src/hooks/useSailsEscrow.ts": {
+    "mtime": 1785107806.529354,
+    "ast_hash": "e20f6e70e59b56713a83a35fe12d7df8",
+    "semantic_hash": "e20f6e70e59b56713a83a35fe12d7df8"
+  },
+  "packages/sdk-react/src/hooks/useSailsTrade.ts": {
+    "mtime": 1785107779.7917843,
+    "ast_hash": "4bd0a16a65bb799aaef24512360b1460",
+    "semantic_hash": "4bd0a16a65bb799aaef24512360b1460"
+  },
+  "packages/sdk-react/src/hooks/useSailsTrades.ts": {
+    "mtime": 1785107789.0488844,
+    "ast_hash": "00131a2bfc8c5eb881212f0db07a1cd1",
+    "semantic_hash": "00131a2bfc8c5eb881212f0db07a1cd1"
+  },
+  "packages/sdk-react/src/index.ts": {
+    "mtime": 1785108155.6887255,
+    "ast_hash": "b44ed43615d9020d59563b688a18c719",
+    "semantic_hash": "b44ed43615d9020d59563b688a18c719"
+  },
+  "packages/sdk-react/src/providers/SailsProvider.tsx": {
+    "mtime": 1785107765.5509086,
+    "ast_hash": "5c720fb2f0bb79b27c3465365eaee33f",
+    "semantic_hash": "5c720fb2f0bb79b27c3465365eaee33f"
+  },
+  "packages/sdk-react/tests/components/ReputationBadge.test.tsx": {
+    "mtime": 1785108700.0047774,
+    "ast_hash": "2b071bdd8bed3bdc32d4677db6a5fb54",
+    "semantic_hash": "2b071bdd8bed3bdc32d4677db6a5fb54"
+  },
+  "packages/sdk-react/tests/components/Skeleton.test.tsx": {
+    "mtime": 1785108754.8670428,
+    "ast_hash": "e1f5b4f03f79f907580c2336781ef53a",
+    "semantic_hash": "e1f5b4f03f79f907580c2336781ef53a"
+  },
+  "packages/sdk-react/tests/components/StatusBadge.test.tsx": {
+    "mtime": 1785108690.4544027,
+    "ast_hash": "28c10e45c77184ce64e7f8ce719e7559",
+    "semantic_hash": "28c10e45c77184ce64e7f8ce719e7559"
+  },
+  "packages/sdk-react/tests/components/Toast.test.tsx": {
+    "mtime": 1785108791.6815135,
+    "ast_hash": "f19309851b87d83acef0bc68e0825dd8",
+    "semantic_hash": "f19309851b87d83acef0bc68e0825dd8"
+  },
+  "packages/sdk-react/tests/components/TradeCard.test.tsx": {
+    "mtime": 1785108681.9218185,
+    "ast_hash": "48a295cbef6ee30a88e134133e84297e",
+    "semantic_hash": "48a295cbef6ee30a88e134133e84297e"
+  },
+  "packages/sdk-react/tests/helpers/render.tsx": {
+    "mtime": 1785108519.86681,
+    "ast_hash": "3b94fe8c8e8d015fdcc9bc37fe090510",
+    "semantic_hash": "3b94fe8c8e8d015fdcc9bc37fe090510"
+  },
+  "packages/sdk-react/tests/hooks/useSailsEscrow.test.tsx": {
+    "mtime": 1785108665.3065526,
+    "ast_hash": "ae62c899dfc41608afe1649dbeb89fd4",
+    "semantic_hash": "ae62c899dfc41608afe1649dbeb89fd4"
+  },
+  "packages/sdk-react/tests/hooks/useSailsTrade.test.tsx": {
+    "mtime": 1785108618.9482458,
+    "ast_hash": "e52d6e5c99a2a060b2e76b09d7f5bcab",
+    "semantic_hash": "e52d6e5c99a2a060b2e76b09d7f5bcab"
+  },
+  "packages/sdk-react/tests/hooks/useSailsTrades.test.tsx": {
+    "mtime": 1785108898.388815,
+    "ast_hash": "0bb1e3d3db5edea5e372d88dd8f43e76",
+    "semantic_hash": "0bb1e3d3db5edea5e372d88dd8f43e76"
+  },
+  "packages/sdk-react/tests/index.test.tsx": {
+    "mtime": 1785111132.5602336,
+    "ast_hash": "9708f54b7c8ee1f245459c7088b02075",
+    "semantic_hash": "9708f54b7c8ee1f245459c7088b02075"
+  },
+  "packages/sdk-react/tests/mocks/sails-client.mock.ts": {
+    "mtime": 1785108583.768514,
+    "ast_hash": "73d5194703be3d66240d7fd030fa17fe",
+    "semantic_hash": "73d5194703be3d66240d7fd030fa17fe"
+  },
+  "packages/sdk-react/tests/mocks/trade.mock.ts": {
+    "mtime": 1785108227.208475,
+    "ast_hash": "6ba42618698e5023216bf4c3d41fc8e3",
+    "semantic_hash": "6ba42618698e5023216bf4c3d41fc8e3"
+  },
+  "packages/sdk-react/tests/providers/SailsProvider.test.tsx": {
+    "mtime": 1785108786.5829628,
+    "ast_hash": "71a03fd5997753e7def913b9d801f43e",
+    "semantic_hash": "71a03fd5997753e7def913b9d801f43e"
+  },
+  "packages/sdk-react/tests/setup.ts": {
+    "mtime": 1785209063.2855124,
+    "ast_hash": "716176bd337dc9c77136c7394412fcdb",
+    "semantic_hash": "716176bd337dc9c77136c7394412fcdb"
+  },
+  "packages/sdk-react/tsconfig.json": {
+    "mtime": 1785107687.5373883,
+    "ast_hash": "3877ff91a2d9ba8ad6283772ee950aee",
+    "semantic_hash": "3877ff91a2d9ba8ad6283772ee950aee"
+  },
+  "packages/sdk-react/tsup.config.ts": {
+    "mtime": 1785107698.3234668,
+    "ast_hash": "e50160e749f22d937c919295e95aa255",
+    "semantic_hash": "e50160e749f22d937c919295e95aa255"
+  },
+  "packages/sdk-react/vitest.config.mts": {
+    "mtime": 1785107704.722883,
+    "ast_hash": "3b272affadb8e0a70d1c212acf9f849e",
+    "semantic_hash": "3b272affadb8e0a70d1c212acf9f849e"
+  },
+  "prisma.config.ts": {
+    "mtime": 1784501813.1206632,
+    "ast_hash": "83247195fa746b36b15a5ef65a9ec15b",
+    "semantic_hash": "83247195fa746b36b15a5ef65a9ec15b"
+  },
+  "scripts/local-postgres.js": {
+    "mtime": 1784511520.081806,
+    "ast_hash": "4cf6eb1389c130f66e9d087f8b7f5594",
+    "semantic_hash": "4cf6eb1389c130f66e9d087f8b7f5594"
+  },
+  "scripts/local-redis.js": {
+    "mtime": 1784512142.2923272,
+    "ast_hash": "95d9313165a01a77be0eef5b7d77b1a8",
+    "semantic_hash": "95d9313165a01a77be0eef5b7d77b1a8"
+  },
+  "src/app.ts": {
+    "mtime": 1785191955.1106853,
+    "ast_hash": "fd664ad3fd1fa6aa0be0628835a87614",
+    "semantic_hash": "fd664ad3fd1fa6aa0be0628835a87614"
+  },
+  "src/common/database/index.ts": {
+    "mtime": 1784501813.122656,
+    "ast_hash": "40fd4faf542f80f11366f76eed9ea7da",
+    "semantic_hash": "40fd4faf542f80f11366f76eed9ea7da"
+  },
+  "src/common/errors/index.ts": {
+    "mtime": 1784048580.0,
+    "ast_hash": "d3e48c9f52b90f317682b09facd291dc",
+    "semantic_hash": "d3e48c9f52b90f317682b09facd291dc"
+  },
+  "src/common/events/event-bus.ts": {
+    "mtime": 1785367851.164335,
+    "ast_hash": "1227b80166eb4b147ec4ef5865280111",
+    "semantic_hash": "1227b80166eb4b147ec4ef5865280111"
+  },
+  "src/common/events/event-store.ts": {
+    "mtime": 1784420993.5758157,
+    "ast_hash": "dd00aae881b0fc31e4ef2a80738ff919",
+    "semantic_hash": "dd00aae881b0fc31e4ef2a80738ff919"
+  },
+  "src/common/events/handlers.ts": {
+    "mtime": 1785368299.539385,
+    "ast_hash": "b678440e9e23113deb1fe7cae5bc920d",
+    "semantic_hash": "b678440e9e23113deb1fe7cae5bc920d"
+  },
+  "src/common/middleware/auth.ts": {
+    "mtime": 1784252781.2210405,
+    "ast_hash": "96b152cc14ba24fd5b35df3714b2d50a",
+    "semantic_hash": "96b152cc14ba24fd5b35df3714b2d50a"
+  },
+  "src/common/middleware/ws-auth.ts": {
+    "mtime": 1784608807.8620625,
+    "ast_hash": "63eee5c78300d2297eef056317bec562",
+    "semantic_hash": "63eee5c78300d2297eef056317bec562"
+  },
+  "src/common/redis/index.ts": {
+    "mtime": 1784048580.0,
+    "ast_hash": "067059a839fad705f8d8e9ae79d3d357",
+    "semantic_hash": "067059a839fad705f8d8e9ae79d3d357"
+  },
+  "src/common/types/capability.ts": {
+    "mtime": 1784048580.0,
+    "ast_hash": "e1df1e9fde0a32e40667afd9bfa9d98d",
+    "semantic_hash": "e1df1e9fde0a32e40667afd9bfa9d98d"
+  },
+  "src/common/types/index.ts": {
+    "mtime": 1784648992.2746298,
+    "ast_hash": "121d25597d035a0dbbfb290bb427a639",
+    "semantic_hash": "121d25597d035a0dbbfb290bb427a639"
+  },
+  "src/common/types/intent.ts": {
+    "mtime": 1784343501.3713877,
+    "ast_hash": "ddb94f7dea4229ba0ac1f42550455c0c",
+    "semantic_hash": "ddb94f7dea4229ba0ac1f42550455c0c"
+  },
+  "src/common/types/trade.ts": {
+    "mtime": 1785248994.4029582,
+    "ast_hash": "31b297bb9e99690f3613e048aca3cc19",
+    "semantic_hash": "31b297bb9e99690f3613e048aca3cc19"
+  },
+  "src/config/index.ts": {
+    "mtime": 1785354040.8310504,
+    "ast_hash": "47acccea9e8498eb98c4bc17caf60768",
+    "semantic_hash": "47acccea9e8498eb98c4bc17caf60768"
+  },
+  "src/core/capability-registry.ts": {
+    "mtime": 1784351381.8002734,
+    "ast_hash": "316789786440f424ceb440b74dd3b800",
+    "semantic_hash": "316789786440f424ceb440b74dd3b800"
+  },
+  "src/core/coordination-engine.ts": {
+    "mtime": 1784301743.6792297,
+    "ast_hash": "a0bf4301b8b729aeed2f14e5182fbecd",
+    "semantic_hash": "a0bf4301b8b729aeed2f14e5182fbecd"
+  },
+  "src/core/intent-engine.ts": {
+    "mtime": 1784563828.519289,
+    "ast_hash": "f31ecfa46165676cb857c7be9f6997db",
+    "semantic_hash": "f31ecfa46165676cb857c7be9f6997db"
+  },
+  "src/core/policy-engine.ts": {
+    "mtime": 1785354010.702813,
+    "ast_hash": "b78544815699c00d4a62de894ae74a32",
+    "semantic_hash": "b78544815699c00d4a62de894ae74a32"
+  },
+  "src/core/state-machine.ts": {
+    "mtime": 1784301696.237309,
+    "ast_hash": "41f68ab4c93a762fef7e0a0d46f61e8f",
+    "semantic_hash": "41f68ab4c93a762fef7e0a0d46f61e8f"
+  },
+  "src/core/timeline.ts": {
+    "mtime": 1784421032.1052103,
+    "ast_hash": "64733e1d04637a5431a0adcb64302d0b",
+    "semantic_hash": "64733e1d04637a5431a0adcb64302d0b"
+  },
+  "src/demo/pix-to-usdt-flow.ts": {
+    "mtime": 1784348108.7346966,
+    "ast_hash": "526472cbeca24691ae372e6736fc5d8d",
+    "semantic_hash": "526472cbeca24691ae372e6736fc5d8d"
+  },
+  "src/infrastructure/p2p/payload-crypto.ts": {
+    "mtime": 1784303366.0664787,
+    "ast_hash": "d99af379d182da5170a81ab62ece1e2e",
+    "semantic_hash": "d99af379d182da5170a81ab62ece1e2e"
+  },
+  "src/infrastructure/p2p/pear.routes.ts": {
+    "mtime": 1784608657.8634496,
+    "ast_hash": "c704c189dc99083f30a97d6a164610e5",
+    "semantic_hash": "c704c189dc99083f30a97d6a164610e5"
+  },
+  "src/infrastructure/p2p/pear.service.ts": {
+    "mtime": 1784646824.9129498,
+    "ast_hash": "a2f0e7054a1dc93c3140aad25e8640a6",
+    "semantic_hash": "a2f0e7054a1dc93c3140aad25e8640a6"
+  },
+  "src/infrastructure/p2p/relay.routes.ts": {
+    "mtime": 1784608812.9491985,
+    "ast_hash": "505811f72cedecd991dc741944b25e6a",
+    "semantic_hash": "505811f72cedecd991dc741944b25e6a"
+  },
+  "src/infrastructure/p2p/transport-provider.ts": {
+    "mtime": 1784608608.1246226,
+    "ast_hash": "54deef706c74d1a431a2825770295c00",
+    "semantic_hash": "54deef706c74d1a431a2825770295c00"
+  },
+  "src/infrastructure/p2p/websocket-relay.service.ts": {
+    "mtime": 1784608729.9720213,
+    "ast_hash": "ceb7d8cfa6b360705b650c24509a6db0",
+    "semantic_hash": "ceb7d8cfa6b360705b650c24509a6db0"
+  },
+  "src/main.ts": {
+    "mtime": 1784326851.0522866,
+    "ast_hash": "0f9ad30f9bce0786e9f03af00c401d10",
+    "semantic_hash": "0f9ad30f9bce0786e9f03af00c401d10"
+  },
+  "src/modules/open-agents/buyer-agent.ts": {
+    "mtime": 1784417775.162498,
+    "ast_hash": "b4c2084ba40644b1de536564118607ee",
+    "semantic_hash": "b4c2084ba40644b1de536564118607ee"
+  },
+  "src/modules/open-agents/capability.routes.ts": {
+    "mtime": 1784501813.123266,
+    "ast_hash": "4b3ba5c5de2c212cb4cb99d418b51819",
+    "semantic_hash": "4b3ba5c5de2c212cb4cb99d418b51819"
+  },
+  "src/modules/open-agents/qvac-agent.provider.ts": {
+    "mtime": 1784649028.4815764,
+    "ast_hash": "fa037cbdb22e9fc73a5802eb80385cd6",
+    "semantic_hash": "fa037cbdb22e9fc73a5802eb80385cd6"
+  },
+  "src/modules/open-agents/seller-agent.ts": {
+    "mtime": 1784298203.2703052,
+    "ast_hash": "cf77178680513642308431190188e24f",
+    "semantic_hash": "cf77178680513642308431190188e24f"
+  },
+  "src/modules/open-agents/social-engineering-agent.ts": {
+    "mtime": 1784421105.1932836,
+    "ast_hash": "fc8958fb8fe3953b6f56d556dfe6bee0",
+    "semantic_hash": "fc8958fb8fe3953b6f56d556dfe6bee0"
+  },
+  "src/modules/open-agents/wallet-agent.ts": {
+    "mtime": 1784298171.4135563,
+    "ast_hash": "9ffc78bcdf06a5f58e099fb327e9b699",
+    "semantic_hash": "9ffc78bcdf06a5f58e099fb327e9b699"
+  },
+  "src/modules/open-identity/identity.routes.ts": {
+    "mtime": 1784346788.1909542,
+    "ast_hash": "b471d15f6a9a202db63ca24a066b1530",
+    "semantic_hash": "b471d15f6a9a202db63ca24a066b1530"
+  },
+  "src/modules/open-identity/identity.service.ts": {
+    "mtime": 1784252764.3803577,
+    "ast_hash": "3554a3f16c0639975ca273c183b4c10e",
+    "semantic_hash": "3554a3f16c0639975ca273c183b4c10e"
+  },
+  "src/modules/open-liquidity/liquidity.routes.ts": {
+    "mtime": 1784576520.4329197,
+    "ast_hash": "0bb1f7c574520724bc7489df75f1fbd4",
+    "semantic_hash": "0bb1f7c574520724bc7489df75f1fbd4"
+  },
+  "src/modules/open-liquidity/liquidity.service.ts": {
+    "mtime": 1784576507.0745556,
+    "ast_hash": "90f3b76c8f97959ff42cdc6242947540",
+    "semantic_hash": "90f3b76c8f97959ff42cdc6242947540"
+  },
+  "src/modules/open-p2p/chat-room-registry.ts": {
+    "mtime": 1784293914.4954247,
+    "ast_hash": "d5fb2b0521f077f3e46691da82e367c0",
+    "semantic_hash": "d5fb2b0521f077f3e46691da82e367c0"
+  },
+  "src/modules/open-p2p/chat.routes.ts": {
+    "mtime": 1784608835.7528064,
+    "ast_hash": "e401e6b1bb7d8fa2c43c8c63fca0e6a6",
+    "semantic_hash": "e401e6b1bb7d8fa2c43c8c63fca0e6a6"
+  },
+  "src/modules/open-p2p/intent-handler.ts": {
+    "mtime": 1784517616.2378998,
+    "ast_hash": "214ea60514ca2c9cb236e466a8499a12",
+    "semantic_hash": "214ea60514ca2c9cb236e466a8499a12"
+  },
+  "src/modules/open-p2p/negotiation.service.ts": {
+    "mtime": 1784293959.091988,
+    "ast_hash": "7d58d81b3aac9d488f11c7f3f0f23adf",
+    "semantic_hash": "7d58d81b3aac9d488f11c7f3f0f23adf"
+  },
+  "src/modules/open-p2p/reconciliation.service.ts": {
+    "mtime": 1784235218.368352,
+    "ast_hash": "099c5c7b3747e76c2c285eeb6b3f9b9c",
+    "semantic_hash": "099c5c7b3747e76c2c285eeb6b3f9b9c"
+  },
+  "src/modules/open-p2p/trade.routes.ts": {
+    "mtime": 1785125411.4489334,
+    "ast_hash": "95ffa711b3d4b1aa28277ddac6967fb9",
+    "semantic_hash": "95ffa711b3d4b1aa28277ddac6967fb9"
+  },
+  "src/modules/open-p2p/trade.service.ts": {
+    "mtime": 1785106983.7785633,
+    "ast_hash": "d15e7ab479bb82de8677553d5fdbf271",
+    "semantic_hash": "d15e7ab479bb82de8677553d5fdbf271"
+  },
+  "src/modules/open-proof/proof.routes.ts": {
+    "mtime": 1784646370.0598633,
+    "ast_hash": "ac5676aa58480c6ad48a0a95201070ff",
+    "semantic_hash": "ac5676aa58480c6ad48a0a95201070ff"
+  },
+  "src/modules/open-proof/proof.service.ts": {
+    "mtime": 1784646346.0663917,
+    "ast_hash": "1896e5d3c8af4b50883d073f414a92bf",
+    "semantic_hash": "1896e5d3c8af4b50883d073f414a92bf"
+  },
+  "src/modules/open-reputation/reputation.routes.ts": {
+    "mtime": 1784343371.5374982,
+    "ast_hash": "0a2dee2f768bd95392577caeea18af43",
+    "semantic_hash": "0a2dee2f768bd95392577caeea18af43"
+  },
+  "src/modules/open-reputation/reputation.service.ts": {
+    "mtime": 1785368344.8155925,
+    "ast_hash": "78c38f4d728928ba39a052240947477a",
+    "semantic_hash": "78c38f4d728928ba39a052240947477a"
+  },
+  "src/modules/open-settlement/arbitration-provider.ts": {
+    "mtime": 1785368307.1397698,
+    "ast_hash": "4c282324bcd58db62b7f38b4a3c77dde",
+    "semantic_hash": "4c282324bcd58db62b7f38b4a3c77dde"
+  },
+  "src/modules/open-settlement/dispute.service.ts": {
+    "mtime": 1785368333.0351126,
+    "ast_hash": "2b2ed56a1a871043495de9ad5faf416a",
+    "semantic_hash": "2b2ed56a1a871043495de9ad5faf416a"
+  },
+  "src/modules/open-settlement/escrow.service.ts": {
+    "mtime": 1785354010.7048094,
+    "ast_hash": "8ca85634fd9d065f5a3272521019f86e",
+    "semantic_hash": "8ca85634fd9d065f5a3272521019f86e"
+  },
+  "src/modules/open-settlement/lightning-hodl.provider.ts": {
+    "mtime": 1785194784.4975536,
+    "ast_hash": "1949265dd3e5e9514e0e9a6af4816c98",
+    "semantic_hash": "1949265dd3e5e9514e0e9a6af4816c98"
+  },
+  "src/modules/open-settlement/market-arbitration.provider.ts": {
+    "mtime": 1785368314.1352444,
+    "ast_hash": "da983c8acac80d35d822a80d103df82c",
+    "semantic_hash": "da983c8acac80d35d822a80d103df82c"
+  },
+  "src/modules/open-settlement/multisig.provider.ts": {
+    "mtime": 1785188346.2916892,
+    "ast_hash": "d78175d4929dea15ea9a275d696af242",
+    "semantic_hash": "d78175d4929dea15ea9a275d696af242"
+  },
+  "src/modules/open-settlement/payment-account.service.ts": {
+    "mtime": 1785366650.9311619,
+    "ast_hash": "a7b0d0ca9024970aaaa4a49889b9da94",
+    "semantic_hash": "a7b0d0ca9024970aaaa4a49889b9da94"
+  },
+  "src/modules/open-settlement/safe-guard-evm.provider.ts": {
+    "mtime": 1785249936.0170753,
+    "ast_hash": "56b45cc53357904c3cfd4cad59ebb7c2",
+    "semantic_hash": "56b45cc53357904c3cfd4cad59ebb7c2"
+  },
+  "src/modules/open-settlement/settlement-orchestrator.ts": {
+    "mtime": 1784348916.194111,
+    "ast_hash": "8471ab7ed367f1e5511167aefff3eec4",
+    "semantic_hash": "8471ab7ed367f1e5511167aefff3eec4"
+  },
+  "src/modules/open-settlement/settlement.routes.ts": {
+    "mtime": 1785367754.1401637,
+    "ast_hash": "6cc826baa6cc28c52eca4978a573e0b0",
+    "semantic_hash": "6cc826baa6cc28c52eca4978a573e0b0"
+  },
+  "src/modules/open-settlement/wdk-settlement.provider.ts": {
+    "mtime": 1784492190.6216192,
+    "ast_hash": "ee1931c1cfe5679fd3324443e071e7eb",
+    "semantic_hash": "ee1931c1cfe5679fd3324443e071e7eb"
+  },
+  "src/routes/intentRoutes.ts": {
+    "mtime": 1784649010.9248252,
+    "ast_hash": "0ff8458a2bc2fb92d042f3e1f0cfc0fb",
+    "semantic_hash": "0ff8458a2bc2fb92d042f3e1f0cfc0fb"
+  },
+  "src/types.d.ts": {
+    "mtime": 1784048580.0,
+    "ast_hash": "3d95e3de0cddaa87f9488efce58c8365",
+    "semantic_hash": "3d95e3de0cddaa87f9488efce58c8365"
+  },
+  "tests/autoSettleHandler.test.ts": {
+    "mtime": 1784421482.1322,
+    "ast_hash": "4475ff20b38e3828f66ea2259745736d",
+    "semantic_hash": "4475ff20b38e3828f66ea2259745736d"
+  },
+  "tests/capabilityRegistry.test.ts": {
+    "mtime": 1784343822.8506289,
+    "ast_hash": "3328980ddf92c950bcb540927ec21ae2",
+    "semantic_hash": "3328980ddf92c950bcb540927ec21ae2"
+  },
+  "tests/chatUnification.test.ts": {
+    "mtime": 1785195257.4770987,
+    "ast_hash": "0255604d9d3028a2ee952877168c6803",
+    "semantic_hash": "0255604d9d3028a2ee952877168c6803"
+  },
+  "tests/disputeFlow.test.ts": {
+    "mtime": 1785368500.9167607,
+    "ast_hash": "1f0685e64fa35bf3b9f10289d56fd5c4",
+    "semantic_hash": "1f0685e64fa35bf3b9f10289d56fd5c4"
+  },
+  "tests/escrowProviderWiring.test.ts": {
+    "mtime": 1785195308.807419,
+    "ast_hash": "4dcdb288d068b666a92c982d0d5d663d",
+    "semantic_hash": "4dcdb288d068b666a92c982d0d5d663d"
+  },
+  "tests/escrowReleaseControls.test.ts": {
+    "mtime": 1785354010.7068133,
+    "ast_hash": "ad0d33e71bd7b52dee538fda2bf005ff",
+    "semantic_hash": "ad0d33e71bd7b52dee538fda2bf005ff"
+  },
+  "tests/fullTradeLifecycle.test.ts": {
+    "mtime": 1785195247.3603766,
+    "ast_hash": "0400c0fd2d20ed108e16c79664fa0d4e",
+    "semantic_hash": "0400c0fd2d20ed108e16c79664fa0d4e"
+  },
+  "tests/handshakeSpoofing.test.ts": {
+    "mtime": 1784646852.776209,
+    "ast_hash": "5c59fc668862063287e94febacb9e909",
+    "semantic_hash": "5c59fc668862063287e94febacb9e909"
+  },
+  "tests/intentCapabilityCheck.test.ts": {
+    "mtime": 1784564387.9531896,
+    "ast_hash": "bd5cbea6bc8719ef4be382e11ebdc809",
+    "semantic_hash": "bd5cbea6bc8719ef4be382e11ebdc809"
+  },
+  "tests/intentFlow.test.ts": {
+    "mtime": 1784564336.0944245,
+    "ast_hash": "8bfadad800d66897ed6069f32b513388",
+    "semantic_hash": "8bfadad800d66897ed6069f32b513388"
+  },
+  "tests/intentTransport.test.ts": {
+    "mtime": 1784303742.1879356,
+    "ast_hash": "ea9748bd9c3dfb91f7535e6c6bde7503",
+    "semantic_hash": "ea9748bd9c3dfb91f7535e6c6bde7503"
+  },
+  "tests/lightningHodlProvider.test.ts": {
+    "mtime": 1785195177.5998359,
+    "ast_hash": "b16509240ef50761d7a139a74adc05ba",
+    "semantic_hash": "b16509240ef50761d7a139a74adc05ba"
+  },
+  "tests/marketArbitrationProvider.test.ts": {
+    "mtime": 1785367941.4483428,
+    "ast_hash": "4bb89316c08ce62d7e55a7a5b2554eb1",
+    "semantic_hash": "4bb89316c08ce62d7e55a7a5b2554eb1"
+  },
+  "tests/multisigProvider.test.ts": {
+    "mtime": 1785188998.897928,
+    "ast_hash": "2780380ece332ec5989ba154f13d9d70",
+    "semantic_hash": "2780380ece332ec5989ba154f13d9d70"
+  },
+  "tests/payloadCrypto.test.ts": {
+    "mtime": 1784303618.723848,
+    "ast_hash": "40afeb15cb831ff7ae4c665c8a1b5758",
+    "semantic_hash": "40afeb15cb831ff7ae4c665c8a1b5758"
+  },
+  "tests/paymentAccountHashConsistency.test.ts": {
+    "mtime": 1785367203.8900883,
+    "ast_hash": "038d6565fce0713667fc2c2a15485d76",
+    "semantic_hash": "038d6565fce0713667fc2c2a15485d76"
+  },
+  "tests/paymentAccountService.test.ts": {
+    "mtime": 1785366888.8645558,
+    "ast_hash": "cf51e4c5e7988a3d16d2e051a7636ba3",
+    "semantic_hash": "cf51e4c5e7988a3d16d2e051a7636ba3"
+  },
+  "tests/qvac-forgery.test.ts": {
+    "mtime": 1784646440.4830651,
+    "ast_hash": "f4b049ee054b09e7485c3ba397a269af",
+    "semantic_hash": "f4b049ee054b09e7485c3ba397a269af"
+  },
+  "tests/qvac-prompt-injection.test.ts": {
+    "mtime": 1784649076.8565242,
+    "ast_hash": "9640e4d71b94062e65ca44b503325ba0",
+    "semantic_hash": "9640e4d71b94062e65ca44b503325ba0"
+  },
+  "tests/race-condition.test.ts": {
+    "mtime": 1785354010.7078078,
+    "ast_hash": "5ab2667311acfee16a8a39d89527a188",
+    "semantic_hash": "5ab2667311acfee16a8a39d89527a188"
+  },
+  "tests/rateLimit.test.ts": {
+    "mtime": 1785195289.7862904,
+    "ast_hash": "9acb790401d36cc7b40d31d61db87742",
+    "semantic_hash": "9acb790401d36cc7b40d31d61db87742"
+  },
+  "tests/reconciliation-poisoning.test.ts": {
+    "mtime": 1784644367.9388444,
+    "ast_hash": "ce809c1a0593c4fc2c3d92d2c8caefef",
+    "semantic_hash": "ce809c1a0593c4fc2c3d92d2c8caefef"
+  },
+  "tests/reputationOutcome.test.ts": {
+    "mtime": 1785368429.9018588,
+    "ast_hash": "1ab68551b59dc19be643d2948693fa6c",
+    "semantic_hash": "1ab68551b59dc19be643d2948693fa6c"
+  },
+  "tests/routes.test.ts": {
+    "mtime": 1785368547.8691368,
+    "ast_hash": "4417e627ffb971ea4b03646be0629a0b",
+    "semantic_hash": "4417e627ffb971ea4b03646be0629a0b"
+  },
+  "tests/safeGuardEvmProvider.test.ts": {
+    "mtime": 1785249760.2163906,
+    "ast_hash": "4be62e115c9ec255514913d7af60c5ea",
+    "semantic_hash": "4be62e115c9ec255514913d7af60c5ea"
+  },
+  "tests/settlementOrchestrator.test.ts": {
+    "mtime": 1784324250.5428026,
+    "ast_hash": "bab1f87d121cd9ab47294d9dad483db3",
+    "semantic_hash": "bab1f87d121cd9ab47294d9dad483db3"
+  },
+  "tests/socialEngineeringAgent.test.ts": {
+    "mtime": 1784421283.4254296,
+    "ast_hash": "ae752713c1e11da110439e3703ca9571",
+    "semantic_hash": "ae752713c1e11da110439e3703ca9571"
+  },
+  "tests/socialEngineeringDetection.test.ts": {
+    "mtime": 1784421301.6020281,
+    "ast_hash": "9e9097905ca280aa7157e672ebcf6822",
+    "semantic_hash": "9e9097905ca280aa7157e672ebcf6822"
+  },
+  "tests/timeline.test.ts": {
+    "mtime": 1784421263.0061724,
+    "ast_hash": "f760c9b824d24c6f21739162c7b16c5c",
+    "semantic_hash": "f760c9b824d24c6f21739162c7b16c5c"
+  },
+  "tests/transportFallback.test.ts": {
+    "mtime": 1784240240.6807601,
+    "ast_hash": "e850532f1a2fa61eb8e3033307775e11",
+    "semantic_hash": "e850532f1a2fa61eb8e3033307775e11"
+  },
+  "tests/walletAgents.test.ts": {
+    "mtime": 1784298473.2737606,
+    "ast_hash": "f7f8c22b238352f050290eb23d41ba94",
+    "semantic_hash": "f7f8c22b238352f050290eb23d41ba94"
+  },
+  "tests/wdkSettlementProvider.test.ts": {
+    "mtime": 1784492371.0557227,
+    "ast_hash": "a0bd0c5efa6c6cf2964d3fbd3fb8048c",
+    "semantic_hash": "a0bd0c5efa6c6cf2964d3fbd3fb8048c"
+  },
+  "tests/wsAuth.test.ts": {
+    "mtime": 1784608844.9534388,
+    "ast_hash": "fcce737970e414b6dcd25229ecb8f6b8",
+    "semantic_hash": "fcce737970e414b6dcd25229ecb8f6b8"
+  },
+  "tsconfig.json": {
+    "mtime": 1784501813.1243758,
+    "ast_hash": "ff7cbc066f65ca25605e30c83d741528",
+    "semantic_hash": "ff7cbc066f65ca25605e30c83d741528"
+  },
+  ".github/dependabot.yml": {
+    "mtime": 1784334455.5995526,
+    "ast_hash": "baa64d605bdec5b7ef61f973c3773765",
+    "semantic_hash": "baa64d605bdec5b7ef61f973c3773765"
+  },
+  ".github/workflows/ci.yml": {
+    "mtime": 1784334437.6048343,
+    "ast_hash": "bd843fb4effebbfe764de45e201f8f9c",
+    "semantic_hash": "bd843fb4effebbfe764de45e201f8f9c"
+  },
+  "README.md": {
+    "mtime": 1784399119.9307342,
+    "ast_hash": "713824d808e17368bd5f14f50a485eac",
+    "semantic_hash": "713824d808e17368bd5f14f50a485eac"
+  },
+  "docker-compose.yml": {
+    "mtime": 1784347521.2533252,
+    "ast_hash": "c09e1611395076eafcbd6ab8e52086be",
+    "semantic_hash": "c09e1611395076eafcbd6ab8e52086be"
+  },
+  "docs/00-INDEX.md": {
+    "mtime": 1784577482.2315333,
+    "ast_hash": "42427743211a2800c5e30296eaa512e3",
+    "semantic_hash": "42427743211a2800c5e30296eaa512e3"
+  },
+  "docs/API_REFERENCE.md": {
+    "mtime": 1785250128.1161275,
+    "ast_hash": "3609f2a67d340a857287c0b6e23e9372",
+    "semantic_hash": "3609f2a67d340a857287c0b6e23e9372"
+  },
+  "docs/API_STABLE.md": {
+    "mtime": 1784582930.9602256,
+    "ast_hash": "53d73779fbabbe74978ba522139651b1",
+    "semantic_hash": "53d73779fbabbe74978ba522139651b1"
+  },
+  "docs/ARCHITECTURE.md": {
+    "mtime": 1784608718.102048,
+    "ast_hash": "19a6878fa42c6e4674f5ae07a474c06e",
+    "semantic_hash": "19a6878fa42c6e4674f5ae07a474c06e"
+  },
+  "docs/BACKLOG.md": {
+    "mtime": 1785368973.4386332,
+    "ast_hash": "80d538bafb9e9d1330084b5c2dd7e051",
+    "semantic_hash": "80d538bafb9e9d1330084b5c2dd7e051"
+  },
+  "docs/CONTRIBUTING.md": {
+    "mtime": 1784251846.6960723,
+    "ast_hash": "a8c35277a2b67984027c08bcdc785a0a",
+    "semantic_hash": "a8c35277a2b67984027c08bcdc785a0a"
+  },
+  "docs/CRYPTOGRAPHIC_MODEL.md": {
+    "mtime": 1785249120.9926608,
+    "ast_hash": "ecc8c018f3bfb6ccc58ebc62f0685544",
+    "semantic_hash": "ecc8c018f3bfb6ccc58ebc62f0685544"
+  },
+  "docs/DATABASE.md": {
+    "mtime": 1784475775.7851853,
+    "ast_hash": "f6b68939e03aa81d66f083b6641d376e",
+    "semantic_hash": "f6b68939e03aa81d66f083b6641d376e"
+  },
+  "docs/DEPLOYMENT.md": {
+    "mtime": 1784349243.7439,
+    "ast_hash": "b6f8aa0df830459dae1b6556b7c9f713",
+    "semantic_hash": "b6f8aa0df830459dae1b6556b7c9f713"
+  },
+  "docs/DEVELOPER_JOURNEY.md": {
+    "mtime": 1784250629.1131485,
+    "ast_hash": "2ae3efd2a32c0e4b3b76f7668172623d",
+    "semantic_hash": "2ae3efd2a32c0e4b3b76f7668172623d"
+  },
+  "docs/ECOSYSTEM_INTEGRATIONS.md": {
+    "mtime": 1784563340.8023877,
+    "ast_hash": "eb61d5f47474247eb0895c9531dbce27",
+    "semantic_hash": "eb61d5f47474247eb0895c9531dbce27"
+  },
+  "docs/GOVERNANCE.md": {
+    "mtime": 1784491183.1923907,
+    "ast_hash": "2d66e7a56a53bd7bda2eaa67fd304f76",
+    "semantic_hash": "2d66e7a56a53bd7bda2eaa67fd304f76"
+  },
+  "docs/HANDOFF.md": {
+    "mtime": 1785149567.652931,
+    "ast_hash": "9e7e48142c615ec5799e936342bdc315",
+    "semantic_hash": "9e7e48142c615ec5799e936342bdc315"
+  },
+  "docs/NODE_ARCHITECTURE.md": {
+    "mtime": 1784475945.3570914,
+    "ast_hash": "affc01dcac6db238095aba74fb9fa64a",
+    "semantic_hash": "affc01dcac6db238095aba74fb9fa64a"
+  },
+  "docs/PHILOSOPHY.md": {
+    "mtime": 1784048580.0,
+    "ast_hash": "baa81b8ec5097cbcf196147bedfd3143",
+    "semantic_hash": "baa81b8ec5097cbcf196147bedfd3143"
+  },
+  "docs/PRINCIPLES.md": {
+    "mtime": 1784048580.0,
+    "ast_hash": "27903147ddb67435c613c83277df9bdc",
+    "semantic_hash": "27903147ddb67435c613c83277df9bdc"
+  },
+  "docs/PROJECT_CONTEXT.md": {
+    "mtime": 1784417726.0091913,
+    "ast_hash": "57799c2feaaa2e6a34823936e8e2ea92",
+    "semantic_hash": "57799c2feaaa2e6a34823936e8e2ea92"
+  },
+  "docs/PROTOCOL_ECONOMY.md": {
+    "mtime": 1784250648.5587075,
+    "ast_hash": "2bc9010567816a728ef7dd25a1f01e6c",
+    "semantic_hash": "2bc9010567816a728ef7dd25a1f01e6c"
+  },
+  "docs/PROTOCOL_INVARIANTS.md": {
+    "mtime": 1785249120.9976535,
+    "ast_hash": "a9b6b87759bf2b69a62d98b5131d1783",
+    "semantic_hash": "a9b6b87759bf2b69a62d98b5131d1783"
+  },
+  "docs/PROTOCOL_SPECIFICATION.md": {
+    "mtime": 1784517763.5421553,
+    "ast_hash": "2ad3edb8438eb785b35d6ea07a2e03e9",
+    "semantic_hash": "2ad3edb8438eb785b35d6ea07a2e03e9"
+  },
+  "docs/REFERENCE_IMPLEMENTATIONS.md": {
+    "mtime": 1784048580.0,
+    "ast_hash": "28270abd20889a8c44d6391ff19289f4",
+    "semantic_hash": "28270abd20889a8c44d6391ff19289f4"
+  },
+  "docs/ROADMAP.md": {
+    "mtime": 1784353522.9960384,
+    "ast_hash": "672498bc13d2999cfc64a025dc12acdf",
+    "semantic_hash": "672498bc13d2999cfc64a025dc12acdf"
+  },
+  "docs/SDK_GUIDE.md": {
+    "mtime": 1784589619.8017378,
+    "ast_hash": "de3b269ad1127aed1b137308ad83ab18",
+    "semantic_hash": "de3b269ad1127aed1b137308ad83ab18"
+  },
+  "docs/SDK_usecases.md": {
+    "mtime": 1784417758.2121356,
+    "ast_hash": "8ff9c65f0e9695372d7680a149d3441e",
+    "semantic_hash": "8ff9c65f0e9695372d7680a149d3441e"
+  },
+  "docs/SECURITY_MODEL.md": {
+    "mtime": 1785368680.9107797,
+    "ast_hash": "501c5f50ae6767657df4491674cffdb1",
+    "semantic_hash": "501c5f50ae6767657df4491674cffdb1"
+  },
+  "docs/THREAT_MODEL.md": {
+    "mtime": 1785368701.6283293,
+    "ast_hash": "cb4136c31104aa5e1763e50f222b64f1",
+    "semantic_hash": "cb4136c31104aa5e1763e50f222b64f1"
+  },
+  "docs/TODO.md": {
+    "mtime": 1785286341.060275,
+    "ast_hash": "ac189ac7674a96860db8bd24b429d46f",
+    "semantic_hash": "ac189ac7674a96860db8bd24b429d46f"
+  },
+  "docs/TRANSACTION_WALKTHROUGH.md": {
+    "mtime": 1784349537.403845,
+    "ast_hash": "e52f37e46e08d0e3f9149d6def2adde0",
+    "semantic_hash": "e52f37e46e08d0e3f9149d6def2adde0"
+  },
+  "docs/TRUST_BOUNDARY.md": {
+    "mtime": 1785249121.0096574,
+    "ast_hash": "c02df1394e94db2699ef970972f858c4",
+    "semantic_hash": "c02df1394e94db2699ef970972f858c4"
+  },
+  "docs/rfcs/00-INDEX.md": {
+    "mtime": 1785368986.9111068,
+    "ast_hash": "b69123a82c7016d7009cb8b90f4368c8",
+    "semantic_hash": "b69123a82c7016d7009cb8b90f4368c8"
+  },
+  "docs/rfcs/RFC-001-participant-model.md": {
+    "mtime": 1784048580.0,
+    "ast_hash": "d72ac790349f1985bf5a328e6da8dbb9",
+    "semantic_hash": "d72ac790349f1985bf5a328e6da8dbb9"
+  },
+  "docs/rfcs/RFC-002-transport-provider.md": {
+    "mtime": 1784048580.0,
+    "ast_hash": "a2e9aa308e38e6875330ad96a930cb8e",
+    "semantic_hash": "a2e9aa308e38e6875330ad96a930cb8e"
+  },
+  "docs/rfcs/RFC-003-proof-primitive.md": {
+    "mtime": 1784048580.0,
+    "ast_hash": "f3fcff2d548c875cdb2e0dfb1b55261e",
+    "semantic_hash": "f3fcff2d548c875cdb2e0dfb1b55261e"
+  },
+  "docs/rfcs/RFC-004-negotiation-state-machine.md": {
+    "mtime": 1784048580.0,
+    "ast_hash": "6c732bc6727d157821711c0fe0a1ad6b",
+    "semantic_hash": "6c732bc6727d157821711c0fe0a1ad6b"
+  },
+  "docs/rfcs/RFC-005-capability-model.md": {
+    "mtime": 1784048580.0,
+    "ast_hash": "eab449484b74994c566926320cffd3d7",
+    "semantic_hash": "eab449484b74994c566926320cffd3d7"
+  },
+  "docs/rfcs/RFC-006-openproof-module-and-packages.md": {
+    "mtime": 1784048580.0,
+    "ast_hash": "aef151fb9aa655c59808c44a224ccc2d",
+    "semantic_hash": "aef151fb9aa655c59808c44a224ccc2d"
+  },
+  "docs/rfcs/RFC-007-real-world-p2p-requirements.md": {
+    "mtime": 1784066479.9984052,
+    "ast_hash": "f8ffe3d39cf2caae9f6efe57020eddcf",
+    "semantic_hash": "f8ffe3d39cf2caae9f6efe57020eddcf"
+  },
+  "docs/rfcs/RFC-008-verifiable-timestamps-and-chained-timeline.md": {
+    "mtime": 1784067553.3127227,
+    "ast_hash": "a4b498763bc789ff9bb8d94c2d68d448",
+    "semantic_hash": "a4b498763bc789ff9bb8d94c2d68d448"
+  },
+  "docs/rfcs/RFC-009-decimal-precision-for-financial-fields.md": {
+    "mtime": 1784231522.8043654,
+    "ast_hash": "965879f765c8492b546b06aad91d7458",
+    "semantic_hash": "965879f765c8492b546b06aad91d7458"
+  },
+  "docs/rfcs/RFC-010-durable-event-store.md": {
+    "mtime": 1784233682.113726,
+    "ast_hash": "010721d63a6f11243109de6676519960",
+    "semantic_hash": "010721d63a6f11243109de6676519960"
+  },
+  "docs/rfcs/RFC-011-p2p-reconciliation.md": {
+    "mtime": 1784235428.6078722,
+    "ast_hash": "7643d1f02b3ce92d8268b7f6e39311c3",
+    "semantic_hash": "7643d1f02b3ce92d8268b7f6e39311c3"
+  },
+  "docs/rfcs/RFC-012-intent-validation-and-coordination.md": {
+    "mtime": 1784301623.7064278,
+    "ast_hash": "a7d8ee23d9d27f0e64b8bbef50980b0f",
+    "semantic_hash": "a7d8ee23d9d27f0e64b8bbef50980b0f"
+  },
+  "docs/rfcs/RFC-013-capability-registry-and-wallet-adapter.md": {
+    "mtime": 1784343408.4570715,
+    "ast_hash": "8f6e55cd9ad1a18d12014afcab03685a",
+    "semantic_hash": "8f6e55cd9ad1a18d12014afcab03685a"
+  },
+  "docs/rfcs/RFC-014-capability-registry-enforcement.md": {
+    "mtime": 1784348415.226536,
+    "ast_hash": "e83d6dfdc2ee2dcf9d2cc640b3dfc434",
+    "semantic_hash": "e83d6dfdc2ee2dcf9d2cc640b3dfc434"
+  },
+  "docs/rfcs/RFC-015-dual-authorization-escrow-release.md": {
+    "mtime": 1784349203.8741405,
+    "ast_hash": "abc1f1dae2908bdf88809a17b5abba5e",
+    "semantic_hash": "abc1f1dae2908bdf88809a17b5abba5e"
+  },
+  "docs/rfcs/RFC-016-qvac-crypto-native-agent-boundary.md": {
+    "mtime": 1784417692.894468,
+    "ast_hash": "7aa85dfb3dbad8c3127eb6a846db997a",
+    "semantic_hash": "7aa85dfb3dbad8c3127eb6a846db997a"
+  },
+  "docs/rfcs/RFC-017-timeline-and-social-engineering-agent.md": {
+    "mtime": 1784421628.6781774,
+    "ast_hash": "e8579632420ddce2a047887ccac70ff4",
+    "semantic_hash": "e8579632420ddce2a047887ccac70ff4"
+  },
+  "docs/rfcs/RFC-018-intent-as-canonical-trade-entry-point.md": {
+    "mtime": 1784517757.011403,
+    "ast_hash": "deaa08c1e4dbef3aa723dffbc266ec4a",
+    "semantic_hash": "deaa08c1e4dbef3aa723dffbc266ec4a"
+  },
+  "docs/rfcs/RFC-019-settlement-custody-reference-vs-normative.md": {
+    "mtime": 1784492440.269184,
+    "ast_hash": "41c7c0351a486db8575b4542afe832af",
+    "semantic_hash": "41c7c0351a486db8575b4542afe832af"
+  },
+  "docs/rfcs/RFC-020-non-custodial-evm-settlement.md": {
+    "mtime": 1785249121.0156517,
+    "ast_hash": "0a25fd102fefb58697935a7a48b40926",
+    "semantic_hash": "0a25fd102fefb58697935a7a48b40926"
+  },
+  "docs/rfcs/RFC-021-market-based-arbitration-and-payment-trust.md": {
+    "mtime": 1785368931.0776043,
+    "ast_hash": "907f01060d7c2b924423b4e880e9f180",
+    "semantic_hash": "907f01060d7c2b924423b4e880e9f180"
+  },
+  "docs/security/SYBIL_MITIGATION.md": {
+    "mtime": 1784644457.3092406,
+    "ast_hash": "5c106acca727d63d80b16f9aaa74d7ad",
+    "semantic_hash": "5c106acca727d63d80b16f9aaa74d7ad"
+  },
+  "docs/whitepapers/MARKETING_WHITEPAPER.md": {
+    "mtime": 1784607913.721485,
+    "ast_hash": "d026940f533c4201782dbc51e0093af4",
+    "semantic_hash": "d026940f533c4201782dbc51e0093af4"
+  },
+  "docs/whitepapers/PROTOCOL_PAPER.md": {
+    "mtime": 1784647135.6401494,
+    "ast_hash": "a5419afa6d0455157c824d368d0e18ca",
+    "semantic_hash": "a5419afa6d0455157c824d368d0e18ca"
+  },
+  "docs/whitepapers/SDK_PAPER.md": {
+    "mtime": 1784607957.4545257,
+    "ast_hash": "f11a606d69202635944306efd5f3adb4",
+    "semantic_hash": "f11a606d69202635944306efd5f3adb4"
+  },
+  "docs/whitepapers/TECHNICAL_WHITEPAPER.md": {
+    "mtime": 1784646961.3429263,
+    "ast_hash": "01b38c8f2401e9b57f478c252faa86b1",
+    "semantic_hash": "01b38c8f2401e9b57f478c252faa86b1"
+  },
+  "examples/sails-integration-starter/README.md": {
+    "mtime": 1785330809.257189,
+    "ast_hash": "82a5e771e4fadd4565d1b5d92852896f",
+    "semantic_hash": "82a5e771e4fadd4565d1b5d92852896f"
+  },
+  "examples/sails-integration-starter/docs/API.md": {
+    "mtime": 1785330566.9188714,
+    "ast_hash": "94c574ebf04a1de186e595e9a0483328",
+    "semantic_hash": "94c574ebf04a1de186e595e9a0483328"
+  },
+  "examples/sails-integration-starter/docs/ARCHITECTURE.md": {
+    "mtime": 1785330504.5936494,
+    "ast_hash": "2144999222dbcc7f6c9320ddef96d6c8",
+    "semantic_hash": "2144999222dbcc7f6c9320ddef96d6c8"
+  },
+  "examples/sails-integration-starter/docs/FAQ.md": {
+    "mtime": 1785330545.7071295,
+    "ast_hash": "c146448f04f181a99731d892a6dfc9ea",
+    "semantic_hash": "c146448f04f181a99731d892a6dfc9ea"
+  },
+  "examples/sails-integration-starter/docs/USE_CASES.md": {
+    "mtime": 1785330523.0098226,
+    "ast_hash": "a8352194ceb25c4d403bd45b41829171",
+    "semantic_hash": "a8352194ceb25c4d403bd45b41829171"
+  },
+  "examples/simple-wallet/README.md": {
+    "mtime": 1784576409.1783514,
+    "ast_hash": "c9380196c53fd9a20bd3973a5af709e1",
+    "semantic_hash": "c9380196c53fd9a20bd3973a5af709e1"
+  },
+  "load-tests/README.md": {
+    "mtime": 1785126160.1259897,
+    "ast_hash": "a84a7b090ca168bae477ccaa6e867049",
+    "semantic_hash": "a84a7b090ca168bae477ccaa6e867049"
+  },
+  "loadtest/README.md": {
+    "mtime": 1784640122.0292797,
+    "ast_hash": "6c64d94fd62958e9e8e64816ad767560",
+    "semantic_hash": "6c64d94fd62958e9e8e64816ad767560"
+  },
+  "loadtest/chat-ws.yml": {
+    "mtime": 1784639968.878573,
+    "ast_hash": "2a02eccd766146ee1aa6110310267a87",
+    "semantic_hash": "2a02eccd766146ee1aa6110310267a87"
+  },
+  "loadtest/intent-api.yml": {
+    "mtime": 1784639312.7091494,
+    "ast_hash": "aaae64c1c4686854142d2638cac32006",
+    "semantic_hash": "aaae64c1c4686854142d2638cac32006"
+  },
+  "packages/sails-sdk/CHANGELOG.md": {
+    "mtime": 1784590108.4002838,
+    "ast_hash": "0056e369b6a163baf35a6c2f8d903c18",
+    "semantic_hash": "0056e369b6a163baf35a6c2f8d903c18"
+  },
+  "packages/sails-ui/README.md": {
+    "mtime": 1784472380.7379155,
+    "ast_hash": "7462bcbc3e04e333e37e81e5f0831a15",
+    "semantic_hash": "7462bcbc3e04e333e37e81e5f0831a15"
+  },
+  "packages/sails-ui/index.html": {
+    "mtime": 1784398051.3326154,
+    "ast_hash": "e765b0d0adae6a832de98f9e629f32ea",
+    "semantic_hash": "e765b0d0adae6a832de98f9e629f32ea"
+  },
+  "packages/sdk-react/README.md": {
+    "mtime": 1785287971.081136,
+    "ast_hash": "ba3ef1d6f189db782583fb6284bea552",
+    "semantic_hash": "ba3ef1d6f189db782583fb6284bea552"
+  },
+  "src/core/README.md": {
+    "mtime": 1784048580.0,
+    "ast_hash": "96eb3d051ba374e27af6ba0a4e4b6a3e",
+    "semantic_hash": "96eb3d051ba374e27af6ba0a4e4b6a3e"
+  },
+  "e2e/visual/visual-regression.spec.ts-snapshots/marketplace-dark-mode-visual-win32.png": {
+    "mtime": 1785119462.3028145,
+    "ast_hash": "e45a51a3a50b71931a21e8204289f601",
+    "semantic_hash": "e45a51a3a50b71931a21e8204289f601"
+  },
+  "e2e/visual/visual-regression.spec.ts-snapshots/marketplace-mobile-iphone-se-visual-win32.png": {
+    "mtime": 1785119466.9500623,
+    "ast_hash": "d4ef0cbbabfc68b318e4dce9a42ce902",
+    "semantic_hash": "d4ef0cbbabfc68b318e4dce9a42ce902"
+  },
+  "e2e/visual/visual-regression.spec.ts-snapshots/marketplace-mobile-pixel-5-visual-win32.png": {
+    "mtime": 1785119471.7233398,
+    "ast_hash": "6da2161d3e12f136f441ad235c7a1f62",
+    "semantic_hash": "6da2161d3e12f136f441ad235c7a1f62"
+  },
+  "e2e/visual/visual-regression.spec.ts-snapshots/marketplace-usdt-listing-light-visual-win32.png": {
+    "mtime": 1785119456.8549204,
+    "ast_hash": "37206a14f720e0bd1f1139ce35bac220",
+    "semantic_hash": "37206a14f720e0bd1f1139ce35bac220"
+  },
+  "e2e/visual/visual-regression.spec.ts-snapshots/trade-completed-visual-win32.png": {
+    "mtime": 1785119489.504428,
+    "ast_hash": "ed8db3277910b7cd44ab88ba48826fc1",
+    "semantic_hash": "ed8db3277910b7cd44ab88ba48826fc1"
+  },
+  "e2e/visual/visual-regression.spec.ts-snapshots/trade-escrow-created-visual-win32.png": {
+    "mtime": 1785122200.6752312,
+    "ast_hash": "b196c7b30f97cbd67cb12686fd487c83",
+    "semantic_hash": "b196c7b30f97cbd67cb12686fd487c83"
+  },
+  "e2e/visual/visual-regression.spec.ts-snapshots/trade-escrow-funds-locked-visual-win32.png": {
+    "mtime": 1785119485.0572214,
+    "ast_hash": "2aef876e399f89ccfbd007c1aefc2599",
+    "semantic_hash": "2aef876e399f89ccfbd007c1aefc2599"
+  },
+  "e2e/visual/visual-regression.spec.ts-snapshots/trade-escrow-payment-pending-visual-win32.png": {
+    "mtime": 1785119487.267333,
+    "ast_hash": "7b626288cb55656def0aac5a2ab051af",
+    "semantic_hash": "7b626288cb55656def0aac5a2ab051af"
+  },
+  "e2e/visual/visual-regression.spec.ts-snapshots/trade-pending-no-escrow-visual-win32.png": {
+    "mtime": 1785119482.1836655,
+    "ast_hash": "390a18a1badd3f69f802df9bc7dc05c6",
+    "semantic_hash": "390a18a1badd3f69f802df9bc7dc05c6"
+  }
+}

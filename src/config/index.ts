@@ -4,6 +4,7 @@
  * Every other file that imports 'config' depends on this existing.
  */
 import 'dotenv/config'
+import { validateConfig } from "./validation"
 
 function required(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback

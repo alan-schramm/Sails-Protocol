@@ -22,9 +22,16 @@
  *    already uses, since `CreateOfferInput.priceUsd` is mandatory on the
  *    real backend regardless of which fiat the user prices in.
  *
- * No `POST /v1/liquidity/offers` call happens here — `lib/offersStore.ts`
- * persists the result to `localStorage` instead, the same mock-swap
- * boundary this whole package already draws everywhere else.
+ * `handlePublish()` calls the real `sailsClient.liquidity.publish()`
+ * (`POST /v1/liquidity/offers`) directly (corrected 2026-08-04 — this
+ * comment used to say otherwise, back when `lib/offersStore.ts`/
+ * `localStorage` stood in for it; that file is gone now). The step-1
+ * "suggested price range" hint also reads real comparable offers now
+ * (`lib/realOffers.ts`'s `fetchOffers()`, same `liquidity.discover()`
+ * fan-out Marketplace.tsx uses) instead of the seed `MOCK_OFFERS` —
+ * filtered to the same side being published (if you're selling, you
+ * want to see what other sellers charge, not buyers' bids), unlike the
+ * old mock filter, which ignored side entirely.
  */
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'

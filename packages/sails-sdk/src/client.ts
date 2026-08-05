@@ -141,6 +141,84 @@ export class SailsClient {
   releaseAsset: SailsIntentFacade['releaseAsset'] = (...args) => this.intents.releaseAsset(...args)
   dispute: SailsIntentFacade['dispute'] = (...args) => this.intents.dispute(...args)
 
+  /**
+   * Retrieve the balance of a specific asset using the injected wallet adapter.
+   * @param asset - Asset identifier, e.g., "ETH" or token address.
+   * @returns Promise<string> - Balance as string.
+   * @throws If no wallet adapter is configured.
+   */
+  async getBalance(asset: string): Promise<string> {
+    if (!this.wallet) {
+      throw new Error('Wallet adapter not configured');
+    }
+    return this.wallet.getBalance(asset);
+  }
+
+  /**
+   * Send a transaction using the wallet adapter: sign then broadcast.
+   * @param asset - Asset identifier.
+   * @param tx - Transaction data to be signed (implementation‑specific).
+   * @returns Promise<string> - Transaction hash/ID returned by the broadcast step.
+   * @throws If no wallet adapter is configured.
+   */
+  async sendTransaction(asset: string, tx: unknown): Promise<string> {
+    if (!this.wallet) {
+      throw new Error('Wallet adapter not configured');
+    }
+    const signed = await this.wallet.signTransaction(asset, tx);
+    return this.wallet.broadcastTransaction(asset, signed);
+  }
+
+  /**
+   * Retrieve all addresses managed by the wallet for its declared assets.
+   * @returns Promise<string[]> - Array of address strings.
+   * @throws If no wallet adapter is configured.
+   */
+  async getAddresses(): Promise<string[]> {
+    if (!this.wallet) {
+      throw new Error('Wallet adapter not configured');
+    }
+    const caps = await this.wallet.getCapabilities();
+    const addresses = await Promise.all(
+      caps.assets.map((asset) => this.wallet!.getAddress(asset))
+    );
+    return addresses;
+  }
+
+  /**
+   * Retrieve the wallet capabilities via the injected wallet adapter.
+   * @returns Promise<WalletCapabilitiesDeclaration>
+   * @throws If no wallet adapter is configured.
+   */
+  async getCapabilities(): Promise<any> {
+    if (!this.wallet) {
+      throw new Error('Wallet adapter not configured');
+    }
+    return this.wallet.getCapabilities();
+  }
+
+  /**
+   * Sign an arbitrary message using the wallet adapter.
+   * @param message Uint8Array message to sign.
+   * @returns Promise<Uint8Array> signed message (mock returns same).
+   * @throws If no wallet adapter is configured.
+   */
+  async signMessage(message: Uint8Array): Promise<Uint8Array> {
+    if (!this.wallet) {
+      throw new Error('Wallet adapter not configured');
+    }
+    return this.wallet.signMessage(message);
+  }
+    if (!this.wallet) {
+      throw new Error('Wallet adapter not configured');
+    }
+    const caps = await this.wallet.getCapabilities();
+    const addresses = await Promise.all(
+      caps.assets.map((asset) => this.wallet!.getAddress(asset))
+    );
+    return addresses;
+  }
+
   /** Escape hatch for direct/advanced use not covered by a module above. */
   setSessionToken(token: string | null): void {
     this.transport.setSessionToken(token)
