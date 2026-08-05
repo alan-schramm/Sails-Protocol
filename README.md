@@ -158,6 +158,42 @@ up` (not just reviewed) before this was written.
 
 **If you're actively editing code** (hot-reload, not a rebuild per
 change):
+## Usage
+
+Below is a quick example demonstrating the core wallet methods provided by `SailsClient`. For a detailed API reference see [API.md](docs/API.md) and for more examples see [EXAMPLES.md](docs/EXAMPLES.md).
+
+
+```ts
+import { SailsClient } from '@sails/sdk';
+import { MockWalletAdapter } from '@sails/sdk/wallet-adapter-mock';
+
+const wallet = new MockWalletAdapter();
+const client = new SailsClient({ walletAdapter: wallet });
+
+async function demo() {
+  const balance = await client.getBalance('0x123...');
+  console.log('Balance:', balance.toString());
+
+  const addresses = await client.getAddresses();
+  console.log('Addresses:', addresses);
+
+  const txHash = await client.sendTransaction({
+    from: addresses[0],
+    to: '0xabc...',
+    value: 1000,
+    // other fields as needed
+  });
+  console.log('Tx sent, hash:', txHash);
+
+  const signed = await client.signMessage(new Uint8Array([1,2,3]));
+  console.log('Signed message:', signed);
+
+  const caps = await client.getCapabilities();
+  console.log('Capabilities:', caps);
+}
+
+demo();
+```
 
 ```bash
 cp .env.example .env    # defaults already match docker-compose.yml
