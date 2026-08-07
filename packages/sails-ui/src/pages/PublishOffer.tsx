@@ -33,7 +33,7 @@
  * want to see what other sellers charge, not buyers' bids), unlike the
  * old mock filter, which ignored side entirely.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
@@ -46,7 +46,8 @@ import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
 import { ArrowLeft } from 'lucide-react'
-import { MOCK_OFFERS, ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
+import { fetchOffers } from '../lib/realOffers'
+import { ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
 import { ILLUSTRATIVE_FX_TO_USD, formatByCurrency } from '../lib/currency'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { sailsClient } from '../lib/sailsClient'
@@ -95,13 +96,36 @@ export function PublishOffer() {
   const [country, setCountry] = useState('BR')
   const [description, setDescription] = useState('')
 
-  const suggestedRange = useMemo(() => {
-    if (asset === 'Todos' || currency === 'Todas') return null
-    const comparable = MOCK_OFFERS.filter((o) => o.asset === asset && o.fiatCurrency === currency)
-    if (comparable.length === 0) return null
-    const prices = comparable.map((o) => o.priceFiat)
-    return { min: Math.min(...prices), max: Math.max(...prices) }
-  }, [asset, currency])
+  // Real comparable-offer prices (2026-08-04) — same liquidity.discover()
+  // fan-out Marketplace.tsx uses, scoped to a single (asset, side) pair
+  // here so it's one real request, not twenty. Filtered by `side` too,
+  // unlike the old MOCK_OFFERS-based version: a seller wants to see
+  // what other sellers charge, not the buy-side spread.
+  const [suggestedRange, setSuggestedRange] = useState<{ min: number; max: number } | null>(null)
+  const [loadingSuggestedRange, setLoadingSuggestedRange] = useState(false)
+
+  useEffect(() => {
+    if (asset === 'Todos' || currency === 'Todas') {
+      setSuggestedRange(null)
+      return
+    }
+    let cancelled = false
+    setLoadingSuggestedRange(true)
+    fetchOffers(asset, side)
+      .then(({ offers }) => {
+        if (cancelled) return
+        const comparable = offers.filter((o) => o.fiatCurrency === currency)
+        if (comparable.length === 0) {
+          setSuggestedRange(null)
+          return
+        }
+        const prices = comparable.map((o) => o.priceFiat)
+        setSuggestedRange({ min: Math.min(...prices), max: Math.max(...prices) })
+      })
+      .catch(() => { if (!cancelled) setSuggestedRange(null) })
+      .finally(() => { if (!cancelled) setLoadingSuggestedRange(false) })
+    return () => { cancelled = true }
+  }, [asset, side, currency])
 
   const step1Valid = asset !== 'Todos' && currency !== 'Todas' && Number(price) > 0
   const step2Valid = Number(minAmount) > 0 && Number(maxAmount) > Number(minAmount) && paymentDetails.trim().length > 0
@@ -261,7 +285,10 @@ export function PublishOffer() {
                   />
                   <button onClick={() => setPrice(String(Number(price || 0) + 1))} className="px-4 py-3 text-brand-text-secondary hover:text-brand-text">+</button>
                 </div>
-                {suggestedRange && (
+                {loadingSuggestedRange && (
+                  <p className="text-xs text-brand-text-muted mt-1.5">Buscando faixa de preço...</p>
+                )}
+                {!loadingSuggestedRange && suggestedRange && (
                   <p className="text-xs text-brand-text-muted mt-1.5">
                     Faixa de preço sugerida: {formatByCurrency(suggestedRange.min, currency as FiatCurrency)} – {formatByCurrency(suggestedRange.max, currency as FiatCurrency)}
                   </p>
