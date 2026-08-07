@@ -116,7 +116,9 @@ model User {
   paymentAccounts    PaymentAccount[]  // RFC-021 D5 — zero or more linked payment rails, each with its own trust ramp
   vouchesGiven       Vouch[]           @relation("VouchesGiven")   // RFC-021 D7 — peer vouches this participant has extended to newcomers
   vouchesReceived    Vouch[]           @relation("VouchesReceived") // RFC-021 D7 — peer vouches this participant has received
+  payoutAddresses    PayoutAddress[]   // BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04
 
+  @@index([reputationScore]) // P2: performance for leaderboard queries
   @@map("users")
 }
 
@@ -341,6 +343,7 @@ model Dispute {
   @@unique([tradeId]) // also serves as the tradeId lookup index — no separate @@index needed
   @@index([escrowId])
   @@index([status])
+  @@index([arbiterId, status]) // P2: performance for arbiter case list queries
   @@map("disputes")
 }
 
@@ -435,6 +438,31 @@ model PaymentAccount {
 
   @@index([ownerId])
   @@map("payment_accounts")
+}
+
+// BACKLOG.md's own "Participant payout address" row, closed 2026-08-04 —
+// a real, recurring gap surfaced by the dispute work: resolveDispute()'s
+// RELEASE/SPLIT rulings and escrow.service.ts's releaseFunds()/
+// splitFunds() all needed a real crypto payout address for a
+// participant, and no schema field modeled one for any asset. Separate
+// from PaymentAccount above (that's the FIAT rail a trader receives PIX/
+// bank transfers on, this is the crypto address a trader receives
+// released escrow funds at) and separate per-asset (a participant's BTC
+// address and their USDT/EVM address are unrelated values) — one row per
+// (participant, asset), not one address covering everything.
+model PayoutAddress {
+  id            String    @id @default(uuid())
+  participantId String
+  participant   User      @relation(fields: [participantId], references: [id])
+  asset         AssetType
+  address       String
+  moduleId      String    @default("opensettlement")
+  protocolVersion String  @default("0.1")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([participantId, asset])
+  @@map("payout_addresses")
 }
 
 // RFC-021 D7 — peer vouching, the real bootstrap mechanism for two

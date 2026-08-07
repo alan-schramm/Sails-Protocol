@@ -35,6 +35,11 @@ function messageEntry(tradeId: string, content: string, eventId = 'evt-1'): Time
     eventType: 'openp2p.message.sent',
     occurredAt: new Date().toISOString(),
     payload: { messageId: 'm1', tradeId, senderId: 'u1', content, msgType: 'TEXT', timestamp: new Date().toISOString() },
+    // RFC-008 D2 fields — this agent doesn't consult the hash chain, so
+    // fixture values are fine here (real chaining is exercised for real
+    // in tests/timeline.test.ts).
+    entryHash: 'test-entry-hash',
+    prevHash: 'test-prev-hash',
   }
 }
 
@@ -45,6 +50,7 @@ describe('SocialEngineeringAgent.evaluate', () => {
     const agent = new SocialEngineeringAgent(new QvacAgentProvider())
     const result = await agent.evaluate({
       eventId: 'e1', eventType: 'settlement.escrow.locked', occurredAt: new Date().toISOString(), payload: {},
+      entryHash: 'test-entry-hash', prevHash: 'test-prev-hash',
     })
 
     expect(result).toBeNull()

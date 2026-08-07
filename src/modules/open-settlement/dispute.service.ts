@@ -27,6 +27,7 @@ import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitrati
 import { marketArbitrationProvider } from './market-arbitration.provider'
 import type { AssetType } from '../../common/types'
 import type { EvidenceDescriptor, DisputeRuling } from '@sails/p2p-schemas'
+import type { DisputeStatus } from '@prisma/client'
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
 // baseline (1-2% of the disputed amount, charged as Escrow.feeCharged by
@@ -210,9 +211,9 @@ export class DisputeService {
 
       if (ruling === 'RELEASE') {
         if (needsSignatureCollection) {
-          await escrowService.initiateRelease(dispute.escrowId, releaseToAddress as string, triggeredBy)
+          await escrowService.initiateRelease(dispute.escrowId, releaseToAddress, triggeredBy)
         } else {
-          await escrowService.releaseFunds(dispute.escrowId, releaseToAddress as string, triggeredBy)
+          await escrowService.releaseFunds(dispute.escrowId, releaseToAddress, triggeredBy)
         }
       } else if (ruling === 'REFUND') {
         if (needsSignatureCollection) {
@@ -228,9 +229,13 @@ export class DisputeService {
         // VtxoScript each have a real, provider-specific reason they
         // can't — see their own buildUnsignedSplit() overrides — surfaced
         // here as a normal thrown error (reverting this ruling below), not
-        // silently no-op'd.
-        if (!releaseToAddress || !refundToAddress || splitBuyerBps === undefined) {
-          throw new ValidationError('SPLIT requires releaseToAddress (buyer payout), refundToAddress (seller payout), and splitBuyerBps')
+        // silently no-op'd. releaseToAddress/refundToAddress are no longer
+        // validated here (2026-08-04) — escrowService.initiateSplit()/
+        // splitFunds() resolve missing addresses against each party's own
+        // registered PayoutAddress and throw their own clear error only if
+        // that also comes up empty.
+        if (splitBuyerBps === undefined) {
+          throw new ValidationError('SPLIT requires splitBuyerBps')
         }
         if (needsSignatureCollection) {
           await escrowService.initiateSplit(dispute.escrowId, releaseToAddress, refundToAddress, splitBuyerBps, triggeredBy)
@@ -241,7 +246,7 @@ export class DisputeService {
     } catch (err) {
       await prisma.dispute.update({
         where: { id: dispute.id },
-        data: { status: dispute.status as any, ruling: null, resolvedAt: null },
+        data: { status: dispute.status as DisputeStatus, ruling: null, resolvedAt: null },
       })
       throw err
     }
@@ -261,16 +266,18 @@ export class DisputeService {
     disputeId: string,
     arbiterId: string,
     ruling: DisputeRuling,
-    // Required for RELEASE (buyer's payout) and SPLIT (same, buyer's
-    // share) — escrowService.releaseFunds()/splitFunds() need a real
-    // payout address, and no field in the current schema models a
-    // participant's payout address (a real, separate gap — BACKLOG.md).
-    // Not fabricated here; the caller must supply it.
+    // Buyer's payout address for RELEASE/SPLIT. Optional as of
+    // 2026-08-04 (BACKLOG.md's "Participant payout address" gap,
+    // closed): if omitted, escrowService.releaseFunds()/splitFunds()'s
+    // own resolvePayoutAddress() falls back to the buyer's registered
+    // PayoutAddress for the escrow's asset, throwing its own clear error
+    // only if neither exists — this method no longer pre-validates
+    // presence, since "missing" is no longer necessarily an error.
     releaseToAddress?: string,
-    // RFC-021 D9 (2026-08-02) — required for SPLIT only: the seller's
-    // payout address (mirrors releaseToAddress's buyer role) and the
-    // buyer's share in basis points out of 10000 (seller gets the exact
-    // remainder). Unused for RELEASE/REFUND.
+    // RFC-021 D9 (2026-08-02) — seller's payout address for SPLIT only
+    // (mirrors releaseToAddress's buyer role), same fallback as above.
+    // splitBuyerBps has no such fallback — it's a ruling decision, not an
+    // address, so it's still required up front for SPLIT.
     refundToAddress?: string,
     splitBuyerBps?: number
   ) {
@@ -283,11 +290,8 @@ export class DisputeService {
       throw new ForbiddenError(`${arbiterId} is not the arbiter assigned to dispute ${disputeId}`)
     }
 
-    if (ruling === 'RELEASE' && !releaseToAddress) {
-      throw new ValidationError('releaseToAddress is required when ruling is RELEASE')
-    }
-    if (ruling === 'SPLIT' && (!releaseToAddress || !refundToAddress || splitBuyerBps === undefined)) {
-      throw new ValidationError('releaseToAddress, refundToAddress, and splitBuyerBps are all required when ruling is SPLIT')
+    if (ruling === 'SPLIT' && splitBuyerBps === undefined) {
+      throw new ValidationError('splitBuyerBps is required when ruling is SPLIT')
     }
 
     const updated = await this.applyRuling(dispute, ruling, releaseToAddress, arbiterId, refundToAddress, splitBuyerBps)

@@ -21,7 +21,7 @@
  * exists and `intentId` becomes the natural correlationId to pass instead.
  */
 import { eventBus } from '../common/events/event-bus'
-import type { DurableEvent } from '../common/events/event-store'
+import { GENESIS_HASH, computeEntryHash, type DurableEvent } from '../common/events/event-store'
 
 export interface TimelineEntry {
   eventType: string
@@ -31,11 +31,24 @@ export interface TimelineEntry {
   // (SocialEngineeringAgent) needs to reference which entry a RiskSignal
   // came from (SocialEngineeringRiskDetectedEvent.sourceEventId).
   eventId: string
+  // RFC-008 D2, closed 2026-08-04 — computed once, at write time, by
+  // EventStore.publish() (event-store.ts's own header comment on
+  // DurableEvent has the full rationale for why this chains DurableEvent
+  // rather than EscrowEvent/ReputationEvent as the RFC's original text
+  // assumed). Read-only here: getEvents() surfaces the already-computed
+  // hashes, it never (re)computes them.
+  entryHash: string
+  prevHash: string
 }
 
 export interface Timeline {
   correlationId: string
   getEvents(): Promise<TimelineEntry[]>
+  // RFC-008 D2 — walks the chain and reports the first broken link
+  // (an inserted, reordered, or deleted entry) rather than a bare
+  // yes/no, so a Dispute UI or ArbitrationProvider can point at exactly
+  // where tampering occurred.
+  verifyChain(): Promise<{ valid: boolean; brokenAtIndex?: number }>
 }
 
 function toTimelineEntry(event: DurableEvent): TimelineEntry {
@@ -44,6 +57,8 @@ function toTimelineEntry(event: DurableEvent): TimelineEntry {
     eventType: event.eventName,
     occurredAt: event.publishedAt,
     payload: event.payload,
+    entryHash: event.entryHash,
+    prevHash: event.prevHash,
   }
 }
 
@@ -57,6 +72,27 @@ export function getTimeline(correlationId: string): Timeline {
     async getEvents(): Promise<TimelineEntry[]> {
       const events = await eventBus.getEvents(correlationId)
       return events.map(toTimelineEntry)
+    },
+    async verifyChain(): Promise<{ valid: boolean; brokenAtIndex?: number }> {
+      const events = await eventBus.getEvents(correlationId)
+      let expectedPrevHash = GENESIS_HASH
+      for (let i = 0; i < events.length; i++) {
+        const event = events[i]
+        // Two independent checks, both required: (1) this entry's own
+        // prevHash must match the running chain (catches reordering,
+        // insertion, or deletion of whole entries), and (2) recomputing
+        // entryHash from the entry's own stored (eventName, publishedAt,
+        // payload, prevHash) must match what's stored (catches an entry
+        // mutated in place, whose prevHash link is still intact but whose
+        // payload no longer matches the hash computed for it at write
+        // time — check (1) alone would miss this entirely).
+        const recomputed = computeEntryHash(event.eventName, event.publishedAt, event.payload, event.prevHash)
+        if (event.prevHash !== expectedPrevHash || event.entryHash !== recomputed) {
+          return { valid: false, brokenAtIndex: i }
+        }
+        expectedPrevHash = event.entryHash
+      }
+      return { valid: true }
     },
   }
 }

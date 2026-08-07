@@ -207,17 +207,24 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     expect(mockRefundFunds).not.toHaveBeenCalled()
   })
 
-  it('rejects RELEASE without a payout address instead of fabricating one', async () => {
+  // BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04
+  // — resolveDispute() no longer pre-validates address presence itself;
+  // it forwards through to escrowService.releaseFunds(), whose own
+  // resolvePayoutAddress() falls back to a registered PayoutAddress and
+  // only throws if neither that nor an explicit address exists. This
+  // test now asserts that forwarding, not an upfront rejection.
+  it('forwards an omitted releaseToAddress through to escrowService.releaseFunds() rather than rejecting upfront', async () => {
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
-    await expect(service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE')).rejects.toThrow(/releaseToAddress/)
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
+    await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE')
+    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1')
   })
 
   // RFC-021 D9 (2026-08-02) — the third §1.9 dispute-ruling option finally
   // has a real settlement action.
   describe('resolveDispute SPLIT (RFC-021 D9)', () => {
-    it('rejects SPLIT missing any of releaseToAddress/refundToAddress/splitBuyerBps', async () => {
+    it('rejects SPLIT missing splitBuyerBps — addresses alone are no longer required upfront (2026-08-04, PayoutAddress fallback)', async () => {
       mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
-      await expect(service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer')).rejects.toThrow(/refundToAddress/)
       await expect(service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller')).rejects.toThrow(/splitBuyerBps/)
       expect(mockSplitFunds).not.toHaveBeenCalled()
     })

@@ -221,15 +221,40 @@ succeeding), and one booting the full `buildApp()` with
 
 1. **Shipped in this pass:** `EventStore` interface, `InMemoryEventStore`
    (working, default), `correlationId` on all 13 existing `emit()` sites.
-2. **Next, for real durability:** implement `RedisStreamsEventStore` for
-   real — `XADD sails:events:{eventName} * data <json>` to publish; a
-   consumer group (`XGROUP CREATE ... MKSTREAM`, tolerating `BUSYGROUP` on
-   re-creation) plus a `XREADGROUP GROUP ... BLOCK ...` poll loop to
-   subscribe, `XACK` on successful handler completion. Requires, before
-   this is enabled as Satsails Wallet's active store: `XCLAIM`-based
-   recovery for stuck/crashed-consumer messages, and integration tests
-   against a real Redis instance — neither exists yet, tracked in
-   `BACKLOG.md`.
+2. **Implemented for real, 2026-08-04** (`common/events/event-store.ts`,
+   verified against a live Redis, not just written): `publish()` does a
+   **dual XADD** — `sails:events:{eventName}` (consumer-group fan-out,
+   matching this plan's original design) AND
+   `sails:events:by-correlation:{correlationId}` (the real index
+   `getEvents(correlationId)` needs — this plan had explicitly left that
+   query shape "undecided," and a single per-eventName stream cannot
+   answer it without scanning every stream). `subscribe()` runs a real
+   `XGROUP CREATE ... $ MKSTREAM` (tolerating `BUSYGROUP`) plus an
+   `XREADGROUP GROUP ... BLOCK 5000` poll loop, `XACK`-ing on success.
+   **`$`, not `0`** — found the hard way in the first real integration-test
+   run: a fresh consumer group starting at `0` replays a stream's entire
+   historical backlog (including unrelated earlier runs against the same
+   long-lived Redis instance), which is `getEvents()`'s job, not
+   `subscribe()`'s — `InMemoryEventStore.subscribe()`'s real semantics
+   (`EventEmitter.on()`, future events only) is the actual contract to
+   match. `XCLAIM`-based recovery (this plan's other named gap) is closed
+   too: before each blocking read, `XPENDING`/`XCLAIM` reclaims anything
+   idle past 30s from any consumer (including a crashed one) onto the
+   live one. RFC-008 D2's hash chain is computed here as well — see that
+   RFC's own updated D2 section for why it lives on `DurableEvent`, not
+   `EscrowEvent`/`ReputationEvent`. 5 new integration tests
+   (`tests/integration/redisStreamsEventStore.test.ts`) against this
+   repo's own docker-compose Redis — publish/getEvents round-trip, hash
+   chaining, empty-correlationId handling, real consumer-group delivery,
+   and a real handler-throws-then-gets-reclaimed-and-redelivered
+   scenario, observed actually retrying against live Redis, not asserted
+   from mocks. One disclosed remaining gap: `subscribe()` must stay
+   synchronous (matching the `EventStore` interface), but `XGROUP CREATE`
+   is inherently async — a `publish()` landing in that brief window could
+   be missed by that specific subscription; real production use
+   (subscribing once at startup, before publishing begins) makes this
+   practically unreachable, but it is a real property `InMemoryEventStore`
+   does not share (`EventEmitter.on()` registers synchronously).
 3. Once Intent persistence ships (`PROTOCOL_SPECIFICATION.md` §2.6),
    `correlationId`'s population rule changes from `tradeId` to `intentId`
    for every Intent-scoped event family — no interface change required,
