@@ -4,23 +4,69 @@
  *
  * SDK_GUIDE.md marks this namespace "advanced/direct use" — the six-verb
  * Intent facade's releaseAsset()/dispute() is the path most applications
- * should reach for first, EXCEPT that those two currently throw
- * SailsNotImplementedError (intent-facade.ts's own header explains why:
- * no server-side Intent -> Trade -> Escrow resolution exists yet). Until
- * that's built, `settlement.release(escrowId)`/`settlement.dispute(...)`
- * below are the real, working path — operating on `escrowId` directly,
- * exactly like the server route does.
+ * should reach for first, and both are now genuinely implemented there
+ * (intent-facade.ts, since RFC-018's Intent → Trade → Escrow link,
+ * 2026-07-20). Only `negotiate` still throws SailsNotImplementedError
+ * (see intent-facade.ts's own header for why: a shape mismatch against a
+ * stateful WebSocketChannel, not a missing backend route). The methods
+ * below remain the real, working advanced path for callers operating on
+ * `escrowId` directly, exactly like the server route does.
  */
-import type { SailsTransport } from '../transport'
-import type { AssetType, Dispute, DisputeRuling, Escrow, EscrowPendingTransaction, EscrowType, PaginatedDisputes } from '../types'
+import type { SailsTransport } from "../transport";
+import { SailsValidationError } from "../errors";
+import type {
+  AssetType,
+  Dispute,
+  DisputeRuling,
+  Escrow,
+  EscrowPendingTransaction,
+  EscrowType,
+  PaginatedDisputes,
+} from "../types";
+
+export interface ArbiterProfile {
+  participantId: string;
+  monetaryCollateral: string;
+  collateralAsset: string;
+  reputationScore: number;
+  activeDisputes: number;
+  registeredAt: string;
+}
+
+/**
+ * BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04 —
+ * see the server's payout-address.service.ts for the full rationale. One
+ * row per (participant, asset); a BTC address and an EVM address for the
+ * same participant are unrelated values, not one field.
+ */
+export interface PayoutAddress {
+  id: string;
+  participantId: string;
+  asset: AssetType;
+  address: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReleaseApproval {
+  id: string;
+  escrowId: string;
+  approverId: string;
+  approvedAt: string;
+}
+
+export interface ReleaseApprovalsResult {
+  approvals: ReleaseApproval[];
+  readyToRelease: boolean;
+}
 
 export interface CreateEscrowInput {
-  tradeId: string
-  type?: EscrowType
-  lockedAmount: string
-  asset: AssetType
-  network?: string
-  timelockHours?: number
+  tradeId: string;
+  type?: EscrowType;
+  lockedAmount: string;
+  asset: AssetType;
+  network?: string;
+  timelockHours?: number;
 }
 
 /**
@@ -40,11 +86,11 @@ export interface CreateEscrowInput {
  * shipped, but no SDK surface ever let a caller reach it.
  */
 export interface SafeGuardBundle {
-  path: 'COOPERATIVE' | 'DISPUTED_RELEASE' | 'DISPUTED_REFUND'
-  userOpHash: string
-  toAddress: string
-  guardAddress: string
-  guardDeployment: { to: string; data: string }
+  path: "COOPERATIVE" | "DISPUTED_RELEASE" | "DISPUTED_REFUND";
+  userOpHash: string;
+  toAddress: string;
+  guardAddress: string;
+  guardDeployment: { to: string; data: string };
 }
 
 /**
@@ -63,21 +109,25 @@ export interface SafeGuardBundle {
  * `walletClient.sendTransaction({ to, data })` (viem). No value field —
  * this transaction deploys a contract, it never carries native currency.
  */
-export function parseSafeGuardBundle(unsignedPsbtBase64: string): SafeGuardBundle {
-  let bundle: unknown
+export function parseSafeGuardBundle(
+  unsignedPsbtBase64: string,
+): SafeGuardBundle {
+  let bundle: unknown;
   try {
-    bundle = JSON.parse(unsignedPsbtBase64)
+    bundle = JSON.parse(unsignedPsbtBase64);
   } catch (err) {
-    throw new Error(`parseSafeGuardBundle: not valid JSON — this isn't a SAFE_GUARD_EVM bundle: ${err instanceof Error ? err.message : String(err)}`)
+    throw new Error(
+      `parseSafeGuardBundle: not valid JSON — this isn't a SAFE_GUARD_EVM bundle: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
-  const b = bundle as Partial<SafeGuardBundle>
+  const b = bundle as Partial<SafeGuardBundle>;
   if (!b.guardAddress || !b.guardDeployment?.to || !b.guardDeployment?.data) {
     throw new Error(
-      'parseSafeGuardBundle: missing guardAddress/guardDeployment — this is not a SAFE_GUARD_EVM bundle ' +
-      '(MULTISIG/LIGHTNING_HODL PSBTs have a different, opaque shape entirely)'
-    )
+      "parseSafeGuardBundle: missing guardAddress/guardDeployment — this is not a SAFE_GUARD_EVM bundle " +
+        "(MULTISIG/LIGHTNING_HODL PSBTs have a different, opaque shape entirely)",
+    );
   }
-  return b as SafeGuardBundle
+  return b as SafeGuardBundle;
 }
 
 // Mirrors escrow.service.ts's RECOMMENDED_ESCROW_TYPE exactly (found during
@@ -90,13 +140,15 @@ export function parseSafeGuardBundle(unsignedPsbtBase64: string): SafeGuardBundl
 // better DX — the same "don't let the integrator hold the footgun"
 // standard Breez SDK/WDK apply to their own SDKs.
 const RECOMMENDED_ESCROW_TYPE: Partial<Record<AssetType, EscrowType>> = {
-  BTC: 'MULTISIG',
-  LN_BTC: 'LIGHTNING_HODL',
-  USDT_ERC20: 'WDK_USDT_EVM',
-}
+  BTC: "MULTISIG",
+  LN_BTC: "LIGHTNING_HODL",
+  USDT_ERC20: "WDK_USDT_EVM",
+};
 
-export function recommendedEscrowType(asset: AssetType): EscrowType | undefined {
-  return RECOMMENDED_ESCROW_TYPE[asset]
+export function recommendedEscrowType(
+  asset: AssetType,
+): EscrowType | undefined {
+  return RECOMMENDED_ESCROW_TYPE[asset];
 }
 
 export class SailsSettlementModule {
@@ -109,17 +161,21 @@ export class SailsSettlementModule {
    * than silently sending an unrelated escrow type to the server.
    */
   async create(input: CreateEscrowInput): Promise<Escrow> {
-    const type = input.type ?? recommendedEscrowType(input.asset)
+    const type = input.type ?? recommendedEscrowType(input.asset);
     if (!type) {
       throw new Error(
-        `@sails/sdk: no real SettlementProvider exists yet for asset '${input.asset}' — pass type: 'MOCK' explicitly if a fake/test escrow is actually intended.`
-      )
+        `@sails/sdk: no real SettlementProvider exists yet for asset '${input.asset}' — pass type: 'MOCK' explicitly if a fake/test escrow is actually intended.`,
+      );
     }
-    return this.transport.post<Escrow>('/v1/settlement/escrow', { ...input, type }, true)
+    return this.transport.post<Escrow>(
+      "/v1/settlement/escrow",
+      { ...input, type },
+      true,
+    );
   }
 
   async get(escrowId: string): Promise<Escrow> {
-    return this.transport.get<Escrow>(`/v1/settlement/escrow/${escrowId}`)
+    return this.transport.get<Escrow>(`/v1/settlement/escrow/${escrowId}`);
   }
 
   /**
@@ -130,17 +186,20 @@ export class SailsSettlementModule {
    * (dispute.service.ts's listForArbiter()) — there is no way to pass a
    * different arbiter's id and see their caseload instead of your own.
    */
-  async listDisputes(pagination?: { limit?: number; offset?: number }): Promise<PaginatedDisputes> {
+  async listDisputes(pagination?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<PaginatedDisputes> {
     return this.transport.get<PaginatedDisputes>(
-      '/v1/settlement/disputes',
+      "/v1/settlement/disputes",
       { limit: pagination?.limit, offset: pagination?.offset },
-      true
-    )
+      true,
+    );
   }
 
   /** Public read, no session required — same as get() above for escrows. */
   async getDispute(disputeId: string): Promise<Dispute> {
-    return this.transport.get<Dispute>(`/v1/settlement/disputes/${disputeId}`)
+    return this.transport.get<Dispute>(`/v1/settlement/disputes/${disputeId}`);
   }
 
   /**
@@ -152,33 +211,68 @@ export class SailsSettlementModule {
    * persists the real deposit address (`Escrow.multisigAddr`) — see
    * `escrow.service.ts`'s `submitParticipantKey()`.
    */
-  async submitKey(escrowId: string, pubkeyHex: string): Promise<{ escrow: Escrow; buyerKeySubmitted: boolean; sellerKeySubmitted: boolean }> {
-    return this.transport.post(`/v1/settlement/escrow/${escrowId}/submit-key`, { pubkey: pubkeyHex }, true)
+  async submitKey(
+    escrowId: string,
+    pubkeyHex: string,
+  ): Promise<{
+    escrow: Escrow;
+    buyerKeySubmitted: boolean;
+    sellerKeySubmitted: boolean;
+  }> {
+    return this.transport.post(
+      `/v1/settlement/escrow/${escrowId}/submit-key`,
+      { pubkey: pubkeyHex },
+      true,
+    );
   }
 
   /** Requires an active session. CREATED -> FUNDS_LOCKED. */
   async lock(escrowId: string): Promise<Escrow> {
-    return this.transport.post<Escrow>(`/v1/settlement/escrow/${escrowId}/lock`, undefined, true)
+    return this.transport.post<Escrow>(
+      `/v1/settlement/escrow/${escrowId}/lock`,
+      undefined,
+      true,
+    );
   }
 
   /** Requires an active session. FUNDS_LOCKED -> PAYMENT_PENDING. */
   async markPaymentSent(escrowId: string): Promise<Escrow> {
-    return this.transport.post<Escrow>(`/v1/settlement/escrow/${escrowId}/payment-sent`, undefined, true)
+    return this.transport.post<Escrow>(
+      `/v1/settlement/escrow/${escrowId}/payment-sent`,
+      undefined,
+      true,
+    );
   }
 
   /** Requires an active session. PAYMENT_PENDING (or PENDING_BANK_SETTLEMENT) -> COMPLETED. */
   async release(escrowId: string, toAddress: string): Promise<Escrow> {
-    return this.transport.post<Escrow>(`/v1/settlement/escrow/${escrowId}/release`, { toAddress }, true)
+    return this.transport.post<Escrow>(
+      `/v1/settlement/escrow/${escrowId}/release`,
+      { toAddress },
+      true,
+    );
   }
 
   /** Requires an active session. -> DISPUTED, persists a Dispute row and assigns an arbiter (RFC-007 D4). */
-  async dispute(escrowId: string, reason: string, evidence?: unknown[]): Promise<Dispute> {
-    return this.transport.post<Dispute>(`/v1/settlement/escrow/${escrowId}/dispute`, { reason, evidence }, true)
+  async dispute(
+    escrowId: string,
+    reason: string,
+    evidence?: unknown[],
+  ): Promise<Dispute> {
+    return this.transport.post<Dispute>(
+      `/v1/settlement/escrow/${escrowId}/dispute`,
+      { reason, evidence },
+      true,
+    );
   }
 
   /** Requires an active session. -> REFUNDED. */
   async refund(escrowId: string): Promise<Escrow> {
-    return this.transport.post<Escrow>(`/v1/settlement/escrow/${escrowId}/refund`, undefined, true)
+    return this.transport.post<Escrow>(
+      `/v1/settlement/escrow/${escrowId}/refund`,
+      undefined,
+      true,
+    );
   }
 
   /**
@@ -191,13 +285,24 @@ export class SailsSettlementModule {
    * (`signEscrowPsbt()`, `escrow-key.ts`) before the release actually
    * completes.
    */
-  async initiateRelease(escrowId: string, toAddress: string): Promise<EscrowPendingTransaction> {
-    return this.transport.post(`/v1/settlement/escrow/${escrowId}/initiate-release`, { toAddress }, true)
+  async initiateRelease(
+    escrowId: string,
+    toAddress: string,
+  ): Promise<EscrowPendingTransaction> {
+    return this.transport.post(
+      `/v1/settlement/escrow/${escrowId}/initiate-release`,
+      { toAddress },
+      true,
+    );
   }
 
   /** Mirror of initiateRelease() above, for refund. */
   async initiateRefund(escrowId: string): Promise<EscrowPendingTransaction> {
-    return this.transport.post(`/v1/settlement/escrow/${escrowId}/initiate-refund`, undefined, true)
+    return this.transport.post(
+      `/v1/settlement/escrow/${escrowId}/initiate-refund`,
+      undefined,
+      true,
+    );
   }
 
   /**
@@ -208,13 +313,24 @@ export class SailsSettlementModule {
    * and transitioned) — check `getPendingTransaction()`/`get()` for the
    * resulting `txReleaseId` if needed.
    */
-  async submitTransactionSignature(escrowId: string, signedPsbtBase64: string): Promise<{ complete: boolean }> {
-    return this.transport.post(`/v1/settlement/escrow/${escrowId}/submit-transaction-signature`, { signedPsbtBase64 }, true)
+  async submitTransactionSignature(
+    escrowId: string,
+    signedPsbtBase64: string,
+  ): Promise<{ complete: boolean }> {
+    return this.transport.post(
+      `/v1/settlement/escrow/${escrowId}/submit-transaction-signature`,
+      { signedPsbtBase64 },
+      true,
+    );
   }
 
   /** No active session required. Throws SailsNotFoundError if no signing round is in flight for this escrow. */
-  async getPendingTransaction(escrowId: string): Promise<EscrowPendingTransaction> {
-    return this.transport.get(`/v1/settlement/escrow/${escrowId}/pending-transaction`)
+  async getPendingTransaction(
+    escrowId: string,
+  ): Promise<EscrowPendingTransaction> {
+    return this.transport.get(
+      `/v1/settlement/escrow/${escrowId}/pending-transaction`,
+    );
   }
 
   /**
@@ -238,9 +354,30 @@ export class SailsSettlementModule {
     ruling: DisputeRuling,
     releaseToAddress?: string,
     refundToAddress?: string,
-    splitBuyerBps?: number
+    splitBuyerBps?: number,
   ): Promise<Dispute> {
-    return this.transport.post<Dispute>(`/v1/settlement/disputes/${disputeId}/resolve`, { ruling, releaseToAddress, refundToAddress, splitBuyerBps }, true)
+    if (ruling === "SPLIT") {
+      if (
+        !releaseToAddress ||
+        !refundToAddress ||
+        splitBuyerBps === undefined
+      ) {
+        throw new SailsValidationError(
+          'resolveDispute() with ruling "SPLIT" requires releaseToAddress, refundToAddress, and splitBuyerBps',
+        );
+      }
+    } else if (ruling === "RELEASE") {
+      if (!releaseToAddress) {
+        throw new SailsValidationError(
+          'resolveDispute() with ruling "RELEASE" requires releaseToAddress',
+        );
+      }
+    }
+    return this.transport.post<Dispute>(
+      `/v1/settlement/disputes/${disputeId}/resolve`,
+      { ruling, releaseToAddress, refundToAddress, splitBuyerBps },
+      true,
+    );
   }
 
   /**
@@ -250,8 +387,14 @@ export class SailsSettlementModule {
    * (see dispute.service.ts's own header comment) — this call does not
    * itself collect payment.
    */
-  async appealDispute(disputeId: string): Promise<{ dispute: Dispute; appealFeeRequired: string }> {
-    return this.transport.post(`/v1/settlement/disputes/${disputeId}/appeal`, undefined, true)
+  async appealDispute(
+    disputeId: string,
+  ): Promise<{ dispute: Dispute; appealFeeRequired: string }> {
+    return this.transport.post(
+      `/v1/settlement/disputes/${disputeId}/appeal`,
+      undefined,
+      true,
+    );
   }
 
   /**
@@ -262,8 +405,15 @@ export class SailsSettlementModule {
    * attempt server-side (config-gated, opt-in per deployment) — this
    * call itself never returns a ruling, only the updated Dispute row.
    */
-  async submitDisputeEvidence(disputeId: string, descriptor: { type: string; uri?: string; note?: string }): Promise<Dispute> {
-    return this.transport.post<Dispute>(`/v1/settlement/disputes/${disputeId}/evidence`, descriptor, true)
+  async submitDisputeEvidence(
+    disputeId: string,
+    descriptor: { type: string; uri?: string; note?: string },
+  ): Promise<Dispute> {
+    return this.transport.post<Dispute>(
+      `/v1/settlement/disputes/${disputeId}/evidence`,
+      descriptor,
+      true,
+    );
   }
 
   /**
@@ -274,6 +424,98 @@ export class SailsSettlementModule {
    * no new arbiter assignment happens as a result of this call.
    */
   async contestAutoResolution(disputeId: string): Promise<Dispute> {
-    return this.transport.post<Dispute>(`/v1/settlement/disputes/${disputeId}/contest`, undefined, true)
+    return this.transport.post<Dispute>(
+      `/v1/settlement/disputes/${disputeId}/contest`,
+      undefined,
+      true,
+    );
+  }
+
+  /**
+   * RFC-015 — two-person control. Records the calling participant's
+   * approval for a MULTISIG escrow release. `release()` checks
+   * `escrowService.hasDualApproval()` itself (gated behind
+   * `config.features.requireDualApprovalForRelease`) rather than
+   * this route enforcing anything directly — this route's only
+   * job is recording "who approved," not deciding when release is
+   * allowed to proceed.
+   */
+  async approveRelease(
+    escrowId: string,
+  ): Promise<{ approval: ReleaseApproval; readyToRelease: boolean }> {
+    return this.transport.post(
+      `/v1/settlement/escrow/${escrowId}/approve-release`,
+      undefined,
+      true,
+    );
+  }
+
+  /**
+   * Returns the list of participants who have approved release for
+   * this escrow, and whether enough approvals exist for the release
+   * to proceed. No active session required — same as get() above
+   * for escrows (read-only, no participant-scoping).
+   */
+  async getReleaseApprovals(escrowId: string): Promise<ReleaseApprovalsResult> {
+    return this.transport.get(
+      `/v1/settlement/escrow/${escrowId}/release-approvals`,
+    );
+  }
+
+  /**
+   * RFC-021 D2 — permissionless arbiter registration. No approval
+   * step: the caller registers themselves, matching
+   * MarketArbitrationProvider's own real logic. Works regardless of
+   * config.settlement.arbitrationMode (a participant can register
+   * collateral/reputation ahead of a deployment switching modes) —
+   * only assign() itself is mode-gated.
+   */
+  async registerArbiter(input: {
+    monetaryCollateral: string;
+    collateralAsset?: string;
+  }): Promise<ArbiterProfile> {
+    return this.transport.post<ArbiterProfile>(
+      "/v1/settlement/arbitration/register",
+      input,
+      true,
+    );
+  }
+
+  /** Public read — no session required. */
+  async getArbiterProfile(
+    participantId: string,
+  ): Promise<ArbiterProfile | null> {
+    return this.transport.get<ArbiterProfile | null>(
+      `/v1/settlement/arbitration/profile/${participantId}`,
+    );
+  }
+
+  /**
+   * Requires an active session. Registers/overwrites the caller's own
+   * payout address for a given asset (idempotent upsert) — once set,
+   * `resolveDispute()`/`releaseFunds()`/`splitFunds()` no longer require
+   * an explicit `releaseToAddress` for this asset (`escrow.service.ts`'s
+   * `resolvePayoutAddress()` falls back to this).
+   */
+  async setPayoutAddress(input: {
+    asset: AssetType;
+    address: string;
+  }): Promise<PayoutAddress> {
+    return this.transport.post<PayoutAddress>(
+      "/v1/settlement/payout-addresses",
+      input,
+      true,
+    );
+  }
+
+  /** Public read, no session required — a counterparty legitimately
+   *  needs to look up who they're paying. */
+  async getPayoutAddress(
+    participantId: string,
+    asset: AssetType,
+  ): Promise<PayoutAddress> {
+    return this.transport.get<PayoutAddress>(
+      `/v1/settlement/payout-addresses/${participantId}/${asset}`,
+    );
   }
 }

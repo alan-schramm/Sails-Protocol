@@ -609,6 +609,48 @@ away by later good trades). RFC-021 D7 (2026-08-02) added a second way
 genuinely-new owner's first account when an active `Vouch` exists for
 them (see `Vouch`'s own section below).
 
+### `PayoutAddress` — owned by `opensettlement`, closed 2026-08-04 (BACKLOG.md's "Participant payout address" gap)
+
+```prisma
+model PayoutAddress {
+  id            String    @id @default(uuid())
+  participantId String
+  participant   User      @relation(fields: [participantId], references: [id])
+  asset         AssetType
+  address       String
+  moduleId      String    @default("opensettlement")
+  protocolVersion String  @default("0.1")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([participantId, asset])
+  @@map("payout_addresses")
+}
+```
+
+A real, recurring gap surfaced by the dispute work: `resolveDispute()`'s
+RELEASE/SPLIT rulings and `escrow.service.ts`'s `releaseFunds()`/
+`splitFunds()`/`initiateRelease()`/`initiateSplit()` all needed a real
+crypto address to pay a participant out to, and this schema modeled none
+for any asset — callers had to pass one explicitly every single time.
+Separate from `PaymentAccount` above (that's the FIAT rail a trader
+*receives PIX/bank transfers on*, with a trust ramp and chargeback
+tracking; this is the crypto address a trader *receives released escrow
+funds at* — different asset class, no trust ramp needed, a wrong address
+just fails to receive funds rather than enabling a chargeback) and
+one row per (participant, asset) — `@@unique` enforces this — since a
+BTC address and an EVM address for the same participant are unrelated
+values, never one field covering both.
+
+`payout-address.service.ts`'s `setPayoutAddress()`/`getPayoutAddress()`
+are the read/write surface (`POST`/`GET /v1/settlement/payout-addresses`).
+`escrow.service.ts`'s private `resolvePayoutAddress()` is the actual
+fallback consumer: an explicit address passed to any of the four methods
+above always wins; absent that, it looks up the participant's own
+registered row for the escrow's asset; absent both, it throws a specific
+error naming exactly what's missing (`CODE_STYLE.md` §2) rather than
+guessing one.
+
 ### `DisputeAppealFee` — owned by `opensettlement`, RFC-021 D6's real appeal-fee charge (closed 2026-08-01)
 
 ```prisma
@@ -987,6 +1029,8 @@ one.
 | `offers:<asset>:<side>` | Cached order book slice per asset/side |
 | `reputation:<userId>` | Cached reputation score |
 | `escrow:state:<escrowId>` | Cached current escrow state |
+| `sails:events:<eventName>` | RFC-010's `RedisStreamsEventStore` (closed 2026-08-04) — Redis Stream, one per event name, real data (not cache): `XADD`ed at publish, consumer-group `XREADGROUP`/`XACK`'d at subscribe. Not currently the active store (`InMemoryEventStore` still is; see `BACKLOG.md`'s own precondition before switching) |
+| `sails:events:by-correlation:<correlationId>` | Same store's second index — one Stream per correlationId, what `Timeline`/`getEvents()` would actually query once this store is active. A real design decision RFC-010 had left undecided (its own plan only named the per-eventName stream above) |
 
 None of this is mandated by the protocol — a different reference
 implementation could use any cache strategy or none at all.

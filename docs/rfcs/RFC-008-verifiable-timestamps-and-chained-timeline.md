@@ -146,6 +146,33 @@ existing path.
 
 ### D2 — Hash-chained `TimelineEntry`
 
+**Implemented 2026-08-04 — real architectural correction to where the
+hash chain actually lives.** This section, as originally written below,
+targeted `entryHash`/`prevHash` columns on `EscrowEvent`/`ReputationEvent`
+directly (see the Specification table's still-unedited historical
+wording). That premise was already stale by the time this was built:
+RFC-017 (`core/timeline.ts`) had already corrected `Timeline` itself to
+be a projection over `EventStore.getEvents(correlationId)` — the Event
+Bus's own `DurableEvent` stream (RFC-010) — rather than reading
+`EscrowEvent`/`ReputationEvent` directly, precisely because trade-lifecycle
+events correlate by `tradeId` today, not `intentId`, and live across
+several modules' event types, not just those two tables. Chaining tables
+Timeline no longer reads from would make `verifyChain()` check history
+nobody actually consults. The real implementation instead adds
+`entryHash`/`prevHash` to `DurableEvent` itself
+(`common/events/event-store.ts`), computed by `EventStore.publish()` at
+write time (`InMemoryEventStore` today; `RedisStreamsEventStore` inherits
+the same obligation once built) — `EscrowEvent`/`ReputationEvent` are
+unchanged, no migration needed. `Timeline.verifyChain()` does two
+independent checks per entry: `prevHash` matches the running chain
+(catches reordering/insertion/deletion) AND recomputing `entryHash` from
+the entry's own stored fields matches what was stored (catches a single
+entry mutated in place with its hash left untouched) — see
+`core/timeline.ts`'s own comments. 9 new tests
+(`tests/timeline.test.ts`), including two that tamper with the real
+shared `InMemoryEventStore` directly (mutating a payload in place;
+deleting a middle entry) and confirm `verifyChain()` catches both.
+
 `Timeline` (RFC-007 D5) stays a Core-level, per-`intentId` read
 projection — this does not reopen that decision. What changes is that
 each `TimelineEntry`, at write time, includes a hash of itself and a
