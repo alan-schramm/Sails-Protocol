@@ -44,67 +44,80 @@ One package. No per-module installs, no separate clients for identity,
 settlement, and reputation — that flattening is the SDK's entire reason
 to exist (`SDK_GUIDE.md` section 1).
 
-### Step 2 — Create a wallet-backed client
+### Step 2 - Create a wallet-backed client
 
-**Status: 📋 Aspirational** (the `SailsClient` constructor is specified,
-not implemented).
+**Status: ? Proven** (`SailsClient` is fully implemented in v0.1; the
+`baseUrl` + optional `wallet` constructor below is real, verified against
+`packages/sails-sdk/src/client.ts`).
 
 ```typescript
 import { SailsClient } from '@sails/sdk'
 
 const sails = new SailsClient({
-  wdk: await WDK.fromKeypair(keypair),
-  network: 'mainnet',
+  baseUrl: 'http://localhost:3000',
 })
 ```
 
-This is the only place WDK appears in your integration code. Everything
-past this line talks to `sails`, not to WDK, Pears, or QVAC directly —
-those three stay infrastructure the protocol coordinates, never things
-your wallet code calls into on its own (`PROJECT_CONTEXT.md` section 3).
+The `wallet` field is optional - every authenticated method on
+`SailsClient` works over plain HTTP/WS alone. Supplying one unlocks
+the wallet-backed convenience methods (`getBalance`,
+`getWalletAddresses`, `sendTransaction`, `signMessage`,
+`getCapabilities`) and `identity.authenticateWithWallet()`; see
+`docs/EXAMPLES.md` for the `MockWalletAdapter` reference implementation.
 
-### Step 3 — Enable OpenP2P (negotiation)
+Everything past this line talks to `sails`, not to WDK, Pears, or QVAC
+directly - those three stay infrastructure the protocol coordinates,
+never things your wallet code calls into on its own (`PROJECT_CONTEXT.md`
+section 3).
 
-**Status: 🏗️ Specified, ✅ Proven in the Reference Wallet.** This is the
-one module with real code today — see `ARCHITECTURE.md` section 3 and
-section 4 (Actual Code Inventory) for exactly what exists.
+### Step 3 - Enable OpenP2P (negotiation)
+
+**Status: ? Proven in the Reference Wallet** (`SailsClient` is fully
+implemented in v0.1). This is the one module with real code today -
+see `ARCHITECTURE.md` section 3 and section 4 (Actual Code Inventory) for
+exactly what exists.
 
 ```typescript
+// Discover offers (the discover() filter takes asset + side + optional
+// pagination only - paymentMethod/price-range filters described in
+// API_REFERENCE.md are aspirational, not yet implemented).
 const matches = await sails.liquidity.discover({
-  type: 'trade',
   asset: 'BTC',
   side: 'BUY',
-  maxValue: 2000,
-  currency: 'BRL',
-  fiatMethod: 'PIX',
+  limit: 10,
+  offset: 0,
 })
 
-const trade = await sails.openp2p.trade(matches[0].id)
+// Open a trade with the best match (requires an active session).
+const trade = await sails.openp2p.trade(matches[0].id, '0.001')
 
 const chat = sails.openp2p.chat(trade.id)
-chat.onMessage((msg) => console.log(msg))
+chat.onMessage((msg) => console.log(msg.content))
 chat.send({ content: 'Sending payment now', msgType: 'TEXT' })
 ```
 
-At this point your wallet can discover a counterparty and negotiate —
-the Intent → Negotiation part of the flow. No money has moved yet.
+### Step 4 - Enable Settlement (escrow)
 
-### Step 4 — Enable Settlement (escrow)
-
-**Status: 🏗️ Specified.** `SettlementProvider` interface and a Mock
-provider are implemented; production providers (Multisig, Lightning HODL,
-Liquid Covenant) are not — see `ARCHITECTURE.md` section 3.
+**Status: ? Proven** (`sails.settlement.create` / `lock` / `release` are
+real implementations of MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM,
+WDK_USDT_EVM, and MOCK providers, all covered by integration tests).
 
 ```typescript
-const escrow = await sails.settlement.create('MULTISIG', trade.id)
+// create() takes an object body (EscrowType, lockedAmount, asset,
+// network?, timelockHours?) - not positional args.
+const escrow = await sails.settlement.create({
+  tradeId: trade.id,
+  type: 'MULTISIG',
+  lockedAmount: '0.001',
+  asset: 'BTC',
+})
 await sails.settlement.lock(escrow.id)
 // buyer sends fiat directly to seller, shares proof via chat
-await sails.settlement.release(escrow.id)
+await sails.settlement.release(escrow.id, buyerPayoutAddress)
 ```
 
-This is the step that turns a negotiation into money actually moving —
-non-custodially: Sails Protocol never holds the funds itself
-(`PROJECT_CONTEXT.md` section 1, Principle 1).
+This is the step that turns a negotiation into money actually moving -
+non-custodially: Sails Protocol never holds the funds itself.
 
 ### Step 5 — Enable Reputation
 

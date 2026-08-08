@@ -1,4 +1,4 @@
-﻿# `@sails/sdk` — Sails P2P Trading SDK
+# `@sails/sdk` — Sails P2P Trading SDK
 
 The single typed client a wallet/fintech imports to reach every Sails
 Protocol module (OpenIdentity, OpenLiquidity, OpenP2P, OpenSettlement,

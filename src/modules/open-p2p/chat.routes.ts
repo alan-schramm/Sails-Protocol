@@ -43,6 +43,7 @@ import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { requireAuth } from '../../common/middleware/auth'
+import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { resolveParticipantFromToken } from '../../common/middleware/ws-auth'
 import { joinRoom, leaveRoom, broadcastToTrade, type RoomMember } from './chat-room-registry'
 import { pearNodeRegistry } from '../../infrastructure/p2p/pear.service'
@@ -73,8 +74,8 @@ eventBus.on('agents.social_engineering.risk_detected', (payload) => broadcastToT
 const joinTradeSchema = z.object({ tradeId: z.string().min(1) })
 const sendMessageSchema = z.object({
   tradeId: z.string().min(1),
-  content: z.string().min(1),
-  msgType: z.string().default('TEXT'),
+  content: z.string().min(1).max(10000),
+  msgType: z.enum(['TEXT', 'IMAGE', 'FILE']).default('TEXT'),
 })
 
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
@@ -209,16 +210,33 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-p2p'] },
   }, async (request, reply) => {
     const { tradeId } = z.object({ tradeId: z.string().min(1) }).parse(request.params)
-    const participantId = (request as any).participantId as string
+    const { limit, offset } = z.object({
+      limit: z.coerce.number().int().min(1).max(100).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+    }).parse(request.query)
+    const participantId = (request as AuthenticatedRequest).participantId
     const trade = await prisma.trade.findUnique({ where: { id: tradeId } })
     if (!trade) throw new NotFoundError('Trade', tradeId)
     if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
       throw new ForbiddenError(`${participantId} is not a party to trade ${tradeId}`)
     }
-    const messages = await prisma.message.findMany({
-      where: { tradeId },
-      orderBy: { createdAt: 'asc' },
+    const [items, total] = await Promise.all([
+      prisma.message.findMany({
+        where: { tradeId },
+        orderBy: { createdAt: 'asc' },
+        take: limit ?? 50,
+        skip: offset ?? 0,
+      }),
+      prisma.message.count({ where: { tradeId } }),
+    ])
+    return reply.code(200).send({
+      success: true,
+      data: {
+        items,
+        total,
+        hasMore: (offset ?? 0) + items.length < total,
+        nextOffset: (offset ?? 0) + items.length < total ? (offset ?? 0) + items.length : null,
+      },
     })
-    return reply.code(200).send({ success: true, data: messages })
   })
 }

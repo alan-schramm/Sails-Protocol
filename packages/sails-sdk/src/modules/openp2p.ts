@@ -12,7 +12,7 @@
  * example still omits `amount` and remains to be fixed.
  */
 import type { SailsTransport } from "../transport";
-import type { Message, PaginatedTrades, Trade } from "../types";
+import type { Message, PaginatedMessages, PaginatedTrades, Trade } from "../types";
 import { SailsTransportError } from "../errors";
 
 export interface ChatFrame {
@@ -311,10 +311,11 @@ export class SailsOpenP2PModule {
     );
   }
 
-  async getMessages(tradeId: string): Promise<Message[]> {
-    return this.transport.get<Message[]>(
+  /** Paginated (chat.routes.ts, closed 2026-08-08) — limit clamped server-side to 1-100 (default 50). */
+  async getMessages(tradeId: string, pagination?: { limit?: number; offset?: number }): Promise<PaginatedMessages> {
+    return this.transport.get<PaginatedMessages>(
       `/v1/openp2p/chat/${tradeId}/messages`,
-      undefined,
+      { limit: pagination?.limit, offset: pagination?.offset },
       true,
     );
   }

@@ -20,6 +20,12 @@ describe('@sails/sdk-react public exports', () => {
     expect(SdkReact.useSailsTrade).toBeTypeOf('function')
     expect(SdkReact.useSailsTrades).toBeTypeOf('function')
     expect(SdkReact.useSailsEscrow).toBeTypeOf('function')
+    expect(SdkReact.useSailsProof).toBeTypeOf('function')
+    expect(SdkReact.useSailsIdentity).toBeTypeOf('function')
+    expect(SdkReact.useSailsLiquidity).toBeTypeOf('function')
+    expect(SdkReact.useSailsLiquidityDiscover).toBeTypeOf('function')
+    expect(SdkReact.useSailsReputation).toBeTypeOf('function')
+    expect(SdkReact.useSailsCapabilities).toBeTypeOf('function')
   })
 
   it('exports all components', () => {

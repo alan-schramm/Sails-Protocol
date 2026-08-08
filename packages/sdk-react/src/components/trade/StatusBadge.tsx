@@ -43,6 +43,7 @@ const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
   COMPLETED: 'Completed',
   DISPUTED: 'Disputed',
   REFUNDED: 'Refunded',
+  SPLIT: 'Split',
 }
 
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, { bg: string; fg: string }> = {
@@ -52,6 +53,7 @@ const ESCROW_STATUS_COLOR: Record<EscrowStatus, { bg: string; fg: string }> = {
   COMPLETED: { bg: '#dcfce7', fg: '#15803d' },
   DISPUTED: { bg: '#fee2e2', fg: '#b91c1c' },
   REFUNDED: { bg: '#f5f5f4', fg: '#78716c' },
+  SPLIT: { bg: '#f3e8ff', fg: '#7c3aed' },
 }
 
 const badgeBaseStyle: React.CSSProperties = {

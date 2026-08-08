@@ -1,12 +1,15 @@
 services:
   postgres:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: sails_protocol
-    ports:
-      - "5432:5432"
+    # `expose` (not `ports`) - reachable on the compose internal network at
+    # `postgres:5432`, NOT bound to the host. The legacy `ports: "5432:5432"`
+    # block was removed 2026-08-07: a local-dev Postgres on the host network
+    # shadows nothing useful (the app talks to it via the compose network
+    # name) and opens a DB-shaped attack surface to anything else running
+    # on the developer machine. To debug with psql from the host:
+    #   docker compose exec postgres psql -U postgres -d sails_protocol
+    expose:
+      - "5432"
     volumes:
       - sails-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -14,11 +17,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      # Always restart on crash during a local-dev session so a Ctrl-C'd
+      # `docker compose down` is the only way to stop it.
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # Same rationale as postgres: `expose`, not `ports`. Use
+    # `docker compose exec redis redis-cli` for host-side debugging.
+    expose:
+      - "6379"
     volumes:
       - sails-redis-data:/data
     healthcheck:
@@ -26,36 +34,38 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   # One-shot: applies prisma/schema.prisma to the postgres service above,
-  # then exits. `app` below waits for this to succeed before starting —
+  # then exits. `app` below waits for this to succeed before starting -
   # a fresh `docker compose up` on an empty volume always has a real
   # schema in place before the server's first request, no separate manual
   # step. Builds from the `builder` stage (has the real `prisma` CLI,
   # pruned from the slim `runtime` stage the Dockerfile itself uses for
-  # an actual deployment — see that file's own header comment for why
+  # an actual deployment - see that file's own header comment for why
   # this repo never runs a migration implicitly on a production
   # container's own start).
   migrate:
     build:
       context: .
       target: builder
-    command: npx prisma db push
+    command: npx prisma migrate deploy
     environment:
       DATABASE_URL: postgresql://postgres:password@postgres:5432/sails_protocol
     depends_on:
       postgres:
         condition: service_healthy
+    restart: "no" # One-shot: don't loop migrations if the run fails
 
   # The whole point of this service (2026-08-03): `docker compose up` is
-  # now the entire "get this running" story — no Node/npm install on the
+  # now the entire "get this running" story - no Node/npm install on the
   # host, no manual `npm run dev`, no secrets to generate. Deliberately
   # NOT the same target the real Dockerfile's own CMD uses (`runtime`,
-  # slim, no devDependencies) — this uses `builder` instead so `pino-pretty`
+  # slim, no devDependencies) - this uses `builder` instead so `pino-pretty`
   # (a devDependency; NODE_ENV is intentionally left unset here, which
   # defaults to 'development' per config/index.ts, and that's what turns
   # pretty-printed logs on) is actually present. MOCK_ESCROW/
-  # MOCK_SETTLEMENT stay true — this is the safe, no-secrets-needed local
+  # MOCK_SETTLEMENT stay true - this is the safe, no-secrets-needed local
   # onboarding path, never the real-custody one (see docs/DEPLOYMENT.md
   # section 8 for that, entirely separate).
   app:
@@ -79,6 +89,23 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    # App-level healthcheck (added 2026-08-07) - mirrors the Dockerfile's
+    # HEALTHCHECK so `docker compose ps` shows the same state whether the
+    # image was started via compose or directly via `docker run`. Uses
+    # /health/live (process-only, no DB/Redis touch) so a transient DB
+    # outage doesn't trigger an unhealthy state here - that signal is
+    # /health/ready's job, which compose doesn't watch directly (the
+    # k8s-style "stop routing traffic to me" semantics don't apply in a
+    # single-replica compose setup).
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      # Wait for the app to actually bind the port - first cold start
+      # pulls + prisma generate + tsc, ~10-20s on a typical laptop.
+      start_period: 30s
+    restart: unless-stopped
 
 volumes:
   sails-postgres-data:

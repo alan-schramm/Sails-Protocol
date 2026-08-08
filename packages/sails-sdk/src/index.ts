@@ -130,6 +130,7 @@ export type {
   EscrowTransactionSignature,
   Dispute,
   Message,
+  PaginatedMessages,
   ReputationScore,
   LeaderboardEntry,
   LeaderboardResult,

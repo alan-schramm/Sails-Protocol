@@ -83,7 +83,7 @@ describe('useSailsEscrow', () => {
   it('release() passes toAddress through to settlement.release', async () => {
     const bodies: unknown[] = []
     const client = createMockSailsClient({
-      handleRequest: (url, init) => {
+      handleRequest: (_url, init) => {
         if (init.body) bodies.push(JSON.parse(String(init.body)))
         return mockEscrow({ status: 'COMPLETED' })
       },
@@ -102,7 +102,7 @@ describe('useSailsEscrow', () => {
   it('dispute() passes reason and evidence through and returns a Dispute', async () => {
     const bodies: unknown[] = []
     const client = createMockSailsClient({
-      handleRequest: (url, init) => {
+      handleRequest: (_url, init) => {
         if (init.body) bodies.push(JSON.parse(String(init.body)))
         return {
           id: 'dispute-1',

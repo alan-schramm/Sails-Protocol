@@ -294,6 +294,28 @@ describe('SailsOpenP2PModule', () => {
     const openp2p = new SailsOpenP2PModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch }))
     await expect(openp2p.getTradeByIntent('intent-1')).rejects.toThrow(/requires authentication/)
   })
+
+  // chat.routes.ts, closed 2026-08-08 — GET /v1/openp2p/chat/:tradeId/messages
+  // gained real limit/offset pagination; getMessages() previously typed its
+  // return as a bare Message[], which would have shipped broken against the
+  // new {items, total, hasMore, nextOffset} shape (same class of bug as
+  // reputation.leaderboard() above).
+  it('getMessages() hits GET /v1/openp2p/chat/:tradeId/messages with auth, passing limit/offset as query params', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { items: [], total: 0, hasMore: false, nextOffset: null } })
+    const openp2p = new SailsOpenP2PModule(authedTransport(fetchImpl))
+
+    const result = await openp2p.getMessages('trade-1', { limit: 20, offset: 10 })
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/openp2p/chat/trade-1/messages?limit=20&offset=10')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(result).toEqual({ items: [], total: 0, hasMore: false, nextOffset: null })
+  })
+
+  it('getMessages() throws if called before authenticate() (no session token)', async () => {
+    const openp2p = new SailsOpenP2PModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch }))
+    await expect(openp2p.getMessages('trade-1')).rejects.toThrow(/requires authentication/)
+  })
 })
 
 // Minimal fake matching the WebSocket surface WebSocketChannel actually

@@ -238,6 +238,17 @@ export interface Message {
   createdAt: string
 }
 
+// GET /v1/openp2p/chat/:tradeId/messages's real pagination shape
+// (chat.routes.ts) — same convention as PaginatedTrades/PaginatedDisputes/
+// LeaderboardResult above, plus nextOffset for the same reason
+// LeaderboardResult carries one.
+export interface PaginatedMessages {
+  items: Message[]
+  total: number
+  hasMore: boolean
+  nextOffset: number | null
+}
+
 export interface ReputationScore {
   id: string
   publicKey: string

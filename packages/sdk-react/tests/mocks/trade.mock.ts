@@ -54,8 +54,14 @@ export function mockReputationScore(overrides: Partial<ReputationScore> = {}): R
     publicKey: 'ed25519-abcdef0123456789',
     displayName: 'alice.sats',
     reputationScore: 42,
+    total: 42,
+    tradeScore: 45,
+    volumeScore: 40,
+    settlementScore: 42,
+    disputeRate: 0.1,
     totalTrades: 18,
     disputeCount: 1,
+    cumulativeFeesObserved: '0.001',
     ...overrides,
   }
 }
