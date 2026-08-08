@@ -36,6 +36,7 @@ export function mockEscrow(overrides: Partial<Escrow> = {}): Escrow {
     lockedAmount: '3250',
     asset: 'BTC',
     network: null,
+    multisigAddr: null,
     txLockId: 'tx-lock-1',
     txReleaseId: null,
     timelockHours: 24,

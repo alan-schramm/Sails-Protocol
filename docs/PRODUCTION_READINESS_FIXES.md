@@ -520,9 +520,74 @@ teste descartável confirmando que `app.swagger()` mostra o schema real
 
 ---
 
-### 22. Criar example com wallet real
+### 22. Criar example com wallet real — ✅ FEITO (2026-08-08)
 
-**Esforço:** 1 semana. Criar `examples/wallet-integration/` mostrando integração com uma wallet real (não mock).
+**Esforço original estimado:** 1 semana. Criar `examples/wallet-integration/`
+mostrando integração com uma wallet real (não mock).
+
+**Escopo real fechado:** os dois tipos de escrow genuinamente não-custodiais
+do protocolo — MULTISIG (Bitcoin) e SAFE_GUARD_EVM (EVM) — cada um com sua
+própria implementação real de `WalletAdapter` (`RealBitcoinWalletAdapter`/
+`RealEvmWalletAdapter`), gerando uma chave secp256k1 de verdade, nunca
+enviada ao servidor (só a chave pública, via `settlement.submitKey()`).
+Diferente de `examples/simple-wallet` (WDK_USDT_EVM, server-custodial —
+uma seed do servidor assina tudo, nenhuma wallet cliente necessária).
+
+**Três bugs reais encontrados escrevendo isso, corrigidos antes de
+declarar pronto** (cada um teria quebrado o example em runtime, não só
+em teoria):
+
+1. O fluxo Bitcoin verificava o saldo da carteira do PRÓPRIO vendedor em
+   vez do endereço real de depósito 2-de-3 (`Escrow.multisigAddr`) — o
+   colateral de um MULTISIG fica num UTXO compartilhado que nenhuma das
+   partes controla sozinha, não no endereço individual de ninguém.
+2. Mesmo bug, versão EVM: o polling de financiamento checava o saldo da
+   wallet do vendedor em vez do endereço CREATE2 do guard.
+3. `submitKey()` (mesma rota HTTP para MULTISIG/LIGHTNING_HODL/
+   SAFE_GUARD_EVM) exige uma chave pública secp256k1 comprimida de 33
+   bytes (`PUBKEY_HEX_PATTERN`, `settlement.routes.ts`) — não um
+   endereço EVM. `RealEvmWalletAdapter` expõe
+   `wallet.signingKey.compressedPublicKey` (API real do ethers v6,
+   confirmada gerando uma wallet de verdade) exatamente nesse formato,
+   e o servidor deriva o endereço real do Safe a partir dela
+   (`safe-guard-evm.provider.ts`'s `getDepositAddress()`).
+
+**Gap real na própria SDK, encontrado e corrigido no processo**: o tipo
+`Escrow` de `@sails/sdk` (`packages/sails-sdk/src/types.ts`) nunca
+declarava `multisigAddr`, apesar do servidor sempre devolver esse campo
+real (`escrow.service.ts`'s `submitParticipantKey()`) — forçando
+qualquer chamador que precisasse do endereço de depósito (MULTISIG/
+LIGHTNING_HODL/SAFE_GUARD_EVM) a um cast inseguro. Corrigido de forma
+aditiva (campo novo, nenhum chamador existente quebra) — o único efeito
+colateral real foi um fixture de mock em `packages/sdk-react/tests/mocks/trade.mock.ts`
+que construía um `Escrow` literal sem o campo, corrigido junto.
+
+`ethers` (`^6.17.0`, mesma versão já resolvida transitivamente em todo o
+monorepo via `@tetherto/wdk-wallet-evm`) é uma dependência direta nova
+só deste pacote de example — nem `@sails/sdk` nem o backend jamais
+dependem de `ethers`/`viem` diretamente (`settlement.ts`'s
+`parseSafeGuardBundle()` já documentava essa escolha deliberada,
+deixando o exemplo real com `ethers` como o "e.g." que faltava).
+
+`getPeerId()`/`signMessage()` de ambas as wallets lançam um erro real e
+específico, em vez de fingir suporte — identidade/sessão do Sails usa
+uma chave Ed25519 separada (`SailsClient.identity.create()`), material
+de chave genuinamente diferente da chave secp256k1 de custódia do
+escrow. Uma wallet real (ex: hardware wallet) integrando esta SDK teria
+exatamente essa mesma fronteira.
+
+Verificado: `npx tsc --noEmit` limpo (root + `@sails/sdk` + `sdk-react`
++ `examples/wallet-integration`); testes unitários reais e livres de
+rede para ambas as wallets (`examples/wallet-integration/tests/wallet-adapters.test.ts`,
+13 testes: derivação de endereço, formato de chave pública, assinatura
+real, erros claros para operações fora de escopo) — parte da suíte
+completa via o `testMatch` já existente do `jest.config.js` raiz; suíte
+completa 775/775 (isolando as 6 suítes já conhecidas por instabilidade
+sob carga paralela). Os scripts de fluxo completo
+(`src/bitcoin.ts`/`src/evm.ts`) precisam de um node rodando + fundos de
+testnet reais para completar de ponta a ponta — mesma limitação honesta
+que `examples/demo/multisig-testnet-flow.ts` já divulga para o próprio
+ambiente.
 
 ---
 
