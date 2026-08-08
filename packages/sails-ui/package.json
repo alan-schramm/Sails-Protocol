@@ -14,7 +14,7 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@noble/curves": "1.9.0",
+    "@noble/curves": "2.2.0",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-popover": "^1.1.23",
     "@radix-ui/react-select": "^2.3.7",
@@ -26,23 +26,23 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.28.0",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "react-is": "19.2.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-is": "19.2.8",
     "react-router": "8.3.0",
-    "recharts": "^3.9.2",
+    "recharts": "^3.10.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.4.19",
-    "postcss": "^8.4.38",
+    "postcss": "^8.5.25",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3",
-    "vite": "^8.1.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
     "vite-plugin-node-polyfills": "^0.28.0"
   }
 }

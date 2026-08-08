@@ -30,12 +30,12 @@
   },
   "keywords": ["sails", "p2p", "bitcoin", "escrow", "non-custodial", "sdk"],
   "dependencies": {
-    "@arkade-os/sdk": "^0.4.52",
-    "@aws-sdk/client-kms": "^3.1096.0",
+    "@arkade-os/sdk": "^0.4.56",
+    "@aws-sdk/client-kms": "^3.1103.0",
     "@bitcoinerlab/secp256k1": "^1.2.0",
-    "@noble/curves": "^2.0.1",
+    "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.0.1",
-    "@scure/btc-signer": "^2.0.1",
+    "@scure/btc-signer": "^2.2.0",
     "bitcoinjs-lib": "^7.0.1",
     "ecpair": "^3.0.1",
     "ed2curve": "^0.3.0",
@@ -45,6 +45,6 @@
     "@types/ed2curve": "^0.2.4",
     "tsup": "^8.5.1",
     "typedoc": "^0.28.20",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }
