@@ -837,100 +837,123 @@ never reduce the counterparty's score.
 
 ---
 
-### `Claim`, `Proof`, `EvidenceVerification` — owned by no single module (RFC-003)
+### `Claim`, `Proof`, `Verification` — owned by no single module (RFC-003)
 
-**Added v8.20 — these tables were missing entirely; earlier versions of this
-document predate RFC-003's Claim/Proof/Verification split.**
+**Corrected 2026-08-04 to match the real schema** — this section
+previously described `EvidenceVerification` as the model name (to "avoid
+a reserved-word collision"); the real, shipped model is named
+`Verification`, no collision issue ever materialized. `Proof.evidence`
+also gained a real `evidenceHash` — this whole shape has been real code
+(`proof.service.ts`) since Fase 1, this doc simply hadn't been reconciled
+with it until the RFC-007/008 pass below.
 
 ```prisma
 model Claim {
-  id              String   @id @default(uuid())
-  claimedBy       String   // a participantId (User.id) — see RFC-001
-  claimType       String   // open string: 'payment_sent', 'invoice_paid',
-                            // 'oracle_verified', 'collateral_held', ...
-  assertion       Json
-  moduleId        String   @default("openproof")  // RFC-006 — was unset before OpenProof existed
-  protocolVersion String   @default("0.1")
-  createdAt       DateTime @default(now())
+  id        String   @id @default(uuid())
+  claimedBy String   // a participantId (User.id) — see RFC-001
+  claimType String   // open string: 'payment_sent', 'invoice_paid',
+                      // 'oracle_verified', 'collateral_held', ...
+  assertion Json
+  // RFC-007 D6, added 2026-08-04 — scopes a Claim into a trade's real
+  // EvidenceBundle (see EvidenceReference section below). Nullable: not
+  // every Claim is trade-related.
+  tradeId   String?
+  createdAt DateTime @default(now())
 
   proofs Proof[]
+  @@index([claimedBy])
+  @@index([tradeId])
   @@map("claims")
 }
 
 model Proof {
-  id          String   @id @default(uuid())
-  claimId     String
-  claim       Claim    @relation(fields: [claimId], references: [id])
-  evidence    Json     // opaque — signature, receipt image ref, oracle payload
-  submittedAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  claimId      String
+  claim        Claim    @relation(fields: [claimId], references: [id])
+  evidence     Json     // opaque — signature, receipt image ref, oracle payload
+  evidenceHash String   // sha256 hex of the canonicalized evidence, always server-recomputed — never client-supplied
+  submittedBy  String
+  submittedAt  DateTime @default(now())
 
-  verifications      EvidenceVerification[]
+  verifications      Verification[]
   evidenceReferences EvidenceReference[]   // RFC-007 D2 — back-relation for EvidenceReference below
-  fingerprint        ProofFingerprint?     // RFC-007 D1 — back-relation for ProofFingerprint below
+  @@index([claimId])
+  @@index([evidenceHash])   // RFC-007 D1 — ProofRegistry.findDuplicates() queries by this
   @@map("proofs")
 }
 
-model EvidenceVerification {
-  id         String   @id @default(uuid())
+model Verification {
+  id         String              @id @default(uuid())
   proofId    String
-  proof      Proof    @relation(fields: [proofId], references: [id])
-  verifiedBy String   // a participantId, an arbiter, or a QVAC agent identifier
-  verdict    String   // 'ACCEPTED' | 'REJECTED'
+  proof      Proof               @relation(fields: [proofId], references: [id])
+  verifiedBy String              // a participantId, an arbiter, or a QVAC agent identifier
+  verdict    VerificationVerdict
   reason     String?
-  verifiedAt DateTime @default(now())
+  verifiedAt DateTime            @default(now())
 
-  @@map("evidence_verifications")
+  @@index([proofId])
+  @@map("verifications")
 }
 ```
 
-Named `EvidenceVerification` here (not `Verification`) only to avoid a
-reserved-word collision in some ORMs — the primitive itself is still
-called `Verification` in `PROTOCOL_SPECIFICATION.md` §1.8.
+### `EvidenceReference` — owned by `openproof` (RFC-007 D2, RFC-008 D1)
 
-### `EvidenceReference`, `ProofFingerprint` — owned by `openproof` (RFC-007 D1/D2, RFC-008 D1)
+**Corrected 2026-08-04 to match the real, shipped implementation** — this
+section previously described a design (`ProofFingerprint` as a separate
+table, `anchorType`/`anchorData`/`anchoredAt` as three separate columns,
+`EvidenceVerification` as the model name) written before any of RFC-007
+D1/D2/D6 or RFC-008 D1 existed in code. Real deviations, each disclosed
+in the relevant source file's own header comment:
 
 ```prisma
 model EvidenceReference {
-  id           String   @id @default(uuid())
-  proofId      String
-  proof        Proof    @relation(fields: [proofId], references: [id])
-  provider     String   // 'nostr.build' | 's3' | 'r2' | 'ipfs' | 'arweave' | ...
-  uri          String
-  sha256       String
-  mimeType     String   // 'image' | 'video' | 'document' | 'ocr' | 'external_reference'
-  signature    String   // signed by the submitting participant's key
-  createdAt    DateTime @default(now())
-  anchorType   String?  // RFC-008 D1 — 'opentimestamps' | 'rfc3161' | ..., set only when Policy required it
-  anchorData   Json?    // RFC-008 D1 — opaque: .ots file bytes, TSA token, etc.
-  anchoredAt   DateTime? // RFC-008 D1 — set once the anchor is confirmed (e.g. OTS Bitcoin confirmation)
+  id          String   @id @default(uuid())
+  proofId     String
+  proof       Proof    @relation(fields: [proofId], references: [id])
+  provider    String   // 'local-fs' | 's3' | 'r2' | 'ipfs' | 'arweave' | 'nostr.build' | ...
+  uri         String
+  sha256      String   // real hash of the stored media bytes — recomputed server-side
+  mimeType    String   // 'image' | 'video' | 'document' | 'ocr' | 'external_reference'
+  signature   String   // Ed25519, verified server-side against the submitter's own User.publicKey
+  anchorProof Json?    // RFC-008 D1 — { anchorType, anchorId, submittedAt, upgraded }; null until anchored
+  createdAt   DateTime @default(now())
 
   @@map("evidence_references")
 }
-
-model ProofFingerprint {
-  id          String   @id @default(uuid())
-  proofId     String   @unique
-  proof       Proof    @relation(fields: [proofId], references: [id])
-  fingerprint String   // content/perceptual hash from ProofRegistry.fingerprint()
-  intentId    String
-  createdAt   DateTime @default(now())
-
-  @@index([fingerprint])
-  @@map("proof_fingerprints")
-}
 ```
+
+**No `ProofFingerprint` table.** `Proof.evidenceHash` (already real,
+persisted by `submitProof()` since Fase 1, now `@@index`ed) already *is*
+the fingerprint `ProofRegistry.findDuplicates()` (RFC-007 D1) queries by
+— a separate table would duplicate data that already exists for a
+different reason (`proof-registry.ts`'s own header comment has the full
+reasoning). `findDuplicates()` scopes "a different intentId" as "a
+different `Claim.tradeId`" — the model still doesn't have a real
+`intentId` column, same situation `Timeline` below was already in.
+
+**`anchorProof` is one `Json?` field, not three columns** — `AnchorProof`
+(`timestamp-anchor.ts`) is a small, self-contained shape
+(`{anchorType, anchorId, submittedAt, upgraded}`); a JSON column avoids
+three mostly-null columns for a feature that, per RFC-008 D1's own
+Policy-gating, most `EvidenceReference` rows will never use.
 
 The protocol never stores the media itself — `EvidenceReference` is a
 signed pointer into whichever `EvidenceProvider` the submitting Reference
-Implementation configured. `ProofFingerprint.fingerprint` is indexed so
-`ProofRegistry.findDuplicates()` (RFC-007 D1) can detect the same evidence
-reused across different `intentId`s without re-fetching the media.
+Implementation configured (`LocalFilesystemEvidenceProvider` by default —
+real, content-addressed, zero external credentials; a real S3/R2/IPFS
+provider is a separate, still-unbuilt implementation of the same
+interface).
 
-**`EvidenceBundle` (RFC-007 D6) is not a table.** It is a query
-(`OpenProofService.getEvidenceBundle(intentId)`) that joins `Claim`,
-`Proof`, `EvidenceVerification`, `EvidenceReference`, and the Timeline
-projection (below) by `correlationId` — consistent with RFC-007 rejecting
-it as a primitive with its own persisted lifecycle.
+**`EvidenceBundle` (RFC-007 D6) is not a table.** It is a query —
+`ProofService.getEvidenceBundleForTrade(tradeId)`, real as of 2026-08-04
+— that joins `Claim`, `Proof`, `Verification`, `EvidenceReference`, and
+the Timeline projection (below) by `tradeId`, not this section's
+originally-planned `intentId` (`Claim` gained a real, nullable `tradeId`
+column for this) — the same real-world correction Timeline itself
+already needed, consistent with RFC-007 rejecting `EvidenceBundle` as a
+primitive with its own persisted lifecycle. Kept separate from the
+already-shipped, per-Claim `getEvidenceBundle(claimId)` (its own real
+SDK/React-hook surface) rather than renaming that method.
 
 ### `Timeline` — not a table (RFC-007 D5, corrected by RFC-017)
 

@@ -4,7 +4,6 @@
  * Every other file that imports 'config' depends on this existing.
  */
 import 'dotenv/config'
-import { validateConfig } from "./validation"
 
 function required(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback
@@ -14,6 +13,16 @@ function required(name: string, fallback?: string): string {
   return v
 }
 
+function requiredInt(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = parseInt(raw, 10)
+  if (isNaN(parsed)) {
+    throw new Error(`Environment variable ${name} must be a valid integer, got: ${raw}`)
+  }
+  return parsed
+}
+
 export const config = {
   env: process.env.NODE_ENV ?? 'development',
   isProduction: process.env.NODE_ENV === 'production',
@@ -21,15 +30,10 @@ export const config = {
   // Matches what app.ts (the pre-existing Fastify bootstrap) actually
   // reads — found via a real `tsc --noEmit` run, not assumed.
   app: {
-    port: parseInt(process.env.PORT ?? '3000', 10),
+    port: requiredInt('PORT', 3000),
     host: process.env.HOST ?? '0.0.0.0',
     env: process.env.NODE_ENV ?? 'development',
     logLevel: process.env.LOG_LEVEL ?? 'info',
-  },
-
-  server: {
-    port: parseInt(process.env.PORT ?? '3000', 10),
-    host: process.env.HOST ?? '0.0.0.0',
   },
 
   database: {
@@ -43,8 +47,8 @@ export const config = {
   auth: {
     // RED_TEAM_REVIEW.md RT-002: this is the field that matters most in
     // this whole file. Challenge tokens expire fast on purpose.
-    challengeTtlSeconds: parseInt(process.env.AUTH_CHALLENGE_TTL ?? '120', 10),
-    sessionTtlSeconds: parseInt(process.env.AUTH_SESSION_TTL ?? '3600', 10),
+    challengeTtlSeconds: requiredInt('AUTH_CHALLENGE_TTL', 120),
+    sessionTtlSeconds: requiredInt('AUTH_SESSION_TTL', 3600),
   },
 
   pear: {
@@ -62,17 +66,17 @@ export const config = {
   // matters most" — those two routes are what a credential-stuffing/
   // brute-force attempt would actually hit).
   rateLimit: {
-    max: parseInt(process.env.RATE_LIMIT_MAX ?? '100', 10),
+    max: requiredInt('RATE_LIMIT_MAX', 100),
     timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
-    authMax: parseInt(process.env.RATE_LIMIT_AUTH_MAX ?? '10', 10),
+    authMax: requiredInt('RATE_LIMIT_AUTH_MAX', 10),
     authTimeWindow: process.env.RATE_LIMIT_AUTH_WINDOW ?? '1 minute',
   },
 
   features: {
     // RED_TEAM_REVIEW.md RT-001: this is the single most important line
     // in this file. Left true, "escrow" is theater — see escrow.service.ts.
-    mockEscrow: process.env.MOCK_ESCROW !== 'false',
-    mockSettlement: process.env.MOCK_SETTLEMENT !== 'false',
+    mockEscrow: process.env.MOCK_ESCROW?.toLowerCase() !== 'false',
+    mockSettlement: process.env.MOCK_SETTLEMENT?.toLowerCase() !== 'false',
     // Gates common/events/handlers.ts's reaction to openp2p.trade.created,
     // which calls settlement-orchestrator.ts's executeSettlement() —
     // creates escrow, locks funds, and (once PIX is emulated as received)
@@ -142,16 +146,16 @@ export const config = {
   },
 
   trade: {
-    defaultTimelockHours: parseInt(process.env.DEFAULT_TIMELOCK_HOURS ?? '24', 10),
+    defaultTimelockHours: requiredInt('DEFAULT_TIMELOCK_HOURS', 24),
     // How often the sweeper above (when enabled) checks for expired
     // FUNDS_LOCKED escrows. 5 minutes by default — frequent enough that
     // a real abandoned trade doesn't sit stuck for hours, infrequent
     // enough that it's not a meaningful query load on its own.
-    timelockSweepIntervalMs: parseInt(process.env.ESCROW_TIMELOCK_SWEEP_INTERVAL_MS ?? '300000', 10),
+    timelockSweepIntervalMs: requiredInt('ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 300000),
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.
-    disputeAutoResolutionSweepIntervalMs: parseInt(process.env.DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS ?? '300000', 10),
+    disputeAutoResolutionSweepIntervalMs: requiredInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
   },
 
   // Sails OpenProof (proof.service.ts) — Fase 1 Task 3(c). Evidence
@@ -160,8 +164,14 @@ export const config = {
   // escrow.timelockHours already applies to fund locks. Verification
   // nonces follow auth.ts's challenge-response TTL pattern exactly.
   proof: {
-    submissionWindowHours: parseInt(process.env.PROOF_SUBMISSION_WINDOW_HOURS ?? '72', 10),
-    verificationNonceTtlSeconds: parseInt(process.env.PROOF_VERIFICATION_NONCE_TTL ?? '300', 10),
+    submissionWindowHours: requiredInt('PROOF_SUBMISSION_WINDOW_HOURS', 72),
+    verificationNonceTtlSeconds: requiredInt('PROOF_VERIFICATION_NONCE_TTL', 300),
+    // RFC-007 D2 — LocalFilesystemEvidenceProvider's storage root
+    // (evidence-provider.ts). A real, working default for a single-server
+    // reference deployment; a real S3/R2/IPFS EvidenceProvider is a
+    // separate, still-unbuilt implementation of the same interface (see
+    // that file's own header comment) for a multi-instance deployment.
+    evidenceStorageDir: process.env.PROOF_EVIDENCE_STORAGE_DIR ?? './data/evidence',
   },
 
   settlement: {
@@ -296,5 +306,15 @@ if (config.isProduction && config.features.mockEscrow) {
     'FATAL: NODE_ENV=production but MOCK_ESCROW is not explicitly false. ' +
     'Refusing to boot — see RED_TEAM_REVIEW.md RT-001. Set MOCK_ESCROW=false ' +
     'in your production environment once a real SettlementProvider is wired in.'
+  )
+}
+
+// Warn if mockEscrow is disabled but mockSettlement is enabled — this
+// combination means real funds are locked but settlement never releases them.
+if (config.isProduction && !config.features.mockEscrow && config.features.mockSettlement) {
+  console.warn(
+    'WARNING: MOCK_ESCROW=false but MOCK_SETTLEMENT=true. ' +
+    'This combination will lock real funds but settlement will be a no-op. ' +
+    'Set MOCK_SETTLEMENT=false for production.'
   )
 }

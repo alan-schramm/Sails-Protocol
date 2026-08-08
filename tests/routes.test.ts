@@ -15,9 +15,13 @@
  */
 import type { FastifyInstance } from 'fastify'
 
+// Valid 64-character hex-encoded Ed25519 public key for testing
+const TEST_PUBLIC_KEY = 'a'.repeat(64)
+const TEST_PUBLIC_KEY_2 = 'b'.repeat(64)
 const mockUserFindUnique = jest.fn()
 const mockUserCreate = jest.fn()
 const mockUserFindMany = jest.fn()
+const mockUserCount = jest.fn().mockResolvedValue(0)
 const mockReputationEventCreate = jest.fn()
 const mockVouchCreate = jest.fn() // RFC-021 D7
 const mockOfferFindUnique = jest.fn()
@@ -33,6 +37,7 @@ const mockEscrowFindUnique = jest.fn()
 const mockEscrowCreate = jest.fn()
 const mockEscrowEventCreate = jest.fn()
 const mockMessageFindMany = jest.fn()
+const mockMessageCount = jest.fn().mockResolvedValue(0)
 const mockDisputeCreate = jest.fn()
 const mockDisputeUpdate = jest.fn()
 const mockCapabilityGrantCreate = jest.fn()
@@ -62,6 +67,10 @@ const mockClaimCreate = jest.fn()
 const mockClaimFindUnique = jest.fn()
 const mockProofCreate = jest.fn()
 const mockProofFindUnique = jest.fn()
+// RFC-007 D1 (proof-registry.ts's findDuplicates()) — submitProof() now
+// always queries this; defaults to "no duplicates" since none of this
+// file's own tests exercise duplicate detection directly.
+const mockProofFindMany = jest.fn().mockResolvedValue([])
 const mockVerificationCreate = jest.fn()
 // RFC-021 D2 — arbiter registration route.
 const mockArbiterProfileFindUnique = jest.fn()
@@ -86,6 +95,7 @@ jest.mock('../src/common/database', () => ({
     user: {
       findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
       findMany: (...args: unknown[]) => mockUserFindMany(...args),
+      count: (...args: unknown[]) => mockUserCount(...args),
       create: (...args: unknown[]) => mockUserCreate(...args),
       update: jest.fn().mockResolvedValue({ id: 'user-1', reputationScore: 2, totalTrades: 1 }),
     },
@@ -132,6 +142,7 @@ jest.mock('../src/common/database', () => ({
     },
     message: {
       findMany: (...args: unknown[]) => mockMessageFindMany(...args),
+      count: (...args: unknown[]) => mockMessageCount(...args),
       create: jest.fn().mockResolvedValue({ id: 'msg-1', createdAt: new Date() }),
     },
     dispute: {
@@ -152,6 +163,7 @@ jest.mock('../src/common/database', () => ({
     proof: {
       create: (...args: unknown[]) => mockProofCreate(...args),
       findUnique: (...args: unknown[]) => mockProofFindUnique(...args),
+      findMany: (...args: unknown[]) => mockProofFindMany(...args),
     },
     verification: {
       create: (...args: unknown[]) => mockVerificationCreate(...args),
@@ -226,6 +238,18 @@ jest.mock('@arkade-os/sdk', () => ({
 // — this test never reaches those code paths, a bare stub is enough.
 jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 
+// These dispute-config-error tests (RFC-021 D6-D8/D9) assert that
+// getDisputeService() throws ValidationError when TRUSTED_ARBITRATORS is
+// empty. The repo's .env sets TRUSTED_ARBITRATORS=k6-test-arbiter for the
+// k6 load-test suite, which makes getDisputeService() succeed instead �
+// then raiseDispute()/resolveDispute()/appeal()/contestAutoResolution()
+// hit unmocked prisma.trade.findUnique and throw NotFoundError (404)
+// instead of the expected ValidationError (400). dotenv/config (loaded
+// via src/config/index.ts's import chain) does NOT override existing
+// process.env keys, so clearing it here before the first config import
+// is sufficient for the entire test file.
+process.env.TRUSTED_ARBITRATORS = ''
+
 // Imported after the mocks above so every route file picks up the mocked
 // dependencies, not the real Prisma/Redis/eventBus/pearNodeRegistry.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -257,25 +281,25 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
   describe('open-identity', () => {
     it('registers a participant', async () => {
       mockUserFindUnique.mockResolvedValueOnce(null) // no existing user for this publicKey
-      mockUserCreate.mockResolvedValueOnce({ id: 'user-1', publicKey: 'pk-1' })
+      mockUserCreate.mockResolvedValueOnce({ id: 'user-1', publicKey: TEST_PUBLIC_KEY })
 
       const res = await app.inject({
         method: 'POST',
         url: '/v1/identity/participants',
-        payload: { publicKey: 'pk-1', displayName: 'Alice' },
+        payload: { publicKey: TEST_PUBLIC_KEY, displayName: 'Alice' },
       })
 
       expect(res.statusCode).toBe(201)
-      expect(JSON.parse(res.body)).toEqual(expect.objectContaining({ success: true, data: { id: 'user-1', publicKey: 'pk-1' } }))
+      expect(JSON.parse(res.body)).toEqual(expect.objectContaining({ success: true, data: { id: 'user-1', publicKey: TEST_PUBLIC_KEY } }))
     })
 
     it('rejects registering a public key that already has a participant', async () => {
-      mockUserFindUnique.mockResolvedValueOnce({ id: 'user-1', publicKey: 'pk-1' })
+      mockUserFindUnique.mockResolvedValueOnce({ id: 'user-1', publicKey: TEST_PUBLIC_KEY })
 
       const res = await app.inject({
         method: 'POST',
         url: '/v1/identity/participants',
-        payload: { publicKey: 'pk-1' },
+        payload: { publicKey: TEST_PUBLIC_KEY },
       })
 
       expect(res.statusCode).toBe(400)
@@ -286,7 +310,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const res = await app.inject({
         method: 'POST',
         url: '/v1/identity/challenge',
-        payload: { publicKey: 'pk-1' },
+        payload: { publicKey: TEST_PUBLIC_KEY },
       })
 
       expect(res.statusCode).toBe(200)
@@ -298,7 +322,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const res = await app.inject({
         method: 'POST',
         url: '/v1/identity/authenticate',
-        payload: { publicKey: 'pk-never-challenged', signature: 'deadbeef' },
+        payload: { publicKey: TEST_PUBLIC_KEY_2, signature: 'deadbeef' },
       })
 
       expect(res.statusCode).toBe(401)
@@ -312,7 +336,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('accepts GET /v1/identity/me with a valid session token', async () => {
       const token = await authedSession('user-1')
-      mockUserFindUnique.mockResolvedValueOnce({ id: 'user-1', publicKey: 'pk-1' })
+      mockUserFindUnique.mockResolvedValueOnce({ id: 'user-1', publicKey: TEST_PUBLIC_KEY })
 
       const res = await app.inject({
         method: 'GET',
@@ -395,6 +419,24 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       )
     })
 
+    it('lists aggregated offers for an asset/side (GET /v1/liquidity/offers) with total/hasMore', async () => {
+      mockOfferFindMany.mockResolvedValueOnce([
+        { id: 'offer-1', userId: 'user-1', asset: 'BTC', side: 'SELL', priceUsd: '65000', priceBrl: null, minAmount: '0.001', maxAmount: '0.5', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 42 } },
+        { id: 'offer-2', userId: 'user-2', asset: 'BTC', side: 'SELL', priceUsd: '66000', priceBrl: null, minAmount: '0.002', maxAmount: '1.0', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 50 } },
+        { id: 'offer-3', userId: 'user-3', asset: 'BTC', side: 'SELL', priceUsd: '67000', priceBrl: null, minAmount: '0.003', maxAmount: '0.3', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 35 } },
+      ])
+      const res = await app.inject({ method: 'GET', url: '/v1/liquidity/offers?asset=BTC&side=SELL&limit=2&offset=0' })
+      expect(res.statusCode).toBe(200)
+      const data = JSON.parse(res.body).data
+      expect(data.offers).toHaveLength(2) // limit=2 applied after sort
+      expect(data.sources).toEqual(['internal'])
+      expect(data.total).toBe(3)
+      expect(data.hasMore).toBe(true)
+      // offers sorted by priceUsd ascending for SELL side
+      expect(data.offers[0].id).toBe('offer-1') // lowest price
+      expect(data.offers[1].id).toBe('offer-2')
+    })
+
     it('lists the order book for an asset', async () => {
       mockOfferFindMany.mockResolvedValue([])
       const res = await app.inject({ method: 'GET', url: '/v1/liquidity/offers/BTC/book' })
@@ -472,7 +514,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       const res = await app.inject({
         method: 'GET',
-        url: '/v1/openp2p/trades?limit=9999&offset=10',
+        url: '/v1/openp2p/trades?limit=100&offset=10',
         headers: { authorization: `Bearer ${token}` },
       })
 
@@ -726,6 +768,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const token = await authedSession('buyer-1')
       mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
       mockMessageFindMany.mockResolvedValueOnce([{ id: 'msg-1', content: 'hi' }])
+      mockMessageCount.mockResolvedValueOnce(1)
 
       const res = await app.inject({
         method: 'GET',
@@ -734,7 +777,12 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
 
       expect(res.statusCode).toBe(200)
-      expect(JSON.parse(res.body).data).toEqual([{ id: 'msg-1', content: 'hi' }])
+      expect(JSON.parse(res.body).data).toEqual({
+        items: [{ id: 'msg-1', content: 'hi' }],
+        total: 1,
+        hasMore: false,
+        nextOffset: null,
+      })
     })
   })
 
@@ -813,14 +861,14 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', escrowId: null })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-safe-guard-1', tradeId: 'trade-1', status: 'CREATED',
-        type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'ETH',
+        type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'USDT_ERC20',
       })
 
       const res = await app.inject({
         method: 'POST',
         url: '/v1/settlement/escrow',
         headers: { authorization: `Bearer ${token}` },
-        payload: { tradeId: 'trade-1', type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'ETH' },
+        payload: { tradeId: 'trade-1', type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'USDT_ERC20' },
       })
 
       expect(res.statusCode).toBe(201)
@@ -1052,9 +1100,15 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('returns the leaderboard (static route matches ahead of :participantId)', async () => {
       mockUserFindMany.mockResolvedValueOnce([{ id: 'user-1', reputationScore: 9, totalTrades: 5 }])
+      mockUserCount.mockResolvedValueOnce(1)
       const res = await app.inject({ method: 'GET', url: '/v1/reputation/leaderboard' })
       expect(res.statusCode).toBe(200)
-      expect(JSON.parse(res.body).data).toEqual([{ id: 'user-1', reputationScore: 9, totalTrades: 5 }])
+      expect(JSON.parse(res.body).data).toEqual({
+        items: [{ id: 'user-1', reputationScore: 9, totalTrades: 5 }],
+        total: 1,
+        hasMore: false,
+        nextOffset: null,
+      })
     })
 
     it('rejects rating without auth', async () => {
@@ -1507,3 +1561,5 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     })
   })
 })
+
+

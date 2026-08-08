@@ -101,6 +101,24 @@ made policy-gated instead.
 
 ### D1 — `TimestampAnchor`: a new Adapter interface
 
+**Implemented 2026-08-04** (`src/modules/open-proof/timestamp-anchor.ts`),
+real `anchor()` verified against a live public OpenTimestamps calendar
+server before writing the file — `POST .../digest` with a raw 32-byte
+digest, real 200 response with a real binary proof, confirmed directly,
+not assumed from documentation. Uses plain `fetch()` rather than the
+`opentimestamps`/`javascript-opentimestamps` npm packages: both depend on
+long-deprecated, vulnerable `request`/`request-promise` for the exact one
+HTTP call this needs — the calendar wire protocol itself is simple and
+stable enough not to need a client library. Real, disclosed gap:
+`verify()` (this section calls it that; the shipped interface calls it
+`upgrade()`) throws a specific "not implemented" error rather than faking
+a result — confirming a pending proof against a real Bitcoin block needs
+a real OTS binary-format parser (walking the proof's Merkle path), which
+this codebase does not have. `anchor()` itself is fully real, not a stub.
+`AnchorProof.upgraded` (`false`, always, for now) is this implementation's
+stand-in for this section's `anchoredAt?` — set once/if `upgrade()` is
+ever built.
+
 Same category as `SettlementProvider`, `TransportProvider`,
 `EvidenceProvider`, and `ArbitrationProvider` — a new Adapter, which is
 why this needs an RFC rather than shipping as a silent implementation

@@ -319,6 +319,26 @@ separate follow-up work, not claimed done here.
 
 ---
 
+## 7C. Sails OpenProof — `/v1/proof/` (RFC-006, RFC-007, RFC-008)
+
+Not previously documented here despite being real, working routes
+(`proof.service.ts`/`proof.routes.ts`) — added alongside the RFC-007
+D1/D2/D6 and RFC-008 D1 work (2026-08-04) that extended this surface,
+rather than leaving the new routes documented next to nothing.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/v1/proof/claims` | `{ claimType, assertion, tradeId? }` — `tradeId` (added 2026-08-04, RFC-007 D6) scopes this Claim into `GET /v1/proof/trades/:tradeId/bundle` below; optional, not every Claim is trade-related. |
+| POST | `/v1/proof/proofs` | `{ claimId, evidence, claimedHash? }` — `evidenceHash` is always this server's own `sha256(canonicalize(evidence))`, never `claimedHash` as-is (a mismatch is recorded via `proof.hash_mismatch_detected`, not rejected). Also runs RFC-007 D1's duplicate check (`proof-registry.ts`) — a real match from a *different* trade emits `proof.duplicate_detected`, never blocks. |
+| POST | `/v1/proof/proofs/:id/verify-nonce` | Issues a single-use nonce required before `verify` below accepts a verdict. |
+| POST | `/v1/proof/proofs/:id/verify` | `{ verdict, nonce, reason? }` |
+| GET | `/v1/proof/claims/:id/bundle` | Per-claim evidence bundle (claim + its proofs + their verifications). |
+| POST | `/v1/proof/proofs/:id/evidence` | *(new, 2026-08-04, RFC-007 D2)* `{ mediaBase64, mimeType, signatureHex }` — stores real media bytes via `EvidenceProvider` (local filesystem by default) and persists an `EvidenceReference`. `signatureHex` must verify (Ed25519) against the authenticated caller's own registered `User.publicKey`, over the media's own sha256 digest — a caller cannot attach evidence "as" someone else. |
+| POST | `/v1/proof/evidence/:id/anchor` | *(new, 2026-08-04, RFC-008 D1)* Submits the `EvidenceReference`'s hash to a real, live OpenTimestamps calendar server, persisting the resulting `AnchorProof`. A genuine network call/cost — not automatic on every `evidence` submission above; a caller (or a future real Policy Engine hook) decides when it's warranted. |
+| GET | `/v1/proof/trades/:tradeId/bundle` | *(new, 2026-08-04, RFC-007 D6)* Public read, no session required. The real per-trade `EvidenceBundle` — every Claim/Proof/Verification/EvidenceReference for a trade, plus its real hash-chained Timeline (RFC-008 D2). Distinct from `GET /v1/proof/claims/:id/bundle` above (per-claim, already has its own real SDK/React-hook surface — kept unchanged). |
+
+---
+
 ## 8. Event Catalog (internal — mirrors `common/events/event-bus.ts`)
 
 These are not HTTP endpoints — they are the internal typed events every
@@ -353,8 +373,12 @@ liquidity.offer.status_changed
 # Sails OpenProof (RFC-007 addition; claim.*/proof.*/verification.*
 # already exist per RFC-003/BACKLOG.md P0 but are not yet listed in this
 # catalog — a pre-existing gap in this doc, not introduced by RFC-007)
-proof.duplicate_detected  # RFC-007 D1 — ProofRegistry found the same
-                           # fingerprint on a different intentId; a flag
+proof.duplicate_detected  # RFC-007 D1 — real, closed 2026-08-04
+                           # (proof-registry.ts). ProofRegistry found the
+                           # same evidence fingerprint on a different
+                           # tradeId (not this section's literal intentId
+                           # — see core/timeline.ts's own header comment
+                           # for the same real-world correction); a flag
                            # for Dispute/Policy Engine, not an auto-block
 
 # Cross-module (P2P transport)
