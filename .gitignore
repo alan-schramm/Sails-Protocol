@@ -15,7 +15,7 @@ blob-report/
 playwright/.cache/
 packages/sails-sdk/docs-api/
 *.tgz
-loadtest/users.json
+load-tests/artillery/users.json
 coverage/
 *.tsbuildinfo
 .next/

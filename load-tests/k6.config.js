@@ -6,7 +6,7 @@
  * scenario-specific (VUs/stages/thresholds).
  *
  * BASE_URL defaults to the same localhost:3000 the e2e suite and
- * loadtest/ (Artillery) both already target — override with
+ * load-tests/artillery/ (Artillery) both already target — override with
  * `-e BASE_URL=...` for a non-local run.
  */
 export const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000'

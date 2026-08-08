@@ -86,9 +86,9 @@ npx jest --testPathPatterns='routes|chat-encryption|escrowRelease|paymentAccount
 
 **Recomendação**: Manter — `RedisStreamsEventStore` é parte do design planejado.
 
-### 3.3 `src/demo/*` — Arquivos não importados
+### 3.3 `examples/demo/*` — Arquivos não importados
 
-**Análise**: `multisig-demo.ts` e `pix-to-usdt-flow.ts` em `src/demo/` não são importados por nenhum arquivo. Esses são scripts de demonstração standalone (executáveis via `tsx src/demo/...`).
+**Análise**: `multisig-testnet-flow.ts` e `pix-to-usdt-flow.ts` em `examples/demo/` (movido de `src/demo/`, PRODUCTION_READINESS_FIXES.md item 20, 2026-08-08) não são importados por nenhum arquivo de produção — apenas por `demo-satsails-qvac.ts` na raiz. Esses são scripts de demonstração standalone (executáveis via `npm run demo:pix-to-usdt` / `npm run demo:multisig`).
 
 **Recomendação**: Manter — são documentação executável, não código morto. Documentados em `docs/EXAMPLES.md`.
 

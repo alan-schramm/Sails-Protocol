@@ -40,7 +40,7 @@
 ## 1. `demo-satsails-qvac.ts` — current state
 
 Root-level entrypoint (`npm run demo:qvac`). Delegates to
-`src/demo/pix-to-usdt-flow.ts`'s `main()` (does not duplicate it) and
+`examples/demo/pix-to-usdt-flow.ts`'s `main()` (does not duplicate it) and
 runs, in order:
 
 1. **QVAC agents** (`src/modules/open-agents/`) generate a

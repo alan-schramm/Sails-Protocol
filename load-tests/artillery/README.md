@@ -1,4 +1,11 @@
-# Load tests
+# Load tests (Artillery)
+
+Moved from `loadtest/` to `load-tests/artillery/` (PRODUCTION_READINESS_FIXES.md
+item 19, closed 2026-08-08) so both load-testing suites live under one
+parent directory — see `load-tests/README.md`'s own header comment for
+why this stays a *separate* subdirectory rather than a merge: this suite
+(Artillery) and the k6 suite next to it are two different tools testing
+different flows, not duplicates of each other.
 
 Real Artillery scripts against the real server — not synthetic echo
 endpoints. Closes the gap `TECHNICAL_WHITEPAPER.md` section 12 disclosed
@@ -21,7 +28,7 @@ flow (`processor.js`'s `setupAuthenticatedUser`) before creating and
 cancelling a `TradeIntent`. Run as-is:
 
 ```
-npx artillery run loadtest/intent-api.yml
+npx artillery run load-tests/artillery/intent-api.yml
 ```
 
 At the shipped rate-limit defaults (`RATE_LIMIT_AUTH_MAX=10`/min) this
@@ -43,8 +50,8 @@ where this was found), so per-VU auth can't run as an earlier flow step
 the way it does for the `http` engine above.
 
 ```
-node loadtest/pregenerate-users.js 50
-npx artillery run loadtest/chat-ws.yml
+node load-tests/artillery/pregenerate-users.js 50
+npx artillery run load-tests/artillery/chat-ws.yml
 ```
 
 `users.json` is gitignored — it holds real (if throwaway) session

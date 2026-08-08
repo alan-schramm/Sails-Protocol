@@ -3,7 +3,7 @@
 # Same disclosed gap as intent-api.yml (TECHNICAL_WHITEPAPER.md section
 # 12): no throughput numbers exist yet for the WS side either.
 #
-# Prerequisite: node loadtest/pregenerate-users.js — Artillery's ws
+# Prerequisite: node load-tests/artillery/pregenerate-users.js — Artillery's ws
 # engine only honors `connect` as the literal first flow step
 # (@artilleryio/int-core's engine_ws.js reads scenarioSpec[0] directly),
 # so per-VU auth can't run as an earlier step the way it does for the
@@ -13,7 +13,7 @@
 # through the actual WS route (chat.routes.ts), not a synthetic echo
 # server.
 #
-# Run: node loadtest/pregenerate-users.js && npx artillery run chat-ws.yml
+# Run: node load-tests/artillery/pregenerate-users.js && npx artillery run chat-ws.yml
 config:
   target: "ws://localhost:3000"
   processor: "./processor.js"

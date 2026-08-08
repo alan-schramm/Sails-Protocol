@@ -1,4 +1,6 @@
-# Load test — Intent API (POST/DELETE /api/v1/intents), auth included.
+# Load test — Intent API (POST/DELETE /v1/intents), auth included.
+# (Was /api/v1/intents — renamed PRODUCTION_READINESS_FIXES.md P0 item 1,
+# closed 2026-08-08.)
 #
 # Answers TECHNICAL_WHITEPAPER.md's disclosed gap: "No numbers exist yet
 # for throughput" (section 12's Summary Table). Each virtual user goes
@@ -6,7 +8,7 @@
 # touching the Intent API — this measures the authenticated path a real
 # wallet integration would actually hit, not an auth-bypassed shortcut.
 #
-# Run: npx artillery run loadtest/intent-api.yml
+# Run: npx artillery run load-tests/artillery/intent-api.yml
 config:
   target: "http://localhost:3000"
   processor: "./processor.js"
@@ -25,7 +27,7 @@ scenarios:
     flow:
       - function: "setupAuthenticatedUser"
       - post:
-          url: "/api/v1/intents"
+          url: "/v1/intents"
           headers:
             Authorization: "Bearer {{ sessionToken }}"
           json:
@@ -41,7 +43,7 @@ scenarios:
           expect:
             - statusCode: 201
       - delete:
-          url: "/api/v1/intents/{{ intentId }}"
+          url: "/v1/intents/{{ intentId }}"
           headers:
             Authorization: "Bearer {{ sessionToken }}"
           expect:

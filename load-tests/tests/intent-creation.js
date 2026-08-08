@@ -1,7 +1,9 @@
 /**
- * Real Intent create/cancel — POST /api/v1/intents then DELETE
- * /api/v1/intents/:id (src/routes/intentRoutes.ts), same round trip
- * loadtest/intent-api.yml already proved out with Artillery. `setup()`
+ * Real Intent create/cancel — POST /v1/intents then DELETE
+ * /v1/intents/:id (src/routes/intentRoutes.ts — was /api/v1/intents,
+ * renamed PRODUCTION_READINESS_FIXES.md P0 item 1, closed 2026-08-08),
+ * same round trip load-tests/artillery/intent-api.yml already proved out
+ * with Artillery. `setup()`
  * registers one real, authenticated identity once per run (not once per
  * iteration/VU) — every iteration reuses that same session, since this
  * test is about Intent API throughput, not auth throughput (see
@@ -31,7 +33,7 @@ export function setup() {
 /** One real create+cancel round trip — exported so scenarios/*.js can drive this same flow under a different load shape. */
 export function run(user) {
   const intent = generateTestIntent()
-  const createRes = http.post(`${BASE_URL}/api/v1/intents`, JSON.stringify(intent), {
+  const createRes = http.post(`${BASE_URL}/v1/intents`, JSON.stringify(intent), {
     ...authHeaders(user),
     tags: { name: 'intent_create' },
   })
@@ -43,7 +45,7 @@ export function run(user) {
   // '{}', not null — Fastify's JSON body parser 400s on an empty body
   // when Content-Type: application/json is set (authHeaders() always
   // sets it), found running this against the real server.
-  const cancelRes = http.del(`${BASE_URL}/api/v1/intents/${intentId}`, '{}', {
+  const cancelRes = http.del(`${BASE_URL}/v1/intents/${intentId}`, '{}', {
     ...authHeaders(user),
     tags: { name: 'intent_cancel' },
   })

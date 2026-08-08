@@ -8,7 +8,7 @@
  *
  * Weighting is a deliberate approximation of a real marketplace's read/
  * write ratio, not a measured production number (none exists yet for
- * this protocol — same caveat loadtest/README.md's Artillery numbers
+ * this protocol — same caveat load-tests/artillery/README.md's Artillery numbers
  * already carry): reads (reputation lookups, reconcile checks) most
  * common, Intent create/cancel next, full trade/escrow lifecycles
  * rarest since they're the most expensive real flow (~9 HTTP calls

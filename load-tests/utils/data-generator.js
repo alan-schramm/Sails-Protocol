@@ -1,6 +1,6 @@
 /**
  * Real Ed25519 identity generation + the real challenge-response auth
- * flow (common/middleware/auth.ts) — ported from loadtest/processor.js's
+ * flow (common/middleware/auth.ts) — ported from load-tests/artillery/processor.js's
  * proven `setupAuthenticatedUser` (Artillery, fetch-based) to k6's http
  * module. Every k6 VU registers its own participant, requests a real
  * challenge, signs it for real, and authenticates for real — the same

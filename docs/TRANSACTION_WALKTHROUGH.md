@@ -20,7 +20,7 @@
 One PIX→USDT P2P trade: a buyer sends fiat (PIX, Brazil's instant-payment
 rail) directly to a seller outside the protocol, and the seller releases
 USDT from escrow in return. This is the exact flow `npm run demo:qvac`
-runs (`demo-satsails-qvac.ts` → `src/demo/pix-to-usdt-flow.ts`'s
+runs (`demo-satsails-qvac.ts` → `examples/demo/pix-to-usdt-flow.ts`'s
 `main()`) — the walkthrough below narrates that real, already-built code
 path, not a hypothetical one. `HANDOFF.md` §1 already discloses that the
 *full* run has never completed end-to-end in this environment (no

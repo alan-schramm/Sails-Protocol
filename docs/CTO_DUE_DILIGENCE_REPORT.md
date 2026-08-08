@@ -128,7 +128,7 @@ function sign(challenge: string, secretKey: Uint8Array): string {
 **Correção:** `prisma/migrations/` já existe (`20260807_init`, `20260807_add_indices`, `migration_lock.toml`), e `package.json`'s `db:migrate` já roda `npx prisma migrate deploy`, não `db push`. Já resolvido antes deste relatório ser escrito.
 
 #### B-STA-02: Sem testes de carga/stress
-**Localização**: `tests/` — sem `loadtest/intent-api.yml` não roda em CI.
+**Localização**: `tests/` — sem `load-tests/artillery/intent-api.yml` (movido de `loadtest/`, PRODUCTION_READINESS_FIXES.md item 19, 2026-08-08) não roda em CI.
 - A wallet precisa garantir latência <500ms em p99.
 - Não há SLI/SLO definidos nem medidos.
 

@@ -6,12 +6,15 @@ the actual routes (`src/routes/intentRoutes.ts`, `src/modules/open-p2p/`,
 real Ed25519 challenge-response auth (`common/middleware/auth.ts`), the
 same "mock only the database boundary a unit test needs to, never the
 thing actually being proven" discipline this repo's e2e (Playwright) and
-loadtest/ (Artillery) suites already established.
+load-tests/artillery/ (Artillery) suites already established.
 
-This is a **second, separate load-testing tool alongside `loadtest/`**
-(Artillery), not a replacement — nothing in this repo's docs/RFCs
-planned a k6 suite before this phase; it was a net-new ask. The two
-don't overlap in what they test today: `loadtest/` covers Intent API
+This is a **second, separate load-testing tool alongside
+`load-tests/artillery/`** (Artillery, moved from the former top-level
+`loadtest/` — PRODUCTION_READINESS_FIXES.md item 19, closed 2026-08-08,
+so both suites live under one parent directory), not a replacement —
+nothing in this repo's docs/RFCs planned a k6 suite before this phase;
+it was a net-new ask. The two don't overlap in what they test today:
+`load-tests/artillery/` covers Intent API
 throughput and the chat WebSocket; this suite adds trade/escrow
 lifecycle, reconciliation, and reputation lookups, plus k6's
 purpose-built load-*shape* scenarios (ramps, spikes, soak) that
@@ -39,7 +42,7 @@ Artillery's phase config can't express as directly.
    `src/config/index.ts`, RT-002) any of these scripts will mostly
    measure the rate limiter within the first few seconds — a real,
    correct result, just not what "Intent/trade/escrow throughput" means.
-   `loadtest/README.md` already documents this exact tradeoff for
+   `load-tests/artillery/README.md` already documents this exact tradeoff for
    Artillery; the same override works here:
    ```
    RATE_LIMIT_AUTH_MAX=100000 RATE_LIMIT_MAX=100000 TRUSTED_ARBITRATORS=k6-test-arbiter npm run dev
@@ -191,7 +194,7 @@ echo "k6 exited with status $?"
 
 A real CI environment needs the same three prerequisites listed above
 (Postgres+Redis up, server running with rate limits raised) — this
-suite doesn't spin those up itself, matching `loadtest/`'s own existing
+suite doesn't spin those up itself, matching `load-tests/artillery/`'s own existing
 convention of treating that as the runner's job, not the test's.
 
 `stress-test.js`/`soak-test.js` are deliberately **not** meant for a
