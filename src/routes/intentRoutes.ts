@@ -12,6 +12,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { intentEngine } from '../core/intent-engine'
 import { requireAuth } from '../common/middleware/auth'
+import type { AuthenticatedRequest } from '../common/middleware/auth'
 import type { IntentType, TradeIntentPayload } from '../common/types/intent'
 
 // Fase 1 Red Team finding: asset/currency/fiatMethod were open
@@ -81,7 +82,7 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
     },
   }, async (request, reply) => {
     const body = createIntentSchema.parse(request.body)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const intent = await intentEngine.create<TradeIntentPayload>(
       body.type as IntentType,
       body.payload,
@@ -100,7 +101,7 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['intent'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } } },
   }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     await intentEngine.cancel(id, participantId)
     return reply.code(200).send({ success: true })
   })

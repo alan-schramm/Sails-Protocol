@@ -11,19 +11,20 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { identityService } from './identity.service'
 import { issueChallenge, verifySignedChallenge, requireAuth } from '../../common/middleware/auth'
+import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { config } from '../../config'
 
 const registerSchema = z.object({
-  publicKey: z.string().min(1),
+  publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be a 64-character hex-encoded Ed25519 public key'),
   displayName: z.string().optional(),
 })
 
 const challengeSchema = z.object({
-  publicKey: z.string().min(1),
+  publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be a 64-character hex-encoded Ed25519 public key'),
 })
 
 const authenticateSchema = z.object({
-  publicKey: z.string().min(1),
+  publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be a 64-character hex-encoded Ed25519 public key'),
   signature: z.string().min(1),
 })
 
@@ -81,7 +82,7 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth,
     schema: { tags: ['open-identity'] },
   }, async (request, reply) => {
-    const participant = await identityService.getParticipant((request as any).participantId)
+    const participant = await identityService.getParticipant((request as AuthenticatedRequest).participantId)
     return reply.code(200).send({ success: true, data: participant })
   })
 }

@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { pearNodeRegistry } from './pear.service'
 import { fallbackTransportProvider } from './transport-provider'
 import { requireAuth } from '../../common/middleware/auth'
+import type { AuthenticatedRequest } from '../../common/middleware/auth'
 
 const startSchema = z.object({
   secretKey: z.string().min(1), // base64 — see pear.service.ts's PearNode.start()
@@ -38,7 +39,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['peers'] },
   }, async (request, reply) => {
     const body = startSchema.parse(request.body)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     // Pears first, WebSocket relay (`/ws/relay`) only if Pears doesn't
     // connect within the timeout — see transport-provider.ts's
     // FallbackTransportProvider. `transport` tells the caller which one
@@ -56,7 +57,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth,
     schema: { tags: ['peers'] },
   }, async (request, reply) => {
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     await pearNodeRegistry.stop(participantId)
     return reply.code(200).send({ success: true })
   })
@@ -65,7 +66,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth,
     schema: { tags: ['peers'] },
   }, async (request, reply) => {
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const status = pearNodeRegistry.getStatus(participantId)
     return reply.code(200).send({ success: true, data: status })
   })
@@ -75,7 +76,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['peers'] },
   }, async (request, reply) => {
     const body = joinTopicSchema.parse(request.body)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const node = pearNodeRegistry.get(participantId)
     if (!node) {
       return reply.code(409).send({ success: false, error: 'NOT_FOUND', message: 'No active node — call POST /v1/peers/start first', details: [] })
@@ -89,7 +90,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['peers'] },
   }, async (request, reply) => {
     const body = joinTradeSchema.parse(request.body)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const node = pearNodeRegistry.get(participantId)
     if (!node) {
       return reply.code(409).send({ success: false, error: 'NOT_FOUND', message: 'No active node — call POST /v1/peers/start first', details: [] })
@@ -103,7 +104,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['peers'] },
   }, async (request, reply) => {
     const body = broadcastOfferSchema.parse(request.body)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const node = pearNodeRegistry.get(participantId)
     if (!node) {
       return reply.code(409).send({ success: false, error: 'NOT_FOUND', message: 'No active node — call POST /v1/peers/start first', details: [] })

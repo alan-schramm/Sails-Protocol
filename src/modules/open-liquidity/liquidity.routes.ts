@@ -9,6 +9,8 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { liquidityRouter } from './liquidity.service'
 import { requireAuth } from '../../common/middleware/auth'
+import type { AuthenticatedRequest } from '../../common/middleware/auth'
+import type { AssetType } from '../../common/types'
 
 const assetSideQuerySchema = z.object({
   asset: z.string().min(1),
@@ -54,7 +56,7 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-liquidity'] },
   }, async (request, reply) => {
     const query = assetSideQuerySchema.parse(request.query)
-    const result = await liquidityRouter.getAggregatedOffers(query.asset as any, query.side, {
+    const result = await liquidityRouter.getAggregatedOffers(query.asset as AssetType, query.side, {
       limit: query.limit,
       offset: query.offset,
     })
@@ -66,7 +68,7 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-liquidity'] },
   }, async (request, reply) => {
     const body = createOfferSchema.parse(request.body)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const offer = await liquidityRouter.createOffer({ ...body, userId: participantId } as any)
     return reply.code(201).send({ success: true, data: offer })
   })
@@ -87,7 +89,7 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-liquidity'] },
   }, async (request, reply) => {
     const { asset } = z.object({ asset: z.string().min(1) }).parse(request.params)
-    const book = await liquidityRouter.getOrderBook(asset as any)
+    const book = await liquidityRouter.getOrderBook(asset as AssetType)
     return reply.code(200).send({ success: true, data: book })
   })
 
@@ -101,7 +103,7 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth,
     schema: { tags: ['open-liquidity'] },
   }, async (request, reply) => {
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const offers = await liquidityRouter.getOffersByUser(participantId)
     return reply.code(200).send({ success: true, data: offers })
   })
@@ -112,7 +114,7 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
     const body = updateStatusSchema.parse(request.body)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const offer = await liquidityRouter.updateOfferStatus(id, body.status, participantId)
     return reply.code(200).send({ success: true, data: offer })
   })
@@ -121,7 +123,7 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-liquidity'] },
   }, async (request, reply) => {
     const body = matchSchema.parse(request.body)
-    const match = await liquidityRouter.findBestMatch(body.asset as any, body.side, body.amount)
+    const match = await liquidityRouter.findBestMatch(body.asset as AssetType, body.side, body.amount)
     return reply.code(200).send({ success: true, data: match })
   })
 }

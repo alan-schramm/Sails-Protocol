@@ -14,10 +14,20 @@
  */
 import nacl from 'tweetnacl'
 import { randomBytes } from 'crypto'
+import type { FastifyRequest } from 'fastify'
 import { redis } from '../redis'
 import { prisma } from '../database'
 import { config } from '../../config'
 import { AuthError } from '../errors'
+
+/**
+ * Typed request object for authenticated routes. Every route that uses
+ * requireAuth can cast to this type to get type-safe access to participantId
+ * without resorting to `(request as any).participantId`.
+ */
+export interface AuthenticatedRequest extends FastifyRequest {
+  participantId: string
+}
 
 const CHALLENGE_PREFIX = 'auth:challenge:'
 const SESSION_PREFIX = 'auth:session:'
@@ -102,7 +112,7 @@ export async function verifySignedChallenge(
  * that reads `req.body.userId` directly instead of `req.participantId`
  * set by this middleware is exactly the RT-002 vulnerability again.
  */
-export async function requireAuth(req: any, _reply: any): Promise<void> {
+export async function requireAuth(req: FastifyRequest, _reply: any): Promise<void> {
   const token = req.headers['authorization']?.replace(/^Bearer\s+/i, '')
   if (!token) {
     throw new AuthError('Missing Authorization header')
@@ -113,5 +123,5 @@ export async function requireAuth(req: any, _reply: any): Promise<void> {
     throw new AuthError('Session expired or invalid — re-authenticate via /v1/identity/challenge')
   }
 
-  req.participantId = participantId
+  ;(req as AuthenticatedRequest).participantId = participantId
 }

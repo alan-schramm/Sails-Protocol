@@ -8,7 +8,7 @@
  * build UI that implies otherwise.
  */
 import type { SailsTransport } from '../transport'
-import type { ReputationScore, Vouch } from '../types'
+import type { ReputationScore, LeaderboardResult, Vouch } from '../types'
 
 export interface RateInput {
   tradeId: string
@@ -24,8 +24,24 @@ export class SailsReputationModule {
     return this.transport.get<ReputationScore>(`/v1/reputation/${participantId}`)
   }
 
-  async leaderboard(limit?: number): Promise<ReputationScore[]> {
-    return this.transport.get<ReputationScore[]>('/v1/reputation/leaderboard', { limit })
+  /**
+   * RFC-021 — look up a participant's score by their Pears
+   * peerId (the portable identity substrate), not their
+   * participantId. The backend has separate routes for each
+   * lookup path; this method covers the peerId path.
+   */
+  async getScoreByPeerId(peerId: string): Promise<ReputationScore> {
+    return this.transport.get<ReputationScore>(`/v1/reputation/peer/${peerId}`)
+  }
+
+  /** Paginated (reputation.service.ts's getLeaderboard()) — each row is a
+   *  LeaderboardEntry, not the full ReputationScore shape (see that
+   *  type's own comment for why). */
+  async leaderboard(pagination?: { limit?: number; offset?: number }): Promise<LeaderboardResult> {
+    return this.transport.get<LeaderboardResult>('/v1/reputation/leaderboard', {
+      limit: pagination?.limit,
+      offset: pagination?.offset,
+    })
   }
 
   /** Requires an active session. Informational only — see this file's header. */

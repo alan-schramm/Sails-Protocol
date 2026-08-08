@@ -126,6 +126,8 @@ export type {
   Dispute,
   Message,
   ReputationScore,
+  LeaderboardEntry,
+  LeaderboardResult,
   Intent,
   TradeIntentPayload,
   PeerStatus,
