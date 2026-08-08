@@ -232,6 +232,11 @@ model Escrow {
   disputes          Dispute[]
   feeDistribution   FeeDistribution?
 
+  // DB_AUDIT_REPORT.md / RELATORIO_PERFORMANCE.md, closed 2026-08-08 —
+  // sweepExpiredEscrows() (escrow.service.ts) filters by exactly this
+  // pair; with zero indexes on this table it was a full table scan on
+  // every sweep interval tick.
+  @@index([status, expiresAt])
   @@map("escrows")
 }
 
@@ -561,7 +566,13 @@ model IntentEvent {
   entryHash   String?  // sha256(fromStatus+toStatus+triggeredBy+prevHash), computed at write time
   prevHash    String?  // prior IntentEvent.entryHash for this intentId; 'genesis' for the first
 
-  @@index([intentId])
+  // RELATORIO_PERFORMANCE.md, closed 2026-08-08 — writeIntentEvent()'s
+  // hot path does findFirst(where: { intentId }, orderBy: { createdAt:
+  // 'desc' }) on every single transition (to read the prior entryHash for
+  // the hash chain); the plain [intentId] index above still needs a
+  // separate sort step for that. Composite index lets it be satisfied
+  // directly.
+  @@index([intentId, createdAt])
   @@map("intent_events")
 }
 
