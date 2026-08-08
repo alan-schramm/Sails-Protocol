@@ -16,6 +16,7 @@ import { marketArbitrationProvider } from './market-arbitration.provider'
 import { paymentAccountService } from './payment-account.service'
 import { payoutAddressService } from './payout-address.service'
 import { requireAuth } from '../../common/middleware/auth'
+import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { config } from '../../config'
 
 // CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — see
@@ -148,7 +149,8 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-settlement'] },
   }, async (request, reply) => {
     const body = createEscrowSchema.parse(request.body)
-    const escrow = await escrowService.createEscrow(body as any)
+    const participantId = (request as AuthenticatedRequest).participantId
+    const escrow = await escrowService.createEscrow(body as any, participantId)
     return reply.code(201).send(success(escrow, 201))
   })
 

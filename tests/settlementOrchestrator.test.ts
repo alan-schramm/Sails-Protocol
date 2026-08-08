@@ -68,7 +68,7 @@ describe('executeSettlement (open-settlement)', () => {
       type: 'WDK_USDT_EVM',
       lockedAmount: '20.5',
       asset: 'USDT_ERC20',
-    })
+    }, 'seller-1')
     expect(mockLockFunds).toHaveBeenCalledWith('escrow-1', 'seller-1')
     expect(mockMarkPaymentSent).toHaveBeenCalledWith('escrow-1', 'buyer-1')
     expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', '0xbuyer', 'seller-1')
@@ -112,6 +112,6 @@ describe('executeSettlement (open-settlement)', () => {
 
   it('respects a caller-supplied escrowType instead of always defaulting to WDK_USDT_EVM', async () => {
     await executeSettlement({ tradeId: 'trade-1', buyerReceivingAddress: '0xbuyer', escrowType: 'MOCK' })
-    expect(mockCreateEscrow).toHaveBeenCalledWith(expect.objectContaining({ type: 'MOCK' }))
+    expect(mockCreateEscrow).toHaveBeenCalledWith(expect.objectContaining({ type: 'MOCK' }), 'seller-1')
   })
 })

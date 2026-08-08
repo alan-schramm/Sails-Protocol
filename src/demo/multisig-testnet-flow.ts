@@ -117,7 +117,7 @@ export async function main() {
     lockedAmount: lockedAmountBtc,
     asset: 'BTC',
     network: 'testnet',
-  })
+  }, seller.id)
   console.log(`   Escrow: ${escrow.id}`)
 
   step(4, TOTAL, 'Gerando chaves secp256k1 client-held (SDK generateEscrowKeypair)...')

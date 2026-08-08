@@ -129,7 +129,7 @@ export class SailsIntentFacade {
    * route directly.
    */
   async releaseAsset(intentId: string, toAddress: string): Promise<Escrow> {
-    const trade = await this.transport.get<Trade>(`/v1/openp2p/trades/by-intent/${intentId}`)
+    const trade = await this.transport.get<Trade>(`/v1/openp2p/trades/by-intent/${intentId}`, undefined, true)
     if (!trade.escrowId) {
       throw new SailsNotImplementedError(
         `releaseAsset(intentId, toAddress) — Trade ${trade.id} (from Intent ${intentId}) has no Escrow yet, nothing to release. Create one first via settlement.create().`
@@ -147,7 +147,7 @@ export class SailsIntentFacade {
    * identical, real Dispute.
    */
   async dispute(intentId: string, reason: string): Promise<Dispute> {
-    const trade = await this.transport.get<Trade>(`/v1/openp2p/trades/by-intent/${intentId}`)
+    const trade = await this.transport.get<Trade>(`/v1/openp2p/trades/by-intent/${intentId}`, undefined, true)
     if (!trade.escrowId) {
       throw new SailsNotImplementedError(
         `dispute(intentId, reason) — Trade ${trade.id} (from Intent ${intentId}) has no Escrow yet, nothing to dispute. Create one first via settlement.create().`

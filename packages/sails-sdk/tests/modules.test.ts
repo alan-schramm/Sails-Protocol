@@ -229,8 +229,9 @@ describe('SailsOpenP2PModule', () => {
 
   // Fase 2 (SDK React) — GET /v1/openp2p/trades didn't exist before
   // useSailsTrades() needed a real list endpoint (trade.routes.ts's own
-  // comment has the full story). Requires auth, unlike getTrade()/
-  // getTradeByIntent() above.
+  // comment has the full story). Requires auth, same as getTrade()/
+  // getTradeByIntent() below (SECURITY_AUDIT_REPORT.md §2, closed
+  // 2026-08-08 — both used to be unauthenticated).
   it('getTrades() hits GET /v1/openp2p/trades with auth, passing limit/offset as query params', async () => {
     const fetchImpl = fakeFetch(200, { success: true, data: { trades: [], total: 0, hasMore: false } })
     const openp2p = new SailsOpenP2PModule(authedTransport(fetchImpl))
@@ -255,6 +256,43 @@ describe('SailsOpenP2PModule', () => {
   it('getTrades() throws if called before authenticate() (no session token) — matches every other auth-required call in this module', async () => {
     const openp2p = new SailsOpenP2PModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch }))
     await expect(openp2p.getTrades()).rejects.toThrow(/requires authentication/)
+  })
+
+  // SECURITY_AUDIT_REPORT.md §2, closed 2026-08-08 — GET /v1/openp2p/trades/:id
+  // and .../trades/by-intent/:intentId used to be unauthenticated even
+  // though a trade carries the full chat history and the seller's real
+  // payment details; the backend now requires requireAuth + a
+  // buyer/seller check, so the SDK must send the Bearer header.
+  it('getTrade() hits GET /v1/openp2p/trades/:id with auth', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' } })
+    const openp2p = new SailsOpenP2PModule(authedTransport(fetchImpl))
+
+    await openp2p.getTrade('trade-1')
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/openp2p/trades/trade-1')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+  })
+
+  it('getTrade() throws if called before authenticate() (no session token)', async () => {
+    const openp2p = new SailsOpenP2PModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch }))
+    await expect(openp2p.getTrade('trade-1')).rejects.toThrow(/requires authentication/)
+  })
+
+  it('getTradeByIntent() hits GET /v1/openp2p/trades/by-intent/:intentId with auth', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' } })
+    const openp2p = new SailsOpenP2PModule(authedTransport(fetchImpl))
+
+    await openp2p.getTradeByIntent('intent-1')
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/openp2p/trades/by-intent/intent-1')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+  })
+
+  it('getTradeByIntent() throws if called before authenticate() (no session token)', async () => {
+    const openp2p = new SailsOpenP2PModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch }))
+    await expect(openp2p.getTradeByIntent('intent-1')).rejects.toThrow(/requires authentication/)
   })
 })
 
@@ -451,8 +489,10 @@ describe('WebSocketChannel — reconnect with backoff', () => {
 
 // CTO_DUE_DILIGENCE_REPORT.md A-STA-03, closed 2026-08-08 — "reconecta mas
 // não detecta zombie connections (socket aberto mas sem tráfego)". Real
-// timers (setInterval), kept tiny (heartbeatIntervalMs 5-10ms) so these
-// stay fast, same style as the reconnect describe block above.
+// timers (setInterval), kept as short as each test's own timing margin
+// allows (some need real slack between the PONG cadence and the timeout
+// to survive a full-suite parallel run — see the timeout tests' own
+// comments), same style as the reconnect describe block above.
 describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
   it('sends a PING frame on the configured interval', async () => {
     const socket = new FakeSocket()
@@ -474,13 +514,20 @@ describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
         return s as unknown as WebSocket
       },
       'trade-1',
-      { heartbeatIntervalMs: 5, heartbeatTimeoutMs: 30 }
+      // Wide margin between the PONG cadence and the timeout — found
+      // flaky at 5ms/30ms under a full-suite parallel run (many other
+      // suites' real buildApp() calls competing for the event loop delay
+      // a 5ms setInterval past the 30ms threshold often enough to cause
+      // a false-positive force-close). 20ms/300ms keeps the same "PONGs
+      // keep arriving" behavior under test while tolerating real
+      // scheduling jitter.
+      { heartbeatIntervalMs: 20, heartbeatTimeoutMs: 300 }
     )
     sockets[0].emitOpen()
 
-    // Answer every PING with a PONG, faster than the 30ms timeout.
-    const interval = setInterval(() => sockets[0].emitMessage({ type: 'PONG', payload: {} }), 5)
-    await new Promise((r) => setTimeout(r, 50))
+    // Answer every PING with a PONG, faster than the timeout.
+    const interval = setInterval(() => sockets[0].emitMessage({ type: 'PONG', payload: {} }), 20)
+    await new Promise((r) => setTimeout(r, 250))
     clearInterval(interval)
 
     expect(sockets[0].closed).toBe(false)
@@ -496,13 +543,13 @@ describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
         return s as unknown as WebSocket
       },
       'trade-1',
-      { heartbeatIntervalMs: 5, heartbeatTimeoutMs: 10, initialReconnectDelayMs: 1, maxReconnectDelayMs: 1 }
+      { heartbeatIntervalMs: 20, heartbeatTimeoutMs: 40, initialReconnectDelayMs: 1, maxReconnectDelayMs: 1 }
     )
     sockets[0].emitOpen()
     // Never answer with PONG — simulates a socket object that's still
     // "open" but whose underlying network path is dead.
 
-    await new Promise((r) => setTimeout(r, 40))
+    await new Promise((r) => setTimeout(r, 300))
 
     expect(sockets[0].closed).toBe(true) // the heartbeat force-closed it
     expect(sockets.length).toBeGreaterThan(1) // ...which fed into the real reconnect path

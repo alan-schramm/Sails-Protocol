@@ -833,7 +833,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('creates an escrow for an authenticated caller', async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', escrowId: null })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-1', tradeId: 'trade-1', status: 'CREATED',
         type: 'MOCK', lockedAmount: '0.01', asset: 'BTC', // Decimal fields — same .toString() note as above
@@ -858,7 +858,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     // the real HTTP request → zod validation → service call path.
     it('accepts SAFE_GUARD_EVM as a real escrow type (RFC-020)', async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', escrowId: null })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-safe-guard-1', tradeId: 'trade-1', status: 'CREATED',
         type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'USDT_ERC20',

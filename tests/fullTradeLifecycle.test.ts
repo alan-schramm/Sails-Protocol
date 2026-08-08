@@ -346,7 +346,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
       tradeId: trade.id,
       lockedAmount: '20',
       asset: 'USDT_ERC20',
-    })
+    }, 'seller-1')
     await flush()
     // Before today's fix this would still be null against a real database
     // — nothing ever wrote it. Asserted explicitly here, not just implied
@@ -398,7 +398,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
       tradeId: trade.id,
       lockedAmount: '20',
       asset: 'USDT_ERC20',
-    })
+    }, 'seller-1')
     await flush()
     await escrowService.lockFunds(escrow.id, 'seller-1')
     await flush()
@@ -455,7 +455,7 @@ describe('Event replay / idempotency stress test — not reachable today, a real
       userId: 'seller-1', asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1.00', minAmount: '10', maxAmount: '100', paymentMethod: 'PIX',
     })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: 'buyer-1', amount: '20' })
-    const escrow = await escrowService.createEscrow({ tradeId: trade.id, lockedAmount: '20', asset: 'USDT_ERC20' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, lockedAmount: '20', asset: 'USDT_ERC20' }, 'seller-1')
     await escrowService.lockFunds(escrow.id, 'seller-1')
     await flush()
     expect(intents.rows.get(offer.intentId)?.status).toBe('COMMITTED')

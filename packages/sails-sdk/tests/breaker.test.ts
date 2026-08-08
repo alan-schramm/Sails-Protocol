@@ -85,7 +85,10 @@ describe('SDK breaker tests — edge-case failure handling', () => {
 
   it('maps getTrade 404 to SailsNotFoundError', async () => {
     const fetchImpl = fakeFetch(404, { success: false, error: 'NOT_FOUND', message: 'Trade not found', details: [] })
-    const openp2p = new SailsOpenP2PModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
+    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    // getTrade() requires an active session (SECURITY_AUDIT_REPORT.md §2, closed 2026-08-08) — same setup as updateTradeStatus()'s own test below.
+    transport.setSessionToken('session-token')
+    const openp2p = new SailsOpenP2PModule(transport)
 
     await expect(openp2p.getTrade('missing-trade')).rejects.toThrow(SailsNotFoundError)
   })

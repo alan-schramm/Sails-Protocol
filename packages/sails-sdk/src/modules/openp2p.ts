@@ -285,15 +285,17 @@ export class SailsOpenP2PModule {
     );
   }
 
-  /** Unlike trade()'s create response, this always populates `offer` (trade.service.ts's getTrade() includes it) — real, not just typed-optional. */
+  /** Requires an active session (SECURITY_AUDIT_REPORT.md §2, closed 2026-08-08 — the backend route now enforces buyer/seller-only access, since a trade carries the full chat history and the seller's payment details). Unlike trade()'s create response, this always populates `offer` (trade.service.ts's getTrade() includes it) — real, not just typed-optional. */
   async getTrade(tradeId: string): Promise<Trade> {
-    return this.transport.get<Trade>(`/v1/openp2p/trades/${tradeId}`);
+    return this.transport.get<Trade>(`/v1/openp2p/trades/${tradeId}`, undefined, true);
   }
 
-  /** RFC-018's intentId link, exposed directly — the same lookup intent-facade.ts's dispute() uses internally to turn an intentId into the Trade/Escrow it produced. */
+  /** Requires an active session — same fix as getTrade() above. RFC-018's intentId link, exposed directly — the same lookup intent-facade.ts's dispute() uses internally to turn an intentId into the Trade/Escrow it produced. */
   async getTradeByIntent(intentId: string): Promise<Trade> {
     return this.transport.get<Trade>(
       `/v1/openp2p/trades/by-intent/${intentId}`,
+      undefined,
+      true,
     );
   }
 

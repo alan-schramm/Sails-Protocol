@@ -109,12 +109,18 @@ export async function executeSettlement(input: ExecuteSettlementInput): Promise<
   // escrowType is WDK_USDT_EVM and MOCK_ESCROW=false; MockSettlementProvider
   // otherwise (escrow.service.ts's own provider-selection logic, unchanged
   // here).
+  // createEscrow()'s new membership check (SECURITY_AUDIT_REPORT.md §9)
+  // wants a real trade party, the same raw-id convention
+  // submitParticipantKey() already uses — not `sellerTriggeredBy`, which
+  // may be an agent id (`agent:<type>:<sellerId>`, see this file's own
+  // `sellerAgentId` doc comment) that wouldn't match `trade.sellerId`
+  // directly.
   const escrow = await escrowService.createEscrow({
     tradeId: trade.id,
     type: input.escrowType ?? 'WDK_USDT_EVM',
     lockedAmount: trade.amount.toString(),
     asset: trade.asset as AssetType,
-  })
+  }, trade.sellerId)
   const locked = await escrowService.lockFunds(escrow.id, sellerTriggeredBy)
 
   // Comprador paga PIX (fora do protocolo — fiat nunca é intermediado,
