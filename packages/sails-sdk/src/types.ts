@@ -128,6 +128,14 @@ export interface Escrow {
   lockedAmount: string
   asset: AssetType
   network: string | null
+  // Real gap found building examples/wallet-integration (PRODUCTION_READINESS_FIXES.md
+  // item 22, closed 2026-08-08) — the server's real Escrow row
+  // (escrow.service.ts's submitParticipantKey()) always carries this
+  // field, but this interface never declared it, forcing any caller that
+  // reads the MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM deposit address
+  // (derived once both parties submit their key) into an unsafe cast.
+  // Additive only — every existing caller ignoring this field is unaffected.
+  multisigAddr: string | null
   txLockId: string | null
   txReleaseId: string | null
   timelockHours: number

@@ -1,0 +1,16 @@
+{
+  "name": "@sails/example-wallet-integration",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real (non-mock) WalletAdapter integrations for MULTISIG (Bitcoin, secp256k1/@noble/curves + bitcoinjs-lib) and SAFE_GUARD_EVM (EVM, ethers) — client-held keys, real signing, never sends a private key to the server.",
+  "scripts": {
+    "start:bitcoin": "ts-node --transpile-only src/bitcoin.ts",
+    "start:evm": "ts-node --transpile-only src/evm.ts"
+  },
+  "dependencies": {
+    "@sails/sdk": "^0.1.0",
+    "bitcoinjs-lib": "^7.0.1",
+    "@bitcoinerlab/secp256k1": "^1.2.0",
+    "ethers": "^6.17.0"
+  }
+}
