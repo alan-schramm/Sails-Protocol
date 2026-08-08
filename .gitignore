@@ -19,3 +19,6 @@ loadtest/users.json
 coverage/
 *.tsbuildinfo
 .next/
+graphify-out/
+GITHUB_ORGANIZATION.md
+*.txt

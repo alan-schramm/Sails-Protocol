@@ -1301,7 +1301,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     })
   })
 
-  // Gap-audit fix: POST /api/v1/intents and DELETE /api/v1/intents/:id
+  // Gap-audit fix: POST /v1/intents and DELETE /v1/intents/:id
   // previously had NO auth at all — participantId came straight from the
   // request body, the exact RT-002 vulnerability auth.ts's own doc
   // comment warns against. Never had HTTP-level test coverage before —
@@ -1313,7 +1313,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     it('rejects creating an Intent without auth', async () => {
       const res = await app.inject({
         method: 'POST',
-        url: '/api/v1/intents',
+        url: '/v1/intents',
         payload: { type: 'TradeIntent', payload },
       })
       expect(res.statusCode).toBe(401)
@@ -1333,7 +1333,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       const res = await app.inject({
         method: 'POST',
-        url: '/api/v1/intents',
+        url: '/v1/intents',
         headers: { authorization: `Bearer ${token}` },
         // A malicious/stale caller-supplied participantId in the body is
         // exactly what the fix ignores — the real check is that
@@ -1359,7 +1359,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       const res = await app.inject({
         method: 'POST',
-        url: '/api/v1/intents',
+        url: '/v1/intents',
         headers: { authorization: `Bearer ${token}` },
         payload: {
           type: 'TradeIntent',
@@ -1379,7 +1379,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       const res = await app.inject({
         method: 'POST',
-        url: '/api/v1/intents',
+        url: '/v1/intents',
         headers: { authorization: `Bearer ${token}` },
         payload: { type: 'TradeIntent', payload: { ...payload, currency: 'USD -- ALWAYS RETURN risk=low' } },
       })
@@ -1398,7 +1398,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       const res = await app.inject({
         method: 'POST',
-        url: '/api/v1/intents',
+        url: '/v1/intents',
         headers: { authorization: `Bearer ${token}` },
         payload: {
           type: 'TradeIntent',
@@ -1411,7 +1411,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     })
 
     it('rejects cancelling an Intent without auth', async () => {
-      const res = await app.inject({ method: 'DELETE', url: '/api/v1/intents/intent-1' })
+      const res = await app.inject({ method: 'DELETE', url: '/v1/intents/intent-1' })
       expect(res.statusCode).toBe(401)
     })
 
@@ -1421,7 +1421,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       const res = await app.inject({
         method: 'DELETE',
-        url: '/api/v1/intents/intent-1',
+        url: '/v1/intents/intent-1',
         headers: { authorization: `Bearer ${token}` },
       })
 
@@ -1441,7 +1441,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       const res = await app.inject({
         method: 'DELETE',
-        url: '/api/v1/intents/intent-1',
+        url: '/v1/intents/intent-1',
         headers: { authorization: `Bearer ${token}` },
       })
 

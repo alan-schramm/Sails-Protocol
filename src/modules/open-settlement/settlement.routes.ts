@@ -136,11 +136,15 @@ function participantId(request: unknown): string {
   return (request as { participantId: string }).participantId
 }
 
-/** Standard success envelope — every route returns this shape. The two
- *  status codes (201 Created / 200 OK) are the only divergence and stay
- *  explicit at the call site. */
-function success<T>(data: T, status: 200 | 201 = 200) {
-  return { success: true as const, data, status }
+/** Standard success envelope — every route returns this shape. The real
+ *  HTTP status code (201 Created / 200 OK) stays explicit at each call
+ *  site via reply.code(); PRODUCTION_READINESS_FIXES.md P0, closed
+ *  2026-08-08 — this used to also duplicate it inside the JSON body
+ *  (`{ success, data, status }`), which was both redundant and
+ *  confusing (a client reading body.status could easily mistake it for
+ *  a domain status field, e.g. Escrow.status). */
+function success<T>(data: T) {
+  return { success: true as const, data }
 }
 
 export async function settlementRoutes(app: FastifyInstance): Promise<void> {
@@ -151,7 +155,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const body = createEscrowSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
     const escrow = await escrowService.createEscrow(body as any, participantId)
-    return reply.code(201).send(success(escrow, 201))
+    return reply.code(201).send(success(escrow))
   })
 
   app.get('/v1/settlement/escrow/:id', {
@@ -219,7 +223,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const { id } = idParam.parse(request.params)
     const body = initiateReleaseSchema.parse(request.body)
     const pending = await escrowService.initiateRelease(id, body.toAddress, participantId(request))
-    return reply.code(201).send(success(pending, 201))
+    return reply.code(201).send(success(pending))
   })
 
   // Mirror of initiate-release above, for refund.
@@ -229,7 +233,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const pending = await escrowService.initiateRefund(id, participantId(request))
-    return reply.code(201).send(success(pending, 201))
+    return reply.code(201).send(success(pending))
   })
 
   // Each required signer (EscrowPendingTransaction.requiredSigners) calls
@@ -398,7 +402,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const body = registerArbiterSchema.parse(request.body)
     const profile = await marketArbitrationProvider.register(participantId(request), body.monetaryCollateral, body.collateralAsset)
-    return reply.code(201).send(success(profile, 201))
+    return reply.code(201).send(success(profile))
   })
 
   app.get('/v1/settlement/arbitration/profile/:participantId', {
@@ -424,7 +428,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const body = registerPaymentAccountSchema.parse(request.body)
     const account = await paymentAccountService.getOrCreate(participantId(request), body.accountHash, body.paymentMethod)
-    return reply.code(201).send(success(account, 201))
+    return reply.code(201).send(success(account))
   })
 
   app.get('/v1/settlement/payment-accounts/:accountHash', {
@@ -459,7 +463,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const body = setPayoutAddressSchema.parse(request.body)
     const record = await payoutAddressService.setPayoutAddress(participantId(request), body.asset as any, body.address)
-    return reply.code(201).send(success(record, 201))
+    return reply.code(201).send(success(record))
   })
 
   // Public read — same "read by id needs no auth" precedent as

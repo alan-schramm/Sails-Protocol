@@ -23,7 +23,7 @@ function fakeFetchSequence(...responses: Array<{ status: number; body: unknown }
 }
 
 describe('SailsClient — Intent facade', () => {
-  it('createIntent() calls the real POST /api/v1/intents route with a real auth header, no participantId in the body', async () => {
+  it('createIntent() calls the real POST /v1/intents route with a real auth header, no participantId in the body', async () => {
     // Gap-audit fix: this call used to send participantId in the body
     // with no auth header at all — the exact RT-002 vulnerability
     // reintroduced. It's now authenticated and the server derives
@@ -39,7 +39,7 @@ describe('SailsClient — Intent facade', () => {
 
     expect(intent.id).toBe('intent-1')
     const [url, init] = fetchImpl.mock.calls[0]
-    expect(url).toBe('http://localhost:3000/api/v1/intents')
+    expect(url).toBe('http://localhost:3000/v1/intents')
     expect(init.headers.authorization).toBe('Bearer session-token-1')
     expect(JSON.parse(init.body)).toEqual({
       type: 'TradeIntent',
@@ -53,7 +53,7 @@ describe('SailsClient — Intent facade', () => {
     await expect(client.createIntent('TradeIntent', { asset: 'BTC', side: 'BUY' })).rejects.toThrow(/requires authentication/)
   })
 
-  it('cancelIntent() calls the real DELETE /api/v1/intents/:id route with a real auth header', async () => {
+  it('cancelIntent() calls the real DELETE /v1/intents/:id route with a real auth header', async () => {
     const fetchImpl = fakeFetch(200, { success: true, data: {} })
     const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
     client.setSessionToken('session-token-1')
@@ -61,7 +61,7 @@ describe('SailsClient — Intent facade', () => {
     await client.cancelIntent('intent-1')
 
     const [url, init] = fetchImpl.mock.calls[0]
-    expect(url).toBe('http://localhost:3000/api/v1/intents/intent-1')
+    expect(url).toBe('http://localhost:3000/v1/intents/intent-1')
     expect(init.method).toBe('DELETE')
     expect(init.headers.authorization).toBe('Bearer session-token-1')
   })
@@ -159,16 +159,17 @@ describe('SailsClient — Intent facade', () => {
 })
 
 describe('SailsClient — module assembly', () => {
-  it('exposes every Protocol SDK module (SDK_GUIDE.md section 2)', () => {
-    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch })
-    expect(client.identity).toBeDefined()
-    expect(client.reputation).toBeDefined()
-    expect(client.liquidity).toBeDefined()
-    expect(client.openp2p).toBeDefined()
-    expect(client.settlement).toBeDefined()
-    expect(client.peers).toBeDefined()
-    expect(client.capabilities).toBeDefined() // RFC-013
-  })
+it('exposes every Protocol SDK module (SDK_GUIDE.md section 2)', () => {
+     const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch })
+     expect(client.identity).toBeDefined()
+     expect(client.reputation).toBeDefined()
+     expect(client.liquidity).toBeDefined()
+     expect(client.openp2p).toBeDefined()
+     expect(client.settlement).toBeDefined()
+     expect(client.peers).toBeDefined()
+     expect(client.capabilities).toBeDefined() // RFC-013
+     expect(client.proof).toBeDefined() // RFC-006, RFC-007
+   })
 
   it('leaves client.wallet undefined when no WalletAdapter is supplied (RFC-013 — optional, v0.1 surface unaffected)', () => {
     const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch })

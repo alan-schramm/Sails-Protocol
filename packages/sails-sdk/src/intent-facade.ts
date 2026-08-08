@@ -86,11 +86,11 @@ export class SailsIntentFacade {
     payload: TradeIntentPayload,
     agentId?: string
   ): Promise<Intent<TradeIntentPayload>> {
-    return this.transport.post<Intent<TradeIntentPayload>>('/api/v1/intents', { type, payload, agentId }, true)
+    return this.transport.post<Intent<TradeIntentPayload>>('/v1/intents', { type, payload, agentId }, true)
   }
 
   async cancelIntent(intentId: string): Promise<void> {
-    await this.transport.delete(`/api/v1/intents/${intentId}`, true)
+    await this.transport.delete(`/v1/intents/${intentId}`, true)
   }
 
   async negotiate(_intentId: string, _event: NegotiationEvent): Promise<void> {

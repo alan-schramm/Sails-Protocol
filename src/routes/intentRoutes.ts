@@ -66,7 +66,10 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
   // from the authenticated session only, never trusted from the body —
   // same pattern every other mutating route in this codebase already
   // uses (liquidity.routes.ts, trade.routes.ts, settlement.routes.ts).
-  app.post('/api/v1/intents', {
+  // PRODUCTION_READINESS_FIXES.md P0, closed 2026-08-08 — every other
+  // module registers its routes under /v1/..., never /api/v1/...; this
+  // was the one inconsistent prefix in the whole API surface.
+  app.post('/v1/intents', {
     preHandler: requireAuth,
     schema: {
       tags: ['intent'],
@@ -96,7 +99,7 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
   // check at all — any caller could cancel any Intent by id.
   // intentEngine.cancel() now requires cancelledBy and verifies it
   // against the Intent's own participantId.
-  app.delete('/api/v1/intents/:id', {
+  app.delete('/v1/intents/:id', {
     preHandler: requireAuth,
     schema: { tags: ['intent'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } } },
   }, async (request, reply) => {
