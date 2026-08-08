@@ -10,6 +10,8 @@ import { SailsLiquidityModule } from '../src/modules/liquidity'
 import { SailsSettlementModule, recommendedEscrowType, parseSafeGuardBundle } from '../src/modules/settlement'
 import { SailsPeersModule } from '../src/modules/peers'
 import { SailsOpenP2PModule, WebSocketChannel } from '../src/modules/openp2p'
+import { SailsReputationModule } from '../src/modules/reputation'
+import { SailsProofModule } from '../src/modules/proof'
 
 function fakeFetch(status: number, body: unknown): jest.Mock {
   return jest.fn().mockResolvedValue({ ok: status >= 200 && status < 300, status, json: async () => body })
@@ -22,20 +24,20 @@ function authedTransport(fetchImpl: jest.Mock): SailsTransport {
 }
 
 describe('SailsLiquidityModule', () => {
-  it('discover() hits GET /v1/liquidity/offers with asset+side query only, and returns the real { offers, sources } shape', async () => {
+  it('discover() hits GET /v1/liquidity/offers with asset+side query only, and returns the real DiscoverResult shape with total/hasMore', async () => {
     // Real bug found and fixed wiring the first real caller
     // (packages/sails-ui): this method's return type used to claim a
     // bare Offer[] — the live route (liquidity.routes.ts ->
-    // getAggregatedOffers()) actually returns { offers, sources }, each
-    // offer a LiquidityOfferSummary, not a persisted Offer. Confirmed
-    // against the real server, not assumed.
-    const fetchImpl = fakeFetch(200, { success: true, data: { offers: [], sources: ['internal'] } })
+    // getAggregatedOffers()) actually returns { offers, sources,
+    // total, hasMore }, each offer a LiquidityOfferSummary, not a
+    // persisted Offer. Confirmed against the real server, not assumed.
+    const fetchImpl = fakeFetch(200, { success: true, data: { offers: [], sources: ['internal'], total: 0, hasMore: false } })
     const liquidity = new SailsLiquidityModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
 
     const result = await liquidity.discover({ asset: 'BTC', side: 'BUY' })
 
     expect(fetchImpl.mock.calls[0][0]).toBe('http://localhost:3000/v1/liquidity/offers?asset=BTC&side=BUY')
-    expect(result).toEqual({ offers: [], sources: ['internal'] })
+    expect(result).toEqual({ offers: [], sources: ['internal'], total: 0, hasMore: false })
   })
 
   it('publish() posts to /v1/liquidity/offers with auth', async () => {
@@ -268,8 +270,14 @@ class FakeSocket {
   send(data: string) {
     this.sent.push(data)
   }
+  // A real WebSocket fires its own 'close' event after .close() is called
+  // (the spec guarantees it, same as the 'error'-always-followed-by-'close'
+  // guarantee this file's own class doc comment already relies on) — the
+  // heartbeat's force-close (A-STA-03) depends on that same contract to
+  // feed into the existing reconnect path, so this fake must honor it too.
   close() {
     this.closed = true
+    this.emitClose()
   }
   emitOpen() {
     (this.listeners['open'] ?? []).forEach((h) => h({}))
@@ -438,5 +446,235 @@ describe('WebSocketChannel — reconnect with backoff', () => {
 
     expect(sockets).toHaveLength(3)
     expect(states.filter((s) => s === 'closed')).toHaveLength(0)
+  })
+})
+
+// CTO_DUE_DILIGENCE_REPORT.md A-STA-03, closed 2026-08-08 — "reconecta mas
+// não detecta zombie connections (socket aberto mas sem tráfego)". Real
+// timers (setInterval), kept tiny (heartbeatIntervalMs 5-10ms) so these
+// stay fast, same style as the reconnect describe block above.
+describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
+  it('sends a PING frame on the configured interval', async () => {
+    const socket = new FakeSocket()
+    new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1', { heartbeatIntervalMs: 5, heartbeatTimeoutMs: 1000 })
+    socket.emitOpen()
+
+    await new Promise((r) => setTimeout(r, 20))
+
+    const pings = socket.sent.map((s) => JSON.parse(s)).filter((f) => f.type === 'PING')
+    expect(pings.length).toBeGreaterThan(0)
+  })
+
+  it('does not force-close while PONGs keep arriving within the timeout', async () => {
+    const sockets: FakeSocket[] = []
+    new WebSocketChannel(
+      () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s as unknown as WebSocket
+      },
+      'trade-1',
+      { heartbeatIntervalMs: 5, heartbeatTimeoutMs: 30 }
+    )
+    sockets[0].emitOpen()
+
+    // Answer every PING with a PONG, faster than the 30ms timeout.
+    const interval = setInterval(() => sockets[0].emitMessage({ type: 'PONG', payload: {} }), 5)
+    await new Promise((r) => setTimeout(r, 50))
+    clearInterval(interval)
+
+    expect(sockets[0].closed).toBe(false)
+    expect(sockets).toHaveLength(1) // never force-closed, so no reconnect happened
+  })
+
+  it('force-closes (and reconnects) when no PONG arrives within heartbeatTimeoutMs — the zombie-connection case', async () => {
+    const sockets: FakeSocket[] = []
+    new WebSocketChannel(
+      () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s as unknown as WebSocket
+      },
+      'trade-1',
+      { heartbeatIntervalMs: 5, heartbeatTimeoutMs: 10, initialReconnectDelayMs: 1, maxReconnectDelayMs: 1 }
+    )
+    sockets[0].emitOpen()
+    // Never answer with PONG — simulates a socket object that's still
+    // "open" but whose underlying network path is dead.
+
+    await new Promise((r) => setTimeout(r, 40))
+
+    expect(sockets[0].closed).toBe(true) // the heartbeat force-closed it
+    expect(sockets.length).toBeGreaterThan(1) // ...which fed into the real reconnect path
+  })
+
+  it('heartbeat: false disables PING entirely', async () => {
+    const socket = new FakeSocket()
+    new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1', { heartbeat: false, heartbeatIntervalMs: 5 })
+    socket.emitOpen()
+
+    await new Promise((r) => setTimeout(r, 20))
+
+    const pings = socket.sent.map((s) => JSON.parse(s)).filter((f) => f.type === 'PING')
+    expect(pings).toHaveLength(0)
+  })
+
+  it('stops the heartbeat timer on close() — no PING sent after the caller closes', async () => {
+    const socket = new FakeSocket()
+    const channel = new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1', { heartbeatIntervalMs: 5 })
+    socket.emitOpen()
+    channel.close()
+    socket.sent = [] // clear the JOIN_TRADE frame so only post-close activity shows up
+
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(socket.sent).toHaveLength(0)
+  })
+})
+
+describe('SailsSettlementModule — RFC-021 settlement gaps', () => {
+  it('approveRelease() posts to /v1/settlement/escrow/:id/approve-release with auth', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { approval: { id: 'appr-1', escrowId: 'escrow-1', approverId: 'participant-1', approvedAt: '2026-08-01T00:00:00Z' }, readyToRelease: false } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    const result = await settlement.approveRelease('escrow-1')
+
+    expect(result.readyToRelease).toBe(false)
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/escrow/escrow-1/approve-release')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+  })
+
+  it('getReleaseApprovals() hits GET /v1/settlement/escrow/:id/release-approvals (no auth required)', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { approvals: [{ id: 'appr-1', escrowId: 'escrow-1', approverId: 'participant-1', approvedAt: '2026-08-01T00:00:00Z' }], readyToRelease: true } })
+    const settlement = new SailsSettlementModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
+
+    const result = await settlement.getReleaseApprovals('escrow-1')
+
+    expect(result.readyToRelease).toBe(true)
+    const [url] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/escrow/escrow-1/release-approvals')
+  })
+
+  it('registerArbiter() posts to /v1/settlement/arbitration/register with auth', async () => {
+    const fetchImpl = fakeFetch(201, { success: true, data: { participantId: 'participant-1', monetaryCollateral: '1000000', collateralAsset: 'BTC', reputationScore: 0, activeDisputes: 0, registeredAt: '2026-08-01T00:00:00Z' } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    const result = await settlement.registerArbiter({ monetaryCollateral: '1000000' })
+
+    expect(result.participantId).toBe('participant-1')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/arbitration/register')
+    expect(JSON.parse(init.body)).toEqual({ monetaryCollateral: '1000000', collateralAsset: undefined })
+  })
+
+  it('getArbiterProfile() hits GET /v1/settlement/arbitration/profile/:id (no auth required)', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { participantId: 'participant-1', monetaryCollateral: '1000000', collateralAsset: 'BTC', reputationScore: 85, activeDisputes: 2, registeredAt: '2026-08-01T00:00:00Z' } })
+    const settlement = new SailsSettlementModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
+
+    const result = await settlement.getArbiterProfile('participant-1')
+
+    expect(result?.reputationScore).toBe(85)
+    const [url] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/arbitration/profile/participant-1')
+  })
+})
+
+describe('SailsOpenP2PModule — reconcileTrade()', () => {
+  it('reconcileTrade() posts sinceMessageCreatedAt to /v1/openp2p/trades/:id/reconcile with auth', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: [{ id: 'msg-1', tradeId: 'trade-1', senderId: 'seller', content: 'Payment sent', msgType: 'TEXT', timestamp: '2026-08-01T00:00:00Z' }] })
+    const openp2p = new SailsOpenP2PModule(authedTransport(fetchImpl))
+
+    const result = await openp2p.reconcileTrade('trade-1', new Date('2026-07-01T00:00:00Z'))
+
+    expect(result).toHaveLength(1)
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/openp2p/trades/trade-1/reconcile')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    const body = JSON.parse(init.body)
+    expect(body.sinceMessageCreatedAt).toBe('2026-07-01T00:00:00.000Z')
+  })
+})
+
+describe('SailsReputationModule — getScoreByPeerId()', () => {
+  it('getScoreByPeerId() hits GET /v1/reputation/peer/:peerId', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'rep-1', publicKey: 'pubkey-1', reputationScore: 85, totalTrades: 10, disputeCount: 0 } })
+    const reputation = new SailsReputationModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
+
+    const result = await reputation.getScoreByPeerId('peer-abc123')
+
+    expect(result.reputationScore).toBe(85)
+    const [url] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/reputation/peer/peer-abc123')
+  })
+})
+
+describe('SailsProofModule', () => {
+  it('assertClaim() posts to /v1/proof/claims with auth', async () => {
+    const fetchImpl = fakeFetch(201, { success: true, data: { id: 'claim-1', claimType: 'payment_sent', assertion: { intentId: 'intent-1' }, claimedBy: 'participant-1', createdAt: '2026-08-01T00:00:00Z' } })
+    const proof = new SailsProofModule(authedTransport(fetchImpl))
+
+    const result = await proof.assertClaim({ claimType: 'payment_sent', assertion: { intentId: 'intent-1' } })
+
+    expect(result.id).toBe('claim-1')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/proof/claims')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(JSON.parse(init.body)).toEqual({ claimType: 'payment_sent', assertion: { intentId: 'intent-1' } })
+  })
+
+  it('submitProof() posts to /v1/proof/proofs with auth', async () => {
+    const fetchImpl = fakeFetch(201, { success: true, data: { id: 'proof-1', claimId: 'claim-1', evidenceHash: 'abc123', submittedBy: 'participant-1', createdAt: '2026-08-01T00:00:00Z' } })
+    const proof = new SailsProofModule(authedTransport(fetchImpl))
+
+    const result = await proof.submitProof({ claimId: 'claim-1', evidence: { amount: '500' } })
+
+    expect(result.id).toBe('proof-1')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/proof/proofs')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(JSON.parse(init.body)).toEqual({ claimId: 'claim-1', evidence: { amount: '500' } })
+  })
+
+  it('issueVerificationNonce() posts to /v1/proof/proofs/:id/verify-nonce with auth', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { nonce: 'nonce-abc-123' } })
+    const proof = new SailsProofModule(authedTransport(fetchImpl))
+
+    const result = await proof.issueVerificationNonce('proof-1')
+
+    expect(result.nonce).toBe('nonce-abc-123')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/proof/proofs/proof-1/verify-nonce')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+  })
+
+  it('verifyProof() posts verdict to /v1/proof/proofs/:id/verify with auth', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'proof-1', claimId: 'claim-1', evidenceHash: 'abc123', submittedBy: 'arbiter-1', submittedAt: '2026-08-01T00:00:00Z' } })
+    const proof = new SailsProofModule(authedTransport(fetchImpl))
+
+    const result = await proof.verifyProof('proof-1', { verdict: 'ACCEPTED', nonce: 'nonce-abc-123' })
+
+    expect(result.id).toBe('proof-1')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/proof/proofs/proof-1/verify')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(JSON.parse(init.body)).toEqual({ verdict: 'ACCEPTED', nonce: 'nonce-abc-123' })
+  })
+
+  it('getEvidenceBundle() hits GET /v1/proof/claims/:id/bundle with auth', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { claim: { id: 'claim-1', claimType: 'payment_sent', assertion: { intentId: 'intent-1' }, claimedBy: 'participant-1', createdAt: '2026-08-01T00:00:00Z' }, proofs: [] } })
+    const proof = new SailsProofModule(authedTransport(fetchImpl))
+
+    const result = await proof.getEvidenceBundle('claim-1')
+
+    expect(result.claim.id).toBe('claim-1')
+    const [url] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/proof/claims/claim-1/bundle')
   })
 })
