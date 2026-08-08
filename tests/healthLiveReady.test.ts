@@ -44,6 +44,18 @@ afterEach(() => {
 })
 
 describe('/health/live', () => {
+  // Each test does a full jest.resetModules() + fresh require('../src/app')
+  // (this file's own header comment) — the most expensive cold-start path
+  // in the suite, real buildApp() registering every route + @fastify/
+  // swagger-ui (same reasoning tests/cors.test.ts's identical comment
+  // gives). PRODUCTION_READINESS_FIXES.md item 21 (OpenAPI schemas,
+  // closed 2026-08-08) added one more require to that cold path
+  // (common/openapi.ts) — small on its own, but enough to occasionally
+  // push the default 5000ms Jest timeout past what a busy machine's first
+  // cold compile+require takes. Matches the same 30s bump every other
+  // real-buildApp() suite already carries.
+  jest.setTimeout(30_000)
+
   it('always reports ok, without touching postgres or redis', async () => {
     jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn() } }))
     jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn() } }))

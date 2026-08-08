@@ -7,6 +7,16 @@ import { reputationService } from './reputation.service'
 import { vouchService } from './vouch.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
+import { docsOnlySchema } from '../../common/openapi'
+
+const leaderboardQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+})
+
+const peerIdParamsSchema = z.object({ peerId: z.string().min(1) })
+
+const participantIdParamsSchema = z.object({ participantId: z.string().min(1) })
 
 const rateSchema = z.object({
   tradeId: z.string().min(1),
@@ -25,12 +35,9 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
   // matches static routes ahead of parametric ones regardless of
   // registration order, but this ordering keeps the intent obvious.
   app.get('/v1/reputation/leaderboard', {
-    schema: { tags: ['open-reputation'] },
+    ...docsOnlySchema({ tags: ['open-reputation'], querystring: leaderboardQuerySchema }),
   }, async (request, reply) => {
-    const { limit, offset } = z.object({
-      limit: z.coerce.number().int().min(1).max(100).optional(),
-      offset: z.coerce.number().int().min(0).optional(),
-    }).parse(request.query)
+    const { limit, offset } = leaderboardQuerySchema.parse(request.query)
     const leaderboard = await reputationService.getLeaderboard(limit, offset)
     return reply.code(200).send({ success: true, data: leaderboard })
   })
@@ -40,24 +47,24 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
   // ambiguity for Fastify to resolve either way; kept in this order for
   // readability, matching the leaderboard route's own comment above.
   app.get('/v1/reputation/peer/:peerId', {
-    schema: { tags: ['open-reputation'] },
+    ...docsOnlySchema({ tags: ['open-reputation'], params: peerIdParamsSchema }),
   }, async (request, reply) => {
-    const { peerId } = z.object({ peerId: z.string().min(1) }).parse(request.params)
+    const { peerId } = peerIdParamsSchema.parse(request.params)
     const score = await reputationService.getScoreByPeerId(peerId)
     return reply.code(200).send({ success: true, data: score })
   })
 
   app.get('/v1/reputation/:participantId', {
-    schema: { tags: ['open-reputation'] },
+    ...docsOnlySchema({ tags: ['open-reputation'], params: participantIdParamsSchema }),
   }, async (request, reply) => {
-    const { participantId } = z.object({ participantId: z.string().min(1) }).parse(request.params)
+    const { participantId } = participantIdParamsSchema.parse(request.params)
     const score = await reputationService.getScore(participantId)
     return reply.code(200).send({ success: true, data: score })
   })
 
   app.post('/v1/reputation/rate', {
     preHandler: requireAuth,
-    schema: { tags: ['open-reputation'] },
+    ...docsOnlySchema({ tags: ['open-reputation'], body: rateSchema }),
   }, async (request, reply) => {
     const body = rateSchema.parse(request.body)
     const raterId = (request as AuthenticatedRequest).participantId
@@ -71,7 +78,7 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
   // burn-on-loss mechanics.
   app.post('/v1/reputation/vouch', {
     preHandler: requireAuth,
-    schema: { tags: ['open-reputation'] },
+    ...docsOnlySchema({ tags: ['open-reputation'], body: vouchSchema }),
   }, async (request, reply) => {
     const body = vouchSchema.parse(request.body)
     const voucherId = (request as AuthenticatedRequest).participantId

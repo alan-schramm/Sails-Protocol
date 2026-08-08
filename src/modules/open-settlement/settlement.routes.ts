@@ -18,6 +18,7 @@ import { payoutAddressService } from './payout-address.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { config } from '../../config'
+import { docsOnlySchema } from '../../common/openapi'
 
 // CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — see
 // config/index.ts's own comment on `rateLimit.criticalMax` for the full
@@ -119,6 +120,20 @@ const setPayoutAddressSchema = z.object({
   address: z.string().min(1),
 })
 
+const disputeListQuerySchema = z.object({
+  limit: z.coerce.number().int().optional(),
+  offset: z.coerce.number().int().optional(),
+})
+
+const arbiterProfileParamsSchema = z.object({ participantId: z.string().min(1) })
+
+const accountHashParamsSchema = z.object({ accountHash: z.string().min(1) })
+
+const payoutAddressParamsSchema = z.object({
+  participantId: z.string().min(1),
+  asset: z.string().min(1),
+})
+
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 // Extracted from the original inline blocks to cut ~30 occurrences of the same
 // 3-line pattern (`z.object({ id: ... }).parse(...)`, `participantId as string`,
@@ -150,7 +165,7 @@ function success<T>(data: T) {
 export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/settlement/escrow', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], body: createEscrowSchema }),
   }, async (request, reply) => {
     const body = createEscrowSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
@@ -159,7 +174,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get('/v1/settlement/escrow/:id', {
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const escrow = await escrowService.getEscrow(id)
@@ -168,7 +183,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/settlement/escrow/:id/lock', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const escrow = await escrowService.lockFunds(id, participantId(request))
@@ -184,7 +199,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // rejects any other type.
   app.post('/v1/settlement/escrow/:id/submit-key', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: submitKeySchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = submitKeySchema.parse(request.body)
@@ -194,7 +209,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/settlement/escrow/:id/payment-sent', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const escrow = await escrowService.markPaymentSent(id, participantId(request))
@@ -203,7 +218,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/settlement/escrow/:id/release', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: releaseSchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = releaseSchema.parse(request.body)
@@ -218,7 +233,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // method for the full flow.
   app.post('/v1/settlement/escrow/:id/initiate-release', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: initiateReleaseSchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = initiateReleaseSchema.parse(request.body)
@@ -229,7 +244,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // Mirror of initiate-release above, for refund.
   app.post('/v1/settlement/escrow/:id/initiate-refund', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const pending = await escrowService.initiateRefund(id, participantId(request))
@@ -243,7 +258,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // (COMPLETED/REFUNDED) with a real txReleaseId.
   app.post('/v1/settlement/escrow/:id/submit-transaction-signature', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: submitTransactionSignatureSchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = submitTransactionSignatureSchema.parse(request.body)
@@ -252,7 +267,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get('/v1/settlement/escrow/:id/pending-transaction', {
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const pending = await escrowService.getPendingTransaction(id)
@@ -267,7 +282,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // allowed to proceed.
   app.post('/v1/settlement/escrow/:id/approve-release', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const approval = await escrowService.approveRelease(id, participantId(request))
@@ -276,7 +291,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get('/v1/settlement/escrow/:id/release-approvals', {
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const approvals = await escrowService.getReleaseApprovals(id)
@@ -291,7 +306,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/settlement/escrow/:id/dispute', {
     preHandler: requireAuth,
     config: { rateLimit: criticalRateLimit },
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: disputeSchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = disputeSchema.parse(request.body)
@@ -302,7 +317,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/settlement/escrow/:id/refund', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const escrow = await escrowService.refundFunds(id, participantId(request))
@@ -317,12 +332,9 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // rather than trusting a query param.
   app.get('/v1/settlement/disputes', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], querystring: disputeListQuerySchema }),
   }, async (request, reply) => {
-    const { limit, offset } = z.object({
-      limit: z.coerce.number().int().optional(),
-      offset: z.coerce.number().int().optional(),
-    }).parse(request.query)
+    const { limit, offset } = disputeListQuerySchema.parse(request.query)
     const result = await getDisputeService().listForArbiter(participantId(request), { limit, offset })
     return reply.code(200).send(success(result))
   })
@@ -331,7 +343,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // participant-scoping on a fetch-by-id (only the write actions below
   // enforce who may act on a dispute).
   app.get('/v1/settlement/disputes/:id', {
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const dispute = await getDisputeService().getDispute(id)
@@ -344,7 +356,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/settlement/disputes/:id/resolve', {
     preHandler: requireAuth,
     config: { rateLimit: criticalRateLimit },
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: resolveSchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = resolveSchema.parse(request.body)
@@ -358,7 +370,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/settlement/disputes/:id/appeal', {
     preHandler: requireAuth,
     config: { rateLimit: criticalRateLimit },
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const result = await getDisputeService().appeal(id, participantId(request))
@@ -370,7 +382,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // via the dispute.evidence_submitted event, not directly from this route.
   app.post('/v1/settlement/disputes/:id/evidence', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: submitEvidenceSchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = submitEvidenceSchema.parse(request.body)
@@ -384,7 +396,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // here — one was already assigned at raiseDispute() time.
   app.post('/v1/settlement/disputes/:id/contest', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const result = await getDisputeService().contestAutoResolution(id, participantId(request))
@@ -398,7 +410,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // deployment switching modes) — only assign() itself is mode-gated.
   app.post('/v1/settlement/arbitration/register', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], body: registerArbiterSchema }),
   }, async (request, reply) => {
     const body = registerArbiterSchema.parse(request.body)
     const profile = await marketArbitrationProvider.register(participantId(request), body.monetaryCollateral, body.collateralAsset)
@@ -406,9 +418,9 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get('/v1/settlement/arbitration/profile/:participantId', {
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: arbiterProfileParamsSchema }),
   }, async (request, reply) => {
-    const { participantId: targetId } = z.object({ participantId: z.string().min(1) }).parse(request.params)
+    const { participantId: targetId } = arbiterProfileParamsSchema.parse(request.params)
     const profile = await marketArbitrationProvider.getProfile(targetId)
     if (!profile) {
       return reply.code(404).send({
@@ -425,7 +437,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // already-known accountHash just returns the existing row.
   app.post('/v1/settlement/payment-accounts', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], body: registerPaymentAccountSchema }),
   }, async (request, reply) => {
     const body = registerPaymentAccountSchema.parse(request.body)
     const account = await paymentAccountService.getOrCreate(participantId(request), body.accountHash, body.paymentMethod)
@@ -433,9 +445,9 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get('/v1/settlement/payment-accounts/:accountHash', {
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: accountHashParamsSchema }),
   }, async (request, reply) => {
-    const { accountHash } = z.object({ accountHash: z.string().min(1) }).parse(request.params)
+    const { accountHash } = accountHashParamsSchema.parse(request.params)
     const account = await paymentAccountService.getByHash(accountHash)
     const tradeLimit = await paymentAccountService.getTradeLimit(accountHash)
     return reply.code(200).send(success({ ...account, tradeLimit }))
@@ -446,9 +458,9 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // trustworthiness.
   app.post('/v1/settlement/payment-accounts/:accountHash/sign', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: accountHashParamsSchema }),
   }, async (request, reply) => {
-    const { accountHash } = z.object({ accountHash: z.string().min(1) }).parse(request.params)
+    const { accountHash } = accountHashParamsSchema.parse(request.params)
     const account = await paymentAccountService.signPaymentAccount(accountHash, participantId(request))
     return reply.code(200).send(success(account))
   })
@@ -460,7 +472,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // in this file already follows.
   app.post('/v1/settlement/payout-addresses', {
     preHandler: requireAuth,
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], body: setPayoutAddressSchema }),
   }, async (request, reply) => {
     const body = setPayoutAddressSchema.parse(request.body)
     const record = await payoutAddressService.setPayoutAddress(participantId(request), body.asset as any, body.address)
@@ -473,12 +485,9 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // legitimately needs to look up who they're paying (e.g. a seller
   // building a manual release outside escrowService's own fallback).
   app.get('/v1/settlement/payout-addresses/:participantId/:asset', {
-    schema: { tags: ['open-settlement'] },
+    ...docsOnlySchema({ tags: ['open-settlement'], params: payoutAddressParamsSchema }),
   }, async (request, reply) => {
-    const { participantId: targetId, asset } = z.object({
-      participantId: z.string().min(1),
-      asset: z.string().min(1),
-    }).parse(request.params)
+    const { participantId: targetId, asset } = payoutAddressParamsSchema.parse(request.params)
     const record = await payoutAddressService.getPayoutAddress(targetId, asset as any)
     if (!record) {
       return reply.code(404).send({ success: false, error: 'NOT_FOUND', message: `No PayoutAddress for ${targetId}/${asset}`, details: [] })
