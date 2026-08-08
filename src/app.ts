@@ -1,5 +1,6 @@
 import Fastify, { FastifyInstance } from 'fastify'
 import cors from '@fastify/cors'
+import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import websocket from '@fastify/websocket'
 import swagger from '@fastify/swagger'
@@ -39,9 +40,35 @@ export async function buildApp(): Promise<FastifyInstance> {
   })
 
   // ── Plugins ────────────────────────────────────────────────────────────────
+  // CTO_DUE_DILIGENCE_REPORT.md B-SEC-01, closed 2026-08-08 — `origin: true`
+  // reflected any Origin header back, letting any site call this API with a
+  // logged-in user's own credentials. `false` (not `true`) in production
+  // when no allowlist is configured — fail closed, not fail open, the same
+  // "safe default, loud about what's missing" pattern RT-001 already uses
+  // for MOCK_ESCROW. Non-production keeps the permissive default so
+  // `docker compose up` onboarding needs no extra env var.
+  if (config.isProduction && config.cors.allowedOrigins.length === 0) {
+    app.log.warn(
+      'CORS_ALLOWED_ORIGINS is not set in production — denying all cross-origin ' +
+      'browser requests by default. Set it to a comma-separated list of allowed origins.'
+    )
+  }
   await app.register(cors, {
-    origin: true,
+    origin: config.isProduction ? config.cors.allowedOrigins : true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  })
+
+  // CTO_DUE_DILIGENCE_REPORT.md B-SEC-04, closed 2026-08-08 — no
+  // HSTS/X-Frame-Options/X-Content-Type-Options/CSP anywhere before this.
+  // CSP only in production: `/docs` (swagger-ui, registered only when
+  // `!config.isProduction` below) needs inline scripts/styles a strict
+  // CSP would block, and it's never reachable in production anyway (same
+  // gate). `default-src 'none'` — this is a pure JSON API; nothing it
+  // serves should ever load a script/style/frame from anywhere.
+  await app.register(helmet, {
+    contentSecurityPolicy: config.isProduction
+      ? { directives: { defaultSrc: ["'none'"], connectSrc: ["'self'"] } }
+      : false,
   })
 
   // THREAT_MODEL.md's previously-unmitigated gap (config's own doc

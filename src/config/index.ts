@@ -58,6 +58,20 @@ export const config = {
       .filter(Boolean),
   },
 
+  // CTO_DUE_DILIGENCE_REPORT.md B-SEC-01, closed 2026-08-08 — `origin: true`
+  // (reflect any Origin header) was a real, live gap: any site could call
+  // this API using a logged-in user's own session/token. Comma-separated
+  // allowlist, same `.split(',').filter(Boolean)` pattern already used for
+  // `HYPERDHT_BOOTSTRAP` above. Empty by default — `app.ts` decides what an
+  // empty list means per environment (permissive in dev so onboarding stays
+  // `docker compose up` simple, deny-by-default in production).
+  cors: {
+    allowedOrigins: (process.env.CORS_ALLOWED_ORIGINS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
+
   // THREAT_MODEL.md — "no rate limiting exists anywhere" was an explicit,
   // named unmitigated gap (Low severity, becomes higher at scale) until
   // this pass. Two tiers: a general per-IP ceiling for every route, and a
@@ -70,6 +84,15 @@ export const config = {
     timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
     authMax: requiredInt('RATE_LIMIT_AUTH_MAX', 10),
     authTimeWindow: process.env.RATE_LIMIT_AUTH_WINDOW ?? '1 minute',
+    // CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — the
+    // global ceiling above covers every route generically, but disputes/
+    // arbitration and capability revocation are real-money/real-authority
+    // actions a spammer would specifically target (each dispute costs a
+    // real arbiter's time; each revoke is a real authority change) —
+    // tighter than the global default, looser than the auth tier (these
+    // routes need `requireAuth` first, which already raises the bar).
+    criticalMax: requiredInt('RATE_LIMIT_CRITICAL_MAX', 20),
+    criticalTimeWindow: process.env.RATE_LIMIT_CRITICAL_WINDOW ?? '1 minute',
   },
 
   features: {

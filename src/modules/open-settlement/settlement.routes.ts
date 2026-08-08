@@ -16,6 +16,14 @@ import { marketArbitrationProvider } from './market-arbitration.provider'
 import { paymentAccountService } from './payment-account.service'
 import { payoutAddressService } from './payout-address.service'
 import { requireAuth } from '../../common/middleware/auth'
+import { config } from '../../config'
+
+// CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — see
+// config/index.ts's own comment on `rateLimit.criticalMax` for the full
+// reasoning. Shared object (not inlined per route) so all four
+// dispute/arbitration-adjacent routes below stay in sync if this is ever
+// tuned.
+const criticalRateLimit = { max: config.rateLimit.criticalMax, timeWindow: config.rateLimit.criticalTimeWindow }
 
 // ─── Schemas ───────────────────────────────────────────────────────────────────
 // One zod schema per distinct request body shape — kept inline rather than
@@ -276,6 +284,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // itself calls as its first step.
   app.post('/v1/settlement/escrow/:id/dispute', {
     preHandler: requireAuth,
+    config: { rateLimit: criticalRateLimit },
     schema: { tags: ['open-settlement'] },
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
@@ -328,6 +337,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // (enforced in dispute.service.ts's resolveDispute).
   app.post('/v1/settlement/disputes/:id/resolve', {
     preHandler: requireAuth,
+    config: { rateLimit: criticalRateLimit },
     schema: { tags: ['open-settlement'] },
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
@@ -341,6 +351,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // a clear config error otherwise, not a crash).
   app.post('/v1/settlement/disputes/:id/appeal', {
     preHandler: requireAuth,
+    config: { rateLimit: criticalRateLimit },
     schema: { tags: ['open-settlement'] },
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
