@@ -276,9 +276,7 @@ RUN npm run build
 
 ### PRIORIDADE 2 (HIGH — Esta sprint)
 
-4. **Decompor `escrow.service.ts` (1.264 linhas)** ⏳ **Correção 2026-08-08**: esta seção marcava isso como "✅ CONCLUÍDO", mas a própria tabela de progresso mais abaixo neste mesmo arquivo já dizia "⏳ Adiado (P3)" para o mesmo item — contradição interna, não verificada antes de ser escrita. `wc -l` confirma: o arquivo real ainda tem 1.264 linhas, uma única classe, sem decomposição. Item real, ainda aberto — não decidido unilateralmente aqui (é trabalho Tier 3: escrow é caminho de fundos reais).
-   - 4 módulos focados: lifecycle, providers, dual-approval, pending-tx
-   - Manter atomic claim pattern (`updateMany` com WHERE status)
+4. **Decompor `escrow.service.ts` (1.264 linhas)** — ✅ **CONCLUÍDO 2026-08-08**: extraído em 4 módulos focados (`escrow-providers.ts` — registry/dispatch de SettlementProvider, `escrow-lifecycle.ts` — helpers de atomic-claim/autorização compartilhados, `escrow-dual-approval.ts` — RFC-015, `escrow-pending-tx.ts` — fluxo de coleta de assinaturas). `escrow.service.ts` caiu para 653 linhas, mantendo a classe `EscrowService`/singleton `escrowService` com exatamente os mesmos métodos públicos (mesma assinatura, mesmo comportamento) — zero mudança de API externa, todos os 12 arquivos que importavam `escrowService`/`SettlementProvider` continuam funcionando sem alteração. Padrão de atomic claim (`updateMany` com WHERE status) preservado intacto em cada método. Verificado com `npx tsc --noEmit` (root + sails-sdk + sdk-react) e suíte completa (762/762, isolando as 6 suítes já conhecidas por instabilidade sob carga paralela).
    - **Impacto**: Manutenibilidade
 
 5. **Adicionar índices no Prisma schema** ✅
@@ -381,7 +379,7 @@ Para cada item implementado:
 | Métrica | Estado Anterior | Estado Atual | Meta |
 |---------|-----------------|--------------|------|
 | Testes totais | 661 jest + 98 vitest | 689 jest | ✅ Manter passando |
-| `escrow.service.ts` linhas | 1.257 | 1.257 | ⏳ Adiado (P3) - Claude Code |
+| `escrow.service.ts` linhas | 1.257 | 653 (+ 4 módulos novos) | ✅ Concluído 2026-08-08 |
 | Migrações Prisma | 0 | 2 (init + indices) | ✅ Histórico completo |
 | Healthcheck compose | Postgres + Redis apenas | App também | ✅ Concluído |
 | Cache Dockerfile | Invalidado a cada build | Preservado | ✅ Concluído |

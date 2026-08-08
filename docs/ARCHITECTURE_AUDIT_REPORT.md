@@ -53,7 +53,16 @@ Redis é usado imperativamente em lógica de negócio, sem nenhuma abstração:
 
 ### `escrow.service.ts` — 1,257 linhas (CRITICAL)
 
-Responsabilidades misturadas em um único arquivo:
+**✅ Recomendação #1 (extração em 4 módulos) implementada 2026-08-08** — ver
+`### Recomendações Prioritárias` mais abaixo para o detalhamento. Itens
+#4 (fees embutidos) e #6 (acesso direto ao Prisma, i.e. um
+`EscrowRepository`) permanecem deliberadamente não endereçados — são a
+recomendação #3 mais abaixo ("Introduzir repositórios"), maior escopo,
+não incluída neste pass.
+
+Responsabilidades misturadas em um único arquivo (estado no momento do
+audit original — item 1/2/3/5 abaixo agora vivem em módulos separados,
+ver nota acima):
 1. **Gestão do ciclo de vida do cofre** (`createEscrow`, `lockFunds`, `releaseFunds`, `refundFunds`, etc.)
 2. **Dispatch de providers** (mapa `PROVIDERS` hardcoded)
 3. **Orquestração de dual-approval** (`approveRelease`, `hasDualApproval`, `getReleaseApprovals`)
@@ -228,7 +237,7 @@ packages/sdk-react/src/
 
 ### Recomendações Prioritárias (sem implementação)
 
-1. **Extrair `escrow.service.ts`** em pelo menos 4 módulos focados: ciclo de vida, registry de providers, dual-approval, transações pendentes.
+1. **Extrair `escrow.service.ts`** em pelo menos 4 módulos focados: ciclo de vida, registry de providers, dual-approval, transações pendentes. ✅ **Feito 2026-08-08** — `escrow-providers.ts`, `escrow-lifecycle.ts`, `escrow-dual-approval.ts`, `escrow-pending-tx.ts`; `escrow.service.ts` caiu de 1.257 para 653 linhas, mantendo a classe `EscrowService`/singleton `escrowService` com API pública idêntica (zero mudança em qualquer caller externo).
 2. **Quebrar o ciclo real**: `transport-provider.ts ⇄ websocket-relay.service.ts` — introduzir interface `TransportProvider`.
 3. **Introduzir repositórios**: `IntentRepository`, `CapabilityGrantRepository`, `TradeRepository`, `EscrowRepository` — dependência via injeção no construtor.
 4. **Remover Prisma de handlers de rota**: `chat.routes.ts` e `trade.routes.ts` devem chamar `tradeService`/`messageService`.

@@ -80,25 +80,22 @@ describe('escrow.service.ts — resolvePayoutAddress() fallback (private, exerci
     jest.doMock('../src/common/events/event-bus', () => ({ eventBus: { emit: jest.fn().mockResolvedValue(undefined) } }))
   })
 
-  // The module-private loadEscrowWithAuthorization()/claimEscrowTransition()/
-  // revertEscrowStatus() helpers aren't exported, so this test exercises
-  // resolvePayoutAddress() indirectly through the real, exported
-  // releaseFunds() — accepting the extra setup cost as the honest way to
-  // test a private method through its real, only caller (CODE_STYLE.md
-  // §8: mock the boundary, not the logic under test).
-  // resolvePayoutAddress() is a TypeScript-private method — private is a
-  // compile-time-only restriction, so calling it directly via `as any`
-  // is the pragmatic way to unit test it without wiring a full
-  // releaseFunds() call (real Trade/Escrow rows, provider mocks, atomic
-  // claim/revert) just to reach three lines of fallback logic.
+  // resolvePayoutAddress() used to be a TypeScript-private EscrowService
+  // method (private is a compile-time-only restriction, so calling it via
+  // `as any` was the pragmatic way to unit test it without wiring a full
+  // releaseFunds() call). PRODUCTION_READINESS_FIXES.md's escrow.service.ts
+  // decomposition (2026-08-08, ARCHITECTURE_AUDIT_REPORT.md §2 recommendation
+  // #1) moved it to escrow-lifecycle.ts as a real exported function — this
+  // now imports it directly instead of reaching through the singleton,
+  // which is both more correct (no `as any` privacy-piercing) and simpler.
   it('uses the explicit toAddress when provided, never consulting PayoutAddress', async () => {
     jest.doMock('../src/modules/open-settlement/wdk-settlement.provider', () => ({ wdkSettlementProvider: {} }))
     jest.doMock('../src/modules/open-settlement/multisig.provider', () => ({ multisigProvider: {} }))
     jest.doMock('../src/modules/open-settlement/lightning-hodl.provider', () => ({ lightningHodlProvider: {} }))
     jest.doMock('../src/modules/open-settlement/safe-guard-evm.provider', () => ({ safeGuardEvmProvider: {} }))
 
-    const { escrowService } = require('../src/modules/open-settlement/escrow.service')
-    const resolved = await (escrowService as any).resolvePayoutAddress('explicit-address', 'buyer-1', 'BTC')
+    const { resolvePayoutAddress } = require('../src/modules/open-settlement/escrow-lifecycle')
+    const resolved = await resolvePayoutAddress('explicit-address', 'buyer-1', 'BTC')
     expect(resolved).toBe('explicit-address')
     expect(mockGetPayoutAddress).not.toHaveBeenCalled()
   })
@@ -110,8 +107,8 @@ describe('escrow.service.ts — resolvePayoutAddress() fallback (private, exerci
     jest.doMock('../src/modules/open-settlement/safe-guard-evm.provider', () => ({ safeGuardEvmProvider: {} }))
     mockGetPayoutAddress.mockResolvedValue({ address: 'registered-address' })
 
-    const { escrowService } = require('../src/modules/open-settlement/escrow.service')
-    const resolved = await (escrowService as any).resolvePayoutAddress(undefined, 'buyer-1', 'BTC')
+    const { resolvePayoutAddress } = require('../src/modules/open-settlement/escrow-lifecycle')
+    const resolved = await resolvePayoutAddress(undefined, 'buyer-1', 'BTC')
     expect(resolved).toBe('registered-address')
     expect(mockGetPayoutAddress).toHaveBeenCalledWith('buyer-1', 'BTC')
   })
@@ -123,8 +120,8 @@ describe('escrow.service.ts — resolvePayoutAddress() fallback (private, exerci
     jest.doMock('../src/modules/open-settlement/safe-guard-evm.provider', () => ({ safeGuardEvmProvider: {} }))
     mockGetPayoutAddress.mockResolvedValue(null)
 
-    const { escrowService } = require('../src/modules/open-settlement/escrow.service')
-    await expect((escrowService as any).resolvePayoutAddress(undefined, 'buyer-1', 'BTC')).rejects.toThrow(
+    const { resolvePayoutAddress } = require('../src/modules/open-settlement/escrow-lifecycle')
+    await expect(resolvePayoutAddress(undefined, 'buyer-1', 'BTC')).rejects.toThrow(
       /No payout address provided.*none is registered/
     )
   })
