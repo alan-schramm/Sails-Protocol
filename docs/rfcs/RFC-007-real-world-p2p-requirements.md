@@ -99,6 +99,20 @@ official modules (`ARCHITECTURE.md` §3).
 
 ### D1 — Proof Registry (`RWR-001`): extends OpenProof, no interface change
 
+**Implemented 2026-08-04** (`src/modules/open-proof/proof-registry.ts`),
+with one real, disclosed deviation from this section's original
+interface: no separate `register()` call. `Proof.evidenceHash`
+(persisted by `submitProof()` since Fase 1) already *is* the
+registration — a real, indexed, queryable fingerprint the moment a Proof
+is submitted; a separate table/call would duplicate data that already
+exists for a different reason. `findDuplicates()` is real, wired into
+`submitProof()` (emits `proof.duplicate_detected`, never blocks — this
+section's own "flags reuse, does not adjudicate it" framing, unchanged).
+Only exact-content (sha256) matches are detected — perceptual/near-
+duplicate hashing (this section's own "perceptual/content hash" phrasing)
+is explicit, disclosed, unbuilt scope; it would need a real image-
+processing dependency this codebase has no other reason to carry.
+
 An internal component of OpenProof (RFC-006), not a new module and not a
 new primitive — the same relationship `ARCHITECTURE.md` §1B draws between
 Core and the Capability Registry / Policy Engine it hosts.
@@ -124,6 +138,21 @@ than silently blocking — OpenProof flags reuse, it does not adjudicate it;
 adjudication is Dispute's (§1.9) and Policy Engine's job.
 
 ### D2 — `EvidenceProvider` (`RWR-002`): new Adapter interface
+
+**Implemented 2026-08-04** (`src/modules/open-proof/evidence-provider.ts`).
+`LocalFilesystemEvidenceProvider` is the real, always-available default —
+same role `InMemoryEventStore` plays for RFC-010's `EventStore`: genuinely
+functional with zero external credentials, content-addressed (identical
+bytes always land at the same path), a disclosed limitation for a
+multi-instance deployment (each instance needs the same shared disk).
+Real S3/R2/IPFS/Arweave implementations of this exact interface remain
+unbuilt — swapping one in needs no change to `proof.service.ts`.
+`store()`/`retrieve()` deliberately return/accept less than this
+section's literal `EvidenceReference` (no `proofId`/`signature` — a
+storage backend cannot know either; `proof.service.ts`'s new
+`attachEvidence()` assembles the full row). `signature` verification is
+real: Ed25519, against the caller's own registered `User.publicKey`, the
+same `tweetnacl` call `common/middleware/auth.ts` already uses for login.
 
 A new Adapter category, the same pattern as `SettlementProvider` (§1.5)
 and `TransportProvider` (RFC-002) — which is exactly why it needs an RFC
@@ -232,6 +261,17 @@ introduces no new write path and no new event that doesn't already exist
 under §1.2-1.9's event lists.
 
 ### D6 — Evidence Bundle (`RWR-006`): OpenProof-owned aggregate, not a primitive
+
+**Implemented 2026-08-04** as `proof.service.ts`'s new
+`getEvidenceBundleForTrade(tradeId)` — `tradeId`, not this section's
+literal `intentId`, the same real-world correction `core/timeline.ts`'s
+own header comment already made for `Timeline` itself (D5): trade-
+lifecycle events correlate by `tradeId` today, not `intentId`. New
+`Claim.tradeId` column makes this queryable. Kept as a new, separate
+method rather than renaming the already-shipped `getEvidenceBundle(claimId)`
+above (real SDK/React-hook surface, differently scoped — per-Claim, not
+per-trade) — a rename would have been a breaking change to that surface
+for no functional gain.
 
 See "Primitives Used or Extended" below. Decision: `EvidenceBundle` is an
 OpenProof-owned query aggregate — the module that already owns `Claim` /

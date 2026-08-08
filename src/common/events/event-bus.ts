@@ -146,6 +146,17 @@ export interface ProofHashMismatchEvent {
   claimedHash: string
   actualHash: string
 }
+// RFC-007 D1 (ProofRegistry), closed 2026-08-04 — "OpenProof flags reuse,
+// it does not adjudicate it" (D1's own words): submitProof() emits this
+// when the same evidence (by exact-content hash) was already submitted
+// under a different trade, rather than silently allowing or blocking it.
+// Adjudication is Dispute's/Policy Engine's job, not this event's.
+export interface ProofDuplicateDetectedEvent {
+  proofId: string
+  claimId: string
+  evidenceHash: string
+  matches: Array<{ proofId: string; tradeId: string | null; matchedAt: string }>
+}
 
 // ─── Dispute primitive events — PROTOCOL_SPECIFICATION.md §1.9 ───────────────
 export interface DisputeEvent {
@@ -294,7 +305,7 @@ export interface NegotiationReconciledEvent {
 // decide what to do with.
 export interface SocialEngineeringRiskDetectedEvent {
   tradeId: string
-  pattern: 'off_channel_migration' | 'payment_instruction_change' | 'unexpected_flow_deviation' | string
+  pattern: 'off_channel_migration' | 'payment_instruction_change' | 'unexpected_flow_deviation'
   riskScore: number
   reasoning: string
   sourceEventId: string
@@ -347,6 +358,7 @@ export interface SailsEventMap {
   'claim.asserted': ClaimAssertedEvent
   'proof.submitted': ProofSubmittedEvent
   'proof.hash_mismatch_detected': ProofHashMismatchEvent
+  'proof.duplicate_detected': ProofDuplicateDetectedEvent
   'verification.accepted': VerificationEvent
   'verification.rejected': VerificationEvent
 

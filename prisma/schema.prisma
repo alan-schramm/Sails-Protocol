@@ -747,11 +747,20 @@ model Claim {
   claimedBy  String   // a Participant id (RFC-001)
   claimType  String   // open string — e.g. 'payment_sent', 'keypair_control', 'collateral_held'
   assertion  Json      // e.g. { amount: "500", currency: "BRL" }
+  // RFC-007 D6's EvidenceBundle needs a real, queryable scope to
+  // aggregate "every Claim for this trade" — nullable because not every
+  // Claim is trade-related (this mirrors, and is corrected the same way
+  // as, core/timeline.ts's own real-world finding: RFC-007's literal
+  // `intentId` is barely populated today, `tradeId` is the value every
+  // real trade-lifecycle event actually carries — see that file's own
+  // header comment for the full precedent this follows).
+  tradeId    String?
   createdAt  DateTime @default(now())
 
   proofs     Proof[]
 
   @@index([claimedBy])
+  @@index([tradeId])
   @@map("claims")
 }
 
@@ -769,10 +778,37 @@ model Proof {
   submittedBy  String
   submittedAt  DateTime @default(now())
 
-  verifications Verification[]
+  verifications      Verification[]
+  evidenceReferences EvidenceReference[]
 
   @@index([claimId])
+  @@index([evidenceHash]) // RFC-007 D1 — ProofRegistry.findDuplicates() queries by this
   @@map("proofs")
+}
+
+// RFC-007 D2 — closed 2026-08-04. The protocol never stores media itself;
+// this is the reference — a real EvidenceProvider (evidence-provider.ts)
+// persists the actual bytes wherever it's configured to (local disk by
+// default, S3/R2/IPFS/Arweave are real, pluggable alternatives per that
+// file's own header comment), and this row is the only thing OpenProof
+// itself ever holds: where it is, its hash, who signed it. `anchorProof`
+// (RFC-008 D1) is optional and additive — most EvidenceReferences never
+// get one, Policy Engine decides when the extra assurance is worth the
+// real cost (a real Bitcoin-anchored OpenTimestamps submission).
+model EvidenceReference {
+  id           String   @id @default(uuid())
+  proofId      String
+  proof        Proof    @relation(fields: [proofId], references: [id])
+  provider     String   // e.g. 'local-fs', 's3', 'r2', 'ipfs', 'arweave', 'nostr.build'
+  uri          String
+  sha256       String   // real hash of the stored media bytes — recomputed server-side, same discipline as Proof.evidenceHash
+  mimeType     String
+  signature    String   // signed by the submitting Participant's key
+  anchorProof  Json?    // RFC-008 D1 — { anchorType, anchorId, submittedAt, upgraded } once/if anchored; null until then
+  createdAt    DateTime @default(now())
+
+  @@index([proofId])
+  @@map("evidence_references")
 }
 
 // verifiedBy may be a Participant, an assigned Arbiter, or a QVAC agent

@@ -42,6 +42,17 @@ jest.mock('../src/common/database', () => ({
         return row
       }),
       findUnique: jest.fn(async ({ where }: any) => fakeProofs.get(where.id) ?? null),
+      // RFC-007 D1 (proof-registry.ts's findDuplicates()) — submitProof()
+      // now always queries this. A faithful-enough fake for this file's
+      // own tests, none of which exercise duplicate detection directly.
+      findMany: jest.fn(async ({ where }: any) =>
+        Array.from(fakeProofs.values())
+          .filter((p: any) => p.evidenceHash === where.evidenceHash)
+          .map((p: any) => ({ ...p, claim: fakeClaims.get(p.claimId) }))
+      ),
+    },
+    user: {
+      findUnique: jest.fn(async () => null), // attachEvidence()'s lookup — unused by this file's own tests
     },
     verification: {
       create: jest.fn(async ({ data }: any) => ({ id: 'verification-1', ...data, verifiedAt: new Date() })),
