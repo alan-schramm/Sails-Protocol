@@ -27,6 +27,7 @@ import { capabilityRoutes } from './modules/open-agents/capability.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
+import { metricsRegistry, httpRequestsTotal, httpRequestDurationSeconds } from './common/metrics'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -133,6 +134,32 @@ export async function buildApp(): Promise<FastifyInstance> {
       uiConfig: { docExpansion: 'list', deepLinking: false },
     })
   }
+
+  // ── Metrics (CTO_DUE_DILIGENCE_REPORT.md B-OPS-01, closed 2026-08-08) ─────
+  // `request.routeOptions.url` is the route *pattern* (e.g.
+  // `/v1/settlement/escrow/:id/dispute`), not the real URL with params
+  // interpolated — using the real URL would give every distinct trade/
+  // escrow/dispute id its own label series, an unbounded-cardinality
+  // metrics bug. Falls back to 'unmatched' for 404s, which never reach a
+  // route so have no routeOptions at all.
+  app.addHook('onResponse', async (request, reply) => {
+    const route = request.routeOptions.url ?? 'unmatched'
+    const labels = { method: request.method, route, status_code: String(reply.statusCode) }
+    httpRequestsTotal.inc(labels)
+    httpRequestDurationSeconds.observe(labels, reply.elapsedTime / 1000)
+  })
+
+  // Unauthenticated by default, matching standard Prometheus exporter
+  // convention (Prometheus itself has no notion of a Bearer token without
+  // extra scrape-config wiring) — restrict actual access at the network
+  // layer (security group / reverse-proxy allowlist) in production, the
+  // same expectation DEPLOYMENT.md already sets for the Postgres/Redis
+  // ports. Contains only aggregate counters, never per-user data — safe
+  // under this protocol's own no-platform-operator-visibility principle.
+  app.get('/metrics', async (_request, reply) => {
+    reply.header('content-type', metricsRegistry.contentType)
+    return metricsRegistry.metrics()
+  })
 
   // ── Error Handler ─────────────────────────────────────────────────────────
   app.setErrorHandler((error, _req, reply) => {
