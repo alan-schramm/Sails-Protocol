@@ -38,7 +38,7 @@ export interface IntentEngine {
   // cancelledBy added during a gap audit: this previously took only
   // intentId, with no check that the caller cancelling an Intent was the
   // participant who created it — any caller (via the equally-unauthenticated
-  // DELETE /api/v1/intents/:id, see intentRoutes.ts's own fix) could
+  // DELETE /v1/intents/:id, see intentRoutes.ts's own fix) could
   // cancel anyone's Intent. Required, not optional, so no call site can
   // silently skip the check by omitting it.
   cancel(intentId: string, cancelledBy: string): Promise<void>
