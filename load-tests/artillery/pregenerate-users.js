@@ -13,7 +13,7 @@
  * users don't re-run the full challenge-response handshake on every
  * WebSocket reconnect.
  *
- * Run: node loadtest/pregenerate-users.js [count]
+ * Run: node load-tests/artillery/pregenerate-users.js [count]
  */
 const fs = require('fs')
 const path = require('path')

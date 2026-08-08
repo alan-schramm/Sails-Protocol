@@ -576,14 +576,14 @@ was closed after this section was first written:
   PING/PONG round trips over the same window, zero failures, using a
   pool of pre-authenticated sessions rather than a fresh handshake per
   connection — a real constraint of Artillery's WebSocket engine
-  (`loadtest/chat-ws.yml`'s own comment explains why), not a
+  (`load-tests/artillery/chat-ws.yml`'s own comment explains why), not a
   simplification chosen to inflate the number. What this does not yet
   cover, named directly: a sustained multi-minute soak, how many
   WebSocket connections can be held open concurrently (this measured
   connect-and-round-trip, not idle-connection capacity), database
   behavior at real production volume, or real network latency instead
-  of localhost. Scripts live in `loadtest/` for anyone who wants to
-  reproduce or extend this.
+  of localhost. Scripts live in `load-tests/artillery/` for anyone who
+  wants to reproduce or extend this.
 
 ---
 

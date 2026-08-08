@@ -14,5 +14,5 @@
       "@sails/p2p-schemas": ["packages/sails-p2p-schemas/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "demo-satsails-qvac.ts"]
+  "include": ["src/**/*.ts", "demo-satsails-qvac.ts", "examples/**/*.ts"]
 }

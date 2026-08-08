@@ -35,13 +35,13 @@
  * any public testnet3 faucet while this script is polling.
  */
 import * as bitcoin from 'bitcoinjs-lib'
-import { config } from '../config'
-import { connectDatabase } from '../common/database'
-import { connectRedis } from '../common/redis'
-import { identityService } from '../modules/open-identity/identity.service'
-import { liquidityRouter } from '../modules/open-liquidity/liquidity.service'
-import { tradeService } from '../modules/open-p2p/trade.service'
-import { escrowService } from '../modules/open-settlement/escrow.service'
+import { config } from '../../src/config'
+import { connectDatabase } from '../../src/common/database'
+import { connectRedis } from '../../src/common/redis'
+import { identityService } from '../../src/modules/open-identity/identity.service'
+import { liquidityRouter } from '../../src/modules/open-liquidity/liquidity.service'
+import { tradeService } from '../../src/modules/open-p2p/trade.service'
+import { escrowService } from '../../src/modules/open-settlement/escrow.service'
 // Lazy require() (CODE_STYLE.md §8) — @sails/sdk is a heavy ESM-adjacent
 // package; no other demo script imports it, so it stays out of every path
 // that doesn't need it.

@@ -291,7 +291,7 @@ src/modules/open-settlement/
                                           common/events/handlers.ts, gated
                                           behind config.features.autoSettleOnMatch
                                           — default false)
-src/demo/
+examples/demo/
 └── pix-to-usdt-flow.ts                 (Intent → Negotiation (Pears) →
                                           QVAC risk → Settlement (WDK)
                                           end-to-end script; `main()` now

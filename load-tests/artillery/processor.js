@@ -77,7 +77,7 @@ function pickChatSession(wsArgs, context, callback) {
   try {
     users = require('./users.json')
   } catch {
-    return callback(new Error('loadtest/users.json not found — run `node loadtest/pregenerate-users.js` first'))
+    return callback(new Error('load-tests/artillery/users.json not found — run `node load-tests/artillery/pregenerate-users.js` first'))
   }
   const user = users[Math.floor(Math.random() * users.length)]
   wsArgs.target = `ws://localhost:3000/v1/openp2p/chat?token=${user.sessionToken}`

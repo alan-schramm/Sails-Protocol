@@ -832,7 +832,7 @@ rules this table's CANNOT column restates concretely.
   (`src/core/intent-engine.ts`'s `create()`/`cancel()`/`transition()`
   are real, tested — see `TODO.md`) that the real OpenP2P trade flow
   simply never calls. Even the one script that exercises both
-  (`src/demo/pix-to-usdt-flow.ts`) creates an `Intent` and a `Trade` as
+  (`examples/demo/pix-to-usdt-flow.ts`) creates an `Intent` and a `Trade` as
   two uncorrelated rows with no foreign key between them. This sentence's
   claim is the intended target architecture, not the current
   implementation — closing the gap (making offer/trade creation actually

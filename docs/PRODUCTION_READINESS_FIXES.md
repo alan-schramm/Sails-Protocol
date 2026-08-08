@@ -402,15 +402,51 @@ tags: [
 
 ## P2 — Fix antes de GA
 
-### 19. Consolidar pastas de load test
+### 19. Consolidar pastas de load test — ✅ FEITO (2026-08-08)
 
-**Ação:** Mover tudo de `loadtest/` para `load-tests/` e remover `loadtest/`.
+**Ação original:** Mover tudo de `loadtest/` para `load-tests/` e remover
+`loadtest/`.
+
+**Nota (2026-08-08):** essa ação literal estava errada — `loadtest/`
+(Artillery) e `load-tests/` (k6) não são duplicatas, são duas
+ferramentas de load-test genuinamente diferentes cobrindo fluxos
+diferentes (o próprio `load-tests/README.md` já documentava isso, e
+`docs/CLEANUP_2026_08_07.md` já tinha investigado e decidido manter as
+duas separadas um dia antes). "Mover tudo para dentro de load-tests/ e
+apagar loadtest/" teria misturado dois toolchains incompatíveis numa
+pasta só sem eliminar nenhuma duplicação real (não existe). Feito em vez
+disso: `loadtest/` movido para `load-tests/artillery/` (via `git mv`,
+preservando histórico) — as duas suítes continuam sendo suítes
+separadas, agora só compartilhando um diretório-pai. package.json,
+.gitignore, e todas as referências de path em código/docs atualizadas.
+Bônus: encontrado e corrigido um bug real nos próprios scripts de load
+test — `load-tests/tests/intent-creation.js` e
+`load-tests/artillery/intent-api.yml` ainda apontavam para o prefixo
+antigo `/api/v1/intents` (renomeado para `/v1/intents` no item 1 deste
+mesmo doc) — ambos dariam 404 contra o servidor real se rodados hoje.
 
 ---
 
-### 20. Mover `src/demo/` para `examples/`
+### 20. Mover `src/demo/` para `examples/` — ✅ FEITO (2026-08-08)
 
 **Ação:** Mover `src/demo/` para `examples/demo/` e atualizar imports/references.
+
+Feito via `git mv` (preserva histórico). Imports relativos corrigidos em
+ambos os scripts (`../` → `../../src/` — profundidade mudou já que
+`examples/` é irmão de `src/`, não filho). `demo-satsails-qvac.ts` na
+raiz (não movido — é um entrypoint separado, não parte de `src/demo/`)
+teve seu único import atualizado. `tsconfig.json`'s `include` ganhou
+`"examples/**/*.ts"` — sem isso, esses dois arquivos ficariam fora de
+`npx tsc --noEmit` silenciosamente, o mesmo ponto-cego já encontrado
+este mesmo dia em `packages/sails-sdk`/`packages/sdk-react`. Scripts
+`demo:pix-to-usdt`/`demo:multisig` em `package.json`, `.env.example`, e
+todas as referências de path em docs (`BACKLOG.md`, `TODO.md`,
+`HANDOFF.md`, `PROTOCOL_SPECIFICATION.md`, `TRANSACTION_WALKTHROUGH.md`,
+`DEPLOYMENT.md`, `ARCHITECTURE.md`, `DEAD_CODE_REMOVAL_REPORT.md`,
+`rfcs/RFC-014-capability-registry-enforcement.md`) atualizados.
+`packages/sails-ui/src/lib/qvacAgent.ts` tem uma menção em comentário a
+`src/demo/` — não corrigida, é território exclusivo da sessão de UI em
+paralelo.
 
 ---
 

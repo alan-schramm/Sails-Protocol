@@ -153,7 +153,7 @@ function), not the buyer: releasing funds is the seller's action.
 (added during an earlier pass, never previously thrown anywhere real) —
 is what both checks throw. No new error class needed.
 
-**5. Demo script** (`src/demo/pix-to-usdt-flow.ts`) issues both grants
+**5. Demo script** (`examples/demo/pix-to-usdt-flow.ts`) issues both grants
 right after identity registration, unconditionally (cheap and harmless
 when enforcement is off — an unused `CapabilityGrant` row just sits in
 the table):
@@ -198,7 +198,7 @@ an already-real Core component (RFC-013's `CapabilityGrant`/
 | `src/config/index.ts` | New `features.enforceCapabilities` flag |
 | `src/core/intent-engine.ts` | Capability check before `prisma.intent.create()` for `TradeIntent` |
 | `src/modules/open-settlement/settlement-orchestrator.ts` | Capability check before `escrowService.releaseFunds()` |
-| `src/demo/pix-to-usdt-flow.ts` | Issues the two grants the demo needs, so it keeps working with enforcement on |
+| `examples/demo/pix-to-usdt-flow.ts` | Issues the two grants the demo needs, so it keeps working with enforcement on |
 | `.env.example` | `ENFORCE_CAPABILITIES` documented |
 | `tests/intentCapabilityCheck.test.ts` (new) | Off-by-default, reject-without-grant, allow-with-grant |
 | `tests/settlementCapabilityCheck.test.ts` (new) | Same three cases, plus: checks `sellerAgentId` not raw `sellerId` when an agent acts, and confirms `lockFunds`/`markPaymentSent` already ran before the rejection (Alternatives Considered #4) |

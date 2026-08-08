@@ -23,7 +23,7 @@
  * This file does not reimplement any of that — duplicating ~150 lines of
  * already-real, already-tested orchestration logic into a second file
  * would be a maintenance/drift risk, not a genuine second implementation.
- * It delegates to src/demo/pix-to-usdt-flow.ts's `main()` (exported for
+ * It delegates to examples/demo/pix-to-usdt-flow.ts's `main()` (exported for
  * exactly this reuse, guarded behind `require.main === module` there so
  * this import doesn't also trigger that file's own standalone run) — the
  * same real flow already covering all four pieces above, in that exact
@@ -40,7 +40,7 @@
  * .env.example for DATABASE_URL/REDIS_URL, MOCK_ESCROW, WDK_SEED_PHRASE/
  * WDK_RPC_URL/WDK_USDT_CONTRACT, and HYPERDHT_BOOTSTRAP.
  */
-import { main as runPixToUsdtFlow } from './src/demo/pix-to-usdt-flow'
+import { main as runPixToUsdtFlow } from './examples/demo/pix-to-usdt-flow'
 
 console.log('=== Sails Protocol — Boot completo do ecossistema (QVAC + Pears P2P + Core + WDK) ===')
 console.log('Componentes a instanciar, nesta ordem, cada um com seu próprio log detalhado abaixo:')
