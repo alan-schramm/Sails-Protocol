@@ -318,6 +318,10 @@ deste protocolo.
 - Sem SBOM (Software Bill of Materials) gerado.
 - Sem signing de releases.
 
+**`npm audit` rodado manualmente 2026-08-08** (GitHub Dependabot havia sinalizado 47 vulnerabilidades no branch): `npm audit fix` (não-breaking) aplicado, resolvendo os itens realmente corrigíveis sem mudança de versão major — `fast-uri` (usado em runtime por `fast-json-stringify`, dependência real do Fastify), `nanoid`, `brace-expansion`, além de `postcss`/`sharp` (que só existem via `next`, dependência exclusiva de `examples/sails-integration-starter` — nunca roda no backend real). Suíte completa (68 suites, 749 testes) + `tsc --noEmit` + `npm run build` confirmados limpos depois da correção.
+
+**Achado real que permanece, verificado antes de decidir não agir**: `elliptic` (crítico — extração de chave privada ao assinar input malformado, `GHSA-vjh7-7g9h-fjfh`) e uma versão antiga de `ws` (alto — DoS) continuam vulneráveis, sem fix disponível sem um upgrade breaking do Hardhat (`npm audit fix --force` avisa que instalaria `hardhat@3.12.0`). Verificado que a cadeia real é `@safe-global/safe-4337`/`@safe-global/safe-contracts` → `ethers@5.x` → `elliptic`, declarada **apenas** em `contracts/package.json` (toolchain de compilação/deploy do contrato Guard via Hardhat) — grep confirma que nenhum arquivo de produção (`src/`, `packages/sails-sdk/src/`) importa `@safe-global/*` diretamente; `safe-guard-evm.provider.ts`'s único import real é `from 'ethers'`, que resolve para a v6 instalada na raiz (usa `@noble/curves`, não `elliptic` — sem essa vulnerabilidade). **Ou seja: o caminho real de assinatura que move fundos não está exposto** — o risco fica contido à ferramenta de build/deploy de contratos, não ao runtime do backend/SDK. Fazer o upgrade breaking do Hardhat para fechar isso de vez é trabalho real, mas separado (risco de quebrar compilação/ABI do contrato Guard) — não decidido unilateralmente aqui.
+
 ### Suporte / Comunidade
 - Sem `CODE_OF_CONDUCT.md`.
 - Sem `CONTRIBUTING.md` na raiz.
