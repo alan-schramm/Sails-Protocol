@@ -40,7 +40,8 @@
     "build:ui": "npm run build -w @sails/ui",
     "loadtest:intent": "artillery run loadtest/intent-api.yml",
     "loadtest:ws:prep": "node loadtest/pregenerate-users.js 50",
-    "loadtest:ws": "artillery run loadtest/chat-ws.yml"
+    "loadtest:ws": "artillery run loadtest/chat-ws.yml",
+    "loadtest:sdk": "ts-node --transpile-only scripts/sdk-pressure-test.ts"
   },
   "dependencies": {
     "@arkade-os/sdk": "^0.4.52",

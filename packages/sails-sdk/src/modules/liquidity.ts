@@ -51,9 +51,13 @@ export interface LiquidityOfferSummary {
 }
 
 // getAggregatedOffers()'s real return shape — also not a bare array.
+// Backend now returns total/hasMore pagination metadata alongside
+// offers/sources (liquidity.service.ts getAggregatedOffers()).
 export interface DiscoverResult {
   offers: LiquidityOfferSummary[]
   sources: string[]
+  total: number
+  hasMore: boolean
 }
 
 // bids/asks are LiquidityOfferSummary, not Offer — getOrderBook()
