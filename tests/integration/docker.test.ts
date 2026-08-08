@@ -12,7 +12,7 @@ describe('Docker integration test', () => {
 
   beforeAll(async () => {
     try {
-      await execAsync('docker --version');
+      await execAsync('bash -c "docker info"');
       dockerAvailable = true;
     } catch {
       dockerAvailable = false;

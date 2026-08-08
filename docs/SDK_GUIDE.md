@@ -111,7 +111,7 @@ interface SailsClient {
   // the SDK/Core never receive or hold the raw media, only the resulting
   // signed EvidenceReference. See the proof: namespace below for reading
   // that evidence back.
-  releaseAsset(intentId: string): Promise<Settlement>
+  releaseAsset(intentId: string, toAddress: string): Promise<Escrow>
   // Designed (RFC-007 D3), not yet migrated: settlement status is intended
   // to eventually pass through PENDING_BANK_SETTLEMENT before COMPLETED —
   // representing a payment held/processing at the payer's financial
@@ -166,6 +166,7 @@ interface SailsClient {
     // is "leaving a rating that affects reputation."
     leaderboard(limit?: number): Promise<ReputationScore[]>
     vouchFor(voucheeId: string): Promise<Vouch>   // requires an active session — RFC-021 D7 peer vouching. Caller must have real trade history; the caller's own reputation is slashed if the vouchee's first payment account is later abused
+    getScoreByPeerId(peerId: string): Promise<ReputationScore>   // public read — returns the peer's aggregated reputation score (RFC-021 D8)
   }
 
   // Sails OpenLiquidity (alias: offers) — advanced/direct use;
@@ -173,7 +174,9 @@ interface SailsClient {
   // should use instead
   liquidity: {
     publish(input: PublishOfferInput): Promise<Offer>   // requires an active session
-    discover(filter: { asset: AssetType; side: TradeSide; limit?: number; offset?: number }): Promise<{ offers: LiquidityOfferSummary[]; sources: string[] }>
+    discover(filter: { asset: AssetType; side: TradeSide; limit?: number; offset?: number }): Promise<DiscoverResult>
+    // DiscoverResult includes total (total matching offers across all sources) and hasMore (whether more pages exist) —
+    // backend getAggregatedOffers() now returns pagination metadata alongside offers/sources.
     getOffer(offerId: string): Promise<Offer & { user: Participant }>
     book(asset: AssetType): Promise<OrderBook>
     match(input: { asset: AssetType; side: TradeSide; amount: string }): Promise<LiquidityOfferSummary | null>
@@ -199,11 +202,17 @@ interface SailsClient {
     getPendingTransaction(escrowId: string): Promise<EscrowPendingTransaction>
     listDisputes(pagination?: { limit?: number; offset?: number }): Promise<PaginatedDisputes>   // requires an active session — always scoped to the caller's own arbiterId, added 2026-08-03 (UI-audit gap)
     getDispute(disputeId: string): Promise<Dispute>   // public read, added 2026-08-03 (UI-audit gap)
-    resolveDispute(disputeId: string, ruling: 'RELEASE' | 'REFUND' | 'SPLIT', releaseToAddress?: string): Promise<Dispute>   // requires an active session + assigned arbiter
+    resolveDispute(disputeId: string, ruling: 'RELEASE' | 'REFUND' | 'SPLIT', releaseToAddress?: string, refundToAddress?: string, splitBuyerBps?: number): Promise<Dispute>   // requires an active session + assigned arbiter
     appealDispute(disputeId: string): Promise<{ dispute: Dispute; appealFeeRequired: string }>   // requires an active session + trade party — RFC-021 D6, market arbitration mode only
     submitDisputeEvidence(disputeId: string, descriptor: { type: string; uri?: string; note?: string }): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, may trigger a QVAC auto-resolution attempt server-side
     contestAutoResolution(disputeId: string): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, rejects a proposed automated ruling
     parseSafeGuardBundle(unsignedPsbtBase64: string): SafeGuardBundle   // pure parsing helper, no network call — SAFE_GUARD_EVM only
+    // RFC-021 — two-person control for MULTISIG escrows. approveRelease() records the caller's approval; release() checks hasDualApproval() itself.
+    approveRelease(escrowId: string): Promise<{ approval: ReleaseApproval; readyToRelease: boolean }>   // requires an active session
+    getReleaseApprovals(escrowId: string): Promise<ReleaseApprovalsResult>   // public read, no session required
+    // RFC-021 D2 — permissionless arbiter registration.
+    registerArbiter(input: { monetaryCollateral: string; collateralAsset?: string }): Promise<ArbiterProfile>   // requires an active session
+    getArbiterProfile(participantId: string): Promise<ArbiterProfile | null>   // public read, no session required
   }
 
   // Top-level exports (not under `settlement` above) — client-held-key
@@ -223,6 +232,7 @@ interface SailsClient {
     updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade>   // requires an active session
     chat(tradeId: string, options?: WebSocketChannelOptions): WebSocketChannel   // requires an active session — real reconnect-with-backoff by default (2026-08-02); onConnectionStateChange() reports 'open'/'reconnecting'/'closed'
     getMessages(tradeId: string): Promise<Message[]>   // requires an active session
+    reconcileTrade(tradeId: string, sinceMessageCreatedAt: Date | null): Promise<Message[]>   // requires an active session — RFC-011 client-side reconciliation, returns missed messages since the given timestamp
   }
 
   // Capability declaration/grants — RFC-005 (rfcs/RFC-005-capability-model.md),
@@ -243,14 +253,13 @@ interface SailsClient {
 
   // Sails OpenProof (RFC-006, RFC-007) — advanced/direct use; submitProof()
   // above is the path most applications should use to write evidence, this
-  // namespace is for reading it back
+  // namespace is for reading it back and managing proof lifecycle
   proof: {
-    getEvidenceBundle(intentId: string): Promise<EvidenceBundle>
-    // Aggregates that Intent's Claims/Proofs/Verifications/Timeline/
-    // external references (RFC-007 D6) — a read model, not a lifecycle
-    // verb, which is why it lives here and not in the six-method facade
-    // above. What a dispute UI or an ArbitrationProvider implementation
-    // calls instead of re-collecting evidence by hand.
+    assertClaim(input: { claimType: string; assertion: unknown }): Promise<Proof>   // requires an active session
+    submitProof(input: { claimId: string; evidence: unknown; claimedHash?: string }): Promise<Proof>   // requires an active session
+    issueVerificationNonce(proofId: string): Promise<{ nonce: string }>   // requires an active session
+    verifyProof(proofId: string, input: { verdict: 'ACCEPTED' | 'REJECTED'; nonce: string; reason?: string }): Promise<Proof>   // requires an active session
+    getEvidenceBundle(claimId: string): Promise<EvidenceBundle>   // requires an active session — aggregates that Intent's Claims/Proofs/Verifications/Timeline/external references (RFC-007 D6)
   }
 }
 ```
@@ -294,11 +303,11 @@ interface TradeIntent {
   kycRequired?: boolean
 }
 
-// WDK_USDT_EVM was missing from this list until a 2026-07-19
-// consolidation audit caught it — it's the second real, tested
-// SettlementProvider (@tetherto/wdk-wallet-evm, wdk-settlement.provider.ts),
-// not an aspirational value.
-type SettlementType = 'MOCK' | 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM'
+// All six SettlementProvider types registered in src/modules/open-settlement/escrow.service.ts's PROVIDERS map.
+// SAFE_GUARD_EVM (RFC-020) added 2026-07-28; previously absent here even though
+// the EscrowType enum already had it — corrected by the same 2026-07-19
+// consolidation audit that caught the WDK_USDT_EVM omission above.
+type SettlementType = 'MOCK' | 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM' | 'SAFE_GUARD_EVM'
 
 // RFC-005 (rfcs/RFC-005-capability-model.md) — the permission-grant side
 // of the Capability model; real as of RFC-013. A 2026-07-19 audit
@@ -370,42 +379,52 @@ are not redefined here.
 ## 4. Expected Usage (what "done" looks like)
 
 ```typescript
-import { SailsClient } from '@sails/sdk'
+import { SailsClient } from "@sails/sdk"
 
 const sails = new SailsClient({
-  wdk: await WDK.fromKeypair(keypair),
-  network: 'mainnet',
+  baseUrl: "http://localhost:3000",
 })
 
 // Discover counterparties for a trade intent
 const matches = await sails.liquidity.discover({
-  type: 'trade',
-  asset: 'BTC',
-  side: 'BUY',
-  maxValue: 2000,
-  currency: 'BRL',
-  fiatMethod: 'PIX',
+  asset: "BTC",
+  side: "BUY",
+  limit: 10,
+  offset: 0,
 })
 
-// Start a trade with the best match
-const trade = await sails.openp2p.trade(matches[0].id)
+// Start a trade with the best match (trade() requires the caller's
+// session to be set first -- see identity.authenticate() below).
+const trade = await sails.openp2p.trade(matches[0].id, "0.001")
 
-// Open the negotiation channel
+// Open the negotiation channel -- chat() requires an active session.
 const chat = sails.openp2p.chat(trade.id)
 chat.onMessage((msg) => console.log(msg))
-chat.send({ content: 'Sending payment now', msgType: 'TEXT' })
+chat.send({ content: "Sending payment now", msgType: "TEXT" })
 
-// Lock, then release escrow once payment is confirmed
-const escrow = await sails.settlement.create('MULTISIG', trade.id)
+// Lock, then release escrow once payment is confirmed.
+// create/lock/release all require the session token set by
+// identity.authenticate() -- see SailsClient.setSessionToken() if
+// loading the session from your own secure storage.
+const escrow = await sails.settlement.create({
+  tradeId: trade.id,
+  type: "MULTISIG",
+  lockedAmount: "0.001",
+  asset: "BTC",
+})
 await sails.settlement.lock(escrow.id)
 // ... buyer sends fiat directly to seller, shares proof via chat ...
-await sails.settlement.release(escrow.id)
+await sails.settlement.release(escrow.id, buyerPayoutAddress)
 
-// Rate the completed trade
-await sails.reputation.rate(trade.id, 5)
+// Rate the completed trade -- informational only as of RFC-007 D8/D9;
+// does not feed the ReputationScore that get() returns.
+await sails.reputation.rate({
+  tradeId: trade.id,
+  ratedId: sellerId,
+  score: 5,
+})
 ```
 
----
 
 ## 4B. Internal SDK Layering (v7.4 — CTO review finding)
 
@@ -470,7 +489,7 @@ integrations exist in this repository — they don't.
    implementing `SailsClient` against the namespaced `/v1/{module}/` API
    described in `API_REFERENCE.md`. **v0.1 landed 2026-07-17**, ahead of
    this doc's own roadmap timing — Transport + Protocol SDK layers are
-   real and tested (`packages/sails-sdk/tests/`, 33 tests: real
+   real and tested (`packages/sails-sdk/tests/`, 46 tests as of 2026-08-07: real
    `tweetnacl` Ed25519 signing verified against `auth.ts`'s exact byte
    encoding, every module's request shape checked against its real
    route). Intent facade is partial (see section 2's note above and
@@ -492,3 +511,4 @@ integrations exist in this repository — they don't.
 - Errors thrown by the SDK should be typed subclasses matching the
   `AppError` hierarchy in the reference implementation, not raw HTTP error
   objects — see `API_REFERENCE.md` section 9 for the response shape to wrap.
+

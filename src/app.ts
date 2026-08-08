@@ -8,7 +8,9 @@ import swaggerUi from '@fastify/swagger-ui'
 import { ZodError } from 'zod'
 
 import { config } from './config'
+import { prisma } from './common/database'
 import { connectDatabase } from './common/database'
+import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
 import { AppError } from './common/errors'
 import { registerEventHandlers } from './common/events/handlers'
@@ -212,6 +214,46 @@ export async function buildApp(): Promise<FastifyInstance> {
   })
 
   // ── Health check ──────────────────────────────────────────────────────────
+  app.get('/health/live', async () => ({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    version: '0.1.0',
+    protocol: 'Sails Protocol',
+    module: 'Sails OpenP2P',
+    referenceImplementation: 'Satsails Wallet',
+  }))
+
+  app.get('/health/ready', async (_request, reply) => {
+    const checks: Record<string, { ok: boolean; latencyMs: number; error?: string }> = {}
+
+    const timed = async <T,>(label: string, fn: () => Promise<T>) => {
+      const start = Date.now()
+      try {
+        await fn()
+        checks[label] = { ok: true, latencyMs: Date.now() - start }
+      } catch (err) {
+        checks[label] = {
+          ok: false,
+          latencyMs: Date.now() - start,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      }
+    }
+
+    await timed('postgres', () => prisma.$queryRaw`SELECT 1`)
+    await timed('redis', async () => {
+      const pong = await redis.ping()
+      if (pong !== 'PONG') throw new Error(`unexpected PING reply: ${pong}`)
+    })
+
+    const allOk = Object.values(checks).every((c) => c.ok)
+    return reply.code(allOk ? 200 : 503).send({
+      status: allOk ? 'ready' : 'not_ready',
+      timestamp: new Date().toISOString(),
+      checks,
+    })
+  })
+
   app.get('/health', async () => ({
     status: 'ok',
     timestamp: new Date().toISOString(),

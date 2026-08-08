@@ -42,7 +42,12 @@ export function createMockSailsClient(options: MockSailsClientOptions = {}): Sai
     } as Response
   }) as typeof fetch
 
-  const client = new SailsClient({ baseUrl: 'http://mock.local', fetchImpl })
+  const client = new SailsClient({
+    baseUrl: 'http://mock.local',
+    fetchImpl,
+    maxRetries: 0,
+    retryDelayMs: 0,
+  })
   if (options.authenticated ?? true) {
     client.setSessionToken('mock-session-token')
   }
