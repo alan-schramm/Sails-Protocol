@@ -1,6 +1,9 @@
 import { EventEmitter } from 'events'
 import { randomUUID as uuidv4, createHash } from 'crypto'
 import type { SailsEventName, SailsEventMap } from './event-bus'
+import { childLogger } from '../logger'
+
+const log = childLogger('event-store')
 
 /**
  * Sails Protocol — EventStore (RFC-010, rfcs/RFC-010-durable-event-store.md)
@@ -139,7 +142,7 @@ export class InMemoryEventStore implements EventStore {
       prevHash,
     }
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[EventStore:in-memory] ${eventName} correlationId=${correlationId}`, JSON.stringify(payload))
+      log.info({ msg: 'Event emitted', eventName, correlationId, payload })
     }
     if (existingForCorrelation) existingForCorrelation.push(event)
     else this.byCorrelationId.set(correlationId, [event])
@@ -154,7 +157,7 @@ export class InMemoryEventStore implements EventStore {
       const result = handler(event)
       if (result instanceof Promise) {
         result.catch((err) => {
-          console.error(`[EventStore:in-memory] handler error on "${eventName}" (eventId=${event.eventId}):`, err)
+          log.error({ msg: 'Handler error', eventName, eventId: event.eventId, err: err instanceof Error ? err.message : err })
         })
       }
     })
@@ -360,11 +363,11 @@ export class RedisStreamsEventStore implements EventStore {
             // passes, same "don't silently drop a failed real event"
             // principle InMemoryEventStore's own subscribe() comment
             // already states for its in-process equivalent.
-            console.error(`[EventStore:redis-streams] handler error on "${eventName}" (messageId=${messageId}):`, err)
+            log.error({ msg: 'Handler error', eventName, messageId, err: err instanceof Error ? err.message : err })
           }
         }
       } catch (err) {
-        console.error(`[EventStore:redis-streams] poll loop error on "${eventName}":`, err)
+        log.error({ msg: 'Poll loop error', eventName, err: err instanceof Error ? err.message : err })
         await new Promise((resolve) => setTimeout(resolve, 1000)) // brief backoff before retrying the loop
       }
     }

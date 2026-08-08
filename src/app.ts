@@ -39,6 +39,15 @@ export async function buildApp(): Promise<FastifyInstance> {
         config.app.env === 'development'
           ? { target: 'pino-pretty', options: { colorize: true } }
           : undefined,
+      // PRODUCTION_READINESS_FIXES.md P1 item 9, closed 2026-08-08 —
+      // Bearer tokens/cookies were logged verbatim on every request log
+      // line. Redacted, not dropped: the header still shows up as
+      // '[REDACTED]' so a real auth bug (missing header entirely) stays
+      // visible in the logs.
+      redact: {
+        paths: ['req.headers.authorization', 'req.headers.cookie', 'token'],
+        censor: '[REDACTED]',
+      },
     },
   })
 
@@ -112,6 +121,8 @@ export async function buildApp(): Promise<FastifyInstance> {
         { name: 'open-p2p', description: 'Sails OpenP2P — trades & chat' },
         { name: 'open-reputation', description: 'Sails OpenReputation — reputation system' },
         { name: 'open-agents', description: 'Sails OpenAgents — capability declaration & grants (RFC-013)' },
+        { name: 'peers', description: 'P2P node management — Pears start/stop, topic/trade rooms' },
+        { name: 'open-proof', description: 'Sails OpenProof — claims, proofs, verification, evidence bundles' },
       ],
     },
   })
@@ -164,13 +175,19 @@ export async function buildApp(): Promise<FastifyInstance> {
   })
 
   // ── Error Handler ─────────────────────────────────────────────────────────
-  app.setErrorHandler((error, _req, reply) => {
+  app.setErrorHandler((error, request, reply) => {
+    // PRODUCTION_READINESS_FIXES.md P1 item 14, closed 2026-08-08 —
+    // request.id (Fastify's own real per-request id, already in every
+    // log line) wasn't surfaced to the caller at all, so pointing
+    // support at "the request that failed at 14:32" meant grepping logs
+    // by timestamp instead of a real, matchable id.
     if (error instanceof ZodError) {
       return reply.code(400).send({
         success: false,
         error: 'VALIDATION_ERROR',
         message: 'Invalid request data',
         details: error.issues, // Zod v4 renamed ZodError.errors -> .issues
+        requestId: request.id,
       })
     }
 
@@ -182,7 +199,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       // was rejected invisible to the caller). Not a change in behavior
       // for AppError subclasses that never set `details` (defaults to []
       // either way) — only for the ones that do, like ValidationError.
-      return reply.code(error.statusCode).send(error.toResponse())
+      return reply.code(error.statusCode).send({ ...error.toResponse(), requestId: request.id })
     }
 
     // A well-behaved Fastify plugin error (e.g. @fastify/rate-limit's 429)
@@ -201,6 +218,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         error: statusCode === 429 ? 'RATE_LIMIT_EXCEEDED' : 'REQUEST_ERROR',
         message: typeof pluginError.message === 'string' ? pluginError.message : 'Request error',
         details: [],
+        requestId: request.id,
       })
     }
 
@@ -210,6 +228,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       success: false,
       error: 'INTERNAL_ERROR',
       message: config.app.env === 'development' ? message : 'Internal server error',
+      requestId: request.id,
     })
   })
 
@@ -308,9 +327,18 @@ export async function startServer() {
   await connectRedis()
 
   // ── Graceful shutdown ──────────────────────────────────────────────────────
+  // PRODUCTION_READINESS_FIXES.md P1 item 15, closed 2026-08-08 —
+  // app.close() stops accepting new requests and drains in-flight ones,
+  // but never explicitly closed the Postgres pool or the Redis
+  // connection; both relied on the process exiting to clean them up
+  // implicitly. Explicit here so a container orchestrator's SIGTERM ->
+  // graceful-shutdown path leaves no dangling connections on the DB/
+  // Redis side even if something delays the actual process exit.
   const shutdown = async (signal: string) => {
-    console.log(`\n[${signal}] Shutting down gracefully...`)
+    app.log.info({ msg: 'Shutting down gracefully', signal })
     await app.close()
+    await prisma.$disconnect()
+    await redis.quit()
     process.exit(0)
   }
 
@@ -318,6 +346,12 @@ export async function startServer() {
   process.on('SIGINT', () => shutdown('SIGINT'))
 
   await app.listen({ port: config.app.port, host: config.app.host })
+  // PRODUCTION_READINESS_FIXES.md P0 item 8, closed 2026-08-08 — every
+  // OTHER console.* call in this function migrated to app.log below.
+  // This one boot banner stays console.log on purpose: it's pure ASCII-art
+  // decoration for a human watching stdout on cold start, not structured
+  // operational data — wrapping it in pino's JSON output (what production
+  // actually emits) would make it unreadable, a regression, not a fix.
   console.log(`
 ╔══════════════════════════════════════════════════════╗
 ║      Sails OpenP2P — Satsails Reference Impl.        ║
@@ -337,13 +371,13 @@ export async function startServer() {
   // one, since a boot log is what someone actually deploying this
   // reference implementation is most likely to see.
   if (!config.features.mockEscrow) {
-    console.warn(`
-⚠️  WDK_USDT_EVM is a SERVER-CUSTODIAL REFERENCE IMPLEMENTATION.
-    One server-held seed (WDK_SEED_PHRASE) signs every escrow
-    lock/release — this is NOT the protocol's normative custody model.
-    Do NOT use with real value at risk. See CRYPTOGRAPHIC_MODEL.md §5
-    and rfcs/RFC-019-settlement-custody-reference-vs-normative.md.
-    `)
+    app.log.warn(
+      'WDK_USDT_EVM is a SERVER-CUSTODIAL REFERENCE IMPLEMENTATION. ' +
+      'One server-held seed (WDK_SEED_PHRASE) signs every escrow lock/release — ' +
+      "this is NOT the protocol's normative custody model. Do NOT use with real " +
+      'value at risk. See CRYPTOGRAPHIC_MODEL.md §5 and ' +
+      'rfcs/RFC-019-settlement-custody-reference-vs-normative.md.'
+    )
   }
 
   // BACKLOG.md P0, "Escrow timelock proactive sweeper" — off by default,
@@ -356,10 +390,10 @@ export async function startServer() {
       escrowService.sweepExpiredEscrows()
         .then(({ refunded, failed }) => {
           if (refunded.length || failed.length) {
-            console.log(`[escrow-sweeper] refunded ${refunded.length} expired escrow(s), ${failed.length} failed`)
+            app.log.info({ msg: 'Escrow sweep completed', module: 'escrow-sweeper', refunded: refunded.length, failed: failed.length })
           }
         })
-        .catch((err) => console.error('[escrow-sweeper] sweep failed:', err instanceof Error ? err.message : err))
+        .catch((err) => app.log.error({ msg: 'Escrow sweep failed', module: 'escrow-sweeper', err: err instanceof Error ? err.message : err }))
     }, config.trade.timelockSweepIntervalMs)
     sweepInterval.unref()
   }
@@ -371,10 +405,10 @@ export async function startServer() {
       getDisputeService().sweepExpiredAutoResolutions()
         .then(({ resolved, failed }) => {
           if (resolved.length || failed.length) {
-            console.log(`[dispute-auto-resolution-sweeper] resolved ${resolved.length} dispute(s), ${failed.length} failed`)
+            app.log.info({ msg: 'Dispute auto-resolution sweep completed', module: 'dispute-auto-resolution-sweeper', resolved: resolved.length, failed: failed.length })
           }
         })
-        .catch((err) => console.error('[dispute-auto-resolution-sweeper] sweep failed:', err instanceof Error ? err.message : err))
+        .catch((err) => app.log.error({ msg: 'Dispute auto-resolution sweep failed', module: 'dispute-auto-resolution-sweeper', err: err instanceof Error ? err.message : err }))
     }, config.trade.disputeAutoResolutionSweepIntervalMs)
     disputeSweepInterval.unref()
   }

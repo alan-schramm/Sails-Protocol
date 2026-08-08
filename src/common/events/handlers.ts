@@ -10,6 +10,9 @@ import { wdkSettlementProvider, buyerIndexFor } from '../../modules/open-settlem
 import { intentEngine } from '../../core/intent-engine'
 import { config } from '../../config'
 import { escrowsCreatedTotal, escrowsReleasedTotal, escrowsRefundedTotal, disputesOpenedTotal } from '../metrics'
+import { childLogger } from '../logger'
+
+const log = childLogger('handlers')
 
 // RFC-018 — 'system:trade-lifecycle' for every Intent transition this
 // dispatcher drives on a trade's behalf, matching the existing
@@ -464,7 +467,7 @@ export function registerEventHandlers(): void {
         assessment.reasoning
       )
     } catch (err) {
-      console.error(`[handlers] qvacAutoResolution failed for dispute event ${event.eventId}:`, err instanceof Error ? err.message : err)
+      log.error({ msg: 'qvacAutoResolution failed', eventId: event.eventId, err: err instanceof Error ? err.message : err })
     }
   })
 
@@ -535,7 +538,7 @@ export function registerEventHandlers(): void {
         detectedAt: signal.detectedAt,
       }, signal.correlationId)   // correlationId (RFC-010) = tradeId
     } catch (err) {
-      console.error(`[handlers] socialEngineeringDetection failed for message ${event.eventId}:`, err instanceof Error ? err.message : err)
+      log.error({ msg: 'socialEngineeringDetection failed', eventId: event.eventId, err: err instanceof Error ? err.message : err })
     }
   })
 
@@ -553,7 +556,7 @@ export function registerEventHandlers(): void {
       const buyerAddress = await wdkSettlementProvider.getAccountAddress(buyerIndexFor(payload.buyerId))
       await executeSettlement({ tradeId: payload.tradeId, buyerReceivingAddress: buyerAddress })
     } catch (err) {
-      console.error(`[handlers] autoSettleOnMatch failed for trade ${payload.tradeId}:`, err instanceof Error ? err.message : err)
+      log.error({ msg: 'autoSettleOnMatch failed', tradeId: payload.tradeId, err: err instanceof Error ? err.message : err })
     }
   })
 }

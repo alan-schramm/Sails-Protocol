@@ -95,10 +95,12 @@ export class SailsLiquidityModule {
    * Single-offer lookup with the seller's real public profile fields —
    * genuinely didn't exist until packages/sails-ui's OfferDetail screen
    * needed it (real route added the same day: GET
-   * /v1/liquidity/offers/id/:id, liquidity.routes.ts).
+   * /v1/liquidity/offers/:id, liquidity.routes.ts). Was
+   * /v1/liquidity/offers/id/:id (redundant `id` segment) — renamed
+   * PRODUCTION_READINESS_FIXES.md P1 item 12, closed 2026-08-08.
    */
   async getOffer(offerId: string): Promise<Offer & { user: Participant }> {
-    return this.transport.get<Offer & { user: Participant }>(`/v1/liquidity/offers/id/${offerId}`)
+    return this.transport.get<Offer & { user: Participant }>(`/v1/liquidity/offers/${offerId}`)
   }
 
   /** Requires an active session. */

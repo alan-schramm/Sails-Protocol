@@ -77,7 +77,17 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
   // fields — see liquidity.service.ts's getOffer() doc comment for why
   // this was missing (discover()/book() only return an aggregation
   // summary, never enough for a real offer-detail screen).
-  app.get('/v1/liquidity/offers/id/:id', {
+  //
+  // PRODUCTION_READINESS_FIXES.md P1 item 12, closed 2026-08-08 — was
+  // `/offers/id/:id` (redundant `id` segment, the only route in this
+  // file shaped that way). Fastify/find-my-way always prefers an exact
+  // static match over a parametric one at the same path depth, so this
+  // rename doesn't shadow the sibling static routes `/offers/mine` or
+  // `/offers/:asset/book` (that one has an extra segment anyway) —
+  // verified with a real app.inject() round-trip against both
+  // `/offers/mine` and `/offers/:id`, not just reasoned about
+  // (tests/liquidityOfferRouteCollision.test.ts).
+  app.get('/v1/liquidity/offers/:id', {
     schema: { tags: ['open-liquidity'] },
   }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
