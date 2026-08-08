@@ -207,7 +207,9 @@ describe('P2P Transport — /v1/peers/* routes (pear.routes.ts)', () => {
         payload: { topic: 'marketplace' },
       })
       expect(res.statusCode).toBe(409)
-      expect(JSON.parse(res.body)).toMatchObject({ success: false, error: 'NOT_FOUND' })
+      // PRODUCTION_READINESS_FIXES.md P1 item 17, closed 2026-08-08 —
+      // was 'NOT_FOUND', mismatched with its own 409 status; fixed to 'CONFLICT'.
+      expect(JSON.parse(res.body)).toMatchObject({ success: false, error: 'CONFLICT' })
     })
 
     it('joins the topic when the caller has an active node', async () => {

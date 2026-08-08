@@ -7,6 +7,9 @@
  */
 import Redis from 'ioredis'
 import { config } from '../../config'
+import { childLogger } from '../logger'
+
+const log = childLogger('redis')
 
 export const redis = new Redis(config.redis.url, {
   maxRetriesPerRequest: 3,
@@ -14,7 +17,7 @@ export const redis = new Redis(config.redis.url, {
 })
 
 redis.on('error', (err) => {
-  console.error('[Redis] Connection error:', err.message)
+  log.error({ msg: 'Connection error', err: err.message })
 })
 
 export async function connectRedis(): Promise<void> {
@@ -23,5 +26,5 @@ export async function connectRedis(): Promise<void> {
     redis.once('ready', () => resolve())
     redis.once('error', reject)
   })
-  console.log('[Redis] Connected')
+  log.info({ msg: 'Connected' })
 }

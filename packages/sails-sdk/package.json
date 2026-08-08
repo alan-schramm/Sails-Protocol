@@ -19,9 +19,16 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "docs": "typedoc"
+    "docs": "typedoc",
+    "prepublishOnly": "npm run build && npm run typecheck"
   },
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alan-schramm/Sails-Protocol.git",
+    "directory": "packages/sails-sdk"
+  },
+  "keywords": ["sails", "p2p", "bitcoin", "escrow", "non-custodial", "sdk"],
   "dependencies": {
     "@arkade-os/sdk": "^0.4.52",
     "@aws-sdk/client-kms": "^3.1096.0",

@@ -7,6 +7,9 @@
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { config } from '../../config'
+import { childLogger } from '../logger'
+
+const log = childLogger('database')
 
 declare global {
   // eslint-disable-next-line no-var
@@ -35,7 +38,7 @@ if (!config.isProduction) {
 
 export async function connectDatabase(): Promise<void> {
   await prisma.$connect()
-  console.log('[Database] Connected')
+  log.info({ msg: 'Connected' })
 }
 
 export async function disconnectDatabase(): Promise<void> {

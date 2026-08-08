@@ -44,4 +44,12 @@ export interface WalletAdapter {
   // wallet that can't prove identity can't do anything else useful in
   // this protocol's trust model either.
   signMessage(message: Uint8Array): Promise<Uint8Array>
+  // PRODUCTION_READINESS_FIXES.md P1 item 11, closed 2026-08-08 —
+  // optional (not every real wallet integration holds a connection
+  // worth tearing down — e.g. MockWalletAdapter). SailsClient itself
+  // never calls this automatically (it has no destroy()/dispose()
+  // lifecycle of its own); a caller that wants deterministic cleanup
+  // (closing a hardware-wallet transport, revoking a WalletConnect
+  // session, etc.) calls `client.wallet?.disconnect?.()` itself.
+  disconnect?(): Promise<void>
 }

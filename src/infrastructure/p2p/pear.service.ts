@@ -29,6 +29,9 @@ import { EventEmitter } from 'events'
 import { eventBus } from '../../common/events/event-bus'
 import { prisma } from '../../common/database'
 import { config } from '../../config'
+import { childLogger } from '../../common/logger'
+
+const log = childLogger('pear')
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface PearPeer {
@@ -128,7 +131,7 @@ export class PearNode extends EventEmitter {
     // correlationId = userId (RFC-010) — no trade to correlate a connectivity
     // event to; userId is the most specific trace identifier available.
     await eventBus.emit('peer.connected', { userId: this.ownerUserId, peerId, publicKey: peerId }, this.ownerUserId)
-    console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] Node started. PeerId: ${peerId.slice(0, 16)}...`)
+    log.info({ msg: 'Node started', ownerUserId: this.ownerUserId, peerId })
     return peerId
   }
 
@@ -146,7 +149,7 @@ export class PearNode extends EventEmitter {
       userId: this.ownerUserId,
       peerId: this.keyPair?.publicKey.toString('hex') ?? '',
     }, this.ownerUserId)   // correlationId = userId (RFC-010)
-    console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] Node stopped`)
+    log.info({ msg: 'Node stopped', ownerUserId: this.ownerUserId })
   }
 
   async joinTopic(topicName: string): Promise<void> {
@@ -161,7 +164,7 @@ export class PearNode extends EventEmitter {
     const discovery = this.swarm.join(topicKey as Buffer, { server: true, client: true })
     await discovery.flushed()
     this.topicAnnouncements.add(topicName)
-    console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] Joined topic "${topicName}" — ${this.peers.size} peers so far`)
+    log.info({ msg: 'Joined topic', ownerUserId: this.ownerUserId, topicName, peerCount: this.peers.size })
   }
 
   async joinTradeTopic(tradeId: string): Promise<void> {
@@ -173,7 +176,7 @@ export class PearNode extends EventEmitter {
     const discovery = this.swarm.join(topicKey, { server: true, client: true })
     await discovery.flushed()
     this.topicAnnouncements.add(topicName)
-    console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] Joined trade topic ${tradeId.slice(0, 8)}`)
+    log.info({ msg: 'Joined trade topic', ownerUserId: this.ownerUserId, tradeId })
   }
 
   async leaveTradeTopic(tradeId: string): Promise<void> {
@@ -192,7 +195,7 @@ export class PearNode extends EventEmitter {
     const peerInfo = info as any
     const remotePeerId: string = peerInfo?.publicKey ? b4a.toString(peerInfo.publicKey, 'hex') : 'unknown'
 
-    console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] New connection from peer ${remotePeerId.slice(0, 16)}`)
+    log.info({ msg: 'New connection', ownerUserId: this.ownerUserId, remotePeerId })
     socket.write(JSON.stringify({ type: 'HANDSHAKE', userId: this.ownerUserId }))
 
     socket.on('data', async (data: Buffer) => {
@@ -212,11 +215,12 @@ export class PearNode extends EventEmitter {
         // never registered as the identity it claimed.
         const verified = await verifyHandshakeIdentity(msg.userId, remotePeerId)
         if (!verified) {
-          console.warn(
-            `[Pear:${this.ownerUserId.slice(0, 8)}] HANDSHAKE identity mismatch — peer ${remotePeerId.slice(0, 16)} ` +
-            `claimed userId ${typeof msg.userId === 'string' ? msg.userId.slice(0, 8) : String(msg.userId)}, but that ` +
-            'user\'s real peerId does not match this connection. Claim ignored — not registered in userPeerMap, no peer.connected emitted.'
-          )
+          log.warn({
+            msg: 'HANDSHAKE identity mismatch — claim ignored, not registered in userPeerMap, no peer.connected emitted',
+            ownerUserId: this.ownerUserId,
+            remotePeerId,
+            claimedUserId: typeof msg.userId === 'string' ? msg.userId : String(msg.userId),
+          })
           return
         }
 
@@ -229,7 +233,7 @@ export class PearNode extends EventEmitter {
         }
         this.peers.set(remotePeerId, peer)
         this.userPeerMap.set(msg.userId, remotePeerId)
-        console.log(`[Pear:${this.ownerUserId.slice(0, 8)}] Peer identified: user ${msg.userId.slice(0, 8)} → ${remotePeerId.slice(0, 16)}`)
+        log.info({ msg: 'Peer identified', ownerUserId: this.ownerUserId, remoteUserId: msg.userId, remotePeerId })
         // correlationId = userId (RFC-010). localUserId (RFC-011) is set
         // here — this is a real two-party handshake, unlike the
         // self-node-start peer.connected above — so handlers.ts can look up
@@ -241,7 +245,7 @@ export class PearNode extends EventEmitter {
           'peer.connected',
           { userId: msg.userId, peerId: remotePeerId, publicKey: remotePeerId, localUserId: this.ownerUserId },
           msg.userId
-        ).catch((err) => console.error('[Pear] Failed to publish peer.connected:', err))
+        ).catch((err) => log.error({ msg: 'Failed to publish peer.connected', ownerUserId: this.ownerUserId, err: err.message }))
         return
       }
 
@@ -258,12 +262,12 @@ export class PearNode extends EventEmitter {
         this.peers.delete(remotePeerId)
         this.userPeerMap.delete(peer.userId)
         eventBus.emit('peer.disconnected', { userId: peer.userId, peerId: remotePeerId }, peer.userId)   // correlationId = userId (RFC-010)
-          .catch((err) => console.error('[Pear] Failed to publish peer.disconnected:', err))
+          .catch((err) => log.error({ msg: 'Failed to publish peer.disconnected', ownerUserId: this.ownerUserId, err: err.message }))
       }
     })
 
     socket.on('error', (err: Error) => {
-      console.error(`[Pear:${this.ownerUserId.slice(0, 8)}] Connection error from ${remotePeerId.slice(0, 16)}:`, err.message)
+      log.error({ msg: 'Connection error', ownerUserId: this.ownerUserId, remotePeerId, err: err.message })
     })
   }
 

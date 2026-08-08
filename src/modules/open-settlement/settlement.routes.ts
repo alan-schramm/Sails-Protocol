@@ -415,6 +415,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
         success: false,
         error: 'NOT_FOUND',
         message: `No ArbiterProfile for ${targetId}`,
+        details: [],
       })
     }
     return reply.code(200).send(success(profile))
@@ -480,7 +481,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     }).parse(request.params)
     const record = await payoutAddressService.getPayoutAddress(targetId, asset as any)
     if (!record) {
-      return reply.code(404).send({ success: false, error: 'NOT_FOUND', message: `No PayoutAddress for ${targetId}/${asset}` })
+      return reply.code(404).send({ success: false, error: 'NOT_FOUND', message: `No PayoutAddress for ${targetId}/${asset}`, details: [] })
     }
     return reply.code(200).send(success(record))
   })

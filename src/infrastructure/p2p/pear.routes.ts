@@ -78,8 +78,13 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     const body = joinTopicSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
     const node = pearNodeRegistry.get(participantId)
+    // PRODUCTION_READINESS_FIXES.md P1 item 17, closed 2026-08-08 — 409
+    // is the right status here (a real precondition: caller hasn't
+    // started a node yet, not "this route doesn't exist"), but the
+    // error CODE said 'NOT_FOUND', mismatched with its own HTTP status.
+    // Same fix applied to the two other "no active node" checks below.
     if (!node) {
-      return reply.code(409).send({ success: false, error: 'NOT_FOUND', message: 'No active node — call POST /v1/peers/start first', details: [] })
+      return reply.code(409).send({ success: false, error: 'CONFLICT', message: 'No active node — call POST /v1/peers/start first', details: [] })
     }
     await node.joinTopic(body.topic)
     return reply.code(200).send({ success: true })
@@ -93,7 +98,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     const participantId = (request as AuthenticatedRequest).participantId
     const node = pearNodeRegistry.get(participantId)
     if (!node) {
-      return reply.code(409).send({ success: false, error: 'NOT_FOUND', message: 'No active node — call POST /v1/peers/start first', details: [] })
+      return reply.code(409).send({ success: false, error: 'CONFLICT', message: 'No active node — call POST /v1/peers/start first', details: [] })
     }
     await node.joinTradeTopic(body.tradeId)
     return reply.code(200).send({ success: true })
@@ -107,7 +112,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     const participantId = (request as AuthenticatedRequest).participantId
     const node = pearNodeRegistry.get(participantId)
     if (!node) {
-      return reply.code(409).send({ success: false, error: 'NOT_FOUND', message: 'No active node — call POST /v1/peers/start first', details: [] })
+      return reply.code(409).send({ success: false, error: 'CONFLICT', message: 'No active node — call POST /v1/peers/start first', details: [] })
     }
     const sent = node.broadcast({ kind: 'offer_announce', ...body })
     return reply.code(200).send({ success: true, data: { deliveredTo: sent } })

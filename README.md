@@ -1,5 +1,13 @@
 # Sails Protocol
 
+[![CI](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+<!-- No npm version badge yet — @sails/sdk isn't published to any npm
+     registry (confirmed via `npm view @sails/sdk`, 404). Add one the
+     day it actually publishes; a badge pointing at a 404 is worse than
+     no badge for a partner-facing README. -->
+
 **Open infrastructure for interoperable P2P Financial Marketplaces.**
 
 Today, every wallet has to rebuild marketplace, reputation, identity,
@@ -157,7 +165,11 @@ step, nothing to configure. Verified against a real, cold `docker compose
 up` (not just reviewed) before this was written.
 
 **If you're actively editing code** (hot-reload, not a rebuild per
-change):
+change): keep `docker compose up -d postgres redis` running for the
+dependencies, then run the server on the host instead of in a
+container — `npm install && npm run dev` (`ts-node-dev`, real
+respawn-on-save, no rebuild needed per change).
+
 ## Usage
 
 Below is a quick example demonstrating the core wallet methods provided by `SailsClient`. For a detailed API reference see [API.md](docs/API.md) and for more examples see [EXAMPLES.md](docs/EXAMPLES.md).
