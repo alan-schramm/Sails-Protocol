@@ -59,11 +59,23 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send({ success: true, data: trade })
   })
 
+  // SECURITY_AUDIT_REPORT.md §2, closed 2026-08-08 — this route had NO
+  // auth at all. getTrade() includes the trade's full `messages` history
+  // and `offer` (which carries the seller's real Offer.paymentDetails) —
+  // anyone who merely guessed or leaked a trade UUID could read a
+  // stranger's full negotiation + payment instructions. Same
+  // requireAuth + buyer/seller check every other trade-detail route in
+  // this file already uses (see e.g. the /reconcile handler below).
   app.get('/v1/openp2p/trades/:id', {
+    preHandler: requireAuth,
     schema: { tags: ['open-p2p'] },
   }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const participantId = (request as AuthenticatedRequest).participantId
     const trade = await tradeService.getTrade(id)
+    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
+      throw new ForbiddenError(`${participantId} is not a party to trade ${id}`)
+    }
     return reply.code(200).send({ success: true, data: trade })
   })
 
@@ -72,11 +84,19 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
   // own comment on getTradeByIntentId()). Registered as its own path
   // segment, not a query param on /trades/:id — no collision with that
   // route's :id matcher since find-my-way routes by segment count.
+  //
+  // Same SECURITY_AUDIT_REPORT.md §2 fix as /trades/:id above —
+  // getTradeByIntentId() returns the same offer/escrow-shaped trade.
   app.get('/v1/openp2p/trades/by-intent/:intentId', {
+    preHandler: requireAuth,
     schema: { tags: ['open-p2p'] },
   }, async (request, reply) => {
     const { intentId } = z.object({ intentId: z.string().min(1) }).parse(request.params)
+    const participantId = (request as AuthenticatedRequest).participantId
     const trade = await tradeService.getTradeByIntentId(intentId)
+    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
+      throw new ForbiddenError(`${participantId} is not a party to trade ${trade.id}`)
+    }
     return reply.code(200).send({ success: true, data: trade })
   })
 

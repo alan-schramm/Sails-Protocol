@@ -463,12 +463,26 @@ export class EscrowService {
     return totalFee
   }
 
-  async createEscrow(input: CreateEscrowInput) {
+  // SECURITY_AUDIT_REPORT.md §9 ("Escrow Bypass"), closed 2026-08-08 — this
+  // method had NO membership check at all: any authenticated participant
+  // could create an escrow against ANY trade, not just their own. Beyond
+  // exposing the trade to attacker-chosen `type`/`lockedAmount`/`asset`
+  // values, it was a real griefing vector — `trade.escrowId` being set
+  // permanently blocks the real parties' own createEscrow() call below
+  // (`EscrowError('Trade already has an escrow')`), so a stranger could
+  // brick any trade they could merely guess the id of. `participantId`
+  // required now — same "buyer or seller of the trade" bar every other
+  // trade-mutating method in this file already enforces (see e.g.
+  // submitParticipantKey()'s identical check a few lines below).
+  async createEscrow(input: CreateEscrowInput, participantId: string) {
     // Reads Trade only to validate existence — this is a read, not a write,
     // so it does not violate the module boundary (OpenSettlement may read
     // cross-module state; it must never WRITE to another module's tables).
     const trade = await prisma.trade.findUnique({ where: { id: input.tradeId } })
     if (!trade) throw new NotFoundError('Trade', input.tradeId)
+    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
+      throw new ForbiddenError(`${participantId} is not a counterparty (buyer or seller) of trade ${trade.id}`)
+    }
     if (trade.escrowId) throw new EscrowError('Trade already has an escrow')
 
     const type = input.type ?? (config.features.mockEscrow ? 'MOCK' : recommendedEscrowType(input.asset))
