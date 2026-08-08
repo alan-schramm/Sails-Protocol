@@ -11,6 +11,7 @@ import { liquidityRouter } from './liquidity.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import type { AssetType } from '../../common/types'
+import { docsOnlySchema } from '../../common/openapi'
 
 const assetSideQuerySchema = z.object({
   asset: z.string().min(1),
@@ -37,6 +38,10 @@ const createOfferSchema = z.object({
   requiresKyc: z.boolean().optional(),
 })
 
+const offerIdParamsSchema = z.object({ id: z.string().min(1) })
+
+const assetParamsSchema = z.object({ asset: z.string().min(1) })
+
 const updateStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED']),
 })
@@ -53,7 +58,7 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
   // description is not yet implemented (liquidityRouter.getAggregatedOffers
   // doesn't support it); documented here rather than silently dropped.
   app.get('/v1/liquidity/offers', {
-    schema: { tags: ['open-liquidity'] },
+    ...docsOnlySchema({ tags: ['open-liquidity'], querystring: assetSideQuerySchema }),
   }, async (request, reply) => {
     const query = assetSideQuerySchema.parse(request.query)
     const result = await liquidityRouter.getAggregatedOffers(query.asset as AssetType, query.side, {
@@ -65,7 +70,7 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/liquidity/offers', {
     preHandler: requireAuth,
-    schema: { tags: ['open-liquidity'] },
+    ...docsOnlySchema({ tags: ['open-liquidity'], body: createOfferSchema }),
   }, async (request, reply) => {
     const body = createOfferSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
@@ -88,17 +93,17 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
   // `/offers/mine` and `/offers/:id`, not just reasoned about
   // (tests/liquidityOfferRouteCollision.test.ts).
   app.get('/v1/liquidity/offers/:id', {
-    schema: { tags: ['open-liquidity'] },
+    ...docsOnlySchema({ tags: ['open-liquidity'], params: offerIdParamsSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = offerIdParamsSchema.parse(request.params)
     const offer = await liquidityRouter.getOffer(id)
     return reply.code(200).send({ success: true, data: offer })
   })
 
   app.get('/v1/liquidity/offers/:asset/book', {
-    schema: { tags: ['open-liquidity'] },
+    ...docsOnlySchema({ tags: ['open-liquidity'], params: assetParamsSchema }),
   }, async (request, reply) => {
-    const { asset } = z.object({ asset: z.string().min(1) }).parse(request.params)
+    const { asset } = assetParamsSchema.parse(request.params)
     const book = await liquidityRouter.getOrderBook(asset as AssetType)
     return reply.code(200).send({ success: true, data: book })
   })
@@ -120,9 +125,9 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch('/v1/liquidity/offers/:id/status', {
     preHandler: requireAuth,
-    schema: { tags: ['open-liquidity'] },
+    ...docsOnlySchema({ tags: ['open-liquidity'], params: offerIdParamsSchema, body: updateStatusSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = offerIdParamsSchema.parse(request.params)
     const body = updateStatusSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
     const offer = await liquidityRouter.updateOfferStatus(id, body.status, participantId)
@@ -130,7 +135,7 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.post('/v1/liquidity/match', {
-    schema: { tags: ['open-liquidity'] },
+    ...docsOnlySchema({ tags: ['open-liquidity'], body: matchSchema }),
   }, async (request, reply) => {
     const body = matchSchema.parse(request.body)
     const match = await liquidityRouter.findBestMatch(body.asset as AssetType, body.side, body.amount)

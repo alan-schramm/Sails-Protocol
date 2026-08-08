@@ -21,6 +21,7 @@ import { capabilityRegistry } from '../../core/capability-registry'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { config } from '../../config'
+import { docsOnlySchema } from '../../common/openapi'
 
 const registerSchema = z.object({
   capabilityName: z.string().min(1),
@@ -28,10 +29,14 @@ const registerSchema = z.object({
   constraints: z.record(z.string(), z.unknown()).optional(), // Zod v4 requires an explicit key schema
 })
 
+const participantIdParamsSchema = z.object({ participantId: z.string().min(1) })
+
+const grantIdParamsSchema = z.object({ grantId: z.string().min(1) })
+
 export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/capabilities/register', {
     preHandler: requireAuth,
-    schema: { tags: ['open-agents'] },
+    ...docsOnlySchema({ tags: ['open-agents'], body: registerSchema }),
   }, async (request, reply) => {
     const body = registerSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
@@ -48,9 +53,9 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get('/v1/capabilities/:participantId', {
-    schema: { tags: ['open-agents'] },
+    ...docsOnlySchema({ tags: ['open-agents'], params: participantIdParamsSchema }),
   }, async (request, reply) => {
-    const { participantId } = z.object({ participantId: z.string().min(1) }).parse(request.params)
+    const { participantId } = participantIdParamsSchema.parse(request.params)
     const grants = await capabilityRegistry.listGrants(participantId)
     return reply.code(200).send({ success: true, data: grants })
   })
@@ -61,9 +66,9 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/capabilities/:grantId/revoke', {
     preHandler: requireAuth,
     config: { rateLimit: { max: config.rateLimit.criticalMax, timeWindow: config.rateLimit.criticalTimeWindow } },
-    schema: { tags: ['open-agents'] },
+    ...docsOnlySchema({ tags: ['open-agents'], params: grantIdParamsSchema }),
   }, async (request, reply) => {
-    const { grantId } = z.object({ grantId: z.string().min(1) }).parse(request.params)
+    const { grantId } = grantIdParamsSchema.parse(request.params)
     const participantId = (request as AuthenticatedRequest).participantId
     await capabilityRegistry.revoke(grantId, participantId)
     return reply.code(200).send({ success: true })

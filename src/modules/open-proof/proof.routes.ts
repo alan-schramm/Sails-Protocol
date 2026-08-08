@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { proofService } from './proof.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
+import { docsOnlySchema } from '../../common/openapi'
 
 const assertClaimSchema = z.object({
   claimType: z.string().min(1),
@@ -40,10 +41,14 @@ const verifyProofSchema = z.object({
   reason: z.string().optional(),
 })
 
+const idParamsSchema = z.object({ id: z.string().min(1) })
+
+const tradeIdParamsSchema = z.object({ tradeId: z.string().min(1) })
+
 export async function proofRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/proof/claims', {
     preHandler: requireAuth,
-    schema: { tags: ['open-proof'] },
+    ...docsOnlySchema({ tags: ['open-proof'], body: assertClaimSchema }),
   }, async (request, reply) => {
     const body = assertClaimSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
@@ -58,7 +63,7 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/proof/proofs', {
     preHandler: requireAuth,
-    schema: { tags: ['open-proof'] },
+    ...docsOnlySchema({ tags: ['open-proof'], body: submitProofSchema }),
   }, async (request, reply) => {
     const body = submitProofSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
@@ -73,18 +78,18 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/proof/proofs/:id/verify-nonce', {
     preHandler: requireAuth,
-    schema: { tags: ['open-proof'] },
+    ...docsOnlySchema({ tags: ['open-proof'], params: idParamsSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = idParamsSchema.parse(request.params)
     const result = await proofService.issueVerificationNonce(id)
     return reply.code(200).send({ success: true, data: result })
   })
 
   app.post('/v1/proof/proofs/:id/verify', {
     preHandler: requireAuth,
-    schema: { tags: ['open-proof'] },
+    ...docsOnlySchema({ tags: ['open-proof'], params: idParamsSchema, body: verifyProofSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = idParamsSchema.parse(request.params)
     const body = verifyProofSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
     const verification = await proofService.verifyProof(id, participantId, body.verdict, body.nonce, body.reason)
@@ -93,9 +98,9 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/v1/proof/claims/:id/bundle', {
     preHandler: requireAuth,
-    schema: { tags: ['open-proof'] },
+    ...docsOnlySchema({ tags: ['open-proof'], params: idParamsSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = idParamsSchema.parse(request.params)
     const bundle = await proofService.getEvidenceBundle(id)
     return reply.code(200).send({ success: true, data: bundle })
   })
@@ -108,9 +113,9 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
   // not to a client-supplied participantId).
   app.post('/v1/proof/proofs/:id/evidence', {
     preHandler: requireAuth,
-    schema: { tags: ['open-proof'] },
+    ...docsOnlySchema({ tags: ['open-proof'], params: idParamsSchema, body: attachEvidenceSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = idParamsSchema.parse(request.params)
     const body = attachEvidenceSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
     const media = Buffer.from(body.mediaBase64, 'base64')
@@ -125,9 +130,9 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
   // warranted, per that RFC's own D1).
   app.post('/v1/proof/evidence/:id/anchor', {
     preHandler: requireAuth,
-    schema: { tags: ['open-proof'] },
+    ...docsOnlySchema({ tags: ['open-proof'], params: idParamsSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = idParamsSchema.parse(request.params)
     const reference = await proofService.anchorEvidence(id)
     return reply.code(200).send({ success: true, data: reference })
   })
@@ -136,9 +141,9 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
   // same "read by id needs no auth" precedent GET /v1/settlement/escrow/:id
   // and GET /v1/settlement/disputes/:id already established.
   app.get('/v1/proof/trades/:tradeId/bundle', {
-    schema: { tags: ['open-proof'] },
+    ...docsOnlySchema({ tags: ['open-proof'], params: tradeIdParamsSchema }),
   }, async (request, reply) => {
-    const { tradeId } = z.object({ tradeId: z.string().min(1) }).parse(request.params)
+    const { tradeId } = tradeIdParamsSchema.parse(request.params)
     const bundle = await proofService.getEvidenceBundleForTrade(tradeId)
     return reply.code(200).send({ success: true, data: bundle })
   })

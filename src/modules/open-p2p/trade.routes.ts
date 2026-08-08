@@ -10,6 +10,7 @@ import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
+import { docsOnlySchema } from '../../common/openapi'
 
 const createTradeSchema = z.object({
   offerId: z.string().min(1),
@@ -29,6 +30,10 @@ const reconcileSchema = z.object({
   sinceMessageCreatedAt: z.coerce.date().optional(),
 })
 
+const tradeIdParamsSchema = z.object({ id: z.string().min(1) })
+
+const intentIdParamsSchema = z.object({ intentId: z.string().min(1) })
+
 export async function tradeRoutes(app: FastifyInstance): Promise<void> {
   // Fase 2 (SDK React) — see trade.service.ts's getTrades() comment for
   // why this didn't exist before. requireAuth because this is inherently
@@ -37,7 +42,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
   // an unguessable id and have never required auth.
   app.get('/v1/openp2p/trades', {
     preHandler: requireAuth,
-    schema: { tags: ['open-p2p'] },
+    ...docsOnlySchema({ tags: ['open-p2p'], querystring: listTradesSchema }),
   }, async (request, reply) => {
     const query = listTradesSchema.parse(request.query)
     const participantId = (request as AuthenticatedRequest).participantId
@@ -47,7 +52,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/openp2p/trades', {
     preHandler: requireAuth,
-    schema: { tags: ['open-p2p'] },
+    ...docsOnlySchema({ tags: ['open-p2p'], body: createTradeSchema }),
   }, async (request, reply) => {
     const body = createTradeSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
@@ -68,9 +73,9 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
   // this file already uses (see e.g. the /reconcile handler below).
   app.get('/v1/openp2p/trades/:id', {
     preHandler: requireAuth,
-    schema: { tags: ['open-p2p'] },
+    ...docsOnlySchema({ tags: ['open-p2p'], params: tradeIdParamsSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = tradeIdParamsSchema.parse(request.params)
     const participantId = (request as AuthenticatedRequest).participantId
     const trade = await tradeService.getTrade(id)
     if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
@@ -89,9 +94,9 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
   // getTradeByIntentId() returns the same offer/escrow-shaped trade.
   app.get('/v1/openp2p/trades/by-intent/:intentId', {
     preHandler: requireAuth,
-    schema: { tags: ['open-p2p'] },
+    ...docsOnlySchema({ tags: ['open-p2p'], params: intentIdParamsSchema }),
   }, async (request, reply) => {
-    const { intentId } = z.object({ intentId: z.string().min(1) }).parse(request.params)
+    const { intentId } = intentIdParamsSchema.parse(request.params)
     const participantId = (request as AuthenticatedRequest).participantId
     const trade = await tradeService.getTradeByIntentId(intentId)
     if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
@@ -102,9 +107,9 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch('/v1/openp2p/trades/:id/status', {
     preHandler: requireAuth,
-    schema: { tags: ['open-p2p'] },
+    ...docsOnlySchema({ tags: ['open-p2p'], params: tradeIdParamsSchema, body: updateStatusSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = tradeIdParamsSchema.parse(request.params)
     const body = updateStatusSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
     const trade = await tradeService.updateStatus(id, body.status, participantId)
@@ -126,9 +131,9 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
   // one just because it's a "reconciliation" endpoint.
   app.post('/v1/openp2p/trades/:id/reconcile', {
     preHandler: requireAuth,
-    schema: { tags: ['open-p2p'] },
+    ...docsOnlySchema({ tags: ['open-p2p'], params: tradeIdParamsSchema, body: reconcileSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = tradeIdParamsSchema.parse(request.params)
     const body = reconcileSchema.parse(request.body ?? {})
     const participantId = (request as AuthenticatedRequest).participantId
 

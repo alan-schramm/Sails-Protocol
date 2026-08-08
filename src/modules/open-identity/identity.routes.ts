@@ -13,11 +13,14 @@ import { identityService } from './identity.service'
 import { issueChallenge, verifySignedChallenge, requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { config } from '../../config'
+import { docsOnlySchema } from '../../common/openapi'
 
 const registerSchema = z.object({
   publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be a 64-character hex-encoded Ed25519 public key'),
   displayName: z.string().optional(),
 })
+
+const participantIdParamsSchema = z.object({ id: z.string().min(1) })
 
 const challengeSchema = z.object({
   publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be a 64-character hex-encoded Ed25519 public key'),
@@ -30,7 +33,7 @@ const authenticateSchema = z.object({
 
 export async function identityRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/identity/participants', {
-    schema: { tags: ['open-identity'] },
+    ...docsOnlySchema({ tags: ['open-identity'], body: registerSchema }),
   }, async (request, reply) => {
     const body = registerSchema.parse(request.body)
     const participant = await identityService.register(body)
@@ -38,9 +41,9 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.get('/v1/identity/participants/:id', {
-    schema: { tags: ['open-identity'] },
+    ...docsOnlySchema({ tags: ['open-identity'], params: participantIdParamsSchema }),
   }, async (request, reply) => {
-    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { id } = participantIdParamsSchema.parse(request.params)
     const participant = await identityService.getParticipant(id)
     return reply.code(200).send({ success: true, data: participant })
   })
@@ -51,7 +54,7 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
   // rather than sharing the general API's more permissive ones.
   app.post('/v1/identity/challenge', {
     config: { rateLimit: { max: config.rateLimit.authMax, timeWindow: config.rateLimit.authTimeWindow } },
-    schema: { tags: ['open-identity'] },
+    ...docsOnlySchema({ tags: ['open-identity'], body: challengeSchema }),
   }, async (request, reply) => {
     const body = challengeSchema.parse(request.body)
     const result = await issueChallenge(body.publicKey)
@@ -60,7 +63,7 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/identity/authenticate', {
     config: { rateLimit: { max: config.rateLimit.authMax, timeWindow: config.rateLimit.authTimeWindow } },
-    schema: { tags: ['open-identity'] },
+    ...docsOnlySchema({ tags: ['open-identity'], body: authenticateSchema }),
   }, async (request, reply) => {
     const body = authenticateSchema.parse(request.body)
     const result = await verifySignedChallenge(body.publicKey, body.signature)

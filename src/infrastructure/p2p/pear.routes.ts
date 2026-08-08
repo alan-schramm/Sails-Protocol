@@ -13,6 +13,7 @@ import { pearNodeRegistry } from './pear.service'
 import { fallbackTransportProvider } from './transport-provider'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
+import { docsOnlySchema } from '../../common/openapi'
 
 const startSchema = z.object({
   secretKey: z.string().min(1), // base64 — see pear.service.ts's PearNode.start()
@@ -36,7 +37,7 @@ const broadcastOfferSchema = z.object({
 export async function peerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/peers/start', {
     preHandler: requireAuth,
-    schema: { tags: ['peers'] },
+    ...docsOnlySchema({ tags: ['peers'], body: startSchema }),
   }, async (request, reply) => {
     const body = startSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
@@ -73,7 +74,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/peers/join-topic', {
     preHandler: requireAuth,
-    schema: { tags: ['peers'] },
+    ...docsOnlySchema({ tags: ['peers'], body: joinTopicSchema }),
   }, async (request, reply) => {
     const body = joinTopicSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
@@ -92,7 +93,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/peers/join-trade', {
     preHandler: requireAuth,
-    schema: { tags: ['peers'] },
+    ...docsOnlySchema({ tags: ['peers'], body: joinTradeSchema }),
   }, async (request, reply) => {
     const body = joinTradeSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
@@ -106,7 +107,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/v1/peers/broadcast-offer', {
     preHandler: requireAuth,
-    schema: { tags: ['peers'] },
+    ...docsOnlySchema({ tags: ['peers'], body: broadcastOfferSchema }),
   }, async (request, reply) => {
     const body = broadcastOfferSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId

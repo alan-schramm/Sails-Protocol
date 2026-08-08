@@ -450,9 +450,73 @@ paralelo.
 
 ---
 
-### 21. Adicionar OpenAPI schemas nas rotas
+### 21. Adicionar OpenAPI schemas nas rotas — ✅ FEITO (2026-08-08, body/params/querystring)
 
-**Esforço:** 1-2 semanas. Cada rota precisa de `schema: { body, response, params }` no schema do Fastify.
+**Esforço original estimado:** 1-2 semanas. Cada rota precisa de
+`schema: { body, response, params }` no schema do Fastify.
+
+**Escopo real fechado:** `body`/`params`/`querystring` em todas as 22
+rotas HTTP reais que tinham um schema Zod próprio pra reaproveitar
+(9 dos 11 arquivos de rota — `intentRoutes.ts` já tinha schema real
+pré-existente em 2 rotas, não mexido; `relay.routes.ts` é WebSocket puro,
+sem body/params). `schema.response` deliberadamente **não** incluído
+neste pass — ver nota abaixo.
+
+**Dois riscos reais encontrados e neutralizados antes de tocar em
+qualquer rota** (`src/common/openapi.ts`'s próprio header comment tem o
+detalhe completo):
+
+1. Um `schema.body` ingênuo faria o ajv do próprio Fastify validar a
+   requisição e rejeitar automaticamente ANTES do handler rodar, com o
+   formato de erro genérico do Fastify — quebrando silenciosamente o
+   contrato `VALIDATION_ERROR` que `packages/sails-sdk/src/errors.ts` já
+   documenta e todo consumidor do SDK depende.
+2. `attachValidation: true` evita a rejeição automática, mas o ajv ainda
+   RODA e, com `coerceTypes` (padrão do Fastify), **muda o corpo da
+   requisição silenciosamente** antes do handler ver (`voucheeId: 123`
+   virou `"123"` e passou no `.parse()` do Zod, que deveria ter
+   rejeitado) — confirmado com um `app.inject()` real, não assumido.
+
+**Solução**: `validatorCompiler: () => () => true` por rota — o schema
+fica só para o `@fastify/swagger` documentar; nenhuma validação real do
+Fastify roda, o `.parse()` do próprio handler continua sendo a única
+coisa que de fato valida/rejeita, comportamento externo 100% idêntico ao
+de antes. Empacotado em `docsOnlySchema()` para não repetir esse detalhe
+em cada uma das 22 rotas.
+
+Usa `z.toJSONSchema()` nativo do Zod v4, não o pacote `zod-to-json-schema`
+— testado primeiro, mas sua versão 3.25.2 produz um schema **vazio**
+contra um objeto Zod v4 real (não introspecta a estrutura interna nova
+corretamente), apesar de declarar zod v4 como peer válido. Achado
+rodando os dois lado a lado antes de escolher, não assumido de nenhum
+dos dois.
+
+**Bug real encontrado e corrigido no processo**: `z.toJSONSchema()`
+lança uma exceção em tempo de registro de rota (`buildApp()`, não por
+requisição — derrubaria o servidor inteiro no boot) para qualquer campo
+sem representação nativa em JSON Schema, como `z.coerce.date()`
+(rota `/v1/openp2p/trades/:id/reconcile`) — corrigido com
+`unrepresentable: 'any'`.
+
+**Efeito colateral corrigido**: `tests/healthLiveReady.test.ts` (que já
+faz `buildApp()` frio por teste) passou a estourar o timeout padrão de
+5000ms do Jest com o custo extra, mesmo pequeno, de gerar ~30 schemas a
+mais no boot — mesmo ajuste (`jest.setTimeout(30_000)`) que
+`tests/cors.test.ts`/`tests/routes.test.ts` já usam pelo mesmo motivo.
+
+**Por que `schema.response` ficou de fora**: diferente de
+`body`/`params`/`querystring`, um `schema.response` no Fastify não é só
+documentação — ele controla a **serialização real** da resposta via
+`fast-json-stringify`, e um schema incompleto **remove campos
+silenciosamente** de toda resposta daquela rota. Documentar isso com
+segurança exige revisar campo a campo o retorno real de cada rota, não
+um wire-up em lote — deixado como o próximo passo real deste item, não
+esquecido.
+
+Verificado: `npx tsc --noEmit` limpo; suíte completa 762/762 (isolando
+as 6 suítes já conhecidas por instabilidade sob carga paralela); e um
+teste descartável confirmando que `app.swagger()` mostra o schema real
+(`voucheeId`, `tradeId`, `lockedAmount` etc.) para rotas reais.
 
 ---
 

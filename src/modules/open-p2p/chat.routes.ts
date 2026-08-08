@@ -48,6 +48,7 @@ import { resolveParticipantFromToken } from '../../common/middleware/ws-auth'
 import { joinRoom, leaveRoom, broadcastToTrade, type RoomMember } from './chat-room-registry'
 import { pearNodeRegistry } from '../../infrastructure/p2p/pear.service'
 import { wireInboundNegotiationChannel } from './negotiation.service'
+import { docsOnlySchema } from '../../common/openapi'
 
 // Auto-push escrow/trade status changes to whoever's currently watching
 // that trade's room — API_REFERENCE.md's TRADE_STATUS_UPDATE/
@@ -76,6 +77,12 @@ const sendMessageSchema = z.object({
   tradeId: z.string().min(1),
   content: z.string().min(1).max(10000),
   msgType: z.enum(['TEXT', 'IMAGE', 'FILE']).default('TEXT'),
+})
+
+const tradeIdParamsSchema = z.object({ tradeId: z.string().min(1) })
+const paginationQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
 })
 
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
@@ -207,13 +214,10 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
   // content readable by anyone who guessed a tradeId.
   app.get('/v1/openp2p/chat/:tradeId/messages', {
     preHandler: requireAuth,
-    schema: { tags: ['open-p2p'] },
+    ...docsOnlySchema({ tags: ['open-p2p'], params: tradeIdParamsSchema, querystring: paginationQuerySchema }),
   }, async (request, reply) => {
-    const { tradeId } = z.object({ tradeId: z.string().min(1) }).parse(request.params)
-    const { limit, offset } = z.object({
-      limit: z.coerce.number().int().min(1).max(100).optional(),
-      offset: z.coerce.number().int().min(0).optional(),
-    }).parse(request.query)
+    const { tradeId } = tradeIdParamsSchema.parse(request.params)
+    const { limit, offset } = paginationQuerySchema.parse(request.query)
     const participantId = (request as AuthenticatedRequest).participantId
     const trade = await prisma.trade.findUnique({ where: { id: tradeId } })
     if (!trade) throw new NotFoundError('Trade', tradeId)
