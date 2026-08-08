@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { tradeService } from './trade.service'
 import { reconciliationService } from './reconciliation.service'
 import { requireAuth } from '../../common/middleware/auth'
+import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
 
@@ -20,8 +21,8 @@ const updateStatusSchema = z.object({
 })
 
 const listTradesSchema = z.object({
-  limit: z.coerce.number().int().optional(),
-  offset: z.coerce.number().int().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
 })
 
 const reconcileSchema = z.object({
@@ -39,7 +40,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-p2p'] },
   }, async (request, reply) => {
     const query = listTradesSchema.parse(request.query)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const result = await tradeService.getTrades(participantId, query)
     return reply.code(200).send({ success: true, data: result })
   })
@@ -49,7 +50,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-p2p'] },
   }, async (request, reply) => {
     const body = createTradeSchema.parse(request.body)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const trade = await tradeService.createTrade({
       offerId: body.offerId,
       counterpartyId: participantId,
@@ -85,7 +86,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
     const body = updateStatusSchema.parse(request.body)
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
     const trade = await tradeService.updateStatus(id, body.status, participantId)
     return reply.code(200).send({ success: true, data: trade })
   })
@@ -109,7 +110,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
     const body = reconcileSchema.parse(request.body ?? {})
-    const participantId = (request as any).participantId as string
+    const participantId = (request as AuthenticatedRequest).participantId
 
     const trade = await prisma.trade.findUnique({ where: { id } })
     if (!trade) throw new NotFoundError('Trade', id)

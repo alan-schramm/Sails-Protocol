@@ -53,6 +53,29 @@ export interface LiquidityProvider {
   matchOrder(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null>
 }
 
+// ─── Pagination ────────────────────────────────────────────────────────────────
+// One source of truth for limit/offset clamping — same convention every other
+// paginated list in this codebase already follows (trade.service.ts's
+// getTrades(), dispute.service.ts's listForArbiter(), routes.test.ts's own
+// zod schemas). Keep it as a pure helper so both providers and the router can
+// reuse it.
+function normalizePagination(pagination?: OfferPagination): { limit: number; offset: number } {
+  const limit = Math.min(Math.max(pagination?.limit ?? 10, 1), 50)
+  const offset = Math.max(pagination?.offset ?? 0, 0)
+  return { limit, offset }
+}
+
+// Number() coercion here is intentional and safe — a sort comparator only
+// needs correct relative order, not exact arithmetic, so float precision
+// is immaterial (unlike a stored/computed amount). See RFC-009.
+function compareByPriceDesc(a: LiquidityOffer, b: LiquidityOffer): number {
+  return Number(b.priceUsd) - Number(a.priceUsd)
+}
+
+function compareByPriceAsc(a: LiquidityOffer, b: LiquidityOffer): number {
+  return Number(a.priceUsd) - Number(b.priceUsd)
+}
+
 // ─── Shared mapping helper (was duplicated in getOffers + matchOrder) ────────
 // priceUsd/minAmount/maxAmount are Prisma.Decimal here (internal, module-local
 // shape reading straight off a query result) — converted to decimal string
@@ -92,8 +115,7 @@ class InternalOrderBook implements LiquidityProvider {
   }
 
   async getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination): Promise<LiquidityOffer[]> {
-    const limit = Math.min(Math.max(pagination?.limit ?? 10, 1), 50)
-    const offset = Math.max(pagination?.offset ?? 0, 0)
+    const { limit, offset } = normalizePagination(pagination)
     const offers = await prisma.offer.findMany({
       where: { asset, side, status: 'ACTIVE' },
       orderBy: { priceUsd: side === 'SELL' ? 'asc' : 'desc' },
@@ -162,42 +184,43 @@ export interface CreateOfferInput {
   requiresKyc?: boolean
 }
 
+// RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) — an Offer is
+// conceptually a published, discoverable TradeIntent
+// (PROTOCOL_SPECIFICATION.md §1.11); the payload's maxValue/minValue are the
+// offer's total fiat range (priceUsd × the amount bounds already validated by
+// this route's caller), decimal strings per RFC-009 — never a JS number.
+function buildTradeIntentPayload(input: CreateOfferInput): TradeIntentPayload {
+  return {
+    asset: input.asset,
+    side: input.side,
+    maxValue: (Number(input.priceUsd) * Number(input.maxAmount)).toFixed(8),
+    minValue: (Number(input.priceUsd) * Number(input.minAmount)).toFixed(8),
+    fiatMethod: input.paymentMethod,
+    network: input.network,
+  }
+}
+
 // ─── Router: tries providers in order, aggregates and ranks ──────────────────
 export class LiquidityRouter {
-  private providers: LiquidityProvider[]
+  private readonly providers: LiquidityProvider[]
 
   constructor() {
     this.providers = [new InternalOrderBook(), new HodlHodlProvider()]
   }
 
   async createOffer(input: CreateOfferInput) {
-    // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) —
-    // an Offer is conceptually a published, discoverable TradeIntent
-    // (PROTOCOL_SPECIFICATION.md §1.11); this is the point that
-    // relationship becomes a real row, not just a documented claim. The
-    // payload's maxValue/minValue are the offer's total fiat range
-    // (priceUsd × the amount bounds already validated by this route's
-    // caller), decimal strings per RFC-009 — never a JS number.
-    const intentPayload: TradeIntentPayload = {
-      asset: input.asset,
-      side: input.side,
-      maxValue: (Number(input.priceUsd) * Number(input.maxAmount)).toFixed(8),
-      minValue: (Number(input.priceUsd) * Number(input.minAmount)).toFixed(8),
-      fiatMethod: input.paymentMethod,
-      network: input.network,
-    }
-    const intent = await intentEngine.create('TradeIntent', intentPayload, input.userId)
+    const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId)
 
     const offer = await prisma.offer.create({
       data: {
         userId: input.userId,
-        asset: input.asset as any,
-        side: input.side as any,
+        asset: input.asset,
+        side: input.side,
         priceUsd: input.priceUsd,
         priceBrl: input.priceBrl,
         minAmount: input.minAmount,
         maxAmount: input.maxAmount,
-        paymentMethod: input.paymentMethod as any,
+        paymentMethod: input.paymentMethod,
         paymentDetails: input.paymentDetails,
         network: input.network,
         description: input.description,
@@ -308,28 +331,42 @@ export class LiquidityRouter {
     asset: AssetType,
     side: TradeSide,
     pagination?: OfferPagination
-  ): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
-    const all: LiquidityOffer[] = []
+  ): Promise<{ offers: LiquidityOffer[]; sources: string[]; total: number; hasMore: boolean }> {
+    const { offers: all, sources } = await this.collectFromProviders(asset, side)
+
+    // Number() coercion here is intentional and safe — a sort comparator only
+    // needs correct relative order, not exact arithmetic, so float precision
+    // is immaterial (unlike a stored/computed amount). See RFC-009.
+    const sorted = all.sort(side === 'BUY' ? compareByPriceDesc : compareByPriceAsc)
+
+    const { limit, offset } = normalizePagination(pagination)
+    const paginated = sorted.slice(offset, offset + limit)
+    const total = sorted.length
+    const hasMore = offset + limit < total
+
+    return { offers: paginated, sources, total, hasMore }
+  }
+
+  // Same `try/continue on failure` discipline the router's findBestMatch()
+  // already uses — a single provider going down (e.g. HodlHodl API auth
+  // expiring) should never take the whole discovery endpoint down with it.
+  // Extracted so the for-loop body is the single source of truth for
+  // "what counts as a provider succeeding."
+  private async collectFromProviders(asset: AssetType, side: TradeSide): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
+    const offers: LiquidityOffer[] = []
     const sources: string[] = []
 
     for (const provider of this.providers) {
       try {
         if (!(await provider.isAvailable())) continue
-        const offers = await provider.getOffers(asset, side, pagination)
-        all.push(...offers)
+        offers.push(...await provider.getOffers(asset, side))
         sources.push(provider.name)
       } catch (err) {
         console.error(`[Router] Provider ${provider.name} failed:`, err)
       }
     }
 
-    // Number() coercion here is intentional and safe — a sort comparator only
-    // needs correct relative order, not exact arithmetic, so float precision
-    // is immaterial (unlike a stored/computed amount). See RFC-009.
-    const sorted = all.sort((a, b) =>
-      side === 'BUY' ? Number(a.priceUsd) - Number(b.priceUsd) : Number(b.priceUsd) - Number(a.priceUsd)
-    )
-    return { offers: sorted, sources }
+    return { offers, sources }
   }
 
   async findBestMatch(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null> {

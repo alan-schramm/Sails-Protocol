@@ -172,12 +172,22 @@ export class ReputationService {
     return this.getScore(user.id)
   }
 
-  async getLeaderboard(limit = 20) {
-    return prisma.user.findMany({
-      orderBy: { reputationScore: 'desc' },
-      take: limit,
-      select: { id: true, displayName: true, reputationScore: true, totalTrades: true },
-    })
+  async getLeaderboard(limit = 20, offset = 0) {
+    const [items, total] = await Promise.all([
+      prisma.user.findMany({
+        orderBy: { reputationScore: 'desc' },
+        take: limit,
+        skip: offset,
+        select: { id: true, displayName: true, reputationScore: true, totalTrades: true },
+      }),
+      prisma.user.count(),
+    ])
+    return {
+      items,
+      total,
+      hasMore: offset + items.length < total,
+      nextOffset: offset + items.length < total ? offset + items.length : null,
+    }
   }
 }
 

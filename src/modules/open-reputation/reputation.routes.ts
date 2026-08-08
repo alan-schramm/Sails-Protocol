@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { reputationService } from './reputation.service'
 import { vouchService } from './vouch.service'
 import { requireAuth } from '../../common/middleware/auth'
+import type { AuthenticatedRequest } from '../../common/middleware/auth'
 
 const rateSchema = z.object({
   tradeId: z.string().min(1),
@@ -26,8 +27,11 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
   app.get('/v1/reputation/leaderboard', {
     schema: { tags: ['open-reputation'] },
   }, async (request, reply) => {
-    const { limit } = z.object({ limit: z.coerce.number().int().min(1).max(100).optional() }).parse(request.query)
-    const leaderboard = await reputationService.getLeaderboard(limit)
+    const { limit, offset } = z.object({
+      limit: z.coerce.number().int().min(1).max(100).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+    }).parse(request.query)
+    const leaderboard = await reputationService.getLeaderboard(limit, offset)
     return reply.code(200).send({ success: true, data: leaderboard })
   })
 
@@ -56,7 +60,7 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-reputation'] },
   }, async (request, reply) => {
     const body = rateSchema.parse(request.body)
-    const raterId = (request as any).participantId as string
+    const raterId = (request as AuthenticatedRequest).participantId
     const event = await reputationService.rate(body.tradeId, raterId, body.ratedId, body.score, body.comment)
     return reply.code(201).send({ success: true, data: event })
   })
@@ -70,7 +74,7 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['open-reputation'] },
   }, async (request, reply) => {
     const body = vouchSchema.parse(request.body)
-    const voucherId = (request as any).participantId as string
+    const voucherId = (request as AuthenticatedRequest).participantId
     const vouch = await vouchService.vouchFor(voucherId, body.voucheeId)
     return reply.code(201).send({ success: true, data: vouch })
   })

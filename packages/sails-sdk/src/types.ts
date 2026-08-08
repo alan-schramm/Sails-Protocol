@@ -161,6 +161,15 @@ export interface Proof {
   submittedAt: string
 }
 
+export interface Verification {
+  id: string
+  proofId: string
+  verifiedBy: string
+  verdict: 'ACCEPTED' | 'REJECTED'
+  reason: string | null
+  verifiedAt: string
+}
+
 // Phase 2 (2026-07-27) — the in-flight signature-collection round for a
 // MULTISIG release/refund (escrow.service.ts's initiateRelease()/
 // initiateRefund()/submitTransactionSignature()). Mirrors
@@ -234,8 +243,35 @@ export interface ReputationScore {
   publicKey: string
   displayName: string | null
   reputationScore: number
+  total: number
+  tradeScore: number
+  volumeScore: number
+  settlementScore: number
+  disputeRate: number
   totalTrades: number
   disputeCount: number
+  cumulativeFeesObserved: string
+}
+
+// GET /v1/reputation/leaderboard's real Prisma `select` (reputation.service.ts's
+// getLeaderboard()) only ever returns these 4 fields — never the full
+// ReputationScore shape (no publicKey/tradeScore/volumeScore/settlementScore/
+// disputeRate/disputeCount/cumulativeFeesObserved on a leaderboard row).
+export interface LeaderboardEntry {
+  id: string
+  displayName: string | null
+  reputationScore: number
+  totalTrades: number
+}
+
+// Same pagination convention as PaginatedTrades/PaginatedDisputes above,
+// plus nextOffset (the real value getLeaderboard() computes) for a caller
+// that wants to page without re-deriving offset + items.length itself.
+export interface LeaderboardResult {
+  items: LeaderboardEntry[]
+  total: number
+  hasMore: boolean
+  nextOffset: number | null
 }
 
 // RFC-021 D7 — real peer vouching, not a KYC/identity-linking primitive.
