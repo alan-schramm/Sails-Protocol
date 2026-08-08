@@ -28,8 +28,42 @@ silently as a side effect of tagging a release candidate.
 
 ## [Unreleased]
 
-Nothing yet — everything up to this point has been folded into
-`v1.0.0-rc1` below.
+### Added
+- `WebSocketChannel` now sends a real heartbeat (`PING` every 30s by default,
+  force-closes if no `PONG` arrives within 60s) to catch "zombie
+  connections" — a socket object that's still open but whose underlying
+  network path silently died, with no `close` event ever firing on its own
+  (CTO_DUE_DILIGENCE_REPORT.md A-STA-03, closed 2026-08-08). The force-close
+  feeds into the exact same reconnect-with-backoff path a real network drop
+  already uses. New `WebSocketChannelOptions` fields: `heartbeat` (default
+  `true`), `heartbeatIntervalMs` (default `30000`), `heartbeatTimeoutMs`
+  (default `60000`) — all additive, no existing caller's code needs to
+  change. The server side (`chat.routes.ts`) already answered `PING` with
+  `PONG`; only the client side was silent.
+- `SailsClient.proof` — now exposes the `SailsProofModule` (RFC-006, RFC-007) as
+  `client.proof`, with `assertClaim()`, `submitProof()`, `issueVerificationNonce()`,
+  `verifyProof()`, and `getEvidenceBundle()`. Previously the module existed as a
+  standalone export but was never wired onto `SailsClient`.
+- `Proof` and `Verification` types exported from the package root (both were
+  already defined in `types.ts` but not re-exported from `index.ts`).
+- `useSailsProof()` React hook in `@sails/sdk-react` — wraps all five
+  `SailsProofModule` methods with TanStack Query (`getEvidenceBundle` query,
+  `assertClaim`/`submitProof`/`issueVerificationNonce`/`verifyProof` mutations).
+  10 tests (5 success-path + 5 error-state) added to `tests/useSailsProof.test.tsx`.
+
+### Changed
+- `liquidity.discover()` (and the underlying backend
+  `LiquidityRouter.getAggregatedOffers()`) now returns `{ offers, sources,
+  total, hasMore }` instead of `{ offers, sources }`. The backend now applies
+  global pagination (sort-then-slice across all aggregated providers) rather
+  than per-provider pagination, and returns the total count and `hasMore`
+  flag directly. `getOrderBook()` is unaffected — it only reads `.offers`
+  from each side's result.
+- `docs/SDK_GUIDE.md` section 2 updated to document `discove()`'s new
+  `DiscoverResult` shape (with `total`/`hasMore`), plus the previously-undocumented
+  `approveRelease()`, `getReleaseApprovals()`, `registerArbiter()`,
+  `getArbiterProfile()`, `reconcileTrade()`, `getScoreByPeerId()`, and the
+  full `proof:` namespace.
 
 ## [1.0.0-rc1] - 2026-07-20
 

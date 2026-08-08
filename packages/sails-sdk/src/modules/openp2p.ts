@@ -2,21 +2,22 @@
  * @sails/sdk — Sails OpenP2P module (verified against
  * src/modules/open-p2p/trade.routes.ts and chat.routes.ts directly).
  *
- * Deviation from SDK_GUIDE.md section 2's literal signature, noted rather
- * than silently matched: that doc specifies `trade(offerId: string):
- * Promise<Trade>`, but `POST /v1/openp2p/trades`'s real body requires
- * `amount` too (trade.routes.ts) — a two-arg call that omits it would
- * just 400 at runtime, which is worse than an honest three-arg signature
- * here. Flagged for SDK_GUIDE.md to reconcile, not fixed by dropping a
- * required field.
+ * Deviation from an earlier draft of SDK_GUIDE.md section 2's signature:
+ * that doc originally specified `trade(offerId: string): Promise<Trade>`,
+ * but `POST /v1/openp2p/trades`'s real body requires `amount` too
+ * (trade.routes.ts) — a two-arg call that omits it would just 400 at
+ * runtime, which is worse than an honest three-arg signature here.
+ * SDK_GUIDE.md section 2 has since been reconciled (now reads
+ * `trade(offerId: string, amount: string): Promise<Trade>`); the section 4
+ * example still omits `amount` and remains to be fixed.
  */
-import type { SailsTransport } from '../transport'
-import type { Message, PaginatedTrades, Trade } from '../types'
-import { SailsTransportError } from '../errors'
+import type { SailsTransport } from "../transport";
+import type { Message, PaginatedTrades, Trade } from "../types";
+import { SailsTransportError } from "../errors";
 
 export interface ChatFrame {
-  type: string
-  payload: unknown
+  type: string;
+  payload: unknown;
 }
 
 // The real shape of a NEW_MESSAGE frame's payload
@@ -29,25 +30,31 @@ export interface ChatFrame {
 // (packages/sails-ui's Trade screen) — invisible to this SDK's own
 // tests, which never exercise a live WS round trip.
 export interface ChatMessageEvent {
-  messageId: string
-  tradeId: string
-  senderId: string
-  content: string
-  msgType: string
-  timestamp: string
+  messageId: string;
+  tradeId: string;
+  senderId: string;
+  content: string;
+  msgType: string;
+  timestamp: string;
 }
 
-export type WebSocketConnectionState = 'open' | 'reconnecting' | 'closed'
+export type WebSocketConnectionState = "open" | "reconnecting" | "closed";
 
 export interface WebSocketChannelOptions {
   /** Default true — a dropped connection reopens itself with backoff instead of silently dying (PRODUCTION_READINESS_REVIEW.md's High-severity finding #1, closed 2026-08-02). Set false to get the pre-2026-08-02 "dies silently on close" behavior back, if a caller wants to manage this itself. */
-  reconnect?: boolean
+  reconnect?: boolean;
   /** Default 10 — after this many consecutive failed reconnect attempts, gives up and reports 'closed'. Resets to 0 on every successful reconnect. */
-  maxReconnectAttempts?: number
+  maxReconnectAttempts?: number;
   /** Default 500ms — first retry delay; doubles each subsequent attempt (capped at maxReconnectDelayMs), with ±20% jitter so many clients reconnecting at once don't all retry in lockstep. */
-  initialReconnectDelayMs?: number
+  initialReconnectDelayMs?: number;
   /** Default 30000ms. */
-  maxReconnectDelayMs?: number
+  maxReconnectDelayMs?: number;
+  /** Default true — sends a PING frame on an interval and force-closes the socket if no PONG comes back within heartbeatTimeoutMs, so a "zombie connection" (socket object still open, but the network path underneath it is dead — no TCP RST/FIN ever arrives to trigger a real 'close' event) gets caught instead of silently going stale (CTO_DUE_DILIGENCE_REPORT.md A-STA-03, closed 2026-08-08). The force-close feeds into the exact same reconnect-with-backoff path a real network drop already uses above. */
+  heartbeat?: boolean;
+  /** Default 30000ms — matches A-STA-03's own "market pattern: ping a cada 30s" ask. */
+  heartbeatIntervalMs?: number;
+  /** Default 60000ms — matches A-STA-03's own "timeout em 60s" ask. */
+  heartbeatTimeoutMs?: number;
 }
 
 const DEFAULT_WS_OPTIONS: Required<WebSocketChannelOptions> = {
@@ -55,7 +62,10 @@ const DEFAULT_WS_OPTIONS: Required<WebSocketChannelOptions> = {
   maxReconnectAttempts: 10,
   initialReconnectDelayMs: 500,
   maxReconnectDelayMs: 30_000,
-}
+  heartbeat: true,
+  heartbeatIntervalMs: 30_000,
+  heartbeatTimeoutMs: 60_000,
+};
 
 /**
  * Wraps the real WS protocol at `GET /v1/openp2p/chat?token=...`
@@ -79,107 +89,166 @@ const DEFAULT_WS_OPTIONS: Required<WebSocketChannelOptions> = {
  * instead of a bare instance.
  */
 export class WebSocketChannel {
-  private ws: WebSocket
-  private messageHandlers: Array<(msg: ChatMessageEvent) => void> = []
-  private eventHandlers: Array<(frame: ChatFrame) => void> = []
-  private connectionStateHandlers: Array<(state: WebSocketConnectionState) => void> = []
-  private readonly options: Required<WebSocketChannelOptions>
-  private reconnectAttempts = 0
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private closedByCaller = false
+  private ws: WebSocket;
+  private messageHandlers: Array<(msg: ChatMessageEvent) => void> = [];
+  private eventHandlers: Array<(frame: ChatFrame) => void> = [];
+  private connectionStateHandlers: Array<
+    (state: WebSocketConnectionState) => void
+  > = [];
+  private readonly options: Required<WebSocketChannelOptions>;
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private closedByCaller = false;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private lastPongAt = 0;
 
-  constructor(private readonly openSocket: () => WebSocket, private readonly tradeId: string, options: WebSocketChannelOptions = {}) {
-    this.options = { ...DEFAULT_WS_OPTIONS, ...options }
-    this.ws = this.attachSocket(this.openSocket())
+  constructor(
+    private readonly openSocket: () => WebSocket,
+    private readonly tradeId: string,
+    options: WebSocketChannelOptions = {},
+  ) {
+    this.options = { ...DEFAULT_WS_OPTIONS, ...options };
+    this.ws = this.attachSocket(this.openSocket());
   }
 
   private attachSocket(ws: WebSocket): WebSocket {
-    ws.addEventListener('open', () => {
-      this.reconnectAttempts = 0
-      this.emitConnectionState('open')
-      this.sendFrame('JOIN_TRADE', { tradeId: this.tradeId })
-    })
-    ws.addEventListener('message', (event: MessageEvent) => {
-      let frame: ChatFrame
+    ws.addEventListener("open", () => {
+      this.reconnectAttempts = 0;
+      this.emitConnectionState("open");
+      this.sendFrame("JOIN_TRADE", { tradeId: this.tradeId });
+      this.startHeartbeat();
+    });
+    ws.addEventListener("message", (event: MessageEvent) => {
+      let frame: ChatFrame;
       try {
-        frame = JSON.parse(typeof event.data === 'string' ? event.data : String(event.data))
+        frame = JSON.parse(
+          typeof event.data === "string" ? event.data : String(event.data),
+        );
       } catch {
-        return
+        return;
       }
-      for (const handler of this.eventHandlers) handler(frame)
-      if (frame.type === 'NEW_MESSAGE') {
-        for (const handler of this.messageHandlers) handler(frame.payload as ChatMessageEvent)
+      if (frame.type === "PONG") {
+        this.lastPongAt = Date.now();
       }
-    })
+      for (const handler of this.eventHandlers) handler(frame);
+      if (frame.type === "NEW_MESSAGE") {
+        for (const handler of this.messageHandlers)
+          handler(frame.payload as ChatMessageEvent);
+      }
+    });
     // A real browser WebSocket always follows 'error' with 'close' (the
     // spec guarantees it) — reconnect scheduling lives entirely in the
     // 'close' handler below so it only ever runs once per drop, not
     // twice for the same disconnect.
-    ws.addEventListener('close', () => {
+    ws.addEventListener("close", () => {
+      this.stopHeartbeat();
       if (this.closedByCaller) {
-        this.emitConnectionState('closed')
-        return
+        this.emitConnectionState("closed");
+        return;
       }
-      this.scheduleReconnect()
-    })
-    return ws
+      this.scheduleReconnect();
+    });
+    return ws;
+  }
+
+  /** A-STA-03 — sends PING on an interval; force-closes if no PONG arrives
+   *  within heartbeatTimeoutMs. The force-close runs through the exact
+   *  same 'close' listener a real network drop does, so it reuses that
+   *  path's reconnect-with-backoff rather than duplicating it here. */
+  private startHeartbeat(): void {
+    if (!this.options.heartbeat) return;
+    this.lastPongAt = Date.now();
+    this.heartbeatTimer = setInterval(() => {
+      if (Date.now() - this.lastPongAt > this.options.heartbeatTimeoutMs) {
+        this.ws.close();
+        return;
+      }
+      this.sendFrame("PING", {});
+    }, this.options.heartbeatIntervalMs);
+    // Node-only: an un-ref'd interval doesn't keep the process alive on
+    // its own (same convention as src/app.ts's escrow/dispute sweepers).
+    // Browsers have no such concept — `unref` simply doesn't exist on a
+    // browser's setInterval return value, hence the guarded check rather
+    // than calling it unconditionally.
+    const timer = this.heartbeatTimer as unknown as { unref?: () => void };
+    if (typeof timer.unref === "function") timer.unref();
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   private scheduleReconnect(): void {
-    if (!this.options.reconnect || this.reconnectAttempts >= this.options.maxReconnectAttempts) {
-      this.emitConnectionState('closed')
-      return
+    if (
+      !this.options.reconnect ||
+      this.reconnectAttempts >= this.options.maxReconnectAttempts
+    ) {
+      this.emitConnectionState("closed");
+      return;
     }
-    this.reconnectAttempts += 1
-    this.emitConnectionState('reconnecting')
-    const baseDelay = Math.min(this.options.initialReconnectDelayMs * 2 ** (this.reconnectAttempts - 1), this.options.maxReconnectDelayMs)
-    const jitter = baseDelay * 0.2 * (Math.random() * 2 - 1)
-    const delay = Math.max(0, baseDelay + jitter)
+    this.reconnectAttempts += 1;
+    this.emitConnectionState("reconnecting");
+    const baseDelay = Math.min(
+      this.options.initialReconnectDelayMs * 2 ** (this.reconnectAttempts - 1),
+      this.options.maxReconnectDelayMs,
+    );
+    const jitter = baseDelay * 0.2 * (Math.random() * 2 - 1);
+    const delay = Math.max(0, baseDelay + jitter);
     this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null
-      this.ws = this.attachSocket(this.openSocket())
-    }, delay)
+      this.reconnectTimer = null;
+      this.ws = this.attachSocket(this.openSocket());
+    }, delay);
   }
 
   private emitConnectionState(state: WebSocketConnectionState): void {
-    for (const handler of this.connectionStateHandlers) handler(state)
+    for (const handler of this.connectionStateHandlers) handler(state);
   }
 
   private sendFrame(type: string, payload: unknown): void {
-    this.ws.send(JSON.stringify({ type, payload }))
+    this.ws.send(JSON.stringify({ type, payload }));
   }
 
   /** Fires for every NEW_MESSAGE frame — the common case (SDK_GUIDE.md section 4). */
   onMessage(handler: (msg: ChatMessageEvent) => void): void {
-    this.messageHandlers.push(handler)
+    this.messageHandlers.push(handler);
   }
 
   /** Fires for every frame (TRADE_STATUS_UPDATE, ESCROW_STATUS_UPDATE, USER_ONLINE/OFFLINE, ERROR, ...) — for callers that need more than chat messages. */
   onEvent(handler: (frame: ChatFrame) => void): void {
-    this.eventHandlers.push(handler)
+    this.eventHandlers.push(handler);
   }
 
   /** Real connection-state signal (closed 2026-08-02) — 'open' (including after every successful reconnect), 'reconnecting' (a drop just happened, a retry is scheduled), 'closed' (either close() was called, or reconnect gave up after maxReconnectAttempts). Lets a UI show a real "reconectando..." indicator instead of silently going stale. */
-  onConnectionStateChange(handler: (state: WebSocketConnectionState) => void): void {
-    this.connectionStateHandlers.push(handler)
+  onConnectionStateChange(
+    handler: (state: WebSocketConnectionState) => void,
+  ): void {
+    this.connectionStateHandlers.push(handler);
   }
 
   send(input: { content: string; msgType?: string }): void {
-    this.sendFrame('SEND_MESSAGE', { tradeId: this.tradeId, content: input.content, msgType: input.msgType ?? 'TEXT' })
+    this.sendFrame("SEND_MESSAGE", {
+      tradeId: this.tradeId,
+      content: input.content,
+      msgType: input.msgType ?? "TEXT",
+    });
   }
 
   leave(): void {
-    this.sendFrame('LEAVE_TRADE', { tradeId: this.tradeId })
+    this.sendFrame("LEAVE_TRADE", { tradeId: this.tradeId });
   }
 
   /** Closes for real and disables reconnect — the only way to stop this channel from trying to come back. */
   close(): void {
-    this.closedByCaller = true
+    this.closedByCaller = true;
     if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
-    this.ws.close()
+    this.stopHeartbeat();
+    this.ws.close();
   }
 }
 
@@ -188,7 +257,11 @@ export class SailsOpenP2PModule {
 
   /** Requires an active session. See this file's header for the `amount` deviation from SDK_GUIDE.md. */
   async trade(offerId: string, amount: string): Promise<Trade> {
-    return this.transport.post<Trade>('/v1/openp2p/trades', { offerId, amount }, true)
+    return this.transport.post<Trade>(
+      "/v1/openp2p/trades",
+      { offerId, amount },
+      true,
+    );
   }
 
   /**
@@ -201,31 +274,63 @@ export class SailsOpenP2PModule {
    * server-side to 1-50 (default 10), matching liquidity's
    * getOffers()/discover() pagination convention.
    */
-  async getTrades(pagination?: { limit?: number; offset?: number }): Promise<PaginatedTrades> {
+  async getTrades(pagination?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<PaginatedTrades> {
     return this.transport.get<PaginatedTrades>(
-      '/v1/openp2p/trades',
+      "/v1/openp2p/trades",
       { limit: pagination?.limit, offset: pagination?.offset },
-      true
-    )
+      true,
+    );
   }
 
   /** Unlike trade()'s create response, this always populates `offer` (trade.service.ts's getTrade() includes it) — real, not just typed-optional. */
   async getTrade(tradeId: string): Promise<Trade> {
-    return this.transport.get<Trade>(`/v1/openp2p/trades/${tradeId}`)
+    return this.transport.get<Trade>(`/v1/openp2p/trades/${tradeId}`);
   }
 
   /** RFC-018's intentId link, exposed directly — the same lookup intent-facade.ts's dispute() uses internally to turn an intentId into the Trade/Escrow it produced. */
   async getTradeByIntent(intentId: string): Promise<Trade> {
-    return this.transport.get<Trade>(`/v1/openp2p/trades/by-intent/${intentId}`)
+    return this.transport.get<Trade>(
+      `/v1/openp2p/trades/by-intent/${intentId}`,
+    );
   }
 
   /** Requires an active session. status: 'ACTIVE' | 'CANCELLED'. */
-  async updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade> {
-    return this.transport.patch<Trade>(`/v1/openp2p/trades/${tradeId}/status`, { status }, true)
+  async updateTradeStatus(
+    tradeId: string,
+    status: "ACTIVE" | "CANCELLED",
+  ): Promise<Trade> {
+    return this.transport.patch<Trade>(
+      `/v1/openp2p/trades/${tradeId}/status`,
+      { status },
+      true,
+    );
   }
 
   async getMessages(tradeId: string): Promise<Message[]> {
-    return this.transport.get<Message[]>(`/v1/openp2p/chat/${tradeId}/messages`, undefined, true)
+    return this.transport.get<Message[]>(
+      `/v1/openp2p/chat/${tradeId}/messages`,
+      undefined,
+      true,
+    );
+  }
+
+  /**
+   * RFC-011 — client-side reconciliation. Returns missed messages
+   * since `sinceMessageCreatedAt` for this trade. Requires an
+   * active session. Useful after reconnects or app resume.
+   */
+  async reconcileTrade(
+    tradeId: string,
+    sinceMessageCreatedAt: Date | null,
+  ): Promise<Message[]> {
+    return this.transport.post<Message[]>(
+      `/v1/openp2p/trades/${tradeId}/reconcile`,
+      { sinceMessageCreatedAt },
+      true,
+    );
   }
 
   /**
@@ -239,11 +344,16 @@ export class SailsOpenP2PModule {
    * captured here, in case it rotated meanwhile.
    */
   chat(tradeId: string, options?: WebSocketChannelOptions): WebSocketChannel {
-    const token = this.transport.getSessionToken()
+    const token = this.transport.getSessionToken();
     if (!token) {
-      throw new SailsTransportError('openp2p.chat() requires an active session — call identity.authenticate() first.')
+      throw new SailsTransportError(
+        "openp2p.chat() requires an active session — call identity.authenticate() first.",
+      );
     }
-    const openSocket = () => this.transport.openWebSocket('/v1/openp2p/chat', { token: this.transport.getSessionToken() ?? token })
-    return new WebSocketChannel(openSocket, tradeId, options)
+    const openSocket = () =>
+      this.transport.openWebSocket("/v1/openp2p/chat", {
+        token: this.transport.getSessionToken() ?? token,
+      });
+    return new WebSocketChannel(openSocket, tradeId, options);
   }
 }

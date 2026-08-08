@@ -144,10 +144,11 @@ function sign(challenge: string, secretKey: Uint8Array): string {
 - WDK chama EVM RPC — sem retry exponencial real (só 2 retries no SDK).
 - QVAC inference — se modelo não responde, request trava.
 
-#### A-STA-03: WebSocket não tem heartbeat/ping
+#### A-STA-03: WebSocket não tem heartbeat/ping ✅ RESOLVIDO 2026-08-08
 **Localização**: `packages/sails-sdk/src/modules/openp2p.ts`
 - Reconecta mas não detecta "zombie connections" (socket aberto mas sem tráfego).
 - Padrão de mercado: ping a cada 30s, timeout em 60s.
+**Correção:** `WebSocketChannel` agora envia `PING` a cada `heartbeatIntervalMs` (default 30s) e força o fechamento do socket se nenhum `PONG` chegar dentro de `heartbeatTimeoutMs` (default 60s) — os mesmos números que este item já pedia. O force-close roda pelo mesmo listener `'close'` que uma queda de rede real já usa, então reaproveita o reconnect-com-backoff existente em vez de duplicar a lógica. O servidor (`chat.routes.ts`) já respondia `PING` com `PONG`; só faltava o lado cliente enviar de verdade. 5 testes novos em `packages/sails-sdk/tests/modules.test.ts` (`describe('WebSocketChannel — heartbeat (A-STA-03)')`), incluindo um que simula uma zombie connection de verdade (nunca responde `PONG`) e confirma que o reconnect dispara.
 
 ### 🟠 MÉDIO
 
