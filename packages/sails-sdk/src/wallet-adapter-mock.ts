@@ -50,7 +50,7 @@ export class MockWalletAdapter implements WalletAdapter {
     return { asset, signed: true, originalTx: tx };
   }
 
-  async broadcastTransaction(asset: string, signedTx: unknown): Promise<string> {
+  async broadcastTransaction(asset: string, _signedTx: unknown): Promise<string> {
     // Return a deterministic fake transaction hash.
     return `0xmockhash-${asset}-${Date.now()}`;
   }

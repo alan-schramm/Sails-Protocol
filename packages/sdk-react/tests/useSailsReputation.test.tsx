@@ -108,7 +108,7 @@ describe('useSailsReputation', () => {
 
   it('rate mutation calls client.reputation.rate and invalidates queries on success', async () => {
     const { result } = renderHookWithProvider()
-    const input = { tradeId: 'trade-1', rating: 5, comment: 'Great seller' }
+    const input = { tradeId: 'trade-1', ratedId: 'participant-2', score: 5 as const, comment: 'Great seller' }
 
     await act(async () => {
       await result.current.rate.mutateAsync(input)
@@ -120,7 +120,7 @@ describe('useSailsReputation', () => {
   it('rate mutation surfaces error when transport rejects', async () => {
     client = errorClient()
     const { result } = renderHookWithProvider()
-    const input = { tradeId: 'trade-1', rating: 5, comment: 'Great seller' }
+    const input = { tradeId: 'trade-1', ratedId: 'participant-2', score: 5 as const, comment: 'Great seller' }
 
     await act(async () => {
       await expect(result.current.rate.mutateAsync(input)).rejects.toThrow('Rate failed')

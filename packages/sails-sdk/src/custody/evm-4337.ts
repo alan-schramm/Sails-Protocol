@@ -167,7 +167,7 @@ export class ERC4337CustodyProvider implements CustodyProvider {
     return this.buildTransfer(escrowAccount, toAddress, amount)
   }
 
-  async buildRefund(escrowAccount: EscrowAccount): Promise<UnsignedCustodyAction> {
+  async buildRefund(_escrowAccount: EscrowAccount): Promise<UnsignedCustodyAction> {
     throw new SailsNotImplementedError(
       'ERC4337CustodyProvider.buildRefund requires the escrow trade record (refundTo address, lockedAmount) not carried on EscrowAccount alone — call buildTransfer directly with those values'
     )
