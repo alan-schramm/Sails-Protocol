@@ -35,6 +35,11 @@ describe('Docker integration test', () => {
     console.error('Docker test stderr:', stderr);
 
     // The script exits with status 0 on success; any non‑zero would throw.
-    expect(stdout).toContain('OK');
+    // Real /health response is {"status":"ok",...} (lowercase) -- the old
+    // toContain('OK') never matched any of the script's actual stdout,
+    // so this assertion would have failed even once docker-test.sh's own
+    // matching bug (case-sensitive grep -q "OK") was fixed. Found running
+    // this for real, 2026-08-09.
+    expect(stdout).toContain('"status":"ok"');
   });
 });
