@@ -1,11 +1,15 @@
+import { useEffect, useState } from 'react'
 import { Link, Outlet } from 'react-router'
 import { TopNav } from './TopNav'
 import { BottomNav } from './BottomNav'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { UserAvatar } from '../ui/UserAvatar'
+import { OnboardingTour } from '../onboarding/OnboardingTour'
 import { useAuth } from '../../context/AuthContext'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
+import { HelpCircle } from 'lucide-react'
+import { hasSeenOnboarding, markOnboardingSeen } from '../../lib/onboarding'
 
 export function Layout() {
   // Real bug found in a cold-start UX walkthrough: on mobile, TopNav
@@ -16,9 +20,26 @@ export function Layout() {
   // signal exists on both breakpoints.
   const { user } = useAuth()
 
+  // First-time onboarding (2026-08-04) — owned here rather than inside
+  // OnboardingTour itself, since Layout already knows `user` and wraps
+  // every authenticated route. Fires once per browser on the first
+  // render where a session exists and the flag hasn't been set yet —
+  // not tied to the login action itself, so a session restored on page
+  // load (AuthContext's own silent re-authenticate effect) triggers it
+  // exactly the same as a fresh "Conectar Carteira" click would.
+  const [tourOpen, setTourOpen] = useState(false)
+  useEffect(() => {
+    if (user && !hasSeenOnboarding()) setTourOpen(true)
+  }, [user])
+
+  const closeTour = (open: boolean) => {
+    setTourOpen(open)
+    if (!open) markOnboardingSeen()
+  }
+
   return (
     <div className="min-h-screen bg-brand-bg">
-      <TopNav />
+      <TopNav onReplayTour={() => setTourOpen(true)} />
       {/* Mobile-only bar — desktop nav (TopNav) already carries the
           theme toggle; mobile needs its own since BottomNav is reserved
           for primary navigation. */}
@@ -27,6 +48,17 @@ export function Layout() {
           Sails <span className="text-brand-orange-accent">P2P</span>
         </Link>
         <div className="flex items-center gap-3">
+          {user && (
+            <button
+              type="button"
+              onClick={() => setTourOpen(true)}
+              title="Rever tour de boas-vindas"
+              aria-label="Rever tour de boas-vindas"
+              className="p-2 -m-2 text-brand-text-secondary hover:text-brand-text"
+            >
+              <HelpCircle className="h-4 w-4" />
+            </button>
+          )}
           <ThemeToggle />
           {user ? (
             <Link to="/profile" className="flex items-center gap-1.5">
@@ -43,6 +75,7 @@ export function Layout() {
         <Outlet />
       </main>
       <BottomNav />
+      <OnboardingTour open={tourOpen} onOpenChange={closeTour} />
     </div>
   )
 }

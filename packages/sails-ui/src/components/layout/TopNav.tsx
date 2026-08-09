@@ -4,11 +4,12 @@ import { UserAvatar } from '../ui/UserAvatar'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
+import { HelpCircle } from 'lucide-react'
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `text-sm font-medium transition-colors ${isActive ? 'text-brand-text' : 'text-brand-text-secondary hover:text-brand-text'}`
 
-export function TopNav() {
+export function TopNav({ onReplayTour }: { onReplayTour: () => void }) {
   const { user } = useAuth()
 
   return (
@@ -30,6 +31,17 @@ export function TopNav() {
       </nav>
 
       <div className="ml-auto flex items-center gap-3">
+        {user && (
+          <button
+            type="button"
+            onClick={onReplayTour}
+            title="Rever tour de boas-vindas"
+            aria-label="Rever tour de boas-vindas"
+            className="p-2 -m-2 text-brand-text-secondary hover:text-brand-text"
+          >
+            <HelpCircle className="h-4 w-4" />
+          </button>
+        )}
         <ThemeToggle />
 
         {user ? (

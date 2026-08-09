@@ -196,8 +196,13 @@ export function Trade() {
         const counterpartyId = user.id === t.buyerId ? t.sellerId : t.buyerId
         setCounterpartyOnline(null) // unknown again on every new trade/channel
 
-        const history = await sailsClient.openp2p.getMessages(t.id).catch(() => [])
-        if (!cancelled) setMessages(history.map((m) => toUiMessage(m, b, s, keypair, counterpartyPublicKeyHex)))
+        // getMessages() returns PaginatedMessages now (chat pagination,
+        // landed concurrently on the backend/SDK side) — was a bare
+        // Message[] when this call was first written. 100 is the real
+        // route's own max (chat.routes.ts), requested explicitly rather
+        // than falling back to its default 50 for a trade's full history.
+        const history = await sailsClient.openp2p.getMessages(t.id, { limit: 100 }).catch(() => null)
+        if (!cancelled) setMessages((history?.items ?? []).map((m) => toUiMessage(m, b, s, keypair, counterpartyPublicKeyHex)))
 
         // Real WS chat (RFC-004/API_REFERENCE.md §5) — live NEW_MESSAGE
         // frames appended as they arrive, same channel used to send.
