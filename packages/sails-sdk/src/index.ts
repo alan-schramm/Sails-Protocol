@@ -22,6 +22,7 @@ export {
   SailsForbiddenError,
   SailsInternalError,
   SailsTransportError,
+  SailsConfigError,
   SailsNotImplementedError,
 } from './errors'
 
@@ -87,6 +88,13 @@ export {
 } from './intent-facade'
 
 export type { WalletAdapter, WalletCapabilitiesDeclaration } from './wallet-adapter'
+// MockWalletAdapter — real, genuine external use case: README.md's own
+// quickstart snippet needs a WalletAdapter a first-time visitor can run
+// without a real wallet, and importing it via a relative source path
+// (the previous state) only works inside this monorepo, not for an
+// external `npm install @sails/sdk` consumer. Production Readiness Audit
+// finding, closed 2026-08-09.
+export { MockWalletAdapter } from './wallet-adapter-mock'
 
 // RFC-020 custody providers (fulfills RFC-019 Phase 2) — see
 // packages/sails-sdk/src/custody/types.ts's own header comment.

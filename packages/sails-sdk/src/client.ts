@@ -27,6 +27,7 @@ import type {
   WalletAdapter,
   WalletCapabilitiesDeclaration,
 } from "./wallet-adapter";
+import { SailsConfigError } from "./errors";
 
 export interface SailsClientOptions {
   /** e.g. 'http://localhost:3000' — never hardcoded (SDK_GUIDE.md section 6). */
@@ -164,7 +165,7 @@ export class SailsClient {
    * Retrieve the balance of a specific asset using the injected wallet adapter.
    * @param asset - Asset identifier, e.g., "ETH" or token address.
    * @returns Promise<string> - Balance as string.
-   * @throws SailsTransportError if no wallet adapter was passed to the SailsClient constructor (pass { wallet } to SailsClient options to fix).
+   * @throws SailsConfigError if no wallet adapter was passed to the SailsClient constructor (pass { wallet } to SailsClient options to fix).
    */
   async getBalance(asset: string): Promise<string> {
     const wallet = this.requireWallet('getBalance');
@@ -176,7 +177,7 @@ export class SailsClient {
    * @param asset - Asset identifier.
    * @param tx - Transaction data to be signed (implementation‑specific).
    * @returns Promise<string> - Transaction hash/ID returned by the broadcast step.
-   * @throws SailsTransportError if no wallet adapter was passed to the SailsClient constructor (pass { wallet } to SailsClient options to fix).
+   * @throws SailsConfigError if no wallet adapter was passed to the SailsClient constructor (pass { wallet } to SailsClient options to fix).
    */
   async sendTransaction(asset: string, tx: unknown): Promise<string> {
     const wallet = this.requireWallet('sendTransaction');
@@ -187,7 +188,7 @@ export class SailsClient {
   /**
    * Retrieve the wallet capabilities via the injected wallet adapter.
    * @returns Promise<WalletCapabilitiesDeclaration>
-   * @throws SailsTransportError if no wallet adapter was passed to the SailsClient constructor (pass { wallet } to SailsClient options to fix).
+   * @throws SailsConfigError if no wallet adapter was passed to the SailsClient constructor (pass { wallet } to SailsClient options to fix).
    */
   async getCapabilities(): Promise<WalletCapabilitiesDeclaration> {
     const wallet = this.requireWallet('getCapabilities');
@@ -198,7 +199,7 @@ export class SailsClient {
    * Sign an arbitrary message using the wallet adapter.
    * @param message Uint8Array message to sign.
    * @returns Promise<Uint8Array> signed message.
-   * @throws SailsTransportError if no wallet adapter was passed to the SailsClient constructor (pass { wallet } to SailsClient options to fix).
+   * @throws SailsConfigError if no wallet adapter was passed to the SailsClient constructor (pass { wallet } to SailsClient options to fix).
    */
   async signMessage(message: Uint8Array): Promise<Uint8Array> {
     const wallet = this.requireWallet('signMessage');
@@ -207,7 +208,7 @@ export class SailsClient {
 
   /**
    * Get wallet addresses for all declared assets.
-   * @throws SailsTransportError if no wallet adapter was passed to the SailsClient constructor (pass { wallet } to SailsClient options to fix).
+   * @throws SailsConfigError if no wallet adapter was passed to the SailsClient constructor (pass { wallet } to SailsClient options to fix).
    */
   async getWalletAddresses(): Promise<string[]> {
     const wallet = this.requireWallet('getWalletAddresses');
@@ -230,7 +231,7 @@ export class SailsClient {
    */
   private requireWallet(methodName: string): WalletAdapter {
     if (!this.wallet) {
-      throw new Error(
+      throw new SailsConfigError(
         `${methodName}() requires a wallet adapter — pass { wallet: WalletAdapter } to the SailsClient constructor.`,
       );
     }

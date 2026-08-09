@@ -77,6 +77,23 @@ export class SailsTransportError extends SailsError {
   }
 }
 
+// Client-side precondition failure with no server round-trip at all — e.g.
+// calling client.getBalance()/sendTransaction()/etc. without having passed
+// a WalletAdapter to the SailsClient constructor. Deliberately NOT
+// SailsTransportError: no network activity was ever attempted here, so
+// "something between us and the node broke" would be the wrong diagnosis
+// for a caller catching this. Production Readiness Audit finding, closed
+// 2026-08-09 — client.ts's five wallet-adapter methods' own JSDoc already
+// promised `@throws SailsTransportError`, but the real thrown type was a
+// bare `Error`; this fixes both the type and the promise to agree, rather
+// than picking whichever was more convenient to leave as-is.
+export class SailsConfigError extends SailsError {
+  constructor(message: string) {
+    super(message, 'CONFIG_ERROR', 0)
+    this.name = 'SailsConfigError'
+  }
+}
+
 // Thrown by SDK methods whose backing route/primitive genuinely does not
 // exist yet in the reference implementation (Proof primitive has zero
 // routes; there is no Intent -> Trade -> Escrow resolution path for
