@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from '../../context/AuthContext'
 import { assessRiskWithQvac, type AgentRiskAssessment } from '../../lib/qvacAgent'
 import { InfoTooltip } from '../ui/InfoTooltip'
 import { Card } from '../ui/card'
@@ -25,36 +26,55 @@ interface Props {
 }
 
 export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [assessment, setAssessment] = useState<AgentRiskAssessment | null>(null)
+  // Real inference call now (2026-08-09) — genuinely can fail (network,
+  // session expired, model error), unlike the old simulation which
+  // always resolved. No error state existed here before because there
+  // was nothing real to fail.
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!user) {
+      setLoading(false)
+      return
+    }
     let cancelled = false
     setLoading(true)
-    assessRiskWithQvac({ asset, side, maxValue, minValue }).then((result) => {
-      if (!cancelled) {
-        setAssessment(result)
-        setLoading(false)
-      }
-    })
+    setError(null)
+    assessRiskWithQvac({ asset, side, maxValue, minValue })
+      .then((result) => {
+        if (!cancelled) setAssessment(result)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Falha ao avaliar risco com o QVAC')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
     return () => {
       cancelled = true
     }
-  }, [asset, side, maxValue, minValue])
+  }, [user, asset, side, maxValue, minValue])
 
   return (
     <Card className="p-4 mt-3">
       <div className="flex items-center gap-2 text-sm font-semibold text-brand-text mb-2">
         <Brain className="h-4 w-4 shrink-0" />
         Avaliação de risco do Agente QVAC
-        <InfoTooltip text="Reflete o passo real de assessIntentRisk() do backend (QvacAgentProvider, LLM local via @qvac/sdk) que roda antes da coordenação de um Intent (RFC-012). Analisa apenas dados do ativo/trade — o agente é Crypto-Native (RFC-016), sem qualquer acesso a contas bancárias ou trilhos fiat. Nesta interface o resultado é simulado — ainda não existe rota HTTP conectando o navegador a essa avaliação real." />
+        <InfoTooltip text="Reflete o passo real de assessIntentRisk() do backend (QvacAgentProvider, LLM local via @qvac/sdk) que roda antes da coordenação de um Intent (RFC-012). Analisa apenas dados do ativo/trade — o agente é Crypto-Native (RFC-016), sem qualquer acesso a contas bancárias ou trilhos fiat. Chamada real, precisa de sessão ativa." />
       </div>
 
-      {loading ? (
+      {!user ? (
+        <p className="text-xs text-brand-text-muted">Conecte sua carteira para ver a avaliação de risco do agente.</p>
+      ) : loading ? (
         <div className="flex items-center gap-2 text-xs text-brand-text-muted">
           <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent animate-pulse" />
           Analisando negociação com QVAC...
         </div>
+      ) : error ? (
+        <p className="text-xs text-red-700">{error}</p>
       ) : assessment ? (
         <div>
           <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${RISK_STYLE[assessment.risk]}`}>

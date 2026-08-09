@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { useAuth } from '../../context/AuthContext'
 import { generateIntentWithQvac, type AgentGeneratedIntent } from '../../lib/qvacAgent'
 import {
   NEGOTIATION_PROFILES,
@@ -21,8 +22,15 @@ import type { AssetType, FiatCurrency, TradeSide } from '../../types'
 
 const GOAL_PLACEHOLDER = 'Ex: quero comprar USDT pagando via PIX, tenho até R$ 500 disponíveis'
 
+// Corrected 2026-08-09 — "Nesta interface o resultado é simulado" was
+// true when this copy was written; the backend now has a real
+// POST /v1/agents/generate-trade-intent route (see lib/qvacAgent.ts's
+// own header comment). Only the negotiation TIMELINE below this
+// (aiNegotiator.ts's status steps, Agent Strategy panel) stays a
+// client-side simulation — that's a different gap, no backend accepts a
+// full delegation mandate yet.
 const BOUNDARY_TEXT =
-  'QVAC roda um LLM local (llama.cpp, sem nuvem). É um agente Crypto-Native (RFC-016): só age sobre ativos digitais já na sua wallet — negociar, criar/aceitar ofertas, travar e liberar escrow via WDK. Ele nunca chama uma API bancária e nunca toca PIX ou qualquer trilho fiat — quem faz o PIX é sempre a contraparte humana, fora do protocolo. Nesta interface o resultado é simulado: ainda não existe uma rota HTTP real conectando o navegador ao QVAC.'
+  'QVAC roda um LLM local (llama.cpp, sem nuvem). É um agente Crypto-Native (RFC-016): só age sobre ativos digitais já na sua wallet — negociar, criar/aceitar ofertas, travar e liberar escrow via WDK. Ele nunca chama uma API bancária e nunca toca PIX ou qualquer trilho fiat — quem faz o PIX é sempre a contraparte humana, fora do protocolo. A geração da intenção estruturada abaixo já roda no modelo real; a negociação automática após "Delegar para IA" ainda é uma simulação — não existe backend aceitando um mandato de delegação completo ainda.'
 
 interface Props {
   // Real fix: this panel used to live disconnected from the offer grid
@@ -45,6 +53,7 @@ interface Props {
 }
 
 export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilters }: Props) {
+  const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [side, setSide] = useState<TradeSide>('BUY')
   const [goal, setGoal] = useState('')
@@ -80,6 +89,12 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       toast.error('Descreva o que você quer negociar')
       return
     }
+    // Real inference call now (2026-08-09) — requires an active session,
+    // same as any other real @sails/sdk write/compute call in this app.
+    if (!user) {
+      toast.error('Conecte sua carteira para usar o AI Negotiator')
+      return
+    }
     setLoading(true)
     setResult(null)
     try {
@@ -88,6 +103,8 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       setLimitPrice('')
       setQuantity('')
       onIntentGenerated?.(intent.asset, intent.side, intent.currency)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao gerar intenção com o QVAC')
     } finally {
       setLoading(false)
     }
@@ -223,7 +240,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 {loading && (
                   <span className="text-xs text-brand-text-muted flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent animate-pulse" />
-                    LLAMA_3_2_1B_INST_Q4_0 · inferência local (simulada)
+                    LLAMA_3_2_1B_INST_Q4_0 · inferência local
                   </span>
                 )}
               </div>

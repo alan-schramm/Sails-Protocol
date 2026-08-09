@@ -76,27 +76,38 @@ P2P-style advanced filter system, requested directly —
 **Agent QVAC surface** (`src/components/agent/`, `src/lib/qvacAgent.ts`):
 reflects the real `QvacAgentProvider`/`BuyerAgent`/`SellerAgent`
 (`src/modules/open-agents/*.ts`) — a real local LLM (`@qvac/sdk`,
-llama.cpp, no cloud dependency) that today only runs inside the demo
-script and `core/intent-engine.ts`'s own validation. No HTTP route
-exposes it to a browser yet, so this is honestly mocked (latency +
-heuristic parsing, not a live model call) — see `qvacAgent.ts`'s own
-comment for exactly what a real route would need to wrap.
-- `AgentIntentionPanel` (Marketplace, now "🤖 AI Negotiator"): natural-
-  language goal → mocked structured trade intent, reflecting
-  `BuyerAgent.requestTradeIntent()`/`SellerAgent.proposeOffer()`. Once
-  generated, the panel exposes a bounded delegation mandate (quantity,
-  limit price, deadline, tolerance, and a Negotiation Profile —
-  Conservative/Balanced/Aggressive/Instant, `src/lib/aiNegotiator.ts`) —
-  the user always hands the agent a mandate, never open-ended control.
-  "Delegar para IA" starts a client-side simulation of the negotiation
-  (status timeline, an "Agent Strategy" readout, a converging "Melhor
-  oferta"), with a permanent "🛑 Parar Agente / Assumir Controle" button
-  that halts it at the current step — the user can always take back
-  control. This is a UI simulation only: no backend accepts a mandate
-  shaped like this yet (see Next steps).
-- `AgentRiskCard` (Trade page): mocked risk assessment reflecting
-  `qvacAgentProvider.assessIntentRisk()`, the real step that runs before
-  Intent coordination (RFC-012).
+llama.cpp, no cloud dependency). **Corrected 2026-08-09:** this used to
+be a client-side heuristic simulation (no HTTP route existed) — the
+engineering session shipped `POST /v1/agents/generate-trade-intent` /
+`generate-offer-intent` / `assess-intent-risk` (`agent.routes.ts`) the
+same day, in direct response to this file's own "Next steps" item 6
+below, and `qvacAgent.ts` now calls the real routes via `@sails/sdk`'s
+new `sailsClient.agents.*`. Both routes require an active session (real
+inference has a real per-call cost, gated the same way the backend
+gates other expensive real operations).
+- `AgentIntentionPanel` (Marketplace, "🤖 AI Negotiator"): natural-
+  language goal → a real structured trade intent via
+  `generateTradeIntent()` (used for both BUY/SELL goals — this panel
+  narrows the Marketplace filter, it doesn't publish an offer, so
+  `generateOfferIntent()`'s own shape, lacking a `currency` field, isn't
+  the right fit here; it's real and SDK-exposed too, just has no UI
+  consumer yet). Once generated, the panel exposes a bounded delegation
+  mandate (quantity, limit price, deadline, tolerance, and a Negotiation
+  Profile — Conservative/Balanced/Aggressive/Instant,
+  `src/lib/aiNegotiator.ts`) — the user always hands the agent a
+  mandate, never open-ended control. "Delegar para IA" still starts a
+  client-side SIMULATION of the negotiation itself (status timeline, an
+  "Agent Strategy" readout, a converging "Melhor oferta") — only the
+  structured-intent generation above is real now; no backend accepts a
+  full delegation mandate yet (see Next steps). A permanent
+  "🛑 Parar Agente / Assumir Controle" button halts the simulated
+  negotiation at the current step regardless.
+- `AgentRiskCard` (Trade page): real risk assessment via
+  `assessIntentRisk()`, the same step that runs before Intent
+  coordination (RFC-012) server-side. Requires an active session — shows
+  a "conecte sua carteira" message instead of attempting the call when
+  logged out, and a real error state (not previously possible when this
+  was a simulation that could never fail).
 
 **Crypto-Native Agent boundary (RFC-016,
 `docs/rfcs/RFC-016-qvac-crypto-native-agent-boundary.md`):** both
@@ -386,10 +397,14 @@ require touching `vite.config.ts`.
    other than illustrative numbers.
 5. A real block-list model and trade-history join to back
    `negotiableOnly`/`previouslyTradedOnly` for real.
-6. A real `POST /v1/agents/...` route wrapping
+6. ~~A real `POST /v1/agents/...` route wrapping
    `qvacAgentProvider.generateTradeIntent()`/`.generateOfferIntent()`/
-   `.assessIntentRisk()`, to back `AgentIntentionPanel`/`AgentRiskCard`
-   with an actual local LLM call instead of `qvacAgent.ts`'s heuristic mock.
+   `.assessIntentRisk()`~~ — done, 2026-08-09 (`agent.routes.ts` +
+   `sailsClient.agents.*`). `AgentIntentionPanel`/`AgentRiskCard` both
+   call the real routes now. Still open: the negotiation-mandate
+   simulation `aiNegotiator.ts` drives after "Delegar para IA" — no
+   backend accepts a full delegation mandate yet, only the structured-
+   intent generation step before it.
 7. Real media messages: an upload/storage endpoint plus a Pears event
    kind carrying a media reference, to back the chat's 📎 attach button
    with something beyond a local, never-transmitted blob URL.

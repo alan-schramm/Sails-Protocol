@@ -1,21 +1,31 @@
 /**
- * Mocked QVAC agent interaction for this UI — modeled on the real
- * `QvacAgentProvider` (`src/modules/open-agents/qvac-agent.provider.ts`)
- * and its callers, `BuyerAgent.requestTradeIntent()` /
- * `SellerAgent.proposeOffer()` (`buyer-agent.ts`/`seller-agent.ts`).
+ * Real QVAC agent interaction (2026-08-09) — wraps `sailsClient.agents.*`
+ * (`@sails/sdk`'s `SailsAgentsModule`, `POST /v1/agents/*` on the real
+ * backend, `QvacAgentProvider` / LLAMA_3_2_1B_INST_Q4_0 local inference,
+ * no cloud dependency). Was a client-side heuristic simulation until the
+ * engineering session shipped the real HTTP surface this same day — a
+ * real request relayed from this UI's own backlog (see
+ * `docs/BACKLOG.md`'s OpenAgents row for the full history).
  *
- * That real code exists and runs a real local LLM
- * (`@qvac/sdk`, LLAMA_3_2_1B_INST_Q4_0, llama.cpp, no cloud dependency) —
- * but as of this writing nothing calls it over HTTP. It only runs inside
- * `src/demo/pix-to-usdt-flow.ts` and inside `core/intent-engine.ts`'s own
- * validation path. There is no `POST /v1/agents/...` route a browser
- * could call. So this file fakes the *shape and latency* of a real call
- * (structured JSON out, a few seconds of "thinking") without claiming a
- * live model runs anywhere near this UI — the honest swap-in later is a
- * real route wrapping `qvacAgentProvider.generateTradeIntent()` /
- * `.generateOfferIntent()` / `.assessIntentRisk()`, not a change to this
- * file's call sites.
+ * Same exported function names/shapes as before, deliberately —
+ * `AgentIntentionPanel.tsx`/`AgentRiskCard.tsx` don't need to change
+ * their call sites, only this file's implementation changed. Both
+ * routes require an active session (real inference has a real cost per
+ * call, same reasoning the backend applies to capability-grant writes);
+ * callers are responsible for not invoking these while logged out — see
+ * each component's own `useAuth()` gate.
+ *
+ * Only `generateTradeIntent()` is used here, for both BUY and SELL
+ * goals — this panel's own job is narrowing the Marketplace filter
+ * (`onIntentGenerated`), not publishing an offer, so `TradeIntent`'s
+ * shape (which includes `currency`) is what this UI actually needs
+ * either way. `generateOfferIntent()` (no `currency` field, shaped for
+ * an actual offer draft) is real and SDK-exposed too, but has no real
+ * consumer in this UI yet — a natural fit for a future "AI-assist" on
+ * `PublishOffer.tsx`'s own wizard, not this panel.
  */
+import { sailsClient } from './sailsClient'
+import { ASSETS, PAYMENT_METHODS } from '../data/mock'
 import type { AssetType, FiatCurrency, PaymentMethod, TradeSide } from '../types'
 
 export interface AgentGeneratedIntent {
@@ -36,63 +46,41 @@ export interface AgentRiskAssessment {
   recommendation: AgentRiskRecommendation
 }
 
-const ASSET_HINTS: [RegExp, AssetType][] = [
-  [/usdt|tether|d[oó]lar digital/i, 'USDT_ERC20'],
-  [/lightning|ln\b|relâmpago/i, 'LN_BTC'],
-  [/liquid/i, 'LIQUID_BTC'],
-  [/bitcoin|btc/i, 'BTC'],
-]
+// `asset`/`fiatMethod` are real, model-constrained enums server-side
+// (qvac-agent.provider.ts's own json_schema) — validated here anyway
+// rather than trusted blindly, since the SDK's own return type keeps
+// them as plain `string` (it describes what the server can actually
+// return, not a stricter shape it doesn't guarantee — see
+// packages/sails-sdk/src/modules/agents.ts's own comment). `currency`
+// has NO server-side enum at all (same file, same comment) — genuinely
+// free-form model output, so it gets the same validate-or-fallback
+// treatment the old heuristic parser used, since it flows straight into
+// Marketplace's real currency filter and a wrong value there silently
+// produces zero matching offers.
+const KNOWN_CURRENCIES = new Set<FiatCurrency>(['BRL', 'USD', 'EUR', 'GBP', 'ARS', 'MXN', 'NGN', 'INR', 'VES', 'COP', 'PEN', 'BOB', 'EGP'])
 
-const METHOD_HINTS: [RegExp, PaymentMethod][] = [
-  [/pix/i, 'PIX'],
-  [/ted/i, 'TED'],
-  [/transfer[êe]ncia|bank/i, 'BANK_TRANSFER'],
-  [/dinheiro|cash/i, 'CASH'],
-]
-
-// Real bug found in a cold-start UX walkthrough: currency was hardcoded
-// to 'BRL' below regardless of what the goal actually said — a goal
-// like "quero comprar 100 dólares em USDT" silently generated a
-// BRL-priced intent, which then drove Marketplace's real currency
-// filter (Marketplace.tsx's onIntentGenerated) to a state with zero
-// matching offers, with nothing telling the user why. Detecting the
-// mentioned currency, defaulting to BRL only when none is mentioned
-// (this UI's primary market), fixes the actual cause.
-const CURRENCY_HINTS: [RegExp, FiatCurrency][] = [
-  [/d[oó]lar(es)?|\busd\b/i, 'USD'],
-  [/euro(s)?|\beur\b/i, 'EUR'],
-  [/libra(s)?\s*esterlina|\bgbp\b/i, 'GBP'],
-  [/peso\s*argentino|\bars\b/i, 'ARS'],
-  [/peso\s*mexicano|\bmxn\b/i, 'MXN'],
-  [/naira|\bngn\b/i, 'NGN'],
-  [/r[uú]pia|\binr\b/i, 'INR'],
-  [/\breal\b|reais|\bbrl\b/i, 'BRL'],
-]
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+// Narrows to ASSETS's own literal union (the real backend enum, same
+// strings @sails/sdk's own AssetType is built from) rather than this
+// UI's broader AssetType — needed so a narrowed value type-checks
+// against the SDK's stricter parameter in assessRiskWithQvac() below,
+// not just against this UI's own wider type.
+function isKnownAsset(a: string): a is (typeof ASSETS)[number] {
+  return (ASSETS as readonly string[]).includes(a)
 }
 
-// Very small heuristic parse, deliberately not an LLM — this is a stand-in
-// for what generateTradeIntent()/generateOfferIntent() would return, not an
-// attempt to reproduce their reasoning client-side.
+function isKnownPaymentMethod(m: string): m is PaymentMethod {
+  return (PAYMENT_METHODS as readonly string[]).includes(m)
+}
+
 export async function generateIntentWithQvac(goal: string, side: TradeSide): Promise<AgentGeneratedIntent> {
-  await delay(1400 + Math.random() * 900)
-
-  const asset = ASSET_HINTS.find(([re]) => re.test(goal))?.[1] ?? 'BTC'
-  const fiatMethod = METHOD_HINTS.find(([re]) => re.test(goal))?.[1] ?? 'PIX'
-  const currency = CURRENCY_HINTS.find(([re]) => re.test(goal))?.[1] ?? 'BRL'
-  const amountMatch = goal.match(/(\d[\d.,]*)/)
-  const maxAmount = amountMatch ? amountMatch[1].replace(/\./g, '').replace(',', '.') : '1000'
-  const maxNum = Number(maxAmount) || 1000
-
+  const generated = await sailsClient.agents.generateTradeIntent(goal)
   return {
-    asset,
+    asset: isKnownAsset(generated.asset) ? generated.asset : 'BTC',
     side,
-    minValue: (maxNum * 0.1).toFixed(2),
-    maxValue: maxNum.toFixed(2),
-    currency,
-    fiatMethod,
+    minValue: generated.minValue,
+    maxValue: generated.maxValue,
+    currency: KNOWN_CURRENCIES.has(generated.currency as FiatCurrency) ? (generated.currency as FiatCurrency) : 'BRL',
+    fiatMethod: isKnownPaymentMethod(generated.fiatMethod) ? generated.fiatMethod : 'PIX',
   }
 }
 
@@ -102,19 +90,23 @@ export async function assessRiskWithQvac(intent: {
   maxValue: number
   minValue: number
 }): Promise<AgentRiskAssessment> {
-  await delay(900 + Math.random() * 700)
-
-  if (intent.maxValue > 8000) {
-    return {
-      risk: 'medium',
-      reasoning: 'Valor acima da faixa usual para este par — recomendável confirmar identidade da contraparte antes de liberar o escrow.',
-      recommendation: 'hold',
-    }
+  if (!isKnownAsset(intent.asset)) {
+    // Callers only ever pass a real trade's own asset (a value the
+    // backend itself produced), so this should never actually fire —
+    // guards against the UI's own broader AssetType (DEPIX and other
+    // UI-only additions, see types.ts's own comment) reaching a route
+    // whose schema is the narrower real backend enum.
+    throw new Error(`Ativo "${intent.asset}" não é suportado pela avaliação de risco do QVAC`)
   }
-
-  return {
-    risk: 'low',
-    reasoning: 'Valor, moeda e método de pagamento consistentes entre si. Nenhuma bandeira vermelha identificada.',
-    recommendation: 'proceed',
-  }
+  // The real route's response shape (IntentRiskAssessment) already
+  // matches AgentRiskAssessment exactly — no reshaping needed, just the
+  // number -> decimal-string conversion the real AssessableIntent schema
+  // expects (RFC-009 convention, same as every other money-shaped field
+  // in this codebase).
+  return sailsClient.agents.assessIntentRisk({
+    asset: intent.asset,
+    side: intent.side,
+    maxValue: String(intent.maxValue),
+    minValue: String(intent.minValue),
+  })
 }
