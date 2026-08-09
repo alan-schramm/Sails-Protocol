@@ -1,33 +1,46 @@
 /**
  * capability-registry.ts — RFC-013's real implementation of RFC-005's
- * CapabilityGrant. Mocks only prisma.capabilityGrant, same discipline
- * as every other Core component's test in this suite.
+ * CapabilityGrant.
+ *
+ * ARCHITECTURE_AUDIT_REPORT.md recommendation #3, step 1, closed
+ * 2026-08-08 — was `jest.mock('../src/common/database', () => ({ prisma:
+ * { capabilityGrant: { create: ..., findMany: ..., findUnique: ...,
+ * update: ... } } }))`, the same module-path-mocking boilerplate every
+ * Prisma-touching test file in this suite repeats. Now a plain object
+ * implementing `CapabilityGrantRepository`, passed straight into
+ * `createCapabilityRegistry()` — no module mocking, no knowledge of
+ * Prisma's raw row shape needed here at all; this test only ever deals
+ * in the real `CapabilityGrant` domain shape.
  */
-const mockCreate = jest.fn()
-const mockFindMany = jest.fn()
-const mockFindUnique = jest.fn()
-const mockUpdate = jest.fn()
+import { createCapabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../src/core/capability-registry'
+import type { CapabilityGrantRepository } from '../src/core/capability-grant-repository'
+import type { CapabilityGrant } from '../src/common/types/capability'
 
-jest.mock('../src/common/database', () => ({
-  prisma: {
-    capabilityGrant: {
-      create: (...args: unknown[]) => mockCreate(...args),
-      findMany: (...args: unknown[]) => mockFindMany(...args),
-      findUnique: (...args: unknown[]) => mockFindUnique(...args),
-      update: (...args: unknown[]) => mockUpdate(...args),
-    },
-  },
-}))
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } = require('../src/core/capability-registry')
+function fakeRepo(overrides: Partial<jest.Mocked<CapabilityGrantRepository>> = {}): jest.Mocked<CapabilityGrantRepository> {
+  return {
+    create: jest.fn(),
+    findActiveGrants: jest.fn().mockResolvedValue([]),
+    findById: jest.fn().mockResolvedValue(null),
+    markRevoked: jest.fn(),
+    listActiveGrants: jest.fn().mockResolvedValue([]),
+    ...overrides,
+  }
+}
 
 describe('capabilityRegistry.grant', () => {
-  beforeEach(() => jest.clearAllMocks())
-
   it('creates a grant and returns it in the frozen CapabilityGrant shape (grantId, not id)', async () => {
-    mockCreate.mockResolvedValue({
-      id: 'grant-1',
+    const created: CapabilityGrant = {
+      grantId: 'grant-1',
+      grantedTo: 'user-1',
+      capabilityName: 'trade-coordination',
+      scope: ['openp2p.trade.created'],
+      constraints: { maxValue: '100' },
+      issuedBy: 'user-1',
+    }
+    const repo = fakeRepo({ create: jest.fn().mockResolvedValue(created) })
+    const registry = createCapabilityRegistry(repo)
+
+    const grant = await registry.grant({
       grantedTo: 'user-1',
       capabilityName: 'trade-coordination',
       scope: ['openp2p.trade.created'],
@@ -35,113 +48,115 @@ describe('capabilityRegistry.grant', () => {
       issuedBy: 'user-1',
     })
 
-    const grant = await capabilityRegistry.grant({
-      grantedTo: 'user-1',
-      capabilityName: 'trade-coordination',
-      scope: ['openp2p.trade.created'],
-      constraints: { maxValue: '100' },
-      issuedBy: 'user-1',
-    })
-
-    expect(grant).toEqual({
-      grantId: 'grant-1', // mapped from Prisma's `id`, not re-exposed as `id`
-      grantedTo: 'user-1',
-      capabilityName: 'trade-coordination',
-      scope: ['openp2p.trade.created'],
-      constraints: { maxValue: '100' },
-      issuedBy: 'user-1',
-    })
+    expect(grant).toEqual(created)
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ grantedTo: 'user-1' }))
   })
 })
 
 describe('capabilityRegistry.check', () => {
-  beforeEach(() => jest.clearAllMocks())
-
   it('returns true when an active, unexpired grant covers the requested scope', async () => {
-    mockFindMany.mockResolvedValue([
-      { id: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a', 'b'], constraints: null, issuedBy: 'user-1' },
-    ])
-
-    const ok = await capabilityRegistry.check('user-1', 'trade-coordination', 'b')
-    expect(ok).toBe(true)
-    expect(mockFindMany).toHaveBeenCalledWith({
-      where: { grantedTo: 'user-1', capabilityName: 'trade-coordination', revokedAt: null },
+    const repo = fakeRepo({
+      findActiveGrants: jest.fn().mockResolvedValue([
+        { grantId: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a', 'b'], issuedBy: 'user-1' },
+      ]),
     })
+    const registry = createCapabilityRegistry(repo)
+
+    const ok = await registry.check('user-1', 'trade-coordination', 'b')
+    expect(ok).toBe(true)
+    expect(repo.findActiveGrants).toHaveBeenCalledWith('user-1', 'trade-coordination')
   })
 
   it('returns false when no grant covers the requested scope', async () => {
-    mockFindMany.mockResolvedValue([
-      { id: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'], constraints: null, issuedBy: 'user-1' },
-    ])
+    const repo = fakeRepo({
+      findActiveGrants: jest.fn().mockResolvedValue([
+        { grantId: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'], issuedBy: 'user-1' },
+      ]),
+    })
+    const registry = createCapabilityRegistry(repo)
 
-    const ok = await capabilityRegistry.check('user-1', 'trade-coordination', 'z')
+    const ok = await registry.check('user-1', 'trade-coordination', 'z')
     expect(ok).toBe(false)
   })
 
   it('returns false for a grant whose constraints.expiresAt has passed', async () => {
-    mockFindMany.mockResolvedValue([
-      {
-        id: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'],
-        constraints: { expiresAt: new Date(Date.now() - 1000).toISOString() }, issuedBy: 'user-1',
-      },
-    ])
+    const repo = fakeRepo({
+      findActiveGrants: jest.fn().mockResolvedValue([
+        {
+          grantId: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'],
+          constraints: { expiresAt: new Date(Date.now() - 1000).toISOString() }, issuedBy: 'user-1',
+        },
+      ]),
+    })
+    const registry = createCapabilityRegistry(repo)
 
-    const ok = await capabilityRegistry.check('user-1', 'trade-coordination', 'a')
+    const ok = await registry.check('user-1', 'trade-coordination', 'a')
     expect(ok).toBe(false)
   })
 
   it('returns true for a grant whose constraints.expiresAt is in the future', async () => {
-    mockFindMany.mockResolvedValue([
-      {
-        id: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'],
-        constraints: { expiresAt: new Date(Date.now() + 100_000).toISOString() }, issuedBy: 'user-1',
-      },
-    ])
+    const repo = fakeRepo({
+      findActiveGrants: jest.fn().mockResolvedValue([
+        {
+          grantId: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'],
+          constraints: { expiresAt: new Date(Date.now() + 100_000).toISOString() }, issuedBy: 'user-1',
+        },
+      ]),
+    })
+    const registry = createCapabilityRegistry(repo)
 
-    const ok = await capabilityRegistry.check('user-1', 'trade-coordination', 'a')
+    const ok = await registry.check('user-1', 'trade-coordination', 'a')
     expect(ok).toBe(true)
   })
 })
 
 describe('capabilityRegistry.revoke', () => {
-  beforeEach(() => jest.clearAllMocks())
-
   it('throws NotFoundError for a nonexistent grantId', async () => {
-    mockFindUnique.mockResolvedValue(null)
-    await expect(capabilityRegistry.revoke('nope')).rejects.toThrow(/CapabilityGrant/)
-    expect(mockUpdate).not.toHaveBeenCalled()
+    const repo = fakeRepo({ findById: jest.fn().mockResolvedValue(null) })
+    const registry = createCapabilityRegistry(repo)
+
+    await expect(registry.revoke('nope', 'user-1')).rejects.toThrow(/CapabilityGrant/)
+    expect(repo.markRevoked).not.toHaveBeenCalled()
   })
 
-  it('sets revokedAt on an existing grant', async () => {
-    mockFindUnique.mockResolvedValue({ id: 'grant-1' })
-    mockUpdate.mockResolvedValue({})
-
-    await capabilityRegistry.revoke('grant-1')
-
-    expect(mockUpdate).toHaveBeenCalledWith({
-      where: { id: 'grant-1' },
-      data: { revokedAt: expect.any(Date) },
+  it('throws ForbiddenError when the caller does not own the grant', async () => {
+    const repo = fakeRepo({
+      findById: jest.fn().mockResolvedValue({
+        grantId: 'grant-1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'], issuedBy: 'user-1',
+      }),
     })
+    const registry = createCapabilityRegistry(repo)
+
+    await expect(registry.revoke('grant-1', 'someone-else')).rejects.toThrow(/does not own/)
+    expect(repo.markRevoked).not.toHaveBeenCalled()
+  })
+
+  it('sets revokedAt on an existing grant owned by the requester', async () => {
+    const repo = fakeRepo({
+      findById: jest.fn().mockResolvedValue({
+        grantId: 'grant-1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'], issuedBy: 'user-1',
+      }),
+    })
+    const registry = createCapabilityRegistry(repo)
+
+    await registry.revoke('grant-1', 'user-1')
+
+    expect(repo.markRevoked).toHaveBeenCalledWith('grant-1')
   })
 })
 
 describe('capabilityRegistry.listGrants', () => {
-  beforeEach(() => jest.clearAllMocks())
+  it('returns only active grants, in the frozen CapabilityGrant shape', async () => {
+    const grants: CapabilityGrant[] = [
+      { grantId: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'], issuedBy: 'user-1' },
+    ]
+    const repo = fakeRepo({ listActiveGrants: jest.fn().mockResolvedValue(grants) })
+    const registry = createCapabilityRegistry(repo)
 
-  it('returns only active grants, mapped to the frozen CapabilityGrant shape', async () => {
-    mockFindMany.mockResolvedValue([
-      { id: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'], constraints: null, issuedBy: 'user-1' },
-    ])
+    const result = await registry.listGrants('user-1')
 
-    const grants = await capabilityRegistry.listGrants('user-1')
-
-    expect(grants).toEqual([
-      { grantId: 'g1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['a'], constraints: undefined, issuedBy: 'user-1' },
-    ])
-    expect(mockFindMany).toHaveBeenCalledWith({
-      where: { grantedTo: 'user-1', revokedAt: null },
-      orderBy: { createdAt: 'desc' },
-    })
+    expect(result).toEqual(grants)
+    expect(repo.listActiveGrants).toHaveBeenCalledWith('user-1')
   })
 })
 

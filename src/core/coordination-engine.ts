@@ -15,9 +15,16 @@
  * scope for that RFC. A governed, policy-gated routing decision is real
  * future work, tracked in `BACKLOG.md`, not silently implied as already
  * done by this file existing.
+ *
+ * ARCHITECTURE_AUDIT_REPORT.md recommendation #3, step 2, closed
+ * 2026-08-08 — moved its one `prisma.intent.findUnique` call to
+ * `intent-repository.ts`, same repository `intent-engine.ts` now uses.
+ * `createCoordinationEngine()` is a factory (not a class) for the same
+ * reason `createIntentEngine()`/`createCapabilityRegistry()` are —
+ * `coordinationEngine` was always a plain object literal.
  */
-import { prisma } from '../common/database'
 import { NotFoundError } from '../common/errors'
+import { intentRepository, type IntentRepository } from './intent-repository'
 
 export interface CoordinationDecision {
   action: string
@@ -29,10 +36,14 @@ export interface CoordinationEngine {
   decide(intentId: string): Promise<CoordinationDecision>
 }
 
-export const coordinationEngine: CoordinationEngine = {
-  async decide(intentId: string): Promise<CoordinationDecision> {
-    const record = await prisma.intent.findUnique({ where: { id: intentId } })
-    if (!record) throw new NotFoundError('Intent', intentId)
-    return { action: 'route', targetModule: record.moduleId, payload: record.payload }
-  },
+export function createCoordinationEngine(repo: IntentRepository = intentRepository): CoordinationEngine {
+  return {
+    async decide(intentId: string): Promise<CoordinationDecision> {
+      const record = await repo.findById(intentId)
+      if (!record) throw new NotFoundError('Intent', intentId)
+      return { action: 'route', targetModule: record.moduleId, payload: record.payload }
+    },
+  }
 }
+
+export const coordinationEngine: CoordinationEngine = createCoordinationEngine()
