@@ -38,13 +38,31 @@ describe('MockWalletAdapter', () => {
     expect(signed).toEqual(msg);
   });
 
-  test('getCapabilities returns the declared capabilities', async () => {
+  test('getCapabilities infers assets from the configured addresses/balances', async () => {
     const caps = await mock.getCapabilities();
     expect(caps).toEqual({
+      assets: ['BTC', 'USDT_ERC20'],
+      fiatRails: [],
+      supportsP2PTrading: false,
+      supportsOnchainSettlement: false,
+    });
+  });
+
+  test('getCapabilities.assets is empty when no addresses/balances are configured', async () => {
+    const bare = new MockWalletAdapter();
+    expect(await bare.getCapabilities()).toEqual({
       assets: [],
       fiatRails: [],
       supportsP2PTrading: false,
       supportsOnchainSettlement: false,
     });
+  });
+
+  test('an explicit capabilities.assets override wins over inference', async () => {
+    const overridden = new MockWalletAdapter({
+      addresses: { BTC: 'btc-mock-address' },
+      capabilities: { assets: ['ETH'] },
+    });
+    expect((await overridden.getCapabilities()).assets).toEqual(['ETH']);
   });
 });

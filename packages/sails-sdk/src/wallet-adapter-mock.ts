@@ -24,8 +24,18 @@ export class MockWalletAdapter implements WalletAdapter {
     this.peerId = options.peerId ?? "mock-peer-id";
     this.addressMap = options.addresses ?? {};
     this.balanceMap = options.balances ?? {};
+    // `assets` defaults to the union of the addresses/balances keys the
+    // caller just configured — found via a live run of the README
+    // quickstart (2026-08-09): with the old `assets: []` default,
+    // getWalletAddresses()/getCapabilities() silently ignored an
+    // `addresses`/`balances` map the caller had just passed in, directly
+    // contradicting this class's own doc comment above ("deterministic
+    // values based on the supplied constructor parameters"). Still
+    // fully overridable via `capabilities.assets` for a caller who wants
+    // to test the "declared asset with no address on file" case.
+    const inferredAssets = [...new Set([...Object.keys(this.addressMap), ...Object.keys(this.balanceMap)])];
     this.capabilities = {
-      assets: [],
+      assets: inferredAssets,
       fiatRails: [],
       supportsP2PTrading: false,
       supportsOnchainSettlement: false,
