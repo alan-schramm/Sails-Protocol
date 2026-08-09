@@ -78,6 +78,18 @@ local f_ann_pubkey   = ProtoField.bytes("hyperdht.announce.peer_pubkey", "Peer p
 local f_mut_pubkey   = ProtoField.bytes("hyperdht.mutable.public_key", "Public key (fixed32)")
 local f_mut_seq      = ProtoField.uint32("hyperdht.mutable.seq", "Sequence", base.DEC)
 local f_lookup_peer_count = ProtoField.uint32("hyperdht.lookup.peer_count", "Peer count", base.DEC)
+local f_immutable_value = ProtoField.bytes("hyperdht.immutable.value", "Immutable value (content-addressed by hash of these bytes)")
+local f_hp_mode      = ProtoField.uint32("hyperdht.holepunch.mode", "Holepunch mode", base.DEC)
+local f_hp_id        = ProtoField.uint32("hyperdht.holepunch.id", "Holepunch session id", base.DEC)
+local f_hp_payload_len = ProtoField.uint32("hyperdht.holepunch.payload_len", "Inner payload length", base.DEC)
+local f_hpp_flags    = ProtoField.uint32("hyperdht.holepunch.payload.flags", "Payload flags", base.HEX)
+local f_hpp_error    = ProtoField.uint32("hyperdht.holepunch.payload.error", "Error code", base.DEC)
+local f_hpp_firewall = ProtoField.uint32("hyperdht.holepunch.payload.firewall", "Firewall type", base.DEC,
+  { [0] = "UNKNOWN", [1] = "OPEN", [2] = "CONSISTENT", [3] = "RANDOM" })
+local f_hpp_round    = ProtoField.uint32("hyperdht.holepunch.payload.round", "Round", base.DEC)
+local f_plugin_name    = ProtoField.string("hyperdht.plugin.name", "Plugin name")
+local f_plugin_version = ProtoField.uint32("hyperdht.plugin.version", "Plugin version", base.DEC)
+local f_plugin_command = ProtoField.uint32("hyperdht.plugin.command", "Plugin command", base.DEC)
 
 hyperdht_proto.fields = {
   f_header, f_type, f_version, f_flags,
@@ -87,7 +99,28 @@ hyperdht_proto.fields = {
   f_value, f_value_len, f_error, f_closernodes_count, f_closernode_ip, f_closernode_port,
   f_hs_flags, f_hs_mode, f_hs_noise_len, f_hs_noise,
   f_ann_flags, f_ann_pubkey, f_mut_pubkey, f_mut_seq, f_lookup_peer_count,
+  f_immutable_value, f_hp_mode, f_hp_id, f_hp_payload_len,
+  f_hpp_flags, f_hpp_error, f_hpp_firewall, f_hpp_round,
+  f_plugin_name, f_plugin_version, f_plugin_command,
 }
+
+-- HYPERDHT COMMANDS whose request also carries the DHT-RPC `internal` flag
+-- (lib/constants.js's NS.* namespacing applies to ANNOUNCE/UNANNOUNCE/
+-- MUTABLE_PUT/PEER_HANDSHAKE/PEER_HOLEPUNCH/PLUGIN) — informational only,
+-- this dissector doesn't need the namespace value itself since it never
+-- verifies signatures, only display-decodes fields.
+
+-- tid + queried-node-address correlation table, so a RESPONSE packet can
+-- be dissected knowing which command its matching REQUEST used (dht-rpc's
+-- own wire format has no command field on responses — only the requester
+-- knows, via its own outstanding-request bookkeeping keyed by tid; see
+-- io.js). Keyed by "tid@queriedNodeAddress" — for a REQUEST that address
+-- is pinfo.dst (who's being asked); for the matching RESPONSE it's
+-- pinfo.src (who's answering) — same physical node either way, so the two
+-- keys align. Cleared implicitly per Wireshark session (global Lua state,
+-- reset on "Reload Lua Plugins"); this is a debugging aid for a single
+-- capture, not a persistent store.
+local pending_requests = {}
 
 -- lib/constants.js COMMANDS — verbatim
 local COMMAND_NAMES = {
@@ -137,11 +170,14 @@ local function add_ipv4_field(tree, buf, offset, ip_field, port_field, label)
   return offset + 6
 end
 
--- Best-effort decode of the HyperDHT-specific `value` buffer for the
--- commands whose messages.js schema is a simple, non-recursive structure.
--- Anything else (PEER_HOLEPUNCH's holepunchPayload, PLUGIN's pluginRequest,
--- IMMUTABLE_*'s bare buffer) is intentionally left as raw bytes in this v1
--- rather than guessed at — see this file's own header comment on scope.
+-- Decode of the HyperDHT-specific `value` buffer per command, cross-checked
+-- against persistent.js's own onXxx() handlers (not just messages.js's
+-- schema definitions) to confirm which schema each command's request/
+-- response actually uses at the wire — this caught a real mistake in an
+-- earlier draft of this file: IMMUTABLE_PUT's value is NOT
+-- mutablePutRequest-shaped (no publicKey/seq/signature at all) — per
+-- persistent.js's onimmutableput(), it is simply the raw bytes being
+-- stored, content-addressed by hash(value) == target. Fixed here.
 local function dissect_value(tree, buf, offset, len, command, is_request)
   if len == 0 then return end
   local value_buf = buf(offset, len)
@@ -162,38 +198,100 @@ local function dissect_value(tree, buf, offset, len, command, is_request)
     return
   end
 
-  if command == 4 and is_request then
-    -- exports.announce: flags(uint) + optional peer{pubkey(fixed32), relayAddresses} + refresh/signature/bump
-    local sub = tree:add(hyperdht_proto, value_buf, "ANNOUNCE payload")
+  if command == 1 then
+    -- exports.holepunch (both request and response use this envelope,
+    -- persistent.js's dht.js-level PEER_HOLEPUNCH relay logic treats it
+    -- symmetrically): flags(uint) + mode(uint) + id(uint) + payload(buffer)
+    -- + optional peerAddress. `payload` is itself holepunchPayload-encoded
+    -- — decoded as a nested sub-item below, not left opaque, since its
+    -- schema (messages.js) is a flat, non-recursive structure like the
+    -- others already handled here.
+    local sub = tree:add(hyperdht_proto, value_buf, "PEER_HOLEPUNCH payload")
+    local pos = 0
+    local flags, n = read_uint(value_buf, pos); pos = pos + n
+    local mode, n2 = read_uint(value_buf, pos); pos = pos + n2
+    sub:add(f_hp_mode, value_buf(pos - n2, n2), mode)
+    local id, n3 = read_uint(value_buf, pos); pos = pos + n3
+    sub:add(f_hp_id, value_buf(pos - n3, n3), id)
+    local payload_len, n4 = read_buffer_len(value_buf, pos); pos = pos + n4
+    sub:add(f_hp_payload_len, value_buf(pos - n4, n4), payload_len)
+    if pos + payload_len <= len then
+      local inner = value_buf(pos, payload_len)
+      local inner_sub = sub:add(hyperdht_proto, inner, "Inner holepunchPayload")
+      local ipos = 0
+      local hflags, hn = read_uint(inner, ipos); ipos = ipos + hn
+      inner_sub:add(f_hpp_flags, inner(0, hn), hflags)
+      local herr, hn2 = read_uint(inner, ipos); ipos = ipos + hn2
+      inner_sub:add(f_hpp_error, inner(ipos - hn2, hn2), herr)
+      local hfw, hn3 = read_uint(inner, ipos); ipos = ipos + hn3
+      inner_sub:add(f_hpp_firewall, inner(ipos - hn3, hn3), hfw)
+      local hround, hn4 = read_uint(inner, ipos); ipos = ipos + hn4
+      inner_sub:add(f_hpp_round, inner(ipos - hn4, hn4), hround)
+      -- addresses/remoteAddress/token/remoteToken (flag-gated, variable
+      -- length) intentionally not further decoded in this v1 — the fixed
+      -- error/firewall/round fields above are the most useful ones for
+      -- debugging a stuck hole-punch attempt.
+    end
+    return
+  end
+
+  if (command == 4 or command == 5) and is_request then
+    -- exports.announce — shared verbatim by ANNOUNCE and UNANNOUNCE
+    -- (persistent.js's onunannounce() decodes req.value with the exact
+    -- same m.announce schema as onannounce()).
+    local label = command == 4 and "ANNOUNCE payload" or "UNANNOUNCE payload"
+    local sub = tree:add(hyperdht_proto, value_buf, label)
     local pos = 0
     local flags, n = read_uint(value_buf, pos); pos = pos + n
     sub:add(f_ann_flags, value_buf(0, n), flags)
     if bit.band(flags, 0x01) ~= 0 and pos + 32 <= len then
       sub:add(f_ann_pubkey, value_buf(pos, 32))
       pos = pos + 32
-      -- relayAddresses (ipv4Array) follows but is variable-length and
-      -- skipped in this v1 — flagged, not silently claimed as decoded.
+      -- relayAddresses (ipv4Array), refresh/signature/bump follow but are
+      -- variable-length/lower debugging value — skipped in this v1.
     end
     return
   end
 
-  if (command == 6 or command == 8) and is_request then
-    -- exports.mutablePutRequest / immutable put's own simpler shape share
-    -- the publicKey+seq+value+signature prefix closely enough to label
-    -- the fixed leading fields usefully without over-claiming precision.
-    local sub = tree:add(hyperdht_proto, value_buf, "MUTABLE/IMMUTABLE PUT payload (partial decode)")
+  if command == 6 and is_request then
+    -- exports.mutablePutRequest: publicKey(fixed32) + seq(uint) + value(buffer) + signature(fixed64)
+    local sub = tree:add(hyperdht_proto, value_buf, "MUTABLE_PUT payload")
     if len >= 32 then
       sub:add(f_mut_pubkey, value_buf(0, 32))
     end
     return
   end
 
+  if command == 7 and is_request then
+    -- persistent.js's onmutableget(): req.value is a BARE c.uint (seq),
+    -- not a named messages.js schema — no wrapper at all.
+    local sub = tree:add(hyperdht_proto, value_buf, "MUTABLE_GET request payload")
+    local seq, n = read_uint(value_buf, 0)
+    sub:add(f_mut_seq, value_buf(0, n), seq)
+    return
+  end
+
   if command == 7 and not is_request then
     -- exports.mutableGetResponse: seq(uint) + value(buffer) + signature(fixed64)
     local sub = tree:add(hyperdht_proto, value_buf, "MUTABLE_GET response payload")
-    local pos = 0
-    local seq, n = read_uint(value_buf, pos); pos = pos + n
+    local seq, n = read_uint(value_buf, 0)
     sub:add(f_mut_seq, value_buf(0, n), seq)
+    return
+  end
+
+  if command == 8 and is_request then
+    -- persistent.js's onimmutableput(): req.value IS the value being
+    -- stored, verbatim — no publicKey/seq/signature wrapper at all
+    -- (content-addressed: target == hash(value)). Corrected from an
+    -- earlier draft of this file that wrongly reused MUTABLE_PUT's shape.
+    tree:add(f_immutable_value, value_buf)
+    return
+  end
+
+  if command == 9 and not is_request then
+    -- persistent.js's onimmutableget(): req.reply(value || null) — the
+    -- stored bytes, verbatim, same as the PUT side.
+    tree:add(f_immutable_value, value_buf)
     return
   end
 
@@ -207,9 +305,28 @@ local function dissect_value(tree, buf, offset, len, command, is_request)
     return
   end
 
-  -- Fallback — every other command's value payload, or a shape this file
-  -- doesn't attempt (see comment above dissect_value). Shown as raw bytes,
-  -- not mis-labeled as something more specific than that.
+  if command == 10 and is_request then
+    -- exports.pluginRequest: plugin(string) + version(uint) + command(uint) + flags(uint) + optional value(buffer)
+    local sub = tree:add(hyperdht_proto, value_buf, "PLUGIN request payload")
+    local pos = 0
+    local str_len, n = read_uint(value_buf, pos); pos = pos + n
+    if pos + str_len <= len then
+      sub:add(f_plugin_name, value_buf(pos, str_len))
+      pos = pos + str_len
+    end
+    local ver, n2 = read_uint(value_buf, pos); pos = pos + n2
+    sub:add(f_plugin_version, value_buf(pos - n2, n2), ver)
+    local cmd, n3 = read_uint(value_buf, pos); pos = pos + n3
+    sub:add(f_plugin_command, value_buf(pos - n3, n3), cmd)
+    -- flags byte + optional value buffer follow but carry plugin-specific
+    -- (not HyperDHT-core) meaning — left as raw bytes past this point.
+    return
+  end
+
+  -- Fallback — FIND_PEER (2, request has no value; response is a bare
+  -- peer record or null, handled generically here) and anything else not
+  -- explicitly matched above. Shown as raw bytes, not mis-labeled as
+  -- something more specific than that.
   tree:add(hyperdht_proto, value_buf, "Value payload (undecoded in this v1 — raw bytes)")
 end
 
@@ -249,6 +366,7 @@ function hyperdht_proto.dissector(buf, pinfo, tree)
 
   local offset = 2
   if buf:len() < offset + 2 then return offset end
+  local tid = buf(offset, 2):le_uint()
   subtree:add_le(f_tid, buf(offset, 2)); offset = offset + 2
 
   if buf:len() < offset + 6 then return offset end
@@ -271,7 +389,13 @@ function hyperdht_proto.dissector(buf, pinfo, tree)
     command = cmd
     subtree:add(f_command, buf(offset, n), cmd)
     local cmd_name = COMMAND_NAMES[cmd] or "unknown"
-    pinfo.cols.info = string.format("REQUEST %s (%d) tid=%d", cmd_name, cmd, buf(2, 2):le_uint())
+    pinfo.cols.info = string.format("REQUEST %s (%d) tid=%d", cmd_name, cmd, tid)
+
+    -- Remember which command this tid used, keyed by the address of the
+    -- node being queried (pinfo.dst here) — see pending_requests' own
+    -- comment above for why this is the correlation key that survives to
+    -- the matching response.
+    pending_requests[tid .. "@" .. tostring(pinfo.dst)] = cmd
     offset = offset + n
 
     if bit.band(flags, 0x08) ~= 0 then
@@ -289,7 +413,21 @@ function hyperdht_proto.dissector(buf, pinfo, tree)
       offset = offset + len
     end
   else
-    pinfo.cols.info = string.format("RESPONSE tid=%d", buf(2, 2):le_uint())
+    -- Look up which command this response's tid was replying to, via the
+    -- correlation table populated when its matching request was seen
+    -- (pinfo.src here is the same node that was pinfo.dst on the request —
+    -- see pending_requests' own comment). nil if the request wasn't seen
+    -- in this capture (e.g. capture started mid-session) — handled
+    -- gracefully by dissect_value()'s fallback branch, not an error.
+    local correlated_key = tid .. "@" .. tostring(pinfo.src)
+    local correlated_command = pending_requests[correlated_key]
+    local correlated_name = correlated_command and (COMMAND_NAMES[correlated_command] or "unknown")
+
+    if correlated_name then
+      pinfo.cols.info = string.format("RESPONSE to %s (%d) tid=%d", correlated_name, correlated_command, tid)
+    else
+      pinfo.cols.info = string.format("RESPONSE tid=%d (request not seen in this capture)", tid)
+    end
 
     if bit.band(flags, 0x04) ~= 0 then
       local count, n = read_uint(buf, offset)
@@ -313,13 +451,11 @@ function hyperdht_proto.dissector(buf, pinfo, tree)
       offset = offset + n2
       if buf:len() < offset + len then return offset end
       subtree:add(f_value, buf(offset, len))
-      -- Note: the response path doesn't carry `command` (dht-rpc's own
-      -- response envelope has no command field — the requester correlates
-      -- by `tid` against its own outstanding request, per io.js). Value
-      -- payload decoding for responses that need to know which command
-      -- they're replying to (e.g. LOOKUP/MUTABLE_GET) is therefore
-      -- necessarily best-effort without tid-based request/response
-      -- correlation, which this v1 does not implement.
+      if correlated_command ~= nil then
+        dissect_value(subtree, buf, offset, len, correlated_command, false)
+      else
+        subtree:add(hyperdht_proto, buf(offset, len), "Value payload (command unknown — request not seen in this capture)")
+      end
       offset = offset + len
     end
   end

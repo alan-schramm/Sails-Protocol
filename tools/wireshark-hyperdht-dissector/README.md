@@ -25,12 +25,35 @@ existing work, because none exists yet.
 - The `dht-rpc` request/response envelope (header byte, flags, transaction
   ID, source/destination address, node ID, auth token, command, DHT
   target, closer-nodes list, error code, value payload length).
-- The HyperDHT command name (`PEER_HANDSHAKE`, `FIND_PEER`, `LOOKUP`,
-  `ANNOUNCE`, `MUTABLE_PUT/GET`, `IMMUTABLE_PUT/GET`, `PLUGIN`, etc.).
-- A best-effort partial decode of a few of the more common commands'
-  `value` payloads (`PEER_HANDSHAKE`, `ANNOUNCE`, `MUTABLE_GET` response,
-  `LOOKUP` reply's peer count). Everything else is shown as raw bytes
-  rather than guessed at.
+- The HyperDHT command name for all 11 commands (`PEER_HANDSHAKE`,
+  `PEER_HOLEPUNCH`, `FIND_PEER`, `LOOKUP`, `ANNOUNCE`, `UNANNOUNCE`,
+  `MUTABLE_PUT/GET`, `IMMUTABLE_PUT/GET`, `PLUGIN`).
+- Request/response correlation by transaction ID + queried-node address —
+  `dht-rpc`'s wire format has no command field on a response (only the
+  original requester knows what it asked), so this dissector remembers
+  each request's command in a table as it sees it and looks it up again
+  when the matching response arrives, so a response's `value` payload can
+  be decoded with the same precision as its request. Shown in the Info
+  column as `RESPONSE to LOOKUP (3) tid=1234`, or flagged explicitly as
+  `(request not seen in this capture)` when the correlation can't be made
+  (e.g. the capture started mid-session).
+- A decode of every command's `value` payload where `persistent.js`'s own
+  request handlers confirm the shape: `PEER_HANDSHAKE` (flags/mode/noise
+  length), `PEER_HOLEPUNCH` (including its nested `holepunchPayload` —
+  error/firewall/round), `ANNOUNCE`/`UNANNOUNCE` (shared schema, confirmed
+  identical in `persistent.js`), `MUTABLE_PUT`/`MUTABLE_GET` (both
+  directions), `IMMUTABLE_PUT`/`IMMUTABLE_GET` (raw content-addressed
+  bytes — see the correction note below), `LOOKUP` reply's peer count,
+  `PLUGIN` (plugin name/version/command). `FIND_PEER` carries no
+  structured `value` and isn't decoded further.
+- Cross-checked against `hyperdht`'s `lib/persistent.js` (the actual
+  request *handlers*), not just `lib/messages.js`'s schema *definitions* —
+  this caught a real mistake in the first draft: `IMMUTABLE_PUT`'s value
+  was originally (wrongly) decoded using `MUTABLE_PUT`'s
+  publicKey+seq+signature shape. `persistent.js`'s `onimmutableput()`
+  shows it's actually just the raw bytes being stored, unwrapped,
+  content-addressed by `hash(value) == target`. Fixed before this was
+  ever used against real traffic.
 
 ## What it does NOT do
 
@@ -52,10 +75,20 @@ existing work, because none exists yet.
   was available in the environment this was built in to confirm it
   against real bytes on the wire. Treat it as "should be correct per the
   source" until someone runs it against a real `.pcap`.
-- Several `value` payload shapes are intentionally left undecoded in this
-  v1 (`PEER_HOLEPUNCH`'s payload, `PLUGIN`'s payload, response-side
-  `LOOKUP`/`MUTABLE_GET` correlation) — see the comments in `hyperdht.lua`
-  next to `dissect_value()` for exactly which ones and why.
+- A few variable-length sub-fields inside otherwise-decoded payloads are
+  still left as undecoded trailing bytes in this v1 for lower marginal
+  debugging value relative to effort: `ANNOUNCE`'s `relayAddresses`/
+  `refresh`/`signature`/`bump`, `PEER_HOLEPUNCH`'s `addresses`/
+  `remoteAddress`/`token`/`remoteToken`, `LOOKUP` reply's actual peer list
+  (only the count is decoded), `PLUGIN`'s trailing `value` buffer. Each is
+  commented at its exact spot in `dissect_value()`.
+- The tid-correlation table (see above) is a plain in-memory Lua table,
+  reset whenever Wireshark reloads Lua plugins — a debugging aid scoped to
+  one capture session, not a persistent store. A 16-bit tid could
+  theoretically collide across two different concurrent request/response
+  pairs to the *same* queried node before the first one's response
+  arrives; not handled specially in this v1 (rare enough in practice not
+  to be worth a more complex correlation key yet).
 
 ## Install
 
@@ -79,12 +112,18 @@ existing work, because none exists yet.
   while a `POST /v1/peers/start` session is active
   ([pear.routes.ts](../../src/infrastructure/p2p/pear.routes.ts)).
 
-## Known limitation worth fixing next, if this gets used
+## Known limitations worth fixing next, if this gets used
 
-Response packets never carry the original command — only the requester
-knows which command a given `tid` was replying to (`dht-rpc` correlates
-by transaction ID, not by re-stating the command). This dissector doesn't
-do request/response correlation yet, so response `value` payloads for
-commands like `LOOKUP`/`MUTABLE_GET` are shown less precisely than their
-request counterparts. Wireshark's `conversation`/`Pinfo` APIs support
-this kind of stateful correlation; it just wasn't built in this v1.
+- Live-traffic validation (see above) — the single most valuable next
+  step, since everything else here is "correct per source reading," not
+  "confirmed against real bytes."
+- The variable-length trailing sub-fields listed above (relay address
+  lists, signatures, hole-punch addresses/tokens, the actual `LOOKUP`
+  peer list contents, `PLUGIN`'s value buffer).
+- UDX — Tether's other open tether.dev bounty ("UDX in Wireshark",
+  10,000 USD₮) — is a separate, from-scratch effort: UDX doesn't appear
+  anywhere in Sails' own code or dependencies (confirmed via a repo-wide
+  search before starting this dissector), so unlike this HyperDHT/dht-rpc
+  one, it wouldn't help debug anything Sails' own stack touches directly.
+  Being pursued anyway as a distinct contribution — see
+  `tools/wireshark-udx-dissector/` if that work has started.
