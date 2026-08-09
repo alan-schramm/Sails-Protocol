@@ -12,6 +12,7 @@ import { eventBus } from '../../common/events/event-bus'
 import { negotiationService } from './negotiation.service'
 import { intentEngine } from '../../core/intent-engine'
 import { tradeRepository, type TradeRepository } from './trade-repository'
+import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeStatus } from '../../common/types'
 
 export interface CreateTradeInput {
@@ -175,7 +176,7 @@ export class TradeService {
   // default 10) — matched here rather than inventing a second
   // pagination convention or a cursor-based one.
   async getTrades(participantId: string, pagination?: TradePagination) {
-    const limit = Math.min(Math.max(pagination?.limit ?? 10, 1), 50)
+    const limit = Math.min(Math.max(pagination?.limit ?? DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT)
     const offset = Math.max(pagination?.offset ?? 0, 0)
 
     const [trades, total] = await Promise.all([

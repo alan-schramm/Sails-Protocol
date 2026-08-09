@@ -27,6 +27,7 @@ import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitrati
 import { marketArbitrationProvider } from './market-arbitration.provider'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
+import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
 import type { EvidenceDescriptor, DisputeRuling } from '@sails/p2p-schemas'
 import type { DisputeStatus } from '@prisma/client'
@@ -144,7 +145,7 @@ export class DisputeService {
   // already follow), so this can't be used to enumerate another
   // arbiter's caseload.
   async listForArbiter(arbiterId: string, pagination?: { limit?: number; offset?: number }) {
-    const limit = Math.min(Math.max(pagination?.limit ?? 10, 1), 50)
+    const limit = Math.min(Math.max(pagination?.limit ?? DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT)
     const offset = Math.max(pagination?.offset ?? 0, 0)
 
     const where = { arbiterId }

@@ -264,6 +264,21 @@ const p = (request as AuthenticatedRequest).participantId
 
 **Fix:** Criar constante `API_VERSION` importada de package.json.
 
+**✅ Fechado 2026-08-09** — achado real além da duplicação: o valor
+hardcoded (`0.1.0`) já estava **desatualizado** em relação ao
+`package.json` real (`0.1.1`) — as 4 rotas afetadas (`/health`,
+`/health/live`, `/`, o info do Swagger) reportavam a versão errada.
+`app.ts` agora importa `package.json` (`resolveJsonModule`) e usa uma
+única `const API_VERSION = packageJson.version`. Efeito colateral
+encontrado e corrigido no mesmo pass: `tsc --build` passou a copiar
+`package.json` para `dist/`, colidindo com o haste module map do Jest
+(`dist/package.json` vs. o `package.json` real, mesmo `"name"`) —
+`jest.config.js` ganhou `modulePathIgnorePatterns: ['<rootDir>/dist/']`,
+a exclusão correta de qualquer forma (Jest nunca deveria escanear
+build output). Verificado via build real (`tsc --build` + inspeção do
+`dist/src/app.js` compilado) antes de aceitar a abordagem, não só por
+typecheck.
+
 ---
 
 ## MÉDIO — Dificulta Onboarding
@@ -280,6 +295,20 @@ const p = (request as AuthenticatedRequest).participantId
 **Problema:** 4 defaults diferentes sem rationale documentado.
 
 **Fix:** Constantes compartilhadas `DEFAULT_PAGE_SIZE` e `MAX_PAGE_SIZE`.
+
+**✅ Parcialmente fechado 2026-08-09** — correção ao próprio diagnóstico:
+Trade/Dispute/Liquidity (`InternalOrderBook.getOffers()`) já usavam o
+**mesmo** par 10/50 de propósito — o comentário original de
+`liquidity.service.ts` já dizia "matched here rather than inventing a
+second pagination convention." Essas três foram unificadas em
+`src/common/pagination.ts` (`DEFAULT_PAGE_LIMIT`/`MAX_PAGE_LIMIT`), um
+real ganho de DRY sem mudança de comportamento. Chat (50/100) e
+Reputation (20/—) **não** foram unificados — forçá-los pros mesmos dois
+números mudaria o default público dessas rotas sem necessidade real,
+não é limpeza, é regressão. Se algum dia fizer sentido dar nome aos
+valores de Chat/Reputation também, cada um merece sua própria constante
+nomeada — nunca reaproveitar `DEFAULT_PAGE_LIMIT`/`MAX_PAGE_LIMIT` para
+um valor que não é 10/50.
 
 ---
 

@@ -4,6 +4,7 @@ import { NotFoundError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { intentEngine } from '../../core/intent-engine'
 import { childLogger } from '../../common/logger'
+import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeIntentPayload } from '../../common/types/intent'
 import type { Prisma } from '@prisma/client'
 
@@ -63,7 +64,7 @@ export interface LiquidityProvider {
 // zod schemas). Keep it as a pure helper so both providers and the router can
 // reuse it.
 function normalizePagination(pagination?: OfferPagination): { limit: number; offset: number } {
-  const limit = Math.min(Math.max(pagination?.limit ?? 10, 1), 50)
+  const limit = Math.min(Math.max(pagination?.limit ?? DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT)
   const offset = Math.max(pagination?.offset ?? 0, 0)
   return { limit, offset }
 }

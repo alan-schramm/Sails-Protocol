@@ -30,6 +30,13 @@ import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
 import { metricsRegistry, httpRequestsTotal, httpRequestDurationSeconds } from './common/metrics'
+import packageJson from '../package.json'
+
+// TECHNICAL_DEBT_AUDIT.md item 17 — '0.1.0' was hardcoded 4 times below,
+// independently of package.json's own version, and had already drifted
+// stale (package.json is 0.1.1). Reading it from the one real source
+// means this can't silently drift again.
+const API_VERSION = packageJson.version
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -111,7 +118,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       info: {
         title: 'Sails Protocol — Satsails Reference Implementation',
         description: 'Sails OpenP2P module — non-custodial multi-asset P2P marketplace',
-        version: '0.1.0',
+        version: API_VERSION,
       },
       tags: [
         { name: 'intent', description: 'Intent Engine — cross-cutting Core, §2' },
@@ -236,7 +243,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/health/live', async () => ({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '0.1.0',
+    version: API_VERSION,
     protocol: 'Sails Protocol',
     module: 'Sails OpenP2P',
     referenceImplementation: 'Satsails Wallet',
@@ -276,7 +283,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/health', async () => ({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '0.1.0',
+    version: API_VERSION,
     protocol: 'Sails Protocol',
     module: 'Sails OpenP2P',
     referenceImplementation: 'Satsails Wallet',
@@ -292,7 +299,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     referenceImplementation: 'Satsails Wallet',
     docs: config.isProduction ? null : '/docs', // see this route's own registration above for why
     ws: '/ws?userId=<uuid>',
-    version: '0.1.0',
+    version: API_VERSION,
   }))
 
   // ── Routes ─────────────────────────────────────────────────────────────────

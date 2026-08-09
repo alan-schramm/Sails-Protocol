@@ -4,6 +4,14 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/tests/**/*.test.ts'],
   clearMocks: true,
+  // `app.ts` now imports the root package.json (API_VERSION, see its own
+  // comment) — tsc's resolveJsonModule copies that file into dist/ as a
+  // build artifact, which then collides with the real root package.json
+  // in Jest's haste module map (both declare the same "name") once dist/
+  // has been built locally. dist/ should never be scanned by Jest at all
+  // regardless — this is the correct general exclusion, not a workaround
+  // specific to that one file.
+  modulePathIgnorePatterns: ['<rootDir>/dist/'],
   // @noble/curves v2.x (forced into packages/sails-sdk/node_modules by
   // @arkade-os/sdk's own transitive tree — verified via `npm ls
   // @noble/curves -w @sails/sdk --all`, npm cannot place a separate 1.x
