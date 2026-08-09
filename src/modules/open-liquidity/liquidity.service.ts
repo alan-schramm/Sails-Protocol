@@ -177,27 +177,6 @@ class InternalOrderBook implements LiquidityProvider {
   }
 }
 
-// ─── HodlHodl Abstraction (stub — disabled until API key configured) ─────────
-class HodlHodlProvider implements LiquidityProvider {
-  name = 'hodlhodl'
-
-  async isAvailable() {
-    // TODO(roadmap Meses 1-3): ping HodlHodl API health endpoint
-    return false
-  }
-
-  async getOffers(asset: AssetType, _side: TradeSide, _pagination?: OfferPagination, _filters?: OfferFilters): Promise<LiquidityOffer[]> {
-    // TODO(roadmap Meses 1-3): GET https://hodlhodl.com/api/v1/offers
-    //   ?filters[currency_code]=BRL&filters[asset]=BTC
-    log.info({ asset }, '[HodlHodl] getOffers — not yet implemented')
-    return []
-  }
-
-  async matchOrder(_asset: AssetType, _side: TradeSide, _amount: string): Promise<LiquidityOffer | null> {
-    return null
-  }
-}
-
 // ─── Offer creation/lifecycle — local to the Internal Order Book, since only
 // internal offers can be created/paused/cancelled through this reference
 // implementation (HodlHodl offers are theirs to manage, read-only here) ──────
@@ -236,8 +215,16 @@ function buildTradeIntentPayload(input: CreateOfferInput): TradeIntentPayload {
 export class LiquidityRouter {
   private readonly providers: LiquidityProvider[]
 
+  // HodlHodl aggregation (pulling their public order book into search
+  // results) was a stubbed LiquidityProvider here — always isAvailable()
+  // === false, zero test coverage, no runtime effect. Removed 2026-08-09
+  // per project-owner decision: not needed for the current milestone,
+  // stays a roadmap line in BACKLOG.md instead of dead code in the tree.
+  // The unrelated real code that cites HodlHodl as a design precedent
+  // (multisig.provider.ts, lightning-hodl.provider.ts's 2-of-3 escrow
+  // model) is untouched — that's shipped, working code, not this stub.
   constructor() {
-    this.providers = [new InternalOrderBook(), new HodlHodlProvider()]
+    this.providers = [new InternalOrderBook()]
   }
 
   async createOffer(input: CreateOfferInput) {
