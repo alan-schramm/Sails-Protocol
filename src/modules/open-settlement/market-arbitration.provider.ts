@@ -26,6 +26,7 @@
  */
 import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
+import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { AssetType } from '../../common/types'
 import { eventBus } from '../../common/events/event-bus'
 import type { ArbitrationProvider } from './arbitration-provider'
@@ -113,6 +114,8 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
   // property; nothing in dispute.service.ts reads it.
   arbitrators: string[] = []
 
+  constructor(private readonly repo: EscrowRepository = escrowRepository) {}
+
   /**
    * D2 — permissionless registration. No approval step: any participant
    * may call this for themselves. Creates the ArbiterProfile if one
@@ -193,7 +196,7 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
   async assign(disputeId: string, _tradeId: string): Promise<string> {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new EscrowError(`MarketArbitrationProvider: no dispute found for id ${disputeId}`)
-    const escrow = await prisma.escrow.findUnique({ where: { id: dispute.escrowId } })
+    const escrow = await this.repo.findById(dispute.escrowId)
     if (!escrow) throw new EscrowError(`MarketArbitrationProvider: no escrow found for dispute ${disputeId}`)
 
     const eligible = await this.eligibleFor(String(escrow.lockedAmount))
@@ -235,7 +238,7 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
   async assignAppealPanel(disputeId: string, _tradeId: string, round: number, excludeParticipantId?: string): Promise<string> {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new EscrowError(`MarketArbitrationProvider: no dispute found for id ${disputeId}`)
-    const escrow = await prisma.escrow.findUnique({ where: { id: dispute.escrowId } })
+    const escrow = await this.repo.findById(dispute.escrowId)
     if (!escrow) throw new EscrowError(`MarketArbitrationProvider: no escrow found for dispute ${disputeId}`)
 
     let eligible = await this.eligibleFor(String(escrow.lockedAmount))

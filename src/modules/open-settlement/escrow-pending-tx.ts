@@ -13,6 +13,8 @@ import {
   resolvePayoutAddress,
 } from './escrow-lifecycle'
 import { hasDualApproval } from './escrow-dual-approval'
+import { escrowRepository } from './escrow-repository'
+import { tradeRepository } from '../open-p2p/trade-repository'
 
 /**
  * Sails OpenSettlement — client-signature-collection pending-transaction
@@ -54,7 +56,7 @@ async function initiateSignatureCollectionCore(
   buildProvider: (provider: any, escrowRecord: any) => Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress?: string; toAddressSecondary?: string }>,
   extraData?: Record<string, unknown>
 ) {
-  const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+  const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
 
   const provider = SIGNATURE_COLLECTION_PROVIDERS[escrow.type]
@@ -65,7 +67,7 @@ async function initiateSignatureCollectionCore(
   }
   assertEscrowTransition(escrow.status, targetStatus as any)
 
-  const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+  const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
   if (!(await isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
     throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
@@ -114,7 +116,7 @@ export async function initiateRelease(escrowId: string, toAddress: string | unde
     }
   }
   // Dual-approval check — only release has this (RFC-015).
-  const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+  const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
   if (config.features.requireDualApprovalForRelease && escrow.status === 'PAYMENT_PENDING') {
     const dual = await hasDualApproval(escrowId)
@@ -125,7 +127,7 @@ export async function initiateRelease(escrowId: string, toAddress: string | unde
       )
     }
   }
-  const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+  const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
   const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.buyerId, escrow.asset)
 
@@ -146,9 +148,9 @@ export async function initiateSplit(escrowId: string, buyerAddress: string | und
   if (!(buyerBps > 0 && buyerBps < 10000)) {
     throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
   }
-  const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+  const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
-  const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+  const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
   const resolvedBuyerAddress = await resolvePayoutAddress(buyerAddress, trade.buyerId, escrow.asset)
   const resolvedSellerAddress = await resolvePayoutAddress(sellerAddress, trade.sellerId, escrow.asset)
@@ -177,7 +179,7 @@ export async function initiateSplit(escrowId: string, buyerAddress: string | und
 // releaseFunds()/refundFunds() already do, so the race protection those
 // methods have is preserved here too.
 export async function submitTransactionSignature(escrowId: string, participantId: string, signedPsbtBase64: string) {
-  const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+  const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
 
   const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
@@ -235,7 +237,7 @@ export async function submitTransactionSignature(escrowId: string, participantId
     const updateData = pending.kind === 'refund'
       ? { txReleaseId: result.txId }
       : { txReleaseId: result.txId, releasedAt: new Date() }
-    const updated = await prisma.escrow.update({ where: { id: escrowId }, data: updateData })
+    const updated = await escrowRepository.updateSignatureCollectionResult(escrowId, updateData)
 
     const eventName = pending.kind === 'release'
       ? 'settlement.escrow.released'

@@ -5,6 +5,8 @@ import { AssetType } from '../../common/types'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
 import { payoutAddressService } from './payout-address.service'
+import { escrowRepository } from './escrow-repository'
+import { tradeRepository } from '../open-p2p/trade-repository'
 
 /**
  * Sails OpenSettlement — Escrow lifecycle shared helpers
@@ -61,7 +63,7 @@ export function isPartyOrAgent(triggeredBy: string, participantId: string): bool
 // ever involved, so callers use the same call surface either way.
 export async function isSellerOrAssignedArbiter(tradeId: string, sellerId: string, triggeredBy: string): Promise<boolean> {
   if (isPartyOrAgent(triggeredBy, sellerId)) return true
-  const dispute = await prisma.dispute.findFirst({ where: { tradeId, arbiterId: triggeredBy } })
+  const dispute = await escrowRepository.findDisputeByTradeAndArbiter(tradeId, triggeredBy)
   return dispute !== null
 }
 
@@ -70,10 +72,10 @@ export async function isSellerOrAssignedArbiter(tradeId: string, sellerId: strin
 export async function loadEscrowWithAuthorization(
   escrowId: string,
   triggeredBy: string
-): Promise<{ escrow: NonNullable<Awaited<ReturnType<typeof prisma.escrow.findUnique>>>; trade: NonNullable<Awaited<ReturnType<typeof prisma.trade.findUnique>>> }> {
-  const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+): Promise<{ escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>; trade: NonNullable<Awaited<ReturnType<typeof tradeRepository.findById>>> }> {
+  const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
-  const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+  const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
   if (!(await isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
     throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
@@ -102,11 +104,8 @@ export async function claimEscrowTransition(escrowId: string, fromStatus: string
   if (!allowed.includes(toStatus)) {
     throw new EscrowError(`Invalid escrow transition: ${fromStatus} → ${toStatus}. Allowed: ${allowed.join(', ') || 'none'}`)
   }
-  const claim = await prisma.escrow.updateMany({
-    where: { id: escrowId, status: fromStatus as any },
-    data: { status: toStatus as any },
-  })
-  if (claim.count === 0) {
+  const claimedCount = await escrowRepository.claimTransition(escrowId, fromStatus, toStatus)
+  if (claimedCount === 0) {
     throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
   }
 }
@@ -118,7 +117,7 @@ export async function claimEscrowTransition(escrowId: string, fromStatus: string
  *  error reaches the caller — they already saw the problem, a "revert
  *  also failed" chain would just bury the real failure. */
 export async function revertEscrowStatus(escrowId: string, status: string): Promise<void> {
-  await prisma.escrow.update({ where: { id: escrowId }, data: { status: status as any } }).catch(() => {})
+  await escrowRepository.revertStatus(escrowId, status).catch(() => {})
 }
 
 export function assertEscrowTransition(current: string, next: string) {

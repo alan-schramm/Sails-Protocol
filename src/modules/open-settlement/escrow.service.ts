@@ -28,6 +28,8 @@ import {
 } from './escrow-lifecycle'
 import * as dualApproval from './escrow-dual-approval'
 import * as pendingTx from './escrow-pending-tx'
+import { escrowRepository, type EscrowRepository } from './escrow-repository'
+import { tradeRepository } from '../open-p2p/trade-repository'
 
 /**
  * Sails OpenSettlement — Reference Implementation
@@ -79,6 +81,8 @@ export interface CreateEscrowInput {
 }
 
 export class EscrowService {
+  constructor(private readonly repo: EscrowRepository = escrowRepository) {}
+
   // RFC-021 D9 — exposed so dispute.service.ts's applyRuling() can route a
   // ruling to the right fund-movement mechanism. Bug found while building
   // SPLIT (2026-08-02): applyRuling() previously called releaseFunds()/
@@ -127,7 +131,7 @@ export class EscrowService {
     // Reads Trade only to validate existence — this is a read, not a write,
     // so it does not violate the module boundary (OpenSettlement may read
     // cross-module state; it must never WRITE to another module's tables).
-    const trade = await prisma.trade.findUnique({ where: { id: input.tradeId } })
+    const trade = await tradeRepository.findById(input.tradeId)
     if (!trade) throw new NotFoundError('Trade', input.tradeId)
     if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
       throw new ForbiddenError(`${participantId} is not a counterparty (buyer or seller) of trade ${trade.id}`)
@@ -141,16 +145,13 @@ export class EscrowService {
     // genuinely cannot be derived yet at creation time, only once both
     // parties have submitted their pubkey via submitParticipantKey()
     // below. Escrow.multisigAddr stays null until then.
-    const escrow = await prisma.escrow.create({
-      data: {
-        tradeId: input.tradeId,
-        type: type as any,
-        status: 'CREATED',
-        lockedAmount: input.lockedAmount,
-        asset: input.asset as any,
-        network: input.network,
-        timelockHours: input.timelockHours ?? config.trade.defaultTimelockHours,
-      },
+    const escrow = await this.repo.create({
+      tradeId: input.tradeId,
+      type,
+      lockedAmount: input.lockedAmount,
+      asset: input.asset,
+      network: input.network,
+      timelockHours: input.timelockHours ?? config.trade.defaultTimelockHours,
     })
 
     await eventBus.emit('settlement.escrow.created', {
@@ -174,7 +175,7 @@ export class EscrowService {
   // the real deposit address — this is the only place that now happens,
   // replacing createEscrow()'s old immediate-population branch.
   async submitParticipantKey(escrowId: string, participantId: string, pubkey: string) {
-    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    const escrow = await this.repo.findById(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
 
     const provider = NON_CUSTODIAL_PROVIDERS[escrow.type]
@@ -182,7 +183,7 @@ export class EscrowService {
       throw new EscrowError(`Escrow type '${escrow.type}' does not use client-submitted keys — nothing to submit`)
     }
 
-    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    const trade = await tradeRepository.findById(escrow.tradeId)
     if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
 
     let role: 'buyer' | 'seller'
@@ -207,20 +208,20 @@ export class EscrowService {
     let updatedEscrow = escrow
     if (buyerKey && sellerKey && !escrow.multisigAddr && !config.features.mockEscrow) {
       const address = await provider.getDepositAddress(trade.id, buyerKey.pubkey, sellerKey.pubkey)
-      updatedEscrow = await prisma.escrow.update({ where: { id: escrowId }, data: { multisigAddr: address } })
+      updatedEscrow = await this.repo.updateMultisigAddr(escrowId, address)
     }
 
     return { escrow: updatedEscrow, buyerKeySubmitted: !!buyerKey, sellerKeySubmitted: !!sellerKey }
   }
 
   async lockFunds(escrowId: string, triggeredBy: string) {
-    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    const escrow = await this.repo.findById(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     assertEscrowTransition(escrow.status, 'FUNDS_LOCKED')
 
     // Locking collateral is the seller's own action — see isPartyOrAgent()'s
     // doc comment (escrow-lifecycle.ts) for why an IDOR check was missing here.
-    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    const trade = await tradeRepository.findById(escrow.tradeId)
     if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
     if (!isPartyOrAgent(triggeredBy, trade.sellerId)) {
       throw new ForbiddenError(`${triggeredBy} is not the seller of trade ${trade.id} — only the seller may lock escrow funds`)
@@ -258,9 +259,8 @@ export class EscrowService {
       const now = new Date()
       const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
 
-      const updated = await prisma.escrow.update({
-        where: { id: escrowId },
-        data: { txLockId: result.txId, multisigAddr: result.address, lockedAt: now, expiresAt },
+      const updated = await this.repo.updateLockResult(escrowId, {
+        txLockId: result.txId, multisigAddr: result.address, lockedAt: now, expiresAt,
       })
 
       // NOTE: previously this method also called prisma.trade.update(...) to set
@@ -283,12 +283,12 @@ export class EscrowService {
   }
 
   async markPaymentSent(escrowId: string, triggeredBy: string) {
-    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    const escrow = await this.repo.findById(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     assertEscrowTransition(escrow.status, 'PAYMENT_PENDING')
 
     // Claiming fiat was sent is the buyer's own claim — see isPartyOrAgent()'s doc comment.
-    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    const trade = await tradeRepository.findById(escrow.tradeId)
     if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
     if (!isPartyOrAgent(triggeredBy, trade.buyerId)) {
       throw new ForbiddenError(`${triggeredBy} is not the buyer of trade ${trade.id} — only the buyer may confirm payment sent`)
@@ -297,15 +297,17 @@ export class EscrowService {
     // No external provider call here, but still atomic (robustness audit,
     // 2026-07-20) — a double-click could otherwise write the same
     // transition twice, emitting settlement.escrow.payment_pending
-    // twice for one real event.
-    const claim = await prisma.escrow.updateMany({
-      where: { id: escrowId, status: escrow.status },
-      data: { status: 'PAYMENT_PENDING' },
-    })
-    if (claim.count === 0) {
+    // twice for one real event. NOTE: this is a pre-existing,
+    // undeduplicated duplicate of escrow-lifecycle.ts's
+    // claimEscrowTransition() — it deliberately does NOT go through that
+    // helper because that one also gates on VALID_TRANSITIONS, a check
+    // this call site has never had; preserved as-is, not merged, to avoid
+    // a silent behavior change in fund-adjacent code.
+    const claimedCount = await this.repo.claimTransition(escrowId, escrow.status, 'PAYMENT_PENDING')
+    if (claimedCount === 0) {
       throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
     }
-    const updated = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    const updated = await this.repo.findById(escrowId)
 
     await emitEscrowTransition(
       escrowId,
@@ -398,9 +400,8 @@ export class EscrowService {
       // into fees yet persists nothing extra.
       const feeCharged = await chargeProtocolFee(escrow)
 
-      const updated = await prisma.escrow.update({
-        where: { id: escrowId },
-        data: { txReleaseId: result.txId, releasedAt: new Date(), feeCharged },
+      const updated = await this.repo.updateReleaseResult(escrowId, {
+        txReleaseId: result.txId, releasedAt: new Date(), feeCharged,
       })
 
       // NOTE: previously this method also updated Trade.status/completedAt AND
@@ -424,7 +425,7 @@ export class EscrowService {
   }
 
   async openDispute(escrowId: string, triggeredBy: string, reason: string) {
-    const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    const escrow = await this.repo.findById(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     assertEscrowTransition(escrow.status, 'DISPUTED')
 
@@ -433,7 +434,7 @@ export class EscrowService {
     // today) — kept here too so this method is safe to call directly if
     // a second caller is ever added, consistent with the "the real check
     // belongs at the actual choke point" lesson from RFC-014/015.
-    const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+    const trade = await tradeRepository.findById(escrow.tradeId)
     if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
     if (!isPartyOrAgent(triggeredBy, trade.buyerId) && !isPartyOrAgent(triggeredBy, trade.sellerId)) {
       throw new ForbiddenError(`${triggeredBy} is not a party to trade ${trade.id}`)
@@ -445,7 +446,7 @@ export class EscrowService {
     // level (2026-07-19 security round); this closes the same race one
     // layer down, at the Escrow row this method actually mutates.
     await claimEscrowTransition(escrowId, escrow.status, 'DISPUTED')
-    const updated = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    const updated = await this.repo.findById(escrowId)
 
     await emitEscrowTransition(
       escrowId,
@@ -475,10 +476,7 @@ export class EscrowService {
         { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord
       )
 
-      const updated = await prisma.escrow.update({
-        where: { id: escrowId },
-        data: { txReleaseId: result.txId },
-      })
+      const updated = await this.repo.updateRefundResult(escrowId, result.txId)
 
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'REFUNDED', triggeredBy, 'settlement.escrow.refunded', {
         txId: result.txId,
@@ -525,9 +523,8 @@ export class EscrowService {
         buyerBps
       )
 
-      const updated = await prisma.escrow.update({
-        where: { id: escrowId },
-        data: { txReleaseId: result.txIds.join(','), releasedAt: new Date() },
+      const updated = await this.repo.updateSplitResult(escrowId, {
+        txReleaseId: result.txIds.join(','), releasedAt: new Date(),
       })
 
       // Joined into the shared txId?: string field (SettlementEscrowStatusChangedEvent)
@@ -589,19 +586,13 @@ export class EscrowService {
   // for escrow status now also answers "is there a dispute, and what's its
   // id" — no schema change, no new route needed.
   async getEscrow(escrowId: string) {
-    const escrow = await prisma.escrow.findUnique({
-      where: { id: escrowId },
-      include: { events: { orderBy: { createdAt: 'asc' } }, disputes: true },
-    })
+    const escrow = await this.repo.findByIdWithDetails(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     return escrow
   }
 
   async getEscrowByTrade(tradeId: string) {
-    const escrow = await prisma.escrow.findUnique({
-      where: { tradeId },
-      include: { events: { orderBy: { createdAt: 'asc' } }, disputes: true },
-    })
+    const escrow = await this.repo.findByTradeIdWithDetails(tradeId)
     if (!escrow) throw new NotFoundError('Escrow for trade', tradeId)
     return escrow
   }
@@ -628,16 +619,14 @@ export class EscrowService {
   // stuck/already-transitioning escrow must not block every other
   // legitimately expired one in the same sweep.
   async sweepExpiredEscrows(): Promise<{ refunded: string[]; failed: Array<{ escrowId: string; error: string }> }> {
-    const expired = await prisma.escrow.findMany({
-      where: { status: 'FUNDS_LOCKED', expiresAt: { lt: new Date() } },
-    })
+    const expired = await this.repo.findExpiredFundsLocked(new Date())
 
     const refunded: string[] = []
     const failed: Array<{ escrowId: string; error: string }> = []
 
     for (const escrow of expired) {
       try {
-        const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+        const trade = await tradeRepository.findById(escrow.tradeId)
         if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
         await this.refundFunds(escrow.id, trade.sellerId)
         refunded.push(escrow.id)

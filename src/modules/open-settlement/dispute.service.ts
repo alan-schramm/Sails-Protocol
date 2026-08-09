@@ -25,6 +25,8 @@ import { escrowService } from './escrow.service'
 import { config } from '../../config'
 import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitration-provider'
 import { marketArbitrationProvider } from './market-arbitration.provider'
+import { escrowRepository, type EscrowRepository } from './escrow-repository'
+import { tradeRepository } from '../open-p2p/trade-repository'
 import type { AssetType } from '../../common/types'
 import type { EvidenceDescriptor, DisputeRuling } from '@sails/p2p-schemas'
 import type { DisputeStatus } from '@prisma/client'
@@ -50,7 +52,7 @@ import type { DisputeStatus } from '@prisma/client'
 export const APPEAL_FEE_MULTIPLIER = 2
 
 export class DisputeService {
-  constructor(private readonly arbitrationProvider: ArbitrationProvider) {}
+  constructor(private readonly arbitrationProvider: ArbitrationProvider, private readonly repo: EscrowRepository = escrowRepository) {}
 
   async raiseDispute(
     tradeId: string,
@@ -58,7 +60,7 @@ export class DisputeService {
     reason: string,
     evidence: EvidenceDescriptor[] = []
   ) {
-    const trade = await prisma.trade.findUnique({ where: { id: tradeId } })
+    const trade = await tradeRepository.findById(tradeId)
     if (!trade) throw new NotFoundError('Trade', tradeId)
     if (!trade.escrowId) throw new ValidationError(`Trade ${tradeId} has no escrow to dispute`)
 
@@ -205,7 +207,7 @@ export class DisputeService {
       // releaseFunds()/refundFunds()/splitFunds() calls those types'
       // providers throw "not directly callable" from. Applies uniformly to
       // all three rulings now, not just the new one.
-      const escrow = await prisma.escrow.findUnique({ where: { id: dispute.escrowId } })
+      const escrow = await this.repo.findById(dispute.escrowId)
       if (!escrow) throw new NotFoundError('Escrow', dispute.escrowId)
       const needsSignatureCollection = escrowService.isSignatureCollectionType(escrow.type)
 
@@ -304,7 +306,7 @@ export class DisputeService {
     // persisted Escrow.feeCharged (Phase 0) by this point; REFUND never
     // charges a fee, so this is correctly undefined for those.
     if (this.arbitrationProvider.recordRuling) {
-      const resolvedEscrow = await prisma.escrow.findUnique({ where: { id: dispute.escrowId } })
+      const resolvedEscrow = await this.repo.findById(dispute.escrowId)
       const feeObserved = resolvedEscrow?.feeCharged ? String(resolvedEscrow.feeCharged) : undefined
       await this.arbitrationProvider.recordRuling(arbiterId, feeObserved)
     }
@@ -367,7 +369,7 @@ export class DisputeService {
       )
     }
 
-    const trade = await prisma.trade.findUnique({ where: { id: dispute.tradeId } })
+    const trade = await tradeRepository.findById(dispute.tradeId)
     if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
     if (requestedBy !== trade.buyerId && requestedBy !== trade.sellerId) {
       throw new ForbiddenError(`${requestedBy} is not a party to trade ${dispute.tradeId}`)
@@ -387,7 +389,7 @@ export class DisputeService {
       dispute.arbiterId ?? undefined
     )
 
-    const escrow = await prisma.escrow.findUnique({ where: { id: dispute.escrowId } })
+    const escrow = await this.repo.findById(dispute.escrowId)
     const baseFee = escrow?.feeCharged ? Number(escrow.feeCharged) : 0
     const appealFeeRequired = (baseFee * APPEAL_FEE_MULTIPLIER).toFixed(8)
 
@@ -451,7 +453,7 @@ export class DisputeService {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
 
-    const trade = await prisma.trade.findUnique({ where: { id: dispute.tradeId } })
+    const trade = await tradeRepository.findById(dispute.tradeId)
     if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
     if (submittedBy !== trade.buyerId && submittedBy !== trade.sellerId) {
       throw new ForbiddenError(`${submittedBy} is not a party to trade ${dispute.tradeId}`)
@@ -534,7 +536,7 @@ export class DisputeService {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
 
-    const trade = await prisma.trade.findUnique({ where: { id: dispute.tradeId } })
+    const trade = await tradeRepository.findById(dispute.tradeId)
     if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
     if (contestedBy !== trade.buyerId && contestedBy !== trade.sellerId) {
       throw new ForbiddenError(`${contestedBy} is not a party to trade ${dispute.tradeId}`)

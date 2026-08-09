@@ -1,5 +1,7 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
+import { escrowRepository } from './escrow-repository'
+import { tradeRepository } from '../open-p2p/trade-repository'
 
 /**
  * Sails OpenSettlement — RFC-015 two-person control for escrow release
@@ -21,10 +23,10 @@ import { NotFoundError, ForbiddenError } from '../../common/errors'
 // existing row rather than erroring, since re-confirming isn't
 // meaningfully different from confirming once.
 export async function approveRelease(escrowId: string, approverId: string) {
-  const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+  const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
 
-  const trade = await prisma.trade.findUnique({ where: { id: escrow.tradeId } })
+  const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
 
   if (approverId !== trade.buyerId && approverId !== trade.sellerId) {
