@@ -22,6 +22,7 @@ import { SailsCapabilitiesModule } from "./modules/capabilities";
 import { SailsArbitrationModule } from "./modules/arbitration";
 import { SailsPaymentAccountModule } from "./modules/payment-account";
 import { SailsProofModule } from "./modules/proof";
+import { SailsAgentsModule } from "./modules/agents";
 import { SailsIntentFacade } from "./intent-facade";
 import type {
   WalletAdapter,
@@ -80,6 +81,8 @@ export class SailsClient {
   readonly paymentAccounts: SailsPaymentAccountModule;
   /** OpenProof — assert claims, submit proofs, verify, and read evidence bundles. No friendly alias. */
   readonly proof: SailsProofModule;
+  /** OpenAgents — QVAC-backed structured trade/offer generation and risk assessment from a plain-language goal. Real local LLM inference server-side, requires an active session. No friendly alias. */
+  readonly agents: SailsAgentsModule;
   readonly wallet?: WalletAdapter;
   private readonly intents: SailsIntentFacade;
 
@@ -135,6 +138,7 @@ export class SailsClient {
     this.arbitration = new SailsArbitrationModule(this.transport);
     this.paymentAccounts = new SailsPaymentAccountModule(this.transport);
     this.proof = new SailsProofModule(this.transport);
+    this.agents = new SailsAgentsModule(this.transport);
     this.intents = new SailsIntentFacade(this.transport);
     if (options.wallet) this.wallet = options.wallet;
 

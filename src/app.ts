@@ -26,6 +26,7 @@ import { peerRoutes } from './infrastructure/p2p/pear.routes'
 import { relayRoutes } from './infrastructure/p2p/relay.routes'
 import { reputationRoutes } from './modules/open-reputation/reputation.routes'
 import { capabilityRoutes } from './modules/open-agents/capability.routes'
+import { agentRoutes } from './modules/open-agents/agent.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
@@ -313,6 +314,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(settlementRoutes)
   await app.register(reputationRoutes)
   await app.register(capabilityRoutes)
+  await app.register(agentRoutes)
   await app.register(proofRoutes)
 
   // ── Register event handlers (Coordination Protocol) ──────────────────────

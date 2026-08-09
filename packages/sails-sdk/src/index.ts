@@ -61,6 +61,15 @@ export {
   type ReleaseApprovalsResult,
 } from './modules/settlement'
 export { SailsProofModule, type EvidenceBundle, type AssertClaimInput, type SubmitProofInput, type VerifyProofInput } from './modules/proof'
+export {
+  SailsAgentsModule,
+  type GeneratedTradeIntent,
+  type GeneratedOfferIntent,
+  type IntentRiskAssessment,
+  type IntentRiskLevel,
+  type IntentRiskRecommendation,
+  type AssessableIntent,
+} from './modules/agents'
 export type { Proof, Verification } from './types'
 export { generateEscrowKeypair, signEscrowPsbt, type EscrowKeypair } from './modules/escrow-key'
 export { signEscrowArkTx } from './modules/escrow-ark-signing'

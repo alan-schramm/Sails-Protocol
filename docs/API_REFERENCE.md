@@ -339,6 +339,32 @@ rather than leaving the new routes documented next to nothing.
 
 ---
 
+## 7D. Sails OpenAgents — Agent routes — `/v1/agents/` *(new, 2026-08-09)*
+
+First HTTP surface for `QvacAgentProvider`'s structured-generation/risk
+capabilities (`qvac-agent.provider.ts`) — real local LLM inference
+(LLAMA_3_2_1B_INST_Q4_0, llama.cpp, no cloud dependency), previously
+only reachable from the reference `BuyerAgent`/`SellerAgent`
+implementations and `src/demo/pix-to-usdt-flow.ts`. Unblocks
+`packages/sails-ui`'s "AI Negotiator" panel and `AgentRiskCard`, which
+had been running a client-side simulation of these exact three calls
+(disclosed as such in the UI) pending this route's existence.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/v1/agents/generate-trade-intent` | `{ goal }` → `GeneratedTradeIntent` (`{ asset, side, maxValue, minValue, currency, fiatMethod }`). Acts for a buyer. |
+| POST | `/v1/agents/generate-offer-intent` | `{ goal }` → `GeneratedOfferIntent` (`{ asset, side, minAmount, maxAmount, paymentMethod }`). Acts for a seller. |
+| POST | `/v1/agents/assess-intent-risk` | `{ asset, side, maxValue?, minValue?, currency?, fiatMethod? }` (same restricted enums `POST /v1/intents`'s payload already validates, Fase 1 Red Team-hardened) → `IntentRiskAssessment` (`{ risk, reasoning, recommendation }`). |
+
+All three require an active session (`requireAuth`) and share
+`capability.routes.ts`'s revoke-route rate-limit tier
+(`RATE_LIMIT_CRITICAL_MAX`/`_WINDOW`) — not because these calls carry
+real authority or persist anything (they don't), but because each one
+runs genuine local inference, a meaningfully more expensive operation
+than a typical read or write even with no cloud cost involved.
+
+---
+
 ## 8. Event Catalog (internal — mirrors `common/events/event-bus.ts`)
 
 These are not HTTP endpoints — they are the internal typed events every

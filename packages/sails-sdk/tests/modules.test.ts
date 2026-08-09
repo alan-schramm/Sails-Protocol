@@ -12,6 +12,7 @@ import { SailsPeersModule } from '../src/modules/peers'
 import { SailsOpenP2PModule, WebSocketChannel } from '../src/modules/openp2p'
 import { SailsReputationModule } from '../src/modules/reputation'
 import { SailsProofModule } from '../src/modules/proof'
+import { SailsAgentsModule } from '../src/modules/agents'
 
 function fakeFetch(status: number, body: unknown): jest.Mock {
   return jest.fn().mockResolvedValue({ ok: status >= 200 && status < 300, status, json: async () => body })
@@ -745,5 +746,59 @@ describe('SailsProofModule', () => {
     expect(result.claim.id).toBe('claim-1')
     const [url] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/proof/claims/claim-1/bundle')
+  })
+})
+
+describe('SailsAgentsModule', () => {
+  it('generateTradeIntent() posts to /v1/agents/generate-trade-intent with auth', async () => {
+    const fetchImpl = fakeFetch(200, {
+      success: true,
+      data: { asset: 'BTC', side: 'BUY', maxValue: '500', minValue: '50', currency: 'BRL', fiatMethod: 'PIX' },
+    })
+    const agents = new SailsAgentsModule(authedTransport(fetchImpl))
+
+    const result = await agents.generateTradeIntent('quero comprar até 500 reais em BTC via PIX')
+
+    expect(result.asset).toBe('BTC')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/agents/generate-trade-intent')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(JSON.parse(init.body)).toEqual({ goal: 'quero comprar até 500 reais em BTC via PIX' })
+  })
+
+  it('generateOfferIntent() posts to /v1/agents/generate-offer-intent with auth', async () => {
+    const fetchImpl = fakeFetch(200, {
+      success: true,
+      data: { asset: 'BTC', side: 'SELL', minAmount: '0.001', maxAmount: '0.5', paymentMethod: 'PIX' },
+    })
+    const agents = new SailsAgentsModule(authedTransport(fetchImpl))
+
+    const result = await agents.generateOfferIntent('quero vender bitcoin recebendo via PIX')
+
+    expect(result.paymentMethod).toBe('PIX')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/agents/generate-offer-intent')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(JSON.parse(init.body)).toEqual({ goal: 'quero vender bitcoin recebendo via PIX' })
+  })
+
+  it('assessIntentRisk() posts to /v1/agents/assess-intent-risk with auth', async () => {
+    const fetchImpl = fakeFetch(200, {
+      success: true,
+      data: { risk: 'low', reasoning: 'Amount and payment method are consistent.', recommendation: 'proceed' },
+    })
+    const agents = new SailsAgentsModule(authedTransport(fetchImpl))
+
+    const intent = { asset: 'BTC' as const, side: 'BUY' as const, maxValue: '500', minValue: '50', currency: 'BRL', fiatMethod: 'PIX' as const }
+    const result = await agents.assessIntentRisk(intent)
+
+    expect(result.recommendation).toBe('proceed')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/agents/assess-intent-risk')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(JSON.parse(init.body)).toEqual(intent)
   })
 })

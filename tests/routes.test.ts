@@ -250,6 +250,23 @@ jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 // is sufficient for the entire test file.
 process.env.TRUSTED_ARBITRATORS = ''
 
+// agent.routes.ts's qvac-agent.provider.ts imports @qvac/sdk (real local
+// LLM inference, llama.cpp) at module scope — this environment has no
+// GPU/model available (confirmed live: every other real caller of this
+// same provider logs "QVAC unavailable" here), so the open-agents tests
+// below need this mocked the same way qvacDisputeEvidence.test.ts mocks
+// it for its own isolated provider-level tests. Zero effect on any
+// other test in this file: nothing else here exercises a QVAC-calling
+// code path (dispute auto-resolution and social-engineering detection
+// are both off by default and never enabled by this file's env setup).
+let mockAgentCompletionResult: unknown = {}
+jest.mock('@qvac/sdk', () => ({
+  loadModel: jest.fn().mockResolvedValue('fake-model-id'),
+  unloadModel: jest.fn().mockResolvedValue(undefined),
+  LLAMA_3_2_1B_INST_Q4_0: 'fake-model-src',
+  completion: jest.fn(() => ({ final: Promise.resolve({ contentText: JSON.stringify(mockAgentCompletionResult) }) })),
+}))
+
 // Imported after the mocks above so every route file picks up the mocked
 // dependencies, not the real Prisma/Redis/eventBus/pearNodeRegistry.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -1581,6 +1598,98 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body).data.id).toBe('claim-1')
+    })
+  })
+
+  describe('open-agents', () => {
+    beforeEach(() => {
+      mockAgentCompletionResult = {}
+    })
+
+    it('rejects generate-trade-intent without auth', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/agents/generate-trade-intent', payload: { goal: 'comprar bitcoin' } })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('generates a trade intent from a goal for an authenticated caller', async () => {
+      const token = await authedSession('user-1')
+      mockAgentCompletionResult = { asset: 'BTC', side: 'BUY', maxValue: '500', minValue: '50', currency: 'BRL', fiatMethod: 'PIX' }
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/agents/generate-trade-intent',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { goal: 'quero comprar até 500 reais em bitcoin via PIX' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data).toEqual(mockAgentCompletionResult)
+    })
+
+    it('rejects generate-trade-intent with an empty goal', async () => {
+      const token = await authedSession('user-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/agents/generate-trade-intent',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { goal: '' },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('rejects generate-offer-intent without auth', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/agents/generate-offer-intent', payload: { goal: 'vender bitcoin' } })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('generates an offer intent from a goal for an authenticated caller', async () => {
+      const token = await authedSession('user-1')
+      mockAgentCompletionResult = { asset: 'BTC', side: 'SELL', minAmount: '0.001', maxAmount: '0.5', paymentMethod: 'PIX' }
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/agents/generate-offer-intent',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { goal: 'quero vender bitcoin recebendo via PIX' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data).toEqual(mockAgentCompletionResult)
+    })
+
+    it('rejects assess-intent-risk without auth', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/agents/assess-intent-risk',
+        payload: { asset: 'BTC', side: 'BUY' },
+      })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('assesses intent risk for an authenticated caller', async () => {
+      const token = await authedSession('user-1')
+      mockAgentCompletionResult = { risk: 'low', reasoning: 'Consistent amount and payment method.', recommendation: 'proceed' }
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/agents/assess-intent-risk',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { asset: 'BTC', side: 'BUY', maxValue: '500', minValue: '50', currency: 'BRL', fiatMethod: 'PIX' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data).toEqual(mockAgentCompletionResult)
+    })
+
+    it('rejects assess-intent-risk with an invalid asset', async () => {
+      const token = await authedSession('user-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/agents/assess-intent-risk',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { asset: 'NOT_A_REAL_ASSET', side: 'BUY' },
+      })
+      expect(res.statusCode).toBe(400)
     })
   })
 })
