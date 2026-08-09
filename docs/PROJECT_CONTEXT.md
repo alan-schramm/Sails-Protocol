@@ -434,7 +434,7 @@ Use this status legend everywhere — it is mandatory, not optional:
 | Sails OpenReputation | 🏗️ Specified — embedded inside OpenP2P today |
 | Sails OpenSettlement | 🏗️ Specified — `SettlementProvider` interface + Mock provider + a real `WDK_USDT_EVM` provider (`@tetherto/wdk-wallet-evm`, testnet, single-seed custody — see that file's own caveat) implemented |
 | Sails OpenLiquidity | 🏗️ Specified — `LiquidityProvider` interface + Internal order book implemented |
-| Sails OpenAgents | 🏗️ Specified — first real capabilities: `QvacAgentProvider` (real `@qvac/sdk` local LLM inference, live-verified) plus `BuyerAgent`/`SellerAgent` (two local agents simulating Satsails Wallet instances, autonomously generating a real `TradeIntentPayload`/offer via QVAC). RFC-007 D7's Social Engineering Agent and Timeline-watching are still not built |
+| Sails OpenAgents | 🏗️ Specified — real capabilities: `QvacAgentProvider` (real `@qvac/sdk` local LLM inference, live-verified) plus `BuyerAgent`/`SellerAgent` (two local agents simulating Satsails Wallet instances, autonomously generating a real `TradeIntentPayload`/offer via QVAC). **Corrected 2026-08-09** — RFC-007 D7's Social Engineering Agent is real as of RFC-017 (`social-engineering-agent.ts`, 2 of 3 patterns detected, off by default); this row was stale. `POST /v1/agents/*` (2026-08-09) exposes `generateTradeIntent`/`generateOfferIntent`/`assessIntentRisk` over HTTP for the first time. Genuinely remaining: the `unexpected_flow_deviation` social-engineering pattern (needs real trade-state-machine awareness) and the `learn()` step |
 | Sails OpenFinance | 📋 Aspirational |
 | Sails SDK (MVP release: Sails P2P Trading SDK) | 📋 Aspirational — interface fully specified, zero implementation |
 

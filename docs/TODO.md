@@ -956,8 +956,14 @@ makes the same point in more detail.
       `intent-engine.ts`'s own validation. `ChatWindow`'s new 📎 button
       lets a user attach an image/video, rendered inline in
       `ChatMessage` — a local `URL.createObjectURL()` blob only, nothing
-      is transmitted. Real wiring needs: an agent HTTP route wrapping
-      `qvacAgentProvider`'s methods; and, for media, an upload/storage
+      is transmitted. **The agent-HTTP-route gap closed 2026-08-09** —
+      `POST /v1/agents/generate-trade-intent`/`generate-offer-intent`/
+      `assess-intent-risk` (`agent.routes.ts`, `API_REFERENCE.md` §7D)
+      wrap `qvacAgentProvider`'s methods for real, and `sails-ui`'s
+      `qvacAgent.ts` was updated the same day to call them instead of
+      simulating — `AgentIntentionPanel`/`AgentRiskCard` no longer mock
+      the shape, they call the real thing. The media-attach gap below
+      is unrelated and still open: for media, an upload/storage step
       step (`Message.content` is Postgres text, unsuited to a raw video
       blob — `msgType` itself needs no migration, it's already a
       free-form `String`) plus a Pears event kind carrying a media
@@ -1107,13 +1113,16 @@ makes the same point in more detail.
       node — a sender with no PearNode at all has nothing to relay from,
       a structural limit of peer-to-peer transports, not a missing
       wiring step.
-- [ ] **Deeper gap found while investigating the above, not fixed:**
-      `HumanChatChannel.onEvent()` — the handler for messages *arriving*
-      via Pears — is defined (`negotiation.service.ts`) but never called
-      anywhere in this codebase, for either transport's messages. Needs
-      a live two-node Pears/HyperDHT setup to build and verify against —
+- [x] **Corrected 2026-08-09 — this row was stale.** `HumanChatChannel.onEvent()`
+      IS wired: `chat.routes.ts`'s `JOIN_TRADE` handler calls
+      `wireInboundNegotiationChannel()` (`negotiation.service.ts:156`),
+      which itself calls `channel.onEvent(...)` (line 169) to persist
+      inbound P2P messages. Verified directly by reading both call
+      sites, not assumed. Still genuinely unverifiable end-to-end in
+      this environment (needs a live two-node Pears/HyperDHT setup) —
       the same limitation `PearsTransportProvider`'s own tests already
-      decline to fake (see `tests/transportFallback.test.ts`'s comment).
+      decline to fake (see `tests/transportFallback.test.ts`'s comment)
+      — but the wiring itself is real, not missing.
 - [ ] **Key-custody gap found answering a direct owner question, not
       fixed:** "as chaves privadas do usuário podem ser consultadas?" —
       the answer for storage/auth is a clean no (no `secretKey`/
@@ -2061,13 +2070,17 @@ is broken in the real stack.
    same way. Worked around in the spec by pricing the test offer to
    always sort first, which is a workaround for the *test's* stability,
    not evidence the cap itself is fine.
-3. **`ChatWindow.tsx`'s "🟢 Conectado via Pears" label is static markup**,
-   not tied to the WebSocket's actual `readyState` or `JOIN_TRADE`
-   acknowledgment. A message sent before the recipient's join completes
-   is lost with no retry or backfill (the REST message-history fetch
-   already ran before the WS message would have arrived). Worked around
-   with a short explicit wait in the spec; a real user has no reliable
-   "is this actually connected yet" signal either.
+3. **Partial correction, 2026-08-09** — the literal `"🟢 Conectado via
+   Pears"` string this item quotes no longer exists in
+   `ChatWindow.tsx` (grepped directly, zero matches; likely refactored
+   since this was written). Not re-verified whether the underlying
+   reliability gap this item describes (a message sent before
+   `JOIN_TRADE` completes being lost with no retry/backfill) was
+   actually fixed or just relabeled — that's `packages/sails-ui`'s own
+   territory, out of scope for this pass to investigate further. Original
+   text, for reference: the label wasn't tied to the WebSocket's actual
+   `readyState` or `JOIN_TRADE` acknowledgment, and a real user had no
+   reliable "is this actually connected yet" signal.
 
 Also required lifting the real rate limiter's ceiling for local e2e runs
 specifically (`playwright.config.ts`'s `webServer.env`:
