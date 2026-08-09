@@ -7,11 +7,11 @@
  * into a real Trade row, the other half of TODO.md §1's "modules/open-p2p/
  * — trade routes ... only service-layer logic survived" gap.
  */
-import { prisma } from '../../common/database'
 import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { negotiationService } from './negotiation.service'
 import { intentEngine } from '../../core/intent-engine'
+import { tradeRepository, type TradeRepository } from './trade-repository'
 import type { TradeStatus } from '../../common/types'
 
 export interface CreateTradeInput {
@@ -26,8 +26,10 @@ export interface TradePagination {
 }
 
 export class TradeService {
+  constructor(private readonly repo: TradeRepository = tradeRepository) {}
+
   async createTrade(input: CreateTradeInput) {
-    const offer = await prisma.offer.findUnique({ where: { id: input.offerId } })
+    const offer = await this.repo.findOfferById(input.offerId)
     if (!offer) throw new NotFoundError('Offer', input.offerId)
     if (offer.status !== 'ACTIVE') {
       throw new ValidationError(`Offer ${input.offerId} is not active (status: ${offer.status})`)
@@ -67,18 +69,16 @@ export class TradeService {
     const priceUsd = offer.priceUsd
     const totalUsd = (Number(priceUsd) * Number(input.amount)).toFixed(8)
 
-    const trade = await prisma.trade.create({
-      data: {
-        offerId: offer.id,
-        buyerId,
-        sellerId,
-        asset: offer.asset,
-        amount: input.amount,
-        priceUsd,
-        totalUsd,
-        network: offer.network,
-        intentId: offer.intentId, // RFC-018 — carried over from the accepted Offer
-      },
+    const trade = await this.repo.create({
+      offerId: offer.id,
+      buyerId,
+      sellerId,
+      asset: offer.asset,
+      amount: input.amount,
+      priceUsd,
+      totalUsd,
+      network: offer.network,
+      intentId: offer.intentId, // RFC-018 — carried over from the accepted Offer
     })
 
     await eventBus.emit('openp2p.trade.created', {
@@ -129,31 +129,38 @@ export class TradeService {
   // isn't guessable-and-sensitive any more than a tradeId already is,
   // and getTrade() itself has never required auth.
   async getTradeByIntentId(intentId: string) {
-    const trade = await prisma.trade.findFirst({
-      where: { intentId },
-      include: { escrow: true, offer: true },
-    })
+    const trade = await this.repo.findByIntentId(intentId)
     if (!trade) throw new NotFoundError('Trade for Intent', intentId)
     return trade
   }
 
+  // escrow + messages(asc) + offer include — found while auditing a real
+  // gap: the buyer has nowhere to see *where* to send fiat (the seller's
+  // Offer.paymentDetails) once a trade is already underway — OfferDetail
+  // shows it, but Trade never re-fetched the Offer at all.
+  // paymentMethod/paymentDetails are the two fields this exists for; the
+  // rest of Offer comes along for free via the relation, same low-risk
+  // tradeoff every other `include` this shape makes (see
+  // trade-repository.ts's findByIdWithDetails()).
   async getTrade(tradeId: string) {
-    const trade = await prisma.trade.findUnique({
-      where: { id: tradeId },
-      include: {
-        escrow: true,
-        messages: { orderBy: { createdAt: 'asc' } },
-        // Found while auditing a real gap: the buyer has nowhere to see
-        // *where* to send fiat (the seller's Offer.paymentDetails) once a
-        // trade is already underway — OfferDetail shows it, but Trade
-        // never re-fetched the Offer at all. paymentMethod/paymentDetails
-        // are the two fields this exists for; the rest of Offer comes
-        // along for free via the relation, same low-risk tradeoff every
-        // other `include` in this file already makes.
-        offer: true,
-      },
-    })
+    const trade = await this.repo.findByIdWithDetails(tradeId)
     if (!trade) throw new NotFoundError('Trade', tradeId)
+    return trade
+  }
+
+  // trade.routes.ts's own /reconcile handler and chat.routes.ts's 3 call
+  // sites (JOIN_TRADE, SEND_MESSAGE, GET messages) all did this exact
+  // fetch+ownership-check+throw inline — extracted here so all 4 share
+  // one implementation. Deliberately uses the bare findById() shape (no
+  // escrow/messages/offer include), not getTrade(), because none of
+  // these 4 call sites need anything beyond buyerId/sellerId for the
+  // check.
+  async assertParticipant(tradeId: string, participantId: string) {
+    const trade = await this.repo.findById(tradeId)
+    if (!trade) throw new NotFoundError('Trade', tradeId)
+    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
+      throw new ForbiddenError(`${participantId} is not a party to trade ${tradeId}`)
+    }
     return trade
   }
 
@@ -171,17 +178,9 @@ export class TradeService {
     const limit = Math.min(Math.max(pagination?.limit ?? 10, 1), 50)
     const offset = Math.max(pagination?.offset ?? 0, 0)
 
-    const where = { OR: [{ buyerId: participantId }, { sellerId: participantId }] }
-
     const [trades, total] = await Promise.all([
-      prisma.trade.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        skip: offset,
-        include: { escrow: true },
-      }),
-      prisma.trade.count({ where }),
+      this.repo.findManyByParticipant(participantId, limit, offset),
+      this.repo.countByParticipant(participantId),
     ])
 
     return { trades, total, hasMore: offset + trades.length < total }
@@ -192,19 +191,13 @@ export class TradeService {
   // (common/events/handlers.ts), never set here, so this method never
   // needs to duplicate that reaction.
   async updateStatus(tradeId: string, status: Extract<TradeStatus, 'ACTIVE' | 'CANCELLED'>, triggeredBy: string) {
-    const trade = await prisma.trade.findUnique({ where: { id: tradeId } })
+    const trade = await this.repo.findById(tradeId)
     if (!trade) throw new NotFoundError('Trade', tradeId)
     if (triggeredBy !== trade.buyerId && triggeredBy !== trade.sellerId) {
       throw new ForbiddenError(`${triggeredBy} is not a party to trade ${tradeId}`)
     }
 
-    const updated = await prisma.trade.update({
-      where: { id: tradeId },
-      data: {
-        status,
-        cancelledAt: status === 'CANCELLED' ? new Date() : undefined,
-      },
-    })
+    const updated = await this.repo.updateStatus(tradeId, status, status === 'CANCELLED' ? new Date() : undefined)
 
     await eventBus.emit('openp2p.trade.status_changed', {
       tradeId,

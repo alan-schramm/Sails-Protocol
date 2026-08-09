@@ -19,6 +19,7 @@
  */
 import { prisma } from '../../common/database'
 import { NotFoundError } from '../../common/errors'
+import { tradeRepository, type TradeRepository } from './trade-repository'
 
 export interface ReconciliationResult {
   tradeId: string
@@ -33,21 +34,16 @@ export interface ReconciliationResult {
   }>
 }
 
-// Trades still in a live negotiation/settlement window — reconciling a
-// COMPLETED/DISPUTED/CANCELLED trade has nothing left to catch up on.
-const ACTIVE_TRADE_STATUSES = ['PENDING', 'ACTIVE'] as const
-
 export class ReconciliationService {
+  constructor(private readonly tradeRepo: TradeRepository = tradeRepository) {}
+
   // sinceMessageCreatedAt is optional and unused by the automatic
   // peer.connected trigger below (the server doesn't know what a client
   // already cached) — it exists for a future HTTP endpoint
   // (POST /v1/openp2p/trades/:id/reconcile) where the client supplies its
   // own last-seen cursor and gets back only the true delta.
   async reconcileTrade(tradeId: string, sinceMessageCreatedAt: Date | null = null): Promise<ReconciliationResult> {
-    const trade = await prisma.trade.findUnique({
-      where: { id: tradeId },
-      include: { escrow: true },
-    })
+    const trade = await this.tradeRepo.findByIdWithEscrow(tradeId)
     if (!trade) throw new NotFoundError('Trade', tradeId)
 
     const missedMessages = await prisma.message.findMany({
@@ -77,16 +73,7 @@ export class ReconciliationService {
   // peer.connected, localUserId+userId both known) — finds every trade
   // still active between them and reconciles each one.
   async reconcilePeerPair(localUserId: string, remoteUserId: string): Promise<ReconciliationResult[]> {
-    const trades = await prisma.trade.findMany({
-      where: {
-        status: { in: [...ACTIVE_TRADE_STATUSES] },
-        OR: [
-          { buyerId: localUserId, sellerId: remoteUserId },
-          { buyerId: remoteUserId, sellerId: localUserId },
-        ],
-      },
-      select: { id: true },
-    })
+    const trades = await this.tradeRepo.findActiveTradeIdsBetween(localUserId, remoteUserId)
 
     const results: ReconciliationResult[] = []
     for (const trade of trades) {

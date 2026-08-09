@@ -12,6 +12,7 @@ import { prisma } from '../../common/database'
 import { NotFoundError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { pearNodeRegistry, type PearNode } from '../../infrastructure/p2p/pear.service'
+import { tradeRepository, type TradeRepository } from './trade-repository'
 
 // ─── RFC-004's NegotiationEvent — the actual abstraction ──────────────────────
 export type NegotiationEvent =
@@ -176,8 +177,10 @@ export type NegotiationStatus = 'CREATED' | 'NEGOTIATING' | 'TERMS_AGREED' | 'AB
 export class NegotiationService {
   private status = new Map<string, NegotiationStatus>()
 
+  constructor(private readonly tradeRepo: TradeRepository = tradeRepository) {}
+
   async open(tradeId: string, buyerId: string, sellerId: string): Promise<HumanChatChannel> {
-    const trade = await prisma.trade.findUnique({ where: { id: tradeId } })
+    const trade = await this.tradeRepo.findById(tradeId)
     if (!trade) throw new NotFoundError('Trade', tradeId)
 
     this.status.set(tradeId, 'CREATED')

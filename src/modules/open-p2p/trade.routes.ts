@@ -8,8 +8,7 @@ import { tradeService } from './trade.service'
 import { reconciliationService } from './reconciliation.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
-import { prisma } from '../../common/database'
-import { NotFoundError, ForbiddenError } from '../../common/errors'
+import { ForbiddenError } from '../../common/errors'
 import { docsOnlySchema } from '../../common/openapi'
 
 const createTradeSchema = z.object({
@@ -137,11 +136,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
     const body = reconcileSchema.parse(request.body ?? {})
     const participantId = (request as AuthenticatedRequest).participantId
 
-    const trade = await prisma.trade.findUnique({ where: { id } })
-    if (!trade) throw new NotFoundError('Trade', id)
-    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
-      throw new ForbiddenError(`${participantId} is not a party to trade ${id}`)
-    }
+    await tradeService.assertParticipant(id, participantId)
 
     const result = await reconciliationService.reconcileTrade(id, body.sinceMessageCreatedAt ?? null)
     return reply.code(200).send({ success: true, data: result })

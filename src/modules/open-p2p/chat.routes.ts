@@ -40,7 +40,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../common/database'
-import { NotFoundError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
@@ -48,6 +47,7 @@ import { resolveParticipantFromToken } from '../../common/middleware/ws-auth'
 import { joinRoom, leaveRoom, broadcastToTrade, type RoomMember } from './chat-room-registry'
 import { pearNodeRegistry } from '../../infrastructure/p2p/pear.service'
 import { wireInboundNegotiationChannel } from './negotiation.service'
+import { tradeService } from './trade.service'
 import { docsOnlySchema } from '../../common/openapi'
 
 // Auto-push escrow/trade status changes to whoever's currently watching
@@ -114,11 +114,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
         if (msg.type === 'JOIN_TRADE') {
           const { tradeId } = joinTradeSchema.parse(msg.payload)
-          const trade = await prisma.trade.findUnique({ where: { id: tradeId } })
-          if (!trade) throw new NotFoundError('Trade', tradeId)
-          if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
-            throw new ForbiddenError(`${participantId} is not a party to trade ${tradeId}`)
-          }
+          const trade = await tradeService.assertParticipant(tradeId, participantId)
 
           const member: RoomMember = { socket, participantId }
           joinRoom(tradeId, member)
@@ -145,11 +141,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
         if (msg.type === 'SEND_MESSAGE') {
           const body = sendMessageSchema.parse(msg.payload)
-          const trade = await prisma.trade.findUnique({ where: { id: body.tradeId } })
-          if (!trade) throw new NotFoundError('Trade', body.tradeId)
-          if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
-            throw new ForbiddenError(`${participantId} is not a party to trade ${body.tradeId}`)
-          }
+          const trade = await tradeService.assertParticipant(body.tradeId, participantId)
 
           const message = await prisma.message.create({
             data: {
@@ -219,11 +211,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const { tradeId } = tradeIdParamsSchema.parse(request.params)
     const { limit, offset } = paginationQuerySchema.parse(request.query)
     const participantId = (request as AuthenticatedRequest).participantId
-    const trade = await prisma.trade.findUnique({ where: { id: tradeId } })
-    if (!trade) throw new NotFoundError('Trade', tradeId)
-    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
-      throw new ForbiddenError(`${participantId} is not a party to trade ${tradeId}`)
-    }
+    await tradeService.assertParticipant(tradeId, participantId)
     const [items, total] = await Promise.all([
       prisma.message.findMany({
         where: { tradeId },
