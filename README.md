@@ -102,24 +102,26 @@ auditing this actual codebase, not written from a wishlist.
 ```
 src/
 ├── config/            Environment loading, boot-time guards
-├── core/               Intent Engine, State Machine, Coordination Engine
-│                      — real (intent-engine.ts's create() runs the full
-│                      CREATED -> VALIDATED -> COORDINATED lifecycle,
-│                      RFC-012). Policy Engine partially real
-│                      (validateFinancialSanity); Capability Registry is
-│                      still a stub — see docs/TODO.md for the exact split
+├── core/               Intent Engine, State Machine, Coordination Engine,
+│                      Capability Registry — all real (intent-engine.ts's
+│                      create() runs the full CREATED -> VALIDATED ->
+│                      COORDINATED lifecycle, RFC-012; capability-registry.ts
+│                      persists real CapabilityGrants, RFC-013). Policy
+│                      Engine is the one still-real stub — see docs/TODO.md
 ├── modules/           open-identity, open-liquidity, open-p2p,
-│                      open-settlement, open-reputation, open-agents —
-│                      one folder per official module
+│                      open-settlement, open-reputation, open-agents,
+│                      open-proof — one folder per official module
 ├── infrastructure/    P2P transport (Pears/HyperDHT, real hyperdht/
 │                      hyperswarm), wraps into TransportProvider per
 │                      RFC-002; payload-crypto.ts (real libsodium
 │                      encryption for direct P2P Intent delivery)
-├── demo/              pix-to-usdt-flow.ts — the full QVAC -> Pears ->
-│                      Intent Engine -> WDK settlement flow, runnable via
-│                      the root-level demo-satsails-qvac.ts entrypoint
-│                      (`npm run demo:qvac`)
 └── common/            Shared types, database, events, errors, auth
+
+examples/demo/          pix-to-usdt-flow.ts (the full QVAC -> Pears ->
+                        Intent Engine -> WDK settlement flow) and
+                        demo-satsails-qvac.ts (its `npm run demo:qvac`
+                        entrypoint) — moved out of src/ since neither is
+                        library code another module imports
 
 packages/              npm workspaces
 ├── sails-p2p-schemas/  @sails/p2p-schemas — types-only domain contracts
@@ -239,7 +241,7 @@ component gets added without a numbered RFC first. `docs/rfcs/00-INDEX.md`
 has the process and every RFC (001-012) that has amended the frozen spec
 so far. If you hit an architectural ambiguity while implementing, that's
 a proposal to write up, not a decision to make silently — see
-`docs/CONTRIBUTING.md`.
+`CONTRIBUTING.md`.
 
 ## License
 

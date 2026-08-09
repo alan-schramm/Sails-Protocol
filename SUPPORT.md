@@ -8,7 +8,7 @@
 - [SDK Guide](docs/SDK_GUIDE.md) — Comprehensive SDK documentation
 - [Architecture](docs/ARCHITECTURE.md) — System design and principles
 - [API Reference](docs/API_REFERENCE.md) — Endpoint documentation
-- [Contributing](docs/CONTRIBUTING.md) — How to contribute
+- [Contributing](CONTRIBUTING.md) — How to contribute
 
 ### Community
 
@@ -43,7 +43,7 @@ We welcome feature requests! Please:
 
 ## Pull Requests
 
-We love pull requests! See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for details.
+We love pull requests! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Commercial Support
 

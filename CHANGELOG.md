@@ -5,22 +5,18 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- `docs/PRODUCTION_READINESS_FIXES.md` — Documento completo com 22 fixes organizados
-  por prioridade (P0/P1/P2), cada um com arquivo, linha exata, e código antes/depois.
-- `docs/CLAUDE_CODE_P0_CHEATSHEET.md` — Referência rápida dos 8 fixes críticos.
-- `docs/TECHNICAL_DEBT_AUDIT.md` — Auditoria de dívida técnica invisível com 45 itens
-  organizados por impacto (Crítico/Alto/Médio/Baixo) e área (manutenção, escalabilidade,
-  onboarding, SDK, testes, modularização).
-- `docs/PROMPT_PARA_CLAUDE_CODE.md` — Prompt completo para Claude Code com todo o
-  contexto: o que foi feito (24 fixes + 8 arquivos criados + limpeza), o que precisa
-  ser feito (7 BLOCKERs + P0/P1/P2/P3), 11 documentos de referência, e regras de
-  execução.
-- `.github/workflows/ci.yml` — CI/CD com typecheck, testes, e build (Node 22).
-- `SECURITY.md` — Política de segurança e reporte de vulnerabilidades.
-- `CODE_OF_CONDUCT.md` — Código de conduta da comunidade.
-- `SUPPORT.md` — Guia de suporte e canais de comunicação.
-- `.gitignore` atualizado — Adicionado `graphify-out/`, `GITHUB_ORGANIZATION.md`, `*.txt`.
-- `CLAUDE.md` atualizado com status da auditoria Production Readiness.
+- `docs/PRODUCTION_READINESS_FIXES.md` — a complete document with 22 fixes
+  organized by priority (P0/P1/P2), each with file, exact line, and
+  before/after code.
+- `docs/TECHNICAL_DEBT_AUDIT.md` — an audit of invisible technical debt with
+  45 items organized by impact (Critical/High/Medium/Low) and area
+  (maintenance, scalability, onboarding, SDK, tests, modularization).
+- `.github/workflows/ci.yml` — CI/CD with typecheck, tests, and build (Node 22).
+- `SECURITY.md` — security policy and vulnerability reporting.
+- `CODE_OF_CONDUCT.md` — community code of conduct.
+- `SUPPORT.md` — support guide and communication channels.
+- `.gitignore` updated — added `graphify-out/`, `GITHUB_ORGANIZATION.md`, `*.txt`.
+- `CLAUDE.md` updated with Production Readiness audit status.
 - `SailsClient.proof` module (`SailsProofModule`) with `assertClaim()`,
   `submitProof()`, `issueVerificationNonce()`, `verifyProof()`, and
   `getEvidenceBundle()` — now wired onto `SailsClient` as `client.proof`
@@ -40,43 +36,43 @@ All notable changes to this project will be documented in this file.
 - `reputation.getScoreByPeerId()` — RFC-021 peer-based score lookup.
 - Prisma migrations: `20260807_init` (schema completo) e `20260807_add_indices`
   (Dispute.arbiterId+status, User.reputationScore).
-- Testes React hooks: `useSailsTrade` (3 testes) e `useSailsTrades` (4 testes).
-- Paginação em `GET /v1/reputation/leaderboard` (limit/offset).
-- Paginação em `GET /v1/openp2p/chat/:tradeId/messages` (limit/offset).
-- `CLAUDE.md` - Documento definindo Claude Code como Engenheiro Chefe.
-- `config/index.ts`: `requiredInt()` helper para validação de env vars numéricas
-  (lança erro em vez de retornar NaN silenciosamente).
-- `config/index.ts`: production guard para `mockSettlement` (avisa quando
-  `mockEscrow=false` mas `mockSettlement=true`).
+- React hook tests: `useSailsTrade` (3 tests) and `useSailsTrades` (4 tests).
+- Pagination on `GET /v1/reputation/leaderboard` (limit/offset).
+- Pagination on `GET /v1/openp2p/chat/:tradeId/messages` (limit/offset).
+- `CLAUDE.md` — document defining Claude Code's engineering role for this project.
+- `config/index.ts`: `requiredInt()` helper for numeric env var validation
+  (throws instead of silently returning NaN).
+- `config/index.ts`: production guard for `mockSettlement` (warns when
+  `mockEscrow=false` but `mockSettlement=true`).
 
 ### Changed
 - `liquidity.discover()` and backend `getAggregatedOffers()` now return
   `{ offers, sources, total, hasMore }` with proper global pagination applied
   after aggregating and sorting across all providers.
 - `docs/SDK_GUIDE.md` section 2 updated with all new method signatures.
-- `package.json` scripts: `db:migrate` agora usa `prisma migrate deploy`,
-  adicionado `db:migrate:dev` para desenvolvimento.
-- `docker-compose.yml`: migrate service usa `prisma migrate deploy`.
-- Resposta de `GET /v1/reputation/leaderboard`: agora retorna
-  `{ items, total, hasMore, nextOffset }` em vez de array direto.
-- Resposta de `GET /v1/openp2p/chat/:tradeId/messages`: agora retorna
-  `{ items, total, hasMore, nextOffset }` em vez de array direto.
-- `identity.routes.ts`: `publicKey` agora valida hex de 64 caracteres via regex.
-- `trade.routes.ts`: `listTradesSchema` agora tem limites `limit` (1-100) e `offset` (>=0).
-- `chat.routes.ts`: `sendMessageSchema` agora tem `content.max(10000)` e `msgType` como enum.
-- `settlement.routes.ts`: `createEscrowSchema.asset` agora usa `z.enum(...)` em vez de `z.string()`.
-- `settlement.routes.ts`: `disputeSchema.evidence` agora valida com schema tipado.
-- `liquidity.service.ts`: removidos 3 `as any` desnecessários (input já tipado).
-- `config/index.ts`: `mockEscrow`/`mockSettlement` agora case-insensitive.
-- `config/index.ts`: removido `config.server` duplicado (idêntico ao `config.app`).
-- `proof.service.ts`: removido `as any` redundante em `verdict` (já tipado como `'ACCEPTED' | 'REJECTED'`).
-- `proof.service.ts`: substituído `as any` por `as unknown as Prisma.InputJsonValue` para campos JSON.
-- `liquidity.routes.ts`: substituído `as any` por `as AssetType` em 3 ocorrências.
-- `dispute.service.ts`: substituído `dispute.status as any` por `as DisputeStatus`.
-- `settlement.routes.ts`: removido `as any` redundante em `body.paymentMethod` (já tipado pelo Zod schema).
-- `routes.test.ts`: corrigidos 14 testes de reputação pré-existentes (publicKeys agora são hex válido, limites de paginação respeitados, assets usam enum válido).
-- `escrow.service.ts`: extraído `initiateSignatureCollection()` — elimina ~180 linhas de duplicação entre `initiateRelease/Refund/Split`.
-- `auth.ts`: adicionado `AuthenticatedRequest` interface — eliminate 25 `(request as any).participantId` casts em 9 arquivos de rotas.
+- `package.json` scripts: `db:migrate` now uses `prisma migrate deploy`;
+  added `db:migrate:dev` for development.
+- `docker-compose.yml`: migrate service uses `prisma migrate deploy`.
+- `GET /v1/reputation/leaderboard` response: now returns
+  `{ items, total, hasMore, nextOffset }` instead of a bare array.
+- `GET /v1/openp2p/chat/:tradeId/messages` response: now returns
+  `{ items, total, hasMore, nextOffset }` instead of a bare array.
+- `identity.routes.ts`: `publicKey` now validates 64-character hex via regex.
+- `trade.routes.ts`: `listTradesSchema` now has `limit` (1-100) and `offset` (>=0) bounds.
+- `chat.routes.ts`: `sendMessageSchema` now has `content.max(10000)` and `msgType` as an enum.
+- `settlement.routes.ts`: `createEscrowSchema.asset` now uses `z.enum(...)` instead of `z.string()`.
+- `settlement.routes.ts`: `disputeSchema.evidence` now validates against a typed schema.
+- `liquidity.service.ts`: removed 3 unnecessary `as any` casts (input was already typed).
+- `config/index.ts`: `mockEscrow`/`mockSettlement` now case-insensitive.
+- `config/index.ts`: removed duplicate `config.server` (identical to `config.app`).
+- `proof.service.ts`: removed redundant `as any` on `verdict` (already typed as `'ACCEPTED' | 'REJECTED'`).
+- `proof.service.ts`: replaced `as any` with `as unknown as Prisma.InputJsonValue` for JSON fields.
+- `liquidity.routes.ts`: replaced `as any` with `as AssetType` in 3 places.
+- `dispute.service.ts`: replaced `dispute.status as any` with `as DisputeStatus`.
+- `settlement.routes.ts`: removed redundant `as any` on `body.paymentMethod` (already typed by the Zod schema).
+- `routes.test.ts`: fixed 14 pre-existing reputation tests (publicKeys now valid hex, pagination limits respected, assets use a valid enum).
+- `escrow.service.ts`: extracted `initiateSignatureCollection()` — eliminates ~180 lines of duplication across `initiateRelease/Refund/Split`.
+- `auth.ts`: added `AuthenticatedRequest` interface — eliminates 25 `(request as any).participantId` casts across 9 route files.
 - `client.ts` (SDK): extraído `requireWallet()` — elimina boilerplate repetido em 5 métodos.
 
 ### Fixed

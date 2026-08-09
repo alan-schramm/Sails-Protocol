@@ -1,16 +1,29 @@
 # Core — Sails Protocol
 
-This folder holds the 6 formal Core components (`ARCHITECTURE.md` section
-1B, `MASTER_COORDINATION.md` v7.1). Each file below is currently a stub
-interface — the actual logic lives in `common/events/handlers.ts`
-(reactive, informal) and needs to be migrated here as part of the
-`Meses 1-3` roadmap phase (`TODO.md`).
+This folder holds the formal Core components (`ARCHITECTURE.md` section
+1B, `MASTER_COORDINATION.md` v7.1). **Corrected 2026-08-09** — this file
+previously said "each file below is currently a stub interface," which
+stopped being true well before this correction: only `policy-engine.ts`
+remains a genuine stub today.
 
-- `intent-engine.ts`      — routes Intents by type (PROTOCOL_SPECIFICATION.md §2)
-- `coordination-engine.ts` — the "brain": Intent + Policy + Capability + Events → decisions
-- `state-machine.ts`      — canonical Intent lifecycle (9 states, §2.4)
-- `capability-registry.ts` — permission checks (PROTOCOL_SPECIFICATION.md §1.10)
-- `policy-engine.ts`      — FeePolicy, TrustPolicy, RoutingPolicy (§1.10)
+- `intent-engine.ts`      — real (RFC-012). Routes Intents by type, runs the
+  full CREATED → VALIDATED → COORDINATED lifecycle (PROTOCOL_SPECIFICATION.md §2).
+  Persistence lives in `intent-repository.ts`.
+- `coordination-engine.ts` — real, deliberately minimal (RFC-012). Resolves
+  an Intent's target module; does not yet consult Policy/Capability — see
+  its own header comment for why that's a disclosed scope limit, not a stub.
+- `state-machine.ts`      — real. Canonical Intent lifecycle (9 states, §2.4).
+- `capability-registry.ts` — real (RFC-013). Persists and checks real
+  `CapabilityGrant`s. Persistence lives in `capability-grant-repository.ts`.
+- `intent-repository.ts` / `capability-grant-repository.ts` — Repository
+  Pattern persistence layer for the two entities above (ARCHITECTURE_AUDIT_REPORT
+  recommendation #3, closed 2026-08-08).
+- `timeline.ts`           — real (RFC-008 D2). Hash-chained event timeline.
+- `policy-engine.ts`      — **still a genuine stub.** `get`/`propose`/`activate`
+  all throw "Not yet implemented" — FeePolicy/TrustPolicy/RoutingPolicy
+  governance is real future work (`PROTOCOL_ECONOMY.md` §7, roadmap "Months 10-12"),
+  not built yet. A single hardcoded `protocolFeeRate` (config) covers fees
+  in the meantime.
 
 No module should import another module directly — every module imports
 from `core/` instead. See `ARCHITECTURE.md` section 5 for the enforcement

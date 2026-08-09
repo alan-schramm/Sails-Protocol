@@ -22,3 +22,11 @@ coverage/
 graphify-out/
 GITHUB_ORGANIZATION.md
 *.txt
+
+# Internal-only material (docs/GOVERNANCE.md §6C: due diligence reports,
+# audit reports, and AI-agent handoff prompts stay out of the public
+# repo by default — they read as unflinching about gaps in a way that
+# looks like a live vulnerability disclosure without the context of
+# what's since been fixed). Files here still exist locally; they're just
+# not part of what gets pushed to GitHub.
+internal/

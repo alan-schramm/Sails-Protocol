@@ -136,7 +136,7 @@ read that before assuming either way.
 | `db:seed` | `ts-node src/test/seeds/seed.ts` | ⚠️ Still not built — see section 3 |
 | `db:studio` | `npx prisma studio` | Visual database browser |
 | `demo:pix-to-usdt` | `ts-node --transpile-only examples/demo/pix-to-usdt-flow.ts` | The full QVAC → Pears → Intent Engine → WDK settlement flow |
-| `demo:qvac` | `ts-node --transpile-only demo-satsails-qvac.ts` | Root-level entrypoint for the same flow — see `docs/HANDOFF.md` |
+| `demo:qvac` | `ts-node --transpile-only examples/demo/demo-satsails-qvac.ts` | Full-ecosystem entrypoint for the same flow — see `docs/HANDOFF.md` |
 | `test` | `jest --runInBand` | 19 suites, 159 tests, no external infra required — every test mocks its own network/database boundary |
 
 `src/main.ts` (the actual server entrypoint `dev`/`start` invoke) is

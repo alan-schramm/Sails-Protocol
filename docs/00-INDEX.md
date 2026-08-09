@@ -22,7 +22,7 @@
 | 11 | [ROADMAP.md](ROADMAP.md) | Grant-relative timeline (Months 1-12), not fixed calendar dates |
 | 12 | [TODO.md](TODO.md) | The exact, audited gap list against the actual code — not a wishlist |
 | 13 | [DEPLOYMENT.md](DEPLOYMENT.md) | Satsails reference implementation deployment only — the protocol itself has no deployment requirements |
-| 14 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose a change, the RFC trigger conditions |
+| 14 | [CONTRIBUTING.md](../CONTRIBUTING.md) | How to propose a change, the RFC trigger conditions |
 | 15 | [PROTOCOL_ECONOMY.md](PROTOCOL_ECONOMY.md) | Fee model, incentives, value capture, neutrality |
 | 16 | [REFERENCE_IMPLEMENTATIONS.md](REFERENCE_IMPLEMENTATIONS.md) | Satsails/Sails Finance/SailsPay are validation environments, not the protocol itself |
 | 17 | [PRINCIPLES.md](PRINCIPLES.md) | The rules every architectural decision is checked against |

@@ -292,14 +292,15 @@ src/modules/open-settlement/
                                           behind config.features.autoSettleOnMatch
                                           — default false)
 examples/demo/
-└── pix-to-usdt-flow.ts                 (Intent → Negotiation (Pears) →
-                                          QVAC risk → Settlement (WDK)
-                                          end-to-end script; `main()` now
-                                          exported, guarded behind
-                                          `require.main === module`, so
-                                          demo-satsails-qvac.ts can reuse
-                                          it without double-running it)
-demo-satsails-qvac.ts                   (repo root — the discoverable
+├── pix-to-usdt-flow.ts                 (Intent → Negotiation (Pears) →
+│                                         QVAC risk → Settlement (WDK)
+│                                         end-to-end script; `main()` now
+│                                         exported, guarded behind
+│                                         `require.main === module`, so
+│                                         demo-satsails-qvac.ts can reuse
+│                                         it without double-running it)
+└── demo-satsails-qvac.ts                (moved here from the repo root
+                                          2026-08-09 — the discoverable
                                           "boot the whole ecosystem"
                                           entrypoint: QVAC agents → Pears
                                           P2P → Sails Protocol state

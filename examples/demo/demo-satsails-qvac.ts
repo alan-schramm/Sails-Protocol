@@ -1,5 +1,11 @@
 /**
- * demo-satsails-qvac.ts — Sails Protocol, root-level ecosystem entrypoint
+ * demo-satsails-qvac.ts — Sails Protocol, full-ecosystem entrypoint
+ *
+ * Moved here from the repo root 2026-08-09 (Production Readiness Audit)
+ * — three demo scripts (this one, pix-to-usdt-flow.ts,
+ * multisig-testnet-flow.ts) now live together instead of one sitting
+ * alone at the repo root next to README.md/package.json. Still runnable
+ * the same way: `npm run demo:qvac`.
  *
  * Boots the full reference-implementation stack in one process:
  *
@@ -40,7 +46,7 @@
  * .env.example for DATABASE_URL/REDIS_URL, MOCK_ESCROW, WDK_SEED_PHRASE/
  * WDK_RPC_URL/WDK_USDT_CONTRACT, and HYPERDHT_BOOTSTRAP.
  */
-import { main as runPixToUsdtFlow } from './examples/demo/pix-to-usdt-flow'
+import { main as runPixToUsdtFlow } from './pix-to-usdt-flow'
 
 console.log('=== Sails Protocol — Boot completo do ecossistema (QVAC + Pears P2P + Core + WDK) ===')
 console.log('Componentes a instanciar, nesta ordem, cada um com seu próprio log detalhado abaixo:')
