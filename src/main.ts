@@ -13,6 +13,12 @@
 import { startServer } from './app'
 
 startServer().catch((err) => {
+  // Stays console.error on purpose: this is the outermost catch for a
+  // server that failed to even finish booting (e.g. Postgres/Redis
+  // unreachable before any logger transport is confirmed working) — the
+  // simplest possible primitive is the right choice for the very last
+  // line of defense before process.exit, not a dependency on more
+  // machinery than the actual crash already proved is present.
   console.error('[main] Failed to start server:', err)
   process.exit(1)
 })

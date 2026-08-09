@@ -36,6 +36,9 @@ import { pearNodeRegistry } from './pear.service'
 import { prisma } from '../../common/database'
 import { encryptForPeer } from './payload-crypto'
 import { webSocketRelayTransportProvider } from './websocket-relay.service'
+import { childLogger } from '../../common/logger'
+
+const log = childLogger('transport-provider')
 
 export interface PeerHandle {
   peerId: string
@@ -178,9 +181,9 @@ export class FallbackTransportProvider implements TransportProvider {
       this.activeProvider.set(participantId, this.primary)
       return handle
     } catch (err) {
-      console.warn(
-        `[FallbackTransportProvider] ${this.primary.name} did not connect within ${this.timeoutMs}ms for ${participantId} — falling back to ${this.secondary.name}:`,
-        err instanceof Error ? err.message : err
+      log.warn(
+        { primary: this.primary.name, secondary: this.secondary.name, participantId, timeoutMs: this.timeoutMs, err: err instanceof Error ? err.message : err },
+        '[FallbackTransportProvider] primary did not connect in time — falling back'
       )
       const handle = await this.secondary.start(participantId, secretKeyHex)
       this.activeProvider.set(participantId, this.secondary)

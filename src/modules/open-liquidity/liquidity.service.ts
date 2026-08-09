@@ -3,8 +3,11 @@ import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { intentEngine } from '../../core/intent-engine'
+import { childLogger } from '../../common/logger'
 import type { TradeIntentPayload } from '../../common/types/intent'
 import type { Prisma } from '@prisma/client'
+
+const log = childLogger('liquidity')
 
 /**
  * Sails OpenLiquidity — Reference Implementation
@@ -157,7 +160,7 @@ class HodlHodlProvider implements LiquidityProvider {
   async getOffers(asset: AssetType, _side: TradeSide, _pagination?: OfferPagination): Promise<LiquidityOffer[]> {
     // TODO(roadmap Meses 1-3): GET https://hodlhodl.com/api/v1/offers
     //   ?filters[currency_code]=BRL&filters[asset]=BTC
-    console.log(`[HodlHodl] getOffers for ${asset} — not yet implemented`)
+    log.info({ asset }, '[HodlHodl] getOffers — not yet implemented')
     return []
   }
 
@@ -362,7 +365,7 @@ export class LiquidityRouter {
         offers.push(...await provider.getOffers(asset, side))
         sources.push(provider.name)
       } catch (err) {
-        console.error(`[Router] Provider ${provider.name} failed:`, err)
+        log.error({ err, provider: provider.name }, '[Router] Provider failed')
       }
     }
 
@@ -376,7 +379,7 @@ export class LiquidityRouter {
         const match = await provider.matchOrder(asset, side, amount)
         if (match) return match
       } catch (err) {
-        console.error(`[Router] matchOrder failed on ${provider.name}:`, err)
+        log.error({ err, provider: provider.name }, '[Router] matchOrder failed')
       }
     }
     return null

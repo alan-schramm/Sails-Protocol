@@ -13,6 +13,9 @@ import { NotFoundError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { pearNodeRegistry, type PearNode } from '../../infrastructure/p2p/pear.service'
 import { tradeRepository, type TradeRepository } from './trade-repository'
+import { childLogger } from '../../common/logger'
+
+const log = childLogger('negotiation')
 
 // ─── RFC-004's NegotiationEvent — the actual abstraction ──────────────────────
 export type NegotiationEvent =
@@ -54,7 +57,7 @@ export class HumanChatChannel implements NegotiationChannel {
     // silently dropped, and not treated as a hard failure.
     await persistNegotiationEvent(this.tradeId, this.localUserId, event)
     if (!delivered) {
-      console.warn(`[Negotiation] ${this.remoteUserId} not connected — event persisted, will be visible on their next sync`)
+      log.warn({ remoteUserId: this.remoteUserId }, '[Negotiation] not connected — event persisted, will be visible on their next sync')
     }
   }
 
@@ -166,7 +169,7 @@ export function wireInboundNegotiationChannel(participantId: string, counterpart
   channel.onEvent((event) => {
     if (pearNodeRegistry.get(counterpartyId)) return
     persistNegotiationEvent(tradeId, counterpartyId, event).catch((err) =>
-      console.error(`[Negotiation] Failed to persist inbound P2P event for trade ${tradeId}:`, err)
+      log.error({ err, tradeId }, '[Negotiation] Failed to persist inbound P2P event')
     )
   })
 }

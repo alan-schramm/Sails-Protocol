@@ -334,6 +334,9 @@ if (config.isProduction && config.features.mockEscrow) {
 
 // Warn if mockEscrow is disabled but mockSettlement is enabled — this
 // combination means real funds are locked but settlement never releases them.
+// Stays console.warn on purpose, not childLogger('config') — common/logger.ts
+// reads config.app at module-load time, so importing it here would be a real
+// circular import (config -> logger -> config), not just a style choice.
 if (config.isProduction && !config.features.mockEscrow && config.features.mockSettlement) {
   console.warn(
     'WARNING: MOCK_ESCROW=false but MOCK_SETTLEMENT=true. ' +
