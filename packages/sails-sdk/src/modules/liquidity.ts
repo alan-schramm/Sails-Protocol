@@ -6,11 +6,11 @@
  * Intent facade's createIntent()+negotiate() is the path most
  * applications should reach for first (intent-facade.ts).
  *
- * Note: `GET /v1/liquidity/offers` only filters by `asset`/`side` today
- * — `paymentMethod`/price-range filters described in some earlier docs
- * are not implemented server-side (verified against the real route
- * handler, not assumed from API_REFERENCE.md's prose); `discover()`'s
- * signature below reflects only what the server actually accepts.
+ * `GET /v1/liquidity/offers` filters by `asset`/`side`, optional
+ * `limit`/`offset`, and optional `paymentMethod`/`priceMin`/`priceMax`
+ * (Production Readiness Audit, 2026-08-09 — verified against the real
+ * route handler and liquidity.service.ts's InternalOrderBook, not
+ * assumed from API_REFERENCE.md's prose).
  */
 import type { SailsTransport } from '../transport'
 import type { AssetType, Offer, PaymentMethod, Participant, TradeSide } from '../types'
@@ -87,7 +87,15 @@ export class SailsLiquidityModule {
    * for an asset/side was simply unreachable through this method on any
    * marketplace with more than 10 active offers.
    */
-  async discover(filter: { asset: AssetType; side: TradeSide; limit?: number; offset?: number }): Promise<DiscoverResult> {
+  async discover(filter: {
+    asset: AssetType
+    side: TradeSide
+    limit?: number
+    offset?: number
+    paymentMethod?: PaymentMethod
+    priceMin?: string
+    priceMax?: string
+  }): Promise<DiscoverResult> {
     return this.transport.get<DiscoverResult>('/v1/liquidity/offers', filter)
   }
 

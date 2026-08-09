@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { liquidityRouter } from './liquidity.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
-import type { AssetType } from '../../common/types'
+import type { AssetType, PaymentMethod } from '../../common/types'
 import { docsOnlySchema } from '../../common/openapi'
 
 const assetSideQuerySchema = z.object({
@@ -22,6 +22,12 @@ const assetSideQuerySchema = z.object({
   // bypasses this route's own validation.
   limit: z.coerce.number().int().min(1).max(50).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+  // Real filters (Production Readiness Audit, 2026-08-09) — decimal
+  // strings for price, same RFC-009 convention as every other
+  // amount/price field in this API.
+  paymentMethod: z.string().min(1).optional(),
+  priceMin: z.string().min(1).optional(),
+  priceMax: z.string().min(1).optional(),
 })
 
 const createOfferSchema = z.object({
@@ -53,18 +59,20 @@ const matchSchema = z.object({
 })
 
 export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
-  // NOTE: filterable by asset+side (+ optional limit/offset) only today —
-  // paymentMethod/price-range filtering from API_REFERENCE.md's
-  // description is not yet implemented (liquidityRouter.getAggregatedOffers
-  // doesn't support it); documented here rather than silently dropped.
   app.get('/v1/liquidity/offers', {
     ...docsOnlySchema({ tags: ['open-liquidity'], querystring: assetSideQuerySchema }),
   }, async (request, reply) => {
     const query = assetSideQuerySchema.parse(request.query)
-    const result = await liquidityRouter.getAggregatedOffers(query.asset as AssetType, query.side, {
-      limit: query.limit,
-      offset: query.offset,
-    })
+    const result = await liquidityRouter.getAggregatedOffers(
+      query.asset as AssetType,
+      query.side,
+      { limit: query.limit, offset: query.offset },
+      {
+        paymentMethod: query.paymentMethod as PaymentMethod | undefined,
+        priceMin: query.priceMin,
+        priceMax: query.priceMax,
+      }
+    )
     return reply.code(200).send({ success: true, data: result })
   })
 

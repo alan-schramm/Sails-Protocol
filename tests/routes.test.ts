@@ -437,6 +437,29 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(data.offers[1].id).toBe('offer-2')
     })
 
+    // Production Readiness Audit (2026-08-09) — paymentMethod/priceMin/
+    // priceMax were documented in API_REFERENCE.md but silently dropped
+    // by the route; this verifies they now actually reach the Prisma
+    // query's `where` clause, not just that the route accepts them.
+    it('applies paymentMethod/priceMin/priceMax filters to the offers query', async () => {
+      mockOfferFindMany.mockResolvedValueOnce([])
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/liquidity/offers?asset=BTC&side=SELL&paymentMethod=PIX&priceMin=60000&priceMax=70000',
+      })
+      expect(res.statusCode).toBe(200)
+      expect(mockOfferFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            asset: 'BTC',
+            side: 'SELL',
+            paymentMethod: 'PIX',
+            priceUsd: { gte: '60000', lte: '70000' },
+          }),
+        })
+      )
+    })
+
     it('lists the order book for an asset', async () => {
       mockOfferFindMany.mockResolvedValue([])
       const res = await app.inject({ method: 'GET', url: '/v1/liquidity/offers/BTC/book' })

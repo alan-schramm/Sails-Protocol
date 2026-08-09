@@ -50,10 +50,25 @@ export interface OfferPagination {
   offset?: number
 }
 
+// Production Readiness Audit (2026-08-09) — API_REFERENCE.md always
+// documented GET /v1/liquidity/offers as filterable by
+// "asset/side/paymentMethod/price range," but the route only ever
+// accepted asset/side; this closes that gap for real instead of just
+// correcting the doc. A separate type from OfferPagination on purpose —
+// filters and pagination are different concerns, and every provider's
+// getOffers() already takes pagination independently of them.
+export interface OfferFilters {
+  paymentMethod?: PaymentMethod
+  /** Decimal string, inclusive lower bound on Offer.priceUsd — same RFC-009 convention as every other price/amount field. */
+  priceMin?: string
+  /** Decimal string, inclusive upper bound on Offer.priceUsd. */
+  priceMax?: string
+}
+
 export interface LiquidityProvider {
   name: string
   isAvailable(): Promise<boolean>
-  getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination): Promise<LiquidityOffer[]>
+  getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination, filters?: OfferFilters): Promise<LiquidityOffer[]>
   matchOrder(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null>
 }
 
@@ -118,10 +133,23 @@ class InternalOrderBook implements LiquidityProvider {
     return true
   }
 
-  async getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination): Promise<LiquidityOffer[]> {
+  async getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination, filters?: OfferFilters): Promise<LiquidityOffer[]> {
     const { limit, offset } = normalizePagination(pagination)
     const offers = await prisma.offer.findMany({
-      where: { asset, side, status: 'ACTIVE' },
+      where: {
+        asset,
+        side,
+        status: 'ACTIVE',
+        ...(filters?.paymentMethod ? { paymentMethod: filters.paymentMethod } : {}),
+        ...(filters?.priceMin || filters?.priceMax
+          ? {
+              priceUsd: {
+                ...(filters?.priceMin ? { gte: filters.priceMin } : {}),
+                ...(filters?.priceMax ? { lte: filters.priceMax } : {}),
+              },
+            }
+          : {}),
+      },
       orderBy: { priceUsd: side === 'SELL' ? 'asc' : 'desc' },
       take: limit,
       skip: offset,
@@ -158,7 +186,7 @@ class HodlHodlProvider implements LiquidityProvider {
     return false
   }
 
-  async getOffers(asset: AssetType, _side: TradeSide, _pagination?: OfferPagination): Promise<LiquidityOffer[]> {
+  async getOffers(asset: AssetType, _side: TradeSide, _pagination?: OfferPagination, _filters?: OfferFilters): Promise<LiquidityOffer[]> {
     // TODO(roadmap Meses 1-3): GET https://hodlhodl.com/api/v1/offers
     //   ?filters[currency_code]=BRL&filters[asset]=BTC
     log.info({ asset }, '[HodlHodl] getOffers — not yet implemented')
@@ -324,19 +352,27 @@ export class LiquidityRouter {
     return { asset, bids: bids.offers, asks: asks.offers, spread }
   }
 
-  // `pagination` is passed to each provider's own getOffers() as-is, not
-  // re-applied after aggregation — with today's single real provider
-  // (InternalOrderBook; HodlHodl is disabled) that's equivalent to
-  // paginating the combined result. Aggregating across N>1 *real*
-  // providers correctly (one global page cutting across all of them,
-  // not N separate per-provider pages) is real follow-up work once a
-  // second provider is actually enabled — not done speculatively here.
+  // Real, pre-existing limitation found while wiring OfferFilters through
+  // here (Production Readiness Audit, 2026-08-09), left as-is rather than
+  // silently fixed alongside an unrelated feature: `collectFromProviders()`
+  // below never actually forwards `pagination` to each provider's own
+  // getOffers() call (only `filters` now does) — every provider always
+  // fetches its own first DEFAULT_PAGE_LIMIT page internally, and this
+  // method's own slice below re-paginates *that* fixed window, not the
+  // true full result set. Harmless for `offset=0` with a small `limit`
+  // (today's only real caller shape); a caller requesting `offset > 0` or
+  // `limit > DEFAULT_PAGE_LIMIT` against a single real provider
+  // (InternalOrderBook; HodlHodl stays disabled) would get an incorrectly
+  // short/empty page. `filters` narrows what each provider's own query
+  // matches *before* that fixed-window fetch, so it composes correctly
+  // regardless of this — a separate fix, tracked, not bundled in here.
   async getAggregatedOffers(
     asset: AssetType,
     side: TradeSide,
-    pagination?: OfferPagination
+    pagination?: OfferPagination,
+    filters?: OfferFilters
   ): Promise<{ offers: LiquidityOffer[]; sources: string[]; total: number; hasMore: boolean }> {
-    const { offers: all, sources } = await this.collectFromProviders(asset, side)
+    const { offers: all, sources } = await this.collectFromProviders(asset, side, filters)
 
     // Number() coercion here is intentional and safe — a sort comparator only
     // needs correct relative order, not exact arithmetic, so float precision
@@ -356,14 +392,14 @@ export class LiquidityRouter {
   // expiring) should never take the whole discovery endpoint down with it.
   // Extracted so the for-loop body is the single source of truth for
   // "what counts as a provider succeeding."
-  private async collectFromProviders(asset: AssetType, side: TradeSide): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
+  private async collectFromProviders(asset: AssetType, side: TradeSide, filters?: OfferFilters): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
     const offers: LiquidityOffer[] = []
     const sources: string[] = []
 
     for (const provider of this.providers) {
       try {
         if (!(await provider.isAvailable())) continue
-        offers.push(...await provider.getOffers(asset, side))
+        offers.push(...await provider.getOffers(asset, side, undefined, filters))
         sources.push(provider.name)
       } catch (err) {
         log.error({ err, provider: provider.name }, '[Router] Provider failed')
