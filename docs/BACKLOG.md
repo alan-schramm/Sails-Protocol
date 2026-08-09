@@ -100,6 +100,14 @@ a Network Simulation exercise within Resilience Reviews, and RC1 itself.
 
 ---
 
+## Developer Experience / Tooling (out-of-band — doesn't gate any module)
+
+| Item | Status |
+|---|---|
+| HyperDHT/dht-rpc Wireshark dissector | 🟢 **v1 shipped 2026-08-08** — `tools/wireshark-hyperdht-dissector/` (`hyperdht.lua` + `README.md`). Standalone Wireshark Lua plugin, isolated from `src/`/`packages/`, never installed with the product. Decodes `dht-rpc`'s request/response envelope and HyperDHT's 11 commands, transcribed directly from `holepunchto/dht-rpc`'s `lib/io.js`, `holepunchto/hyperdht`'s `lib/constants.js`/`lib/messages.js`, and `holepunchto/compact-encoding`'s `index.js` — confirmed via direct source reading (2026-08-08) that no such dissector exists publicly anywhere yet (checked `holepunchto/hyperdht`'s own repo). Prompted by Tether's open tether.dev bounties ("DHT-RPC and HyperDHT in Wireshark", 5,000 USD₮; "UDX in Wireshark", 10,000 USD₮) — **note their listed application deadline (28/07/2026) had already passed as of this build date; this was built as a genuine engineering-workflow improvement for Sails' own Pears/HyperDHT debugging, not as a bounty submission.** Known, disclosed limitations (see the README): not validated against a live two-node HyperDHT capture (no such network available in the environment this was built in); cannot see anything past the DHT routing/discovery layer — every Sails application payload (Intent, Offer, Chat) is already encrypted client-side (`payload-crypto.ts`) before it ever reaches this transport, on top of Hyperswarm's own Noise_XX transport encryption, so this tool decodes plaintext bootstrap/lookup/announce/hole-punch traffic only, never trade content. Useful for debugging "peer didn't discover the offer" / NAT traversal / bootstrap-timing issues going forward. Next real improvement if this gets used: request/response correlation by `tid` (dht-rpc has no per-response command field, so response-side `value` payload decoding for e.g. `LOOKUP`/`MUTABLE_GET` is currently less precise than the request side). |
+
+---
+
 ## Why the Order Differs From Pure Priority
 
 Strict priority order alone would suggest building OpenP2P (P1) before
