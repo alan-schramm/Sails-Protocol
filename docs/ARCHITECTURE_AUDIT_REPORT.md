@@ -12,17 +12,26 @@
 
 Prisma é importado diretamente em **24 arquivos** de fonte, incluindo handlers de rota, middleware, e serviços de lógica de negócio — locais que deveriam invocar uma abstração de serviço/repositório, não o ORM diretamente.
 
+**Atualização 2026-08-08** — análise real confirmou **197 call sites em ~34 arquivos**
+(mais que os "100+" estimados), a maioria (170+) já dentro de `*.service.ts`/
+`*-provider.ts`/`core/*-engine.ts` — ou seja, já razoavelmente encapsulados. O
+gap real e acionável é mais estreito: as duas violações em rota
+(`chat.routes.ts`/`trade.routes.ts`) e a ausência de uma interface
+substituível na frente das 4 entidades nomeadas abaixo. Rollout
+incremental iniciado — ver `## Recomendações Prioritárias`, item 3, para
+o status atual (2/4 repositórios feitos).
+
 | Arquivo | Caminho | Contexto |
 |---------|---------|----------|
-| `chat.routes.ts` | `src/modules/open-p2p/` | `prisma.trade.findUnique`, `prisma.message.create`, `prisma.message.findMany` em handlers de rota |
-| `trade.routes.ts` | `src/modules/open-p2p/` | `prisma.trade.findUnique` no route handler de reconciliação |
-| `escrow.service.ts` | `src/modules/open-settlement/` | Uso extenso de Prisma em todas as operações de cofre |
-| `liquidity.service.ts` | `src/modules/open-liquidity/` | 356 linhas |
-| `intent-engine.ts` | `src/core/` | `prisma.intent`, `prisma.intentEvent`, `prisma.intent.updateMany` |
-| `coordination-engine.ts` | `src/core/` | `prisma.intent.findUnique` |
-| `capability-registry.ts` | `src/core/` | `prisma.capabilityGrant` (create, findMany, update, findUnique) |
-| `auth.ts` | `src/common/middleware/` | Cache de sessão via Prisma |
-| `proof.service.ts` | `src/modules/open-proof/` | Persistência direta |
+| `chat.routes.ts` | `src/modules/open-p2p/` | `prisma.trade.findUnique`, `prisma.message.create`, `prisma.message.findMany` em handlers de rota — **ainda aberto**, parte do step 3 (`TradeRepository`) |
+| `trade.routes.ts` | `src/modules/open-p2p/` | `prisma.trade.findUnique` no route handler de reconciliação — **ainda aberto**, mesmo step |
+| `escrow.service.ts` | `src/modules/open-settlement/` | Uso extenso de Prisma em todas as operações de cofre — **ainda aberto**, step 4 (`EscrowRepository`), deliberadamente por último (fundos reais) |
+| `liquidity.service.ts` | `src/modules/open-liquidity/` | 356 linhas — fora do escopo dos 4 repositórios nomeados |
+| `intent-engine.ts` | `src/core/` | ✅ **Fechado 2026-08-08** — `prisma.intent`/`prisma.intentEvent` movidos para `intent-repository.ts` |
+| `coordination-engine.ts` | `src/core/` | ✅ **Fechado 2026-08-08** — mesmo `IntentRepository` |
+| `capability-registry.ts` | `src/core/` | ✅ **Fechado 2026-08-08** — `prisma.capabilityGrant.*` movido para `capability-grant-repository.ts` |
+| `auth.ts` | `src/common/middleware/` | Cache de sessão via Prisma — fora do escopo dos 4 repositórios nomeados |
+| `proof.service.ts` | `src/modules/open-proof/` | Persistência direta — fora do escopo dos 4 repositórios nomeados |
 
 **Recomendação**: Introduzir interfaces de repositório (`IntentRepository`, `CapabilityGrantRepository`, `TradeRepository`) e injeta-las via construtor.
 
@@ -239,8 +248,13 @@ packages/sdk-react/src/
 
 1. **Extrair `escrow.service.ts`** em pelo menos 4 módulos focados: ciclo de vida, registry de providers, dual-approval, transações pendentes. ✅ **Feito 2026-08-08** — `escrow-providers.ts`, `escrow-lifecycle.ts`, `escrow-dual-approval.ts`, `escrow-pending-tx.ts`; `escrow.service.ts` caiu de 1.257 para 653 linhas, mantendo a classe `EscrowService`/singleton `escrowService` com API pública idêntica (zero mudança em qualquer caller externo).
 2. **Quebrar o ciclo real**: `transport-provider.ts ⇄ websocket-relay.service.ts` — introduzir interface `TransportProvider`.
-3. **Introduzir repositórios**: `IntentRepository`, `CapabilityGrantRepository`, `TradeRepository`, `EscrowRepository` — dependência via injeção no construtor.
-4. **Remover Prisma de handlers de rota**: `chat.routes.ts` e `trade.routes.ts` devem chamar `tradeService`/`messageService`.
+3. **Introduzir repositórios**: `IntentRepository`, `CapabilityGrantRepository`, `TradeRepository`, `EscrowRepository` — dependência via injeção no construtor. **Rollout incremental iniciado 2026-08-08** (menor/mais seguro primeiro, código de fundos reais por último):
+   - ✅ **Passo 1 — `CapabilityGrantRepository`** (`src/core/capability-grant-repository.ts`) — os 5 `prisma.capabilityGrant.*` de `capability-registry.ts` movidos verbatim. `capability-registry.ts` virou uma factory function (`createCapabilityRegistry(repo)`, não uma classe — o registry sempre foi um objeto literal, não havia construtor pra adicionar) com o repositório como parâmetro opcional, mesmo padrão de injeção que `DisputeService` já usa para `ArbitrationProvider`. API pública (`capabilityRegistry.grant/check/revoke/listGrants`) idêntica — zero mudança em qualquer caller externo. `tests/capabilityRegistry.test.ts` reescrito: era `jest.mock('../src/common/database', () => ({ prisma: { capabilityGrant: {...} } }))`, agora um objeto fake simples passado direto pra `createCapabilityRegistry(fakeRepo)`, sem mock de módulo.
+   - ✅ **Passo 2 — `IntentRepository`** (`src/core/intent-repository.ts`) — os `prisma.intent.*`/`prisma.intentEvent.*` de `intent-engine.ts` (incluindo o `claimTransition()` atômico, mesma proteção contra race condition de `escrow.service.ts`) e o `prisma.intent.findUnique` de `coordination-engine.ts` movidos verbatim. Mesmo padrão de factory function (`createIntentEngine(repo)`/`createCoordinationEngine(repo)`). Testes existentes (`tests/intentFlow.test.ts` etc.) continuam passando sem modificação — mockam `prisma` no nível de módulo, que `intent-repository.ts` compartilha transitivamente.
+   - ⏳ **Passo 3 — `TradeRepository`** — pendente, passe separado. Fecha também o item #4 abaixo (as duas violações em rota).
+   - ⏳ **Passo 4 — `EscrowRepository`** — pendente, passe separado, por último — código de movimentação real de fundos, precisa da mesma cautela usada na decomposição de `escrow.service.ts` (item #1 acima).
+   - Verificado a cada passo: `npx tsc --noEmit` limpo, suíte completa sem regressão (776/776 no passo 2, incluindo os testes já existentes intocados).
+4. **Remover Prisma de handlers de rota**: `chat.routes.ts` e `trade.routes.ts` devem chamar `tradeService`/`messageService`. Será fechado junto do passo 3 acima (`TradeRepository`).
 5. **Extrair utilitários duplicados no SDK**: `stripHexPrefix`, recovery-id logic → módulo `custody/common.ts`.
 6. **Consolidar o padrão de transição de estado**: extrair `assertTransition → updateMany → toDto` e `try/catch(revert)` em métodos auxiliares.
 7. **Eliminar `isPartyOrAgent` não usado** e usar o método existente ou extrair um shared validator.

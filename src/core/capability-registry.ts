@@ -5,9 +5,9 @@
  * (this file's first real implementation — stub since Architecture Freeze).
  *
  * Real, not a stub. Only `CapabilityGrant` (the permission side) is
- * persisted (`prisma.capabilityGrant`) — `Capability`/`CapabilityImplementation`
- * (the static moduleId <-> capabilityName mapping RFC-005's own table
- * lists as "illustrative... a Reference Implementation detail") stays an
+ * persisted — `Capability`/`CapabilityImplementation` (the static
+ * moduleId <-> capabilityName mapping RFC-005's own table lists as
+ * "illustrative... a Reference Implementation detail") stays an
  * in-code map below, since it has no real write path in this pass
  * (RFC-013's Alternatives Considered).
  *
@@ -18,10 +18,23 @@
  * permission grant) and returned nothing a caller could reference later.
  * Fixed here as part of making this real, not a silent behavior change
  * to code that never actually ran (the stub only ever threw).
+ *
+ * ARCHITECTURE_AUDIT_REPORT.md recommendation #3, step 1, closed
+ * 2026-08-08 — all `prisma.capabilityGrant.*` access moved to
+ * `capability-grant-repository.ts`; this file no longer imports `prisma`
+ * or knows the raw persisted row shape at all. `createCapabilityRegistry()`
+ * is a factory function, not a class — `capabilityRegistry` itself was
+ * always a plain object literal implementing the `CapabilityRegistry`
+ * interface, so there's no class to add a constructor to; the factory
+ * takes the repository as an optional parameter (defaulting to the real
+ * singleton) instead, giving tests the same seam a constructor would
+ * (`createCapabilityRegistry(fakeRepo)` instead of
+ * `jest.mock('../common/database', ...)`), with the real, always-used
+ * `capabilityRegistry` export's own call sites completely unchanged.
  */
-import { prisma } from '../common/database'
 import { NotFoundError, ForbiddenError } from '../common/errors'
 import type { CapabilityGrant } from '../common/types/capability'
+import { capabilityGrantRepository, type CapabilityGrantRepository } from './capability-grant-repository'
 
 // RFC-005's own module <-> Capability mapping table, illustrative but
 // stable enough to encode directly — a genuinely new Capability (a new
@@ -49,69 +62,40 @@ export interface CapabilityRegistry {
   listGrants(grantedTo: string): Promise<CapabilityGrant[]>
 }
 
-function toCapabilityGrant(record: {
-  id: string
-  grantedTo: string
-  capabilityName: string
-  scope: string[]
-  constraints: unknown
-  issuedBy: string
-}): CapabilityGrant {
+export function createCapabilityRegistry(repo: CapabilityGrantRepository = capabilityGrantRepository): CapabilityRegistry {
   return {
-    grantId: record.id,
-    grantedTo: record.grantedTo,
-    capabilityName: record.capabilityName,
-    scope: record.scope,
-    constraints: (record.constraints as Record<string, unknown> | null) ?? undefined,
-    issuedBy: record.issuedBy,
+    async grant(input) {
+      return repo.create(input)
+    },
+
+    async check(grantedTo, capabilityName, requiredScope) {
+      const grants = await repo.findActiveGrants(grantedTo, capabilityName)
+
+      const now = new Date()
+      return grants.some((g) => {
+        if (!g.scope.includes(requiredScope)) return false
+        const expiresAt = g.constraints?.expiresAt as string | undefined
+        if (expiresAt && new Date(expiresAt) <= now) return false
+        return true
+      })
+    },
+
+    async revoke(grantId, requestedBy) {
+      const existing = await repo.findById(grantId)
+      if (!existing) throw new NotFoundError('CapabilityGrant', grantId)
+      // Gap-audit fix: only the grant's own holder may revoke it — grants
+      // are self-issued only in this pass (RFC-013's own scope cut,
+      // grantedTo === issuedBy), so checking grantedTo covers both.
+      if (existing.grantedTo !== requestedBy) {
+        throw new ForbiddenError(`${requestedBy} does not own CapabilityGrant ${grantId}`)
+      }
+      await repo.markRevoked(grantId)
+    },
+
+    async listGrants(grantedTo) {
+      return repo.listActiveGrants(grantedTo)
+    },
   }
 }
 
-export const capabilityRegistry: CapabilityRegistry = {
-  async grant(input) {
-    const record = await prisma.capabilityGrant.create({
-      data: {
-        grantedTo: input.grantedTo,
-        capabilityName: input.capabilityName,
-        scope: input.scope,
-        constraints: (input.constraints ?? undefined) as object | undefined,
-        issuedBy: input.issuedBy,
-      },
-    })
-    return toCapabilityGrant(record)
-  },
-
-  async check(grantedTo, capabilityName, requiredScope) {
-    const grants = await prisma.capabilityGrant.findMany({
-      where: { grantedTo, capabilityName, revokedAt: null },
-    })
-
-    const now = new Date()
-    return grants.some((g: { scope: string[]; constraints: unknown }) => {
-      if (!g.scope.includes(requiredScope)) return false
-      const expiresAt = (g.constraints as { expiresAt?: string } | null)?.expiresAt
-      if (expiresAt && new Date(expiresAt) <= now) return false
-      return true
-    })
-  },
-
-  async revoke(grantId, requestedBy) {
-    const existing = await prisma.capabilityGrant.findUnique({ where: { id: grantId } })
-    if (!existing) throw new NotFoundError('CapabilityGrant', grantId)
-    // Gap-audit fix: only the grant's own holder may revoke it — grants
-    // are self-issued only in this pass (RFC-013's own scope cut,
-    // grantedTo === issuedBy), so checking grantedTo covers both.
-    if (existing.grantedTo !== requestedBy) {
-      throw new ForbiddenError(`${requestedBy} does not own CapabilityGrant ${grantId}`)
-    }
-    await prisma.capabilityGrant.update({ where: { id: grantId }, data: { revokedAt: new Date() } })
-  },
-
-  async listGrants(grantedTo) {
-    const grants = await prisma.capabilityGrant.findMany({
-      where: { grantedTo, revokedAt: null },
-      orderBy: { createdAt: 'desc' },
-    })
-    return grants.map(toCapabilityGrant)
-  },
-}
+export const capabilityRegistry: CapabilityRegistry = createCapabilityRegistry()

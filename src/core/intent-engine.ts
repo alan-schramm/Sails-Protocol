@@ -11,10 +11,21 @@
  * implements against src/core/ under the MVP sandbox exemption — real,
  * working logic, but not itself a claim that any shape here is frozen
  * protocol specification until it goes through Protocol Freeze + RFC.
+ *
+ * ARCHITECTURE_AUDIT_REPORT.md recommendation #3, step 2, closed
+ * 2026-08-08 — all `prisma.intent.*`/`prisma.intentEvent.*` access moved
+ * to `intent-repository.ts`; this file no longer imports `prisma` at
+ * all. `createIntentEngine()` is a factory function, not a class —
+ * `intentEngine` was always a plain object literal implementing the
+ * `IntentEngine` interface (same shape `capability-registry.ts` had
+ * before its own step-1 refactor), so the factory takes the repository
+ * as an optional parameter (defaulting to the real singleton) instead of
+ * a constructor, giving tests the same seam
+ * (`createIntentEngine(fakeRepo)` instead of `jest.mock('../common/database', ...)`)
+ * with the real `intentEngine` export's own call sites unchanged.
  */
 import { createHash } from 'crypto'
 import { config } from '../config'
-import { prisma } from '../common/database'
 import { ValidationError, NotFoundError, ForbiddenError } from '../common/errors'
 import { eventBus } from '../common/events/event-bus'
 import type { SailsEventName, SailsEventMap } from '../common/events/event-bus'
@@ -22,6 +33,7 @@ import { assertValidTransition, isExpired, type IntentStatus } from './state-mac
 import { validateFinancialSanity } from './policy-engine'
 import { coordinationEngine } from './coordination-engine'
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from './capability-registry'
+import { intentRepository, type IntentRepository } from './intent-repository'
 import type {
   Intent, IntentType, IntentHandler, IntentPayload, TradeIntentPayload,
 } from '../common/types/intent'
@@ -78,128 +90,121 @@ function validateStructure(type: IntentType, payload: IntentPayload): { valid: b
   return handler.validate(payload)
 }
 
-// Hash-chains IntentEvent the same way this pattern will eventually apply
-// to EscrowEvent/ReputationEvent too (RFC-008 D2, still 🔲 in BACKLOG.md) —
-// implemented here first since Intent persistence is being built from
-// scratch in this pass, not retrofitted onto rows that already exist.
-async function writeIntentEvent(
-  intentId: string,
-  fromStatus: string | null,
-  toStatus: string,
-  triggeredBy: string,
-  note?: string
-): Promise<void> {
-  const last = await prisma.intentEvent.findFirst({
-    where: { intentId },
-    orderBy: { createdAt: 'desc' },
-  })
-  const prevHash = last?.entryHash ?? 'genesis'
-  const entryHash = createHash('sha256')
-    .update(`${fromStatus ?? ''}|${toStatus}|${triggeredBy}|${prevHash}`)
-    .digest('hex')
+export function createIntentEngine(repo: IntentRepository = intentRepository): IntentEngine {
+  // Hash-chains IntentEvent the same way this pattern will eventually
+  // apply to EscrowEvent/ReputationEvent too (RFC-008 D2, still 🔲 in
+  // BACKLOG.md) — implemented here first since Intent persistence was
+  // being built from scratch when this was written, not retrofitted onto
+  // rows that already existed.
+  async function writeIntentEvent(
+    intentId: string,
+    fromStatus: string | null,
+    toStatus: string,
+    triggeredBy: string,
+    note?: string
+  ): Promise<void> {
+    const last = await repo.findLastEvent(intentId)
+    const prevHash = last?.entryHash ?? 'genesis'
+    const entryHash = createHash('sha256')
+      .update(`${fromStatus ?? ''}|${toStatus}|${triggeredBy}|${prevHash}`)
+      .digest('hex')
 
-  await prisma.intentEvent.create({
-    data: { intentId, fromStatus: fromStatus ?? undefined, toStatus, triggeredBy, note, prevHash, entryHash },
-  })
-}
-
-async function transition<K extends SailsEventName>(
-  intentId: string,
-  toStatus: IntentStatus,
-  triggeredBy: string,
-  eventName: K,
-  eventPayload: SailsEventMap[K],
-  note?: string
-): Promise<Intent> {
-  const record = await prisma.intent.findUnique({ where: { id: intentId } })
-  if (!record) throw new NotFoundError('Intent', intentId)
-
-  const currentStatus = record.status as IntentStatus
-
-  // CISO Byzantine Rule, applied to lifecycle too: an Intent whose window
-  // has closed is EXPIRED regardless of what transition was requested —
-  // this is the hard-timeout enforcement (state-machine.ts's isExpired()).
-  if (isExpired({ status: currentStatus, expiresAt: record.expiresAt }) && toStatus !== 'EXPIRED') {
-    await transition(intentId, 'EXPIRED', 'system:expiry-check', 'intent.expired', {
-      intentId,
-      reason: 'expiresAt window closed before this transition was requested',
-    })
-    throw new ValidationError(`Intent ${intentId} expired before transitioning to ${toStatus}`)
+    await repo.createEvent({ intentId, fromStatus, toStatus, triggeredBy, note, prevHash, entryHash })
   }
 
-  assertValidTransition(currentStatus, toStatus)
+  async function transition<K extends SailsEventName>(
+    intentId: string,
+    toStatus: IntentStatus,
+    triggeredBy: string,
+    eventName: K,
+    eventPayload: SailsEventMap[K],
+    note?: string
+  ): Promise<Intent> {
+    const record = await repo.findById(intentId)
+    if (!record) throw new NotFoundError('Intent', intentId)
 
-  // ─── Robustness-audit fix (2026-07-20): the same TOCTOU race
-  // escrow.service.ts's transitions had, applied to the RFC-018 state
-  // machine itself. The old code checked `assertValidTransition` against
-  // `currentStatus` (read moments earlier) and then unconditionally
-  // wrote `toStatus` — two concurrent transition() calls for the same
-  // Intent (e.g. an event handler reacting to two near-simultaneous real
-  // events) could both pass the in-memory check before either write
-  // landed. Worse than a lost update: writeIntentEvent() below computes
-  // `prevHash` from "the last IntentEvent row for this intentId" — two
-  // racing writers could both read the same prior event as "last" and
-  // both chain off it, corrupting RFC-008's hash chain (which promises
-  // exactly one true predecessor per event) rather than just overwriting
-  // a field. The `updateMany` `WHERE status:` clause makes this
-  // impossible: only the request whose expected `currentStatus` still
-  // matches the row's real current status affects a row, so only one
-  // concurrent caller ever proceeds to writeIntentEvent()/emit(). ──────
-  const claim = await prisma.intent.updateMany({
-    where: { id: intentId, status: currentStatus },
-    data: { status: toStatus },
-  })
-  if (claim.count === 0) {
-    throw new ValidationError(`Intent ${intentId} was already transitioned by a concurrent request (expected status ${currentStatus})`)
+    const currentStatus = record.status as IntentStatus
+
+    // CISO Byzantine Rule, applied to lifecycle too: an Intent whose window
+    // has closed is EXPIRED regardless of what transition was requested —
+    // this is the hard-timeout enforcement (state-machine.ts's isExpired()).
+    if (isExpired({ status: currentStatus, expiresAt: record.expiresAt }) && toStatus !== 'EXPIRED') {
+      await transition(intentId, 'EXPIRED', 'system:expiry-check', 'intent.expired', {
+        intentId,
+        reason: 'expiresAt window closed before this transition was requested',
+      })
+      throw new ValidationError(`Intent ${intentId} expired before transitioning to ${toStatus}`)
+    }
+
+    assertValidTransition(currentStatus, toStatus)
+
+    // ─── Robustness-audit fix (2026-07-20): the same TOCTOU race
+    // escrow.service.ts's transitions had, applied to the RFC-018 state
+    // machine itself. The old code checked `assertValidTransition` against
+    // `currentStatus` (read moments earlier) and then unconditionally
+    // wrote `toStatus` — two concurrent transition() calls for the same
+    // Intent (e.g. an event handler reacting to two near-simultaneous real
+    // events) could both pass the in-memory check before either write
+    // landed. Worse than a lost update: writeIntentEvent() below computes
+    // `prevHash` from "the last IntentEvent row for this intentId" — two
+    // racing writers could both read the same prior event as "last" and
+    // both chain off it, corrupting RFC-008's hash chain (which promises
+    // exactly one true predecessor per event) rather than just overwriting
+    // a field. The atomic `claimTransition()` makes this impossible: only
+    // the request whose expected `currentStatus` still matches the row's
+    // real current status affects a row, so only one concurrent caller
+    // ever proceeds to writeIntentEvent()/emit(). ────────────────────────
+    const claimedCount = await repo.claimTransition(intentId, currentStatus, toStatus)
+    if (claimedCount === 0) {
+      throw new ValidationError(`Intent ${intentId} was already transitioned by a concurrent request (expected status ${currentStatus})`)
+    }
+    const updated = await repo.findById(intentId)
+    await writeIntentEvent(intentId, currentStatus, toStatus, triggeredBy, note)
+    await eventBus.emit(eventName, eventPayload, intentId) // correlationId = intentId (RFC-010)
+
+    return updated as unknown as Intent
   }
-  const updated = await prisma.intent.findUnique({ where: { id: intentId } })
-  await writeIntentEvent(intentId, currentStatus, toStatus, triggeredBy, note)
-  await eventBus.emit(eventName, eventPayload, intentId) // correlationId = intentId (RFC-010)
 
-  return updated as unknown as Intent
-}
-
-export const intentEngine: IntentEngine = {
-  registerHandler(handler) {
-    for (const type of handler.intentTypes) {
-      handlers.set(type, handler as IntentHandler)
-    }
-  },
-
-  async create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string, agentId?: string) {
-    const structural = validateStructure(type, payload)
-    if (!structural.valid) {
-      throw new ValidationError('Malformed Intent rejected at entry boundary', structural.errors)
-    }
-
-    const sanity = validateFinancialSanity(payload as unknown as TradeIntentPayload)
-    if (!sanity.valid) {
-      throw new ValidationError('Intent failed financial sanity check', sanity.errors)
-    }
-
-    const moduleId = 'openp2p' // TradeIntent's owning module — generalize once other IntentTypes are real
-
-    // RFC-014: capability-registry.ts (real since RFC-013) had no real
-    // caller anywhere in this codebase until this check. Off by default
-    // (config.features.enforceCapabilities) — see that flag's own doc
-    // comment in config/index.ts for why. CAPABILITY_IMPLEMENTATIONS maps
-    // moduleId -> the RFC-005 Capability name this module implements
-    // ('openp2p' -> 'trade-coordination'); the required scope is the real
-    // event name this action produces (event-bus.ts's 'intent.created'),
-    // matching RFC-013's own example grant shape rather than inventing a
-    // parallel scope vocabulary.
-    if (config.features.enforceCapabilities) {
-      const capabilityName = CAPABILITY_IMPLEMENTATIONS[moduleId]
-      const allowed = await capabilityRegistry.check(participantId, capabilityName, 'intent.created')
-      if (!allowed) {
-        throw new ForbiddenError(
-          `${participantId} has no active '${capabilityName}' capability grant covering 'intent.created'`
-        )
+  return {
+    registerHandler(handler) {
+      for (const type of handler.intentTypes) {
+        handlers.set(type, handler as IntentHandler)
       }
-    }
+    },
 
-    const record = await prisma.intent.create({
-      data: {
+    async create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string, agentId?: string) {
+      const structural = validateStructure(type, payload)
+      if (!structural.valid) {
+        throw new ValidationError('Malformed Intent rejected at entry boundary', structural.errors)
+      }
+
+      const sanity = validateFinancialSanity(payload as unknown as TradeIntentPayload)
+      if (!sanity.valid) {
+        throw new ValidationError('Intent failed financial sanity check', sanity.errors)
+      }
+
+      const moduleId = 'openp2p' // TradeIntent's owning module — generalize once other IntentTypes are real
+
+      // RFC-014: capability-registry.ts (real since RFC-013) had no real
+      // caller anywhere in this codebase until this check. Off by default
+      // (config.features.enforceCapabilities) — see that flag's own doc
+      // comment in config/index.ts for why. CAPABILITY_IMPLEMENTATIONS maps
+      // moduleId -> the RFC-005 Capability name this module implements
+      // ('openp2p' -> 'trade-coordination'); the required scope is the real
+      // event name this action produces (event-bus.ts's 'intent.created'),
+      // matching RFC-013's own example grant shape rather than inventing a
+      // parallel scope vocabulary.
+      if (config.features.enforceCapabilities) {
+        const capabilityName = CAPABILITY_IMPLEMENTATIONS[moduleId]
+        const allowed = await capabilityRegistry.check(participantId, capabilityName, 'intent.created')
+        if (!allowed) {
+          throw new ForbiddenError(
+            `${participantId} has no active '${capabilityName}' capability grant covering 'intent.created'`
+          )
+        }
+      }
+
+      const record = await repo.create({
         type,
         participantId,
         agentId,
@@ -207,73 +212,75 @@ export const intentEngine: IntentEngine = {
         payload: payload as object,
         status: 'CREATED' satisfies IntentStatus,
         metadata: {},
-      },
-    })
-
-    await writeIntentEvent(record.id, null, 'CREATED', participantId)
-    await eventBus.emit('intent.created', {
-      intentId: record.id,
-      type,
-      participantId,
-      moduleId: record.moduleId,
-      agentId,
-    }, record.id) // correlationId = intentId (RFC-010)
-
-    // RFC-012 (rfcs/RFC-012-intent-validation-and-coordination.md):
-    // CREATED -> VALIDATED -> COORDINATED, formal transitions recorded
-    // through the same hash-chained transition() mechanism cancel() uses
-    // below — not a bare status overwrite. Deterministic today: the CISO
-    // Byzantine/Economic checks above already gated persistence, so a
-    // persisted CREATED row has, by construction, already passed them —
-    // VALIDATED formalizes that as an observable, audited state instead
-    // of an implicit pre-persistence gate. This is also the receive path
-    // for an agent-generated Intent (modules/open-agents/buyer-agent.ts's
-    // QVAC-produced TradeIntentPayload) — agentId, threaded through
-    // above, needs no special-cased handling here: it's just data that
-    // flows through the same validate/coordinate pipeline every Intent does.
-    const validated = await transition(
-      record.id, 'VALIDATED', participantId, 'intent.validated',
-      { intentId: record.id, participantId }
-    )
-
-    const decision = await coordinationEngine.decide(record.id)
-    const handler = handlers.get(type)
-    if (handler) await handler.onCreated(validated as unknown as Intent)
-
-    const coordinated = await transition(
-      record.id, 'COORDINATED', participantId, 'intent.coordinated',
-      { intentId: record.id, targetModule: decision.targetModule }
-    )
-
-    return coordinated as unknown as Intent<T>
-  },
-
-  async cancel(intentId, cancelledBy) {
-    const record = await prisma.intent.findUnique({ where: { id: intentId } })
-    if (!record) throw new NotFoundError('Intent', intentId)
-
-    // Gap-audit fix: only the participant who created this Intent may
-    // cancel it — checked before anything else (including the expiry
-    // branch below), so a non-owner gets a clean 403 regardless of the
-    // Intent's current state, rather than silently triggering a
-    // system-driven expiry transition on someone else's Intent.
-    if (record.participantId !== cancelledBy) {
-      throw new ForbiddenError(`${cancelledBy} does not own Intent ${intentId}`)
-    }
-
-    if (isExpired({ status: record.status as IntentStatus, expiresAt: record.expiresAt })) {
-      await transition(intentId, 'EXPIRED', 'system:expiry-check', 'intent.expired', {
-        intentId,
-        reason: 'expiresAt window closed before cancellation was processed',
       })
-      return
-    }
 
-    await transition(intentId, 'CANCELLED', cancelledBy, 'intent.cancelled', {
-      intentId,
-      cancelledBy,
-    })
-  },
+      await writeIntentEvent(record.id, null, 'CREATED', participantId)
+      await eventBus.emit('intent.created', {
+        intentId: record.id,
+        type,
+        participantId,
+        moduleId: record.moduleId,
+        agentId,
+      }, record.id) // correlationId = intentId (RFC-010)
 
-  transition,
+      // RFC-012 (rfcs/RFC-012-intent-validation-and-coordination.md):
+      // CREATED -> VALIDATED -> COORDINATED, formal transitions recorded
+      // through the same hash-chained transition() mechanism cancel() uses
+      // below — not a bare status overwrite. Deterministic today: the CISO
+      // Byzantine/Economic checks above already gated persistence, so a
+      // persisted CREATED row has, by construction, already passed them —
+      // VALIDATED formalizes that as an observable, audited state instead
+      // of an implicit pre-persistence gate. This is also the receive path
+      // for an agent-generated Intent (modules/open-agents/buyer-agent.ts's
+      // QVAC-produced TradeIntentPayload) — agentId, threaded through
+      // above, needs no special-cased handling here: it's just data that
+      // flows through the same validate/coordinate pipeline every Intent does.
+      const validated = await transition(
+        record.id, 'VALIDATED', participantId, 'intent.validated',
+        { intentId: record.id, participantId }
+      )
+
+      const decision = await coordinationEngine.decide(record.id)
+      const handler = handlers.get(type)
+      if (handler) await handler.onCreated(validated as unknown as Intent)
+
+      const coordinated = await transition(
+        record.id, 'COORDINATED', participantId, 'intent.coordinated',
+        { intentId: record.id, targetModule: decision.targetModule }
+      )
+
+      return coordinated as unknown as Intent<T>
+    },
+
+    async cancel(intentId, cancelledBy) {
+      const record = await repo.findById(intentId)
+      if (!record) throw new NotFoundError('Intent', intentId)
+
+      // Gap-audit fix: only the participant who created this Intent may
+      // cancel it — checked before anything else (including the expiry
+      // branch below), so a non-owner gets a clean 403 regardless of the
+      // Intent's current state, rather than silently triggering a
+      // system-driven expiry transition on someone else's Intent.
+      if (record.participantId !== cancelledBy) {
+        throw new ForbiddenError(`${cancelledBy} does not own Intent ${intentId}`)
+      }
+
+      if (isExpired({ status: record.status as IntentStatus, expiresAt: record.expiresAt })) {
+        await transition(intentId, 'EXPIRED', 'system:expiry-check', 'intent.expired', {
+          intentId,
+          reason: 'expiresAt window closed before cancellation was processed',
+        })
+        return
+      }
+
+      await transition(intentId, 'CANCELLED', cancelledBy, 'intent.cancelled', {
+        intentId,
+        cancelledBy,
+      })
+    },
+
+    transition,
+  }
 }
+
+export const intentEngine: IntentEngine = createIntentEngine()
