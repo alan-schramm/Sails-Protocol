@@ -178,28 +178,33 @@ Below is a quick example demonstrating the core wallet methods provided by `Sail
 
 
 ```ts
-import { SailsClient } from '@sails/sdk';
-import { MockWalletAdapter } from '@sails/sdk/wallet-adapter-mock';
+import { SailsClient, MockWalletAdapter } from '@sails/sdk';
 
-const wallet = new MockWalletAdapter();
-const client = new SailsClient({ walletAdapter: wallet });
+// MockWalletAdapter is for exactly this — a quick local run with no real
+// wallet. Swap it for your own WalletAdapter implementation in production.
+const wallet = new MockWalletAdapter({
+  peerId: 'mock-peer',
+  addresses: { BTC: 'bc1qmockaddress...' },
+  balances: { BTC: '1.5' },
+});
+const client = new SailsClient({ baseUrl: 'http://localhost:3000', wallet });
 
 async function demo() {
-  const balance = await client.getBalance('0x123...');
-  console.log('Balance:', balance.toString());
+  const balance = await client.getBalance('BTC');
+  console.log('BTC balance:', balance);
 
-  const addresses = await client.getAddresses();
+  const addresses = await client.getWalletAddresses();
   console.log('Addresses:', addresses);
 
-  const txHash = await client.sendTransaction({
-    from: addresses[0],
-    to: '0xabc...',
-    value: 1000,
-    // other fields as needed
+  // sendTransaction(asset, tx) — signs via wallet.signTransaction() then
+  // broadcasts via wallet.broadcastTransaction(), returns the txid.
+  const txHash = await client.sendTransaction('BTC', {
+    to: 'bc1qrecipient...',
+    value: '0.001',
   });
   console.log('Tx sent, hash:', txHash);
 
-  const signed = await client.signMessage(new Uint8Array([1,2,3]));
+  const signed = await client.signMessage(new Uint8Array([1, 2, 3]));
   console.log('Signed message:', signed);
 
   const caps = await client.getCapabilities();
@@ -213,7 +218,7 @@ demo();
 cp .env.example .env    # defaults already match docker-compose.yml
 docker compose up -d postgres redis   # just the two real dependencies
 npm install
-npm run db:migrate       # real command is `prisma db push` — see package.json
+npm run db:migrate       # real command is `prisma migrate deploy` — see package.json
 npm run dev              # server — http://localhost:3000, hot-reload
 npm run demo:qvac         # full QVAC + Pears + Intent Engine + WDK flow
 npm test                  # 600+ tests, no external infra needed
@@ -224,14 +229,17 @@ production path) and `docs/HANDOFF.md` for what's actually been verified
 live vs. only against mocks so far.
 `docs/TODO.md` has the exact current gap list — the server boots and
 every module's routes are real and tested (identity, peers, liquidity,
-open-p2p trade/chat, settlement, reputation, the Intent API, and now
-capability grants — RFC-013). What's still genuinely open: real
-`LightningHodlProvider`/`LiquidCovenantProvider` (only `MOCK` and
-`WDK_USDT_EVM` settle for real today), the Proof primitive (zero routes
-yet), and the Capability Registry not yet being *consulted* anywhere in
-the actual settlement path (the registry itself is real; nothing calls
-`check()` yet) — `docs/TODO.md` and `docs/BACKLOG.md` are both audited
-against the actual code, not a
+open-p2p trade/chat, settlement, reputation, the Intent API, capability
+grants — RFC-013 — and Proof — claims/proofs/verification/evidence
+bundles). **Corrected 2026-08-09**, this paragraph previously understated
+what's real: `MultisigProvider` (Bitcoin) and `LightningHodlProvider`
+(Arkade/VTXO) both settle for real today alongside `MOCK`/`WDK_USDT_EVM`;
+only `LiquidCovenantProvider` remains genuinely unbuilt. The Capability
+Registry is also already *consulted*, not just persisted —
+`intent-engine.ts` and `escrow.service.ts` both call `check()` (gated
+behind `config.features.enforceCapabilities`, off by default until a real
+deployment has issued grants to check against). `docs/TODO.md` and
+`docs/BACKLOG.md` are both audited against the actual code, not a
 wishlist.
 
 ## Before you touch anything architectural

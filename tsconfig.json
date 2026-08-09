@@ -14,5 +14,14 @@
       "@sails/p2p-schemas": ["packages/sails-p2p-schemas/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "examples/**/*.ts"]
+  // Only examples/demo/ — the one example subfolder with no tsconfig.json
+  // of its own, so it's the only one this root config is actually meant to
+  // cover (see its own README). sails-integration-starter/, simple-wallet/,
+  // and wallet-integration/ each have their own tsconfig.json + typecheck
+  // script — a blanket "examples/**/*.ts" here swept those in too, which
+  // broke `npm run build` inside Docker: sails-integration-starter's
+  // next.config.ts imports 'next', a dependency this root tsc pass never
+  // installs. Found 2026-08-09 running a real `docker compose up --build`
+  // to verify the corrected README quickstart, not by inspection.
+  "include": ["src/**/*.ts", "examples/demo/**/*.ts"]
 }
