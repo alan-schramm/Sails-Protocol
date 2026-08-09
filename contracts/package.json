@@ -9,9 +9,7 @@
     "clean": "hardhat clean"
   },
   "devDependencies": {
-    "hardhat": "^2.29.0"
-  },
-  "dependencies": {
+    "hardhat": "^2.29.0",
     "@account-abstraction/contracts": "^0.8.0",
     "@safe-global/safe-contracts": "^1.4.1-2",
     "@safe-global/safe-4337": "^0.3.0-1",
