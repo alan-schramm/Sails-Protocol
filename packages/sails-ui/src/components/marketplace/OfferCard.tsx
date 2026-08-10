@@ -32,7 +32,7 @@ export function OfferCard({ offer }: { offer: Offer }) {
           order (payment now sits right after trader, not last). */}
       <div className="flex items-center justify-between gap-2 lg:contents">
         <div className="flex items-center gap-2 lg:order-1 lg:w-44 lg:shrink-0">
-          <UserAvatar user={offer.user} size="sm" showPresence />
+          <UserAvatar user={offer.user} size="sm" />
           <div className="min-w-0">
             <div className="flex items-center gap-1">
               <span className="text-sm font-medium text-brand-text truncate">{offer.user.displayName}</span>

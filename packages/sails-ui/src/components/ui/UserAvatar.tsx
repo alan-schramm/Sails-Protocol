@@ -3,37 +3,22 @@ import type { User } from '../../types'
 const SIZES = { sm: 'w-7 h-7 text-xs', md: 'w-9 h-9 text-sm', lg: 'w-12 h-12 text-base', xl: 'w-16 h-16 text-xl' } as const
 const DOT_SIZES = { sm: 'w-2 h-2', md: 'w-2.5 h-2.5', lg: 'w-3 h-3', xl: 'w-3.5 h-3.5' } as const
 
-// Deterministic, not random-per-render: same user always reads the same
-// way while this session is open, rather than flickering on every
-// re-render. Stands in for a real presence signal (Binance P2P/HodlHodl/
-// El Dorado all show one) — nothing today reports live Pears/Hyperswarm
-// connection state up to this UI (the whole point of that P2P layer is
-// exactly "is this peer currently reachable," but this package has no
-// live socket to it yet, same "not wired to the real backend" gap this
-// UI's own README discloses everywhere else). Honestly illustrative,
-// not a claim about whether this user is actually online right now —
-// callers that show it should pass a `title`/tooltip saying so.
-function deterministicOnline(id: string): boolean {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return h % 3 !== 0 // ~66% online, close to what a real P2P swarm sample would look like
-}
-
 export function UserAvatar({
   user,
   size = 'md',
   showPresence = false,
-  // Real presence override (2026-08-02) — Trade.tsx's chat WebSocketChannel
-  // gets real USER_ONLINE/USER_OFFLINE frames for the counterparty
-  // specifically (chat.routes.ts broadcasts them on room join/leave/
-  // socket close), so that ONE context can pass a real boolean here
-  // instead of falling back to deterministicOnline()'s illustrative hash.
-  // `null` means "a real channel exists but no event has arrived yet" —
-  // shown as a distinct neutral/unknown dot, never guessed as true/false.
-  // Omitted (undefined) preserves the old illustrative behavior exactly,
-  // used everywhere else (Marketplace/OfferCard) where no live channel
-  // exists to source a real value from.
-  online: realOnline,
+  // Real presence only (2026-08-09) — the old deterministic-hash
+  // "illustrative" fallback was removed rather than left faking a
+  // signal this UI has no way to back for real outside a trade's own
+  // chat WebSocket. `null` means "a real channel exists but no
+  // USER_ONLINE/USER_OFFLINE event has arrived yet" (chat.routes.ts
+  // broadcasts these on room join/leave/socket close) — shown as a
+  // distinct neutral/unknown dot, never guessed as true/false.
+  // Marketplace/OfferCard/OfferDetail no longer pass `showPresence` at
+  // all for exactly this reason: no live channel exists for an
+  // arbitrary trader in a list, and the real one (TradeParties.tsx,
+  // inside an actual trade) is the only place this can be honest.
+  online = null,
 }: {
   user: User
   size?: keyof typeof SIZES
@@ -41,17 +26,12 @@ export function UserAvatar({
   online?: boolean | null
 }) {
   const initial = (user.displayName ?? user.id).charAt(0).toUpperCase()
-  const isReal = realOnline !== undefined
-  const online = isReal ? realOnline : deterministicOnline(user.id)
-  const dotTitle = isReal
-    ? online === null
+  const dotTitle =
+    online === null
       ? 'Presença ainda não observada nesta sessão'
       : online
         ? 'Online agora — visto na sala de chat deste trade'
         : 'Offline — saiu da sala de chat deste trade'
-    : online
-      ? 'Online agora (ilustrativo — ver comentário em UserAvatar.tsx)'
-      : 'Offline (ilustrativo — ver comentário em UserAvatar.tsx)'
   return (
     <div className="relative shrink-0">
       <div className={`${SIZES[size]} rounded-full bg-brand-orange-accent/15 border border-brand-orange-accent/25 text-brand-orange-accent font-bold flex items-center justify-center`}>

@@ -180,7 +180,7 @@ export function OfferDetail() {
 
           <Card className="mt-4 p-5">
             <div className="flex items-center gap-3">
-              <UserAvatar user={offer.user} size="lg" showPresence />
+              <UserAvatar user={offer.user} size="lg" />
               <div className="min-w-0 flex-1">
                 <div className="font-semibold flex items-center gap-1.5 flex-wrap text-brand-text">
                   {offer.user.displayName}
