@@ -2449,6 +2449,40 @@ trimmed public surface.
 
 ---
 
+## 29. Qwen-sourced review, Fase 2 round 1 (2026-08-10) — DX/observability/reconciliation
+
+Founder relayed 3 recommendations from a separate Qwen-based repo review.
+Each checked against real code before acting — the filter applied: does
+this block a live demo with a partner wallet? If not, and it's real,
+it's registered here for the roadmap, not fixed unnecessarily; if it's
+already done, it's marked done, not silently dropped.
+
+| # | Recommendation | Result |
+|---|---|---|
+| 1 | ESM + tree-shaking for `@sails/sdk` (dual CJS/ESM build) | **Already done.** `package.json`'s `exports` map (`import`→`.mjs`, `require`→`.js`) + `sideEffects: false`, built via `tsup`. The source Qwen read was stale. |
+| 2a | k6/Artillery load tests on critical paths (concurrent `releaseFunds`, trade creation) | **Already done.** `load-tests/tests/escrow-operations.js` runs the full create→lock→payment-sent→release flow under concurrent VUs; `trade-lifecycle.js`/`reconciliation.js` cover the rest. |
+| 2b | OpenTelemetry distributed tracing (P2P event → settlement confirmation latency) | **Real gap, genuinely not built — registered here as roadmap, not implemented this pass.** `common/metrics.ts`'s own header already explains why: real Prometheus counters/histograms were built and are live at `/metrics`, but full distributed tracing needs a vendor decision (which backend, who operates retention, cost) that's the project owner's call, not something to commit to unilaterally. Not a demo blocker — no partner-wallet-facing flow depends on trace visibility. |
+| 3 | E2E test proving `Timeline`/`ReconciliationService` event replay survives a network drop without duplicating actions | **Premise didn't match the real architecture — checked directly, not assumed.** `ReconciliationService` never replays P2P events; it re-reads Postgres, the single source of truth (`reconciliation.service.ts`'s own header states this). The real duplicate-action protection is `escrow-lifecycle.ts`'s atomic `claimEscrowTransition()` (a concurrent duplicate transition throws instead of double-executing) — already real, already covered (`tests/race-condition.test.ts`). `e2e/flows/network-reconnection.spec.ts` already covers the real recovery path (server-side Postgres persistence + client reload-to-resync) and is honest in its own comments about what a browser-driven test can't observe (backend-to-backend P2P reconciliation). |
+
+**A separate, real, demo-relevant thing verified while checking item 3
+(not something this table's "no action needed" would have caught on its
+own):** `tests/reconciliation-poisoning.test.ts` had flagged a genuine
+unfixed vulnerability at the time it was written — a P2P HANDSHAKE
+message's `userId` was trusted with zero verification
+(`pear.service.ts`). This is exactly the kind of path a live demo with
+an external partner wallet actually exercises, so it was checked for
+real, current test coverage rather than trusted at face value: the fix
+(`verifyHandshakeIdentity()`, checks the claimed `userId` against the
+real `User.peerId` on record) is real and `tests/handshakeSpoofing.test.ts`
+(5 cases: legitimate accept, impersonation reject, never-started-node
+reject, nonexistent-user reject, malformed-input reject) passes clean
+today — reconfirmed by running it, not by reading the file.
+
+**Verification:** `npx jest tests/handshakeSpoofing.test.ts
+tests/reconciliation-poisoning.test.ts` — 2/2 suites, 8/8 tests.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority
