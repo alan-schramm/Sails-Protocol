@@ -104,7 +104,7 @@ interface SailsClient {
   submitProof(intentId: string, proof: ProofSubmission): Promise<Proof>
   // proof.claimType is open-ended (PROTOCOL_SPECIFICATION.md §1.8) — well-known
   // conventional values include 'payment_sent', 'invoice_paid',
-  // 'oracle_verified', 'kyc_verified', 'collateral_held'. The SDK and Core
+  // 'oracle_verified', 'delivery_confirmed', 'collateral_held'. The SDK and Core
   // never special-case any of these; a new claimType needs no protocol change.
   // Media evidence attached via submitProof() is stored through an
   // EvidenceProvider (RFC-007) the Reference Implementation configures —

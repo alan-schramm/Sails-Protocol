@@ -75,7 +75,15 @@ by whoever checks it.
 
 Well-known conventional `claimType` values, documented but never enforced
 at the type level: `payment_sent`, `invoice_paid`, `oracle_verified`,
-`kyc_verified`, `collateral_held`.
+`delivery_confirmed`, `collateral_held`.
+
+> **Corrected 2026-08-10**: this example list originally included
+> `kyc_verified`. `claimType` genuinely is open-ended and a third party
+> could submit any string here, including one relating to identity — but
+> listing it as one of the *canonical* examples read as this protocol
+> having some relationship to KYC when it has none. Swapped for a
+> non-identity example; no behavior change, `claimType` was never
+> enforced against any fixed list.
 
 ## Primitives Used or Extended
 

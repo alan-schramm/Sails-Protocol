@@ -40,7 +40,7 @@ protocol.cancelIntent(intent.id)
 | `createIntent` | `POST /v1/{module}/intents` | Intent (`PROTOCOL_SPECIFICATION.md` §1.2) |
 | `cancelIntent` | `PATCH /v1/{module}/intents/:id` (status → CANCELLED) | Intent |
 | `negotiate` | Sends a `NegotiationEvent` over the Negotiation channel | Negotiation (§1.4) |
-| `submitProof` | Submits a `Proof` — `claimType` is open-ended (`payment_sent`, `invoice_paid`, `oracle_verified`, `kyc_verified`, `collateral_held`, ...), never hardcoded at the API level | Proof (§1.8) |
+| `submitProof` | Submits a `Proof` — `claimType` is open-ended (`payment_sent`, `invoice_paid`, `oracle_verified`, `delivery_confirmed`, `collateral_held`, ...), never hardcoded at the API level | Proof (§1.8) |
 | `releaseAsset` | `POST /v1/settlement/escrow/:id/release` | Settlement (§1.5) |
 | `dispute` | `POST /v1/settlement/escrow/:id/dispute` | Dispute (§1.9) |
 
