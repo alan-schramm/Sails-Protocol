@@ -283,7 +283,7 @@ the score itself remains exclusively computed and stored by this module.
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/v1/peers/start` | Start a HyperDHT node for the caller's userId (via `PearNodeRegistry`) |
+| POST | `/v1/peers/start` | Start a HyperDHT node for the caller's userId (via `PearNodeRegistry`). No body — the server generates its own ephemeral per-session Ed25519 identity (key-custody fix, 2026-08-09; used to take a caller-supplied secret key here, no longer does). |
 | POST | `/v1/peers/stop` | Stop the caller's node |
 | GET | `/v1/peers/status` | Connection status: peer count, active topics |
 | POST | `/v1/peers/join-topic` | Announce on an asset-specific topic |

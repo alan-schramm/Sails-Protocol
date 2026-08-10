@@ -187,16 +187,17 @@ describe('parseSafeGuardBundle() — the SAFE_GUARD_EVM guard-deployment gap clo
 })
 
 describe('SailsPeersModule', () => {
-  it('start() posts secretKey to /v1/peers/start with auth', async () => {
+  it('start() posts to /v1/peers/start with auth and no body (key-custody fix, 2026-08-09 — server generates its own identity now)', async () => {
     const fetchImpl = fakeFetch(200, { success: true, data: { peerId: 'abc123' } })
     const peers = new SailsPeersModule(authedTransport(fetchImpl))
 
-    const result = await peers.start('base64secret==')
+    const result = await peers.start()
 
     expect(result.peerId).toBe('abc123')
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/peers/start')
-    expect(JSON.parse(init.body)).toEqual({ secretKey: 'base64secret==' })
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(JSON.parse(init.body)).toEqual({})
   })
 
   it('joinTopic() posts to /v1/peers/join-topic', async () => {

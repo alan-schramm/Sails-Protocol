@@ -1123,23 +1123,32 @@ makes the same point in more detail.
       the same limitation `PearsTransportProvider`'s own tests already
       decline to fake (see `tests/transportFallback.test.ts`'s comment)
       — but the wiring itself is real, not missing.
-- [ ] **Key-custody gap found answering a direct owner question, not
-      fixed:** "as chaves privadas do usuário podem ser consultadas?" —
-      the answer for storage/auth is a clean no (no `secretKey`/
-      `privateKey` field anywhere in `prisma/schema.prisma`;
-      `common/middleware/auth.ts`'s challenge-response only ever receives
-      a *signature*, never the key). But `POST /v1/peers/start`
-      (`pear.routes.ts`) currently takes the caller's raw Ed25519 secret
-      key in the request body and hands it to `PearNode.start()`
-      (`pear.service.ts:71-76`) so the server can run that user's
-      Hyperswarm/HyperDHT node on their behalf — held only in an
-      in-memory `keyPair` field, never persisted or logged (only the
-      derived `peerId` hex is written to `User.peerId`), but it does
-      transit the server on that one call. Fine for this reference
-      implementation's server-hosted P2P node, but a production design
-      needs the P2P node — and key custody — to live entirely
-      client-side (a wallet/mobile app), never touching the backend at
-      all. Flag before treating this as production-ready.
+- [x] **Key-custody gap found answering a direct owner question, partial
+      fix landed 2026-08-09** — original finding: "as chaves privadas do
+      usuário podem ser consultadas?" — the answer for storage/auth was
+      already a clean no (no `secretKey`/`privateKey` field anywhere in
+      `prisma/schema.prisma`; `common/middleware/auth.ts`'s challenge-
+      response only ever receives a *signature*, never the key), but
+      `POST /v1/peers/start` used to take the caller's raw Ed25519 secret
+      key in the request body and hand it to `PearNode.start()` so the
+      server could run that user's Hyperswarm/HyperDHT node on their
+      behalf — held only in an in-memory `keyPair` field, never persisted
+      or logged, but it did transit the network on that one call.
+      **Fixed for real, not just documented:** `PearNode.start()` now
+      generates its own ephemeral per-session identity internally
+      (`HyperDHT.keyPair()`, the library's own generator), so no key
+      material transits the network at all anymore — `/v1/peers/start`
+      takes no body, `@sails/sdk`'s `peers.start()` takes no argument.
+      **Still genuinely not done, same as before:** the P2P node — and
+      key custody — living entirely client-side (a wallet/mobile app
+      running its own HyperDHT/Hyperswarm stack, server never involved)
+      is real production-design work this fix doesn't attempt; it needs
+      client-side P2P infrastructure that doesn't exist anywhere in this
+      repo today (a browser SPA like `packages/sails-ui` can't easily run
+      HyperDHT's UDP-based hole-punching stack without a native/WASM
+      bridge). This pass closes the one concrete network-transit
+      exposure that existed; it does not claim to close the larger
+      architectural gap.
 - [x] **Documentation consolidation pass** *(2026-07-19, direct owner
       instruction relaying a CTO-role architectural review: "o foco
       deixa de ser adicionar funcionalidades e passa a ser consolidar o

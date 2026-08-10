@@ -20,9 +20,22 @@ export type StaticTopic = (typeof STATIC_TOPICS)[number]
 export class SailsPeersModule {
   constructor(private readonly transport: SailsTransport) {}
 
-  /** Requires an active session. `secretKeyHex` is a base64-encoded 64-byte Ed25519 secret key (see pear.service.ts's PearNode.start() — same convention HyperDHT.keyPair() produces). */
-  async start(secretKeyBase64: string): Promise<{ peerId: string }> {
-    return this.transport.post<{ peerId: string }>('/v1/peers/start', { secretKey: secretKeyBase64 }, true)
+  /**
+   * Requires an active session. Starts the caller's own server-hosted P2P
+   * node (Pears/HyperDHT, falling back to a WebSocket relay if Pears
+   * doesn't connect in time — see the real route's own doc comment).
+   *
+   * Key-custody fix, 2026-08-09 (docs/TODO.md's own "as chaves privadas
+   * do usuário podem ser consultadas?" item): this used to take a caller-
+   * generated secret key and send it in the request body — the server
+   * now generates its own ephemeral per-session identity instead, so
+   * that key material never has to transit the network at all. No
+   * argument to pass anymore; kept as a 0-arg method rather than
+   * silently accepting and ignoring a value a caller might still think
+   * matters.
+   */
+  async start(): Promise<{ peerId: string }> {
+    return this.transport.post<{ peerId: string }>('/v1/peers/start', undefined, true)
   }
 
   /** Requires an active session. */

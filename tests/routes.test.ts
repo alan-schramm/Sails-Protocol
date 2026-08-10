@@ -368,17 +368,19 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
   describe('peers', () => {
     it('rejects POST /v1/peers/start without auth', async () => {
-      const res = await app.inject({ method: 'POST', url: '/v1/peers/start', payload: { secretKey: 'abcd' } })
+      const res = await app.inject({ method: 'POST', url: '/v1/peers/start' })
       expect(res.statusCode).toBe(401)
     })
 
+    // Key-custody fix, 2026-08-09 — no body needed anymore; the server
+    // generates its own ephemeral P2P identity (pear.service.ts's own
+    // doc comment). No caller-supplied secretKey to send or assert on.
     it('starts a node for an authenticated caller, reporting pears as the connected transport', async () => {
       const token = await authedSession('user-1')
       const res = await app.inject({
         method: 'POST',
         url: '/v1/peers/start',
         headers: { authorization: `Bearer ${token}` },
-        payload: { secretKey: 'abcd' },
       })
       expect(res.statusCode).toBe(200)
       const data = JSON.parse(res.body).data

@@ -35,7 +35,7 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     const secondary = fakeProvider('websocket-relay')
     const fallback = new FallbackTransportProvider(primary, secondary, 100)
 
-    const handle = await fallback.start('user-1', 'secret')
+    const handle = await fallback.start('user-1')
     expect(handle.peerId).toBe('pears:user-1')
   })
 
@@ -44,7 +44,7 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     const secondary = fakeProvider('websocket-relay')
     const fallback = new FallbackTransportProvider(primary, secondary, 50)
 
-    const handle = await fallback.start('user-1', 'secret')
+    const handle = await fallback.start('user-1')
     expect(handle.peerId).toBe('websocket-relay:user-1')
   })
 
@@ -53,7 +53,7 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     const secondary = fakeProvider('websocket-relay')
     const fallback = new FallbackTransportProvider(primary, secondary, 100)
 
-    const handle = await fallback.start('user-1', 'secret')
+    const handle = await fallback.start('user-1')
     expect(handle.peerId).toBe('websocket-relay:user-1')
   })
 
@@ -64,7 +64,7 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     const secondary = { ...fakeProvider('websocket-relay'), sendToPeer: secondarySend }
     const fallback = new FallbackTransportProvider(primary, secondary, 100)
 
-    await fallback.start('user-1', 'secret')
+    await fallback.start('user-1')
     await fallback.sendToPeer('user-1', 'user-2', { hello: 'world' })
 
     expect(secondarySend).toHaveBeenCalledWith('user-1', 'user-2', { hello: 'world' })

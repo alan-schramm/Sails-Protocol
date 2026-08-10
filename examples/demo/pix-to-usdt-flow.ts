@@ -25,8 +25,10 @@
  * settlement (real @tetherto/wdk-wallet-evm calls when configured).
  *
  * Step 6 (negotiation) sends the buyer's actual Intent directly to the
- * seller's node over Hyperswarm/HyperDHT — real keypairs (`HyperDHT.keyPair()`,
- * the same call `pear.service.ts`'s `PearNode` makes), a real trade-scoped
+ * seller's node over Hyperswarm/HyperDHT — real keypairs (each PearNode
+ * generates its own via `HyperDHT.keyPair()` internally, 2026-08-09 key-
+ * custody fix — this script no longer generates or transmits one itself),
+ * a real trade-scoped
  * topic join (`PearsTransportProvider.sendIntentToPeer`,
  * infrastructure/p2p/transport-provider.ts), and a real libsodium sealed
  * box (`infrastructure/p2p/payload-crypto.ts`) addressed to the seller's
@@ -70,7 +72,6 @@
  * common/database's User model). A real deployment would ask the buyer
  * for their own address here instead.
  */
-import HyperDHT from 'hyperdht'
 import { config } from '../../src/config'
 import { connectDatabase } from '../../src/common/database'
 import { connectRedis } from '../../src/common/redis'
@@ -85,6 +86,7 @@ import { SellerAgent } from '../../src/modules/open-agents/seller-agent'
 import { intentEngine } from '../../src/core/intent-engine'
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../src/core/capability-registry'
 import { pearsTransportProvider } from '../../src/infrastructure/p2p/transport-provider'
+import { pearNodeRegistry } from '../../src/infrastructure/p2p/pear.service'
 import { decryptFromPeer } from '../../src/infrastructure/p2p/payload-crypto'
 
 const BUYER_DEMO_ACCOUNT_INDEX = 1 // treasury is account 0 — see wdk-settlement.provider.ts
@@ -158,10 +160,18 @@ export async function main() {
   console.log(`   Trade: ${trade.id} — ${trade.amount} ${trade.asset}`)
 
   console.log('   Abrindo nós P2P reais (HyperDHT/Hyperswarm) para Comprador e Vendedor...')
-  const sellerKeyPair = HyperDHT.keyPair()
-  const buyerKeyPair = HyperDHT.keyPair()
-  await pearsTransportProvider.start(seller.id, sellerKeyPair.secretKey.toString('base64'))
-  await pearsTransportProvider.start(buyer.id, buyerKeyPair.secretKey.toString('base64'))
+  // Key-custody fix (2026-08-09) — pearsTransportProvider.start() no
+  // longer takes a caller-supplied secret key; each PearNode generates
+  // its own ephemeral identity internally (pear.service.ts's own doc
+  // comment has the full reasoning). The seller's real keypair — needed
+  // below only to prove the sealed box actually decrypts, standing in
+  // for what the seller's own wallet process would do with a key it
+  // alone holds — comes from the real running node via
+  // pearNodeRegistry.get(), not a locally-generated copy the server
+  // never has (there is no such copy anymore).
+  await pearsTransportProvider.start(seller.id)
+  await pearsTransportProvider.start(buyer.id)
+  const sellerKeyPair = pearNodeRegistry.get(seller.id)!.getKeyPair()!
 
   let receivedIntentPlaintext: unknown = null
   pearsTransportProvider.onMessage(seller.id, (_peerId, message) => {

@@ -46,7 +46,11 @@ export interface PeerHandle {
 
 export interface TransportProvider {
   name: string
-  start(participantId: string, secretKeyHex: string): Promise<PeerHandle>
+  // No longer takes a caller-supplied secret key (2026-08-09 key-custody
+  // fix, pear.service.ts's own PearNode.start() doc comment has the full
+  // reasoning) — each implementer is responsible for its own identity
+  // material, if any.
+  start(participantId: string): Promise<PeerHandle>
   stop(participantId: string): Promise<void>
   joinTopic(participantId: string, topic: string): Promise<void>
   broadcast(participantId: string, payload: unknown): Promise<number>
@@ -59,8 +63,8 @@ export interface TransportProvider {
 export class PearsTransportProvider implements TransportProvider {
   name = 'pears'
 
-  async start(participantId: string, secretKeyHex: string): Promise<PeerHandle> {
-    const peerId = await pearNodeRegistry.start(participantId, secretKeyHex)
+  async start(participantId: string): Promise<PeerHandle> {
+    const peerId = await pearNodeRegistry.start(participantId)
     return { peerId }
   }
 
@@ -175,9 +179,9 @@ export class FallbackTransportProvider implements TransportProvider {
     private readonly timeoutMs: number = DEFAULT_FALLBACK_TIMEOUT_MS
   ) {}
 
-  async start(participantId: string, secretKeyHex: string): Promise<PeerHandle> {
+  async start(participantId: string): Promise<PeerHandle> {
     try {
-      const handle = await this.withTimeout(this.primary.start(participantId, secretKeyHex), this.timeoutMs)
+      const handle = await this.withTimeout(this.primary.start(participantId), this.timeoutMs)
       this.activeProvider.set(participantId, this.primary)
       return handle
     } catch (err) {
@@ -185,7 +189,7 @@ export class FallbackTransportProvider implements TransportProvider {
         { primary: this.primary.name, secondary: this.secondary.name, participantId, timeoutMs: this.timeoutMs, err: err instanceof Error ? err.message : err },
         '[FallbackTransportProvider] primary did not connect in time — falling back'
       )
-      const handle = await this.secondary.start(participantId, secretKeyHex)
+      const handle = await this.secondary.start(participantId)
       this.activeProvider.set(participantId, this.secondary)
       return handle
     }

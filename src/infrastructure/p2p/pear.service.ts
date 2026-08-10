@@ -99,15 +99,31 @@ export class PearNode extends EventEmitter {
     super()
   }
 
-  async start(secretKeyHex: string): Promise<string> {
+  // Key-custody fix (2026-08-09, project-owner decision, docs/TODO.md's
+  // own "as chaves privadas do usuário podem ser consultadas?" item) —
+  // this used to take the caller's raw Ed25519 secret key over the wire
+  // (HTTP request body) and hand it straight to HyperDHT/Hyperswarm.
+  // That secret key never left this server's memory afterward (no
+  // logging, no persistence — only the derived public peerId went to
+  // Postgres), but it DID transit the network on this one call, an
+  // avoidable exposure this reference implementation doesn't need: the
+  // server already runs this node, so it can generate its own ephemeral
+  // per-session identity instead of receiving one. HyperDHT.keyPair()
+  // (the library's own generator, not hand-rolled) produces the exact
+  // shape HyperDHT/Hyperswarm's own `keyPair` constructor option expects
+  // — used directly, not sliced apart, unlike the old client-supplied
+  // path this replaces. Full production custody (the P2P node running
+  // entirely client-side, server never involved at all) stays real,
+  // separate future work — see this same TODO.md item's own note on
+  // that larger design.
+  async start(): Promise<string> {
     if (this.isStarted) return this.keyPair!.publicKey.toString('hex')
 
-    const secretKey = Buffer.from(secretKeyHex, 'base64')
-    const publicKey = secretKey.slice(32)
-    this.keyPair = { publicKey, secretKey: secretKey.slice(0, 32) }
+    const keyPair = HyperDHT.keyPair()
+    this.keyPair = keyPair
 
     this.dht = new HyperDHT({
-      keyPair: this.keyPair,
+      keyPair,
       bootstrap:
         config.pear.bootstrapNodes.length > 0
           ? config.pear.bootstrapNodes.map((addr) => {
@@ -117,13 +133,13 @@ export class PearNode extends EventEmitter {
           : undefined,
     })
 
-    this.swarm = new Hyperswarm({ dht: this.dht, keyPair: this.keyPair })
+    this.swarm = new Hyperswarm({ dht: this.dht, keyPair })
     this.swarm.on('connection', (conn: unknown, info: unknown) => {
       this.handleNewConnection(conn, info)
     })
 
     this.isStarted = true
-    const peerId = publicKey.toString('hex')
+    const peerId = keyPair.publicKey.toString('hex')
 
     await prisma.user.update({ where: { id: this.ownerUserId }, data: { peerId } })
     await this.joinTopic('marketplace')
@@ -348,13 +364,13 @@ export class PearNode extends EventEmitter {
 class PearNodeRegistry {
   private nodes = new Map<string, PearNode>()
 
-  async start(userId: string, secretKeyHex: string): Promise<string> {
+  async start(userId: string): Promise<string> {
     let node = this.nodes.get(userId)
     if (!node) {
       node = new PearNode(userId)
       this.nodes.set(userId, node)
     }
-    return node.start(secretKeyHex)
+    return node.start()
   }
 
   async stop(userId: string): Promise<void> {

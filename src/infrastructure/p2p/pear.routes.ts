@@ -15,10 +15,6 @@ import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { docsOnlySchema } from '../../common/openapi'
 
-const startSchema = z.object({
-  secretKey: z.string().min(1), // base64 — see pear.service.ts's PearNode.start()
-})
-
 const joinTopicSchema = z.object({
   topic: z.enum(['marketplace', 'btc', 'lnBtc', 'liquidBtc', 'usdtErc20', 'usdtLiquid']),
 })
@@ -37,9 +33,8 @@ const broadcastOfferSchema = z.object({
 export async function peerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/v1/peers/start', {
     preHandler: requireAuth,
-    ...docsOnlySchema({ tags: ['peers'], body: startSchema }),
+    schema: { tags: ['peers'] },
   }, async (request, reply) => {
-    const body = startSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
     // Pears first, WebSocket relay (`/ws/relay`) only if Pears doesn't
     // connect within the timeout — see transport-provider.ts's
@@ -49,7 +44,13 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     // but /v1/peers/join-trade and /v1/peers/broadcast-offer below still
     // require a real PearNode and will 409 for them — a relay has no DHT
     // topic to join.
-    const { peerId } = await fallbackTransportProvider.start(participantId, body.secretKey)
+    //
+    // Key-custody fix (2026-08-09) — this route no longer accepts a
+    // caller-supplied secret key in the body. PearNode.start() generates
+    // its own ephemeral per-session Ed25519 identity now (that file's
+    // own doc comment has the full reasoning); a request body here was
+    // the one point this key ever transited the network, and it's gone.
+    const { peerId } = await fallbackTransportProvider.start(participantId)
     const transport = fallbackTransportProvider.activeTransportName(participantId)
     return reply.code(200).send({ success: true, data: { peerId, transport } })
   })

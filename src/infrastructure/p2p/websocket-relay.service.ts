@@ -62,7 +62,7 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   // Registers intent to use this provider; does not itself open a
   // connection (see class doc). Returns a synthetic PeerHandle — this
   // relay has no DHT-level peerId, participantId is the only address.
-  async start(participantId: string, _secretKeyHex: string): Promise<PeerHandle> {
+  async start(participantId: string): Promise<PeerHandle> {
     return { peerId: participantId }
   }
 

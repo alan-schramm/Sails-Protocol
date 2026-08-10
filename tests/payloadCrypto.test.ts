@@ -46,11 +46,17 @@ describe('payload-crypto (real libsodium, real HyperDHT keypairs)', () => {
     expect(() => decryptFromPeer(tamperedBase64, seller)).toThrow(/failed to open sealed payload/)
   })
 
-  it('works with PearNode\'s stored keypair shape (32-byte seed as secretKey, not the full 64-byte key)', () => {
-    // pear.service.ts's PearNode.start() stores only `secretKey.slice(0, 32)`
-    // (the seed half) as `this.keyPair.secretKey` — this is the exact shape
-    // getKeyPair() returns, so decryptFromPeer() must accept it, not just
-    // HyperDHT.keyPair()'s raw 64-byte form.
+  it('works with a 32-byte seed as secretKey, not just the full 64-byte key', () => {
+    // Correction, 2026-08-09 — pear.service.ts's PearNode.start() used to
+    // store only `secretKey.slice(0, 32)` (the seed half) as
+    // `this.keyPair.secretKey`, so this test's own coverage mattered for
+    // getKeyPair()'s real output shape at the time. The key-custody fix
+    // (that file's own doc comment) switched PearNode to use
+    // HyperDHT.keyPair()'s native, unsliced 64-byte form directly —
+    // getKeyPair() no longer returns this 32-byte shape. Kept as a real
+    // robustness check on decryptFromPeer() itself (a defensive property
+    // worth having regardless of what any one caller happens to pass),
+    // not because PearNode still produces this shape.
     const full = HyperDHT.keyPair()
     const pearNodeShapedKeyPair = { publicKey: full.publicKey, secretKey: full.secretKey.slice(0, 32) }
     const payload = { intentId: 'intent-1', targetModule: 'openp2p' }
