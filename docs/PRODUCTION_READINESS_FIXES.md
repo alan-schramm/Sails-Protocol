@@ -591,6 +591,117 @@ ambiente.
 
 ---
 
+## Pass 2 — README & Documentation Professionalism (2026-08-10)
+
+> **Origem:** relatório de auditoria externa colado pelo usuário (README +
+> documentação, ótica "o que um CTO da Tether veria primeiro"). Cada item
+> foi **reverificado contra o estado real do repositório antes de entrar
+> aqui** — vários itens do relatório original estavam desatualizados
+> (referem-se ao README de antes da Fase 3 já feita nesta mesma sessão,
+> commit `df2b312`) e foram descartados ou corrigidos abaixo, não
+> copiados cegamente. Mesma regra do Pass 1: não alterar comportamento,
+> APIs públicas, ou arquitetura — só acabamento.
+
+### P0 — Fix imediato
+
+#### 2.1 `docs/TECHNICAL_GUIDELINES.md` está público e não deveria estar
+
+**Achado, não estava no relatório original.** 402 linhas, atualmente
+rastreado e ao vivo em `origin/main`. É um artefato de auditoria/
+coordenação com IA ("Deve servir como referência para o agente Claude
+analisar, ajustar e implementar as correções priorizadas") — mesma
+categoria dos 13 documentos já movidos para `internal/` e purgados do
+histórico em 2026-08-10. Descreve achados já corrigidos como se
+estivessem abertos (ex: "`escrow.service.ts` 1.257 linhas" — já
+decomposto em 4 módulos; "sem migrações" — migrations reais já
+existem), o que é o oposto de "profissional" se um parceiro ler.
+
+**Fix:** `git rm --cached docs/TECHNICAL_GUIDELINES.md`, mover pro
+`internal/` local (mesmo padrão dos outros 13), depois `git filter-repo`
++ `force-push` pra purgar do histórico público — **requer confirmação
+explícita do usuário antes de executar**, mesma disciplina da operação
+já feita (ação destrutiva em infraestrutura compartilhada, uma
+aprovação não vale para a próxima).
+
+#### 2.2 README sem seção "Contributing" visível
+
+**Confirmado real** (o relatório original também apontou certo aqui).
+`CONTRIBUTING.md` existe (219 linhas, raiz, completo) e é citado uma
+vez inline (linha ~252), mas não tem uma seção própria com heading no
+README — um dev que escaneia por seções não acha.
+
+**Fix:** adicionar `## Contributing` curto antes de `## License`,
+linkando `CONTRIBUTING.md`.
+
+#### 2.3 Exemplo de wallet real existe mas está invisível
+
+**Achado, relatório original errou na direção oposta** — não é que
+falta um exemplo de wallet real (`examples/wallet-integration/src/bitcoin-wallet-adapter.ts`'s
+`RealBitcoinWalletAdapter implements WalletAdapter` é genuíno, testado,
+13 testes reais), é que o README nunca o menciona. "Quick orientation"
+só cita `examples/demo/`; as outras 3 pastas de `examples/`
+(`sails-integration-starter/`, `simple-wallet/`, `wallet-integration/`)
+não aparecem em lugar nenhum do README.
+
+**Fix:** estender a árvore em "Quick orientation" (README.md:120-124)
+com as 4 pastas de `examples/`, uma linha cada, apontando o
+`RealBitcoinWalletAdapter` como "wallet real, não mock" explicitamente
+— é a resposta direta a "todo parceiro usa wallet".
+
+### P1 — Gaps reais de documentação para onboarding rápido
+
+Confirmados ausentes por busca direta no repo, não estimados:
+
+#### 2.4 Nenhuma página única "Get Started em 5 minutos"
+
+`docs/` tem 70+ arquivos, nenhum é um passo-a-passo único, curto,
+"copie e rode". `README.md`'s Setup já tem os comandos certos mas
+espalhados em 3 blocos com prosa entre eles.
+
+**Fix:** novo `docs/GETTING_STARTED.md` — só comandos + 1 frase por
+passo, sem contexto arquitetural (isso já existe em `PROJECT_CONTEXT.md`).
+Linkar do topo do README, antes do diagrama.
+
+#### 2.5 Nenhum diagrama simplificado de fluxo de trade
+
+`TRANSACTION_WALKTHROUGH.md` e `PROTOCOL_SPECIFICATION.md` narram o
+fluxo completo (QVAC → Pears → Intent → Capability → Escrow → WDK) em
+profundidade técnica real — correto para quem vai implementar, denso
+demais pra primeira leitura.
+
+**Fix:** um diagrama ASCII de 6-8 passos (Intent criado → negociação →
+escrow travado → pagamento → prova → liberação) em
+`docs/GETTING_STARTED.md` (item 2.4) ou no topo do
+`TRANSACTION_WALKTHROUGH.md`, sem nomes de arquivo/função — só o
+fluxo conceitual, com link pro walkthrough completo pra quem quiser
+profundidade.
+
+#### 2.6 Nenhuma tabela "qual endpoint para qual ação"
+
+`API_REFERENCE.md` é completo mas organizado por módulo/seção de spec,
+não por intenção do desenvolvedor ("quero criar uma trade" → qual
+endpoint?). Confirmado ausente via busca direta.
+
+**Fix:** tabela de 2 colunas (ação em linguagem natural → método+rota)
+no topo do `API_REFERENCE.md` ou no novo `GETTING_STARTED.md`, ~15-20
+linhas cobrindo as ações mais comuns (criar intent, ver ofertas, abrir
+trade, enviar prova, liberar escrow, abrir disputa).
+
+### Itens do relatório original que NÃO entram — verificados como já corretos ou não aplicáveis
+
+Disclosed para não parecer que foram ignorados por descuido:
+
+| Item do relatório | Por que não entra |
+|---|---|
+| Badge de CI ausente | Já existe, `README.md:3` |
+| Badge de licença ausente | Já existe, `README.md:4` |
+| Badge de versão npm ausente | **Ausência é deliberada e correta** — `npm view @sails/sdk` confirma 404 real (reverificado agora). Um badge apontando pra um pacote não publicado é pior que nenhum badge; já há um comentário no README explicando isso. |
+| "Linha 159: frase órfã, artefato de merge" | Não reproduz no README atual — a linha equivalente é uma frase em negrito bem formada, parte de um parágrafo real, não um heading solto. Provavelmente já corrigido no commit `df2b312` (Fase 3 desta sessão), relatório está desatualizado. |
+| Breaking changes / migration guide ausente | Projeto está pré-1.0 (`package.json`: `0.1.1`) — não existe versão publicada anterior da qual migrar ainda. Correto adiar para quando 1.0 for cortado, não é gap hoje. |
+| Quickstart "parcial" | Já é bem mais completo do que "parcial" sugere — `docker compose up -d --build` sozinho já sobe tudo; o bloco de comandos completo (`cp .env.example .env` → `npm test`) também já existe. Only real gap é 2.4 acima (falta a versão ultra-condensada de 1 página). |
+
+---
+
 ## Checklist de Validação
 
 Após cada fix, rodar:
