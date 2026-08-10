@@ -602,6 +602,12 @@ ambiente.
 > copiados cegamente. Mesma regra do Pass 1: não alterar comportamento,
 > APIs públicas, ou arquitetura — só acabamento.
 
+**Status: implementado e validado 2026-08-10** — todos os itens P0 e P1
+abaixo, commits `ef32495` (untrack), `b59b1a9` (README/docs), histórico
+purgado e verificado com hash de árvore antes do force-push (mesmo
+procedimento do cleanup principal). Suíte completa 71/71, 793/793 antes
+do commit.
+
 ### P0 — Fix imediato
 
 #### 2.1 `docs/TECHNICAL_GUIDELINES.md` está público e não deveria estar
