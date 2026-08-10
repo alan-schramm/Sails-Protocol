@@ -4,6 +4,7 @@ import type { Trade } from '@sails/sdk'
 import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'
 import { TradeCard } from '../components/trade/TradeCard'
+import { Button } from '../components/ui/button'
 
 // Trades still awaiting resolution from this trader's own point of view —
 // COMPLETED/CANCELLED already have a home in TradeHistory.tsx. DISPUTED
@@ -26,7 +27,10 @@ export function ActiveTrades() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
+  // Extracted so the error state's "Tentar novamente" button below can
+  // re-run the same fetch instead of stranding the user with no recovery
+  // path but a full page reload.
+  const load = () => {
     if (!user) {
       setLoading(false)
       return
@@ -50,7 +54,9 @@ export function ActiveTrades() {
     return () => {
       cancelled = true
     }
-  }, [user])
+  }
+
+  useEffect(load, [user])
 
   if (authLoading || loading) {
     return <div className="text-center py-16 text-brand-text-muted">Carregando trades ativos...</div>
@@ -66,7 +72,12 @@ export function ActiveTrades() {
   }
 
   if (error) {
-    return <p className="text-center text-red-700 py-16">{error}</p>
+    return (
+      <div className="text-center py-16">
+        <p className="text-red-700 text-sm">{error}</p>
+        <Button variant="outline" onClick={load} className="mt-3 text-xs px-3 py-1.5">Tentar novamente</Button>
+      </div>
+    )
   }
 
   return (

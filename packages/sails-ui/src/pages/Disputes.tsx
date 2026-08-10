@@ -169,7 +169,12 @@ export function Disputes() {
   }
 
   if (error) {
-    return <p className="text-center text-red-700 py-16">{error}</p>
+    return (
+      <div className="text-center py-16">
+        <p className="text-red-700 text-sm">{error}</p>
+        <Button variant="outline" onClick={load} className="mt-3 text-xs px-3 py-1.5">Tentar novamente</Button>
+      </div>
+    )
   }
 
   const openCount = rows.filter((r) => r.dispute.status !== 'RESOLVED').length

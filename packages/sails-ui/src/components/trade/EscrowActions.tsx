@@ -16,13 +16,18 @@ interface Props {
   status: EscrowStatus
   isBuyer: boolean
   isSeller: boolean
+  // Real bug found live: none of this component's buttons ever disabled
+  // during the async call (Trade.tsx's own `acting` state, already wired
+  // to every other guarded action on that page — see its own withGuard())
+  // — a double-click could fire the same lock/release/dispute call twice.
+  acting: boolean
   onLockFunds: () => void
   onMarkPaymentSent: () => void
   onReleaseFunds: () => void
   onOpenDispute: () => void
 }
 
-export function EscrowActions({ status, isBuyer, isSeller, onLockFunds, onMarkPaymentSent, onReleaseFunds, onOpenDispute }: Props) {
+export function EscrowActions({ status, isBuyer, isSeller, acting, onLockFunds, onMarkPaymentSent, onReleaseFunds, onOpenDispute }: Props) {
   const canDispute = isBuyer || isSeller
   const isTerminal = status === 'COMPLETED' || status === 'DISPUTED' || status === 'REFUNDED'
 
@@ -30,7 +35,7 @@ export function EscrowActions({ status, isBuyer, isSeller, onLockFunds, onMarkPa
     <div className="mt-4 flex flex-col gap-2">
       {isSeller && status === 'CREATED' && (
         // POST /v1/settlement/escrow/:id/lock (escrow.service.ts's lockFunds())
-        <Button onClick={onLockFunds} className="w-full py-2.5 text-sm">
+        <Button onClick={onLockFunds} disabled={acting} className="w-full py-2.5 text-sm">
           <Lock className="h-4 w-4" />
           Bloquear Fundos
         </Button>
@@ -38,7 +43,7 @@ export function EscrowActions({ status, isBuyer, isSeller, onLockFunds, onMarkPa
 
       {isBuyer && status === 'FUNDS_LOCKED' && (
         // POST /v1/settlement/escrow/:id/payment-sent (markPaymentSent())
-        <Button onClick={onMarkPaymentSent} className="w-full py-2.5 text-sm">
+        <Button onClick={onMarkPaymentSent} disabled={acting} className="w-full py-2.5 text-sm">
           <Banknote className="h-4 w-4" />
           Marcar Pagamento Enviado
         </Button>
@@ -48,18 +53,18 @@ export function EscrowActions({ status, isBuyer, isSeller, onLockFunds, onMarkPa
         // POST /v1/settlement/escrow/:id/release (releaseFunds()) —
         // requires ENFORCE_CAPABILITIES/REQUIRE_DUAL_APPROVAL_RELEASE
         // preconditions if those flags are on (RFC-014/015).
-        <button onClick={onReleaseFunds} className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors">
+        <Button onClick={onReleaseFunds} disabled={acting} className="w-full py-2.5 text-sm bg-green-600 hover:bg-green-500 text-white">
           <CheckCircle2 className="h-4 w-4" />
           Liberar Fundos
-        </button>
+        </Button>
       )}
 
       {!isTerminal && canDispute && (
         // POST /v1/settlement/escrow/:id/dispute (dispute.service.ts's raiseDispute())
-        <button onClick={onOpenDispute} className="w-full flex items-center justify-center gap-2 border border-red-500/25 text-red-700 rounded-lg py-2 text-sm hover:bg-red-500/10 transition-colors">
+        <Button variant="outline" onClick={onOpenDispute} disabled={acting} className="w-full py-2 text-sm border-red-500/25 text-red-700 hover:bg-red-500/10 hover:text-red-700">
           <AlertTriangle className="h-4 w-4" />
           Abrir Disputa
-        </button>
+        </Button>
       )}
     </div>
   )

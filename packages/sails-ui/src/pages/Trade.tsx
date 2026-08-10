@@ -484,6 +484,7 @@ export function Trade() {
                 status={escrowStatus}
                 isBuyer={isBuyer}
                 isSeller={isSeller}
+                acting={acting}
                 onLockFunds={handleLockFunds}
                 onMarkPaymentSent={handleMarkPaymentSent}
                 onReleaseFunds={handleReleaseFunds}

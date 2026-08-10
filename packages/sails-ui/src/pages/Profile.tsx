@@ -10,7 +10,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { badgeVariants } from '../components/ui/badge'
 import { cn } from '../lib/utils'
-import { Check, Star, ChevronRight } from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import { sailsClient } from '../lib/sailsClient'
 import { formatDateTime } from '../lib/format'
 import { ASSET_SHORT_LABELS } from '../lib/labels'
@@ -173,8 +173,19 @@ export function Profile() {
         </div>
       </div>
 
-      <div className="mt-6 grid md:grid-cols-2 gap-4">
-        <Card className="p-5 flex flex-col items-center">
+      {/* Real bug found live: this used to be a 2-col grid with a second
+          "Avaliações recentes" card showing hardcoded 78/15/5/1/1% star
+          bars — identical for every user, no backend behind it at all.
+          reputation.service.ts's rate() is real (1-5 stars, POST
+          /v1/reputation/rate, see lib/reputation.ts's own header) but only
+          writes individual ReputationEvent rows — there's no GET that
+          aggregates them into a distribution for this UI to read. Removed
+          rather than left misleadingly mocked (feedback_no_platform_
+          operator_visibility's same "don't fake it" principle). A real
+          rating-breakdown card can come back once a real aggregation
+          route exists. */}
+      <div className="mt-6">
+        <Card className="p-5 flex flex-col items-center max-w-xs mx-auto">
           <div className="relative w-32 h-32 flex items-center justify-center">
             <svg className="w-32 h-32 -rotate-90">
               <circle cx="64" cy="64" r="56" fill="none" stroke="rgb(var(--color-border))" strokeWidth="10" />
@@ -190,26 +201,6 @@ export function Profile() {
               <div className="text-xs text-brand-text-muted">de 100</div>
             </div>
           </div>
-        </Card>
-
-        <Card className="p-5">
-          <h3 className="text-sm font-semibold mb-3 text-brand-text">Avaliações recentes</h3>
-          {[5, 4, 3, 2, 1].map((stars) => {
-            const pct = stars === 5 ? 78 : stars === 4 ? 15 : stars === 3 ? 5 : stars === 2 ? 1 : 1
-            return (
-              <div key={stars} className="flex items-center gap-3 mb-1.5">
-                <span className="flex w-14 text-yellow-500">
-                  {Array.from({ length: stars }).map((_, i) => (
-                    <Star key={i} className="h-3 w-3" fill="currentColor" strokeWidth={0} />
-                  ))}
-                </span>
-                <div className="flex-1 h-1.5 bg-brand-elevated rounded-full">
-                  <div className="h-1.5 bg-brand-orange-accent rounded-full" style={{ width: `${pct}%` }} />
-                </div>
-                <span className="text-xs text-brand-text-muted w-8 text-right">{pct}%</span>
-              </div>
-            )
-          })}
         </Card>
       </div>
 

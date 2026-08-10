@@ -6,6 +6,7 @@ import { sailsClient } from '../lib/sailsClient'
 import { AssetBadge, TradeStatusBadge } from '../components/ui/StatusBadges'
 import { formatBrl, formatAmount, formatDateTime } from '../lib/format'
 import { Card } from '../components/ui/card'
+import { Button } from '../components/ui/button'
 import { badgeVariants } from '../components/ui/badge'
 import { cn } from '../lib/utils'
 import type { TradeStatus } from '../types'
@@ -31,7 +32,10 @@ export function TradeHistory() {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<TradeStatus | 'Todos'>('Todos')
 
-  useEffect(() => {
+  // Extracted so the error state's "Tentar novamente" button below can
+  // re-run the same fetch instead of stranding the user with no recovery
+  // path but a full page reload.
+  const load = () => {
     if (!user) {
       setLoading(false)
       return
@@ -55,7 +59,9 @@ export function TradeHistory() {
     return () => {
       cancelled = true
     }
-  }, [user])
+  }
+
+  useEffect(load, [user])
 
   const filtered = useMemo(
     () => trades.filter((t) => filter === 'Todos' || t.status === filter),
@@ -84,7 +90,12 @@ export function TradeHistory() {
   }
 
   if (error) {
-    return <p className="text-center text-red-700 py-16">{error}</p>
+    return (
+      <div className="text-center py-16">
+        <p className="text-red-700 text-sm">{error}</p>
+        <Button variant="outline" onClick={load} className="mt-3 text-xs px-3 py-1.5">Tentar novamente</Button>
+      </div>
+    )
   }
 
   return (
