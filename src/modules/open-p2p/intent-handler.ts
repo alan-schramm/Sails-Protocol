@@ -47,10 +47,6 @@ function validate(payload: IntentPayload): { valid: boolean; errors?: string[] }
       errors.push('minReputationRating must be between 0 and 5')
     }
   }
-  if (p.kycRequired !== undefined && typeof p.kycRequired !== 'boolean') {
-    errors.push('kycRequired must be a boolean')
-  }
-
   return errors.length === 0 ? { valid: true } : { valid: false, errors }
 }
 

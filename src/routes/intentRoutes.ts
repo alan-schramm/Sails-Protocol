@@ -45,7 +45,6 @@ const tradeIntentPayloadSchema = z.object({
   // own bounds check, for every caller of this route (including
   // @sails/sdk's createIntent()).
   minReputationRating: z.number().optional(),
-  kycRequired: z.boolean().optional(),
 })
 
 const createIntentSchema = z.object({

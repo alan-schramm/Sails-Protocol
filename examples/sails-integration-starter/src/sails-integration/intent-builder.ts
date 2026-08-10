@@ -24,7 +24,6 @@ export interface BuildTradeIntentInput {
   network?: string
   slippageTolerance?: number
   minReputationRating?: number
-  kycRequired?: boolean
 }
 
 // RFC-009 — priceUsd/amount/lockedAmount/maxValue/minValue must always
@@ -51,7 +50,6 @@ export function buildTradeIntentPayload(input: BuildTradeIntentInput): TradeInte
   if (input.network !== undefined) payload.network = input.network
   if (input.slippageTolerance !== undefined) payload.slippageTolerance = input.slippageTolerance
   if (input.minReputationRating !== undefined) payload.minReputationRating = input.minReputationRating
-  if (input.kycRequired !== undefined) payload.kycRequired = input.kycRequired
   return payload
 }
 

@@ -331,10 +331,11 @@ export interface TradeIntentPayload {
   network?: string
   slippageTolerance?: number
   // RFC-013 (rfcs/RFC-013-capability-registry-and-wallet-adapter.md) —
-  // counterparty-matching constraints, not yet enforced during matching
+  // counterparty-matching constraint, not yet enforced during matching
   // (that's OpenLiquidity follow-up work) — this is the vocabulary.
+  // kycRequired removed 2026-08-09 — this protocol does not do KYC, see
+  // src/common/types/intent.ts's matching removal note.
   minReputationRating?: number // 0-5, mirrors ReputationScore's scale
-  kycRequired?: boolean
 }
 
 export interface PeerStatus {

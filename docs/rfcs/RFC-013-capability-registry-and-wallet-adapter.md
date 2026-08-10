@@ -6,11 +6,22 @@ Implements `core/capability-registry.ts` for real (RFC-005's
 `CapabilityGrant` shape, previously a stub since Architecture Freeze),
 adds a `WalletAdapter` interface to `@sails/sdk` so a wallet's own
 signing/balance/address logic can plug into the SDK instead of being
-absent from it, extends the frozen `TradeIntentPayload` with two new
-optional constraint fields (`minReputationRating`, `kycRequired`), and
-adds a `peerId`-keyed reputation lookup so a participant's score is
+absent from it, extends the frozen `TradeIntentPayload` with a new
+optional constraint field (`minReputationRating`), and adds a
+`peerId`-keyed reputation lookup so a participant's score is
 addressable by their portable Pears identity, not only their internal
 `participantId`.
+
+> **Corrected 2026-08-09** — this RFC originally also added a second
+> optional constraint field, `kycRequired`. Removed: project-owner
+> decision that this protocol does not do KYC (the same principle
+> `vouch.service.ts`/`payment-account.service.ts` already state
+> explicitly for RFC-021 D7) — a field literally named `kycRequired`
+> existing in the canonical, frozen Intent type undercut that
+> positioning even though, per this RFC's own text below, it was never
+> enforced against a real counterparty. Every mention of `kycRequired`
+> below is a historical record of what this RFC originally shipped, not
+> current guidance — `minReputationRating` is unaffected and remains real.
 
 **Status:** Accepted. Triggered by a consolidated technical proposal
 ("Sails Trading Protocol SDK — Documento Técnico Consolidado v1") the

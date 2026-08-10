@@ -80,15 +80,20 @@ export interface TradeIntentPayload extends IntentPayload {
   network?: string
   slippageTolerance?: number
   // RFC-013 (rfcs/RFC-013-capability-registry-and-wallet-adapter.md) —
-  // additive counterparty-matching constraints. minReputationRating
-  // mirrors ReputationScore's 0-5 scale (reputation.service.ts); a plain
-  // number, not a decimal string, since it's a threshold/filter value,
-  // never summed or transferred the way maxValue/minValue are.
-  // kycRequired declares whether the counterparty must have passed KYC.
-  // Neither is enforced against a real counterparty yet — OpenLiquidity
-  // reading these during matching is separate follow-up work (that RFC's
-  // Reference Implementation Plan); this only adds the vocabulary and its
-  // structural bounds check (intent-engine.ts's validateStructure()).
+  // additive counterparty-matching constraint. Mirrors ReputationScore's
+  // 0-5 scale (reputation.service.ts); a plain number, not a decimal
+  // string, since it's a threshold/filter value, never summed or
+  // transferred the way maxValue/minValue are. Not enforced against a
+  // real counterparty yet — OpenLiquidity reading this during matching
+  // is separate follow-up work (that RFC's Reference Implementation
+  // Plan); this only adds the vocabulary and its structural bounds check
+  // (intent-engine.ts's validateStructure()).
+  //
+  // kycRequired removed 2026-08-09, project-owner decision: this
+  // protocol does not do KYC (same principle vouch.service.ts's own
+  // header and payment-account.service.ts already state explicitly) —
+  // a field literally named "kycRequired" existing in the canonical
+  // Intent type, even unenforced, undercut that positioning. See
+  // RFC-013's own dated correction for the full removal note.
   minReputationRating?: number
-  kycRequired?: boolean
 }

@@ -297,10 +297,10 @@ interface TradeIntent {
   network?: Network
   slippageTolerance?: number
   // RFC-013 (rfcs/RFC-013-capability-registry-and-wallet-adapter.md) —
-  // additive counterparty-matching constraints, not yet enforced during
+  // additive counterparty-matching constraint, not yet enforced during
   // matching (OpenLiquidity follow-up work) — this is the vocabulary.
+  // kycRequired removed 2026-08-09 — this protocol does not do KYC.
   minReputationRating?: number // 0-5, mirrors ReputationScore's scale
-  kycRequired?: boolean
 }
 
 // All six SettlementProvider types registered in src/modules/open-settlement/escrow.service.ts's PROVIDERS map.

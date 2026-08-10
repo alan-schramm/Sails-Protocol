@@ -138,8 +138,16 @@ Keys          → Ed25519 keypair (✅ today)
 DID            → W3C Decentralized Identifier wrapping the same keypair,
                   for interoperability with non-Sails identity systems
    ↓
-Credentials     → Verifiable Credentials (e.g. "KYC'd by provider X"),
-                  represented using the Proof primitive (section 1.8)
+Credentials     → Verifiable Credentials (e.g. "professionally certified
+                  by issuer X"), represented using the Proof primitive
+                  (section 1.8) — this protocol never issues, requires,
+                  or verifies these itself; the primitive is generic
+                  enough for a third party to anchor whatever credential
+                  type they choose. Corrected 2026-08-09: this row used
+                  KYC as its illustrative example, which read as this
+                  protocol having some relationship to KYC when it has
+                  none — same principle already stated explicitly in
+                  vouch.service.ts/payment-account.service.ts.
    ↓
 Trust Graph     → Identity-to-Identity attestations ("I vouch for this
                   counterparty"), a structure OpenReputation can query
