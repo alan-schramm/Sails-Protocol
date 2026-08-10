@@ -49,7 +49,15 @@ services:
     build:
       context: .
       target: builder
-    command: npx prisma migrate deploy
+    # scripts/migrate-deploy-safe.sh (2026-08-09) wraps `prisma migrate
+    # deploy` -- see its own header comment for the real, reproduced bug
+    # this works around (a fresh `docker compose up` from an empty
+    # database used to fail applying 20260807_init immediately followed
+    # by any later migration). Behaves identically to a bare `prisma
+    # migrate deploy` for every database that already has some
+    # migration history -- verified directly against this project's own
+    # dev database before landing.
+    command: sh scripts/migrate-deploy-safe.sh
     environment:
       DATABASE_URL: postgresql://postgres:password@postgres:5432/sails_protocol
     depends_on:

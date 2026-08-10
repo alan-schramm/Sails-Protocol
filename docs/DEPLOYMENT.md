@@ -7,16 +7,33 @@
 > **Rewritten 2026-07-18, updated 2026-08-02** — the 2026-07-18 rewrite
 > predated `RFC-020`/`RFC-021`'s entire build-out and had already drifted
 > in one concrete way: it documented `npm run db:migrate` (`prisma migrate
-> dev`) as the schema-apply command, but every real schema change in this
-> repo since Prisma 7 landed has actually been applied via `npx prisma db
-> push` — no `prisma/migrations/` directory has ever existed here.
+> dev`) as the schema-apply command, but at the time every real schema
+> change in this repo since Prisma 7 landed had actually been applied via
+> `npx prisma db push` — no `prisma/migrations/` directory existed yet.
 > `package.json`'s own `db:migrate` script was silently wrong (still
 > invoking `migrate dev`) until this pass fixed it to run `db push` for
-> real, matching what actually works. This update also adds section 8 —
-> a real AWS production deployment, written because a real deployment
-> (real infrastructure, real MULTISIG custody, a self-funded live test —
-> not opened to the public) is now actually happening, not a hypothetical
-> future reader's problem.
+> real, matching what actually worked at the time. This update also adds
+> section 8 — a real AWS production deployment, written because a real
+> deployment (real infrastructure, real MULTISIG custody, a self-funded
+> live test — not opened to the public) is now actually happening, not a
+> hypothetical future reader's problem.
+>
+> **Corrected 2026-08-09** — `prisma/migrations/` now exists (added
+> 2026-08-07, real migration history, `db push` no longer the way schema
+> changes ship) — the paragraph above is a historical record of the
+> 2026-08-02 state, not current guidance. Real, reproduced bug found the
+> same day diagnosing a fresh `docker compose up` from an empty
+> database: a bare `prisma migrate deploy` fails applying the very first
+> migration (`20260807_init`) immediately followed by any later
+> migration in the same invocation. Fixed with a wrapper script
+> (`scripts/migrate-deploy-safe.sh`, `docker-compose.yml`'s `migrate`
+> service now uses it) — see that script's own header comment for the
+> full diagnosis and workaround. The AWS RDS instance section 8 below
+> describes was itself provisioned via `db push` before migration
+> history existed, so this bug doesn't affect it directly; it matters
+> for any genuinely fresh deployment going forward (a new environment,
+> disaster recovery, or anyone cloning this repo and running `docker
+> compose up` for the first time).
 
 ---
 
