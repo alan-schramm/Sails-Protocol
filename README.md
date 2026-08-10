@@ -21,6 +21,10 @@ own integration, the first concrete proof that the protocol works in
 production. It is one implementation of the spec, not the spec itself
 (the same relationship Bitcoin Core has to the Bitcoin protocol).
 
+**New here? `docs/GETTING_STARTED.md`** — copy-paste commands, the
+trade flow in 8 steps with no file names, and a "which endpoint for
+which action" lookup table. Everything below is the fuller picture.
+
 ```
                     Wallet
                        │
@@ -122,6 +126,20 @@ examples/demo/          pix-to-usdt-flow.ts (the full QVAC -> Pears ->
                         demo-satsails-qvac.ts (its `npm run demo:qvac`
                         entrypoint) — moved out of src/ since neither is
                         library code another module imports
+examples/wallet-integration/  A real, non-mock WalletAdapter — 
+                        `RealBitcoinWalletAdapter implements WalletAdapter`
+                        against a genuine non-custodial escrow type
+                        (MULTISIG), not the `MockWalletAdapter` used
+                        above for a quick local run. Start here if
+                        you're integrating a real wallet.
+examples/simple-wallet/       The dogfooding test: the full golden path
+                        (register -> publish offer -> trade -> escrow
+                        -> release) against a real local node, using
+                        only the SDK's public API — ~140 lines,
+                        answers "can I integrate this in 15 minutes?"
+examples/sails-integration-starter/  Next.js starter — a real app
+                        talking to a live Sails node, plus two
+                        standalone end-to-end protocol scripts
 
 packages/              npm workspaces
 ├── sails-p2p-schemas/  @sails/p2p-schemas — types-only domain contracts
@@ -250,6 +268,12 @@ has the process and every RFC (001-012) that has amended the frozen spec
 so far. If you hit an architectural ambiguity while implementing, that's
 a proposal to write up, not a decision to make silently — see
 `CONTRIBUTING.md`.
+
+## Contributing
+
+See `CONTRIBUTING.md` for the full process — architectural changes go
+through an RFC first (see "Before you touch anything architectural"
+above), everything else follows the standard PR flow.
 
 ## License
 

@@ -31,7 +31,13 @@
 | 20 | [PROTOCOL_INVARIANTS.md](PROTOCOL_INVARIANTS.md) | Rules stricter than principles — a technical constitution, never broken, not just guidance |
 | 21 | [BACKLOG.md](BACKLOG.md) | Engineering backlog ordered by architectural dependency, audited against real code state |
 
-**Not numbered, added later:** [DEVELOPER_JOURNEY.md](DEVELOPER_JOURNEY.md)
+**Not numbered, added later:** [GETTING_STARTED.md](GETTING_STARTED.md)
+— added 2026-08-10, the fastest entry point of all 20+: copy-paste
+commands only, a conceptual 8-step trade flow with no file/function
+names, and a "which endpoint for which action" lookup table. Read this
+one first if you just want to run something; read `PROJECT_CONTEXT.md`
+first if you want the positioning.
+[DEVELOPER_JOURNEY.md](DEVELOPER_JOURNEY.md)
 — the same protocol-to-code shape as `SDK_GUIDE.md` section 1's diagram,
 walked step by step with each step's real status called out.
 [HANDOFF.md](HANDOFF.md) — short, practical brief for whoever picks this
