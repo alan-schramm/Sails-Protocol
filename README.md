@@ -269,6 +269,12 @@ so far. If you hit an architectural ambiguity while implementing, that's
 a proposal to write up, not a decision to make silently — see
 `CONTRIBUTING.md`.
 
+## Author & Maintainer
+
+Sails Protocol is created and led by **Alan Schramm**, drawing on 10+
+years of experience in the Bitcoin and crypto markets. It's developed
+by **Sails Labs**, part of **Satsails Holding**.
+
 ## Contributing
 
 See `CONTRIBUTING.md` for the full process — architectural changes go
