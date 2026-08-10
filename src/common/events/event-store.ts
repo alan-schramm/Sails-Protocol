@@ -141,8 +141,14 @@ export class InMemoryEventStore implements EventStore {
       entryHash,
       prevHash,
     }
+    // debug, not info — this dumps the full event payload (trade amounts,
+    // participant ids, escrow details), and 'info' is the default LOG_LEVEL
+    // (config/index.ts), so it fired on every event by default in any dev
+    // environment, including a dev-mode instance pointed at shared/staging
+    // data. debug is opt-in (LOG_LEVEL=debug) — same tracing capability,
+    // not on by default.
     if (process.env.NODE_ENV === 'development') {
-      log.info({ msg: 'Event emitted', eventName, correlationId, payload })
+      log.debug({ msg: 'Event emitted', eventName, correlationId, payload })
     }
     if (existingForCorrelation) existingForCorrelation.push(event)
     else this.byCorrelationId.set(correlationId, [event])
