@@ -7,8 +7,12 @@
  * onto a real field in the backend's `CreateOfferInput`
  * (`src/modules/open-liquidity/liquidity.service.ts`, checked before
  * building this): asset, side, priceUsd, priceBrl, minAmount, maxAmount,
- * paymentMethod, paymentDetails, network, description, requiresKyc.
- * Two things in this wizard are honestly NOT backed by that real shape:
+ * paymentMethod, paymentDetails, network, description.
+ * `requiresKyc` was removed 2026-08-09 (project correction: the protocol
+ * is non-custodial and never centralizes identity/visibility — see
+ * `docs/SECURITY_MODEL.md`'s "no KYC at the protocol level" principle;
+ * a per-offer identity-verification flag doesn't belong here even as an
+ * opt-in). Two things in this wizard are honestly NOT backed by that real shape:
  *
  * 1. "Tipo de Preço: Flutuante" (a price pegged to a live market rate,
  *    matching Binance's own picker) — `liquidity.service.ts` has no live
@@ -92,7 +96,6 @@ export function PublishOffer() {
   const [paymentDetails, setPaymentDetails] = useState('')
 
   // Step 3
-  const [requiresKyc, setRequiresKyc] = useState(false)
   const [country, setCountry] = useState('BR')
   const [description, setDescription] = useState('')
 
@@ -184,7 +187,6 @@ export function PublishOffer() {
         paymentDetails: paymentDetails.trim(),
         network: NETWORK_BY_ASSET[asset],
         description: description.trim() || undefined,
-        requiresKyc,
       })
       toast.success('Anúncio publicado!')
       navigate('/profile')
@@ -351,21 +353,6 @@ export function PublishOffer() {
 
         {step === 3 && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium text-brand-text">Requer KYC</div>
-                <div className="text-xs text-brand-text-muted">Exigir verificação de identidade da contraparte</div>
-              </div>
-              <button
-                onClick={() => setRequiresKyc((v) => !v)}
-                aria-pressed={requiresKyc}
-                aria-label="Requer KYC"
-                className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${requiresKyc ? 'bg-brand-orange-accent' : 'bg-brand-elevated'}`}
-              >
-                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${requiresKyc ? 'translate-x-5' : 'translate-x-0.5'}`} />
-              </button>
-            </div>
-
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">País/Região</label>
               <Select value={country} onValueChange={setCountry}>

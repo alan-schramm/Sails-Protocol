@@ -211,7 +211,6 @@ export interface Offer {
   status: OfferStatus
   network?: string
   description?: string
-  requiresKyc: boolean
   country: string // ISO 3166-1 alpha-2 — UI-only field for the country/region filter, not in the real schema yet
   tradedWithCurrentUser: boolean // UI-only demonstration flag for the "already traded with" filter — a real version needs a real trade-history join
   blockedRelationship: boolean // UI-only demonstration flag for "apenas anúncios negociáveis" — a real version needs a real block-list model, which doesn't exist in the backend yet either

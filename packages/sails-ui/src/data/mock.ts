@@ -46,8 +46,8 @@ export const MOCK_OFFERS: Offer[] = [
     id: 'o1', userId: 'u1', user: MOCK_USERS[0],
     asset: 'BTC', side: 'SELL', priceUsd: 67500, fiatCurrency: 'BRL', priceFiat: 340000,
     minAmount: 0.001, maxAmount: 0.05, paymentMethod: 'PIX', status: 'ACTIVE',
-    network: 'bitcoin', description: 'Fast PIX settlement. No KYC < 0.01 BTC. Online 24/7.',
-    requiresKyc: false, createdAt: '2026-07-01T00:00:00Z',
+    network: 'bitcoin', description: 'Fast PIX settlement. Online 24/7.',
+    createdAt: '2026-07-01T00:00:00Z',
     country: 'BR', tradedWithCurrentUser: true, blockedRelationship: false,
   },
   {
@@ -55,7 +55,7 @@ export const MOCK_OFFERS: Offer[] = [
     asset: 'BTC', side: 'BUY', priceUsd: 66800, fiatCurrency: 'BRL', priceFiat: 336000,
     minAmount: 0.001, maxAmount: 0.02, paymentMethod: 'PIX', status: 'ACTIVE',
     network: 'bitcoin', description: 'Looking for BTC. Instant PIX payment.',
-    requiresKyc: false, createdAt: '2026-07-02T00:00:00Z',
+    createdAt: '2026-07-02T00:00:00Z',
     country: 'BR', tradedWithCurrentUser: false, blockedRelationship: false,
   },
   {
@@ -63,7 +63,7 @@ export const MOCK_OFFERS: Offer[] = [
     asset: 'LN_BTC', side: 'SELL', priceUsd: 67200, fiatCurrency: 'BRL', priceFiat: 338000,
     minAmount: 0.0001, maxAmount: 0.005, paymentMethod: 'PIX', status: 'ACTIVE',
     network: 'lightning', description: 'Lightning sats via PIX. Instant settlement.',
-    requiresKyc: false, createdAt: '2026-07-03T00:00:00Z',
+    createdAt: '2026-07-03T00:00:00Z',
     country: 'BR', tradedWithCurrentUser: true, blockedRelationship: false,
   },
   {
@@ -71,7 +71,7 @@ export const MOCK_OFFERS: Offer[] = [
     asset: 'USDT_LIQUID', side: 'SELL', priceUsd: 1.0, fiatCurrency: 'BRL', priceFiat: 5.05,
     minAmount: 50, maxAmount: 5000, paymentMethod: 'PIX', status: 'ACTIVE',
     network: 'liquid', description: 'USDT on Liquid Network. PIX BRL.',
-    requiresKyc: false, createdAt: '2026-07-04T00:00:00Z',
+    createdAt: '2026-07-04T00:00:00Z',
     country: 'BR', tradedWithCurrentUser: false, blockedRelationship: false,
   },
   {
@@ -79,7 +79,7 @@ export const MOCK_OFFERS: Offer[] = [
     asset: 'USDT_ERC20', side: 'BUY', priceUsd: 0.99, fiatCurrency: 'USD', priceFiat: 0.99,
     minAmount: 100, maxAmount: 10000, paymentMethod: 'TED', status: 'ACTIVE',
     network: 'ethereum', description: 'Buying USDT ERC20. Bank transfer (USD).',
-    requiresKyc: false, createdAt: '2026-07-05T00:00:00Z',
+    createdAt: '2026-07-05T00:00:00Z',
     country: 'US', tradedWithCurrentUser: false, blockedRelationship: false,
   },
   {
@@ -87,7 +87,7 @@ export const MOCK_OFFERS: Offer[] = [
     asset: 'LIQUID_BTC', side: 'SELL', priceUsd: 67100, fiatCurrency: 'BRL', priceFiat: 337500,
     minAmount: 0.005, maxAmount: 0.1, paymentMethod: 'CRYPTO_DIRECT', status: 'ACTIVE',
     network: 'liquid', description: 'L-BTC on Liquid Network.',
-    requiresKyc: false, createdAt: '2026-07-06T00:00:00Z',
+    createdAt: '2026-07-06T00:00:00Z',
     country: 'BR', tradedWithCurrentUser: false, blockedRelationship: true,
   },
   {
@@ -95,7 +95,7 @@ export const MOCK_OFFERS: Offer[] = [
     asset: 'USDT_TRC20', side: 'SELL', priceUsd: 1.0, fiatCurrency: 'EUR', priceFiat: 0.92,
     minAmount: 50, maxAmount: 8000, paymentMethod: 'BANK_TRANSFER', status: 'ACTIVE',
     network: 'tron', description: 'USDT TRC20 for EUR bank transfer.',
-    requiresKyc: false, createdAt: '2026-07-07T00:00:00Z',
+    createdAt: '2026-07-07T00:00:00Z',
     country: 'DE', tradedWithCurrentUser: false, blockedRelationship: false,
   },
   {
@@ -103,7 +103,7 @@ export const MOCK_OFFERS: Offer[] = [
     asset: 'STACKS', side: 'BUY', priceUsd: 1.8, fiatCurrency: 'BRL', priceFiat: 9.1,
     minAmount: 100, maxAmount: 20000, paymentMethod: 'PIX', status: 'ACTIVE',
     network: 'stacks', description: 'Comprando STX. PIX apenas.',
-    requiresKyc: false, createdAt: '2026-07-08T00:00:00Z',
+    createdAt: '2026-07-08T00:00:00Z',
     country: 'BR', tradedWithCurrentUser: false, blockedRelationship: false,
   },
 ]

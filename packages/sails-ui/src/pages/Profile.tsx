@@ -44,7 +44,6 @@ function toOffer(raw: Awaited<ReturnType<typeof sailsClient.liquidity.getMyOffer
     status: raw.status,
     network: raw.network ?? undefined,
     description: raw.description ?? undefined,
-    requiresKyc: raw.requiresKyc,
     country: 'BR', // no real country field on Offer yet — same gap types.ts's header already discloses
     tradedWithCurrentUser: false,
     blockedRelationship: false,

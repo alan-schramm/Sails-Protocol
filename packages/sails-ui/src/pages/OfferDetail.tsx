@@ -50,7 +50,6 @@ function toOffer(raw: Awaited<ReturnType<typeof sailsClient.liquidity.getOffer>>
     status: raw.status,
     network: raw.network ?? undefined,
     description: raw.description ?? undefined,
-    requiresKyc: raw.requiresKyc,
     country: 'BR', // no real country field on Offer yet — same gap types.ts's header already discloses
     tradedWithCurrentUser: false, // needs a real trade-history join this route doesn't do
     blockedRelationship: false, // no real block-list backend yet
@@ -232,7 +231,6 @@ export function OfferDetail() {
             <Row label="Rede" value={offer.network ?? '—'} />
             <Row label="Método de pagamento" value={PAYMENT_METHOD_LABELS[offer.paymentMethod]} />
             <Row label="Limites" value={`${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`} />
-            <Row label="Requer KYC" value={offer.requiresKyc ? 'Sim' : 'Não'} />
           </Card>
         </div>
 

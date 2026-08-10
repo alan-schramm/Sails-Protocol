@@ -16,7 +16,7 @@
  * `LiquidityOfferSummary` (the real response shape — see
  * packages/sails-sdk/src/modules/liquidity.ts's own comment for the bug
  * this uncovered) is missing several fields the UI's `Offer` type wants
- * (seller displayName, country, description, requiresKyc, paymentDetails,
+ * (seller displayName, country, description, paymentDetails,
  * network) — the real /v1/liquidity/offers route genuinely doesn't
  * return them today. Filled with honest placeholders below, each
  * commented, not silently invented as if real.
@@ -66,7 +66,6 @@ function summaryToOffer(s: LiquidityOfferSummary): Offer {
     maxAmount: Number(s.maxAmount),
     paymentMethod: (s.paymentMethods[0] as PaymentMethod) ?? 'PIX',
     status: 'ACTIVE', // discover()/getAggregatedOffers() only ever returns ACTIVE offers (liquidity.service.ts's own where clause)
-    requiresKyc: false, // not returned by this route
     country: 'BR', // not returned by this route — no real country field exists on Offer yet, same gap types.ts's own header already discloses
     tradedWithCurrentUser: false, // needs a real trade-history join this route doesn't do — see types.ts's own comment on this field
     blockedRelationship: false, // no real block-list backend yet — same as above
