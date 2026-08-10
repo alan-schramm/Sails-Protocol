@@ -12,7 +12,7 @@ import { prisma } from './common/database'
 import { connectDatabase } from './common/database'
 import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
-import { AppError } from './common/errors'
+import { AppError, ERROR_DOCS_URL } from './common/errors'
 import { registerEventHandlers } from './common/events/handlers'
 import { intentEngine } from './core/intent-engine'
 import { OpenP2PTradeIntentHandler } from './modules/open-p2p/intent-handler'
@@ -196,6 +196,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         message: 'Invalid request data',
         details: error.issues, // Zod v4 renamed ZodError.errors -> .issues
         requestId: request.id,
+        docsUrl: ERROR_DOCS_URL,
       })
     }
 
@@ -227,6 +228,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         message: typeof pluginError.message === 'string' ? pluginError.message : 'Request error',
         details: [],
         requestId: request.id,
+        docsUrl: ERROR_DOCS_URL,
       })
     }
 
@@ -237,6 +239,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       error: 'INTERNAL_ERROR',
       message: config.app.env === 'development' ? message : 'Internal server error',
       requestId: request.id,
+      docsUrl: ERROR_DOCS_URL,
     })
   })
 

@@ -423,11 +423,32 @@ during code review — the old names are dead, do not reintroduce them.
 ```json
 {
   "success": false,
-  "error": "VALIDATION_ERROR | NOT_FOUND | ESCROW_ERROR | INTERNAL_ERROR | ...",
+  "error": "VALIDATION_ERROR",
   "message": "Human-readable description",
-  "details": []
+  "details": [],
+  "requestId": "req-1",
+  "docsUrl": "https://github.com/alan-schramm/Sails-Protocol/blob/main/docs/API_REFERENCE.md#9-error-response-shape"
 }
 ```
+
+`requestId` is Fastify's own real per-request id (the same one in every
+log line) — added 2026-08-08 so a caller can point support at "the
+request that failed" with a matchable id instead of grepping logs by
+timestamp. `docsUrl` — added 2026-08-10 — always points here; there's
+no per-`error` code anchor since this table isn't independently
+addressable on GitHub, so the caller lands on the full taxonomy below
+rather than a fabricated deep link.
+
+| `error` | HTTP status | Meaning |
+|---|---|---|
+| `VALIDATION_ERROR` | 400 | Request body/query failed schema validation (`ZodError`, or a hand-thrown `ValidationError`) |
+| `NOT_FOUND` | 404 | The referenced resource doesn't exist |
+| `AUTH_ERROR` | 401 | Missing or invalid session |
+| `FORBIDDEN` | 403 | Authenticated, but not authorized for this specific action |
+| `ESCROW_ERROR` | 409 | An escrow/settlement action was attempted from an invalid state |
+| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests — see `@fastify/rate-limit`'s response headers for retry timing |
+| `REQUEST_ERROR` | 4xx | A well-behaved Fastify plugin rejected the request for a reason not covered above |
+| `INTERNAL_ERROR` | 500 | Unexpected server error — `message` is redacted outside development mode |
 
 `ZodError` → HTTP 400 with `VALIDATION_ERROR`. Custom `AppError` subclasses
 (`NotFoundError`, `EscrowError`, etc.) → their own `statusCode`. Anything

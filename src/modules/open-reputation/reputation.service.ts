@@ -168,7 +168,7 @@ export class ReputationService {
   // itself, which stays exclusively this service's job.
   async getScoreByPeerId(peerId: string) {
     const user = await prisma.user.findUnique({ where: { peerId } })
-    if (!user) throw new NotFoundError('Participant with peerId', peerId)
+    if (!user) throw new NotFoundError('Participant with this peerId', peerId)
     return this.getScore(user.id)
   }
 

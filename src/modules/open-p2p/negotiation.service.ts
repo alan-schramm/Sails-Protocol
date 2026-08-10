@@ -45,7 +45,7 @@ export class HumanChatChannel implements NegotiationChannel {
   async sendEvent(event: NegotiationEvent): Promise<void> {
     const node = pearNodeRegistry.get(this.localUserId)
     if (!node) {
-      throw new NotFoundError('PearNode for user (call POST /v1/peers/start first)', this.localUserId)
+      throw new NotFoundError('P2P connection for this user (call POST /v1/peers/start first)', this.localUserId)
     }
     const delivered = node.sendToPeer(this.remoteUserId, {
       kind: 'negotiation_event',
@@ -75,7 +75,7 @@ export class HumanChatChannel implements NegotiationChannel {
   onEvent(handler: (event: NegotiationEvent) => void): void {
     const node = pearNodeRegistry.get(this.localUserId)
     if (!node) {
-      throw new NotFoundError('PearNode for user (call POST /v1/peers/start first)', this.localUserId)
+      throw new NotFoundError('P2P connection for this user (call POST /v1/peers/start first)', this.localUserId)
     }
     node.on('message', ({ peerId, message }: { peerId: string; message: any }) => {
       if (message?.kind !== 'negotiation_event' || message.tradeId !== this.tradeId) return

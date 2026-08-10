@@ -131,7 +131,7 @@ export class TradeService {
   // and getTrade() itself has never required auth.
   async getTradeByIntentId(intentId: string) {
     const trade = await this.repo.findByIntentId(intentId)
-    if (!trade) throw new NotFoundError('Trade for Intent', intentId)
+    if (!trade) throw new NotFoundError('Trade for this intent', intentId)
     return trade
   }
 

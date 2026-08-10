@@ -4,6 +4,14 @@
  * response shape these map to.
  */
 
+// Same link on every error response — there's no per-code anchor in
+// API_REFERENCE.md's §9 (a table's rows aren't independently addressable
+// on GitHub), so this points at the whole error-taxonomy section rather
+// than fabricating anchors that don't exist. Real, checked repo URL, not
+// a guessed one — this is the same GitHub path every other doc link in
+// this codebase already uses.
+export const ERROR_DOCS_URL = 'https://github.com/alan-schramm/Sails-Protocol/blob/main/docs/API_REFERENCE.md#9-error-response-shape'
+
 export class AppError extends Error {
   statusCode: number
   code: string
@@ -24,6 +32,7 @@ export class AppError extends Error {
       error: this.code,
       message: this.message,
       details: this.details ?? [],
+      docsUrl: ERROR_DOCS_URL,
     }
   }
 }

@@ -593,7 +593,7 @@ export class EscrowService {
 
   async getEscrowByTrade(tradeId: string) {
     const escrow = await this.repo.findByTradeIdWithDetails(tradeId)
-    if (!escrow) throw new NotFoundError('Escrow for trade', tradeId)
+    if (!escrow) throw new NotFoundError('Escrow for this trade', tradeId)
     return escrow
   }
 

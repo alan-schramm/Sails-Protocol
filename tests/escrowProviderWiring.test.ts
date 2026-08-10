@@ -652,7 +652,7 @@ describe('getPendingTransaction()', () => {
 
   it('throws NotFoundError when no signing round is in flight', async () => {
     mockPendingTxFindUnique.mockResolvedValue(null)
-    await expect(escrowService.getPendingTransaction('escrow-1')).rejects.toThrow('EscrowPendingTransaction')
+    await expect(escrowService.getPendingTransaction('escrow-1')).rejects.toThrow('Pending transaction for this escrow')
   })
 })
 

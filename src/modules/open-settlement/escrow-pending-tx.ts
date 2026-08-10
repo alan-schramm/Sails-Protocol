@@ -268,6 +268,6 @@ export async function getPendingTransaction(escrowId: string) {
     where: { escrowId },
     include: { signatures: true },
   })
-  if (!pending) throw new NotFoundError('EscrowPendingTransaction', escrowId)
+  if (!pending) throw new NotFoundError('Pending transaction for this escrow', escrowId)
   return pending
 }

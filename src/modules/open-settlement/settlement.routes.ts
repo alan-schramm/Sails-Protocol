@@ -19,6 +19,7 @@ import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { config } from '../../config'
 import { docsOnlySchema } from '../../common/openapi'
+import { MAX_PAGE_LIMIT } from '../../common/pagination'
 
 // CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — see
 // config/index.ts's own comment on `rateLimit.criticalMax` for the full
@@ -120,9 +121,15 @@ const setPayoutAddressSchema = z.object({
   address: z.string().min(1),
 })
 
+// Bounds match dispute.service.ts's listForArbiter() clamp (MAX_PAGE_LIMIT)
+// exactly — until this fix, this was the only paginated list endpoint in
+// the codebase relying on a service-layer clamp instead of route-level
+// zod validation, so an out-of-range limit was silently coerced instead
+// of returning 400 VALIDATION_ERROR like every sibling list endpoint
+// (trade/reputation/chat/liquidity) already does.
 const disputeListQuerySchema = z.object({
-  limit: z.coerce.number().int().optional(),
-  offset: z.coerce.number().int().optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
 })
 
 const arbiterProfileParamsSchema = z.object({ participantId: z.string().min(1) })
