@@ -226,12 +226,13 @@ export function PublishOffer() {
         {step === 1 && (
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-brand-text-muted mb-1.5 block">Eu quero</label>
-              <div className="flex gap-1 bg-brand-elevated rounded-lg p-1">
+              <label className="text-xs text-brand-text-muted mb-1.5 block" id="publish-side-label">Eu quero</label>
+              <div role="group" aria-labelledby="publish-side-label" className="flex gap-1 bg-brand-elevated rounded-lg p-1">
                 {(['SELL', 'BUY'] as TradeSide[]).map((s) => (
                   <button
                     key={s}
                     onClick={() => setSide(s)}
+                    aria-pressed={side === s}
                     className={`flex-1 rounded-md py-2 text-sm transition-colors ${side === s ? 'bg-brand-surface shadow-sm font-medium text-brand-text' : 'text-brand-text-secondary'}`}
                   >
                     {s === 'SELL' ? 'Vender' : 'Comprar'}
@@ -275,15 +276,16 @@ export function PublishOffer() {
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">Preço fixo</label>
                 <div className="flex items-center input-field !p-0">
-                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} className="px-4 py-3 text-brand-text-secondary hover:text-brand-text">−</button>
+                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label="Diminuir preço" className="px-4 py-3 text-brand-text-secondary hover:text-brand-text">−</button>
                   <input
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
                     type="number"
+                    aria-label="Preço fixo"
                     className="flex-1 bg-transparent text-center text-lg font-bold outline-none text-brand-text"
                     placeholder="0"
                   />
-                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} className="px-4 py-3 text-brand-text-secondary hover:text-brand-text">+</button>
+                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label="Aumentar preço" className="px-4 py-3 text-brand-text-secondary hover:text-brand-text">+</button>
                 </div>
                 {loadingSuggestedRange && (
                   <p className="text-xs text-brand-text-muted mt-1.5">Buscando faixa de preço...</p>
@@ -306,12 +308,16 @@ export function PublishOffer() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-brand-text-muted mb-1.5 block">Quantidade mínima</label>
-                <Input value={minAmount} onChange={(e) => setMinAmount(e.target.value)} type="number" className="w-full" placeholder="0.00" />
+                <label className="text-xs text-brand-text-muted mb-1.5 block">
+                  Quantidade mínima
+                  <Input value={minAmount} onChange={(e) => setMinAmount(e.target.value)} type="number" className="w-full mt-1.5" placeholder="0.00" />
+                </label>
               </div>
               <div>
-                <label className="text-xs text-brand-text-muted mb-1.5 block">Quantidade máxima</label>
-                <Input value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} type="number" className="w-full" placeholder="0.00" />
+                <label className="text-xs text-brand-text-muted mb-1.5 block">
+                  Quantidade máxima
+                  <Input value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} type="number" className="w-full mt-1.5" placeholder="0.00" />
+                </label>
               </div>
             </div>
 
@@ -330,13 +336,15 @@ export function PublishOffer() {
             </div>
 
             <div>
-              <label className="text-xs text-brand-text-muted mb-1.5 block">Detalhes do pagamento</label>
-              <Input
-                value={paymentDetails}
-                onChange={(e) => setPaymentDetails(e.target.value)}
-                className="w-full"
-                placeholder={paymentMethod === 'PIX' ? 'Sua chave PIX' : 'Dados para o comprador enviar o pagamento'}
-              />
+              <label className="text-xs text-brand-text-muted mb-1.5 block">
+                Detalhes do pagamento
+                <Input
+                  value={paymentDetails}
+                  onChange={(e) => setPaymentDetails(e.target.value)}
+                  className="w-full mt-1.5"
+                  placeholder={paymentMethod === 'PIX' ? 'Sua chave PIX' : 'Dados para o comprador enviar o pagamento'}
+                />
+              </label>
             </div>
           </div>
         )}
@@ -350,6 +358,8 @@ export function PublishOffer() {
               </div>
               <button
                 onClick={() => setRequiresKyc((v) => !v)}
+                aria-pressed={requiresKyc}
+                aria-label="Requer KYC"
                 className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${requiresKyc ? 'bg-brand-orange-accent' : 'bg-brand-elevated'}`}
               >
                 <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${requiresKyc ? 'translate-x-5' : 'translate-x-0.5'}`} />

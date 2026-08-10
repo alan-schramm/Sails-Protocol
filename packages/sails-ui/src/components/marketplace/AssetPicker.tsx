@@ -49,7 +49,7 @@ export function AssetPicker({ assets, value, onChange }: Props) {
     // close, no ARIA. Trigger keeps its `.input-field` look (that part
     // was never the problem); only the dropdown mechanics changed.
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger className="input-field flex items-center gap-2 min-w-[140px] justify-between">
+      <PopoverTrigger aria-label="Ativo" className="input-field flex items-center gap-2 min-w-[140px] justify-between">
         <span className="font-medium truncate">{value === 'Todos' ? 'Todos os ativos' : ASSET_LABELS[value]}</span>
         <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
       </PopoverTrigger>

@@ -192,6 +192,7 @@ export function Marketplace() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por vendedor..."
+          aria-label="Buscar por vendedor"
           className="ml-auto"
         />
       </div>

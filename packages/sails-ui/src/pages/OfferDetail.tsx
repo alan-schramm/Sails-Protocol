@@ -252,17 +252,19 @@ export function OfferDetail() {
             <Card className="p-5">
               <h3 className="font-semibold text-brand-text">Iniciar negociação</h3>
 
-              <label className="block text-xs text-brand-text-muted mt-4 mb-1">Quanto você quer {offer.side === 'SELL' ? 'comprar' : 'vender'}?</label>
-              <div className="relative">
-                <Input
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  type="number"
-                  className="w-full text-lg font-bold"
-                  placeholder="0.00"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
-              </div>
+              <label className="block text-xs text-brand-text-muted mt-4 mb-1">
+                Quanto você quer {offer.side === 'SELL' ? 'comprar' : 'vender'}?
+                <div className="relative">
+                  <Input
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    type="number"
+                    className="w-full text-lg font-bold"
+                    placeholder="0.00"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
+                </div>
+              </label>
               {amount && !withinLimits && (
                 <p className="text-xs text-red-700 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
               )}

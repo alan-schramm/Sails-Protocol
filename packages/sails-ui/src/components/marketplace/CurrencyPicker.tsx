@@ -26,7 +26,7 @@ export function CurrencyPicker({ value, onChange }: Props) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger className="input-field flex items-center gap-2 min-w-[110px] justify-between">
+      <PopoverTrigger aria-label="Moeda" className="input-field flex items-center gap-2 min-w-[110px] justify-between">
         <span className="font-medium">{value === 'Todas' ? 'Todas moedas' : value}</span>
         <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
       </PopoverTrigger>
