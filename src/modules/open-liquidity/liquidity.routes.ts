@@ -41,7 +41,6 @@ const createOfferSchema = z.object({
   paymentDetails: z.string().optional(),
   network: z.string().optional(),
   description: z.string().optional(),
-  requiresKyc: z.boolean().optional(),
 })
 
 const offerIdParamsSchema = z.object({ id: z.string().min(1) })

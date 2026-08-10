@@ -195,7 +195,6 @@ model Offer {
   status          OfferStatus   @default(ACTIVE)
   network         String?
   description     String?
-  requiresKyc     Boolean       @default(false)
   moduleId        String        @default("openliquidity")
   protocolVersion String        @default("0.1")
   intentType      String?                          // e.g. "TradeIntent"

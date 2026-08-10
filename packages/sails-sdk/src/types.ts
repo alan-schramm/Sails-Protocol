@@ -68,7 +68,6 @@ export interface Offer {
   status: OfferStatus
   network: string | null
   description: string | null
-  requiresKyc: boolean
   createdAt: string
   updatedAt: string
 }

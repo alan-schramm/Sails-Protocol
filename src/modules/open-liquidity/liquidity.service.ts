@@ -192,7 +192,6 @@ export interface CreateOfferInput {
   paymentDetails?: string
   network?: string
   description?: string
-  requiresKyc?: boolean
 }
 
 // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) — an Offer is
@@ -243,7 +242,6 @@ export class LiquidityRouter {
         paymentDetails: input.paymentDetails,
         network: input.network,
         description: input.description,
-        requiresKyc: input.requiresKyc,
         intentId: intent.id,
       },
     })
@@ -265,7 +263,7 @@ export class LiquidityRouter {
   // getAggregatedOffers() only support asset+side listing, and the
   // aggregated LiquidityOffer summary shape they return is missing
   // several fields OfferDetail genuinely needs (network, description,
-  // requiresKyc, the seller's displayName/verified/totalTrades). This is
+  // the seller's displayName/verified/totalTrades). This is
   // the persisted Offer row plus its real User relation, not a second
   // aggregation-shaped summary.
   async getOffer(offerId: string) {

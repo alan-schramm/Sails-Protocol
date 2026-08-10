@@ -26,7 +26,6 @@ export interface PublishOfferInput {
   paymentDetails?: string
   network?: string
   description?: string
-  requiresKyc?: boolean
 }
 
 // The shape GET /v1/liquidity/offers actually returns per item
