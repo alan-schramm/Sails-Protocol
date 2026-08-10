@@ -82,6 +82,18 @@ services:
       HOST: 0.0.0.0
       MOCK_ESCROW: "true"
       MOCK_SETTLEMENT: "true"
+      # Both off by default in the codebase (config/index.ts), on here for
+      # this reference deployment (2026-08-09, project-owner decision) —
+      # real found gap fixed alongside this: this environment: block never
+      # passed .env's own QVAC_AUTO_RESOLUTION_ENABLED/
+      # SOCIAL_ENGINEERING_DETECTION through at all (no env_file: .env,
+      # and this block didn't list them), so setting them in .env alone
+      # never actually reached the container. See .env.example's own
+      # comments on each flag for what turning them on means.
+      QVAC_AUTO_RESOLUTION_ENABLED: "true"
+      QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: "0.85"
+      QVAC_AUTO_RESOLUTION_WINDOW_HOURS: "24"
+      SOCIAL_ENGINEERING_DETECTION: "true"
     depends_on:
       postgres:
         condition: service_healthy
