@@ -69,7 +69,25 @@
  * migration).
  */
 
-import { KMSClient, SignCommand, GetPublicKeyCommand } from '@aws-sdk/client-kms'
+// Dynamically imported, not a static top-level import — DX audit finding
+// (2026-08-10): @aws-sdk/client-kms is ~300KB for a class not even wired
+// into any live flow yet (see comment above). A static import made it a
+// hard `dependency` of the whole @sails/sdk package — every consumer's
+// `npm install` paid for it, even one that only ever touches SailsClient.
+// Moved to `peerDependencies` (optional, see package.json) + this lazy
+// import: the constructor/method signatures below are unchanged (still
+// synchronous `new SailsSignerService(config)`), so this is not a public
+// API change, only an internal loading strategy. A consumer who never
+// instantiates this class never triggers the import; one who does gets a
+// clear "Cannot find module" error at first use if they haven't run
+// `npm install @aws-sdk/client-kms` themselves — not a silent failure.
+type KmsModule = typeof import('@aws-sdk/client-kms')
+let kmsModulePromise: Promise<KmsModule> | undefined
+function loadKmsModule(): Promise<KmsModule> {
+  if (!kmsModulePromise) kmsModulePromise = import('@aws-sdk/client-kms')
+  return kmsModulePromise
+}
+
 import { secp256k1 } from '@noble/curves/secp256k1.js'
 import { keccak_256 } from '@noble/hashes/sha3.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
@@ -136,14 +154,20 @@ export function ethereumAddressFromUncompressedPubkey(pubkey: Uint8Array): strin
 }
 
 export class SailsSignerService {
-  private readonly client: KMSClient
+  private clientPromise: Promise<InstanceType<KmsModule['KMSClient']>> | undefined
 
-  constructor(private readonly config: SailsSignerServiceConfig) {
-    this.client = new KMSClient({ region: config.region })
+  constructor(private readonly config: SailsSignerServiceConfig) {}
+
+  private async getClient(): Promise<InstanceType<KmsModule['KMSClient']>> {
+    if (!this.clientPromise) {
+      this.clientPromise = loadKmsModule().then(({ KMSClient }) => new KMSClient({ region: this.config.region }))
+    }
+    return this.clientPromise
   }
 
   async getAddress(): Promise<string> {
-    const response = await this.client.send(new GetPublicKeyCommand({ KeyId: this.config.keyId }))
+    const [client, { GetPublicKeyCommand }] = await Promise.all([this.getClient(), loadKmsModule()])
+    const response = await client.send(new GetPublicKeyCommand({ KeyId: this.config.keyId }))
     if (!response.PublicKey) throw new RangeError('SailsSignerService.getAddress: KMS returned no PublicKey')
     const pubkey = extractUncompressedPubkeyFromSpki(response.PublicKey)
     return ethereumAddressFromUncompressedPubkey(pubkey)
@@ -154,8 +178,9 @@ export class SailsSignerService {
   // caller's behalf, matching MessageType: 'DIGEST' exactly.
   async signDigest(digest: Uint8Array): Promise<Uint8Array> {
     if (digest.length !== 32) throw new RangeError(`SailsSignerService.signDigest: expected a 32-byte digest, got ${digest.length}`)
+    const [client, { SignCommand, GetPublicKeyCommand }] = await Promise.all([this.getClient(), loadKmsModule()])
     const [signResponse, pubkeyResponse] = await Promise.all([
-      this.client.send(
+      client.send(
         new SignCommand({
           KeyId: this.config.keyId,
           Message: digest,
@@ -163,7 +188,7 @@ export class SailsSignerService {
           SigningAlgorithm: 'ECDSA_SHA_256',
         })
       ),
-      this.client.send(new GetPublicKeyCommand({ KeyId: this.config.keyId })),
+      client.send(new GetPublicKeyCommand({ KeyId: this.config.keyId })),
     ])
     if (!signResponse.Signature) throw new RangeError('SailsSignerService.signDigest: KMS returned no Signature')
     if (!pubkeyResponse.PublicKey) throw new RangeError('SailsSignerService.signDigest: KMS returned no PublicKey')

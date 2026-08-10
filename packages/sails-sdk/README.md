@@ -1,5 +1,12 @@
 # `@sails/sdk` — Sails P2P Trading SDK
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](../../LICENSE)
+[![CI](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml)
+
+<!-- No npm version badge yet — not published to any npm registry (see
+     the root README's identical note); a badge pointing at a 404 is
+     worse than no badge. -->
+
 The single typed client a wallet/fintech imports to reach every Sails
 Protocol module (OpenIdentity, OpenLiquidity, OpenP2P, OpenSettlement,
 OpenReputation, OpenProof, OpenAgents) over HTTP/WebSocket. See

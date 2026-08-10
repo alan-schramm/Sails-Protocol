@@ -14,6 +14,19 @@
  * proposal used) — matches this codebase's own existing vocabulary
  * (`User.peerId`, `PeerHandle.peerId`, `pearNodeRegistry`) instead of
  * introducing a synonym for the same concept.
+ *
+ * Error convention (DX audit, 2026-08-10): there is no dedicated
+ * `WalletError`/`WalletLockedError` class in this SDK, and none of the
+ * methods below is expected to introduce one. If the underlying wallet
+ * is locked, disconnected, or the caller asks for an asset/operation it
+ * doesn't support, reject the returned Promise with a plain `Error`
+ * carrying a clear, specific message — the same convention
+ * `examples/wallet-integration/src/bitcoin-wallet-adapter.ts`'s
+ * `RealBitcoinWalletAdapter` already follows for every one of its own
+ * out-of-scope cases (e.g. "RealBitcoinWalletAdapter only signs BTC,
+ * not '<asset>'"). `SailsClient` does not inspect or special-case
+ * anything about the rejection — it propagates whatever the adapter
+ * throws.
  */
 
 export interface WalletCapabilitiesDeclaration {
