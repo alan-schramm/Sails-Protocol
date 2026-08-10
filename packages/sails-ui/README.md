@@ -22,8 +22,12 @@ Definir condições. Every field that reaches the final `Offer` object
 maps onto the real backend's `CreateOfferInput`
 (`liquidity.service.ts`, checked before building this): asset, side,
 priceUsd, priceBrl, minAmount, maxAmount, paymentMethod, paymentDetails,
-network, description, requiresKyc. Two things are honestly not backed
-by that real shape: "Tipo de Preço: Flutuante" (a market-pegged price —
+network, description. (`requiresKyc` was removed from this UI on
+2026-08-09 — non-custodial and no-centralized-identity-visibility are
+the same promise from two angles, so a per-offer KYC flag doesn't
+belong even as an opt-in; the field still exists on the backend as of
+this writing, a separate, backend-owned removal.) Two things are
+honestly not backed by that real shape: "Tipo de Preço: Flutuante" (a market-pegged price —
 `liquidity.service.ts` has no live FX/price-feed integration at all,
 selectable for fidelity to the reference screenshot but disabled with a
 tooltip explaining why) and `priceUsd` itself when pricing in a non-USD
