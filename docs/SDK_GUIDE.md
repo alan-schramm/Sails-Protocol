@@ -335,6 +335,11 @@ interface CapabilityGrant {
 // codebase's own existing vocabulary (User.peerId, pearNodeRegistry).
 interface WalletAdapter {
   getPeerId(): Promise<string>
+  // Deliberate: one address per asset, not multi-address/HD rotation —
+  // matches the server's own PayoutAddress table (@@unique([participantId,
+  // asset])), which is what escrow settlement actually pays out to.
+  // See wallet-adapter.ts's own comment for the full reasoning
+  // (DX audit, 2026-08-10).
   getAddress(asset: string): Promise<string>
   getBalance(asset: string): Promise<string>
   signTransaction(asset: string, tx: unknown): Promise<unknown>

@@ -38,6 +38,19 @@ export interface WalletCapabilitiesDeclaration {
 
 export interface WalletAdapter {
   getPeerId(): Promise<string>
+  // One address per asset is deliberate, not an oversight (DX audit,
+  // 2026-08-10) — it's the real data model this protocol is built on
+  // end to end, not just this interface's own simplification. The
+  // server's own PayoutAddress table (prisma/schema.prisma) is
+  // @@unique([participantId, asset]): exactly one registered address
+  // per participant per asset is what escrow release/refund/dispute
+  // resolution actually pay out to. Multi-address (HD wallet address
+  // rotation) support would mean redesigning that table and every
+  // settlement path that reads it — a protocol-level decision, not an
+  // SDK interface tweak, and out of scope for what the Sails P2P
+  // Trading SDK v0.1 needs to do. `getAddress()` is called from
+  // exactly one place in this SDK today (`client.ts`'s
+  // `getWalletAddresses()`), never from any settlement/escrow path.
   getAddress(asset: string): Promise<string>
   getBalance(asset: string): Promise<string>
   signTransaction(asset: string, tx: unknown): Promise<unknown>
