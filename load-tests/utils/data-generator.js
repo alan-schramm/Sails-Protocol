@@ -43,7 +43,7 @@ globalThis.self = globalThis
 // eslint-disable-next-line
 const nacl = require('../../node_modules/tweetnacl/nacl-fast.js')
 
-// Real AssetType enum — src/routes/intentRoutes.ts's tradeIntentPayloadSchema
+// Real AssetType enum — src/core/intent.routes.ts's tradeIntentPayloadSchema
 // (which is also what liquidity/trade/settlement routes constrain to at
 // the Prisma level, per that schema's own comment). Verified against
 // the actual zod schema, not guessed — an invented value here 400s
@@ -123,7 +123,7 @@ export function authHeaders(user) {
   return { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.sessionToken}` } }
 }
 
-/** A real TradeIntent payload — src/routes/intentRoutes.ts's createIntentSchema is the source of truth for these fields. */
+/** A real TradeIntent payload — src/core/intent.routes.ts's createIntentSchema is the source of truth for these fields. */
 export function generateTestIntent(overrides) {
   const asset = ASSETS[Math.floor(Math.random() * ASSETS.length)]
   const currency = CURRENCIES[Math.floor(Math.random() * CURRENCIES.length)]

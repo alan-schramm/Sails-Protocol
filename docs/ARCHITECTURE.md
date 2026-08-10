@@ -427,10 +427,6 @@ src/
 │       └── websocket-relay.service.ts  (WebSocketRelayTransportProvider —
 │                                         blind relay, CISO Privacy Rule;
 │                                         real, not yet wired to a route)
-├── routes/
-│   └── intentRoutes.ts                 (POST/DELETE /api/v1/intents — the
-│                                         first route in this codebase
-│                                         actually registered in app.ts)
 └── modules/
     ├── open-settlement/
     │   ├── escrow.service.ts           (Escrow state machine, SettlementProvider)

@@ -48,7 +48,7 @@ const goalSchema = z.object({
   goal: z.string().min(1).max(2000),
 })
 
-// Mirrors routes/intentRoutes.ts's tradeIntentPayloadSchema's restricted
+// Mirrors core/intent.routes.ts's tradeIntentPayloadSchema's restricted
 // enums exactly (reused, not reinvented) — the same Fase 1 Red Team pass
 // that closed the prompt-injection vector on this shape
 // (qvac-agent.provider.ts's AssessableIntent doc comment,

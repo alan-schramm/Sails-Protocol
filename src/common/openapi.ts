@@ -42,7 +42,7 @@ import { z } from 'zod'
  * handler's own `.parse()` remains the ONLY thing that can ever
  * validate or reject, exactly as before this file existed.
  *
- * NOT applied globally in app.ts — `src/routes/intentRoutes.ts` already
+ * NOT applied globally in app.ts — `src/core/intent.routes.ts` already
  * has two routes with real, pre-existing, hand-written `schema.body`/
  * `.params` that DO rely on Fastify's actual ajv enforcement (no
  * no-op compiler, no attachValidation) — a global override would have

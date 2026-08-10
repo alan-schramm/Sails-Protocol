@@ -69,7 +69,7 @@ now fully closed.**
 see section 1's new note above).** `config/index.ts`,
 `common/database/index.ts`, `common/redis/index.ts`,
 `common/errors/index.ts`, and `main.ts` all exist, and
-`routes/intentRoutes.ts` is registered in `app.ts` — the server boots
+`core/intent.routes.ts` (moved 2026-08-10, was `routes/intentRoutes.ts`) is registered in `app.ts` — the server boots
 (given a reachable Postgres/Redis) and serves a real, tested route today.
 This section previously blocked "almost everything else" per the closing
 note below; it no longer does. **What's now the practical next blocker**

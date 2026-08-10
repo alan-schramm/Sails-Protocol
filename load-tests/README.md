@@ -1,7 +1,7 @@
 # Load tests (k6)
 
 Real k6 scripts against the real server — every flow here goes through
-the actual routes (`src/routes/intentRoutes.ts`, `src/modules/open-p2p/`,
+the actual routes (`src/core/intent.routes.ts`, `src/modules/open-p2p/`,
 `src/modules/open-settlement/`, `src/modules/open-reputation/`) with
 real Ed25519 challenge-response auth (`common/middleware/auth.ts`), the
 same "mock only the database boundary a unit test needs to, never the

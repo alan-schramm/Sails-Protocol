@@ -835,7 +835,7 @@ rules this table's CANNOT column restates concretely.
   `trade.service.ts`'s `createTrade()` (the real "start a trade from an
   offer" path) never imports `core/intent-engine.ts` at all. **No real
   `Offer` or `Trade` in this codebase has an `Intent` database row behind
-  it today** — `Intent`/`IntentEvent` (`routes/intentRoutes.ts`) is a
+  it today** — `Intent`/`IntentEvent` (`core/intent.routes.ts`) is a
   fully separate, working code path
   (`src/core/intent-engine.ts`'s `create()`/`cancel()`/`transition()`
   are real, tested — see `TODO.md`) that the real OpenP2P trade flow

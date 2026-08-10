@@ -220,7 +220,7 @@ return coordinated as unknown as Intent<T>
 
 `create()` now returns the Intent in `COORDINATED` status rather than
 `CREATED` — a real, deliberate change to what callers observe (checked:
-`intentRoutes.ts` returns whatever `create()` gives it with no
+`intent.routes.ts` returns whatever `create()` gives it with no
 status-specific branching, so this is safe for the one real caller that
 exists today).
 

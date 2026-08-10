@@ -10,7 +10,7 @@
 
 ### 1. Fixar prefixo de versão inconsistente
 
-**Arquivo:** `src/routes/intentRoutes.ts`
+**Arquivo:** `src/core/intent.routes.ts` (movido de `src/routes/intentRoutes.ts` em 2026-08-10, item 21 de `TECHNICAL_DEBT_AUDIT.md`)
 
 **Problema:** Única rota do código usando `/api/v1/` em vez de `/v1/`.
 

@@ -21,7 +21,7 @@ export type PaymentMethod =
 // backend has its own real enum to validate against instead of an open
 // `string`. Fase 1 Red Team finding: TradeIntentPayload.currency/
 // fiatMethod were `z.string()` with no restriction at
-// tradeIntentPayloadSchema (routes/intentRoutes.ts), letting adversarial
+// tradeIntentPayloadSchema (core/intent.routes.ts), letting adversarial
 // free text reach QvacAgentProvider.assessIntentRisk()'s prompt
 // unsanitized (tests/qvac-prompt-injection.test.ts) — this closes that
 // vector at its root, not just at the prompt-construction layer.

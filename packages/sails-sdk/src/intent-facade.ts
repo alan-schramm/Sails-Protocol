@@ -73,7 +73,7 @@ export class SailsIntentFacade {
    * deviation from `SDK_GUIDE.md`'s one-argument signature, noted
    * rather than silently hidden. Removed as the SDK-side fix for a real
    * gap found during a codebase audit: the real route
-   * (`src/routes/intentRoutes.ts`) accepted `participantId` straight
+   * (`src/core/intent.routes.ts`) accepted `participantId` straight
    * from the request body with no authentication at all, and this SDK
    * method sent no auth header either. The route now derives
    * `participantId` from the authenticated session (`requireAuth`) —

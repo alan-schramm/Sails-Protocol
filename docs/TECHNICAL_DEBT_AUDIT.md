@@ -328,11 +328,13 @@ Escrow statuses (`'CREATED'`, `'FUNDS_LOCKED'`, etc.), trade statuses, dispute s
 
 ---
 
-### 21. File Naming Inconsistente
+### 21. File Naming Inconsistente ✅ RESOLVIDO 2026-08-10
 
-`src/routes/intentRoutes.ts` (camelCase, fora do módulo) vs `src/modules/open-*/<name>.routes.ts` (kebab-case, dentro do módulo).
+~~`src/routes/intentRoutes.ts` (camelCase, fora do módulo) vs `src/modules/open-*/<name>.routes.ts` (kebab-case, dentro do módulo).~~
 
-**Fix:** Mover para `src/core/intent.routes.ts`.
+Movido para `src/core/intent.routes.ts` — consistente com toda a
+convenção `<name>.routes.ts` co-localizada no módulo/core dono do
+código (Intent é primitivo Core, não um módulo `open-*`).
 
 ---
 

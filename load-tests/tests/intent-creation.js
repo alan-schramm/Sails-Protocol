@@ -1,7 +1,8 @@
 /**
  * Real Intent create/cancel — POST /v1/intents then DELETE
- * /v1/intents/:id (src/routes/intentRoutes.ts — was /api/v1/intents,
- * renamed PRODUCTION_READINESS_FIXES.md P0 item 1, closed 2026-08-08),
+ * /v1/intents/:id (src/core/intent.routes.ts — was /api/v1/intents,
+ * renamed PRODUCTION_READINESS_FIXES.md P0 item 1, closed 2026-08-08;
+ * file itself moved from src/routes/intentRoutes.ts 2026-08-10),
  * same round trip load-tests/artillery/intent-api.yml already proved out
  * with Artillery. `setup()`
  * registers one real, authenticated identity once per run (not once per

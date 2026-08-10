@@ -61,7 +61,7 @@ export interface IntentRiskAssessment {
 
 export interface AssessableIntent {
   // Restricted to the same real enums tradeIntentPayloadSchema now
-  // validates (routes/intentRoutes.ts) — all three were open `string`
+  // validates (core/intent.routes.ts) — all three were open `string`
   // until the Fase 1 Red Team pass found this let adversarial free text
   // reach the prompt below unsanitized
   // (tests/qvac-prompt-injection.test.ts, confirmed live against the
