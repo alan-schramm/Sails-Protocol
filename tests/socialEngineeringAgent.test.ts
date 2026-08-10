@@ -28,6 +28,16 @@ import { QvacAgentProvider } from '../src/modules/open-agents/qvac-agent.provide
 import { SocialEngineeringAgent } from '../src/modules/open-agents/social-engineering-agent'
 import { eventBus } from '../src/common/events/event-bus'
 import type { TimelineEntry } from '../src/core/timeline'
+import type { TradeRepository } from '../src/modules/open-p2p/trade-repository'
+
+// No trade found by default — same as every test below wants (they're
+// not exercising unexpected_flow_deviation), matching the "constructor
+// seam over module-path mocking" convention TradeRepository itself was
+// introduced for. A real `tradeRepository` singleton wraps real Prisma —
+// injecting a fake here instead of mocking common/database entirely.
+function fakeTradeRepo(overrides: Partial<TradeRepository> = {}): TradeRepository {
+  return { findByIdWithEscrow: jest.fn().mockResolvedValue(null), ...overrides } as unknown as TradeRepository
+}
 
 function messageEntry(tradeId: string, content: string, eventId = 'evt-1'): TimelineEntry {
   return {
@@ -47,7 +57,7 @@ describe('SocialEngineeringAgent.evaluate', () => {
   beforeEach(() => jest.clearAllMocks())
 
   it('returns null without calling QVAC for a non-message event type', async () => {
-    const agent = new SocialEngineeringAgent(new QvacAgentProvider())
+    const agent = new SocialEngineeringAgent(new QvacAgentProvider(), fakeTradeRepo())
     const result = await agent.evaluate({
       eventId: 'e1', eventType: 'settlement.escrow.locked', occurredAt: new Date().toISOString(), payload: {},
       entryHash: 'test-entry-hash', prevHash: 'test-prev-hash',
@@ -58,7 +68,7 @@ describe('SocialEngineeringAgent.evaluate', () => {
   })
 
   it('returns null without calling QVAC for an empty-content (media) message', async () => {
-    const agent = new SocialEngineeringAgent(new QvacAgentProvider())
+    const agent = new SocialEngineeringAgent(new QvacAgentProvider(), fakeTradeRepo())
     const result = await agent.evaluate(messageEntry('trade-x', ''))
 
     expect(result).toBeNull()
@@ -69,7 +79,7 @@ describe('SocialEngineeringAgent.evaluate', () => {
     mockCompletion.mockReturnValueOnce(
       fakeCompletionRun(JSON.stringify({ pattern: 'none', riskScore: 0, reasoning: 'Nothing unusual.' }))
     )
-    const agent = new SocialEngineeringAgent(new QvacAgentProvider())
+    const agent = new SocialEngineeringAgent(new QvacAgentProvider(), fakeTradeRepo())
     const result = await agent.evaluate(messageEntry('trade-x', 'Sure, sending PIX now.'))
 
     expect(result).toBeNull()
@@ -79,7 +89,7 @@ describe('SocialEngineeringAgent.evaluate', () => {
     mockCompletion.mockReturnValueOnce(
       fakeCompletionRun(JSON.stringify({ pattern: 'off_channel_migration', riskScore: 72, reasoning: 'Asked to continue on WhatsApp.' }))
     )
-    const agent = new SocialEngineeringAgent(new QvacAgentProvider())
+    const agent = new SocialEngineeringAgent(new QvacAgentProvider(), fakeTradeRepo())
     const result = await agent.evaluate(messageEntry('trade-x', "Let's finish this on WhatsApp instead", 'evt-42'))
 
     expect(result).toEqual({
@@ -96,7 +106,7 @@ describe('SocialEngineeringAgent.evaluate', () => {
     mockCompletion.mockReturnValueOnce(
       fakeCompletionRun(JSON.stringify({ pattern: 'payment_instruction_change', riskScore: 55, reasoning: 'New PIX key given mid-trade.' }))
     )
-    const agent = new SocialEngineeringAgent(new QvacAgentProvider())
+    const agent = new SocialEngineeringAgent(new QvacAgentProvider(), fakeTradeRepo())
     await agent.evaluate(messageEntry('trade-x', 'Actually send to this new PIX key instead'))
 
     expect(mockCompletion).toHaveBeenCalledWith(
@@ -121,7 +131,7 @@ describe('SocialEngineeringAgent.evaluate', () => {
     }
     mockCompletion.mockReturnValueOnce(fakeCompletionRun(JSON.stringify({ pattern: 'none', riskScore: 0, reasoning: 'ok' })))
 
-    const agent = new SocialEngineeringAgent(new QvacAgentProvider())
+    const agent = new SocialEngineeringAgent(new QvacAgentProvider(), fakeTradeRepo())
     await agent.evaluate(messageEntry(tradeId, 'msg 3', 'evt-current'))
 
     expect(mockCompletion).toHaveBeenCalledWith(
@@ -131,5 +141,64 @@ describe('SocialEngineeringAgent.evaluate', () => {
         ]),
       })
     )
+  })
+
+  describe('unexpected_flow_deviation (real trade-state ground truth)', () => {
+    it('passes the real trade/escrow status into the prompt when a trade is found', async () => {
+      const repo = fakeTradeRepo({
+        findByIdWithEscrow: jest.fn().mockResolvedValue({ status: 'ACTIVE', escrow: { status: 'FUNDS_LOCKED' } }),
+      })
+      mockCompletion.mockReturnValueOnce(fakeCompletionRun(JSON.stringify({ pattern: 'none', riskScore: 0, reasoning: 'ok' })))
+
+      const agent = new SocialEngineeringAgent(new QvacAgentProvider(), repo)
+      await agent.evaluate(messageEntry('trade-x', 'Já paguei, pode liberar!'))
+
+      expect(mockCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          history: expect.arrayContaining([
+            expect.objectContaining({
+              role: 'user',
+              content: expect.stringContaining('Trade status ACTIVE; escrow status: funds locked, payment not yet marked as sent'),
+            }),
+          ]),
+        })
+      )
+    })
+
+    it('returns an unexpected_flow_deviation RiskSignal when QVAC detects one', async () => {
+      const repo = fakeTradeRepo({
+        findByIdWithEscrow: jest.fn().mockResolvedValue({ status: 'ACTIVE', escrow: { status: 'FUNDS_LOCKED' } }),
+      })
+      mockCompletion.mockReturnValueOnce(
+        fakeCompletionRun(JSON.stringify({
+          pattern: 'unexpected_flow_deviation',
+          riskScore: 80,
+          reasoning: 'Buyer claims payment sent, but escrow is still funds-locked with no confirmation.',
+        }))
+      )
+
+      const agent = new SocialEngineeringAgent(new QvacAgentProvider(), repo)
+      const result = await agent.evaluate(messageEntry('trade-x', 'Já paguei, pode liberar!', 'evt-77'))
+
+      expect(result).toEqual({
+        correlationId: 'trade-x',
+        pattern: 'unexpected_flow_deviation',
+        riskScore: 80,
+        reasoning: 'Buyer claims payment sent, but escrow is still funds-locked with no confirmation.',
+        detectedAt: expect.any(String),
+        sourceEventId: 'evt-77',
+      })
+    })
+
+    it('sends no trade-state line when the trade cannot be found', async () => {
+      mockCompletion.mockReturnValueOnce(fakeCompletionRun(JSON.stringify({ pattern: 'none', riskScore: 0, reasoning: 'ok' })))
+
+      const agent = new SocialEngineeringAgent(new QvacAgentProvider(), fakeTradeRepo())
+      await agent.evaluate(messageEntry('trade-unknown', 'Já paguei, pode liberar!'))
+
+      const [call] = mockCompletion.mock.calls
+      const userMessage = call[0].history.find((m: { role: string }) => m.role === 'user').content
+      expect(userMessage).not.toContain('Trade status')
+    })
   })
 })

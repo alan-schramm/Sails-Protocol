@@ -194,12 +194,16 @@ const SELLER_OFFER_SYSTEM_PROMPT =
 // ─── Social Engineering risk assessment (RFC-007 D7, real as of RFC-017,
 // rfcs/RFC-017-timeline-and-social-engineering-agent.md) — detection only,
 // called by social-engineering-agent.ts against real chat messages
-// (openp2p.message.sent). Two of D5's three named patterns are detectable
-// from message text alone; `unexpected_flow_deviation` needs real
-// state-machine awareness this pass doesn't build — see that RFC's own
-// scope note. ───────────────────────────────────────────────────────────────
+// (openp2p.message.sent). All three of D7's named patterns are now
+// detected: `unexpected_flow_deviation` closed 2026-08-09
+// (RFC-017 Alternatives Considered #5's own deferred scope) — it needs
+// the trade's REAL current status as ground truth, not something a
+// message-only classifier can judge alone, so `tradeStateContext` below
+// is optional and this pattern is only ever flagged when the caller
+// (social-engineering-agent.ts) actually has real Trade/Escrow status to
+// supply. ───────────────────────────────────────────────────────────────
 export interface SocialEngineeringSignal {
-  pattern: 'off_channel_migration' | 'payment_instruction_change' | 'none'
+  pattern: 'off_channel_migration' | 'payment_instruction_change' | 'unexpected_flow_deviation' | 'none'
   riskScore: number // 0-100
   reasoning: string
 }
@@ -207,7 +211,7 @@ export interface SocialEngineeringSignal {
 const SOCIAL_ENGINEERING_SCHEMA = {
   type: 'object',
   properties: {
-    pattern: { type: 'string', enum: ['off_channel_migration', 'payment_instruction_change', 'none'] },
+    pattern: { type: 'string', enum: ['off_channel_migration', 'payment_instruction_change', 'unexpected_flow_deviation', 'none'] },
     riskScore: { type: 'number' },
     reasoning: { type: 'string' },
   },
@@ -216,15 +220,25 @@ const SOCIAL_ENGINEERING_SCHEMA = {
 
 const SOCIAL_ENGINEERING_SYSTEM_PROMPT =
   'You watch chat messages between a P2P crypto trade buyer and seller for ' +
-  'two specific scam patterns. off_channel_migration: someone asks to move ' +
+  'three specific scam patterns. off_channel_migration: someone asks to move ' +
   'the conversation to WhatsApp, Telegram, phone, email, or anywhere ' +
   'outside this chat. payment_instruction_change: payment details (a PIX ' +
   'key, bank account, or wallet address) are given or changed in a way ' +
   'that looks inconsistent with what was likely already agreed earlier in ' +
-  'the trade. If neither applies, reply "none" with riskScore 0. Score ' +
-  '0-100 for how confident you are the message shows one of these two ' +
-  'patterns. Reply only with the requested JSON, one short plain sentence ' +
-  'for "reasoning".'
+  'the trade. unexpected_flow_deviation: the message claims something about ' +
+  'the trade’s progress (payment sent, payment received, funds released, ' +
+  'ready to cancel) that contradicts the real trade status given to you ' +
+  'below — for example, claiming payment was already sent while the real ' +
+  'status shows no such confirmation yet, or asking to skip a step the real ' +
+  'flow requires. Only flag this pattern when the real status actually ' +
+  'contradicts the claim; a message that matches the real status, or one ' +
+  'that makes no claim about trade progress at all, is not this pattern. If ' +
+  'no real trade status is given below, never flag unexpected_flow_deviation ' +
+  '— you have nothing real to compare the message against. If none of ' +
+  'the three patterns applies, reply "none" with riskScore 0. Score 0-100 ' +
+  'for how confident you are the message shows one of these three patterns. ' +
+  'Reply only with the requested JSON, one short plain sentence for ' +
+  '"reasoning".'
 
 // ─── Dispute evidence assessment (RFC-021 D8) — QVAC's real first-pass
 // attempt at resolving a dispute automatically, before/alongside a human
@@ -399,12 +413,19 @@ Respond with your risk assessment as JSON matching the requested schema.`
   async assessSocialEngineeringRisk(
     message: string,
     recentContext: string[] = [],
+    tradeStateContext?: string,
     onProgress?: (p: unknown) => void
   ): Promise<SocialEngineeringSignal> {
     const contextBlock = recentContext.length
       ? `Recent prior messages in this trade, oldest first:\n${recentContext.map((m) => `- ${m}`).join('\n')}\n\n`
       : ''
-    const prompt = `${contextBlock}Message to evaluate: "${message}"
+    // Real trade/escrow status, not the message's own claim about it —
+    // the ground truth unexpected_flow_deviation needs to be detected at
+    // all. Omitted entirely (not "unknown") when the caller has none, so
+    // the prompt's own instruction above ("never flag ... if no real
+    // trade status is given") has something concrete to react to.
+    const stateBlock = tradeStateContext ? `Real trade status: ${tradeStateContext}\n\n` : ''
+    const prompt = `${stateBlock}${contextBlock}Message to evaluate: "${message}"
 
 Respond with your assessment as JSON matching the requested schema.`
 

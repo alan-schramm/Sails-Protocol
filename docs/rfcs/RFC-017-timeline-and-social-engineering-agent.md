@@ -91,13 +91,26 @@ implementation:
 5. **Detect all three of D7's named patterns
    (`off_channel_migration`/`payment_instruction_change`/
    `unexpected_flow_deviation`) in this pass.** Rejected for
-   `unexpected_flow_deviation` specifically — the first two are readable
-   from message text alone, which QVAC can classify the same way
-   `assessIntentRisk()` already does. Flow deviation needs real
-   awareness of what's "expected" for a given trade's current state (a
-   state-machine-aware component, not a per-message text classifier) —
-   meaningfully larger scope, named explicitly as not built rather than
-   faked with a pattern QVAC can't actually detect from a single message.
+   `unexpected_flow_deviation` specifically at RFC-017's original
+   writing — the first two are readable from message text alone, which
+   QVAC can classify the same way `assessIntentRisk()` already does.
+   Flow deviation needs real awareness of what's "expected" for a given
+   trade's current state (a state-machine-aware component, not a
+   per-message text classifier) — meaningfully larger scope, named
+   explicitly as not built rather than faked with a pattern QVAC can't
+   actually detect from a single message.
+   **Implemented 2026-08-09** — the "state-machine-aware component" this
+   item deferred turned out to be small: `SocialEngineeringAgent.evaluate()`
+   now fetches the trade's real status via `TradeRepository.findByIdWithEscrow()`
+   (already built for `trade.service.ts`/`reconciliation.service.ts`, no
+   new infrastructure needed) and passes a short factual summary
+   (`Trade status ACTIVE; escrow status: funds locked, payment not yet
+   marked as sent...`) into `assessSocialEngineeringRisk()`'s prompt as
+   ground truth alongside the message. The model is explicitly told to
+   only flag a real contradiction between the message and that ground
+   truth, and never to flag this pattern when no real trade status was
+   supplied — closes this deferral without inventing a heuristic QVAC
+   would otherwise have to guess at.
 6. **Change `SailsEventBus.on()`'s handler signature to pass the full
    `DurableEvent`, so `SocialEngineeringAgent.evaluate()` could use the
    existing `on()` call sites.** Rejected — would touch every handler in
@@ -211,11 +224,13 @@ same category as any other module event in `SailsEventMap`.
   no code path in this RFC locks funds, cancels a trade, or blocks a
   message from sending.
 - **Honesty about scope**, the same discipline every prior RFC in this
-  index follows: `unexpected_flow_deviation` is named as explicitly not
-  detected in this pass (Alternatives Considered #5), and Policy Engine
-  integration is named as explicitly deferred (Alternatives Considered
-  #4) — neither is silently implied as covered by "Social Engineering
-  Agent, built."
+  index follows: `unexpected_flow_deviation` was named as explicitly not
+  detected in this pass (Alternatives Considered #5), closed for real
+  2026-08-09 (see that item's own update) — all three D7 patterns are
+  detected as of that date. Policy Engine integration is still named as
+  explicitly deferred (Alternatives Considered #4), unaffected by this
+  change — neither is silently implied as covered by "Social Engineering
+  Agent, built" beyond what's actually true today.
 
 ## Specification
 
