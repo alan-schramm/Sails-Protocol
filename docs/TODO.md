@@ -2483,6 +2483,25 @@ tests/reconciliation-poisoning.test.ts` — 2/2 suites, 8/8 tests.
 
 ---
 
+## 30. Qwen-sourced review, Fase 2 round 2 (2026-08-10) — network topology, infra security, custody evolution
+
+Same filter as §29: does this block a live demo with a partner wallet?
+If real and not blocking, registered as roadmap here, not implemented
+unnecessarily.
+
+| # | Recommendation | Result |
+|---|---|---|
+| 1 | Resolve the custody gap: Account Abstraction (ERC-4337 + Smart Contract Wallets) for EVM, MuSig2/Taproot for Bitcoin/Liquid — protocol should orchestrate partial-signature collection, not depend on a server seed | **Substantially already done.** `SAFE_GUARD_EVM` (RFC-020) is real ERC-4337 Account Abstraction: real CREATE2 address prediction, real `UserOperation`/`userOpHash` construction, real 2-of-3 signature aggregation (buyer, seller, KMS co-signer — the one server-held key lives in AWS KMS, never in app memory/env), real bundler submission. Bitcoin's `MultisigProvider` is already 2-of-3 client-held-key multisig (not server-custodial) — but P2WSH, not MuSig2/Taproot; that upgrade is already registered in RFC-020 itself as a documented future target, not newly discovered here. **Real remaining gap, not architectural:** none of this has been exercised against live infrastructure yet (funded testnet account, live bundler) — that's task #44/#45 already tracked above, not a new item. |
+| 2 | P2P resilience in restrictive networks (corporate NAT/CGNAT) — evaluate TURN relays or WebRTC fallback beyond HyperDHT | **Goal already met, by a different real mechanism.** `FallbackTransportProvider` races Pears against a 5s timeout and falls back to a real WebSocket relay through the Sails server itself — same problem (direct P2P blocked by restrictive NAT) solved without TURN or WebRTC specifically. Registered as roadmap: evaluating TURN/WebRTC as an alternative to the current self-hosted relay (different trust/scaling profile — all relayed traffic passes through the Sails server today, not a dedicated third-party relay) is a real, undecided architecture question, not implemented this pass. |
+| 3 | Bulkheading: a QVAC or Pears failure must not block the Intent Engine's main state machine; use async event queues (RedisStreamsEventStore) | **The isolation itself is already real; the Redis part isn't active.** Verified directly: `intent-engine.ts` never calls QVAC/Pears synchronously, and `event-store.ts`'s `subscribe()` catches every handler's rejection without propagating it — a downstream QVAC/Pears-consuming handler failing genuinely cannot block or crash the Intent Engine's own state transitions, today, already. Real, precise gap: `RedisStreamsEventStore` (task #56) is built and real, but `event-bus.ts`'s singleton still defaults to `InMemoryEventStore` — events don't survive a process restart yet. Registered as roadmap (wiring + config to activate Redis Streams as the default backend), not a demo blocker since the isolation property itself doesn't depend on which store is active. |
+
+**Verification:** read directly (`intent-engine.ts`, `event-bus.ts`,
+`event-store.ts`, `transport-provider.ts`, `safe-guard-evm.provider.ts`,
+`multisig.provider.ts`, RFC-020) — no code changed this round, findings
+only.
+
+---
+
 ## How to Use This List
 
 Work top to bottom by section number unless a specific business priority
