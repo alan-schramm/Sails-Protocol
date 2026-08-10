@@ -21,6 +21,7 @@ export {
   SailsAuthError,
   SailsForbiddenError,
   SailsInternalError,
+  SailsRateLimitError,
   SailsTransportError,
   SailsConfigError,
   SailsNotImplementedError,

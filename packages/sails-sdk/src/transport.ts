@@ -43,8 +43,15 @@ export interface SailsTransportOptions {
 // retrying (bad gateway / unavailable / timeout at a proxy/LB) — a real
 // 4xx or an ordinary 500 means the request was understood and rejected
 // (or the server errored on that specific input), and retrying it
-// identically will not change the outcome.
-const RETRYABLE_STATUS_CODES = new Set([502, 503, 504])
+// identically will not change the outcome. 429 (DX audit, 2026-08-10 —
+// previously not in this set at all, so a rate-limited GET surfaced as
+// an immediate, unretried error) is the one real exception to that rule:
+// @fastify/rate-limit's whole point is "this specific request is fine,
+// just wait" — retrying identically is exactly the right move once the
+// window resets. Below, a 429 response's real `Retry-After` header (sent
+// by @fastify/rate-limit by default) is used for the wait instead of the
+// generic exponential backoff, when present.
+const RETRYABLE_STATUS_CODES = new Set([429, 502, 503, 504])
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -141,13 +148,23 @@ export class SailsTransport {
     const maxAttempts = method === 'GET' ? this.maxRetries + 1 : 1
 
     let lastError: unknown
+    let retryAfterMs: number | undefined
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (attempt > 0) {
-        // Exponential backoff with jitter (±20%) — avoids every client
-        // retrying in lockstep against a server that's already struggling.
-        const baseDelay = this.retryDelayMs * 2 ** (attempt - 1)
-        const jitter = baseDelay * 0.2 * (Math.random() * 2 - 1)
-        await sleep(Math.max(0, baseDelay + jitter))
+        if (retryAfterMs !== undefined) {
+          // A prior attempt hit 429 with a real Retry-After header — use
+          // the server's own number instead of guessing via exponential
+          // backoff, then fall back to the normal schedule if it happens
+          // again without one.
+          await sleep(retryAfterMs)
+          retryAfterMs = undefined
+        } else {
+          // Exponential backoff with jitter (±20%) — avoids every client
+          // retrying in lockstep against a server that's already struggling.
+          const baseDelay = this.retryDelayMs * 2 ** (attempt - 1)
+          const jitter = baseDelay * 0.2 * (Math.random() * 2 - 1)
+          await sleep(Math.max(0, baseDelay + jitter))
+        }
       }
 
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined
@@ -176,6 +193,11 @@ export class SailsTransport {
 
       if (!response.ok && RETRYABLE_STATUS_CODES.has(response.status) && attempt < maxAttempts - 1) {
         lastError = new SailsTransportError(`${method} ${fullPath} returned a retryable status ${response.status}`)
+        if (response.status === 429) {
+          const retryAfterHeader = response.headers.get('retry-after')
+          const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN
+          retryAfterMs = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : undefined
+        }
         continue
       }
 
@@ -187,7 +209,7 @@ export class SailsTransport {
       }
 
       if (!response.ok || (json as { success?: boolean }).success === false) {
-        throw errorFromResponseBody(json as SailsErrorResponseBody)
+        throw errorFromResponseBody(json as SailsErrorResponseBody, response.status)
       }
 
       return (json as SailsApiEnvelope<T>).data

@@ -154,6 +154,22 @@ failure modes:
   silently corrupt state. This is resolved as of this handoff, but is a
   good example of how an architectural bug becomes a security issue in a
   multi-tenant P2P system.
+- **WebSocket auth reuses the full session token as a `?token=` query
+  parameter** (DX audit, 2026-08-10 — not previously written down
+  anywhere, including here). `chat.routes.ts`/`relay.routes.ts` can't use
+  `requireAuth`'s `Authorization` header check because a browser can't
+  set arbitrary headers on a WS upgrade request — `ws-auth.ts`'s
+  `resolveParticipantFromToken()` resolves the query param against the
+  *same* Redis session store `requireAuth` uses for every other route,
+  not a separate, scoped, short-lived token minted just for the socket.
+  Query strings can end up in server access logs, browser history, or a
+  `Referer` header — a token that leaks this way grants the same access
+  as a stolen `Authorization: Bearer` header would, not a narrower one.
+  Genuinely constrained by the browser API, not an oversight; the
+  disclosed gap is that the token reused here is full-privilege rather
+  than WS-scoped and short-lived. A real fix (a separate, single-use,
+  short-TTL token minted specifically for the WS handshake) is a design
+  decision, not implemented as part of this audit pass.
 
 ---
 

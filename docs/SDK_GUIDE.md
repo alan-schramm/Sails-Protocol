@@ -482,6 +482,28 @@ integrations exist in this repository — they don't.
 | Mobile SDKs | Kotlin/Swift | Whatever the host wallet supports | Consumer mobile wallets | 📋 Compatible in principle — `@sails/sdk` itself is JS/TS only (SDK_GUIDE.md section 6); a mobile wallet would bridge to it, not run it natively |
 | Custodial APIs | Any | Custodial assets | Fintechs, OTCs, banks | 📋 Compatible in principle — a custodial `WalletAdapter` would need its own `CapabilityGrant` constraints (RFC-013) marking custody, not modeled yet |
 
+## 4D. Retry, Timeout, and Rate Limiting (DX audit, 2026-08-10 — previously undocumented)
+
+`SailsTransport` (`transport.ts`) handles this once, for every module —
+callers never see raw `fetch`/`WebSocket` or write their own retry loop.
+
+- **Timeout**: every request gets a real `AbortController`-backed
+  timeout, `timeoutMs` (default 15000ms).
+- **Retry — GET only**: `POST`/`PATCH`/`DELETE` are never auto-retried
+  — this backend has no client-generated idempotency-key mechanism, so
+  a retried mutating call after a timeout can't be told apart from "the
+  first attempt actually succeeded, this is now a duplicate." `GET`
+  requests retry automatically (`maxRetries`, default 2) on `502`/`503`/
+  `504` (transient infra failures) and on **`429`** — using the real
+  `Retry-After` header the server's `@fastify/rate-limit` sends (see
+  `API_REFERENCE.md` §9's `RATE_LIMIT_EXCEEDED` row) when present,
+  falling back to exponential backoff with jitter otherwise.
+- **A `POST`/`PATCH`/`DELETE` that hits 429** is not retried
+  automatically (same rule as any other mutating request) — it throws a
+  `SailsRateLimitError` (`errors.ts`, `code: 'RATE_LIMIT_EXCEEDED'`,
+  `statusCode: 429`); `catch` it specifically (`instanceof SailsRateLimitError`)
+  to back off before your own retry.
+
 ## 5. Build Plan (roadmap-linked — see `ROADMAP.md` for exact timing)
 
 1. **Meses 1-3**: `@sails/protocol-spec` npm package published — just the

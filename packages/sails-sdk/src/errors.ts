@@ -65,6 +65,23 @@ export class SailsInternalError extends SailsError {
   }
 }
 
+// DX audit, 2026-08-10 — @fastify/rate-limit's real 429 response
+// (app.ts's setErrorHandler, API_REFERENCE.md §9) had no typed SDK
+// counterpart; it fell through to the generic SailsError fallback below,
+// which hardcoded statusCode 500 regardless of the real response —
+// callers had no way to tell a rate limit apart from a real server
+// error by inspecting the typed error. Note: SailsTransport (transport.ts)
+// already retries a GET request that hits 429 automatically (using the
+// real Retry-After header when present) — this class is what a caller
+// sees for a mutating request (POST/PATCH/DELETE never auto-retry) or
+// once GET's own retries are exhausted.
+export class SailsRateLimitError extends SailsError {
+  constructor(message: string) {
+    super(message, 'RATE_LIMIT_EXCEEDED', 429)
+    this.name = 'SailsRateLimitError'
+  }
+}
+
 // A server response wasn't the standard `{success:false, error, message,
 // details}` shape at all (network failure, non-Sails server, etc.) — kept
 // distinct from SailsInternalError (a real, well-formed 500 from a Sails
@@ -117,6 +134,7 @@ const ERROR_CODE_MAP: Record<string, new (message: string, details?: unknown[]) 
   AUTH_ERROR: SailsAuthError,
   FORBIDDEN: SailsForbiddenError,
   INTERNAL_ERROR: SailsInternalError,
+  RATE_LIMIT_EXCEEDED: SailsRateLimitError,
 }
 
 export interface SailsErrorResponseBody {
@@ -126,7 +144,16 @@ export interface SailsErrorResponseBody {
   details?: unknown[]
 }
 
-export function errorFromResponseBody(body: SailsErrorResponseBody): SailsError {
+// `statusCode` (DX audit, 2026-08-10 — previously not accepted here at
+// all) is the real HTTP status the response actually came back with.
+// Recognized codes below already hardcode the right statusCode on their
+// own class (mirroring the server's AppError hierarchy exactly, verified
+// against app.ts), so this param only matters for the generic fallback —
+// without it, an unrecognized code (e.g. a future server-side addition
+// this SDK hasn't been taught about yet) always reported statusCode 500
+// regardless of what actually happened, which is wrong for anything
+// that wasn't literally a 500.
+export function errorFromResponseBody(body: SailsErrorResponseBody, statusCode: number): SailsError {
   const ErrorClass = ERROR_CODE_MAP[body.error]
   if (ErrorClass === SailsValidationError) {
     return new SailsValidationError(body.message, body.details ?? [])
@@ -138,5 +165,5 @@ export function errorFromResponseBody(body: SailsErrorResponseBody): SailsError 
   // well-formed Sails error response, just not one of the known
   // AppError subclasses. Surfaced as-is rather than forced into the
   // wrong bucket.
-  return new SailsError(body.message, body.error, 500, body.details ?? [])
+  return new SailsError(body.message, body.error, statusCode, body.details ?? [])
 }
