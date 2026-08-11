@@ -27,7 +27,27 @@ until either a real publish happens or every workspace consumer's
 declared range is widened at the same time — not something to do
 silently as a side effect of tagging a release candidate.
 
-## [0.1.1] - 2026-08-11
+## [0.1.2] - 2026-08-11
+
+### Fixed
+- `custody/kms-signer.ts`'s lazy `import('@aws-sdk/client-kms')` is now
+  built inside a `Function` constructor body, making the specifier
+  genuinely invisible to every bundler's static analysis (the same
+  established trick real packages use for optional native addons, e.g.
+  `ws`'s bufferutil/utf-8-validate loading). This is a **correction to
+  0.1.1**, not just an addition — 0.1.1's `webpackIgnore`/
+  `turbopackIgnore` magic-comment fix solved Next.js/Turbopack but broke
+  a second real target the same day: Hermes (React Native/Metro) doesn't
+  parse a comment inside `import()` at all and hard-fails to bundle.
+  A follow-up attempt (hiding the specifier behind a plain `const`)
+  fixed Hermes's parser but Metro still statically resolved the import —
+  Metro does constant-folding on top-level string literals before its
+  import scan, unlike Turbopack/webpack. Confirmed green against both a
+  real `expo export --platform android` and `next build` this time, not
+  assumed from one bundler generalizing to the others. No API or
+  Node.js runtime behavior change in either release.
+
+## [0.1.1] - 2026-08-11 (superseded by 0.1.2 — see above)
 
 ### Fixed
 - `custody/kms-signer.ts`'s lazy `import('@aws-sdk/client-kms')` now
