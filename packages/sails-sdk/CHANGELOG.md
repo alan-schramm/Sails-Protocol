@@ -3,15 +3,16 @@
 All notable changes to `@satsails/p2p-trading-sdk` are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-**Note on versioning:** this package is still not published to any npm
-registry (confirmed via `npm view @satsails/p2p-trading-sdk` → 404, 2026-07-20).
-`v1.0.0-rc1` below is a **release candidate**, not a final `1.0.0` —
-by SemVer, `1.0.0-rc1` has *lower* precedence than `1.0.0` itself.
-`docs/API_STABLE.md`'s freeze commitment ("0.1 becomes 1.0 once this
-SDK has had real external usage") is not contradicted by tagging an
-RC: an RC is exactly "this is what we believe 1.0.0 will be, pending a
-real consumer proving it out" — the actual `1.0.0` tag still waits for
-that.
+**Note on versioning:** published to npm 2026-08-10 as
+`@satsails/p2p-trading-sdk@0.1.0` (public, under the `@satsails` org
+scope — corrected/updated 2026-08-11, superseding the "not published"
+note that used to sit here). `v1.0.0-rc1` below is a **release
+candidate**, not a final `1.0.0` — by SemVer, `1.0.0-rc1` has *lower*
+precedence than `1.0.0` itself. `docs/API_STABLE.md`'s freeze
+commitment ("0.1 becomes 1.0 once this SDK has had real external
+usage") is not contradicted by tagging an RC: an RC is exactly "this is
+what we believe 1.0.0 will be, pending a real consumer proving it out"
+— the actual `1.0.0` tag still waits for that.
 
 **A real gotcha found trying to bump `package.json`'s own `"version"`
 field to match** (`0.1.0` → `1.0.0-rc1`): `packages/sails-ui/package.json`
@@ -25,6 +26,19 @@ decoupled from `package.json`'s `"version"` field, which stays `0.1.0`
 until either a real publish happens or every workspace consumer's
 declared range is widened at the same time — not something to do
 silently as a side effect of tagging a release candidate.
+
+## [0.1.1] - 2026-08-11
+
+### Fixed
+- `custody/kms-signer.ts`'s lazy `import('@aws-sdk/client-kms')` now
+  carries `webpackIgnore`/`turbopackIgnore` magic comments. Found via
+  an actual standalone Next.js/Turbopack build of `0.1.0` pulled fresh
+  from npm (not `tsc`/`jest`, which both erase this to a plain runtime
+  call and never catch it): browser bundlers statically resolve every
+  `import()` at build time regardless of whether it's ever reached, so
+  any client-side consumer without `@aws-sdk/client-kms` installed hit
+  a hard build failure — even one that never instantiates
+  `SailsSignerService`. No API or Node.js runtime behavior change.
 
 ## [Unreleased]
 
