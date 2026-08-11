@@ -3,8 +3,8 @@
 [![CI](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-<!-- No npm version badge yet — @sails/sdk isn't published to any npm
-     registry (confirmed via `npm view @sails/sdk`, 404). Add one the
+<!-- No npm version badge yet — @satsails/p2p-trading-sdk isn't published to any npm
+     registry (confirmed via `npm view @satsails/p2p-trading-sdk`, 404). Add one the
      day it actually publishes; a badge pointing at a 404 is worse than
      no badge for a partner-facing README. -->
 
@@ -45,7 +45,7 @@ which action" lookup table. Everything below is the fuller picture.
 ```
 
 **Sails P2P Trading SDK** is the MVP's product name — the concrete,
-installable release of the Sails SDK package (`@sails/sdk`), scoped to
+installable release of the Sails SDK package (`@satsails/p2p-trading-sdk`), scoped to
 what's actually being built first: P2P trading. See
 `docs/PROJECT_CONTEXT.md` section 3 for why it's scoped that way instead
 of the full long-term Marketplace breadth.
@@ -142,8 +142,8 @@ examples/sails-integration-starter/  Next.js starter — a real app
                         standalone end-to-end protocol scripts
 
 packages/              npm workspaces
-├── sails-p2p-schemas/  @sails/p2p-schemas — types-only domain contracts
-├── sails-sdk/          @sails/sdk — the Sails P2P Trading SDK
+├── sails-p2p-schemas/  @satsails/p2p-schemas — types-only domain contracts
+├── sails-sdk/          @satsails/p2p-trading-sdk — the Sails P2P Trading SDK
 │                       (SDK_GUIDE.md). v0.1: Transport + Protocol SDK
 │                       layers (identity, reputation, liquidity, openp2p,
 │                       settlement, peers) are real, verified against
@@ -196,7 +196,7 @@ Below is a quick example demonstrating the core wallet methods provided by `Sail
 
 
 ```ts
-import { SailsClient, MockWalletAdapter } from '@sails/sdk';
+import { SailsClient, MockWalletAdapter } from '@satsails/p2p-trading-sdk';
 
 // MockWalletAdapter is for exactly this — a quick local run with no real
 // wallet. Swap it for your own WalletAdapter implementation in production.

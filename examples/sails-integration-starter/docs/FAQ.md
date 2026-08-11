@@ -1,6 +1,6 @@
 # FAQ
 
-## Is `@sails/sdk` on npm?
+## Is `@satsails/p2p-trading-sdk` on npm?
 
 No. It's a workspace package (`packages/sails-sdk`), not published to
 the public registry. That's why this starter lives *inside* the
@@ -69,7 +69,7 @@ none of the golden-path or dispute examples require it.
 ERC-20/ERC-721 type exists — see `docs/USE_CASES.md` for what that
 means for an NFT use case.
 
-## `npx tsc --noEmit` or the dev server can't find `@sails/sdk` — what's wrong?
+## `npx tsc --noEmit` or the dev server can't find `@satsails/p2p-trading-sdk` — what's wrong?
 
 You're almost certainly not running from inside the
 `sails-push-ready` monorepo, or haven't run `npm install` at its root

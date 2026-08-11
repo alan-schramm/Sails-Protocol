@@ -1,4 +1,4 @@
-import type { Trade, EscrowStatus } from '@sails/sdk'
+import type { Trade, EscrowStatus } from '@satsails/p2p-trading-sdk'
 import { TradeStatusBadge, EscrowStatusBadge } from './StatusBadge'
 
 export type TradeCardVariant = 'default' | 'compact' | 'detailed'
@@ -44,7 +44,7 @@ const cardBaseStyle: React.CSSProperties = {
  * asked for an "AllStates" story covering 8 — TradeStatus is 5 real
  * values, EscrowStatus is 6; see .storybook stories for the real 11
  * combined states this card can actually render, confirmed against
- * @sails/sdk's real exported types before writing this).
+ * @satsails/p2p-trading-sdk's real exported types before writing this).
  */
 export function TradeCard({ trade, escrowStatus, viewerParticipantId, variant = 'default', onClick, className, style }: TradeCardProps) {
   const isInteractive = Boolean(onClick)

@@ -1,4 +1,4 @@
-# @sails/p2p-schemas
+# @satsails/p2p-schemas
 
 Domain contract layer between Sails Core (the generic coordination
 protocol) and any P2P trading SDK/wallet integration — the shared
@@ -11,21 +11,21 @@ reference implementation.
 ## Installation
 
 ```bash
-npm install @sails/p2p-schemas
+npm install @satsails/p2p-schemas
 ```
 
 ## Usage
 
 ```ts
-import type { OfferSchema, TradeSchema, DisputeSchema } from '@sails/p2p-schemas'
-import { toOfferSchema, deriveTradeState } from '@sails/p2p-schemas'
+import type { OfferSchema, TradeSchema, DisputeSchema } from '@satsails/p2p-schemas'
+import { toOfferSchema, deriveTradeState } from '@satsails/p2p-schemas'
 ```
 
 - `offer.ts` — `OfferSchema`, `OfferRecord`, `toOfferSchema()`
 - `trade.ts` — `TradeSchema`, `TradeState`, `deriveTradeState()`
 - `dispute.ts` — `DisputeSchema`, `DisputeStatus`, `DisputeRuling`, `EvidenceDescriptor`
 
-See [@sails/sdk](../sails-sdk) for the full client that builds on these
+See [@satsails/p2p-trading-sdk](../sails-sdk) for the full client that builds on these
 contracts, and the root [README.md](../../README.md) for the protocol
 overview.
 

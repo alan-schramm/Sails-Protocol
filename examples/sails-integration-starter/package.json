@@ -2,7 +2,7 @@
   "name": "@sails/example-integration-starter",
   "version": "0.1.0",
   "private": true,
-  "description": "Fase 6 — Integration Playbook: a real, working Next.js starter for integrating @sails/sdk, plus two standalone runnable golden-path scripts. Workspace-linked (not published standalone) — @sails/sdk is not on the public npm registry yet, only exists inside this monorepo. See README.md for the real quick start.",
+  "description": "Fase 6 — Integration Playbook: a real, working Next.js starter for integrating @satsails/p2p-trading-sdk, plus two standalone runnable golden-path scripts. Workspace-linked (not published standalone) — @satsails/p2p-trading-sdk is not on the public npm registry yet, only exists inside this monorepo. See README.md for the real quick start.",
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build",
@@ -11,8 +11,8 @@
     "example:escrow-with-arbitration": "ts-node --transpile-only examples/escrow-with-arbitration.ts"
   },
   "dependencies": {
-    "@sails/sdk": "^0.1.0",
-    "@sails/sdk-react": "^0.1.0",
+    "@satsails/p2p-trading-sdk": "^0.1.0",
+    "@satsails/sdk-react": "^0.1.0",
     "@tanstack/react-query": "^5.90.5",
     "next": "^16.2.12",
     "react": "^19.2.7",

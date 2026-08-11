@@ -7,14 +7,14 @@ source in this monorepo, not aspirational.
 
 ```
 Next.js app (this starter)
-  └─ @sails/sdk-react   — hooks/components (SailsProvider, useSailsTrade, TradeCard, ...)
-       └─ @sails/sdk    — SailsClient (identity/liquidity/openp2p/settlement/reputation/peers)
+  └─ @satsails/sdk-react   — hooks/components (SailsProvider, useSailsTrade, TradeCard, ...)
+       └─ @satsails/p2p-trading-sdk    — SailsClient (identity/liquidity/openp2p/settlement/reputation/peers)
             └─ fetch (HTTP) + WebSocket
                  └─ Sails node (src/main.ts) — Fastify routes, one module per protocol primitive
                       └─ Postgres (Prisma) + Redis (sessions, challenges, pub/sub)
 ```
 
-`@sails/sdk` is the only thing that talks to the network. `@sails/sdk-react`
+`@satsails/p2p-trading-sdk` is the only thing that talks to the network. `@satsails/sdk-react`
 is a thin React layer on top of it (TanStack Query for caching/mutations),
 and this starter's own `src/sails-integration/` files are a thin layer on
 top of *that* (a lazy client singleton, a couple of typed helpers) — no
@@ -87,6 +87,6 @@ would need a fabricated adapter — not done here.
   `ts-node --transpile-only`, matching `examples/simple-wallet`'s own
   precedent.
 - No state management library beyond TanStack Query, already pulled in
-  by `@sails/sdk-react`.
+  by `@satsails/sdk-react`.
 - No custom WebSocket reconnect/backoff logic — `openp2p.chat()`'s
   `WebSocketChannel` is used as-is.

@@ -1,7 +1,7 @@
 # SDK_GUIDE.md
 ### Sails Protocol — Engineering Handoff · Document 5 of 20
 
-> **Status: 🟢 v0.1 real, partial** *(2026-07-17)*. `@sails/sdk`
+> **Status: 🟢 v0.1 real, partial** *(2026-07-17)*. `@satsails/p2p-trading-sdk`
 > (`packages/sails-sdk`) now exists as a real npm workspace package —
 > this document is no longer purely aspirational, it is the spec a real
 > implementation is checked against. `SailsClient`'s Protocol SDK layer
@@ -74,7 +74,7 @@ an integrator learning 5 different module APIs and their event conventions,
 they install one npm package and get a single typed client.
 
 ```bash
-npm install @sails/sdk
+npm install @satsails/p2p-trading-sdk
 ```
 
 The SDK adds **no new business logic** — it is a thin, typed wrapper around
@@ -384,7 +384,7 @@ are not redefined here.
 ## 4. Expected Usage (what "done" looks like)
 
 ```typescript
-import { SailsClient } from "@sails/sdk"
+import { SailsClient } from "@satsails/p2p-trading-sdk"
 
 const sails = new SailsClient({
   baseUrl: "http://localhost:3000",
@@ -479,7 +479,7 @@ integrations exist in this repository — they don't.
 | BDK (Bitcoin Dev Kit) | Rust | Bitcoin on-chain | Security-focused/multisig wallets | 📋 Compatible in principle — no `WalletAdapter` implementation exists yet |
 | LDK (Lightning Dev Kit) | Rust/C++ | Bitcoin Lightning | Instant/micro payments | 📋 Compatible in principle — Lightning would be exposed as a `WalletAdapter`-declared capability, not built |
 | EVM wallet SDKs | TypeScript/Solidity | ERC-20 tokens | Web3/DApp wallets | 📋 Compatible in principle — `WalletAdapter`'s `asset`/`signTransaction` are already chain-agnostic, no EVM-specific adapter built beyond the WDK one above |
-| Mobile SDKs | Kotlin/Swift | Whatever the host wallet supports | Consumer mobile wallets | 📋 Compatible in principle — `@sails/sdk` itself is JS/TS only (SDK_GUIDE.md section 6); a mobile wallet would bridge to it, not run it natively |
+| Mobile SDKs | Kotlin/Swift | Whatever the host wallet supports | Consumer mobile wallets | 📋 Compatible in principle — `@satsails/p2p-trading-sdk` itself is JS/TS only (SDK_GUIDE.md section 6); a mobile wallet would bridge to it, not run it natively |
 | Custodial APIs | Any | Custodial assets | Fintechs, OTCs, banks | 📋 Compatible in principle — a custodial `WalletAdapter` would need its own `CapabilityGrant` constraints (RFC-013) marking custody, not modeled yet |
 
 ## 4D. Retry, Timeout, and Rate Limiting (DX audit, 2026-08-10 — previously undocumented)
@@ -510,9 +510,9 @@ callers never see raw `fetch`/`WebSocket` or write their own retry loop.
    types and interfaces above, zero implementation. **Still not started**
    — `packages/sails-sdk/src/types.ts` currently defines its own response
    types locally (that file's own header explains why: reconciling them
-   with `@sails/p2p-schemas`'s differently-shaped `OfferSchema` is real,
+   with `@satsails/p2p-schemas`'s differently-shaped `OfferSchema` is real,
    separate follow-up work, not done silently as part of v0.1).
-2. **Meses 4-6**: `@sails/sdk` v1.0 — a real HTTP/WebSocket client
+2. **Meses 4-6**: `@satsails/p2p-trading-sdk` v1.0 — a real HTTP/WebSocket client
    implementing `SailsClient` against the namespaced `/v1/{module}/` API
    described in `API_REFERENCE.md`. **v0.1 landed 2026-07-17**, ahead of
    this doc's own roadmap timing — Transport + Protocol SDK layers are

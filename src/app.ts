@@ -104,6 +104,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   // default — a deployment behind a reverse proxy needs Fastify's own
   // `trustProxy` option set separately before that IP reflects the real
   // client, not the proxy.
+  //
+  // package.json pins @fastify/rate-limit to exactly 11.1.0 (not a
+  // caret range) — 11.2.0's normalizeIP() throws
+  // `TypeError: Cannot read properties of undefined (reading 'toLowerCase')`
+  // whenever request.ip is undefined, which real WebSocket upgrades under
+  // Fastify's own test-injection harness (`app.injectWS()`) hit every
+  // time, turning the whole handshake into a 500 (confirmed via a real
+  // clean install + full suite run, 2026-08-10 — not assumed). Bump only
+  // after confirming upstream fixed it.
   await app.register(rateLimit, {
     global: true,
     max: config.rateLimit.max,

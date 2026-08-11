@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — WalletAdapter (rfcs/RFC-013-capability-registry-and-wallet-adapter.md)
+ * @satsails/p2p-trading-sdk — WalletAdapter (rfcs/RFC-013-capability-registry-and-wallet-adapter.md)
  *
  * Lets a wallet plug its own signing/balance/address logic into this
  * SDK instead of the SDK being absent one entirely, which v0.1 was

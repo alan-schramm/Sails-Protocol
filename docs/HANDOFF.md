@@ -133,10 +133,10 @@ each one actually does in this codebase).
    (`DATABASE.md`, `common/types`); what's actually missing is
    `modules/open-proof/proof.service.ts` — no `assertClaim()`/
    `submitProof()`/`verify()` service logic and zero routes. This is
-   what's blocking `submitProof()`/`dispute()` in `@sails/sdk`'s Intent
+   what's blocking `submitProof()`/`dispute()` in `@satsails/p2p-trading-sdk`'s Intent
    facade (currently throw `SailsNotImplementedError`, see
    `intent-facade.ts`), and real evidence capture for disputes.
-4. **`@sails/sdk`'s Intent facade doesn't consume the Intent→Trade/Offer
+4. **`@satsails/p2p-trading-sdk`'s Intent facade doesn't consume the Intent→Trade/Offer
    link RFC-018 built — corrected (2026-07-20), narrower than this item
    used to claim.** RFC-018 (all 3 phases, done) gave `Trade`/`Offer` a
    real, populated `intentId` FK — the server-side data link
@@ -227,7 +227,7 @@ stale the way section 1's old "no reachable Postgres/Redis" claim did.
 
 | Item | Status |
 |---|---|
-| **A route resolving `intentId → Trade/Escrow`, plus wiring `@sails/sdk`'s `dispute()` to it** | **Done (2026-07-20).** `GET /v1/openp2p/trades/by-intent/:intentId` + `trade.service.ts`'s `getTradeByIntentId()`; `intent-facade.ts`'s `dispute(intentId, reason)` now really resolves the Trade, gets its `escrowId`, and raises a real `Dispute` — same route `settlement.dispute()` uses. **Found while building this, corrected in the same pass:** `negotiate()`/`releaseAsset()` were NOT just missing this same route — each has its own, different real blocker, discovered only by checking `SDK_GUIDE.md`'s exact canonical signatures instead of assuming they'd fall to the same fix. `negotiate(intentId, event): Promise<void>` can't represent `openp2p.chat(tradeId)`'s real shape (a persistent `WebSocketChannel`, not a fire-and-forget call). `releaseAsset(intentId): Promise<Settlement>` has no destination-address parameter, but the one real release route requires `toAddress` with no default — a gap in `SDK_GUIDE.md`'s own canonical signature, not a missing route. Both left throwing `SailsNotImplementedError`, with corrected messages — forcing either into "working" would mean silently diverging from the documented contract, which this project's own discipline treats as worse than an honest not-yet. `npm run build` clean, `npm test` 223/223. |
+| **A route resolving `intentId → Trade/Escrow`, plus wiring `@satsails/p2p-trading-sdk`'s `dispute()` to it** | **Done (2026-07-20).** `GET /v1/openp2p/trades/by-intent/:intentId` + `trade.service.ts`'s `getTradeByIntentId()`; `intent-facade.ts`'s `dispute(intentId, reason)` now really resolves the Trade, gets its `escrowId`, and raises a real `Dispute` — same route `settlement.dispute()` uses. **Found while building this, corrected in the same pass:** `negotiate()`/`releaseAsset()` were NOT just missing this same route — each has its own, different real blocker, discovered only by checking `SDK_GUIDE.md`'s exact canonical signatures instead of assuming they'd fall to the same fix. `negotiate(intentId, event): Promise<void>` can't represent `openp2p.chat(tradeId)`'s real shape (a persistent `WebSocketChannel`, not a fire-and-forget call). `releaseAsset(intentId): Promise<Settlement>` has no destination-address parameter, but the one real release route requires `toAddress` with no default — a gap in `SDK_GUIDE.md`'s own canonical signature, not a missing route. Both left throwing `SailsNotImplementedError`, with corrected messages — forcing either into "working" would mean silently diverging from the documented contract, which this project's own discipline treats as worse than an honest not-yet. `npm run build` clean, `npm test` 223/223. |
 | **`RedisStreamsEventStore`** (RFC-010's own Reference Implementation Plan: `XADD`/`XGROUP`/`XREADGROUP`/`XACK`) | Not yet attempted. Previously blocked on "no reachable Redis to integration-test against" — no longer true, real local Redis runs in this environment (§18 above). A first pass without `XCLAIM`-based crash recovery (the RFC's own stated prerequisite before this becomes Satsails Wallet's *active* store) would be real, honestly-scoped progress, matching the same disclosure pattern `WdkSettlementProvider` already uses. Flagged as the next reasonable candidate — not started without confirmation given its size (a consumer-group polling loop, not a small tweak). |
 | **`MultisigProvider`** (real 2-of-3 Bitcoin escrow, `TODO.md` §4) | **Done (2026-07-27).** Confirms this table's own thesis — genuine address/script/PSBT construction and signing needs no live Bitcoin node, only a public block-explorer API for the final broadcast (mocked in tests, real crypto verified against the actual libraries). Custody-model and single-arbiter caveats disclosed in `multisig.provider.ts`'s header. Unlike the row directly above this one, `LightningHodlProvider`/`LiquidCovenantProvider` genuinely can't follow the same path — a HODL invoice or a Liquid covenant needs a live node/channel to mean anything, not just offline script construction. |
 
@@ -235,11 +235,11 @@ stale the way section 1's old "no reachable Postgres/Redis" claim did.
 
 **`PolicyEngine`'s governed-policy interface** (`get`/`propose`/`activate` — `FeePolicy`/`TrustPolicy`/`RoutingPolicy`, `core/policy-engine.ts`) stays a stub on purpose, not because anything blocks it technically. Closing it for real needs: a new Prisma-backed policies table (none exists), and a decision to wire `coordination-engine.ts`'s `decide()` into it — something RFC-012's own Alternatives Considered explicitly kept out of scope, and nothing in the current P2P Trading SDK golden path calls `policyEngine.get()` at all. Per `PROJECT_CONTEXT.md`'s priority filter ("does this directly improve building a P2P Financial Marketplace?"), this doesn't clear the bar today — it's a real architectural decision that deserves its own RFC when something in the real flow actually needs fee/trust/routing rules enforced, not a stub to remove opportunistically. Note this is a **different reason** than the "needs live infra" row above — worth keeping distinct so it isn't miscategorized as either "blocked" or "just do it."
 
-## 5. `@sails/sdk` v1.0.0-rc1 — release notes and the maintenance-mode rule (2026-07-20)
+## 5. `@satsails/p2p-trading-sdk` v1.0.0-rc1 — release notes and the maintenance-mode rule (2026-07-20)
 
 CTO's explicit closing instruction before a dev takes over ongoing
 maintenance: don't hand off "loose." This section is that organized
-transition for `@sails/sdk` specifically — everything else in this file
+transition for `@satsails/p2p-trading-sdk` specifically — everything else in this file
 still applies to the wider reference implementation.
 
 ### What "Release Candidate" means here, precisely
@@ -265,7 +265,7 @@ a real consumer to prove this out.
   `packages/sails-sdk/README`-equivalent context in this file and
   `PROJECT_CONTEXT.md`, `examples/simple-wallet/README.md`,
   `packages/sails-sdk/CHANGELOG.md`, generated API docs
-  (`npm run docs -w @sails/sdk` → `packages/sails-sdk/docs-api/`,
+  (`npm run docs -w @satsails/p2p-trading-sdk` → `packages/sails-sdk/docs-api/`,
   gitignored — regenerate locally, not committed).
 - ✅ **Tests green** — Jest 226/226, Playwright 3/3 (golden path + both
   concurrency scenarios), `examples/simple-wallet` dogfooding passes,
@@ -297,7 +297,7 @@ a real consumer to prove this out.
 
 ### The rule for whoever maintains this next
 
-> **`@sails/sdk` is in controlled maintenance and evolution. Do not
+> **`@satsails/p2p-trading-sdk` is in controlled maintenance and evolution. Do not
 > change anything in `docs/API_STABLE.md` without an RFC or explicit
 > approval. New changes should come from real integration needs — a
 > real wallet, a real bug, a real second consumer — not from new ideas

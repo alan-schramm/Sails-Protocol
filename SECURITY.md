@@ -11,8 +11,8 @@ If you discover a security vulnerability within Sails Protocol, please send an e
 This security policy applies to:
 
 - **Backend API** (`@sails/api`) — Fastify server, authentication, escrow logic
-- **SDK** (`@sails/sdk`) — Client library for interacting with the API
-- **React SDK** (`@sails/sdk-react`) — React hooks and components
+- **SDK** (`@satsails/p2p-trading-sdk`) — Client library for interacting with the API
+- **React SDK** (`@satsails/sdk-react`) — React hooks and components
 
 ## Out of Scope
 

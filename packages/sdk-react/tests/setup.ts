@@ -5,11 +5,11 @@
  * `Buffer.from(...) instanceof Uint8Array` false in this environment
  * (true under plain Node or real browser bundling), which breaks any
  * `value instanceof Uint8Array` validation — e.g. `@bitcoinerlab/
- * secp256k1`'s point/private-key checks, hit via `@sails/sdk`'s
+ * secp256k1`'s point/private-key checks, hit via `@satsails/p2p-trading-sdk`'s
  * escrow-key module — with opaque "Expected Private"/"ecc library
  * invalid" errors. Restore the global to the one Buffer actually
  * extends, before any other module (including mocks that pull in
- * @sails/sdk) loads.
+ * @satsails/p2p-trading-sdk) loads.
  */
 const nodeUint8Array = Object.getPrototypeOf(Buffer.prototype).constructor
 if (globalThis.Uint8Array !== nodeUint8Array) {

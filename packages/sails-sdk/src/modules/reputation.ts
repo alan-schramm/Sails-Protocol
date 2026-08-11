@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Sails OpenReputation module (API_REFERENCE.md section 6,
+ * @satsails/p2p-trading-sdk — Sails OpenReputation module (API_REFERENCE.md section 6,
  * verified against src/modules/open-reputation/reputation.routes.ts directly).
  *
  * RFC-007 note (also in the route doc, repeated here since it changes

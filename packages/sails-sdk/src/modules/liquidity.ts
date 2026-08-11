@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Sails OpenLiquidity module (verified against
+ * @satsails/p2p-trading-sdk — Sails OpenLiquidity module (verified against
  * src/modules/open-liquidity/liquidity.routes.ts directly).
  *
  * SDK_GUIDE.md marks this namespace "advanced/direct use" — the six-verb

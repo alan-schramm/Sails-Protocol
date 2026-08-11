@@ -1,7 +1,7 @@
-# @sails/sdk — Stable API (frozen as of v0.1)
+# @satsails/p2p-trading-sdk — Stable API (frozen as of v0.1)
 
 This is the CTO-directed SDK hardening commitment (docs/TODO.md §25/§26):
-now that `@sails/sdk` is the primary product surface, the goal is no
+now that `@satsails/p2p-trading-sdk` is the primary product surface, the goal is no
 longer "add more" — it's "make every name below safe for a wallet to
 build against and never have it move." Everything listed here is public,
 stable, real (not aspirational — verified against the actual source

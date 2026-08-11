@@ -34,7 +34,7 @@
 
 ## Months 4-6 — Developer Adoption (Commitment)
 
-- `@sails/sdk` v1.0 public — a real implementation of the `SailsClient`
+- `@satsails/p2p-trading-sdk` v1.0 public — a real implementation of the `SailsClient`
   interface in `SDK_GUIDE.md`
 - All 8 modules documented (spec + integration guide)
 - Public sandbox testnet, no signup required
@@ -117,7 +117,7 @@ the protocol.
 
 | Category | Metrics |
 |---|---|
-| **Developer Adoption** | ≥1,000 `@sails/sdk` npm downloads/month · ≥10 wallet integrations |
+| **Developer Adoption** | ≥1,000 `@satsails/p2p-trading-sdk` npm downloads/month · ≥10 wallet integrations |
 | **Protocol Activity** | ≥5,000 TradeIntents created · ≥$1M USD equivalent coordinated |
 | **Security** | Third-party audit complete · zero critical vulnerabilities in production |
 | **Ecosystem Health** | ≥100 active reputation profiles · <2% dispute rate |

@@ -83,7 +83,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send({ success: true, data: trade })
   })
 
-  // Real backing route for @sails/sdk's intent-facade.ts's dispute()
+  // Real backing route for @satsails/p2p-trading-sdk's intent-facade.ts's dispute()
   // (RFC-018's intentId link made this possible — see trade.service.ts's
   // own comment on getTradeByIntentId()). Registered as its own path
   // segment, not a query param on /trades/:id — no collision with that

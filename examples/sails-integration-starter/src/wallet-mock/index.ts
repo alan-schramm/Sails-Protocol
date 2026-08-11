@@ -1,5 +1,5 @@
 /**
- * Fase 6 — `MockWalletAdapter`, a real implementation of `@sails/sdk`'s
+ * Fase 6 — `MockWalletAdapter`, a real implementation of `@satsails/p2p-trading-sdk`'s
  * real `WalletAdapter` interface (`packages/sails-sdk/src/wallet-adapter.ts`,
  * confirmed by reading it directly before writing this):
  *
@@ -36,7 +36,7 @@
  * different ones (useful for simulating two distinct wallets in one
  * process, e.g. a buyer and a seller in `examples/p2p-bitcoin-trade.ts`).
  */
-import type { WalletAdapter, WalletCapabilitiesDeclaration } from '@sails/sdk'
+import type { WalletAdapter, WalletCapabilitiesDeclaration } from '@satsails/p2p-trading-sdk'
 
 export interface MockWalletAdapterConfig {
   /** Assets this mock wallet declares support for. Default: a small real AssetType sample. */

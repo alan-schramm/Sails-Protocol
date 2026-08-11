@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { TradeStatusBadge, EscrowStatusBadge } from '../../src/components/trade/StatusBadge'
-import type { TradeStatus, EscrowStatus } from '@sails/sdk'
+import type { TradeStatus, EscrowStatus } from '@satsails/p2p-trading-sdk'
 
 describe('TradeStatusBadge', () => {
   const cases: Array<[TradeStatus, string]> = [

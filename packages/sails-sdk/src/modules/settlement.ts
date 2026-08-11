@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Sails OpenSettlement module (verified against
+ * @satsails/p2p-trading-sdk — Sails OpenSettlement module (verified against
  * src/modules/open-settlement/settlement.routes.ts directly).
  *
  * SDK_GUIDE.md marks this namespace "advanced/direct use" — the six-verb
@@ -164,7 +164,7 @@ export class SailsSettlementModule {
     const type = input.type ?? recommendedEscrowType(input.asset);
     if (!type) {
       throw new Error(
-        `@sails/sdk: no real SettlementProvider exists yet for asset '${input.asset}' — pass type: 'MOCK' explicitly if a fake/test escrow is actually intended.`,
+        `@satsails/p2p-trading-sdk: no real SettlementProvider exists yet for asset '${input.asset}' — pass type: 'MOCK' explicitly if a fake/test escrow is actually intended.`,
       );
     }
     return this.transport.post<Escrow>(

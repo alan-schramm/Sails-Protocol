@@ -467,7 +467,7 @@ enum DisputeStatus {
 }
 
 enum DisputeRuling {
-  RELEASE // buyer wins — "dispute_resolved_buyer" in @sails/p2p-schemas' TradeState vocabulary
+  RELEASE // buyer wins — "dispute_resolved_buyer" in @satsails/p2p-schemas' TradeState vocabulary
   REFUND  // seller wins — "dispute_resolved_seller"
   SPLIT   // §1.9's third option — RFC-021 D9 (2026-08-02): a real settlement action now exists for MOCK/WDK_USDT_EVM/MULTISIG (escrowService.splitFunds()/initiateSplit()); SAFE_GUARD_EVM/LIGHTNING_HODL each reject it with a specific, real, provider-level reason (see that RFC's own D9 section)
 }
@@ -480,7 +480,7 @@ model Dispute {
   escrow     Escrow         @relation(fields: [escrowId], references: [id])
   openedBy   String         // participantId — must be the trade's buyer or seller, enforced in dispute.service.ts
   reason     String
-  evidence   Json           @default("[]") // EvidenceDescriptor[] (@sails/p2p-schemas)
+  evidence   Json           @default("[]") // EvidenceDescriptor[] (@satsails/p2p-schemas)
   arbiterId  String?        // populated by ArbitrationProvider.assign() (RFC-007 D4)
   status     DisputeStatus  @default(OPENED)
   ruling     DisputeRuling?
@@ -593,7 +593,7 @@ survived a completed trade without a chargeback, which trader reputation
 alone doesn't cover (an otherwise reputable trader's account can still be
 stolen/compromised — the "conta laranja"/mule-account risk). `accountHash`
 is the privacy-preserving hash both `payment-account.service.ts` (server)
-and `@sails/sdk`'s `hashPaymentAccount()` (client) compute
+and `@satsails/p2p-trading-sdk`'s `hashPaymentAccount()` (client) compute
 byte-identically — the raw account identifier is never stored anywhere.
 `getTradeLimit()`'s real ramp reads directly off this row:
 `!signed` → `UNSIGNED_TRADE_LIMIT` (the floor, including a brand-new

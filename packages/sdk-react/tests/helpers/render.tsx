@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from 'react'
 import { render, type RenderOptions } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { SailsClient } from '@sails/sdk'
+import type { SailsClient } from '@satsails/p2p-trading-sdk'
 import { SailsProvider } from '../../src/providers/SailsProvider'
 import { ToastProvider } from '../../src/components/feedback/Toast'
 import { createMockSailsClient } from '../mocks/sails-client.mock'

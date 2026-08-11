@@ -1,6 +1,6 @@
 # Sails Integration Starter
 
-A real, working starting point for integrating `@sails/sdk` — a Next.js
+A real, working starting point for integrating `@satsails/p2p-trading-sdk` — a Next.js
 app that talks to a live Sails node, plus two standalone scripts that
 run the actual protocol flows end-to-end. Everything here has been run
 against a real local node while writing it; nothing in this package is
@@ -9,7 +9,7 @@ a mock of the protocol itself (the `wallet-mock/` folder is a mock of a
 
 ## Quick start
 
-This package is workspace-linked, not a standalone install — `@sails/sdk`
+This package is workspace-linked, not a standalone install — `@satsails/p2p-trading-sdk`
 isn't published to npm yet, it only exists inside this monorepo (see
 `docs/FAQ.md`). All commands below run from the **repo root**
 (`sails-push-ready/`), not from this directory.
@@ -79,7 +79,7 @@ src/
                            wallet. Neither example script below needs it;
                            this protocol's identity layer doesn't require
                            a wallet at all (see docs/FAQ.md).
-  ui/                    — thin re-exports of @sails/sdk-react's real
+  ui/                    — thin re-exports of @satsails/sdk-react's real
                            TradeCard/StatusBadge components
   app/                   — the Next.js pages from the quick start above
 examples/
@@ -91,7 +91,7 @@ docs/
   ARCHITECTURE.md        — how the pieces connect, with real sequence diagrams
   USE_CASES.md            — what's actually provable today vs. planned
   FAQ.md
-  API.md                  — index into @sails/sdk's real method surface
+  API.md                  — index into @satsails/p2p-trading-sdk's real method surface
 ```
 
 ## The two example scripts, in more detail

@@ -3,7 +3,7 @@
  *
  * PRODUCTION_READINESS_FIXES.md item 22. Unlike examples/simple-wallet
  * (WDK_USDT_EVM, server-custodial, no client wallet needed), this walks
- * through a genuinely non-custodial escrow using ONLY @sails/sdk's public
+ * through a genuinely non-custodial escrow using ONLY @satsails/p2p-trading-sdk's public
  * HTTP API plus a real client-held secp256k1 wallet
  * (RealBitcoinWalletAdapter) — the server never sees a private key,
  * only the public keys both parties submit.
@@ -19,7 +19,7 @@
  *
  * Run: npm run start:bitcoin -w @sails/example-wallet-integration
  */
-import { SailsClient } from '@sails/sdk'
+import { SailsClient } from '@satsails/p2p-trading-sdk'
 import { RealBitcoinWalletAdapter } from './bitcoin-wallet-adapter'
 
 const BASE_URL = process.env.SAILS_BASE_URL ?? 'http://localhost:3000'

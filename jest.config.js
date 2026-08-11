@@ -14,7 +14,7 @@ module.exports = {
   modulePathIgnorePatterns: ['<rootDir>/dist/'],
   // @noble/curves v2.x (forced into packages/sails-sdk/node_modules by
   // @arkade-os/sdk's own transitive tree — verified via `npm ls
-  // @noble/curves -w @sails/sdk --all`, npm cannot place a separate 1.x
+  // @noble/curves -w @satsails/p2p-trading-sdk --all`, npm cannot place a separate 1.x
   // copy there without breaking that tree) ships `"type": "module"` with
   // no real CJS entry point, even on its "require" condition. Jest's own
   // module registry (unlike plain Node 22+) doesn't interop with ESM-only
@@ -32,7 +32,7 @@ module.exports = {
   // dependency), a NESTED `@scure/base` copy under
   // node_modules/@arkade-os/sdk/node_modules/, and `@marcbachmann/cel-js`
   // (surfaced only once `safeGuardEvmProvider.test.ts` imported
-  // `@sails/sdk`'s full barrel, which pulls in escrow-ark-signing.ts's
+  // `@satsails/p2p-trading-sdk`'s full barrel, which pulls in escrow-ark-signing.ts's
   // real `@arkade-os/sdk` import). Allowlisting each by name as it
   // surfaces doesn't scale — an empty transformIgnorePatterns (transform
   // everything, node_modules included) is the robust fix: ts-jest
@@ -50,10 +50,10 @@ module.exports = {
     // without this, `npm test` on a fresh clone fails until `npm run
     // build` has run once (found the hard way: deleting dist broke the
     // dispute suite while the code itself was fine).
-    '^@sails/p2p-schemas$': '<rootDir>/packages/sails-p2p-schemas/src/index.ts',
+    '^@satsails/p2p-schemas$': '<rootDir>/packages/sails-p2p-schemas/src/index.ts',
     // Same reasoning — `safe-guard-evm.provider.ts` (RFC-020) is the
-    // first backend code to import `@sails/sdk` for real (its real
+    // first backend code to import `@satsails/p2p-trading-sdk` for real (its real
     // userOpHash math + SailsSignerService, not duplicated server-side).
-    '^@sails/sdk$': '<rootDir>/packages/sails-sdk/src/index.ts',
+    '^@satsails/p2p-trading-sdk$': '<rootDir>/packages/sails-sdk/src/index.ts',
   },
 }

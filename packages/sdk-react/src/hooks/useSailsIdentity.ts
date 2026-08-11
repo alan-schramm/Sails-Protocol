@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from '@tanstack/react-query'
-import type { Participant, Ed25519Keypair, AuthenticateResult } from '@sails/sdk'
+import type { Participant, Ed25519Keypair, AuthenticateResult } from '@satsails/p2p-trading-sdk'
 import { useSailsClient } from './useSailsClient'
 
 export interface UseSailsIdentityResult {

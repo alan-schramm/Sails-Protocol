@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Arbitration module (RFC-021 D2, verified against
+ * @satsails/p2p-trading-sdk — Arbitration module (RFC-021 D2, verified against
  * src/modules/open-settlement/settlement.routes.ts's new
  * /v1/settlement/arbitration/* routes directly).
  *

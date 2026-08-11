@@ -1,7 +1,7 @@
-import type { Trade, Escrow, ReputationScore } from '@sails/sdk'
+import type { Trade, Escrow, ReputationScore } from '@satsails/p2p-trading-sdk'
 
 /**
- * Real Trade/Escrow field shapes (@sails/sdk's real types, confirmed
+ * Real Trade/Escrow field shapes (@satsails/p2p-trading-sdk's real types, confirmed
  * against packages/sails-sdk/src/types.ts before writing this) — used
  * by both this package's Vitest tests and its Storybook stories, so
  * there's exactly one place these fixtures are defined.

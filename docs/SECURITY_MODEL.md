@@ -26,13 +26,13 @@ arbitrated action.
 
 - **Multisig 2-of-3:** Buyer + Seller + Arbiter — real as of 2026-07-27
   (`multisig.provider.ts`). Buyer/seller each hold their own client-side
-  key as of the same day's follow-up pass (`@sails/sdk`'s
+  key as of the same day's follow-up pass (`@satsails/p2p-trading-sdk`'s
   `generateEscrowKeypair()` + `POST /v1/settlement/escrow/:id/submit-key`)
   — the server only ever derives the arbiter's own key, the same split
   HodlHodl's real design uses. Release/refund go through a real
   client-signature-collection flow (Phase 2, same day): the server builds
   an unsigned PSBT (`POST .../initiate-release`/`initiate-refund`), each
-  required party signs their own copy client-side (`@sails/sdk`'s
+  required party signs their own copy client-side (`@satsails/p2p-trading-sdk`'s
   `signEscrowPsbt()`) and submits it
   (`POST .../submit-transaction-signature`); once every required
   signature has arrived, the server combines and finalizes for real

@@ -12,13 +12,13 @@ has been validated against `packages/sails-sdk/tests/client-wallet.test.ts`.
 ## Basic setup
 
 ```ts
-import { SailsClient } from "@sails/sdk"
+import { SailsClient } from "@satsails/p2p-trading-sdk"
 import { MockWalletAdapter } from "../src/wallet-adapter-mock"
 // (MockWalletAdapter lives at packages/sails-sdk/src/wallet-adapter-mock.ts
 //  and is intended for unit tests and examples — not exported in the
-//  public @sails/sdk barrel; import it directly from the source path
+//  public @satsails/p2p-trading-sdk barrel; import it directly from the source path
 //  during local development, or implement your own WalletAdapter
-//  against the interface in @sails/sdk for production.)
+//  against the interface in @satsails/p2p-trading-sdk for production.)
 
 const wallet = new MockWalletAdapter({
   peerId: "mock-peer",

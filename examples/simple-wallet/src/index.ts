@@ -1,9 +1,9 @@
 /**
  * @sails/example-simple-wallet
  *
- * The dogfooding test for @sails/sdk (docs/TODO.md §25): a wallet
+ * The dogfooding test for @satsails/p2p-trading-sdk (docs/TODO.md §25): a wallet
  * developer's first 15 minutes with the SDK, written using ONLY its
- * public surface (`@sails/sdk`'s exports) — no reaching into this
+ * public surface (`@satsails/p2p-trading-sdk`'s exports) — no reaching into this
  * monorepo's internal services, no mocks. It runs the real golden path
  * (register → publish → discover → trade → chat → escrow → release)
  * against a real local Sails node, exactly like a wallet integrating
@@ -15,7 +15,7 @@
  *
  * Run: npm run start -w @sails/example-simple-wallet
  */
-import { SailsClient, type ChatMessageEvent } from '@sails/sdk'
+import { SailsClient, type ChatMessageEvent } from '@satsails/p2p-trading-sdk'
 
 const BASE_URL = process.env.SAILS_BASE_URL ?? 'http://localhost:3000'
 
@@ -125,7 +125,7 @@ async function main() {
   const released = await sellerWallet.settlement.release(escrow.id, 'example-payout-address')
   console.log(`    escrow status: ${released.status}, txReleaseId: ${released.txReleaseId}`)
 
-  console.log('\nDone — full golden path completed using only @sails/sdk\'s public API.')
+  console.log('\nDone — full golden path completed using only @satsails/p2p-trading-sdk\'s public API.')
 }
 
 main().catch((err) => {

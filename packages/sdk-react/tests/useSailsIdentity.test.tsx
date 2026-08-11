@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SailsProvider } from '../src/providers/SailsProvider'
 import { useSailsIdentity } from '../src/hooks/useSailsIdentity'
-import type { SailsClient, Ed25519Keypair } from '@sails/sdk'
+import type { SailsClient, Ed25519Keypair } from '@satsails/p2p-trading-sdk'
 
 const mockKeypair: Ed25519Keypair = {
   publicKey: new Uint8Array([1, 2, 3]),

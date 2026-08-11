@@ -9,7 +9,7 @@ import * as SdkReact from '../src/index'
  * really there and of the right kind, catching a broken/missing
  * re-export before it ships.
  */
-describe('@sails/sdk-react public exports', () => {
+describe('@satsails/sdk-react public exports', () => {
   it('exports the provider and its context hook', () => {
     expect(SdkReact.SailsProvider).toBeTypeOf('function')
     expect(SdkReact.useSailsContext).toBeTypeOf('function')

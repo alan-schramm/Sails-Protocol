@@ -35,7 +35,7 @@ change to an existing primitive, not an additive one.
 ## Motivation
 
 A concrete, present-day consequence of the gap: an SDK consumer calling
-`@sails/sdk`'s `createIntent()` today gets a real, persisted `Intent`
+`@satsails/p2p-trading-sdk`'s `createIntent()` today gets a real, persisted `Intent`
 with zero relationship to any actual P2P trade they might separately
 start via `POST /v1/openp2p/trades`. Nothing lets that consumer answer
 "what happened to my Intent?" — the audit trail `parentIntentId`

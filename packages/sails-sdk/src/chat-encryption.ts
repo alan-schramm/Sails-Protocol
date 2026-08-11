@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — chat/negotiation message encryption.
+ * @satsails/p2p-trading-sdk — chat/negotiation message encryption.
  *
  * Closes a real, named gap (docs/BACKLOG.md's OpenP2P row,
  * `src/infrastructure/p2p/payload-crypto.ts`'s own header comment):

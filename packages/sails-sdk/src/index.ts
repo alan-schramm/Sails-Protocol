@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Sails P2P Trading SDK
+ * @satsails/p2p-trading-sdk — Sails P2P Trading SDK
  * See docs/SDK_GUIDE.md for the full interface specification and
  * docs/DEVELOPER_JOURNEY.md for the step-by-step onboarding flow.
  */
@@ -11,7 +11,7 @@ export { SailsClient, type SailsClientOptions } from './client'
 // examples/simple-wallet), and this package's own tests already import
 // it straight from './transport', never through this barrel. Still
 // exported from transport.ts itself for that internal use; just not part
-// of the public @sails/sdk surface.
+// of the public @satsails/p2p-trading-sdk surface.
 
 export {
   SailsError,
@@ -102,7 +102,7 @@ export type { WalletAdapter, WalletCapabilitiesDeclaration } from './wallet-adap
 // quickstart snippet needs a WalletAdapter a first-time visitor can run
 // without a real wallet, and importing it via a relative source path
 // (the previous state) only works inside this monorepo, not for an
-// external `npm install @sails/sdk` consumer. Production Readiness Audit
+// external `npm install @satsails/p2p-trading-sdk` consumer. Production Readiness Audit
 // finding, closed 2026-08-09.
 export { MockWalletAdapter } from './wallet-adapter-mock'
 

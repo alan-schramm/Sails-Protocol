@@ -43,7 +43,7 @@ const tradeIntentPayloadSchema = z.object({
   // than rejecting them, so these need to be listed explicitly here or
   // they'd be silently dropped before ever reaching intent-engine.ts's
   // own bounds check, for every caller of this route (including
-  // @sails/sdk's createIntent()).
+  // @satsails/p2p-trading-sdk's createIntent()).
   minReputationRating: z.number().optional(),
 })
 

@@ -92,11 +92,11 @@ itself.
 ## 2. What Integration Actually Looks Like — ✅ Real Code, Not a Mockup
 
 This is not a conceptual diagram. It is the literal shape of
-`@sails/sdk`, verified end-to-end in `examples/simple-wallet` — a
+`@satsails/p2p-trading-sdk`, verified end-to-end in `examples/simple-wallet` — a
 mock-free integration using only this package's public exports:
 
 ```typescript
-import { SailsClient } from '@sails/sdk'
+import { SailsClient } from '@satsails/p2p-trading-sdk'
 
 const wallet = new SailsClient({ baseUrl: 'https://your-sails-node' })
 

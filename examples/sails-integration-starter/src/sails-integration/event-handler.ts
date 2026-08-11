@@ -19,7 +19,7 @@
  * the same reason `escrow.service.ts`'s own `EscrowRecord` type is a
  * structural subset of the full Prisma row rather than the row itself.
  */
-import type { ChatFrame, ChatMessageEvent } from '@sails/sdk'
+import type { ChatFrame, ChatMessageEvent } from '@satsails/p2p-trading-sdk'
 
 export interface ChannelLike {
   onMessage(handler: (msg: ChatMessageEvent) => void): void

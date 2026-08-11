@@ -21,8 +21,8 @@ All notable changes to this project will be documented in this file.
   `submitProof()`, `issueVerificationNonce()`, `verifyProof()`, and
   `getEvidenceBundle()` — now wired onto `SailsClient` as `client.proof`
   and exported from the public API.
-- `Proof` and `Verification` types exported from `@sails/sdk`'s public API.
-- `useSailsProof()` React hook in `@sails/sdk-react` — TanStack Query-backed
+- `Proof` and `Verification` types exported from `@satsails/p2p-trading-sdk`'s public API.
+- `useSailsProof()` React hook in `@satsails/sdk-react` — TanStack Query-backed
   wrapper for all `SailsProofModule` methods (10 tests incl. error paths).
 - `useSailsIdentity`, `useSailsLiquidity`, `useSailsReputation`,
   `useSailsCapabilities` React hooks.
@@ -128,7 +128,7 @@ All notable changes to this project will be documented in this file.
   would have made the container's own health check fail permanently in
   production. Rewrote both files clean.
 - `reputation.leaderboard()` and `openp2p.getMessages()` in
-  `@sails/sdk` still typed their return as a bare array
+  `@satsails/p2p-trading-sdk` still typed their return as a bare array
   (`ReputationScore[]`/`Message[]`) after their backend routes had
   already moved to `{items, total, hasMore, nextOffset}` pagination —
   would have shipped broken against the real response shape. Fixed

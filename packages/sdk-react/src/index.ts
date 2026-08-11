@@ -1,5 +1,5 @@
 /**
- * @sails/sdk-react — React hooks and components for @sails/sdk.
+ * @satsails/sdk-react — React hooks and components for @satsails/p2p-trading-sdk.
  * See this package's README for setup (SailsProvider + a
  * QueryClientProvider, both required).
  */

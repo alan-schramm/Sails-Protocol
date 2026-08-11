@@ -123,7 +123,7 @@ export class TradeService {
     return trade
   }
 
-  // Closes the real gap @sails/sdk's intent-facade.ts's dispute() needed:
+  // Closes the real gap @satsails/p2p-trading-sdk's intent-facade.ts's dispute() needed:
   // resolving an intentId (the caller's own vocabulary — createIntent()
   // is the entry point) to the Trade/Escrow RFC-018 already links it to
   // server-side. Same no-auth pattern as getTrade() below — an intentId

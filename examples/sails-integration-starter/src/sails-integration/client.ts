@@ -1,6 +1,6 @@
 /**
  * Fase 6 — a lazy `SailsClient` singleton, the real class from
- * `@sails/sdk` (`packages/sails-sdk/src/client.ts`), constructed the
+ * `@satsails/p2p-trading-sdk` (`packages/sails-sdk/src/client.ts`), constructed the
  * same way `examples/simple-wallet/src/index.ts` already proves works:
  * `new SailsClient({ baseUrl })`, nothing else required. Deliberately
  * NOT the stale `new SailsClient({ wdk, network })` shape
@@ -14,7 +14,7 @@
  * can import this same module without constructing a second client by
  * accident.
  */
-import { SailsClient } from '@sails/sdk'
+import { SailsClient } from '@satsails/p2p-trading-sdk'
 
 let client: SailsClient | undefined
 

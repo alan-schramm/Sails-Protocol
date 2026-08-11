@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react'
-import type { SailsClient } from '@sails/sdk'
+import type { SailsClient } from '@satsails/p2p-trading-sdk'
 
 // Takes a pre-constructed SailsClient, not construction options — same
 // convention TanStack Query's own QueryClientProvider uses (a `client`
@@ -28,7 +28,7 @@ export function useSailsContext(): SailsClient {
   const client = useContext(SailsContext)
   if (!client) {
     throw new Error(
-      'useSailsClient() (and every other @sails/sdk-react hook) must be called within a <SailsProvider client={...}>.'
+      'useSailsClient() (and every other @satsails/sdk-react hook) must be called within a <SailsProvider client={...}>.'
     )
   }
   return client

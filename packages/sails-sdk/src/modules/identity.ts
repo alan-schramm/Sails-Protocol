@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Sails OpenIdentity module
+ * @satsails/p2p-trading-sdk — Sails OpenIdentity module
  *
  * Real Ed25519 challenge-response, matching `src/common/middleware/auth.ts`
  * byte-for-byte — verified by reading that file directly before writing

@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Capability declaration module (verified against
+ * @satsails/p2p-trading-sdk — Capability declaration module (verified against
  * src/modules/open-agents/capability.routes.ts directly).
  *
  * rfcs/RFC-013-capability-registry-and-wallet-adapter.md. Self-issued

@@ -10,7 +10,7 @@
     {
       "name": "sdk-react-storybook",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "storybook", "-w", "@sails/sdk-react"],
+      "runtimeArgs": ["run", "storybook", "-w", "@satsails/sdk-react"],
       "port": 6006
     },
     {

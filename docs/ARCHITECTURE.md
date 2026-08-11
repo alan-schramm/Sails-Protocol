@@ -232,7 +232,7 @@ full technical detail and is unchanged.
 | **Sails OpenP2P** | Coordinates negotiation between participants. | Orchestrates the Trade Lifecycle (9 states, see `PROTOCOL_SPECIFICATION.md`) using the five cross-module services above. Owns the Secretstream chat / negotiation channel. Reconciles against Postgres on peer reconnect (RFC-011) — a dropped HyperDHT/Pears message never actually lost data (every send already persists to `Message` first), it only lost real-time notification, which `ReconciliationService` catches back up on `peer.connected`. | ✅ Proven |
 | **Sails OpenAgents** | Runs automation, fraud prevention, risk analysis, and mediation assistance. | QVAC integration as a cross-cutting SDK — a **Crypto-Native Agent** (RFC-016): only ever acts on digital assets via WDK (negotiate, create/accept offers, lock/release escrow), never on fiat or banking rails. Any module can request matching, fraud detection, or risk analysis locally, without cloud dependency. **Social Engineering Agent real as of RFC-017** (`social-engineering-agent.ts`) — watches real chat messages (via the real `Timeline` read-model, RFC-007 D5/RFC-017) for two of RFC-007 D7's three named fraud-precursor patterns (off-channel migration, payment-instruction changes) using QVAC, and raises a real `RISK_WARNING` in the trade's chat — detection only, never unilateral action; the third pattern (unexpected flow deviation) and full Policy Engine integration remain future work (RFC-017's own scope note). Off by default (`config.features.socialEngineeringDetection`). | 🟡 First real capabilities |
 | **Sails OpenFinance** | Stays ready for future expansion, out of scope for the MVP. | Future financial modules: `LoanIntent`, `SwapIntent`, `EarnIntent`. Reuses OpenSettlement, OpenLiquidity, OpenReputation without duplicating logic. | 📋 Aspirational |
-| **Sails SDK** (MVP release: **Sails P2P Trading SDK**) | The single interface a wallet integrates to get the whole Marketplace. | `@sails/sdk` — a TypeScript wrapper (`SailsClient`) around every module's API, for integrators. Adds no new logic — pure interface encapsulation. | 📋 Aspirational (spec only, see `SDK_GUIDE.md`) |
+| **Sails SDK** (MVP release: **Sails P2P Trading SDK**) | The single interface a wallet integrates to get the whole Marketplace. | `@satsails/p2p-trading-sdk` — a TypeScript wrapper (`SailsClient`) around every module's API, for integrators. Adds no new logic — pure interface encapsulation. | 📋 Aspirational (spec only, see `SDK_GUIDE.md`) |
 
 **Why the OpenP2P/OpenLiquidity split matters:** a common mistake is putting
 the `Offer` entity inside the OpenP2P module because "that's where trading
@@ -447,13 +447,13 @@ src/
 
 packages/                                (npm workspaces — root package.json's
 │                                         `workspaces` field)
-├── sails-p2p-schemas/                   (@sails/p2p-schemas — types-only
+├── sails-p2p-schemas/                   (@satsails/p2p-schemas — types-only
 │   └── src/                               domain contracts: OfferSchema,
 │       ├── offer.ts                       TradeState/deriveTradeState,
 │       ├── trade.ts                       DisputeSchema. The 'contrato
 │       └── dispute.ts                     social' layer any wallet
 │                                         integration shares)
-└── sails-sdk/                           (@sails/sdk — Sails P2P Trading
+└── sails-sdk/                           (@satsails/p2p-trading-sdk — Sails P2P Trading
     └── src/                               SDK, SDK_GUIDE.md. v0.1 real:
         ├── client.ts                      SailsClient assembles Transport
         ├── transport.ts                   + Protocol SDK (identity/
@@ -531,7 +531,7 @@ sails-protocol/                    ← monorepo root (does not exist yet)
 │   │       ├── core/              (IntentPrimitive, ParticipantIdentity, types)
 │   │       ├── modules/           (one interfaces.ts per module)
 │   │       └── events/            (EventContract, typed per module)
-│   └── sdk/                       ← @sails/sdk (npm, consumer-facing)
+│   └── sdk/                       ← @satsails/p2p-trading-sdk (npm, consumer-facing)
 │       └── src/SailsClient.ts
 └── apps/
     └── satsails-reference/        ← THIS is where today's code fragment lives

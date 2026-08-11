@@ -1,6 +1,6 @@
 # API reference (index)
 
-A thin pointer into `@sails/sdk`'s and `@sails/sdk-react`'s real,
+A thin pointer into `@satsails/p2p-trading-sdk`'s and `@satsails/sdk-react`'s real,
 current public surface — verified directly against source at the time
 of writing, not against `docs/SDK_GUIDE.md`'s §4 or
 `docs/DEVELOPER_JOURNEY.md`'s code snippets, both confirmed stale
@@ -85,7 +85,7 @@ none of the examples in this starter use it directly.
 `register(input)`, `list(participantId)`, `revoke(grantId)`,
 `registerFromWallet(wallet)` (RFC-013/014 capability grants).
 
-## `@sails/sdk-react` — `packages/sdk-react/src/index.ts`
+## `@satsails/sdk-react` — `packages/sdk-react/src/index.ts`
 
 - `SailsProvider({client, children})`, `useSailsContext()`, `useSailsClient()`
 - `useSailsTrade(tradeId)` — no auth required

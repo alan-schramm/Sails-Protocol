@@ -4,7 +4,7 @@
 
 Implements `core/capability-registry.ts` for real (RFC-005's
 `CapabilityGrant` shape, previously a stub since Architecture Freeze),
-adds a `WalletAdapter` interface to `@sails/sdk` so a wallet's own
+adds a `WalletAdapter` interface to `@satsails/p2p-trading-sdk` so a wallet's own
 signing/balance/address logic can plug into the SDK instead of being
 absent from it, extends the frozen `TradeIntentPayload` with a new
 optional constraint field (`minReputationRating`), and adds a
@@ -76,7 +76,7 @@ the actual Pears/QVAC/WDK products — precisely the audience the project
 owner wants this repository to be evaluated by).
 
 The proposal's other two genuinely new, non-conflicting ideas —
-a `WalletAdapter` interface so `@sails/sdk` can call into a wallet's own
+a `WalletAdapter` interface so `@satsails/p2p-trading-sdk` can call into a wallet's own
 signing logic, and two new optional Intent constraint fields
 (`minReputationRating`, `kycRequired`) — are real, bounded gaps this RFC
 also closes.
@@ -188,7 +188,7 @@ counterparty yet (that requires OpenLiquidity's matching logic to read
 them, tracked as follow-up in `BACKLOG.md`, not claimed done here) — this
 RFC adds the vocabulary, not the enforcement.
 
-**4. `@sails/sdk` gains a `WalletAdapter` interface** (new
+**4. `@satsails/p2p-trading-sdk` gains a `WalletAdapter` interface** (new
 `packages/sails-sdk/src/wallet-adapter.ts`), matching the proposal's
 shape closely since it was already sound:
 
@@ -218,7 +218,7 @@ constructor options — when present, a new `client.capabilities` module
 (`packages/sails-sdk/src/modules/capabilities.ts`) can call
 `wallet.getCapabilities()` and `POST /v1/capabilities/register` (new
 route, §below) without the caller re-assembling the declaration by hand.
-The adapter is optional: every module built in `@sails/sdk` v0.1 already
+The adapter is optional: every module built in `@satsails/p2p-trading-sdk` v0.1 already
 works without one (they only need HTTP/WS, never a private key) — this
 is additive, not a breaking change to the v0.1 surface.
 
@@ -289,7 +289,7 @@ to the same primitive.
 No `protocolVersion` bump — every change is additive (new optional
 payload fields, a new Core-component table with no prior data to
 migrate, new routes, a new optional SDK constructor argument). Existing
-callers of `intentEngine.create()`, `@sails/sdk`'s v0.1 surface, and
+callers of `intentEngine.create()`, `@satsails/p2p-trading-sdk`'s v0.1 surface, and
 every existing route are unaffected.
 
 ## Reference Implementation Plan

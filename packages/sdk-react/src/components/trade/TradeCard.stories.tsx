@@ -50,7 +50,7 @@ export const Clickable: Story = {
 
 /**
  * Real states only — TradeStatus has 5 values, EscrowStatus has 6
- * (confirmed against @sails/sdk's actual exported types before writing
+ * (confirmed against @satsails/p2p-trading-sdk's actual exported types before writing
  * this story; the original Fase 2 brief asked for "8 states", which
  * doesn't correspond to anything in the real schema — see the phase
  * report for the full correction). This story shows all 5 TradeStatus

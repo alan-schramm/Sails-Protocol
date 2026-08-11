@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
-import type { Trade } from '@sails/sdk'
+import type { Trade } from '@satsails/p2p-trading-sdk'
 import { useSailsClient } from './useSailsClient'
 
 /**

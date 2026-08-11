@@ -37,7 +37,7 @@ export interface LiquidityOffer {
   traderReputation?: number
 }
 
-// Real gap found dogfooding @sails/sdk (examples/simple-wallet,
+// Real gap found dogfooding @satsails/p2p-trading-sdk (examples/simple-wallet,
 // docs/TODO.md §25): getOffers()/getAggregatedOffers() had a hard
 // `take: 10` with no way for a caller to reach anything beyond the 10
 // cheapest active offers for an asset/side — on any marketplace with

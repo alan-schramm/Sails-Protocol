@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — client-side signing for SAFE_GUARD_EVM escrow release/refund.
+ * @satsails/p2p-trading-sdk — client-side signing for SAFE_GUARD_EVM escrow release/refund.
  *
  * The third leg of the same client-held-keys pattern `escrow-key.ts`'s
  * `signEscrowPsbt()` (MULTISIG) and `escrow-ark-signing.ts`'s

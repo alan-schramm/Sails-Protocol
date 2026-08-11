@@ -1,5 +1,5 @@
 import { useInfiniteQuery, type UseInfiniteQueryResult, type InfiniteData } from '@tanstack/react-query'
-import type { PaginatedTrades } from '@sails/sdk'
+import type { PaginatedTrades } from '@satsails/p2p-trading-sdk'
 import { useSailsClient } from './useSailsClient'
 
 export interface UseSailsTradesOptions {

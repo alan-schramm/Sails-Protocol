@@ -1,5 +1,5 @@
 {
-  "name": "@sails/sdk",
+  "name": "@satsails/p2p-trading-sdk",
   "version": "0.1.0",
   "description": "Sails P2P Trading SDK — the single typed client a wallet/fintech imports to reach every Sails Protocol module (OpenIdentity, OpenLiquidity, OpenP2P, OpenSettlement, OpenReputation) over HTTP/WebSocket. See docs/SDK_GUIDE.md.",
   "main": "dist/index.js",

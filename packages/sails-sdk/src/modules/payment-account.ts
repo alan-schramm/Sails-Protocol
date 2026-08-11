@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Payment account trust ramp module (RFC-021 D5, verified
+ * @satsails/p2p-trading-sdk — Payment account trust ramp module (RFC-021 D5, verified
  * against src/modules/open-settlement/settlement.routes.ts's real
  * /v1/settlement/payment-accounts/* routes).
  *

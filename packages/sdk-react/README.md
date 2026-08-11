@@ -1,8 +1,8 @@
-# @sails/sdk-react
+# @satsails/sdk-react
 
-React hooks and components for [`@sails/sdk`](../sails-sdk) — a small,
+React hooks and components for [`@satsails/p2p-trading-sdk`](../sails-sdk) — a small,
 real set of TanStack Query-backed data hooks and trade/identity/feedback
-primitives. Not a full design system: it wraps what `@sails/sdk` actually
+primitives. Not a full design system: it wraps what `@satsails/p2p-trading-sdk` actually
 exposes, nothing more (`src/index.ts`'s own header comment).
 
 This file was missing until Fase 6 (the `examples/sails-integration-starter`
@@ -18,8 +18,8 @@ Query's own `QueryClientProvider` (every hook here is `useQuery`/
 `useMutation`/`useInfiniteQuery` under the hood):
 
 ```tsx
-import { SailsClient } from '@sails/sdk'
-import { SailsProvider } from '@sails/sdk-react'
+import { SailsClient } from '@satsails/p2p-trading-sdk'
+import { SailsProvider } from '@satsails/sdk-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const sailsClient = new SailsClient({ baseUrl: process.env.NEXT_PUBLIC_SAILS_BASE_URL ?? 'http://localhost:3000' })
@@ -77,7 +77,7 @@ reading the real source.
 - No routing, no layout, no design tokens — bring your own (Tailwind,
   CSS Modules, whatever). `StatusBadge`'s own file header states this
   explicitly.
-- No authentication UI — `@sails/sdk`'s `identity` module (Ed25519
+- No authentication UI — `@satsails/p2p-trading-sdk`'s `identity` module (Ed25519
   challenge-response) is the real auth mechanism; this package only
   consumes an already-authenticated `SailsClient`.
 - Six-verb intent facade (`createIntent`/`cancelIntent`/`negotiate`/

@@ -7,7 +7,7 @@ what each script's own header discloses.
 
 Different from the other three `examples/` folders: this one demonstrates
 the *protocol's own reference agents* (`src/modules/open-agents`) talking
-to each other, not how an external wallet would integrate `@sails/sdk`.
+to each other, not how an external wallet would integrate `@satsails/p2p-trading-sdk`.
 For that, see [`../simple-wallet`](../simple-wallet) (SDK-only, ~15
 minutes) or [`../wallet-integration`](../wallet-integration) (real
 non-custodial wallet adapters).

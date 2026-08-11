@@ -12,7 +12,7 @@
  * private keys are genuinely client-held and the server never sees them
  * — only the 33-byte compressed public key, via `settlement.submitKey()`.
  *
- * Built entirely from `@sails/sdk`'s own public exports
+ * Built entirely from `@satsails/p2p-trading-sdk`'s own public exports
  * (`generateEscrowKeypair`/`signEscrowPsbt`, `escrow-key.ts`) — this
  * adapter adds no new crypto, it wraps what the SDK already ships in the
  * `WalletAdapter` shape a real wallet integration would present.
@@ -29,8 +29,8 @@
  */
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
-import type { WalletAdapter, WalletCapabilitiesDeclaration } from '@sails/sdk'
-import { generateEscrowKeypair, signEscrowPsbt, type EscrowKeypair } from '@sails/sdk'
+import type { WalletAdapter, WalletCapabilitiesDeclaration } from '@satsails/p2p-trading-sdk'
+import { generateEscrowKeypair, signEscrowPsbt, type EscrowKeypair } from '@satsails/p2p-trading-sdk'
 
 bitcoin.initEccLib(ecc)
 

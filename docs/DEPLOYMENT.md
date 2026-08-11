@@ -146,7 +146,7 @@ read that before assuming either way.
 | Script | Command | Purpose |
 |---|---|---|
 | `dev` | `ts-node-dev --respawn --transpile-only src/main.ts` | Hot-reload dev server |
-| `build` | `npm run build -w @sails/p2p-schemas && npm run build -w @sails/sdk && tsc` | Builds both workspace packages, then the server (`dist/`) |
+| `build` | `npm run build -w @satsails/p2p-schemas && npm run build -w @satsails/p2p-trading-sdk && tsc` | Builds both workspace packages, then the server (`dist/`) |
 | `start` | `node dist/src/main.js` | Run the compiled build (note the `dist/src/` path — `tsc`'s inferred rootDir includes `packages/` via a `paths` alias, so output isn't flat under `dist/`) |
 | `db:migrate` | `npx prisma db push` | Apply the current `schema.prisma` state directly — no migration history exists in this repo (corrected 2026-08-02; the script name is legacy, the command underneath is what's actually real) |
 | `db:generate` | `npx prisma generate` | Regenerate the Prisma client (also runs automatically on `npm install`) |
@@ -170,7 +170,7 @@ stack. `hyperdht`/`hyperswarm`/`b4a` — real Pears P2P transport.
 `sodium-native` — real libsodium encryption for direct P2P Intent
 delivery. `tweetnacl`/`tweetnacl-util` — real Ed25519 challenge-response
 auth. `@tetherto/wdk-wallet-evm` — real signed USDT settlement (testnet).
-`@qvac/sdk` — real local LLM inference. `@sails/p2p-schemas` — the
+`@qvac/sdk` — real local LLM inference. `@satsails/p2p-schemas` — the
 in-repo types workspace package.
 
 **Dev:** `typescript`, `ts-node`/`ts-node-dev`, `jest`/`ts-jest`,

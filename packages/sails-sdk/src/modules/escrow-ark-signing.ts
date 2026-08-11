@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — client-side signing for LIGHTNING_HODL (Arkade) escrow
+ * @satsails/p2p-trading-sdk — client-side signing for LIGHTNING_HODL (Arkade) escrow
  * release/refund (Phase 2, 2026-07-27).
  *
  * The Arkade equivalent of `escrow-key.ts`'s `signEscrowPsbt()` — same

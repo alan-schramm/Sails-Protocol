@@ -1,4 +1,4 @@
-import { SailsClient } from '@sails/sdk'
+import { SailsClient } from '@satsails/p2p-trading-sdk'
 import { mockTrade } from './trade.mock'
 
 /**
@@ -6,12 +6,12 @@ import { mockTrade } from './trade.mock'
  * controllable fetchImpl — the same pattern packages/sails-sdk's own
  * tests/modules.test.ts uses (`fakeFetch`). This means every hook in
  * this package is exercised against the real transport/module code, not
- * a shortcut that could silently drift from what @sails/sdk actually
+ * a shortcut that could silently drift from what @satsails/p2p-trading-sdk actually
  * does. Used by both this package's Vitest tests and its Storybook
  * decorators (.storybook/preview.tsx) — one mock client, not two.
  */
 export interface MockSailsClientOptions {
-  /** Called for every request; return the JSON body @sails/sdk should receive. Default: a single mock Trade for any GET, {} for anything else. */
+  /** Called for every request; return the JSON body @satsails/p2p-trading-sdk should receive. Default: a single mock Trade for any GET, {} for anything else. */
   handleRequest?: (url: string, init: RequestInit) => unknown
   /** Pre-authenticate the client (setSessionToken) so auth-required calls don't throw. Default true. */
   authenticated?: boolean

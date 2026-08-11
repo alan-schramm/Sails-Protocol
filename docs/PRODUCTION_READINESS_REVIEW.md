@@ -8,7 +8,7 @@ before starting new work, not assumed stale: findings #2, #4, #5, #6 below
 were all still exactly as described (nothing in RFC-020/021's protocol-
 logic work since this review touched the SDK transport/UI layers at
 all). Finding #1 (network reliability) is now closed on the SDK side —
-`@sails/sdk`'s `transport.ts` has real per-request timeouts
+`@satsails/p2p-trading-sdk`'s `transport.ts` has real per-request timeouts
 (`AbortController`) and exponential-backoff retry for `GET` (never for
 mutating verbs — no idempotency-key mechanism exists server-side to make
 that safe, see `transport.ts`'s own `SailsTransportOptions` comment), and

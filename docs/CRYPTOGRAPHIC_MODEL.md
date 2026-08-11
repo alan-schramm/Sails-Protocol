@@ -238,7 +238,7 @@ Also tracked as a blocking production-readiness item in `TODO.md`.
 *(Added 2026-07-28. RFC-020 is RFC-019's own Phase 2 — the real design
 this section's "Not fixed here" gap has been waiting for. None of this
 is called from `WdkSettlementProvider` or any live route; it is real,
-independently-tested cryptographic logic in new `@sails/sdk` custody
+independently-tested cryptographic logic in new `@satsails/p2p-trading-sdk` custody
 modules, verified structurally and via `packages/sails-sdk/tests/custody-*.test.ts`,
 not exercised against live infrastructure.)*
 

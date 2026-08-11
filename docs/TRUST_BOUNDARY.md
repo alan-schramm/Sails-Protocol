@@ -29,7 +29,7 @@
 │ Holds the Ed25519 secret key. Trusted by construction — │
 │ if this is compromised, no protocol control helps.      │
 └───────────────────────┬──────────────────────────────────┘
-                         │  @sails/sdk (client library)
+                         │  @satsails/p2p-trading-sdk (client library)
                          ▼
 ══════════════════ TRUST BOUNDARY 1 ═══════════════════════
         (HTTP/WS to the Sails reference implementation)

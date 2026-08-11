@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — SailsClient (SDK_GUIDE.md section 2)
+ * @satsails/p2p-trading-sdk — SailsClient (SDK_GUIDE.md section 2)
  *
  * The single object a wallet imports. Internally composed of the four
  * layers SDK_GUIDE.md section 4B specifies (Transport at the bottom,

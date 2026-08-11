@@ -23,7 +23,7 @@
  * Run: npm run start:evm -w @sails/example-wallet-integration
  */
 import { ethers } from 'ethers'
-import { SailsClient } from '@sails/sdk'
+import { SailsClient } from '@satsails/p2p-trading-sdk'
 import { RealEvmWalletAdapter } from './evm-wallet-adapter'
 
 const BASE_URL = process.env.SAILS_BASE_URL ?? 'http://localhost:3000'
@@ -121,7 +121,7 @@ async function main() {
   console.log(`    pending transaction ${pending.id}, requires signatures from: ${pending.requiredSigners.join(', ')}`)
 
   step('Any funded account submits the guard deployment (no trade-party signature needed — this is the seller here)')
-  const { parseSafeGuardBundle } = await import('@sails/sdk')
+  const { parseSafeGuardBundle } = await import('@satsails/p2p-trading-sdk')
   const bundle = parseSafeGuardBundle(pending.unsignedPsbtBase64)
   const signedDeployTx = await sellerEvmWallet.signTransaction('USDT_ERC20', bundle.guardDeployment)
   const deployTxHash = await sellerEvmWallet.broadcastTransaction('USDT_ERC20', signedDeployTx)

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from '@tanstack/react-query'
-import type { AssetType, Offer, PublishOfferInput, MatchInput, OrderBook, LiquidityOfferSummary } from '@sails/sdk'
+import type { AssetType, Offer, PublishOfferInput, MatchInput, OrderBook, LiquidityOfferSummary } from '@satsails/p2p-trading-sdk'
 import { useSailsClient } from './useSailsClient'
 
 export interface UseSailsLiquidityOptions {

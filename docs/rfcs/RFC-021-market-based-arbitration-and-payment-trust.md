@@ -269,7 +269,7 @@ this, not assumed:
 - **Implemented** (RFC-021 Phase 4): `PaymentAccount` model in
   `prisma/schema.prisma`, `payment-account.service.ts`'s
   `hashAccountIdentifier()` (server-side SHA-256, reference/test only)
-  and `@sails/sdk`'s `hashPaymentAccount()` (`@noble/hashes`, the real
+  and `@satsails/p2p-trading-sdk`'s `hashPaymentAccount()` (`@noble/hashes`, the real
   client-side path — verified byte-identical to the server's own hash
   via a dedicated cross-package test), and the trade-limit ramp
   (`UNSIGNED_TRADE_LIMIT`/`SIGNED_TRADE_LIMIT`/`ESTABLISHED_TRADE_LIMIT`/
@@ -382,7 +382,7 @@ boundary `escrow.service.ts`'s own Trade reads already established);
 `common/events/handlers.ts`'s `settlement.escrow.released`/`refunded`
 reactions burn the losing party's active vouch, if any, as part of the
 same dispute-aware branch that already scores `recordOutcome()`; new
-route `POST /v1/reputation/vouch`; `@sails/sdk`'s `reputation.vouchFor()`.
+route `POST /v1/reputation/vouch`; `@satsails/p2p-trading-sdk`'s `reputation.vouchFor()`.
 27 new tests across `tests/vouchService.test.ts`,
 `tests/paymentAccountService.test.ts`, `tests/reputationOutcome.test.ts`,
 and `tests/routes.test.ts`.
@@ -779,7 +779,7 @@ overwritten.
    gave it a real data source, exposed via `reputation.service.ts`'s
    `getScore()`.
 4. ✅ `PaymentAccount` model + age-witness hash + account signing (D5)
-   — `payment-account.service.ts` (server reference hash) + `@sails/sdk`'s
+   — `payment-account.service.ts` (server reference hash) + `@satsails/p2p-trading-sdk`'s
    `hashPaymentAccount()` (the real client-side path).
 5. ✅ D7's peer vouching (2026-08-02, corrected from the earlier
    "external onboarding/KYC-optional flow" framing — this protocol does

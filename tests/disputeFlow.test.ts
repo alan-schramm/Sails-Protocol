@@ -6,8 +6,8 @@
  * ordering, ruling -> escrow action mapping) without a live Postgres.
  * deriveTradeState is a pure function — no mocking needed at all.
  */
-import { deriveTradeState } from '@sails/p2p-schemas'
-import { toOfferSchema } from '@sails/p2p-schemas'
+import { deriveTradeState } from '@satsails/p2p-schemas'
+import { toOfferSchema } from '@satsails/p2p-schemas'
 import { TrustedArbitratorProvider } from '../src/modules/open-settlement/arbitration-provider'
 
 const mockTradeFindUnique = jest.fn()

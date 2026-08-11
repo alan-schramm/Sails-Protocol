@@ -300,7 +300,7 @@ dispute-resolution mechanics — see that document for how Sails' own
 | Shape | Standalone desktop application | Centralized web service, non-custodial escrow | Protocol + SDK, integrated into any wallet |
 | Escrow | 2-of-2 multisig + security deposits | 2-of-3 multisig (platform holds 3rd key) | Pluggable `SettlementProvider` (`PROTOCOL_SPECIFICATION.md` §4B) — the Reference Wallet's own provider is disclosed as single-seed custody today, `RFC-019-settlement-custody-reference-vs-normative.md` |
 | Dispute resolution | DAO-elected mediators/arbitrators | Platform support team, using the 3rd key | Delegated to whichever integrator/community configures it — `SECURITY_MODEL.md`'s Dispute Assistant provides evidence, not automatic rulings |
-| Reputation | Local to the Bisq account | Local to the Hodl Hodl account | Portable across any wallet integrating `@sails/sdk` (`PROTOCOL_SPECIFICATION.md` §1's Reputation primitive) |
+| Reputation | Local to the Bisq account | Local to the Hodl Hodl account | Portable across any wallet integrating `@satsails/p2p-trading-sdk` (`PROTOCOL_SPECIFICATION.md` §1's Reputation primitive) |
 
 **The honest caveat this table must carry:** "delegated to whichever
 integrator configures it" is not automatically an advantage — it also

@@ -171,7 +171,7 @@ export async function initiateSplit(escrowId: string, buyerAddress: string | und
 // The signature-collection write path — each required signer (from
 // EscrowPendingTransaction.requiredSigners) calls this once, submitting
 // their own independently-signed copy of the unsigned PSBT
-// (`@sails/sdk`'s signEscrowPsbt()). Upsert-idempotent per participant,
+// (`@satsails/p2p-trading-sdk`'s signEscrowPsbt()). Upsert-idempotent per participant,
 // same shape as submitParticipantKey()/approveRelease() (escrow.service.ts/
 // escrow-dual-approval.ts). Once every required signer has submitted,
 // combines + broadcasts for real (provider.finalizeRelease()/

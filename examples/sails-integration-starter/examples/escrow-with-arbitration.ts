@@ -32,7 +32,7 @@
  */
 import { createHash } from 'node:crypto'
 import nacl from 'tweetnacl'
-import { SailsClient, type Ed25519Keypair } from '@sails/sdk'
+import { SailsClient, type Ed25519Keypair } from '@satsails/p2p-trading-sdk'
 
 const BASE_URL = process.env.SAILS_BASE_URL ?? 'http://localhost:3000'
 

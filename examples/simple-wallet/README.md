@@ -1,6 +1,6 @@
 # @sails/example-simple-wallet
 
-The dogfooding test for `@sails/sdk` (docs/TODO.md §25): the smallest
+The dogfooding test for `@satsails/p2p-trading-sdk` (docs/TODO.md §25): the smallest
 real wallet integration of the SDK, written using **only its public
 API** — no reaching into this monorepo's internal services, no mocks.
 It runs the real golden path against a real local Sails node:
@@ -14,7 +14,7 @@ register (seller) → register (buyer) → publish offer → discover offer
 The question this answers: **can a wallet developer integrate this SDK
 in under 15 minutes?** Read `src/index.ts` top to bottom — it's ~140
 lines including comments, uses 12 SDK methods, and needs nothing beyond
-what `@sails/sdk`'s own types export.
+what `@satsails/p2p-trading-sdk`'s own types export.
 
 ## Run it
 
@@ -24,13 +24,13 @@ what `@sails/sdk`'s own types export.
    ```
 2. In a second terminal, from the repo root:
    ```
-   npm run build -w @sails/sdk
+   npm run build -w @satsails/p2p-trading-sdk
    npm run start -w @sails/example-simple-wallet
    ```
 
 You should see all 9 steps print and finish with:
 ```
-Done — full golden path completed using only @sails/sdk's public API.
+Done — full golden path completed using only @satsails/p2p-trading-sdk's public API.
 ```
 
 To point this at a different node (e.g. a staging deployment), set

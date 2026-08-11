@@ -1,4 +1,4 @@
-import type { ReputationScore } from '@sails/sdk'
+import type { ReputationScore } from '@satsails/p2p-trading-sdk'
 
 export interface ReputationBadgeProps {
   score: ReputationScore
@@ -7,7 +7,7 @@ export interface ReputationBadgeProps {
 }
 
 /**
- * Built directly from @sails/sdk's real ReputationScore shape
+ * Built directly from @satsails/p2p-trading-sdk's real ReputationScore shape
  * (id/publicKey/displayName/reputationScore/totalTrades/disputeCount —
  * confirmed against types.ts before writing this; that type does NOT
  * currently include tradeScore/volumeScore/settlementScore/disputeRate

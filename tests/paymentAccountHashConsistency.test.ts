@@ -1,7 +1,7 @@
 /**
  * Cross-package hash consistency — RFC-021 D5.
  *
- * The whole payment-account privacy scheme depends on @sails/sdk's
+ * The whole payment-account privacy scheme depends on @satsails/p2p-trading-sdk's
  * client-side hashPaymentAccount() and the backend's
  * PaymentAccountService.hashAccountIdentifier() producing byte-identical
  * SHA-256 output for the same (paymentMethod, rawIdentifier) pair — the

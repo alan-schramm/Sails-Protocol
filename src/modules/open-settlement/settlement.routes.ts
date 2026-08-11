@@ -63,7 +63,7 @@ const initiateReleaseSchema = z.object({
 })
 
 // PSBT, base64-encoded — same format multisig.provider.ts's
-// buildUnsignedRelease()/buildUnsignedRefund() emit and @sails/sdk's
+// buildUnsignedRelease()/buildUnsignedRefund() emit and @satsails/p2p-trading-sdk's
 // signEscrowPsbt() returns.
 const submitTransactionSignatureSchema = z.object({
   signedPsbtBase64: z.string().min(1),
@@ -101,7 +101,7 @@ const registerArbiterSchema = z.object({
   collateralAsset: z.string().optional(),
 })
 
-// RFC-021 D5 — accountHash is computed client-side (@sails/sdk's
+// RFC-021 D5 — accountHash is computed client-side (@satsails/p2p-trading-sdk's
 // hashPaymentAccount()) — the raw PIX key/bank account number is never
 // sent here, only its hash.
 const registerPaymentAccountSchema = z.object({
@@ -198,7 +198,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // Client-held-keys write path (2026-07-27) — buyer or seller submits
-  // only their own public key, generated client-side (@sails/sdk's
+  // only their own public key, generated client-side (@satsails/p2p-trading-sdk's
   // escrow-key module); see escrow.service.ts's submitParticipantKey()
   // and multisig.provider.ts's/lightning-hodl.provider.ts's own header
   // comments for the full custody-model disclosure. Only meaningful for

@@ -31,7 +31,7 @@ That is a reasonable first integration journey. The current repository can suppo
 
 Pain point:
 - The repository root is a full protocol implementation, not a simple SDK consumer experience.
-- The public package is described as @sails/sdk, but the moment a developer opens the repo they are inside a monorepo with backend, UI, examples, and infrastructure all mixed together.
+- The public package is described as @satsails/p2p-trading-sdk, but the moment a developer opens the repo they are inside a monorepo with backend, UI, examples, and infrastructure all mixed together.
 - The README is strong for a technical reader, but it still assumes prior context about protocol modules, wallets, and reference implementation terminology.
 
 Why it hurts:

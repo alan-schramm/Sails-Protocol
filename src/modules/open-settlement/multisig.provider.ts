@@ -10,7 +10,7 @@
  * bitcoinjs-lib/bip32/ecpair APIs, not assumed from docs.
  *
  * Custody model — updated 2026-07-27 (client-held keys pass): the buyer
- * and seller each generate their own key CLIENT-SIDE (`@sails/sdk`'s
+ * and seller each generate their own key CLIENT-SIDE (`@satsails/p2p-trading-sdk`'s
  * escrow-key module) and submit only the public key
  * (`POST /v1/settlement/escrow/:id/submit-key`, persisted as
  * `EscrowParticipantKey`) — this provider never sees, derives, or holds
@@ -29,7 +29,7 @@
  * as a signature-collection flow: `buildUnsignedRelease()`/
  * `buildUnsignedRefund()` build an unsigned PSBT (escrow.service.ts's
  * `initiateRelease()`/`initiateRefund()`); each required party
- * independently signs their own copy client-side (`@sails/sdk`'s
+ * independently signs their own copy client-side (`@satsails/p2p-trading-sdk`'s
  * `signEscrowPsbt()`) and submits it back
  * (`POST .../submit-transaction-signature`); once every required signer
  * has submitted, `finalizeRelease()`/`finalizeRefund()` combine the

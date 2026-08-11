@@ -397,7 +397,7 @@ is Satsails Wallet's own product-level volume, using Sails OpenP2P as
 one proven module inside a broader wallet application — it is not yet
 evidence of the protocol operating as a formalized, fee-generating,
 multi-integrator layer with independent third-party wallets connected
-to it. **Sails P2P Trading SDK** (`@sails/sdk`) — the standalone,
+to it. **Sails P2P Trading SDK** (`@satsails/p2p-trading-sdk`) — the standalone,
 publicly-integrable package any *other* wallet would install to reach
 this same coordination layer — has its public API frozen as of
 `v1.0.0-rc1`, verified end-to-end via a real, mock-free integration

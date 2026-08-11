@@ -11,7 +11,7 @@
 import { buildTradeIntentPayload, buildBuyIntent, buildSellIntent } from '../src/sails-integration/intent-builder'
 import { TradeEventHandler, type ChannelLike } from '../src/sails-integration/event-handler'
 import { MockWalletAdapter } from '../src/wallet-mock'
-import type { ChatFrame, ChatMessageEvent } from '@sails/sdk'
+import type { ChatFrame, ChatMessageEvent } from '@satsails/p2p-trading-sdk'
 
 describe('buildTradeIntentPayload', () => {
   it('builds a real TradeIntentPayload with the required fields', () => {

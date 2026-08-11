@@ -20,11 +20,11 @@ npm run demo:qvac    # QVAC decides -> Pears connects the peers -> Intent Engine
 ## 3. Use the SDK from your own code
 
 ```bash
-npm install @sails/sdk   # not on npm yet — for now, workspace-link this monorepo, see docs/FAQ.md
+npm install @satsails/p2p-trading-sdk   # not on npm yet — for now, workspace-link this monorepo, see docs/FAQ.md
 ```
 
 ```ts
-import { SailsClient, MockWalletAdapter } from '@sails/sdk';
+import { SailsClient, MockWalletAdapter } from '@satsails/p2p-trading-sdk';
 
 const wallet = new MockWalletAdapter({
   peerId: 'mock-peer',

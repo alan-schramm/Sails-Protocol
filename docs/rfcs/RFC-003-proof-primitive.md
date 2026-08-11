@@ -112,5 +112,5 @@ this is a pre-implementation correction, the cheapest time to make it.
 
 ## Reference Implementation Plan
 
-`@sails/sdk` v1.0 (Meses 4-6, `ROADMAP.md`) implements `submitProof()`
+`@satsails/p2p-trading-sdk` v1.0 (Meses 4-6, `ROADMAP.md`) implements `submitProof()`
 directly — `confirmFiat()` is never built.

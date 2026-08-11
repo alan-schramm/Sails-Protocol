@@ -41,7 +41,7 @@ today:
 
 | Pillar | Status | What it actually is today |
 |---|---|---|
-| `WalletAdapter` | 🏗️ Specified | Real interface in `@sails/sdk` (RFC-013) — `getPeerId()`/`getAddress()`/`signTransaction()`/etc. A wallet implements it; the SDK never assumes how signing happens. |
+| `WalletAdapter` | 🏗️ Specified | Real interface in `@satsails/p2p-trading-sdk` (RFC-013) — `getPeerId()`/`getAddress()`/`signTransaction()`/etc. A wallet implements it; the SDK never assumes how signing happens. |
 | Capability Registry | ✅ Proven | Real, persisted (`CapabilityGrant`, RFC-013), and — as of RFC-014/015 — actually **enforced** at the two real money-moving choke points (`intentEngine.create()`, `escrow.service.ts`'s `releaseFunds()`), not just a store nothing consults. |
 | Policy Engine (governed rules) | 📋 Aspirational | **Correction from an earlier draft of this document, which said this was already implemented — it is not.** `policy-engine.ts` today only has `validateFinancialSanity()` (the CISO Economic Rule — a hardcoded sanity check, not a governed/configurable rule system). The `get`/`propose`/`activate` governed-policy interface `RFC-012`'s own Alternatives Considered describes has never been built. This is the one pillar in this table that's a real gap, not a nuance — see the Policy use case below for what that means concretely. |
 | OpenReputation | ✅ Proven | `recordOutcome()` is the sole input to `User.reputationScore` (RFC-007 D8/D9, dispute-aware), `rate()` is real informational feedback, both tested (`tests/reputationOutcome.test.ts`). Not yet packaged as a *portable, cross-module* SDK surface usable outside OpenP2P (`ROADMAP.md` Months 7-9) — the computation is real, the standalone distribution isn't built. |
@@ -63,7 +63,7 @@ document.
 
 - **Status: ✅ Proven.** This is not a future use case — it's
   `PROJECT_CONTEXT.md`'s **Sails P2P Trading SDK**, shipping today
-  (`@sails/sdk`, OpenP2P + OpenSettlement + OpenReputation +
+  (`@satsails/p2p-trading-sdk`, OpenP2P + OpenSettlement + OpenReputation +
   OpenIdentity). Included here only so the comparison table below has
   the real baseline next to the aspirational ones, not to suggest it's
   new.

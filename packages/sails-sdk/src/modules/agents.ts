@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Sails OpenAgents module (verified against
+ * @satsails/p2p-trading-sdk — Sails OpenAgents module (verified against
  * src/modules/open-agents/agent.routes.ts directly).
  *
  * Wraps `QvacAgentProvider`'s structured-generation/risk capabilities

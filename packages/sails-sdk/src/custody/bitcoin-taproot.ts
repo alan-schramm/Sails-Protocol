@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — BitcoinCustodyProvider (RFC-020, Bitcoin Taproot target architecture)
+ * @satsails/p2p-trading-sdk — BitcoinCustodyProvider (RFC-020, Bitcoin Taproot target architecture)
  *
  * A documented *target* upgrade path for the already-shipped P2WSH
  * `MultisigProvider` (`src/modules/open-settlement/multisig.provider.ts`)

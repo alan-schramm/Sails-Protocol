@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Sails OpenP2P module (verified against
+ * @satsails/p2p-trading-sdk — Sails OpenP2P module (verified against
  * src/modules/open-p2p/trade.routes.ts and chat.routes.ts directly).
  *
  * Deviation from an earlier draft of SDK_GUIDE.md section 2's signature:

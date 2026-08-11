@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — client-held escrow key generation
+ * @satsails/p2p-trading-sdk — client-held escrow key generation
  *
  * The buyer/seller half of the client-held-keys upgrade to MULTISIG/
  * LIGHTNING_HODL escrow (`src/modules/open-settlement/multisig.provider.ts`,
@@ -22,7 +22,7 @@
  * `@bitcoinerlab/descriptors-scure`) requires `@noble/curves` 2.x, and npm
  * cannot place two different major versions in the same
  * `packages/sails-sdk/node_modules` slot — confirmed via `npm ls
- * @noble/curves -w @sails/sdk --all` after both a clean reinstall and
+ * @noble/curves -w @satsails/p2p-trading-sdk --all` after both a clean reinstall and
  * `npm dedupe` still resolved 2.2.0 there. `secp256k1`'s real v2.x API
  * (`Signature.fromBytes`/`toBytes` with an explicit `format` argument,
  * `utils.randomSecretKey` replacing v1.x's `randomPrivateKey`, `sign`/

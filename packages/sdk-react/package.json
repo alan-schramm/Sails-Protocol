@@ -1,7 +1,7 @@
 {
-  "name": "@sails/sdk-react",
+  "name": "@satsails/sdk-react",
   "version": "0.1.0",
-  "description": "React hooks and components for @sails/sdk — providers, TanStack Query-backed data hooks, and a small set of trade/identity/feedback primitives. Not a full design system: it wraps what @sails/sdk actually exposes, nothing more.",
+  "description": "React hooks and components for @satsails/p2p-trading-sdk — providers, TanStack Query-backed data hooks, and a small set of trade/identity/feedback primitives. Not a full design system: it wraps what @satsails/p2p-trading-sdk actually exposes, nothing more.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -38,7 +38,7 @@
     "@tanstack/react-query": "^5.0.0"
   },
   "dependencies": {
-    "@sails/sdk": "^0.1.0"
+    "@satsails/p2p-trading-sdk": "^0.1.0"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^3.2.7",
@@ -56,7 +56,7 @@
     "@testing-library/user-event": "^14.5.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.3",
+    "@vitejs/plugin-react": "^4.7.0",
     "@vitest/coverage-v8": "^2.1.8",
     "jsdom": "^25.0.1",
     "react": "^19.2.7",

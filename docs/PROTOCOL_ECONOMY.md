@@ -89,7 +89,7 @@ actually transact through the infrastructure the protocol provides.
 ## 1C. The Wallet Economy — Why This Section of the Document Exists
 
 **Added following the same review.** Any wallet founder evaluating the
-Sails P2P Trading SDK (the MVP's branded release of `@sails/sdk` — see
+Sails P2P Trading SDK (the MVP's branded release of `@satsails/p2p-trading-sdk` — see
 `PROJECT_CONTEXT.md` section 3) asks one question in the first thirty
 seconds: *"Why would I integrate the Sails Protocol if I already have a
 working wallet?"* If the
@@ -225,7 +225,7 @@ now, the entity itself is not yet formed.
 stakeholder-by-stakeholder design in section 4 is built on, stated
 explicitly rather than left implicit.**
 
-A wallet integrating `@sails/sdk` is not a consumer of a hosted service —
+A wallet integrating `@satsails/p2p-trading-sdk` is not a consumer of a hosted service —
 it is a participant in the protocol's economy, the same category as a
 Liquidity Provider or an Arbitrator (section 4). Two consequences follow
 directly:
@@ -365,7 +365,7 @@ Three tiers of answer, matched to the roadmap:
   curve.
 - **Developer/Treasury Fund** — seeded from Protocol Fee revenue once fees
   activate (section 3). Used for: ongoing `@sails/protocol-spec` and
-  `@sails/sdk` maintenance, funding third-party security audits beyond the
+  `@satsails/p2p-trading-sdk` maintenance, funding third-party security audits beyond the
   grant-funded first one, and **grants to external contributors** who build
   new modules (e.g., a fintech that needs `Sails OpenFinance` sooner than
   the roadmap schedule can fund its own development and contribute it back).
@@ -685,7 +685,7 @@ concretely, the question opened in section 1C:
 without building the infrastructure yourself.** Instead of engineering a
 marketplace, reputation system, escrow, dispute mediation, settlement
 logic, agent integration, and liquidity discovery independently — the
-`@sails/sdk` (`SDK_GUIDE.md`) provides all of it — a wallet integrates the
+`@satsails/p2p-trading-sdk` (`SDK_GUIDE.md`) provides all of it — a wallet integrates the
 SDK and starts earning a rebate (section 4.5) on every operation its users
 originate, with exactly the same economic opportunity as every other
 wallet in the ecosystem (section 3B), and its earning surface grows every

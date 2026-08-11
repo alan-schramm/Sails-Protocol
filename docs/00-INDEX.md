@@ -13,8 +13,8 @@
 | 2 | [ARCHITECTURE.md](ARCHITECTURE.md) | Layer separation (Domain/Application/Protocol/Infrastructure), the 6 formal Core components, module boundaries, real vs. stub file inventory |
 | 3 | [DATABASE.md](DATABASE.md) | Schema, status enums and their valid transitions, the moduleId/protocolVersion convention |
 | 4 | [API_REFERENCE.md](API_REFERENCE.md) | Every HTTP/WebSocket route, the Intent-oriented canonical verbs, error response shape |
-| 5 | [SDK_GUIDE.md](SDK_GUIDE.md) | `@sails/sdk` (`packages/sails-sdk`) interface spec — what's real in v0.1 vs. still aspirational |
-| 6 | [API_STABLE.md](API_STABLE.md) | The frozen `@sails/sdk` public API (v0.1, no breaking changes until v1) — every module, both its protocol name and friendly alias, every real method |
+| 5 | [SDK_GUIDE.md](SDK_GUIDE.md) | `@satsails/p2p-trading-sdk` (`packages/sails-sdk`) interface spec — what's real in v0.1 vs. still aspirational |
+| 6 | [API_STABLE.md](API_STABLE.md) | The frozen `@satsails/p2p-trading-sdk` public API (v0.1, no breaking changes until v1) — every module, both its protocol name and friendly alias, every real method |
 | 7 | [NODE_ARCHITECTURE.md](NODE_ARCHITECTURE.md) | P2P transport layer (Pears/HyperDHT/Hyperswarm), infrastructure operation |
 | 8 | [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md) | The frozen v1.0 spec itself — every primitive, in full. The only document in this handoff using RFC 2119 (MUST/SHOULD/MAY) normative language (§0), with a consolidated conformance checklist at §6 |
 | 9 | [THREAT_MODEL.md](THREAT_MODEL.md) | Protocol-level security properties every integrator inherits |

@@ -18,7 +18,7 @@ Install Sails P2P Trading SDK → Create Wallet → Enable OpenP2P →
 Enable Settlement → Enable Reputation → Working Marketplace
 ```
 
-"Sails P2P Trading SDK" is the MVP's product name for the `@sails/sdk`
+"Sails P2P Trading SDK" is the MVP's product name for the `@satsails/p2p-trading-sdk`
 package — see `PROJECT_CONTEXT.md` section 3 for why it's scoped that
 way rather than the long-term "Sails SDK."
 
@@ -32,12 +32,12 @@ this without reading `PROTOCOL_SPECIFICATION.md`.
 
 ### Step 1 — Install the Sails P2P Trading SDK
 
-**Status: 📋 Aspirational.** `@sails/sdk` does not exist yet — see
+**Status: 📋 Aspirational.** `@satsails/p2p-trading-sdk` does not exist yet — see
 `SDK_GUIDE.md`'s own status banner. When it does, this is the entire
 install step:
 
 ```bash
-npm install @sails/sdk
+npm install @satsails/p2p-trading-sdk
 ```
 
 One package. No per-module installs, no separate clients for identity,
@@ -51,7 +51,7 @@ to exist (`SDK_GUIDE.md` section 1).
 `packages/sails-sdk/src/client.ts`).
 
 ```typescript
-import { SailsClient } from '@sails/sdk'
+import { SailsClient } from '@satsails/p2p-trading-sdk'
 
 const sails = new SailsClient({
   baseUrl: 'http://localhost:3000',
@@ -148,7 +148,7 @@ additive, not required to reach a working Marketplace.
 If you are evaluating Sails Protocol to decide whether to integrate it
 today: Step 3 is real, proven in production via the Satsails Wallet
 Reference Implementation. Steps 1, 2, 4, and 5 are specified but not
-buildable yet — `@sails/sdk` has zero implementation
+buildable yet — `@satsails/p2p-trading-sdk` has zero implementation
 (`PROJECT_CONTEXT.md` section 4). Read `docs/ROADMAP.md` for when that
 changes, and `docs/TODO.md` for the exact gap list. This document exists
 so the target experience is unambiguous the moment the SDK ships — not

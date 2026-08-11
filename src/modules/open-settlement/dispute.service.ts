@@ -29,7 +29,7 @@ import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
-import type { EvidenceDescriptor, DisputeRuling } from '@sails/p2p-schemas'
+import type { EvidenceDescriptor, DisputeRuling } from '@satsails/p2p-schemas'
 import type { DisputeStatus } from '@prisma/client'
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee

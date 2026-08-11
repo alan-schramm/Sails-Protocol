@@ -20,7 +20,7 @@
  * script this run actually broadcasts against.
  *
  * The buyer/seller secp256k1 keypairs are generated with the exact same
- * @sails/sdk helper (`generateEscrowKeypair()`) a real client integration
+ * @satsails/p2p-trading-sdk helper (`generateEscrowKeypair()`) a real client integration
  * uses — this script plays both roles locally only because it's rehearsing
  * the full cooperative lifecycle in one process, not because the server
  * ever sees a private key. Both signatures in the final broadcast are
@@ -42,7 +42,7 @@ import { identityService } from '../../src/modules/open-identity/identity.servic
 import { liquidityRouter } from '../../src/modules/open-liquidity/liquidity.service'
 import { tradeService } from '../../src/modules/open-p2p/trade.service'
 import { escrowService } from '../../src/modules/open-settlement/escrow.service'
-// Lazy require() (CODE_STYLE.md §8) — @sails/sdk is a heavy ESM-adjacent
+// Lazy require() (CODE_STYLE.md §8) — @satsails/p2p-trading-sdk is a heavy ESM-adjacent
 // package; no other demo script imports it, so it stays out of every path
 // that doesn't need it.
 function loadEscrowKeyModule(): typeof import('../../packages/sails-sdk/src/modules/escrow-key') {

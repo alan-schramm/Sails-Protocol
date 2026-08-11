@@ -12,7 +12,7 @@
  * `TradeIntentPayload`'s real shape (`packages/sails-sdk/src/types.ts`)
  * has only `asset`/`side` as required — everything else is optional.
  */
-import type { TradeIntentPayload, AssetType, TradeSide } from '@sails/sdk'
+import type { TradeIntentPayload, AssetType, TradeSide } from '@satsails/p2p-trading-sdk'
 
 export interface BuildTradeIntentInput {
   asset: AssetType | string

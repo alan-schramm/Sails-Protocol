@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
-import type { AssetType, TradeSide, DiscoverResult } from '@sails/sdk'
+import type { AssetType, TradeSide, DiscoverResult } from '@satsails/p2p-trading-sdk'
 import { useSailsClient } from './useSailsClient'
 
 export interface UseSailsLiquidityDiscoverOptions {

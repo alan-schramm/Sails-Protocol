@@ -54,7 +54,7 @@ now fully closed.**
       `startServer()`. Also found and fixed along the way:
       `package.json`'s `"start"`/`"main"` pointed at `dist/main.js`, but
       `tsc`'s actual output lands at `dist/src/main.js` — `tsconfig.json`
-      has no explicit `rootDir`, and the `@sails/p2p-schemas` path
+      has no explicit `rootDir`, and the `@satsails/p2p-schemas` path
       mapping (`paths` → `packages/sails-p2p-schemas/src/index.ts`) pulls
       that file directly into the same compiled program, shifting the
       inferred common root up to the repo root. Both scripts now point
@@ -230,7 +230,7 @@ makes the same point in more detail.
       upgrade) — done, 2026-07-27.** Closes the biggest disclosed gap in
       both `MultisigProvider` and `LightningHodlProvider`: buyer/seller no
       longer have their key derived server-side. Each generates a real
-      secp256k1 keypair client-side (`@sails/sdk`'s new `escrow-key.ts`,
+      secp256k1 keypair client-side (`@satsails/p2p-trading-sdk`'s new `escrow-key.ts`,
       `generateEscrowKeypair()` — `@noble/curves`, pinned to `^1.2.0`
       specifically because 2.x ships pure ESM with no real CJS entry for
       this subpath, same class of Jest-breaking problem
@@ -280,7 +280,7 @@ makes the same point in more detail.
       until finalize actually succeeds. Each required signer
       (`requiredSigners`, participant ids) independently loads the
       unsigned PSBT, signs their own copy client-side
-      (`@sails/sdk`'s new `signEscrowPsbt()`, `@bitcoinerlab/secp256k1` —
+      (`@satsails/p2p-trading-sdk`'s new `signEscrowPsbt()`, `@bitcoinerlab/secp256k1` —
       pure JS, no WASM, the same avoidance-of-`tiny-secp256k1`-in-the-
       browser reasoning `escrow-key.ts` already used for `@noble/curves`),
       and submits it via `POST .../submit-transaction-signature`
@@ -330,7 +330,7 @@ makes the same point in more detail.
       `buildUnsignedRefund()`/`finalizeRelease()`/`finalizeRefund()`;
       `escrow.service.ts`'s `initiateRelease()`/`initiateRefund()`/
       `submitTransactionSignature()`/`getPendingTransaction()`; 4 new
-      `settlement.routes.ts` routes; `@sails/sdk`'s `signEscrowPsbt()`
+      `settlement.routes.ts` routes; `@satsails/p2p-trading-sdk`'s `signEscrowPsbt()`
       (`escrow-key.ts`) and 4 new `SailsSettlementModule` methods;
       minimal `sails-ui` wiring (`useEscrowKey`'s
       `signAndSubmitPendingTransactionIfNeeded()`, called speculatively
@@ -383,7 +383,7 @@ makes the same point in more detail.
       `getPendingTransaction()` flow is provider-agnostic already). On a
       `DISPUTED` release/refund, the arbiter's own required signature
       (still server-derived, unchanged from Phase 1) is pre-embedded into
-      the bundle at build time. `@sails/sdk` gained `signEscrowArkTx()`
+      the bundle at build time. `@satsails/p2p-trading-sdk` gained `signEscrowArkTx()`
       (`escrow-ark-signing.ts`) — the Arkade equivalent of
       `signEscrowPsbt()`, using `SingleKey` + `@scure/btc-signer`'s
       `Transaction` instead of bitcoinjs-lib/ECPair, same client-held
@@ -411,7 +411,7 @@ makes the same point in more detail.
       `@arkade-os/sdk`/`@scure/btc-signer` (both pure ESM, cannot load
       under Jest at all — same reason this file's tests have always
       mocked them). 349/349 full backend suite green, 54/54 SDK suite
-      green, `npm run build` clean across backend + `@sails/sdk` +
+      green, `npm run build` clean across backend + `@satsails/p2p-trading-sdk` +
       `sails-ui`.
 
 ## 5. Liquidity Providers Beyond Internal
@@ -712,7 +712,7 @@ makes the same point in more detail.
       registers the real target design and real, tested interfaces —
       `SailsEscrowSafe.sol` (a Safe Transaction Guard + ERC-4337, compiles
       clean against real audited dependencies, not deployed to any
-      network), plus `@sails/sdk`'s `ERC4337CustodyProvider`,
+      network), plus `@satsails/p2p-trading-sdk`'s `ERC4337CustodyProvider`,
       `BitcoinCustodyProvider`, and `SailsSignerService` (AWS KMS
       co-signer) with real, independently-verified cryptographic logic
       (`packages/sails-sdk/tests/custody-*.test.ts`). **Wired in as a
@@ -723,7 +723,7 @@ makes the same point in more detail.
       signature-collection-route pattern (no new routes needed —
       `initiate-release`/`initiate-refund`/`submit-transaction-signature`
       are already generic over `escrow.type`). Real, tested: UserOperation/
-      userOpHash construction (importing `@sails/sdk`'s `getUserOpHash()`
+      userOpHash construction (importing `@satsails/p2p-trading-sdk`'s `getUserOpHash()`
       rather than a second hand-written copy — client and server must
       hash identically for a signature to verify), and real signature
       recovery + Safe's actual ascending-address-sorted packed-signature
@@ -774,7 +774,7 @@ makes the same point in more detail.
 
 ## 8. SDK (status changed — v0.1 real, partial) *(2026-07-17)*
 
-- [x] `@sails/sdk` (`packages/sails-sdk`) now exists — real npm workspace
+- [x] `@satsails/p2p-trading-sdk` (`packages/sails-sdk`) now exists — real npm workspace
       package, wired into root `package.json`'s `workspaces`/`build`
       scripts. `SailsClient`'s Transport layer (real `fetch`/`WebSocket`,
       no Node-only dependency — works in both Node and browser per
@@ -826,13 +826,13 @@ makes the same point in more detail.
       don't).
       `@sails/protocol-spec` also still does not exist — v0.1 defines its
       own local response types (`packages/sails-sdk/src/types.ts`)
-      rather than reconciling with `@sails/p2p-schemas`'s differently-
+      rather than reconciling with `@satsails/p2p-schemas`'s differently-
       shaped `OfferSchema`, a documented, deliberate deferral (that
       file's own header), not an oversight.
 
 ## 9. Monorepo Structure (status changed — first package landed)
 
-- [x] `packages/sails-p2p-schemas` (`@sails/p2p-schemas`) exists — the
+- [x] `packages/sails-p2p-schemas` (`@satsails/p2p-schemas`) exists — the
       first real npm workspace package, wired via root `package.json`'s
       `"workspaces": ["packages/*"]`. See `BACKLOG.md` P1.
 - [ ] **Still open:** the full `packages/` / `apps/` split from
@@ -909,9 +909,9 @@ makes the same point in more detail.
       + Vite + TypeScript + React Router app (Marketplace, Offer Detail,
       Trade with chat + escrow state machine, Login, Profile, Trade
       History, Admin Dashboard, Manage Offers, Disputes). Every screen
-      reads `src/data/mock.ts` — no `@sails/sdk` call happens anywhere
+      reads `src/data/mock.ts` — no `@satsails/p2p-trading-sdk` call happens anywhere
       in this package yet; every read site has a
-      `// TODO: replace with @sails/sdk ...` comment naming the real
+      `// TODO: replace with @satsails/p2p-trading-sdk ...` comment naming the real
       method. Manually verified in a real browser (not just
       `npm run build`) — found and fixed one real bug this way: an
       effect-ordering race in `AuthContext` that bounced a logged-in
@@ -1138,7 +1138,7 @@ makes the same point in more detail.
       generates its own ephemeral per-session identity internally
       (`HyperDHT.keyPair()`, the library's own generator), so no key
       material transits the network at all anymore — `/v1/peers/start`
-      takes no body, `@sails/sdk`'s `peers.start()` takes no argument.
+      takes no body, `@satsails/p2p-trading-sdk`'s `peers.start()` takes no argument.
       **Still genuinely not done, same as before:** the P2P node — and
       key custody — living entirely client-side (a wallet/mobile app
       running its own HyperDHT/Hyperswarm stack, server never involved)
@@ -1305,7 +1305,7 @@ the history stays visible):
       `auth.ts`'s own doc comment warns against. Fixed: `requireAuth`
       added, `participantId` now session-derived only;
       `intentEngine.cancel()` gained an ownership check it never had.
-      `@sails/sdk`'s `createIntent()`/`cancelIntent()` updated to send
+      `@satsails/p2p-trading-sdk`'s `createIntent()`/`cancelIntent()` updated to send
       real auth and dropped `participantId` as a caller argument
       (closing a previously-noted `SDK_GUIDE.md` deviation as a side
       effect). Zero HTTP-level test coverage existed for this route
@@ -1524,8 +1524,8 @@ silently breaking those tools' own glob parsing), `uuid` (`^11.1.1`,
 under its own `node_modules` that the override can't reach without
 forcing an incompatible major into a tool that pins it deliberately).
 **Net: 66 → 62 flagged packages.** Verified nothing broke: full backend
-+ SDK Jest suite (349/349), `npm run build` clean (backend + `@sails/sdk`
-+ `sails-ui`), `@sails/sdk-react`'s own `tsc --noEmit` + `tsup` build
++ SDK Jest suite (349/349), `npm run build` clean (backend + `@satsails/p2p-trading-sdk`
++ `sails-ui`), `@satsails/sdk-react`'s own `tsc --noEmit` + `tsup` build
 clean.
 
 **The remaining 62 all have the same real ceiling**: a genuine fix
@@ -1569,7 +1569,7 @@ safety gain; will pick this back up once react-router actually ships a
 forward-compatible `8.3.0`+ (or backports to a patched `7.x`).
 
 **Also discovered, unrelated to this pass, flagged separately (not
-fixed here):** `@sails/sdk-react`'s own Vitest suite has been silently
+fixed here):** `@satsails/sdk-react`'s own Vitest suite has been silently
 broken since commit `9a49f20` (today, MULTISIG Phase 2) — 5 of 10 test
 files fail to load with `Error: ecc library invalid` (thrown by
 `ecpair`'s built-in self-test against `@bitcoinerlab/secp256k1`, added to
@@ -1760,14 +1760,14 @@ devDependencies only.
 
 Every screen in this reference UI was 100% mocked (`data/mock.ts`/
 `lib/offersStore.ts`/`localStorage`) until today — every `TODO: replace
-with @sails/sdk` comment across the codebase pointed at this pass. With
+with @satsails/p2p-trading-sdk` comment across the codebase pointed at this pass. With
 §18's real local Postgres+Redis and a real `npm run dev` server running,
 the core "two wallets negotiate" loop now runs against the real backend
 end to end, verified live in a real browser (not just `tsc`/build):
 
 - **Login** (`AuthContext.tsx`) — real `identity.create()` +
   `identity.authenticate()` (Ed25519 challenge-response,
-  `@sails/sdk`'s identity module). Keypair persisted in `localStorage`
+  `@satsails/p2p-trading-sdk`'s identity module). Keypair persisted in `localStorage`
   (demo-only shortcut, disclosed in the file's own comment — a real
   wallet integration keeps this in the wallet's own secure storage,
   never a page-controlled origin). Verified: full register → challenge
@@ -1780,7 +1780,7 @@ end to end, verified live in a real browser (not just `tsc`/build):
   ever let a caller fetch one Offer by id with its seller's real profile
   fields — added `GET /v1/liquidity/offers/id/:id`
   (`liquidity.service.ts`'s new `getOffer()`, `liquidity.routes.ts`) and
-  the matching `@sails/sdk` method.
+  the matching `@satsails/p2p-trading-sdk` method.
 - **PublishOffer** — real `liquidity.publish()` (`POST
   /v1/liquidity/offers`).
 - **Trade** — real `openp2p.trade()` (creates the real Trade, walks its
@@ -1816,13 +1816,13 @@ mocks — a real fetch/WS round trip was never exercised before):**
    `readAt`). Symptom before the fix: "Invalid Date" on every live chat
    message. Fixed with a new `ChatMessageEvent` type matching the real
    frame.
-4. (Tooling, not an SDK bug) Vite resolves `@sails/sdk` — an npm-
+4. (Tooling, not an SDK bug) Vite resolves `@satsails/p2p-trading-sdk` — an npm-
    workspace-linked package — through its real filesystem path rather
    than as a `node_modules` dependency, skipping the esbuild CJS→ESM
    pre-bundling every other CJS dependency gets automatically. The
    browser's native ESM loader then can't find named exports from what's
    actually a CJS `exports.X = ...` module. Fixed with
-   `optimizeDeps.include: ['@sails/sdk']` in `packages/sails-ui/vite.config.ts`.
+   `optimizeDeps.include: ['@satsails/p2p-trading-sdk']` in `packages/sails-ui/vite.config.ts`.
 
 **Still mocked, not touched this pass** (disclosed, not silently left):
 Profile's own-offers list, TradeHistory, the Admin dashboard/
@@ -1856,7 +1856,7 @@ had no way to see where to send money once the trade started.
 **Fixed:** `trade.service.ts`'s `getTrade()` now `include`s the real
 `offer` relation (the `intentId`-style pattern this file already uses
 for `escrow`/`messages`) — no new route, no schema change, the
-`offerId` FK already existed. `@sails/sdk`'s `Trade` type gained an
+`offerId` FK already existed. `@satsails/p2p-trading-sdk`'s `Trade` type gained an
 optional `offer?: Offer` field (optional because `trade()`'s create
 response doesn't include it — only `getTrade()` does, documented on the
 method itself). `Trade.tsx` renders a "Como pagar" card for the buyer
@@ -1885,7 +1885,7 @@ card renders the exact seeded PIX string.
 
 ---
 
-## 21. `@sails/sdk`'s `dispute()` is real; `negotiate()`/`releaseAsset()`'s
+## 21. `@satsails/p2p-trading-sdk`'s `dispute()` is real; `negotiate()`/`releaseAsset()`'s
     blockers corrected (2026-07-20)
 
 Section 8's "still genuinely unbuilt/partial" note (and `HANDOFF.md` §3
@@ -1994,7 +1994,7 @@ weakened).
 ### Found, not fixed — registered precisely, per the "no new features" scope
 
 - **No WebSocket reconnection logic anywhere in the client stack — ✅ closed on the SDK side, 2026-08-02.**
-  `@sails/sdk`'s `WebSocketChannel` (`openp2p.ts`) now takes a socket
+  `@satsails/p2p-trading-sdk`'s `WebSocketChannel` (`openp2p.ts`) now takes a socket
   factory instead of a bare `WebSocket` (a closed real socket can never
   be reopened) and reconnects itself with exponential backoff + jitter on
   an unexpected `close`, re-`JOIN_TRADE`-ing on every reconnect, capped at
@@ -2181,12 +2181,12 @@ Jest, 3/3 Playwright (golden path + both concurrency scenarios).
 
 ## 25. SDK hardening phase, part 1 — `examples/simple-wallet` dogfooding + a real gap it found and fixed (2026-07-20)
 
-CTO-directed pivot (relayed 2026-07-20): now that `@sails/sdk` is the
+CTO-directed pivot (relayed 2026-07-20): now that `@satsails/p2p-trading-sdk` is the
 primary product surface, stop adding functionality and start hardening
 it — make it trivial for any wallet to integrate. First step: prove it,
 don't assume it. `examples/simple-wallet` (new workspace, added to root
 `package.json`'s `workspaces` array as `examples/*`) is a ~140-line
-script using **only `@sails/sdk`'s public exports** — no reaching into
+script using **only `@satsails/p2p-trading-sdk`'s public exports** — no reaching into
 this monorepo's internal services, no mocks — that drives the entire
 golden path against a real local Sails node: register (seller) →
 register (buyer) → publish offer → discover it → open a trade → chat →
@@ -2299,7 +2299,7 @@ that file describing the current table's own size as a live count,
 not a historical reference to the original delivered set, updated to
 match).
 
-**Verification:** `npm run build -w @sails/sdk` clean, `npx jest
+**Verification:** `npm run build -w @satsails/p2p-trading-sdk` clean, `npx jest
 packages/sails-sdk` 44/44 (2 new tests). Full repo suite re-run after:
 `npm run build` clean, `npx jest` 226/226 (224 + these 2 new tests),
 `npx playwright test` 3/3.
@@ -2325,7 +2325,7 @@ and rejected: namespacing aliases under `sdk.friendly.*` — would fully
 eliminate the top-level autocomplete crowding, but costs a token on
 every call (`sdk.friendly.auth.authenticate(...)`) for a problem the
 JSDoc fix already solves without that tax. Verified: `npm run build -w
-@sails/sdk` clean, the compiled `packages/sails-sdk/dist/client.d.ts`
+@satsails/p2p-trading-sdk` clean, the compiled `packages/sails-sdk/dist/client.d.ts`
 inspected directly to confirm the JSDoc survived compilation, full
 repo `npm run build` + `npx jest` 226/226 re-run clean.
 
@@ -2339,9 +2339,9 @@ Release Candidate, not a place for more features. His follow-up list
 (7 checks that build confidence, explicitly not new methods/modules) had
 3 concrete inaccuracies against the real repo, corrected before running
 anything: the example commands used the package name
-`@sails/p2p-trading-sdk` (the real name is `@sails/sdk` — "Sails P2P
+`@sails/p2p-trading-sdk` (the real name is `@satsails/p2p-trading-sdk` — "Sails P2P
 Trading SDK" is prose/marketing, not the npm package name); they assumed
-the package is already published (`npm view @sails/sdk` → real `404`,
+the package is already published (`npm view @satsails/p2p-trading-sdk` → real `404`,
 confirmed 2026-07-20 — nothing has ever been published); and the
 suggested `CHANGELOG.md` heading was `v1.0.0`, which directly
 contradicts `docs/API_STABLE.md`'s own freeze commitment ("0.1 becomes
@@ -2353,7 +2353,7 @@ Adjusted all three before doing the actual work, not after.
 - **Package footprint** (`npm pack` inside `packages/sails-sdk`): 22.3 kB
   packed, 77.4 kB unpacked, 31 files — far under any of the CTO's
   illustrative guesses (200 KB/800 KB/3 MB).
-- **Standalone smoke test** — not `npm install @sails/sdk` against the
+- **Standalone smoke test** — not `npm install @satsails/p2p-trading-sdk` against the
   real registry (nothing published there), but the equivalent that
   doesn't require publishing anything: packed the real tarball, created
   a folder with zero relation to this monorepo (own `npm init`, no
@@ -2407,7 +2407,7 @@ Adjusted all three before doing the actual work, not after.
 ## 28. Final pre-handoff public-API audit (2026-07-20)
 
 CTO's explicit closing request before the SDK passes to a dev for
-ongoing maintenance: audit `@sails/sdk` as an external developer seeing
+ongoing maintenance: audit `@satsails/p2p-trading-sdk` as an external developer seeing
 it for the first time, looking specifically for internal leakage onto
 the public surface — not a feature review. 8 categories requested; each
 checked against real code, not assumed. Fixed only what was real; did
@@ -2459,7 +2459,7 @@ already done, it's marked done, not silently dropped.
 
 | # | Recommendation | Result |
 |---|---|---|
-| 1 | ESM + tree-shaking for `@sails/sdk` (dual CJS/ESM build) | **Already done.** `package.json`'s `exports` map (`import`→`.mjs`, `require`→`.js`) + `sideEffects: false`, built via `tsup`. The source Qwen read was stale. |
+| 1 | ESM + tree-shaking for `@satsails/p2p-trading-sdk` (dual CJS/ESM build) | **Already done.** `package.json`'s `exports` map (`import`→`.mjs`, `require`→`.js`) + `sideEffects: false`, built via `tsup`. The source Qwen read was stale. |
 | 2a | k6/Artillery load tests on critical paths (concurrent `releaseFunds`, trade creation) | **Already done.** `load-tests/tests/escrow-operations.js` runs the full create→lock→payment-sent→release flow under concurrent VUs; `trade-lifecycle.js`/`reconciliation.js` cover the rest. |
 | 2b | OpenTelemetry distributed tracing (P2P event → settlement confirmation latency) | **Real gap, genuinely not built — registered here as roadmap, not implemented this pass.** `common/metrics.ts`'s own header already explains why: real Prometheus counters/histograms were built and are live at `/metrics`, but full distributed tracing needs a vendor decision (which backend, who operates retention, cost) that's the project owner's call, not something to commit to unilaterally. Not a demo blocker — no partner-wallet-facing flow depends on trace visibility. |
 | 3 | E2E test proving `Timeline`/`ReconciliationService` event replay survives a network drop without duplicating actions | **Premise didn't match the real architecture — checked directly, not assumed.** `ReconciliationService` never replays P2P events; it re-reads Postgres, the single source of truth (`reconciliation.service.ts`'s own header states this). The real duplicate-action protection is `escrow-lifecycle.ts`'s atomic `claimEscrowTransition()` (a concurrent duplicate transition throws instead of double-executing) — already real, already covered (`tests/race-condition.test.ts`). `e2e/flows/network-reconnection.spec.ts` already covers the real recovery path (server-side Postgres persistence + client reload-to-resync) and is honest in its own comments about what a browser-driven test can't observe (backend-to-backend P2P reconciliation). |

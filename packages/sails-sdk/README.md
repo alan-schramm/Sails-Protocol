@@ -1,4 +1,4 @@
-# `@sails/sdk` — Sails P2P Trading SDK
+# `@satsails/p2p-trading-sdk` — Sails P2P Trading SDK
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](../../LICENSE)
 [![CI](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml)
@@ -18,7 +18,7 @@ for working code snippets.
 ## Quick start
 
 ```ts
-import { SailsClient } from "@sails/sdk"
+import { SailsClient } from "@satsails/p2p-trading-sdk"
 
 const client = new SailsClient({
   baseUrl: "http://localhost:3000",
@@ -80,9 +80,9 @@ for a reference implementation.
 ## Build
 
 ```bash
-npm run build -w @sails/sdk    # produces dist/ via tsup
-npm test -w @sails/sdk         # jest + ts-jest, 33 tests
-npm run typecheck -w @sails/sdk # tsc --noEmit
+npm run build -w @satsails/p2p-trading-sdk    # produces dist/ via tsup
+npm test -w @satsails/p2p-trading-sdk         # jest + ts-jest, 33 tests
+npm run typecheck -w @satsails/p2p-trading-sdk # tsc --noEmit
 ```
 
 ## License

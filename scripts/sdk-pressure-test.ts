@@ -1,5 +1,5 @@
-import { SailsClient } from '@sails/sdk'
-import type { AssetType } from '@sails/sdk'
+import { SailsClient } from '@satsails/p2p-trading-sdk'
+import type { AssetType } from '@satsails/p2p-trading-sdk'
 
 const BASE_URL = process.env.SAILS_BASE_URL ?? 'http://127.0.0.1:3000'
 const USER_COUNT = 100

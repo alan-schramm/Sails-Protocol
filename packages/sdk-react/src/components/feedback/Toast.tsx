@@ -19,7 +19,7 @@ const ToastContext = createContext<ToastContextValue | null>(null)
 /**
  * Deliberately a small, dependency-free implementation — not a wrapper
  * around `sonner` (what packages/sails-ui actually uses today). This is
- * a general @sails/sdk-react for any third-party wallet, and forcing
+ * a general @satsails/sdk-react for any third-party wallet, and forcing
  * every consumer to also install/configure a specific toast library
  * just to use this one hook would be a heavier ask than a ~40-line
  * context needs to justify. A consumer already using sonner (or

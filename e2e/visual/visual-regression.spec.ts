@@ -6,7 +6,7 @@ import { TradePage } from '../pages/trade.page'
 
 /**
  * No `TradeCard` component exists in packages/sails-ui (that's
- * @sails/sdk-react — a separate package for third-party integrators,
+ * @satsails/sdk-react — a separate package for third-party integrators,
  * not what this running app renders). The real analog here is the
  * Trade page itself (`/trade/:id`) across its real Trade+Escrow state
  * progression, plus the real Marketplace `OfferCard` component for the

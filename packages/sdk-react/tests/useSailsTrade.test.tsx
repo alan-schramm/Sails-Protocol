@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SailsProvider } from '../src/providers/SailsProvider'
 import { useSailsTrade } from '../src/hooks/useSailsTrade'
-import type { SailsClient } from '@sails/sdk'
+import type { SailsClient } from '@satsails/p2p-trading-sdk'
 
 function mockClient(): SailsClient {
   return {

@@ -467,7 +467,7 @@ of* this gap — not a claim that the gap is closed.
 ## 10. Reference Implementation: Sails P2P Trading SDK
 
 ✅ **Proven — the concrete proof this isn't paper architecture.**
-`@sails/sdk` is a single TypeScript client (`SailsClient`) layered as:
+`@satsails/p2p-trading-sdk` is a single TypeScript client (`SailsClient`) layered as:
 
 ```mermaid
 graph TD
@@ -538,7 +538,7 @@ was closed after this section was first written:
   shipped (purely additive, not a change to the frozen v1.0.0-rc1
   public API surface, `docs/API_STABLE.md`), with `dist/index.mjs` and
   a proper `exports` map added alongside. Verified both ways at
-  runtime — `require('@sails/sdk')` and `import ... from '@sails/sdk'`
+  runtime — `require('@satsails/p2p-trading-sdk')` and `import ... from '@satsails/p2p-trading-sdk'`
   against the built output — not just that the build command exits
   zero.
 - **No independent security audit has been performed.** Every finding

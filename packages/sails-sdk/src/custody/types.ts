@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — custody provider types (RFC-020, fulfilling RFC-019 Phase 2)
+ * @satsails/p2p-trading-sdk — custody provider types (RFC-020, fulfilling RFC-019 Phase 2)
  *
  * `CustodyProvider` is the chain-agnostic abstraction each real custody
  * scheme implements — same minimalist, transport-agnostic spirit as

@@ -14,13 +14,13 @@
  *    execution rules rule out.
  * 2. "View a trade" — paste in a real `tradeId` (one of the two
  *    `examples/*.ts` scripts prints one when run) and see the real,
- *    unmodified `TradeCard`/`TradeStatusBadge` from `@sails/sdk-react`
+ *    unmodified `TradeCard`/`TradeStatusBadge` from `@satsails/sdk-react`
  *    render it, via `useSailsTrade()` (also no auth required).
  */
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useSailsClient, useSailsTrade } from '@sails/sdk-react'
-import type { AssetType, TradeSide } from '@sails/sdk'
+import { useSailsClient, useSailsTrade } from '@satsails/sdk-react'
+import type { AssetType, TradeSide } from '@satsails/p2p-trading-sdk'
 import { TradeCard } from '../ui/TradeCard'
 import { TradeStatusBadge } from '../ui/StatusBadge'
 

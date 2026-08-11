@@ -80,7 +80,7 @@ Também remover `status` de todas as chamadas `success(data, 201)` → `success(
 
 ---
 
-### 5. Adicionar `exports` map em `@sails/p2p-schemas`
+### 5. Adicionar `exports` map em `@satsails/p2p-schemas`
 
 **Arquivo:** `packages/sails-p2p-schemas/package.json`
 
@@ -112,7 +112,7 @@ Também mudar o build de `tsc` para `tsup` para gerar dual CJS/ESM (criar `tsup.
 
 ```markdown
 [![CI](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/alan-schramm/Sails-Protocol/actions)
-[![npm version](https://img.shields.io/npm/v/@sails/sdk)](https://www.npmjs.com/package/@sails/sdk)
+[![npm version](https://img.shields.io/npm/v/@satsails/p2p-trading-sdk)](https://www.npmjs.com/package/@satsails/p2p-trading-sdk)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 ```
 
@@ -210,13 +210,13 @@ const app = Fastify({
 ```json
 // ANTES:
 "dependencies": {
-  "@sails/sdk": "^0.1.0",
+  "@satsails/p2p-trading-sdk": "^0.1.0",
   "@tanstack/react-query": "^5.90.5"
 }
 
 // DEPOIS:
 "dependencies": {
-  "@sails/sdk": "^0.1.0"
+  "@satsails/p2p-trading-sdk": "^0.1.0"
 },
 "peerDependencies": {
   "react": "^19.0.0",
@@ -261,24 +261,24 @@ app.get('/v1/liquidity/offers/:id', {
 
 ---
 
-### 13. Adicionar README para `@sails/p2p-schemas`
+### 13. Adicionar README para `@satsails/p2p-schemas`
 
 **Arquivo:** `packages/sails-p2p-schemas/README.md` (novo)
 
 **Conteúdo mínimo:**
 
 ```markdown
-# @sails/p2p-schemas
+# @satsails/p2p-schemas
 
 Shared TypeScript types and Zod schemas for the Sails P2P Protocol.
 
 ## Installation
 
-npm install @sails/p2p-schemas
+npm install @satsails/p2p-schemas
 
 ## Usage
 
-import type { Offer, Trade, Dispute } from '@sails/p2p-schemas'
+import type { Offer, Trade, Dispute } from '@satsails/p2p-schemas'
 
 ## License
 
@@ -553,7 +553,7 @@ em teoria):
    (`safe-guard-evm.provider.ts`'s `getDepositAddress()`).
 
 **Gap real na própria SDK, encontrado e corrigido no processo**: o tipo
-`Escrow` de `@sails/sdk` (`packages/sails-sdk/src/types.ts`) nunca
+`Escrow` de `@satsails/p2p-trading-sdk` (`packages/sails-sdk/src/types.ts`) nunca
 declarava `multisigAddr`, apesar do servidor sempre devolver esse campo
 real (`escrow.service.ts`'s `submitParticipantKey()`) — forçando
 qualquer chamador que precisasse do endereço de depósito (MULTISIG/
@@ -564,7 +564,7 @@ que construía um `Escrow` literal sem o campo, corrigido junto.
 
 `ethers` (`^6.17.0`, mesma versão já resolvida transitivamente em todo o
 monorepo via `@tetherto/wdk-wallet-evm`) é uma dependência direta nova
-só deste pacote de example — nem `@sails/sdk` nem o backend jamais
+só deste pacote de example — nem `@satsails/p2p-trading-sdk` nem o backend jamais
 dependem de `ethers`/`viem` diretamente (`settlement.ts`'s
 `parseSafeGuardBundle()` já documentava essa escolha deliberada,
 deixando o exemplo real com `ethers` como o "e.g." que faltava).
@@ -576,7 +576,7 @@ de chave genuinamente diferente da chave secp256k1 de custódia do
 escrow. Uma wallet real (ex: hardware wallet) integrando esta SDK teria
 exatamente essa mesma fronteira.
 
-Verificado: `npx tsc --noEmit` limpo (root + `@sails/sdk` + `sdk-react`
+Verificado: `npx tsc --noEmit` limpo (root + `@satsails/p2p-trading-sdk` + `sdk-react`
 + `examples/wallet-integration`); testes unitários reais e livres de
 rede para ambas as wallets (`examples/wallet-integration/tests/wallet-adapters.test.ts`,
 13 testes: derivação de endereço, formato de chave pública, assinatura
@@ -701,7 +701,7 @@ Disclosed para não parecer que foram ignorados por descuido:
 |---|---|
 | Badge de CI ausente | Já existe, `README.md:3` |
 | Badge de licença ausente | Já existe, `README.md:4` |
-| Badge de versão npm ausente | **Ausência é deliberada e correta** — `npm view @sails/sdk` confirma 404 real (reverificado agora). Um badge apontando pra um pacote não publicado é pior que nenhum badge; já há um comentário no README explicando isso. |
+| Badge de versão npm ausente | **Ausência é deliberada e correta** — `npm view @satsails/p2p-trading-sdk` confirma 404 real (reverificado agora). Um badge apontando pra um pacote não publicado é pior que nenhum badge; já há um comentário no README explicando isso. |
 | "Linha 159: frase órfã, artefato de merge" | Não reproduz no README atual — a linha equivalente é uma frase em negrito bem formada, parte de um parágrafo real, não um heading solto. Provavelmente já corrigido no commit `df2b312` (Fase 3 desta sessão), relatório está desatualizado. |
 | Breaking changes / migration guide ausente | Projeto está pré-1.0 (`package.json`: `0.1.1`) — não existe versão publicada anterior da qual migrar ainda. Correto adiar para quando 1.0 for cortado, não é gap hoje. |
 | Quickstart "parcial" | Já é bem mais completo do que "parcial" sugere — `docker compose up -d --build` sozinho já sobe tudo; o bloco de comandos completo (`cp .env.example .env` → `npm test`) também já existe. Only real gap é 2.4 acima (falta a versão ultra-condensada de 1 página). |

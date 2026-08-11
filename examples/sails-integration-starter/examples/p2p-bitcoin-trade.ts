@@ -1,6 +1,6 @@
 /**
  * Fase 6 — golden-path example: a real BTC/PIX P2P trade start to finish,
- * using only `@sails/sdk`'s public API. Mirrors
+ * using only `@satsails/p2p-trading-sdk`'s public API. Mirrors
  * `examples/simple-wallet/src/index.ts`'s proven pattern (two independent
  * SailsClient instances, one per side, nothing shared) — see that file's
  * own header for why each step is shaped the way it is; this script
@@ -26,7 +26,7 @@
  *
  * Run: npm run example:p2p-bitcoin-trade -w @sails/example-integration-starter
  */
-import { SailsClient, type ChatMessageEvent } from '@sails/sdk'
+import { SailsClient, type ChatMessageEvent } from '@satsails/p2p-trading-sdk'
 
 const BASE_URL = process.env.SAILS_BASE_URL ?? 'http://localhost:3000'
 

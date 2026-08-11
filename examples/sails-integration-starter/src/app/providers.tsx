@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Fase 6 — the real, minimal provider tree every `@sails/sdk-react`
+ * Fase 6 — the real, minimal provider tree every `@satsails/sdk-react`
  * consumer needs (documented for real in `packages/sdk-react/README.md`,
  * written alongside this): `SailsProvider` (wraps a pre-constructed
  * `SailsClient`) *and* TanStack Query's own `QueryClientProvider` — every
@@ -10,7 +10,7 @@
  */
 import { useState, type ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { SailsProvider } from '@sails/sdk-react'
+import { SailsProvider } from '@satsails/sdk-react'
 import { getSailsClient } from '../sails-integration/client'
 
 export function Providers({ children }: { children: ReactNode }) {

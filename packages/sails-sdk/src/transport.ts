@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Transport layer (SDK_GUIDE.md section 4B's bottom layer:
+ * @satsails/p2p-trading-sdk — Transport layer (SDK_GUIDE.md section 4B's bottom layer:
  * "HTTP/WebSocket client, retry logic, auth headers")
  *
  * A real `fetch`-based HTTP client and a thin WebSocket wrapper — no

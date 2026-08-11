@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — SailsSignerService (RFC-020)
+ * @satsails/p2p-trading-sdk — SailsSignerService (RFC-020)
  *
  * The one EVM key the server legitimately still holds in RFC-020's
  * design — `WdkSettlementProvider`'s current gap (RFC-019, Phase 1's
@@ -53,7 +53,7 @@
  * (`package.json` declares `^2.0.1`) — `@arkade-os/sdk`'s own transitive
  * tree forces 2.x in this exact `node_modules` slot regardless of what
  * any one file would prefer (confirmed via `npm ls @noble/curves -w
- * @sails/sdk --all`), so this file targets v2.x's real API
+ * @satsails/p2p-trading-sdk --all`), so this file targets v2.x's real API
  * (`Signature.fromBytes(bytes, 'der')`/`toBytes('compact')`,
  * `secp256k1.sign(..., { prehash: false })`) throughout — verified
  * against the actually-installed package, not the v1.x API
@@ -72,7 +72,7 @@
 // Dynamically imported, not a static top-level import — DX audit finding
 // (2026-08-10): @aws-sdk/client-kms is ~300KB for a class not even wired
 // into any live flow yet (see comment above). A static import made it a
-// hard `dependency` of the whole @sails/sdk package — every consumer's
+// hard `dependency` of the whole @satsails/p2p-trading-sdk package — every consumer's
 // `npm install` paid for it, even one that only ever touches SailsClient.
 // Moved to `peerDependencies` (optional, see package.json) + this lazy
 // import: the constructor/method signatures below are unchanged (still

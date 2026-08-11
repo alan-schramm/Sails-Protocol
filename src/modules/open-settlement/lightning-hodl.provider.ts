@@ -22,7 +22,7 @@
  *
  * Custody model — updated 2026-07-27 (client-held keys pass, same change
  * `multisig.provider.ts` got): the buyer and seller each generate their
- * own key CLIENT-SIDE (`@sails/sdk`'s escrow-key module) and submit only
+ * own key CLIENT-SIDE (`@satsails/p2p-trading-sdk`'s escrow-key module) and submit only
  * the public key (`POST /v1/settlement/escrow/:id/submit-key`, persisted
  * as `EscrowParticipantKey`) — this provider never sees, derives, or
  * holds either of their private keys. Only the arbiter key is still
@@ -42,7 +42,7 @@
  * `buildUnsignedRefund()` build (but do not fully sign) the Ark tx +
  * checkpoint(s) via the same `buildOffchainTx()` this file always used;
  * each required party independently signs their own copy client-side
- * (`@sails/sdk`'s `signEscrowArkTx()`, using `@arkade-os/sdk`'s
+ * (`@satsails/p2p-trading-sdk`'s `signEscrowArkTx()`, using `@arkade-os/sdk`'s
  * `SingleKey` — a raw-private-key signer, verified experimentally to
  * need nothing but the same private key `generateEscrowKeypair()`
  * already produces for MULTISIG, no ASP/wallet machinery, and to bundle

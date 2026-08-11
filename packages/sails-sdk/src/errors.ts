@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — typed errors
+ * @satsails/p2p-trading-sdk — typed errors
  *
  * Mirrors the reference implementation's `AppError` hierarchy
  * (src/common/errors/index.ts) and its response shape

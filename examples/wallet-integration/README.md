@@ -1,7 +1,7 @@
 # @sails/example-wallet-integration
 
 `PRODUCTION_READINESS_FIXES.md` item 22 — a real (non-mock) `WalletAdapter`
-integration, for both of `@sails/sdk`'s genuinely non-custodial escrow
+integration, for both of `@satsails/p2p-trading-sdk`'s genuinely non-custodial escrow
 types: **MULTISIG** (Bitcoin) and **SAFE_GUARD_EVM** (EVM). Unlike
 [`examples/simple-wallet`](../simple-wallet) (WDK_USDT_EVM — one
 server-held seed signs everything, no client wallet needed at all), both
@@ -13,7 +13,7 @@ client-side — the server never sees a private key.
 
 A real wallet only meaningfully implements `WalletAdapter` for the asset
 it actually custodies. `RealBitcoinWalletAdapter` (secp256k1, via
-`@sails/sdk`'s own `generateEscrowKeypair()`/`signEscrowPsbt()`) and
+`@satsails/p2p-trading-sdk`'s own `generateEscrowKeypair()`/`signEscrowPsbt()`) and
 `RealEvmWalletAdapter` (secp256k1, via `ethers`) both throw a clear,
 specific error for `getPeerId()`/`signMessage()` — Sails session identity
 uses a *separate* Ed25519 keypair (`SailsClient.identity.create()`), a

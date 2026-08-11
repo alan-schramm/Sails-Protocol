@@ -82,7 +82,7 @@ participant. **Honest caveat:** the demo script calls this service
 in-process and supplies a placeholder string as the initial `publicKey`
 — it does **not** exercise the real Ed25519 challenge-response HTTP flow
 (`common/middleware/auth.ts`, `POST /v1/identity/challenge` →
-`/authenticate`) that an actual `@sails/sdk`-based wallet integration
+`/authenticate`) that an actual `@satsails/p2p-trading-sdk`-based wallet integration
 goes through. That flow is real and separately tested
 (`tests/routes.test.ts`, `packages/sails-sdk/tests/identity.test.ts`'s
 byte-for-byte signature check) — the demo just doesn't need it since it

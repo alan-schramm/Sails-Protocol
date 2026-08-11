@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from '@tanstack/react-query'
-import type { Proof, Verification, EvidenceBundle, AssertClaimInput, SubmitProofInput, VerifyProofInput } from '@sails/sdk'
+import type { Proof, Verification, EvidenceBundle, AssertClaimInput, SubmitProofInput, VerifyProofInput } from '@satsails/p2p-trading-sdk'
 import { useSailsClient } from './useSailsClient'
 
 export interface UseSailsProofResult {

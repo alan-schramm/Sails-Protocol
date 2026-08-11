@@ -69,7 +69,7 @@ unilaterally."
 - **The standalone `musig2` npm package for the Bitcoin Taproot section.**
   Rejected: unmaintained since 2022, single unknown maintainer.
   `@scure/btc-signer`'s `musig2.js` (paulmillr/noble ecosystem, actively
-  maintained, already a real dependency of `@sails/sdk`) is the audited
+  maintained, already a real dependency of `@satsails/p2p-trading-sdk`) is the audited
   alternative — the same "prefer noble/scure over an unaudited package"
   precedent this repo already used for `MultisigProvider`/`LightningHodlProvider`.
 - **Build the Bitcoin Taproot path as a real, wired-in replacement for
@@ -126,7 +126,7 @@ implements and tests the real MuSig2 primitive this design depends on.
 
 **Settlement** (`PROTOCOL_SPECIFICATION.md` §1.5) — no interface change.
 This RFC adds new `SettlementProvider`-adjacent building blocks (a
-`CustodyProvider` abstraction in `@sails/sdk`, a Solidity contract, a signer
+`CustodyProvider` abstraction in `@satsails/p2p-trading-sdk`, a Solidity contract, a signer
 service) without altering the `create/lock/release/refund/dispute` contract
 itself, the same non-breaking shape RFC-019 already established.
 
@@ -339,7 +339,7 @@ gantt
 
 No `protocolVersion` bump — `SettlementProvider`'s interface is unchanged.
 Everything in this RFC is additive: a new `contracts/` workspace package,
-new `@sails/sdk` custody modules, new (unwired) routes specified in OpenAPI
+new `@satsails/p2p-trading-sdk` custody modules, new (unwired) routes specified in OpenAPI
 only. `WdkSettlementProvider` and `MultisigProvider` are both untouched and
 continue operating exactly as before.
 
@@ -348,7 +348,7 @@ continue operating exactly as before.
 - New workspace: `contracts/` (`package.json`, `hardhat.config.ts`,
   `contracts/SailsEscrowSafe.sol`) — compiles cleanly, not deployed.
 - New: `packages/sails-sdk/src/custody/{types,evm-4337,bitcoin-taproot,kms-signer}.ts`,
-  exported from `@sails/sdk`'s `index.ts`.
+  exported from `@satsails/p2p-trading-sdk`'s `index.ts`.
 - New: `packages/sails-sdk/tests/custody-*.test.ts` — real crypto, no
   mocking, matching `escrow-key.test.ts`'s own discipline.
 - `packages/sails-sdk/package.json` — adds `@aws-sdk/client-kms` as a real
@@ -378,7 +378,7 @@ Satsails reference implementation (this repo).
 
 **This pass — done (2026-07-28).** `SailsEscrowSafe.sol` written and
 compiled clean against real, unmodified, audited dependencies (5 files, zero
-warnings). `@sails/sdk` custody interfaces (`types.ts`, `evm-4337.ts`,
+warnings). `@satsails/p2p-trading-sdk` custody interfaces (`types.ts`, `evm-4337.ts`,
 `bitcoin-taproot.ts`, `kms-signer.ts`) built with real, independently
 verified cryptographic logic: a full MuSig2 2-of-2 round-trip
 (aggregate → nonce → partial-sign → combine → `schnorr.verify()`) and a full

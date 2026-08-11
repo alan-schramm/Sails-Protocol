@@ -1,10 +1,10 @@
 # Changelog
 
-All notable changes to `@sails/sdk` are documented here. Format loosely
+All notable changes to `@satsails/p2p-trading-sdk` are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 **Note on versioning:** this package is still not published to any npm
-registry (confirmed via `npm view @sails/sdk` → 404, 2026-07-20).
+registry (confirmed via `npm view @satsails/p2p-trading-sdk` → 404, 2026-07-20).
 `v1.0.0-rc1` below is a **release candidate**, not a final `1.0.0` —
 by SemVer, `1.0.0-rc1` has *lower* precedence than `1.0.0` itself.
 `docs/API_STABLE.md`'s freeze commitment ("0.1 becomes 1.0 once this
@@ -15,7 +15,7 @@ that.
 
 **A real gotcha found trying to bump `package.json`'s own `"version"`
 field to match** (`0.1.0` → `1.0.0-rc1`): `packages/sails-ui/package.json`
-declares `"@sails/sdk": "^0.1.0"`. The moment the local package's version
+declares `"@satsails/p2p-trading-sdk": "^0.1.0"`. The moment the local package's version
 moved outside that range, `npm install` stopped treating it as a
 workspace-local symlink and tried to satisfy the range from the real
 npm registry instead — which 404s, since nothing is published. Reverted
@@ -46,7 +46,7 @@ silently as a side effect of tagging a release candidate.
   standalone export but was never wired onto `SailsClient`.
 - `Proof` and `Verification` types exported from the package root (both were
   already defined in `types.ts` but not re-exported from `index.ts`).
-- `useSailsProof()` React hook in `@sails/sdk-react` — wraps all five
+- `useSailsProof()` React hook in `@satsails/sdk-react` — wraps all five
   `SailsProofModule` methods with TanStack Query (`getEvidenceBundle` query,
   `assertClaim`/`submitProof`/`issueVerificationNonce`/`verifyProof` mutations).
   10 tests (5 success-path + 5 error-state) added to `tests/useSailsProof.test.tsx`.

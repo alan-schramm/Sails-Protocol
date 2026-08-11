@@ -1,10 +1,10 @@
-import type { TradeStatus, EscrowStatus } from '@sails/sdk'
+import type { TradeStatus, EscrowStatus } from '@satsails/p2p-trading-sdk'
 
 /**
  * Two badges, not one — matching packages/sails-ui's own real, already-
  * established pattern (components/ui/Badge.tsx's TradeStatusBadge/
  * EscrowStatusBadge) rather than a single combined "8-state" badge: the
- * two real enums (TradeStatus, EscrowStatus, both in @sails/sdk's real
+ * two real enums (TradeStatus, EscrowStatus, both in @satsails/p2p-trading-sdk's real
  * type exports) are genuinely 5 and 6 states, and a Trade doesn't always
  * have an Escrow yet (a PENDING trade has none), so collapsing them into
  * one badge would need placeholder states that don't correspond to
@@ -12,7 +12,7 @@ import type { TradeStatus, EscrowStatus } from '@sails/sdk'
  *
  * Deliberately plain inline styles, not sails-ui's Tailwind brand
  * classes or Portuguese-only labels: this package is a general-purpose
- * @sails/sdk-react for any third-party wallet integrator, not the
+ * @satsails/sdk-react for any third-party wallet integrator, not the
  * Satsails reference app specifically — it can't assume the consumer
  * uses Tailwind, and English is the SDK's own documentation language
  * (SDK_GUIDE.md). A consumer that wants sails-ui's exact visual language

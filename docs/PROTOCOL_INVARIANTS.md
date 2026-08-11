@@ -74,7 +74,7 @@ Coordination, Not Custody."
 > (`rfcs/RFC-020-non-custodial-evm-settlement.md`, RFC-019's own Phase 2)
 > registers real engineering progress toward closing this gap — a Safe
 > Transaction Guard contract that compiles clean against real audited
-> dependencies and tested `@sails/sdk` custody interfaces (ERC-4337
+> dependencies and tested `@satsails/p2p-trading-sdk` custody interfaces (ERC-4337
 > UserOperation hashing, KMS co-signing) — but nothing in it is deployed
 > or wired into `WdkSettlementProvider`'s actual release path yet, so the
 > violation stated above remains live.

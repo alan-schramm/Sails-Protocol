@@ -312,7 +312,7 @@ OpenP2P · OpenSettlement · OpenLiquidity · OpenIdentity
 OpenReputation · OpenAgents · OpenFinance
     │
     ▼
-Sails SDK (@sails/sdk)            ← single interface for integrators
+Sails SDK (@satsails/p2p-trading-sdk)            ← single interface for integrators
     │
     ▼
 Wallets · Fintechs · ERPs · AI Agents · Enterprise Apps
@@ -375,7 +375,7 @@ named SDK. This is deliberately the same pattern Breez uses (Breez SDK —
 Nodeless, Breez SDK — Liquid, etc.: one brand, several sharply-scoped
 products built on overlapping technology, so nobody looking at any single
 one of them has to guess what it does). **"Sails P2P Trading SDK" is the
-first of these, not a placeholder.** Same npm package (`@sails/sdk`),
+first of these, not a placeholder.** Same npm package (`@satsails/p2p-trading-sdk`),
 same `SailsClient` interface (`SDK_GUIDE.md`) — but the name itself says
 exactly what it does: P2P trading, via OpenP2P, OpenSettlement,
 OpenReputation, and OpenIdentity, the modules with real code today
@@ -388,7 +388,7 @@ future "Sails P2P Lending SDK," for instance) — not as a version bump of
 the Trading SDK, and not as a merge back into an unqualified "Sails SDK."
 The generic name is reserved for exactly one purpose from here on:
 naming the underlying package/interface family in architecture and spec
-documents (`@sails/sdk`, `SailsClient`, `ARCHITECTURE.md`'s module table,
+documents (`@satsails/p2p-trading-sdk`, `SailsClient`, `ARCHITECTURE.md`'s module table,
 `PROTOCOL_SPECIFICATION.md`'s primitive table, the ecosystem diagram
 above) — it is never the name of something to build against directly.
 
@@ -464,8 +464,8 @@ building on any assumption.
 | **Sails Finance**, **SailsPay** | Future reference implementations by the same team, targeting future modules. |
 | **Intent** | The universal primitive — every interaction in the protocol starts as an Intent (TradeIntent, PaymentIntent, LoanIntent, etc.) |
 | **Reference Implementation** | A concrete piece of software that implements the protocol spec using specific technology choices. |
-| **Sails SDK** (`@sails/sdk`) | The developer-facing wrapper module, long-term/full scope — see `SDK_GUIDE.md`. |
-| **Sails P2P Trading SDK** | The first named SDK under the Named-SDK Rule (section 3 above) — same package as "Sails SDK" (`@sails/sdk`), scoped to P2P trading (OpenP2P/OpenSettlement/OpenReputation/OpenIdentity), the one part with real code. Permanent, not a placeholder — future use cases (e.g. Lending) get their own equally concrete name, not a merge back into unqualified "Sails SDK." Use this name in developer-facing material. |
+| **Sails SDK** (`@satsails/p2p-trading-sdk`) | The developer-facing wrapper module, long-term/full scope — see `SDK_GUIDE.md`. |
+| **Sails P2P Trading SDK** | The first named SDK under the Named-SDK Rule (section 3 above) — same package as "Sails SDK" (`@satsails/p2p-trading-sdk`), scoped to P2P trading (OpenP2P/OpenSettlement/OpenReputation/OpenIdentity), the one part with real code. Permanent, not a placeholder — future use cases (e.g. Lending) get their own equally concrete name, not a merge back into unqualified "Sails SDK." Use this name in developer-facing material. |
 | **Cross-module service** | A protocol module used by multiple application modules (OpenIdentity, OpenReputation, OpenSettlement, OpenLiquidity). |
 | **Application module** | A protocol module that builds on cross-module services to deliver a use case (OpenP2P, OpenFinance). |
 | **moduleId** | A database field present on every entity, identifying which module owns that row (e.g. `"openp2p"`, `"opensettlement"`). |

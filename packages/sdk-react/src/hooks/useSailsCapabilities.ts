@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from '@tanstack/react-query'
-import type { CapabilityGrant, RegisterCapabilityInput, WalletAdapter } from '@sails/sdk'
+import type { CapabilityGrant, RegisterCapabilityInput, WalletAdapter } from '@satsails/p2p-trading-sdk'
 import { useSailsClient } from './useSailsClient'
 
 export interface UseSailsCapabilitiesResult {

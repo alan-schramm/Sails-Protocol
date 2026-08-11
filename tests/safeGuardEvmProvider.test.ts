@@ -20,7 +20,7 @@
  */
 import { createHash } from 'crypto'
 import { secp256k1 } from '@noble/curves/secp256k1'
-import { getUserOpHash } from '@sails/sdk'
+import { getUserOpHash } from '@satsails/p2p-trading-sdk'
 import { EscrowError } from '../src/common/errors'
 import { config } from '../src/config'
 

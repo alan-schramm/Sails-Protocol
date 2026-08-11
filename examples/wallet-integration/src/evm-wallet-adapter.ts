@@ -8,7 +8,7 @@
  * WDK_USDT_EVM (examples/simple-wallet's provider), which is
  * server-custodial and needs no client wallet at all.
  *
- * `@sails/sdk`'s own `settlement.ts` doc comment on `parseSafeGuardBundle()`
+ * `@satsails/p2p-trading-sdk`'s own `settlement.ts` doc comment on `parseSafeGuardBundle()`
  * is explicit that the SDK stays EVM-library-agnostic on purpose ("no
  * hard dependency on ethers/viem... the caller submits {to, data} via
  * whatever wallet/provider they already use") — this file is the first
@@ -24,14 +24,14 @@
  *      WalletAdapter's signTransaction()/broadcastTransaction() split.
  *   2. The release/refund UserOp hash — not a transaction, a raw
  *      secp256k1 signature over a 32-byte digest
- *      (`signEscrowSafeUserOp()`, `@sails/sdk`), submitted via
+ *      (`signEscrowSafeUserOp()`, `@satsails/p2p-trading-sdk`), submitted via
  *      `settlement.submitTransactionSignature()`, never broadcast by
  *      this wallet directly. Exposed as its own method
  *      (`signEscrowUserOp`), since it doesn't fit "transaction" at all.
  */
 import { ethers } from 'ethers'
-import type { WalletAdapter, WalletCapabilitiesDeclaration } from '@sails/sdk'
-import { signEscrowSafeUserOp } from '@sails/sdk'
+import type { WalletAdapter, WalletCapabilitiesDeclaration } from '@satsails/p2p-trading-sdk'
+import { signEscrowSafeUserOp } from '@satsails/p2p-trading-sdk'
 
 // Sepolia — the standard, free EVM testnet. A real deployment would take
 // this from config (WDK_RPC_URL's own env-var convention, config/index.ts),
@@ -99,7 +99,7 @@ export class RealEvmWalletAdapter implements WalletAdapter {
   /**
    * `tx` is the guard-deployment step's `{ to, data }`
    * (`parseSafeGuardBundle(pending.unsignedPsbtBase64).guardDeployment`,
-   * `@sails/sdk`) — real ethers signing, no value field (this deploys a
+   * `@satsails/p2p-trading-sdk`) — real ethers signing, no value field (this deploys a
    * contract, it never carries native currency, same as that function's
    * own doc comment states).
    */
@@ -158,7 +158,7 @@ export class RealEvmWalletAdapter implements WalletAdapter {
    * signing step. `unsignedBundleBase64` is the escrow's real pending
    * transaction (`settlement.initiateRelease()`/`initiateRefund()`'s
    * response, or `getPendingTransaction()`), a JSON bundle
-   * (`SafeGuardBundle`, `@sails/sdk`), not a literal PSBT despite the
+   * (`SafeGuardBundle`, `@satsails/p2p-trading-sdk`), not a literal PSBT despite the
    * field's shared name across escrow types (MULTISIG's is a real PSBT;
    * this one carries `userOpHash` instead). `signEscrowSafeUserOp()`
    * extracts that hash, signs it with this wallet's raw private key

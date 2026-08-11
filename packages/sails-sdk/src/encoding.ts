@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — hex/UTF-8 encoding helpers, no `Buffer` dependency.
+ * @satsails/p2p-trading-sdk — hex/UTF-8 encoding helpers, no `Buffer` dependency.
  *
  * SDK_GUIDE.md section 6 requires this package to work in both Node.js
  * and browser environments; `Buffer` is a Node global, not a browser

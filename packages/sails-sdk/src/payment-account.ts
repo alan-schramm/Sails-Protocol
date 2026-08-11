@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — payment-account hashing (RFC-021 D5).
+ * @satsails/p2p-trading-sdk — payment-account hashing (RFC-021 D5).
  *
  * The real privacy property: this hash is computed HERE, client-side,
  * so the raw PIX key/bank account number never has to leave the

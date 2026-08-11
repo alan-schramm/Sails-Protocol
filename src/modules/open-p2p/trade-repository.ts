@@ -80,7 +80,7 @@ export interface TradeRepository {
   /** escrow + messages(createdAt asc) + offer — getTrade()'s full detail view. */
   findByIdWithDetails(tradeId: string): Promise<TradeWithDetailsRow | null>
 
-  /** escrow + offer, first match on intentId — getTradeByIntentId()'s own shape for @sails/sdk's dispute() facade. */
+  /** escrow + offer, first match on intentId — getTradeByIntentId()'s own shape for @satsails/p2p-trading-sdk's dispute() facade. */
   findByIntentId(intentId: string): Promise<TradeWithEscrowAndOfferRow | null>
 
   /** escrow only — reconciliationService.reconcileTrade()'s own shape. */

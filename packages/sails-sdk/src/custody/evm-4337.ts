@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — ERC4337CustodyProvider (RFC-020, EVM track)
+ * @satsails/p2p-trading-sdk — ERC4337CustodyProvider (RFC-020, EVM track)
  *
  * Computes the real ERC-4337 v0.7+ `userOpHash` — the exact digest
  * `SailsSignerService` (kms-signer.ts) and the buyer/seller's own wallets

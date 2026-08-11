@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Intent-oriented facade (SDK_GUIDE.md section 2's six
+ * @satsails/p2p-trading-sdk — Intent-oriented facade (SDK_GUIDE.md section 2's six
  * primary methods; API_REFERENCE.md section 0's "Canonical Intent Verbs").
  *
  * Honesty over completeness, matching this codebase's discipline

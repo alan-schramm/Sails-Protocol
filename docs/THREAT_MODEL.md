@@ -95,7 +95,7 @@ failure modes:
   `requireAuth`; `participantId` is derived from the session only.
   `intentEngine.cancel()` also had no ownership check at all — any caller
   could cancel any Intent by id — now requires and verifies
-  `cancelledBy` matches the Intent's own `participantId`. `@sails/sdk`'s
+  `cancelledBy` matches the Intent's own `participantId`. `@satsails/p2p-trading-sdk`'s
   `createIntent()`/`cancelIntent()` updated to send real auth headers;
   `participantId` dropped as a caller-supplied argument entirely (closing
   a previously-noted `SDK_GUIDE.md` deviation as a side effect — the SDK

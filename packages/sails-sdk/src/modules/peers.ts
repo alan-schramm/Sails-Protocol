@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — P2P Transport module (Pears/HyperDHT — verified against
+ * @satsails/p2p-trading-sdk — P2P Transport module (Pears/HyperDHT — verified against
  * src/infrastructure/p2p/pear.routes.ts directly).
  *
  * Not part of SDK_GUIDE.md's original `SailsClient` interface (that

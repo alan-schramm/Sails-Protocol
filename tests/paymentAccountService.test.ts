@@ -4,7 +4,7 @@
  *
  * Real math for the trade-limit ramp, real SHA-256 hashing (not mocked
  * — this is the one property that must actually be correct, since
- * @sails/sdk's hashPaymentAccount() must produce byte-identical output
+ * @satsails/p2p-trading-sdk's hashPaymentAccount() must produce byte-identical output
  * for the client/server privacy scheme to work at all), mocked Prisma
  * for persistence.
  */

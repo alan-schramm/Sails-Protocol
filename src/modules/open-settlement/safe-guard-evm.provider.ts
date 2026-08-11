@@ -3,19 +3,19 @@
  *
  * RFC-020's real EVM custody path — fulfills RFC-019 Phase 2. Same
  * custody-model shape MULTISIG/LIGHTNING_HODL already use: buyer and
- * seller each hold their own key client-side (`@sails/sdk`'s
+ * seller each hold their own key client-side (`@satsails/p2p-trading-sdk`'s
  * `generateEscrowKeypair()` — the SAME compressed secp256k1 keypair
  * already submitted via `POST /v1/settlement/escrow/:id/submit-key`/
  * `EscrowParticipantKey`, reused as-is rather than inventing a second
  * key-submission mechanism); the one server-held key is the arbiter
  * co-signer, and it lives in AWS KMS (`SailsSignerService`, imported from
- * `@sails/sdk` rather than duplicated here — the userOpHash a co-signer
+ * `@satsails/p2p-trading-sdk` rather than duplicated here — the userOpHash a co-signer
  * signs must be byte-identical on both client and server, so sharing the
  * real, already-tested implementation is safer than a second hand-written
  * copy that could silently drift).
  *
  * What's real here: constructing a real `PackedUserOperation` and its
- * real `userOpHash` (`@sails/sdk`'s `getUserOpHash()`); recovering each
+ * real `userOpHash` (`@satsails/p2p-trading-sdk`'s `getUserOpHash()`); recovering each
  * submitted ECDSA signature's real signer address and combining them into
  * Safe's real, documented ascending-address-sorted packed-signature
  * format (`checkNSignatures()` in `Safe.sol`); CREATE2 address prediction
@@ -88,10 +88,14 @@
  * addresses similarly needs no AWS access UNLESS the disputed path is in
  * play (the arbiter is one of the three owners regardless of path).
  */
-import { getUserOpHash, SailsSignerService, ethereumAddressFromUncompressedPubkey, type PackedUserOperation } from '@sails/sdk'
-// This file resolves @noble/curves from the ROOT node_modules (v1.2.0,
-// real dual CJS/ESM, hoisted there with no version conflict) — a
-// DIFFERENT resolution than packages/sails-sdk's own files get (forced
+import { getUserOpHash, SailsSignerService, ethereumAddressFromUncompressedPubkey, type PackedUserOperation } from '@satsails/p2p-trading-sdk'
+// This file resolves @noble/curves from the ROOT node_modules (v1.x,
+// real dual CJS/ESM). Root package.json now pins it explicitly
+// (`^1.2.0`) rather than relying on incidental hoisting — a real
+// `@arkade-os/sdk` patch bump (0.4.52 -> 0.4.58) once shifted its own
+// transitive v2.x pin into winning the root slot, breaking this file's
+// v1.x API assumption below with no change on this file's own side.
+// A DIFFERENT resolution than packages/sails-sdk's own files get (forced
 // to v2.x there by @arkade-os/sdk's transitive tree, see jest.config.js's
 // own header comment). Confirmed via a real `node -e` probe against
 // this exact install before writing this file, not assumed from the SDK
@@ -215,7 +219,7 @@ export function weiFromDecimalString(decimal: string): bigint {
 
 // Decompresses a client-submitted 33-byte compressed pubkey and derives
 // its real Ethereum address — the same real point-decompression +
-// keccak256 derivation `@sails/sdk`'s `ethereumAddressFromUncompressedPubkey()`
+// keccak256 derivation `@satsails/p2p-trading-sdk`'s `ethereumAddressFromUncompressedPubkey()`
 // already implements and tests, reused rather than duplicated.
 export function ethereumAddressFromCompressedHex(hex: string | undefined, role: 'buyer' | 'seller', tradeId: string): string {
   if (!hex) {
@@ -233,7 +237,7 @@ export function ethereumAddressFromCompressedHex(hex: string | undefined, role: 
 
 // Recovers a submitted 65-byte (r||s||v) Ethereum signature's real
 // signer address against a known digest — the inverse of
-// `@sails/sdk`'s `toEthereumSignature()`, needed here to sort submitted
+// `@satsails/p2p-trading-sdk`'s `toEthereumSignature()`, needed here to sort submitted
 // signatures into Safe's real ascending-address order before combining.
 export function recoverSignerAddress(signatureHex: string, digest: Uint8Array): string {
   let sig: Uint8Array

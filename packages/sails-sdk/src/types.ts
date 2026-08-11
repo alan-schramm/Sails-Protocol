@@ -1,11 +1,11 @@
 /**
- * @sails/sdk — response types
+ * @satsails/p2p-trading-sdk — response types
  *
  * Mirrors the actual JSON shapes the reference implementation's routes
  * return today (verified against `prisma/schema.prisma` and each route
  * handler directly, not against the aspirational shapes in
  * `SDK_GUIDE.md`/`API_REFERENCE.md`, which predate several real
- * implementation decisions). Deliberately NOT built on `@sails/p2p-schemas`
+ * implementation decisions). Deliberately NOT built on `@satsails/p2p-schemas`
  * for v0.1 — that package's `OfferSchema` (`assetSell`/`assetBuy`,
  * single `amount`) already documents real, named divergences from what
  * `liquidity.service.ts` actually persists and returns (see that file's

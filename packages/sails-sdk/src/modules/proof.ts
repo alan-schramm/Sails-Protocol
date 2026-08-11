@@ -1,5 +1,5 @@
 /**
- * @sails/sdk — Sails OpenProof module (RFC-006, RFC-007,
+ * @satsails/p2p-trading-sdk — Sails OpenProof module (RFC-006, RFC-007,
  * verified against src/modules/open-proof/proof.routes.ts directly).
  *
  * The intent-facade's submitProof() is the primary write path

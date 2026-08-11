@@ -11,7 +11,7 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@sails/p2p-schemas": ["packages/sails-p2p-schemas/src/index.ts"]
+      "@satsails/p2p-schemas": ["packages/sails-p2p-schemas/src/index.ts"]
     }
   },
   // Only examples/demo/ — the one example subfolder with no tsconfig.json
