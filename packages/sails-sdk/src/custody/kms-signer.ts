@@ -81,10 +81,25 @@
 // instantiates this class never triggers the import; one who does gets a
 // clear "Cannot find module" error at first use if they haven't run
 // `npm install @aws-sdk/client-kms` themselves — not a silent failure.
+//
+// Real gap found post-publish (2026-08-11), via an actual standalone
+// Next.js/Turbopack build of a published-to-npm consumer (not just
+// `npm test`/`tsc`, which both erase this to a plain runtime call and
+// never catch it): browser bundlers (Turbopack, webpack) statically
+// resolve every `import()` at build time to plan chunks, regardless of
+// whether the branch that calls it ever runs — unlike plain Node.js
+// `import()`, which only resolves the specifier when actually reached.
+// SailsClient is imported client-side (see the SDK's own README), so
+// any consumer bundling it without `@aws-sdk/client-kms` installed hits
+// a hard build failure, not the intended "clear error only if you
+// actually use KMS". The `webpackIgnore`/`turbopackIgnore` magic
+// comments are the standard, documented escape hatch for exactly this
+// case — they tell the bundler to leave this specifier for real
+// runtime resolution instead of trying to statically bundle it.
 type KmsModule = typeof import('@aws-sdk/client-kms')
 let kmsModulePromise: Promise<KmsModule> | undefined
 function loadKmsModule(): Promise<KmsModule> {
-  if (!kmsModulePromise) kmsModulePromise = import('@aws-sdk/client-kms')
+  if (!kmsModulePromise) kmsModulePromise = import(/* webpackIgnore: true */ /* turbopackIgnore: true */ '@aws-sdk/client-kms')
   return kmsModulePromise
 }
 
