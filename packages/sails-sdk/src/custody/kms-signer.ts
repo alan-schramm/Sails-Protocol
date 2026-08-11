@@ -92,14 +92,42 @@
 // SailsClient is imported client-side (see the SDK's own README), so
 // any consumer bundling it without `@aws-sdk/client-kms` installed hits
 // a hard build failure, not the intended "clear error only if you
-// actually use KMS". The `webpackIgnore`/`turbopackIgnore` magic
-// comments are the standard, documented escape hatch for exactly this
-// case — they tell the bundler to leave this specifier for real
-// runtime resolution instead of trying to statically bundle it.
+// actually use KMS".
+//
+// First fix attempt (`import(/* webpackIgnore: true */ /* turbopackIgnore:
+// true */ '@aws-sdk/client-kms')`) solved Next.js/Turbopack but broke a
+// SECOND real target the same day: a React Native/Expo build (Metro +
+// Hermes) — Hermes's compiler doesn't parse a comment inside an
+// `import()` call at all and hard-fails with "Invalid expression
+// encountered", confirmed via a real `expo export --platform android`
+// run against this exact published package. Magic comments are each
+// bundler's own proprietary syntax, not a portable standard — relying on
+// one to work everywhere was the actual mistake, not the general
+// approach.
+//
+// Second attempt (hide the specifier behind a top-level `const`) fixed
+// Hermes's parse error but Metro still resolved it — confirmed via the
+// same `expo export`, still "Unable to resolve module @aws-sdk/client-kms".
+// Metro does constant-folding on simple top-level string constants before
+// its static import scan runs, so a plain variable isn't opaque to it the
+// way it is to Turbopack/webpack.
+//
+// The fix that's actually portable across all three (Turbopack, webpack,
+// Metro): build the `import()` call itself inside a `Function`
+// constructor body. Every bundler's static analysis walks the AST of the
+// module as written; none of them parse or evaluate the *string* passed
+// to `Function(...)`, so the `import()` inside it is invisible to all of
+// them at build time — this is the same well-established trick real
+// packages use for optional native addons (e.g. `ws`'s bufferutil/
+// utf-8-validate loading). At actual runtime, `Function(...)` compiles
+// and executes that string in the current realm, where `import()` is a
+// real, working expression in both Node.js and Hermes. Confirmed green
+// against both `expo export --platform android` and `next build`.
 type KmsModule = typeof import('@aws-sdk/client-kms')
+const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<KmsModule>
 let kmsModulePromise: Promise<KmsModule> | undefined
 function loadKmsModule(): Promise<KmsModule> {
-  if (!kmsModulePromise) kmsModulePromise = import(/* webpackIgnore: true */ /* turbopackIgnore: true */ '@aws-sdk/client-kms')
+  if (!kmsModulePromise) kmsModulePromise = dynamicImport('@aws-sdk/client-kms')
   return kmsModulePromise
 }
 
