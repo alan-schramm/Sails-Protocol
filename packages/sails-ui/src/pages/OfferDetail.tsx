@@ -13,7 +13,7 @@ import { ArrowLeft, Check, Lock, AlertTriangle } from 'lucide-react'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
-import { SailsTransportError } from '@sails/sdk'
+import { SailsTransportError } from '@satsails/p2p-trading-sdk'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { positiveFeedbackPct, isPowerTrader } from '../lib/reputation'
 import { useAuth } from '../context/AuthContext'
@@ -140,7 +140,7 @@ export function OfferDetail() {
     }
     setStartingTrade(true)
     try {
-      // Real @sails/sdk call — POST /v1/openp2p/trades (requires the
+      // Real @satsails/p2p-trading-sdk call — POST /v1/openp2p/trades (requires the
       // active session; the server derives the counterparty from it,
       // trade.routes.ts). This is the real trade.service.ts's
       // createTrade(), which also walks the offer's real Intent through

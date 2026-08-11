@@ -86,7 +86,7 @@ export function PublishOffer() {
   const [maxAmount, setMaxAmount] = useState('')
   // Narrower than the UI's own `PaymentMethod` type on purpose: this
   // page submits straight to the real `liquidity.publish()` call
-  // (@sails/sdk's real, backend-matching `PaymentMethod`), which has
+  // (@satsails/p2p-trading-sdk's real, backend-matching `PaymentMethod`), which has
   // none of the UI-only additions researched in from HodlHodl/Airtm/El
   // Dorado/Noones (see types.ts's own comment). Derived directly from
   // `PAYMENT_METHODS` (the real list, already what the <select>'s
@@ -172,7 +172,7 @@ export function PublishOffer() {
 
     setPublishing(true)
     try {
-      // Real @sails/sdk call — POST /v1/liquidity/offers (requires the
+      // Real @satsails/p2p-trading-sdk call — POST /v1/liquidity/offers (requires the
       // active session identity.authenticate() already established).
       // priceUsd/minAmount/maxAmount as decimal strings, never number
       // (RFC-009 — packages/sails-sdk/src/types.ts's own header comment).

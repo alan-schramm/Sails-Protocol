@@ -1,6 +1,6 @@
 /**
  * Real QVAC agent interaction (2026-08-09) — wraps `sailsClient.agents.*`
- * (`@sails/sdk`'s `SailsAgentsModule`, `POST /v1/agents/*` on the real
+ * (`@satsails/p2p-trading-sdk`'s `SailsAgentsModule`, `POST /v1/agents/*` on the real
  * backend, `QvacAgentProvider` / LLAMA_3_2_1B_INST_Q4_0 local inference,
  * no cloud dependency). Was a client-side heuristic simulation until the
  * engineering session shipped the real HTTP surface this same day — a
@@ -60,7 +60,7 @@ export interface AgentRiskAssessment {
 const KNOWN_CURRENCIES = new Set<FiatCurrency>(['BRL', 'USD', 'EUR', 'GBP', 'ARS', 'MXN', 'NGN', 'INR', 'VES', 'COP', 'PEN', 'BOB', 'EGP'])
 
 // Narrows to ASSETS's own literal union (the real backend enum, same
-// strings @sails/sdk's own AssetType is built from) rather than this
+// strings @satsails/p2p-trading-sdk's own AssetType is built from) rather than this
 // UI's broader AssetType — needed so a narrowed value type-checks
 // against the SDK's stricter parameter in assessRiskWithQvac() below,
 // not just against this UI's own wider type.

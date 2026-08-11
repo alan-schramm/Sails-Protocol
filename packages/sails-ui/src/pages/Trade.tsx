@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
-import type { Trade as SdkTrade, Escrow as SdkEscrow, Message as SdkMessage, ChatMessageEvent, WebSocketChannel, Ed25519Keypair, EncryptedChatMessage, Dispute } from '@sails/sdk'
-import { encryptChatMessage, decryptChatMessage } from '@sails/sdk'
+import type { Trade as SdkTrade, Escrow as SdkEscrow, Message as SdkMessage, ChatMessageEvent, WebSocketChannel, Ed25519Keypair, EncryptedChatMessage, Dispute } from '@satsails/p2p-trading-sdk'
+import { encryptChatMessage, decryptChatMessage } from '@satsails/p2p-trading-sdk'
 import type { EscrowStatus, Message, MessageType, User } from '../types'
 import { useAuth } from '../context/AuthContext'
 import { useEscrowKey } from '../hooks/useEscrowKey'
@@ -98,7 +98,7 @@ function toUiMessage(
 }
 
 // The live WS NEW_MESSAGE frame's real shape (ChatMessageEvent, fixed
-// the same day in @sails/sdk's openp2p.ts — see that file's own comment)
+// the same day in @satsails/p2p-trading-sdk's openp2p.ts — see that file's own comment)
 // genuinely differs from getMessages()'s REST history shape (SdkMessage
 // above): messageId/timestamp, not id/createdAt.
 function toUiMessageFromEvent(

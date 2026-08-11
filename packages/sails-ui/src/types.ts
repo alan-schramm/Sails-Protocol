@@ -1,7 +1,7 @@
 /**
  * Domain types for this UI — deliberately mirroring the real backend
  * enums (prisma/schema.prisma) rather than inventing UI-only values, so
- * swapping mock.ts for real @sails/sdk calls later doesn't also require
+ * swapping mock.ts for real @satsails/p2p-trading-sdk calls later doesn't also require
  * rewriting every component's prop types. Checked against the real
  * schema before writing (AssetType, PaymentMethod, TradeStatus,
  * EscrowStatus, EscrowType, IntentStatus) — not assumed from the
@@ -253,7 +253,7 @@ export interface Escrow {
 // comment for exactly what's simulated vs real.
 // ENCRYPTED_TEXT (2026-08-01) — same "free String, no migration needed"
 // pattern as IMAGE/VIDEO above. Set by the sender on the real
-// SEND_MESSAGE payload when @sails/sdk's encryptChatMessage() was used
+// SEND_MESSAGE payload when @satsails/p2p-trading-sdk's encryptChatMessage() was used
 // (packages/sails-sdk/src/chat-encryption.ts) instead of a raw string —
 // an explicit sentinel rather than sniffing `content` for JSON shape
 // (a plaintext message that happens to look like `{"ciphertext":...}` —
@@ -301,7 +301,7 @@ export interface Trade {
 // (data/mock.ts), deleted the same day along with the fake "operator"
 // pages that consumed them (see mock.ts's own comment,
 // feedback_no_platform_operator_visibility memory). TradeHistory.tsx and
-// pages/Disputes.tsx both type directly against @sails/sdk's real
+// pages/Disputes.tsx both type directly against @satsails/p2p-trading-sdk's real
 // Trade/Dispute now — a real backend shape is the actual source of
 // truth here, never a local approximation of one.
 

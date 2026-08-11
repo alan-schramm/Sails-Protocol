@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import type { Trade } from '@sails/sdk'
+import type { Trade } from '@satsails/p2p-trading-sdk'
 import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'
 import { TradeCard } from '../components/trade/TradeCard'

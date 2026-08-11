@@ -1,5 +1,5 @@
 /**
- * Real Marketplace data — @sails/sdk's `liquidity.discover()`
+ * Real Marketplace data — @satsails/p2p-trading-sdk's `liquidity.discover()`
  * (GET /v1/liquidity/offers), replacing `offersStore.ts`'s mocked
  * MOCK_OFFERS + localStorage layer.
  *
@@ -21,12 +21,12 @@
  * return them today. Filled with honest placeholders below, each
  * commented, not silently invented as if real.
  */
-import type { LiquidityOfferSummary } from '@sails/sdk'
+import type { LiquidityOfferSummary } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from './sailsClient'
 import type { AssetType, Offer, PaymentMethod, TradeSide, User } from '../types'
 import { ASSETS } from '../data/mock'
 
-// `@sails/sdk`'s own `discover()` is typed against the *real* backend
+// `@satsails/p2p-trading-sdk`'s own `discover()` is typed against the *real* backend
 // AssetType (no `DEPIX` — see types.ts's own comment on why this UI's
 // broader `AssetType` has it). A real GET for an asset the backend
 // doesn't recognize would either 400 or, worse, silently mismatch —
@@ -86,7 +86,7 @@ function summaryToOffer(s: LiquidityOfferSummary): Offer {
 // "a short page means the last page" is the correct, standard way to
 // know when to stop — not a total count this route doesn't return.
 // Narrower than the UI's own `AssetType` on purpose (this file's own
-// comment above on `REAL_ASSETS`) — `@sails/sdk`'s `discover()` is typed
+// comment above on `REAL_ASSETS`) — `@satsails/p2p-trading-sdk`'s `discover()` is typed
 // against the real backend enum, which has no `DEPIX`.
 async function fetchAllPages(asset: (typeof ASSETS)[number], side: TradeSide): Promise<{ offers: Offer[]; failed: boolean }> {
   const pageSize = 50 // the route's own max (docs/TODO.md §25)

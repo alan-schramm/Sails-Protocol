@@ -1,5 +1,5 @@
 /**
- * Real session state — @sails/sdk's `identity.create()`/`authenticate()`
+ * Real session state — @satsails/p2p-trading-sdk's `identity.create()`/`authenticate()`
  * (real Ed25519 challenge-response, packages/sails-sdk/src/modules/
  * identity.ts), replacing the previous localStorage-mocked CURRENT_USER.
  *
@@ -27,7 +27,7 @@
  * non-custodial reasoning.
  */
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { generateKeypair, hexToBytes, type Ed25519Keypair } from '@sails/sdk'
+import { generateKeypair, hexToBytes, type Ed25519Keypair } from '@satsails/p2p-trading-sdk'
 import type { User } from '../types'
 import { sailsClient } from '../lib/sailsClient'
 
@@ -74,7 +74,7 @@ interface AuthContextType {
   logout: () => void
   // The same Ed25519Keypair already used for identity.authenticate() —
   // exposed here so a real caller (Trade.tsx's chat) can pass it into
-  // @sails/sdk's encryptChatMessage()/decryptChatMessage() without this
+  // @satsails/p2p-trading-sdk's encryptChatMessage()/decryptChatMessage() without this
   // module's own storage/loading details leaking outside AuthContext.
   keypair: Ed25519Keypair | null
 }

@@ -85,7 +85,7 @@ be a client-side heuristic simulation (no HTTP route existed) — the
 engineering session shipped `POST /v1/agents/generate-trade-intent` /
 `generate-offer-intent` / `assess-intent-risk` (`agent.routes.ts`) the
 same day, in direct response to this file's own "Next steps" item 6
-below, and `qvacAgent.ts` now calls the real routes via `@sails/sdk`'s
+below, and `qvacAgent.ts` now calls the real routes via `@satsails/p2p-trading-sdk`'s
 new `sailsClient.agents.*`. Both routes require an active session (real
 inference has a real per-call cost, gated the same way the backend
 gates other expensive real operations).
@@ -152,9 +152,9 @@ itself needs no migration — it's already a free-form `String` in
 ## What this is not
 
 - **Partially wired to the real backend — corrected 2026-08-01, this
-  paragraph had gone stale.** It used to claim "no `@sails/sdk` call
+  paragraph had gone stale.** It used to claim "no `@satsails/p2p-trading-sdk` call
   happens anywhere in this package" — checked directly against current
-  source (`grep` for `sailsClient.`/`from '@sails/sdk'`) and that's no
+  source (`grep` for `sailsClient.`/`from '@satsails/p2p-trading-sdk'`) and that's no
   longer true. Real, live calls exist in: `context/AuthContext.tsx`
   (Login — `identity.create`/`authenticate`), `lib/realOffers.ts`
   (Marketplace — `liquidity.discover`), `pages/OfferDetail.tsx`
@@ -372,7 +372,7 @@ npm run build -w @sails/ui     # type-check + production build
 
 The dev server proxies `/v1`/`/api` to `http://localhost:3000` (the
 real backend) — not used by anything yet, but means swapping a mock
-data read for a real `fetch`/`@sails/sdk` call later doesn't also
+data read for a real `fetch`/`@satsails/p2p-trading-sdk` call later doesn't also
 require touching `vite.config.ts`.
 
 ## Next steps (not done here)
@@ -386,7 +386,7 @@ require touching `vite.config.ts`.
 > not "every screen"; items 2 and 3 are done; item 10 is done for the
 > publish action itself (see the corrected section above).
 
-1. ~~Swap `src/data/mock.ts` reads for real `@sails/sdk` calls, route by
+1. ~~Swap `src/data/mock.ts` reads for real `@satsails/p2p-trading-sdk` calls, route by
    route~~ — done for Login/Marketplace/OfferDetail/PublishOffer/Trade/
    Profile/TradeHistory/Disputes (2026-08-04). Still open:
    `PublishOffer.tsx`'s comparable-price helper. The admin console isn't

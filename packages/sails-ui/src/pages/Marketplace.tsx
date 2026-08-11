@@ -49,7 +49,7 @@ export function Marketplace() {
     filters.country !== 'Todos',
   ].filter(Boolean).length
 
-  // Real @sails/sdk liquidity.discover() calls (lib/realOffers.ts),
+  // Real @satsails/p2p-trading-sdk liquidity.discover() calls (lib/realOffers.ts),
   // fanned out per asset/side since GET /v1/liquidity/offers only
   // filters by asset+side, not a bare "list everything". Client-side
   // filtering below (country/paymentMethods/etc.) stays, since the real

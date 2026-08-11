@@ -16,7 +16,7 @@
  * integration could derive per-trade keys instead without changing
  * anything on the server side (it only ever sees a pubkey).
  */
-import { generateEscrowKeypair, signEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp } from '@sails/sdk'
+import { generateEscrowKeypair, signEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from '../lib/sailsClient'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
@@ -61,7 +61,7 @@ function loadOrCreateEscrowKeypair(): StoredEscrowKeypair {
 // "same as MULTISIG"), so no new key format is needed here.
 const PUBKEY_SUBMISSION_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
 
-// SAFE_GUARD_EVM added 2026-08-03 — @sails/sdk's signEscrowSafeUserOp()
+// SAFE_GUARD_EVM added 2026-08-03 — @satsails/p2p-trading-sdk's signEscrowSafeUserOp()
 // closes the gap this comment used to describe (only parseSafeGuardBundle()
 // existed before, nothing to sign with). Produces a real ECDSA signature
 // over the ERC-4337 UserOperation hash — a different routine from

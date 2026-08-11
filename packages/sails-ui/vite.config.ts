@@ -10,7 +10,7 @@ export default defineConfig({
     // app (not caught by `tsc`/`vite build` — a pure runtime error):
     // bitcoinjs-lib/@bitcoinerlab's ECC init path
     // (escrow-key.ts's `bitcoin.initEccLib(ecc)`, run at module load,
-    // reachable from every page via @sails/sdk's eager optimizeDeps
+    // reachable from every page via @satsails/p2p-trading-sdk's eager optimizeDeps
     // bundle below) calls into Node's global `Buffer`, which doesn't
     // exist in a browser and isn't polyfilled by Vite/esbuild
     // automatically (unlike Webpack). Uncaught, this crashes the whole
@@ -28,7 +28,7 @@ export default defineConfig({
       // the same way (tsconfig "paths" alone only affects tsc, not Vite).
       '@': path.resolve(__dirname, './src'),
       // Real, pre-existing bug (unrelated to any UI work) found while
-      // trying to start this dev server: @sails/sdk's escrow-key.ts
+      // trying to start this dev server: @satsails/p2p-trading-sdk's escrow-key.ts
       // imports '@noble/curves/secp256k1' (extensionless) and is
       // deliberately pinned to @noble/curves@1.2.0 (see that file's own
       // header comment — 2.x lacks a real CJS entry for this subpath).
@@ -39,7 +39,7 @@ export default defineConfig({
       // for every resolution rooted there (`npm ls @noble/curves` flags
       // this nested copy as literally invalid: doesn't satisfy
       // sails-sdk's own declared ^1.2.0). Vite's dev-server dependency
-      // optimizer eagerly pre-bundles all of @sails/sdk's compiled dist
+      // optimizer eagerly pre-bundles all of @satsails/p2p-trading-sdk's compiled dist
       // (which keeps this import external, unresolved, exactly as
       // written) and fails hard on it; `vite build` doesn't hit this
       // because Rollup tree-shakes escrow-key.ts away when no visited
@@ -52,7 +52,7 @@ export default defineConfig({
       '@noble/curves/secp256k1': path.resolve(__dirname, '../../node_modules/@noble/curves/secp256k1.js'),
     },
   },
-  // @sails/sdk (packages/sails-sdk) compiles to CommonJS (dist/index.js)
+  // @satsails/p2p-trading-sdk (packages/sails-sdk) compiles to CommonJS (dist/index.js)
   // — fine for its Node-side consumers (tests, demo scripts), but Vite
   // resolves this npm-workspace-linked package through its real
   // filesystem path (@fs/.../packages/sails-sdk/dist/index.js) rather
@@ -61,11 +61,11 @@ export default defineConfig({
   // automatically — the browser's native ESM loader then can't find
   // named exports like `SailsClient` in what's actually a
   // `exports.SailsClient = ...` CJS module. Found the hard way wiring
-  // the first real @sails/sdk import into this UI. optimizeDeps.include
+  // the first real @satsails/p2p-trading-sdk import into this UI. optimizeDeps.include
   // forces the same esbuild pre-bundling path every other dependency
   // already gets.
   optimizeDeps: {
-    include: ['@sails/sdk'],
+    include: ['@satsails/p2p-trading-sdk'],
   },
   server: {
     // Falls back to 5173 for a plain `npm run dev -w @sails/ui` (no env
@@ -77,7 +77,7 @@ export default defineConfig({
     // proxy so fetch('/api/...')/('/v1/...') calls work in dev without a
     // hardcoded absolute URL. Not wired to any real call yet in this pass
     // (everything reads mock data, see src/data/mock.ts) — this exists so
-    // swapping in real @sails/sdk calls later doesn't also require touching
+    // swapping in real @satsails/p2p-trading-sdk calls later doesn't also require touching
     // this config.
     proxy: {
       '/v1': 'http://localhost:3000',

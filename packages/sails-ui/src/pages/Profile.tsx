@@ -79,7 +79,7 @@ export function Profile() {
   const [statusFilter, setStatusFilter] = useState<OfferStatus | 'Todos'>('Todos')
   const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null)
 
-  // Real, wired to @sails/sdk (2026-08-01) — GET /v1/liquidity/offers/mine
+  // Real, wired to @satsails/p2p-trading-sdk (2026-08-01) — GET /v1/liquidity/offers/mine
   // already filters by the authenticated session, so a just-published
   // offer shows up here on the next mount (no client-side userId filter
   // needed, unlike the old localStorage-backed version).

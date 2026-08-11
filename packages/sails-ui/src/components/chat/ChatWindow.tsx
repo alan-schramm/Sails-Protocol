@@ -3,7 +3,7 @@
  * `GET /v1/openp2p/chat`, real events: JOIN_TRADE/SEND_MESSAGE/USER_ONLINE/
  * USER_OFFLINE/...) that relays through the OpenP2P/Pears path. This
  * component itself is presentational only — Trade.tsx owns the real
- * `WebSocketChannel` (`@sails/sdk`'s `openp2p.chat()`) and passes down
+ * `WebSocketChannel` (`@satsails/p2p-trading-sdk`'s `openp2p.chat()`) and passes down
  * `messages`/`counterpartyOnline` already derived from it; nothing here
  * is mocked as of 2026-08-02 (this header used to say otherwise — stale,
  * fixed — see Trade.tsx's own `channel.onEvent()` wiring for presence and
@@ -43,7 +43,7 @@ interface Props {
   currentUserId?: string
   onSend: (content: string) => void
   onSendMedia: (media: { url: string; fileName: string; type: MessageType }) => void
-  // Opt-in end-to-end encryption (@sails/sdk's encryptChatMessage/
+  // Opt-in end-to-end encryption (@satsails/p2p-trading-sdk's encryptChatMessage/
   // decryptChatMessage) — see Trade.tsx's own comment for the full wiring.
   encryptionEnabled: boolean
   onToggleEncryption: (enabled: boolean) => void

@@ -1,5 +1,5 @@
 /**
- * Corrected 2026-08-04 — this header used to claim "no real @sails/sdk
+ * Corrected 2026-08-04 — this header used to claim "no real @satsails/p2p-trading-sdk
  * or backend call happens anywhere in this UI yet," long since false
  * (README.md's own "What this is not" has the real, dated migration
  * history). Most of what's left here is reference/seed data, not fake
@@ -192,7 +192,7 @@ export const ASSETS_FILTERABLE = [
 ] as const
 
 // The real backend `PaymentMethod` enum (prisma/schema.prisma) exactly —
-// used anywhere a value round-trips to a real @sails/sdk call
+// used anywhere a value round-trips to a real @satsails/p2p-trading-sdk call
 // (PublishOffer.tsx's `liquidity.publish()`, a live POST). Alphabetical
 // by the friendly label (PAYMENT_METHOD_LABELS), matching what
 // PaymentMethodPicker/FilterPanel/PublishOffer's own <select> actually
