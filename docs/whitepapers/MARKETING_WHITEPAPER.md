@@ -246,21 +246,15 @@ provides it — not by building something new next to WDK, Pears, and
 QVAC, but by proving, in production, exactly how much value the three
 of them create when they're coordinated correctly.
 
-This isn't a guess about what Tether wants to see, either. Tether runs
-its own Developer Grants Program (`tether.dev`) — equity-free,
-payment-on-completed-work, no cap on total payouts — funding exactly
-four categories: core libraries for QVAC, MDK, WDK, and Pears;
-documentation and onboarding; applications built on the stack; and
-research into decentralization, edge AI, peer-to-peer networking, and
-cryptography. Tether CEO Paolo Ardoino's own stated bar for what gets
-funded: *"If you can build something that runs locally, holds value
+This isn't a guess about what serious infrastructure looks like, either.
+Tether CEO Paolo Ardoino's own publicly stated bar for what counts as
+real: *"If you can build something that runs locally, holds value
 directly, and doesn't rely on external providers, we'll fund it."*
 Sails Protocol — a
 coordination layer running on exactly WDK, Pears, and QVAC, holding no
 custody of its own, depending on no external provider Tether or
 Holepunch didn't already build — is not adjacent to that bar. It is a
-direct fit for it, and it exists as a production system today, not a
-grant application yet to be tested.
+direct fit for it, and it exists as a production system today.
 
 ---
 

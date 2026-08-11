@@ -300,9 +300,9 @@ model FeeDistribution {
   escrow                 Escrow   @relation(fields: [escrowId], references: [id])
   totalFee               Decimal  @db.Decimal(24, 8)
   asset                  AssetType
-  nodeOperatorShare      Decimal  @db.Decimal(24, 8) // 40%
-  treasuryShare          Decimal  @db.Decimal(24, 8) // 30%
-  walletRebateShare      Decimal  @db.Decimal(24, 8) // 20%
+  nodeOperatorShare      Decimal  @db.Decimal(24, 8) // 30%
+  treasuryShare          Decimal  @db.Decimal(24, 8) // 25%
+  walletRebateShare      Decimal  @db.Decimal(24, 8) // 35%
   arbitratorReserveShare Decimal  @db.Decimal(24, 8) // 10%
   moduleId               String   @default("opensettlement")
   protocolVersion        String   @default("0.1")
@@ -315,9 +315,10 @@ model FeeDistribution {
 One row per fee-charging release, created by `escrow.service.ts`'s
 `chargeProtocolFee()` (`releaseFunds()` only — refunds never charge a
 fee) whenever `config.settlement.protocolFeeRate` is non-zero. The
-40/30/20/10 split is `PROTOCOL_ECONOMY.md` §6.2's already-decided
-economics, not re-derived here — this table just persists the real
-computed shares. Same "computed and persisted, not actually routed
+35/30/25/10 split (Wallet Rebate/Node Operator/Treasury/Arbitrator
+Reserve — revised 2026-08-11 from the original 40/30/20/10) is
+`PROTOCOL_ECONOMY.md` §6.2's already-decided economics, not re-derived
+here — this table just persists the real computed shares. Same "computed and persisted, not actually routed
 on-chain" realness as `DisputeAppealFee` below: no `SettlementProvider`
 in this codebase has a real configured treasury/node-operator/
 wallet-rebate/arbitrator-reserve address to send any share to yet.

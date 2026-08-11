@@ -251,9 +251,9 @@ model FeeDistribution {
   escrow                Escrow   @relation(fields: [escrowId], references: [id])
   totalFee              Decimal  @db.Decimal(24, 8)
   asset                 AssetType
-  nodeOperatorShare     Decimal  @db.Decimal(24, 8) // 40%
-  treasuryShare         Decimal  @db.Decimal(24, 8) // 30%
-  walletRebateShare     Decimal  @db.Decimal(24, 8) // 20%
+  nodeOperatorShare     Decimal  @db.Decimal(24, 8) // 30%
+  treasuryShare         Decimal  @db.Decimal(24, 8) // 25%
+  walletRebateShare     Decimal  @db.Decimal(24, 8) // 35%
   arbitratorReserveShare Decimal @db.Decimal(24, 8) // 10%
   moduleId              String   @default("opensettlement")
   protocolVersion       String   @default("0.1")

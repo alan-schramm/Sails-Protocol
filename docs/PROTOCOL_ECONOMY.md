@@ -2,9 +2,10 @@
 ### Sails Protocol — Engineering Handoff · Document 14 of 20
 
 > **Where this fits:** none of the other 13 documents cover economic design
-> at this depth. `ROADMAP.md` has the grant budget (how the *initial*
-> $400k is spent); `PROJECT_CONTEXT.md` briefly states the "no speculative
-> token" principle. This document is the actual economic architecture:
+> at this depth. `ROADMAP.md` covers engineering phases (external funding
+> specifics are intentionally not disclosed there); `PROJECT_CONTEXT.md`
+> briefly states the "no speculative token" principle. This document is
+> the actual economic architecture:
 > how the protocol sustains itself indefinitely, how it incentivizes six
 > distinct stakeholder groups, and exactly how fees flow — with worked
 > comparisons against Morpho, Aave, Uniswap, Bisq, HodlHodl, and Lightning.
@@ -175,22 +176,31 @@ infrastructure, paid in an existing settlement asset or fiat.
 
 ---
 
-## 3. How the Protocol Evolves After the Grant
+## 3. How the Protocol Evolves — With or Without External Funding
 
-The $400,000 grant (`ROADMAP.md`) funds Months 1-12 of protocol
-*engineering* — it is explicitly not meant to be a permanent funding source.
-The transition looks like this:
+External funding (see `ROADMAP.md`, which does not disclose specifics
+publicly) may accelerate protocol *engineering* in Months 1-12, but is
+explicitly not meant to be a permanent funding source, and (**revised
+2026-08-11**) the protocol's actual sustainability does not wait for it
+to be confirmed. Funding is not guaranteed the moment it's applied for,
+and a real team's runway shouldn't be built on the assumption that it
+is. The earlier version of this section had the Protocol Fee OFF for
+the first 12 months, activating only after a grant-funded period ended
+— that plan is superseded below.
 
 ```
-Months 1-12 (grant-funded)
-  → Protocol Engineering, Security Audits, SDK, Operations
-  → Protocol Fee is OFF (0%) — matches the existing roadmap commitment to
-    prioritize adoption over extraction during the bootstrap phase
+Day 0 (launch)
+  → Protocol Fee is ON at 0.40% (section 6.2's 35/30/25/10 split),
+    independent of whether grant funding is secured — real, sustainable
+    revenue from real usage, not a promise contingent on a third party's
+    decision
+  → Protocol Engineering, Security Audits, SDK, Operations continue in
+    parallel, grant-funded if the grant lands, fee-funded regardless
 
-Months 12+ (post-grant, self-sustaining)
-  → Protocol Fee activates at a low default (e.g. 0.05%-0.15%,
-    configurable per module — see section 6)
-  → Fee revenue seeds a Developer/Treasury Fund (section 4.3)
+Ongoing (fee-funded from Day 0)
+  → Fee revenue seeds the Developer/Treasury Fund (section 4.3) and pays
+    the Node Operator Pool (section 4.2) as soon as either has a real
+    configured payout address (section 6.3's current gap)
   → Enterprise Licensing and Premium Reputation revenue (Satsails' own
     business layer) supplements but does not replace protocol-level
     sustainability
@@ -202,11 +212,24 @@ Months 18+ (governance maturity)
   → This is the anti-centralization mechanism — see section 7
 ```
 
-This mirrors how the Ethereum Foundation or the Uniswap Foundation used
-initial concentrated funding/control to bootstrap an ecosystem, then handed
-fee-parameter and treasury governance to a broader body once the protocol
-had enough real usage to make that governance meaningful rather than
-theoretical.
+This still mirrors how the Ethereum Foundation or the Uniswap Foundation
+used initial concentrated funding/control to bootstrap an ecosystem, then
+handed fee-parameter and treasury governance to a broader body once the
+protocol had enough real usage to make that governance meaningful rather
+than theoretical — the governance handoff timeline (Months 18+) is
+unchanged. What changed is only *when the fee itself starts*, not the
+long-run decentralization plan.
+
+**Why 0.40%, checked against the real market (2026-08-11):** the two
+closest comparables are the other non-custodial P2P platforms, not
+custodial exchanges — HodlHodl charges 0.5%-0.75% per side (0.5% with a
+referral code, per their own published fee guide), Bisq charges
+0.65%-1.30% combined depending on payment token. Binance P2P's 0%-0.35%
+range looks cheaper on paper but trades away privacy and self-custody —
+not a like-for-like comparison for what Sails offers. 0.40% prices below
+both direct non-custodial comparables while remaining high enough to fund
+a real Node Operator Pool and Treasury (section 6.2) rather than a
+token-gesture fee that can't sustain either.
 
 **Concrete entity structure for "Governance Layer v1":** `GOVERNANCE.md`
 §2B names this — Satsails plays the Morpho-Labs/Fedi role (the company
@@ -423,10 +446,10 @@ prose, before either primitive existed in this form.
   ```
   User A (Satsails Wallet)  buys USDT  from  User B (Rumble Wallet)
 
-  Protocol Fee (e.g. 0.20% of trade value)
+  Protocol Fee (0.40% of trade value)
     ├── Satsails Wallet  ← rebate for originating User A's side
     ├── Rumble Wallet    ← rebate for originating User B's side
-    └── Treasury/other buckets (section 6.2)
+    └── Node/Treasury/Arbitrator buckets (section 6.2)
   ```
 
   When both sides happen to use the same wallet, that wallet simply
@@ -555,19 +578,28 @@ The fee is never collected into a single company's account. It splits into
 four buckets at the moment of settlement:
 
 ```
-Protocol Fee (100%)
-  ├── 40% → Node Operator Pool        (infrastructure providers, section 4.2)
-  ├── 30% → Developer/Treasury Fund    (ongoing protocol development, section 4.3)
-  ├── 20% → Originating Wallet/Integrator Rebate  (section 4.5/4.6)
-  │           split per-side (section 4.5) — e.g. 10% to the buyer-side
-  │           wallet's origination, 10% to the seller-side wallet's, or
-  │           the full 20% to one wallet when both sides use it
+Protocol Fee (100%, default rate 0.40% of trade value — section 3)
+  ├── 35% → Originating Wallet/Integrator Rebate  (section 4.5/4.6)
+  │           split per-side (section 4.5) — e.g. 17.5% to the buyer-side
+  │           wallet's origination, 17.5% to the seller-side wallet's, or
+  │           the full 35% to one wallet when both sides use it
+  ├── 30% → Node Operator Pool        (infrastructure providers, section 4.2)
+  ├── 25% → Developer/Treasury Fund    (ongoing protocol development, section 4.3)
   └── 10% → Arbitrator Reserve         (pre-funds dispute resolution, section 4.4)
 ```
 
+**Revised 2026-08-11** from the original 40/30/20/10 (Node/Treasury/Wallet/
+Arbitrator) split. Rationale: wallets are the acquisition channel — without
+a partner wallet integrating the SDK, the protocol has no users at all, so
+their rebate is now the largest single bucket rather than the smallest of
+the three infrastructure/treasury/wallet shares. Node Operator Pool and
+Treasury both step down slightly (40%→30%, 30%→25%) to fund that increase;
+Arbitrator Reserve is unchanged at 10% — dispute-resolution funding doesn't
+scale with go-to-market incentives the way wallet acquisition does.
+
 These percentages are a proposed starting allocation, not fixed forever —
 see section 7 on how they're governed and changed over time. The
-buyer-side/seller-side split *within* the 20% bucket (section 4.5) is
+buyer-side/seller-side split *within* the 35% bucket (section 4.5) is
 likewise illustrative, not fixed — the architectural commitment is that
 the split is per-originating-side, so a trade between two different
 wallets pays both, never just one.

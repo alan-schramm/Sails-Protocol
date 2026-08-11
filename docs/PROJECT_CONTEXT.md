@@ -293,8 +293,9 @@ document:
 - Every Sails OpenAgents module built drives direct QVAC SDK usage — the
   module literally cannot function without QVAC underneath it.
 
-This is why the project targets a **grant from tether.dev** — the ask is
-$400,000 USD over 12 months. Full breakdown is in `ROADMAP.md`.
+This is part of why external funding conversations are worth having —
+specifics are intentionally not disclosed in this public document (see
+`ROADMAP.md`'s "External Funding" section).
 
 ### The ecosystem diagram (canonical — use this exact shape everywhere)
 

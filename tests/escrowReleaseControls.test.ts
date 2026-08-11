@@ -209,19 +209,19 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 real Protocol Fee', () 
     )
   })
 
-  it('computes the real fee and the exact 40/30/20/10 PROTOCOL_ECONOMY.md §6.2 split when a rate is configured', async () => {
-    protocolFeeRate = 0.001 // 0.1%, PROTOCOL_ECONOMY.md §3's documented activation range (0.05%-0.15%)
-    // baseEscrow.lockedAmount = '20.5' -> fee = 20.5 * 0.001 = 0.0205
+  it('computes the real fee and the exact 35/30/25/10 PROTOCOL_ECONOMY.md §6.2 split when a rate is configured', async () => {
+    protocolFeeRate = 0.004 // 0.40%, PROTOCOL_ECONOMY.md §3's documented default (revised 2026-08-11 from the earlier 0.05%-0.15% range, active from launch rather than after a 12-month grace period)
+    // baseEscrow.lockedAmount = '20.5' -> fee = 20.5 * 0.004 = 0.082
     await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
 
     expect(mockFeeDistributionCreate).toHaveBeenCalledTimes(1)
     const { data } = mockFeeDistributionCreate.mock.calls[0][0]
     expect(data.escrowId).toBe('escrow-1')
-    expect(data.totalFee.toString()).toBe('0.0205')
-    expect(data.nodeOperatorShare.toString()).toBe('0.0082')   // 40%
-    expect(data.treasuryShare.toString()).toBe('0.00615')      // 30%
-    expect(data.walletRebateShare.toString()).toBe('0.0041')   // 20%
-    expect(data.arbitratorReserveShare.toString()).toBe('0.00205') // 10%
+    expect(data.totalFee.toString()).toBe('0.082')
+    expect(data.nodeOperatorShare.toString()).toBe('0.0246')    // 30%
+    expect(data.treasuryShare.toString()).toBe('0.0205')        // 25%
+    expect(data.walletRebateShare.toString()).toBe('0.0287')    // 35%
+    expect(data.arbitratorReserveShare.toString()).toBe('0.0082') // 10%
     // The four shares sum back to the total — no rounding leak.
     const sum = data.nodeOperatorShare.plus(data.treasuryShare).plus(data.walletRebateShare).plus(data.arbitratorReserveShare)
     expect(sum.toString()).toBe(data.totalFee.toString())
@@ -230,7 +230,7 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 real Protocol Fee', () 
       expect.objectContaining({ data: expect.objectContaining({ feeCharged: expect.anything() }) })
     )
     const { feeCharged } = mockEscrowUpdate.mock.calls[0][0].data
-    expect(feeCharged.toString()).toBe('0.0205')
+    expect(feeCharged.toString()).toBe('0.082')
   })
 
   it('never charges a fee on refund — PROTOCOL_ECONOMY.md §3: "only ever attaches to a completed Settlement"', async () => {

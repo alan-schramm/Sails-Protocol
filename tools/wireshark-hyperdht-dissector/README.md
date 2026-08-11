@@ -12,13 +12,12 @@ traffic Pears/HyperDHT already generates.
 
 ## Why this exists
 
-Tether/Holepunch have an open bounty on [tether.dev](https://tether.dev/)
-for building Wireshark support for HyperDHT/DHT-RPC and UDX — as of
-2026-08-08, no such dissector exists publicly anywhere (checked the
-`holepunchto/hyperdht` repo directly; nothing there either). This is a
-from-scratch v1, built by reading the real source of `dht-rpc`,
-`hyperdht`, and `compact-encoding` — not a guess, and not a copy of
-existing work, because none exists yet.
+Built as a genuine engineering-workflow improvement for Sails' own
+Pears/HyperDHT debugging — as of 2026-08-08, no such dissector exists
+publicly anywhere (checked the `holepunchto/hyperdht` repo directly;
+nothing there either). This is a from-scratch v1, built by reading the
+real source of `dht-rpc`, `hyperdht`, and `compact-encoding` — not a
+guess, and not a copy of existing work, because none exists yet.
 
 ## What it decodes
 
@@ -120,8 +119,7 @@ existing work, because none exists yet.
 - The variable-length trailing sub-fields listed above (relay address
   lists, signatures, hole-punch addresses/tokens, the actual `LOOKUP`
   peer list contents, `PLUGIN`'s value buffer).
-- UDX — Tether's other open tether.dev bounty ("UDX in Wireshark",
-  10,000 USD₮) — is a separate, from-scratch effort: UDX doesn't appear
+- UDX — a separate, from-scratch effort: UDX doesn't appear
   anywhere in Sails' own code or dependencies (confirmed via a repo-wide
   search before starting this dissector), so unlike this HyperDHT/dht-rpc
   one, it wouldn't help debug anything Sails' own stack touches directly.

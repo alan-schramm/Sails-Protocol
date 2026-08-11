@@ -1,13 +1,13 @@
 # ROADMAP.md
 ### Sails Protocol — Engineering Handoff · Document 10 of 20
 
-> Dates are expressed **relative to grant approval** (Months 1-12), not as
-> fixed calendar quarters. This is a deliberate choice — a roadmap with
-> fixed calendar dates goes stale the moment approval or execution slips,
-> and that staleness reads as a red flag to any technical evaluator. If you
-> need calendar dates for a specific deck, calculate them from the actual
-> approval date at the time you're presenting — never hardcode them back
-> into this source document.
+> Dates are expressed **relative to launch** (Months 1-12), not as fixed
+> calendar quarters. This is a deliberate choice — a roadmap with fixed
+> calendar dates goes stale the moment execution slips, and that staleness
+> reads as a red flag to any technical evaluator. If you need calendar
+> dates for a specific deck, calculate them from the actual launch date at
+> the time you're presenting — never hardcode them back into this source
+> document.
 
 ---
 
@@ -74,46 +74,19 @@
 
 ---
 
-## Grant Request
+## External Funding
 
-| | |
-|---|---|
-| **Amount** | $400,000 USD |
-| **Duration** | 12 months from approval |
-| **Target** | tether.dev/apply |
-| **Use of funds** | Open-source protocol infrastructure — no marketing spend, no token issuance, no proprietary lock-in |
-
-### Budget Breakdown
-
-| Category | % | Amount |
-|---|---|---|
-| Protocol Engineering | 55% | $220,000 |
-| Security & Audits | 20% | $80,000 |
-| SDK & Documentation | 15% | $60,000 |
-| Operations | 10% | $40,000 |
-
-### Why This Increases WDK / Pears / QVAC Adoption
-
-> Every wallet integrating Sails becomes a WDK integrator. Every module
-> deployed grows the Pears network. Every OpenAgents module drives direct
-> QVAC SDK usage.
-
-This grant funds infrastructure that structurally increases usage of all
-three Tether technologies simultaneously — see `PROJECT_CONTEXT.md` for the
-full argument.
-
-**Note on long-term sustainability:** this $400k grant funds Months 1-12 of
-protocol *engineering*. It is not meant to be a recurring funding source.
-See `PROTOCOL_ECONOMY.md` for exactly how the protocol sustains itself
-after the grant period — including why it does this without any
-speculative token, and how six distinct stakeholder groups (Liquidity
-Providers, Node Operators, Developers, Arbitrators, Wallets, Integrators)
-are incentivized using only the settlement assets already flowing through
-the protocol.
+Specific funding discussions, amounts, and counterparties are intentionally
+not disclosed in this public document — internal only, and not finalized.
+The Months 1-3/4-6/7-9/10-12 phases above stand on their own regardless of
+external funding outcomes: `PROTOCOL_ECONOMY.md` §3 (**revised 2026-08-11**)
+has the Protocol Fee active from launch, independent of whether any
+external funding is secured, so the roadmap does not depend on a specific
+grant landing to fund engineering, security, SDK work, or operations.
 
 ---
 
-## Success Metrics (12 months post-grant)
+## Success Metrics (12 months post-launch)
 
 | Category | Metrics |
 |---|---|

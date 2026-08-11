@@ -200,10 +200,10 @@ verified against the real code before implementing, not assumed:
 computed anywhere in `escrow.service.ts`. Real fee collection needed to
 be built first (**Phase 0**, resolving that stub) before this floor
 could be anything but a formula — `config.settlement.protocolFeeRate`
-(default `0`, matching `PROTOCOL_ECONOMY.md` §6.2's documented
-bootstrap-phase "Protocol Fee is OFF" default exactly, not a new
-number), `Escrow.feeCharged`, and a `FeeDistribution` row recording the
-same 40/30/20/10 Node Operator/Treasury/Wallet Rebate/Arbitrator
+(code default `0` for safety — no production env should ever charge a
+fee by silent fallback; see the 2026-08-11 note below for what the real
+production value is), `Escrow.feeCharged`, and a `FeeDistribution` row
+recording the same Node Operator/Treasury/Wallet Rebate/Arbitrator
 Reserve split `PROTOCOL_ECONOMY.md` §6.2 already decided — this RFC
 reuses that accepted economics, it does not re-derive new percentages.
 `User.cumulativeFeesObserved` (**Phase 3**) now accrues real
@@ -212,9 +212,20 @@ reuses that accepted economics, it does not re-derive new percentages.
 `ArbiterProfile.cumulativeFeesObserved` accrues the same, per-arbiter,
 via `MarketArbitrationProvider.recordRuling()`. Both are real,
 queryable numbers now (`reputation.service.ts`'s `getScore()` exposes
-the trader-side one) — and both stay `0` for every participant while
-`protocolFeeRate` is `0`, which is the honest number during the
-bootstrap phase, not a bug. **D3 correction:** `cumulativeFeesObserved`
+the trader-side one) — and both stay `0` for any deployment that
+doesn't set `PROTOCOL_FEE_RATE`, which is the honest number for that
+deployment, not a bug.
+
+**Added 2026-08-11:** the split cited above was 40/30/20/10 when this
+correction was originally written (2026-07-29); `PROTOCOL_ECONOMY.md`
+§6.2 revised it to 35/30/25/10 (Wallet Rebate/Node Operator/Treasury/
+Arbitrator Reserve) — see that document for the reasoning. Separately,
+the "bootstrap-phase Protocol Fee is OFF" framing this correction
+originally cited no longer describes the plan: `PROTOCOL_ECONOMY.md`
+§3 now has the fee active at 0.40% from Day 0 rather than after a
+12-month grace period. The code default stays `0` regardless (a safety
+default, not a phase marker) — production deployments are expected to
+set `PROTOCOL_FEE_RATE=0.004` explicitly from launch. **D3 correction:** `cumulativeFeesObserved`
 does **not** compose into `reputationAtRisk` in the shipped code — see
 D3's own correction above; the two ended up as independent signals, not
 one feeding the other.
@@ -765,8 +776,9 @@ overwritten.
 0. ✅ Real Protocol Fee collection — resolved `policy-engine.ts`'s
    disclosed `FeePolicy` stub (a genuine prerequisite this RFC
    surfaced, not originally one of D1-D7): `config.settlement.protocolFeeRate`
-   (default `0`), `Escrow.feeCharged`, `FeeDistribution` (the real
-   40/30/20/10 split `PROTOCOL_ECONOMY.md` §6.2 already decided).
+   (code default `0`, production expected to set `0.004`), `Escrow.feeCharged`,
+   `FeeDistribution` (the real 35/30/25/10 split `PROTOCOL_ECONOMY.md`
+   §6.2 already decided — revised 2026-08-11 from the original 40/30/20/10).
 1. ✅ `ArbiterProfile` Prisma model + `register()`/`eligibleFor()`/
    `assign()` (D1-D3) — `market-arbitration.provider.ts`, gated behind
    `config.settlement.arbitrationMode`.

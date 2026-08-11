@@ -155,12 +155,16 @@ export async function emitEscrowTransition(
 }
 
 // RFC-021 Phase 0 — real Protocol Fee computation + PROTOCOL_ECONOMY.md
-// §6.2's already-decided 40/30/20/10 split, persisted as a real
-// FeeDistribution row. Returns null (not 0) when protocolFeeRate is 0
-// (the documented bootstrap default) — see Escrow.feeCharged's own
-// schema comment for why that distinction matters. Called from
-// releaseFunds() only; PROTOCOL_ECONOMY.md §3 is explicit the Protocol
-// Fee "only ever attaches to a completed Settlement," never a refund.
+// §6.2's already-decided 35/30/25/10 split (Wallet Rebate/Node Operator/
+// Treasury/Arbitrator Reserve — revised 2026-08-11 from the original
+// 40/30/20/10; wallets moved to the largest bucket since a partner
+// wallet integrating the SDK is the actual acquisition channel), persisted
+// as a real FeeDistribution row. Returns null (not 0) when
+// protocolFeeRate is 0 (the documented bootstrap default) — see
+// Escrow.feeCharged's own schema comment for why that distinction
+// matters. Called from releaseFunds() only; PROTOCOL_ECONOMY.md §3 is
+// explicit the Protocol Fee "only ever attaches to a completed
+// Settlement," never a refund.
 export async function chargeProtocolFee(escrow: { id: string; lockedAmount: Prisma.Decimal | string; asset: string }): Promise<Prisma.Decimal | null> {
   const rate = config.settlement.protocolFeeRate
   if (!rate || rate <= 0) return null
@@ -177,9 +181,9 @@ export async function chargeProtocolFee(escrow: { id: string; lockedAmount: Pris
       escrowId: escrow.id,
       totalFee,
       asset: escrow.asset as AssetType,
-      nodeOperatorShare: totalFee.times(0.4),
-      treasuryShare: totalFee.times(0.3),
-      walletRebateShare: totalFee.times(0.2),
+      nodeOperatorShare: totalFee.times(0.3),
+      treasuryShare: totalFee.times(0.25),
+      walletRebateShare: totalFee.times(0.35),
       arbitratorReserveShare: totalFee.times(0.1),
     },
   })
