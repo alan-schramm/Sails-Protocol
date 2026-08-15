@@ -296,7 +296,74 @@ feed into and the Threat Matrix, is in
 
 ---
 
-## 6. What This Document Deliberately Does Not Repeat
+## 6. Key-at-Rest: `sails-ui`'s Passphrase-Derived Encryption
+
+*(Added 2026-08-14 — a real security gap flagged live in the reference
+UI, not a design review. `packages/sails-ui/src/lib/keyEncryption.ts`.)*
+
+**Guarantee: a private key sitting in the browser's `localStorage`
+cannot be read as plaintext by anything that only has passive read
+access to the browser profile** — another script, a malicious
+extension, or offline access to the profile directory. This is
+distinct from every guarantee above: sections 1-5 are protocol-level
+primitives; this one is specific to `sails-ui`, the reference web
+client, and only covers two concrete secrets it persists client-side:
+`AuthContext.tsx`'s Ed25519 identity key and `useEscrowKey.ts`'s
+secp256k1 escrow signing key.
+
+Mechanics:
+
+- A user-supplied passphrase is stretched via **PBKDF2-SHA256, 210,000
+  iterations** (OWASP's 2023 minimum) into a **non-extractable
+  AES-256-GCM** `CryptoKey` — `deriveKey()`'s `extractable` flag is
+  `false`, so the raw key material never becomes readable JS bytes; it
+  is only ever usable indirectly via `SubtleCrypto` calls.
+- The PBKDF2 salt is random per browser profile (`crypto.getRandomValues`,
+  16 bytes), generated once and stored alongside the ciphertext
+  (`sails_ui_kdf_salt` in `localStorage`) — salts aren't secret, this
+  only ensures two users with the same passphrase don't derive the same
+  key.
+- Each encryption uses a fresh random 12-byte IV (`encryptBytes()`),
+  packed as `<iv-hex>:<ciphertext-hex>` — AES-GCM requires a unique IV
+  per encryption under the same key; reusing one would break the
+  scheme's confidentiality guarantee.
+- **AES-GCM is authenticated**, so `decryptBytes()` distinguishes two
+  failure modes rather than silently producing garbage: `corrupt`
+  (malformed packed string — pre-encryption legacy plaintext-hex data,
+  or truly corrupted storage; safe to treat as "no key stored") vs.
+  `wrong-passphrase` (well-formed ciphertext, auth tag didn't verify).
+  The distinction matters because collapsing `wrong-passphrase` into
+  "no key stored" would silently regenerate a new identity/escrow key,
+  orphaning whatever the old one controlled — an escrow key controls
+  real funds, and even the identity key would strand existing on-chain
+  reputation tied to the old public key.
+
+**What this does not protect against — same explicit-gap discipline as
+every section above:**
+
+- **Active-session exfiltration.** The derived key and any decrypted
+  key material still exist in JS memory while a session is unlocked. A
+  script running *during* that window (a live XSS, not a passive
+  reader) can still read a key straight out of memory. This scheme
+  closes passive-at-rest exposure only; it does not turn `sails-ui`
+  into a real external wallet. Both `AuthContext.tsx` and
+  `useEscrowKey.ts` disclose this in their own header comments as a
+  demo-only shortcut, not production key custody — consistent with
+  `TRUST_BOUNDARY.md`'s framing of this reference UI generally.
+- **No re-authenticate-on-mount.** A page refresh requires re-entering
+  the passphrase — there is no way to re-derive the AES key without it,
+  by design (a silent re-derivation path would mean the passphrase, or
+  something equivalent to it, is recoverable without the user, which
+  defeats the point). This is a real, visible behavior change from the
+  prior plain-hex storage, not an incidental side effect.
+- **The passphrase itself is not rate-limited or strength-checked
+  client-side.** A weak passphrase narrows PBKDF2's cost advantage
+  against offline brute-force. Out of scope for this pass — flagged
+  here rather than silently assumed away.
+
+---
+
+## 7. What This Document Deliberately Does Not Repeat
 
 - **Who is on the other side of an encrypted channel, and whether
   they're trusted** — `TRUST_BOUNDARY.md`. This document is about what
