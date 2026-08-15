@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useParams, useNavigate, useLocation } from 'react-router'
 import { toast } from 'sonner'
 import type { Trade as SdkTrade, Escrow as SdkEscrow, WebSocketChannel, Dispute } from '@satsails/p2p-trading-sdk'
 import { encryptChatMessage } from '@satsails/p2p-trading-sdk'
@@ -66,6 +66,8 @@ function toParticipantUser(p: Awaited<ReturnType<typeof sailsClient.identity.get
 
 export function Trade() {
   const { id } = useParams()
+  const navigate = useNavigate()
+  const location = useLocation()
   const { user, keypair, encryptionKey } = useAuth()
   const { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded } = useEscrowKey(encryptionKey)
 
@@ -356,6 +358,29 @@ export function Trade() {
     return <div className="text-center py-16 text-brand-text-muted">Carregando trade...</div>
   }
 
+  // Real gap found live (2026-08-15): getTrade() requires an authenticated
+  // session server-side (a trade's details are private to its two
+  // parties), so a session lost to a reload (AuthContext.tsx's own "no
+  // silent re-authenticate-on-mount" since 2026-08-11) always fails this
+  // fetch — `trade` never sets, and the `!trade` branch below used to
+  // catch this too, showing the misleading "Trade não encontrado" (this
+  // trade may well exist; the visitor just isn't authenticated to see it)
+  // with no way to actually reconnect. Checked before that branch so the
+  // real cause gets the real fix: OfferDetail.tsx's handleStartTrade()
+  // already has this exact affordance (redirect to /login carrying a
+  // return path in location.state; Login.tsx's own handleConnect() reads
+  // it back) — this mirrors that same established pattern.
+  if (!user) {
+    return (
+      <div className="text-center py-16">
+        <p className="text-brand-text-secondary mb-3">Conecte sua carteira para ver este trade.</p>
+        <Button onClick={() => navigate('/login', { state: { from: location.pathname } })} className="mx-auto">
+          Conectar Carteira
+        </Button>
+      </div>
+    )
+  }
+
   if (!trade || !buyer || !seller) {
     return (
       <div className="text-center py-16">
@@ -472,7 +497,6 @@ export function Trade() {
             {!isBuyer && !isSeller && user && (
               <p className="text-xs text-brand-text-muted mt-3">Você não é parte deste trade — ações desabilitadas.</p>
             )}
-            {!user && <p className="text-xs text-brand-text-muted mt-3">Conecte sua carteira para agir neste trade.</p>}
 
             {/* Escrow.disputes (2026-08-03) — the only way a trade party
                 who didn't open the dispute could ever learn it existed

@@ -67,7 +67,13 @@ export function Profile() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (!user) navigate('/login')
+    // `state: { from: '/profile' }` added 2026-08-15 — without it, a
+    // session lost to a reload bounced here to '/', not back to Profile
+    // (Login.tsx's own `handleConnect()` falls back to '/' when
+    // `location.state.from` is unset), the same real return-path gap
+    // OfferDetail.tsx's handleStartTrade() and Trade.tsx's own reconnect
+    // button already close for their pages.
+    if (!user) navigate('/login', { state: { from: '/profile' } })
   }, [user, navigate])
 
   const [offers, setOffers] = useState<Offer[]>([])
