@@ -1,10 +1,8 @@
-// Trade comes from @satsails/p2p-trading-sdk, not this package's own (dead) `Trade` in
-// ../../types — that local type backed MOCK_TRADE/buildTrade.ts, both
-// unused since Trade.tsx switched to real sailsClient.openp2p.getTrade()
-// data (see that page's own comment: "no client-only mock construction
-// left, buildTrade.ts, replaced"). Real Trade.amount is a `string`
-// (matches the SDK's own decimal-safe wire format), so it's Number()'d
-// below same as Trade.tsx does with its own copy.
+// Trade comes from @satsails/p2p-trading-sdk — types.ts's own local Trade
+// interface (which used to shadow this name) was confirmed dead and
+// removed 2026-08-11. Real Trade.amount is a `string` (matches the
+// SDK's own decimal-safe wire format), so it's Number()'d below same as
+// Trade.tsx does with its own copy.
 import type { Trade } from '@satsails/p2p-trading-sdk'
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/card'
 import { Button } from '../ui/button'

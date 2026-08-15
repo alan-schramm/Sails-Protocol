@@ -172,16 +172,6 @@ export interface Vouch {
   burnedAt: string | null
 }
 
-// RFC-012's real Intent lifecycle — not used by the mocked trade flow
-// below directly (that's TradeStatus/EscrowStatus, the OpenP2P/
-// OpenSettlement primitives this UI's screens map onto 1:1), included
-// here since AgentIntentionPanel-style QVAC UI is a real, named 📋
-// future piece (docs/SDK_usecases.md) this UI will eventually need.
-export type IntentStatus =
-  | 'CREATED' | 'VALIDATED' | 'COORDINATED' | 'DISCOVERING' | 'MATCHED'
-  | 'NEGOTIATING' | 'COMMITTED' | 'SETTLING' | 'FULFILLED' | 'EXPIRED'
-  | 'CANCELLED' | 'FAILED'
-
 export interface User {
   id: string
   publicKey: string
@@ -215,27 +205,6 @@ export interface Offer {
   tradedWithCurrentUser: boolean // UI-only demonstration flag for the "already traded with" filter — a real version needs a real trade-history join
   blockedRelationship: boolean // UI-only demonstration flag for "apenas anúncios negociáveis" — a real version needs a real block-list model, which doesn't exist in the backend yet either
   createdAt: string
-}
-
-export interface EscrowEvent {
-  status: EscrowStatus
-  timestamp: string
-  actor: string
-  note?: string
-}
-
-export interface Escrow {
-  id: string
-  tradeId: string
-  type: EscrowType
-  status: EscrowStatus
-  lockedAmount: number
-  asset: AssetType
-  timelockHours: number
-  txLockId: string | null
-  txReleaseId: string | null
-  expiresAt: string | null
-  events: EscrowEvent[]
 }
 
 // IMAGE/VIDEO added directly on top of the real backend's Message.msgType
@@ -278,24 +247,12 @@ export interface Message {
   createdAt: string
 }
 
-export interface Trade {
-  id: string
-  offerId: string
-  offer: Offer
-  buyer: User
-  seller: User
-  asset: AssetType
-  amount: number
-  priceUsd: number
-  totalUsd: number
-  totalBrl: number
-  status: TradeStatus
-  network?: string
-  createdAt: string
-  escrow: Escrow
-  messages: Message[]
-}
-
+// Local Trade/Escrow/EscrowEvent interfaces (removed 2026-08-11) — same
+// story as TradeHistoryEntry/Dispute below: only ever backed the mock
+// trade this file also removed (data/mock.ts's own comment). Every
+// screen types directly against @satsails/p2p-trading-sdk's real
+// Trade/Escrow now.
+//
 // TradeHistoryEntry/Dispute (local, hand-mocked interfaces) removed
 // 2026-08-04 — they only ever backed MOCK_TRADE_HISTORY/MOCK_DISPUTES
 // (data/mock.ts), deleted the same day along with the fake "operator"
