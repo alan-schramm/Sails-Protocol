@@ -5,6 +5,24 @@
 
 set -e
 
+# Found for real, 2026-08-15: a prior run of this script that got killed
+# before reaching its own `docker compose down` at the bottom (e.g. a CI
+# job or `jest.setTimeout` timing out and force-killing this process)
+# leaves containers behind in a `Created` (never started) state. The next
+# `docker compose up` then fails outright with "Conflict: the container
+# name ... is already in use" -- not a health-check failure, `up` itself
+# errors before the health-check loop below ever runs. `down` (no
+# `--remove-orphans`) only touches this file's own services/network, so
+# it's safe to always run first regardless of what state a previous run
+# left things in. Deliberately NOT `--remove-orphans`: this compose
+# project's network can be shared with an unrelated devcontainer
+# (`*-workspace-1`) from a different tool entirely -- removing orphans
+# would tear that down too, which isn't this script's container to touch.
+# `|| true` because a genuinely fresh environment has nothing to tear
+# down, and `down` reporting the network as still-in-use (from that same
+# devcontainer) is an expected, harmless warning, not a real failure.
+docker compose down || true
+
 # Start services
 docker compose up -d --build
 

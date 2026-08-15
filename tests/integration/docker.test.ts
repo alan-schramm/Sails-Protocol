@@ -6,7 +6,20 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 describe('Docker integration test', () => {
-  jest.setTimeout(120_000);
+  // 120s (the original budget) only covers a cached `docker compose up
+  // -d --build` -- a health-check poll plus a few seconds of layer reuse.
+  // It does not cover a build from scratch: found for real, 2026-08-15,
+  // after a large package-lock.json refresh invalidated Docker's
+  // `npm install` layer cache for every workspace package (root,
+  // sails-sdk, sdk-react, contracts) -- rebuilding + exporting the
+  // resulting ~14.7GB `builder`-stage image (see docker-compose.yml's own
+  // comment on why `app`/`migrate` use `builder`, not the slim `runtime`
+  // stage) alone ran well past 120s before the health-check loop even
+  // started. Not a hang and not an app bug -- `docker-test.sh`'s own
+  // 60s-bounded health poll (30 attempts x 2s) already fails fast with a
+  // clear message if the server itself never comes up; this larger
+  // ceiling only accounts for the build step ahead of it.
+  jest.setTimeout(600_000);
 
   let dockerAvailable = false;
 
