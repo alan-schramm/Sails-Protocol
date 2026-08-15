@@ -66,15 +66,25 @@ export function ChatWindow({
   const [input, setInput] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Real bug found live: onSend/handleSend below are fully synchronous
+  // (Trade.tsx's own handleSend just does a WebSocket .send(), no await),
+  // so a plain `if (!input.trim())` guard doesn't help against holding or
+  // mashing Enter — key-repeat can fire multiple keydown events faster
+  // than React re-renders and clears `input`, sending the same message
+  // several times. A ref-based lock is synchronous and doesn't depend on
+  // render timing, unlike a second piece of state would.
+  const sendingRef = useRef(false)
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length])
 
   const handleSend = () => {
-    if (!input.trim()) return
+    if (!input.trim() || sendingRef.current) return
+    sendingRef.current = true
     onSend(input.trim())
     setInput('')
+    queueMicrotask(() => { sendingRef.current = false })
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
