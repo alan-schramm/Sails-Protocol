@@ -5,7 +5,9 @@
  * agent calls QVAC (local LLM, `assessSocialEngineeringRisk()`) to
  * classify a chat message; this file uses a plain keyword regex instead,
  * purely so this UI has *something* to react to without a live backend
- * connection. Same honesty boundary as `qvacAgent.ts`/`aiNegotiator.ts`:
+ * connection. Same honesty boundary this codebase applies everywhere a
+ * gap like this exists (`aiNegotiator.ts`'s old simulation was the same
+ * kind of disclosed gap — closed for real by RFC-023, unlike this one):
  * no HTTP/WS route exists yet for a browser to receive a real
  * `RISK_WARNING` from (`config.features.socialEngineeringDetection`,
  * off by default even on the backend). Detects the same two patterns

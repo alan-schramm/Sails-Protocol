@@ -37,6 +37,9 @@ function validate(payload: IntentPayload): { valid: boolean; errors?: string[] }
   if (p.side !== 'BUY' && p.side !== 'SELL') errors.push("side must be 'BUY' or 'SELL'")
   if (p.maxValue !== undefined && typeof p.maxValue !== 'string') errors.push('maxValue must be a decimal string, not a number (RFC-009)')
   if (p.minValue !== undefined && typeof p.minValue !== 'string') errors.push('minValue must be a decimal string, not a number (RFC-009)')
+  // RFC-023 — same decimal-string convention as maxValue/minValue above.
+  if (p.maxPriceUsd !== undefined && typeof p.maxPriceUsd !== 'string') errors.push('maxPriceUsd must be a decimal string, not a number (RFC-009)')
+  if (p.minPriceUsd !== undefined && typeof p.minPriceUsd !== 'string') errors.push('minPriceUsd must be a decimal string, not a number (RFC-009)')
   // RFC-013 — minReputationRating mirrors ReputationScore's 0-5 scale
   // (reputation.service.ts), not a decimal string: it's a threshold, not
   // a transferred amount, so RFC-009's decimal-string rule doesn't apply.

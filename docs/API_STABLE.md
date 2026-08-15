@@ -62,7 +62,7 @@ would promise more than it returns, so the friendly name is
 | `sdk.reputation` | `sdk.trustScore` | `modules/reputation.ts` | Reputation score, leaderboard, rating submission |
 | `sdk.peers` | — | `modules/peers.ts` | P2P transport node (start/stop, topic/trade rooms, direct offer broadcast) |
 | `sdk.capabilities` | — | `modules/capabilities.ts` | RFC-013 Capability Registry: register/list/revoke capability grants |
-| `sdk.intents` (private; see below) | — | `intent-facade.ts` | The six-verb Intent-oriented facade |
+| `sdk.intents` (private; see below) | — | `intent-facade.ts` | The Intent-oriented facade — SDK_GUIDE.md's original six canonical verbs, plus `proposeTrade` (RFC-023) |
 
 `sdk.peers` and `sdk.capabilities` have no friendly alias — both names
 are already the plain-English word for what they do; a second name
@@ -157,6 +157,17 @@ throw-vs-real status is expected to change before v1, and `releaseAsset`
 gaining a required `toAddress` parameter is this document's own
 precedent for why that kind of change is additive, not breaking, for
 these six-verb methods specifically.
+
+`proposeTrade(intentId, amount)` → `TradeProposal | null` — a 7th
+top-level delegate, **not** part of the original six-verb facade above
+(RFC-023, `rfcs/RFC-023-qvac-negotiated-trade-proposal.md`). Given a
+persisted TradeIntent's own declared `maxPriceUsd`/`minPriceUsd`/
+`minReputationRating`, finds a real matching `Offer` and returns it for
+the caller to approve — `null` is a legitimate "nothing matched within
+your limits" outcome, not an error. Never creates a `Trade` and has no
+authority over escrow/settlement; approve a returned proposal by calling
+the existing, unmodified `openp2p.trade(proposal.offerId, amount)`
+directly.
 
 ### Escape hatch
 `setSessionToken(token)` / `getSessionToken()` — direct session control,

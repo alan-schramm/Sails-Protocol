@@ -96,4 +96,20 @@ export interface TradeIntentPayload extends IntentPayload {
   // Intent type, even unenforced, undercut that positioning. See
   // RFC-013's own dated correction for the full removal note.
   minReputationRating?: number
+  // RFC-023 (rfcs/RFC-023-qvac-negotiated-trade-proposal.md) — this is the
+  // "OpenLiquidity reading this during matching" follow-up RFC-013's own
+  // comment above predicted, now real: intent.routes.ts's new
+  // `POST /v1/intents/:id/propose` route reads maxPriceUsd/minPriceUsd
+  // (together with minReputationRating above) to filter real Offers via
+  // liquidity.service.ts's getOffers(). Decimal strings per RFC-009, same
+  // convention as maxValue/minValue above. USD-denominated deliberately —
+  // matches Offer.priceUsd exactly (the field these bounds filter
+  // against), NOT this Intent's own optional `currency` above, which may
+  // be a fiat currency like BRL. No FX conversion exists anywhere in this
+  // codebase; a caller populating these from a non-USD price must convert
+  // client-side first (packages/sails-ui's AgentIntentionPanel.tsx gates
+  // its own price-limit input to `currency === 'USD'` for exactly this
+  // reason, rather than silently sending a mismatched number).
+  maxPriceUsd?: string
+  minPriceUsd?: string
 }

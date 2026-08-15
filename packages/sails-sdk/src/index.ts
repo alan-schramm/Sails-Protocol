@@ -84,14 +84,16 @@ export { encryptChatMessage, decryptChatMessage, type EncryptedChatMessage } fro
 
 // SailsIntentFacade (the class) deliberately NOT re-exported here (audit
 // finding, docs/TODO.md §28): SailsClient.intents is private specifically
-// so the six delegate methods (createIntent/cancelIntent/negotiate/
-// submitProof/releaseAsset/dispute) are the only supported entry point —
-// exporting the class itself would let a caller construct one directly
-// against a raw transport, bypassing SailsClient's session management
-// entirely, exactly what `private` was meant to prevent. Zero real
-// external usage confirmed. The two payload types below stay exported —
-// negotiate()/submitProof() callers genuinely need them to construct
-// their second argument.
+// so the delegate methods (createIntent/cancelIntent/negotiate/
+// submitProof/releaseAsset/dispute — SDK_GUIDE.md's original six-verb
+// facade — plus proposeTrade, an RFC-023 addition, not part of that
+// original six-verb set) are the only supported entry point — exporting
+// the class itself would let a caller construct one directly against a
+// raw transport, bypassing SailsClient's session management entirely,
+// exactly what `private` was meant to prevent. Zero real external usage
+// confirmed. The two payload types below stay exported — negotiate()/
+// submitProof() callers genuinely need them to construct their second
+// argument.
 export {
   type NegotiationEvent,
   type ProofSubmission,
@@ -154,6 +156,7 @@ export type {
   LeaderboardResult,
   Intent,
   TradeIntentPayload,
+  TradeProposal,
   PeerStatus,
   CapabilityGrant,
   Vouch,

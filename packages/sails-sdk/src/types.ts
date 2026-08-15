@@ -336,6 +336,24 @@ export interface TradeIntentPayload {
   // kycRequired removed 2026-08-09 — this protocol does not do KYC, see
   // src/common/types/intent.ts's matching removal note.
   minReputationRating?: number // 0-5, mirrors ReputationScore's scale
+  // RFC-023 (rfcs/RFC-023-qvac-negotiated-trade-proposal.md) — read by
+  // intentFacade.proposeTrade() below via POST /v1/intents/:id/propose.
+  // Decimal strings (RFC-009), USD-denominated — matches Offer.priceUsd,
+  // not this Intent's own optional `currency` above.
+  maxPriceUsd?: string
+  minPriceUsd?: string
+}
+
+// RFC-023 — the ephemeral (non-persisted) match result
+// intentFacade.proposeTrade() returns. `null` means no real Offer cleared
+// the Intent's own price/reputation limits — a legitimate, non-error
+// outcome, not a thrown SailsNotImplementedError/SailsApiError.
+export interface TradeProposal {
+  offerId: string
+  priceUsd: string // decimal string, RFC-009
+  amount: string    // decimal string, RFC-009 — echoes the amount this proposal was requested for
+  traderReputation: number | null
+  paymentMethods: string[]
 }
 
 export interface PeerStatus {

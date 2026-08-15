@@ -53,7 +53,7 @@
  */
 import type { SailsTransport } from './transport'
 import { SailsNotImplementedError } from './errors'
-import type { Intent, IntentStatus, TradeIntentPayload, Trade, Dispute, Proof, Escrow } from './types'
+import type { Intent, IntentStatus, TradeIntentPayload, TradeProposal, Trade, Dispute, Proof, Escrow } from './types'
 
 export interface NegotiationEvent {
   type: 'OFFER_PROPOSED' | 'COUNTER_OFFERED' | 'TERMS_ACCEPTED' | 'TERMS_REJECTED' | 'MESSAGE_EXCHANGED'
@@ -91,6 +91,26 @@ export class SailsIntentFacade {
 
   async cancelIntent(intentId: string): Promise<void> {
     await this.transport.delete(`/v1/intents/${intentId}`, true)
+  }
+
+  /**
+   * RFC-023 (rfcs/RFC-023-qvac-negotiated-trade-proposal.md) — the
+   * backend half of making packages/sails-ui's "AI Negotiator" real.
+   * Given a persisted TradeIntent's own declared price/reputation limits
+   * (maxPriceUsd/minPriceUsd/minReputationRating), finds a real matching
+   * Offer and returns it for the caller to approve — this method never
+   * creates a Trade itself. `data.proposal` is `null` when nothing
+   * cleared the Intent's own limits, a legitimate outcome, not an error.
+   * Approval is the existing, unmodified `openp2p.trade(offerId, amount)`
+   * — call that directly with the returned `proposal.offerId` once the
+   * human approves; this method has no authority over escrow/settlement
+   * and never calls anything in that direction.
+   */
+  async proposeTrade(intentId: string, amount: string): Promise<TradeProposal | null> {
+    const { proposal } = await this.transport.post<{ proposal: TradeProposal | null }>(
+      `/v1/intents/${intentId}/propose`, { amount }, true
+    )
+    return proposal
   }
 
   async negotiate(_intentId: string, _event: NegotiationEvent): Promise<void> {

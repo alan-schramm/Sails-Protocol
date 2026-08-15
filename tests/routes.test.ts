@@ -1637,6 +1637,124 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     })
   })
 
+  // RFC-023 (rfcs/RFC-023-qvac-negotiated-trade-proposal.md) — the backend
+  // half of making packages/sails-ui's "AI Negotiator" real. Reuses
+  // mockOfferFindMany (InternalOrderBook.getOffers()'s real Prisma call,
+  // already exercised by the open-liquidity describe block above) and
+  // mockIntentFindUnique/mockIntentUpdateMany/mockIntentEventCreate
+  // (already exercised by the Intent API describe block above) — this
+  // route composes both existing pieces, no new mock plumbing needed.
+  describe('Intent API — propose (RFC-023)', () => {
+    const intentPayload = {
+      asset: 'BTC', side: 'BUY' as const, minValue: '0.01', maxValue: '0.5',
+      maxPriceUsd: '70000', minReputationRating: 40,
+    }
+
+    it('rejects proposing without auth', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/intents/intent-1/propose', payload: { amount: '0.1' } })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it("rejects proposing against someone else's Intent", async () => {
+      const token = await authedSession('buyer-1')
+      mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', participantId: 'someone-else', payload: intentPayload, expiresAt: null })
+
+      const res = await app.inject({
+        method: 'POST', url: '/v1/intents/intent-1/propose',
+        headers: { authorization: `Bearer ${token}` }, payload: { amount: '0.1' },
+      })
+
+      expect(res.statusCode).toBe(403)
+      expect(mockOfferFindMany).not.toHaveBeenCalled()
+    })
+
+    it("rejects an amount outside the Intent's own minValue/maxValue range", async () => {
+      const token = await authedSession('buyer-1')
+      mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', participantId: 'buyer-1', payload: intentPayload, expiresAt: null })
+
+      const res = await app.inject({
+        method: 'POST', url: '/v1/intents/intent-1/propose',
+        headers: { authorization: `Bearer ${token}` }, payload: { amount: '5' }, // above maxValue: '0.5'
+      })
+
+      expect(res.statusCode).toBe(400)
+      // Rejected before ever querying for a match — real fund-safety
+      // guard, not just a display validation.
+      expect(mockOfferFindMany).not.toHaveBeenCalled()
+    })
+
+    it('returns a real matched proposal within price/reputation limits and transitions COORDINATED -> DISCOVERING', async () => {
+      const token = await authedSession('buyer-1')
+      // #1: this route's own ownership/status read. #2/#3: intentEngine.
+      // transition()'s own internal pair (capture currentStatus, re-fetch
+      // post-claim) — same three-read shape the existing "creates an
+      // Intent..." test above already documents for a single transition.
+      mockIntentFindUnique
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', participantId: 'buyer-1', payload: intentPayload, expiresAt: null })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', payload: intentPayload })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING', payload: intentPayload })
+      mockIntentEventFindFirst.mockResolvedValueOnce(null)
+      mockOfferFindMany.mockResolvedValueOnce([
+        { id: 'offer-1', userId: 'seller-1', asset: 'BTC', side: 'SELL', priceUsd: '65000', priceBrl: null, minAmount: '0.01', maxAmount: '1', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 50 } },
+      ])
+
+      const res = await app.inject({
+        method: 'POST', url: '/v1/intents/intent-1/propose',
+        headers: { authorization: `Bearer ${token}` }, payload: { amount: '0.1' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const proposal = JSON.parse(res.body).data.proposal
+      expect(proposal).toEqual({ offerId: 'offer-1', priceUsd: '65000', amount: '0.1', traderReputation: 50, paymentMethods: ['PIX'] })
+      // Real state transition happened, not just a read-only response.
+      expect(mockIntentUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: 'intent-1', status: 'COORDINATED' }), data: expect.objectContaining({ status: 'DISCOVERING' }) })
+      )
+    })
+
+    it('returns proposal: null when no offer clears the reputation floor, and still transitions', async () => {
+      const token = await authedSession('buyer-1')
+      mockIntentFindUnique
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', participantId: 'buyer-1', payload: intentPayload, expiresAt: null })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', payload: intentPayload })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING', payload: intentPayload })
+      mockIntentEventFindFirst.mockResolvedValueOnce(null)
+      // Real offer exists in range, but its owner's reputation (10) is
+      // below the Intent's own minReputationRating (40) — must be
+      // filtered out, not just price-matched.
+      mockOfferFindMany.mockResolvedValueOnce([
+        { id: 'offer-1', userId: 'seller-1', asset: 'BTC', side: 'SELL', priceUsd: '65000', priceBrl: null, minAmount: '0.01', maxAmount: '1', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 10 } },
+      ])
+
+      const res = await app.inject({
+        method: 'POST', url: '/v1/intents/intent-1/propose',
+        headers: { authorization: `Bearer ${token}` }, payload: { amount: '0.1' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data.proposal).toBeNull()
+      expect(mockIntentUpdateMany).toHaveBeenCalled() // still records the attempt via the audit-trail transition
+    })
+
+    it('does not re-attempt the COORDINATED -> DISCOVERING transition on a retried propose call', async () => {
+      const token = await authedSession('buyer-1')
+      // Already DISCOVERING (a prior propose call already transitioned
+      // it) — this route's own read is the ONLY Intent read for this
+      // call; intentEngine.transition() must never be invoked, since
+      // DISCOVERING -> DISCOVERING isn't a valid transition and would throw.
+      mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING', participantId: 'buyer-1', payload: intentPayload, expiresAt: null })
+      mockOfferFindMany.mockResolvedValueOnce([])
+
+      const res = await app.inject({
+        method: 'POST', url: '/v1/intents/intent-1/propose',
+        headers: { authorization: `Bearer ${token}` }, payload: { amount: '0.1' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(mockIntentUpdateMany).not.toHaveBeenCalled()
+    })
+  })
+
   describe('open-proof', () => {
     it('rejects asserting a claim without auth', async () => {
       const res = await app.inject({

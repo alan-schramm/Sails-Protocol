@@ -62,10 +62,20 @@ export interface SanityCheckResult {
   errors?: string[]
 }
 
-export function validateFinancialSanity(payload: { maxValue?: string; minValue?: string }): SanityCheckResult {
+export function validateFinancialSanity(payload: {
+  maxValue?: string; minValue?: string
+  // RFC-023 — same sanity gate as maxValue/minValue, applied to the new
+  // price-limit fields so they're checked for sanity (non-negative, sane
+  // ceiling, min <= max), not just type (intent-handler.ts's validate()
+  // only confirms these are strings, not that they're sane numbers).
+  maxPriceUsd?: string; minPriceUsd?: string
+}): SanityCheckResult {
   const errors: string[] = []
 
-  for (const [field, raw] of [['minValue', payload.minValue], ['maxValue', payload.maxValue]] as const) {
+  for (const [field, raw] of [
+    ['minValue', payload.minValue], ['maxValue', payload.maxValue],
+    ['minPriceUsd', payload.minPriceUsd], ['maxPriceUsd', payload.maxPriceUsd],
+  ] as const) {
     if (raw === undefined) continue
     const n = Number(raw)
     if (!Number.isFinite(n)) {
@@ -84,6 +94,16 @@ export function validateFinancialSanity(payload: { maxValue?: string; minValue?:
     Number(payload.minValue) > Number(payload.maxValue)
   ) {
     errors.push(`minValue (${payload.minValue}) cannot exceed maxValue (${payload.maxValue})`)
+  }
+
+  if (
+    payload.minPriceUsd !== undefined &&
+    payload.maxPriceUsd !== undefined &&
+    Number.isFinite(Number(payload.minPriceUsd)) &&
+    Number.isFinite(Number(payload.maxPriceUsd)) &&
+    Number(payload.minPriceUsd) > Number(payload.maxPriceUsd)
+  ) {
+    errors.push(`minPriceUsd (${payload.minPriceUsd}) cannot exceed maxPriceUsd (${payload.maxPriceUsd})`)
   }
 
   return errors.length === 0 ? { valid: true } : { valid: false, errors }

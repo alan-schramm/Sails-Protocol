@@ -164,6 +164,12 @@ export class SailsClient {
     this.intents.releaseAsset(...args);
   dispute: SailsIntentFacade["dispute"] = (...args) =>
     this.intents.dispute(...args);
+  // RFC-023 — a 7th delegate, not part of SDK_GUIDE.md's original
+  // six-verb facade above (see intent-facade.ts's own doc comment on
+  // proposeTrade for what it does and its explicit escrow/settlement
+  // boundary).
+  proposeTrade: SailsIntentFacade["proposeTrade"] = (...args) =>
+    this.intents.proposeTrade(...args);
 
   /**
    * Retrieve the balance of a specific asset using the injected wallet adapter.

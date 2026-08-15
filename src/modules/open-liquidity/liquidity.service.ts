@@ -406,6 +406,53 @@ export class LiquidityRouter {
     }
     return null
   }
+
+  // RFC-023 — the backend half of making packages/sails-ui's "AI
+  // Negotiator" real. Composes existing pieces rather than a new matching
+  // algorithm: getOffers()'s already-real priceMin/priceMax filters, plus
+  // an application-level filter over `traderReputation` (the join already
+  // exists on every returned row, just unused for this purpose until now).
+  // Called from the new POST /v1/intents/:id/propose route
+  // (core/intent.routes.ts) — this method itself has no knowledge of
+  // Intent/auth/ownership, same separation getOffers()/findBestMatch()
+  // above already keep from their own route-layer callers.
+  async proposeForIntent(
+    asset: AssetType,
+    side: TradeSide,
+    amount: string,
+    limits: { priceMin?: string; priceMax?: string; minReputation?: number }
+  ): Promise<LiquidityOffer | null> {
+    // Same counter-side flip matchOrder() above already applies — `side`
+    // here is the Intent's own declared side (what the user wants to do),
+    // so the actual counterparty offers to search are the opposite side
+    // (a BUY intent needs a SELL offer to match against, and vice versa).
+    const counterSide: TradeSide = side === 'BUY' ? 'SELL' : 'BUY'
+
+    const offers: LiquidityOffer[] = []
+    for (const provider of this.providers) {
+      try {
+        if (!(await provider.isAvailable())) continue
+        // Explicit MAX_PAGE_LIMIT, not the smaller DEFAULT_PAGE_LIMIT a
+        // pagination-less call would use — applying the reputation filter
+        // below after only a 10-row page could report "no match" when a
+        // valid one sits just past that page (same disclosed-limitation
+        // class getAggregatedOffers()'s own comment already flags for a
+        // different filter).
+        offers.push(...await provider.getOffers(
+          asset, counterSide, { limit: MAX_PAGE_LIMIT, offset: 0 },
+          { priceMin: limits.priceMin, priceMax: limits.priceMax }
+        ))
+      } catch (err) {
+        log.error({ err, provider: provider.name }, '[Router] proposeForIntent provider fetch failed')
+      }
+    }
+
+    // Best-price-for-the-caller direction, same as matchOrder()'s own
+    // `orderBy` above: cheapest SELL offer first when buying, highest BUY
+    // offer first when selling.
+    const sorted = offers.sort(counterSide === 'SELL' ? compareByPriceAsc : compareByPriceDesc)
+    return sorted.find((o) => (o.traderReputation ?? 0) >= (limits.minReputation ?? 0)) ?? null
+  }
 }
 
 export const liquidityRouter = new LiquidityRouter()

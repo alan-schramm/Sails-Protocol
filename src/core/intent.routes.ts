@@ -11,9 +11,15 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { intentEngine } from '../core/intent-engine'
+import { intentRepository } from '../core/intent-repository'
+import { isExpired } from '../core/state-machine'
+import { liquidityRouter } from '../modules/open-liquidity/liquidity.service'
 import { requireAuth } from '../common/middleware/auth'
 import type { AuthenticatedRequest } from '../common/middleware/auth'
-import type { IntentType, TradeIntentPayload } from '../common/types/intent'
+import { NotFoundError, ForbiddenError, ValidationError } from '../common/errors'
+import { docsOnlySchema } from '../common/openapi'
+import type { IntentType, IntentStatus, TradeIntentPayload } from '../common/types/intent'
+import type { AssetType } from '../common/types'
 
 // Fase 1 Red Team finding: asset/currency/fiatMethod were open
 // z.string(), letting adversarial free text ride all the way into
@@ -45,12 +51,24 @@ const tradeIntentPayloadSchema = z.object({
   // own bounds check, for every caller of this route (including
   // @satsails/p2p-trading-sdk's createIntent()).
   minReputationRating: z.number().optional(),
+  // RFC-023 — same "must be listed explicitly or zod silently strips it"
+  // reasoning as minReputationRating above. Decimal strings (RFC-009),
+  // not z.number(), same convention as maxValue/minValue.
+  maxPriceUsd: z.string().optional(),
+  minPriceUsd: z.string().optional(),
 })
 
 const createIntentSchema = z.object({
   type: z.literal('TradeIntent'), // only IntentType with a registered handler today (§2.3)
   payload: tradeIntentPayloadSchema,
   agentId: z.string().optional(),
+})
+
+// RFC-023 — `amount` is inherently per-request (createTrade()'s own
+// signature takes it the same way), not a fixed point value the Intent's
+// own minValue/maxValue *range* could supply on its own.
+const proposeIntentSchema = z.object({
+  amount: z.string(), // decimal string — RFC-009
 })
 
 export async function intentRoutes(app: FastifyInstance): Promise<void> {
@@ -106,5 +124,105 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
     const participantId = (request as AuthenticatedRequest).participantId
     await intentEngine.cancel(id, participantId)
     return reply.code(200).send({ success: true })
+  })
+
+  // RFC-023 (rfcs/RFC-023-qvac-negotiated-trade-proposal.md) — the backend
+  // half of making packages/sails-ui's "AI Negotiator" real. Given a
+  // persisted TradeIntent's own declared price/reputation limits, finds a
+  // real matching Offer (liquidityRouter.proposeForIntent()) and returns
+  // it for the human to approve — this route never creates a Trade
+  // itself. Approval is the EXISTING, unmodified POST /v1/openp2p/trades
+  // flow (trade.service.ts createTrade()), called by the client with the
+  // returned offerId — this route never calls it, and open-settlement is
+  // never imported by this file. That boundary is intentional: the CTO's
+  // explicit instruction was QVAC gets discovery/negotiation authority,
+  // never settlement authority — those are two separably-gated
+  // capabilities, not one.
+  app.post('/v1/intents/:id/propose', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({
+      tags: ['intent'],
+      params: z.object({ id: z.string().min(1) }),
+      body: proposeIntentSchema,
+    }),
+  }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params)
+    const { amount } = proposeIntentSchema.parse(request.body)
+    const participantId = (request as AuthenticatedRequest).participantId
+
+    const record = await intentRepository.findById(id)
+    if (!record) throw new NotFoundError('Intent', id)
+    // Same ownership check as DELETE /v1/intents/:id above — only the
+    // Intent's own creator may request a proposal against it. The price/
+    // reputation limits this route reads come from the *persisted* Intent
+    // row, never re-trusted from the request body — the whole reason this
+    // lives under /v1/intents/:id rather than an unauthenticated
+    // /v1/liquidity/ route that would accept them as raw params instead.
+    if (record.participantId !== participantId) {
+      throw new ForbiddenError(`${participantId} does not own Intent ${id}`)
+    }
+
+    const status = record.status as IntentStatus
+    if (isExpired({ status, expiresAt: record.expiresAt })) {
+      throw new ValidationError(`Intent ${id} has expired`)
+    }
+    if (status !== 'COORDINATED' && status !== 'DISCOVERING') {
+      throw new ValidationError(`Intent ${id} is not in a proposable state (status: ${status})`)
+    }
+
+    const payload = record.payload as unknown as TradeIntentPayload
+    const amountNum = Number(amount)
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      throw new ValidationError(`amount must be a positive decimal string, got "${amount}"`)
+    }
+    // Real fund-safety-adjacent check: the Intent's own declared quantity
+    // range must not be silently decorative — mirrors the bounds check
+    // trade.service.ts's createTrade() already applies against an Offer's
+    // own minAmount/maxAmount, one layer over.
+    if (payload.minValue !== undefined && amountNum < Number(payload.minValue)) {
+      throw new ValidationError(`amount ${amount} is below Intent ${id}'s own minValue (${payload.minValue})`)
+    }
+    if (payload.maxValue !== undefined && amountNum > Number(payload.maxValue)) {
+      throw new ValidationError(`amount ${amount} is above Intent ${id}'s own maxValue (${payload.maxValue})`)
+    }
+
+    const match = await liquidityRouter.proposeForIntent(
+      payload.asset as AssetType, payload.side, amount,
+      { priceMin: payload.minPriceUsd, priceMax: payload.maxPriceUsd, minReputation: payload.minReputationRating }
+    )
+
+    // COORDINATED's only forward transition is DISCOVERING
+    // (state-machine.ts) — a freshly-created Intent is already sitting
+    // there by the time it could ever reach this route
+    // (intentEngine.create() drives it there synchronously before
+    // returning). Skipped on a retried call (already DISCOVERING) —
+    // transitioning DISCOVERING -> DISCOVERING isn't valid and would
+    // throw. Deliberately NOT transitioning further (MATCHED/NEGOTIATING
+    // mean "a real Trade now exists" elsewhere in this codebase, per
+    // trade.service.ts's own comment on its identical-looking three-step
+    // transition) — this buyer-side Intent tops out at DISCOVERING and
+    // later expires via its own expiresAt; fully unifying it with the
+    // *offer's own* separate Intent (the one createTrade() itself walks
+    // forward once approved) would mean touching createTrade(),
+    // explicitly out of scope for this RFC.
+    if (status === 'COORDINATED') {
+      const note = match
+        ? `QVAC proposal: matched offer ${match.id} @ ${match.priceUsd}`
+        : 'QVAC proposal: no match found within declared limits'
+      await intentEngine.transition(id, 'DISCOVERING', participantId, 'intent.discovering', { intentId: id }, note)
+    }
+
+    return reply.code(200).send({
+      success: true,
+      data: {
+        proposal: match ? {
+          offerId: match.id,
+          priceUsd: match.priceUsd,
+          amount,
+          traderReputation: match.traderReputation ?? null,
+          paymentMethods: match.paymentMethods,
+        } : null,
+      },
+    })
   })
 }

@@ -1,36 +1,31 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
+import type { TradeIntentPayload, TradeProposal } from '@satsails/p2p-trading-sdk'
 import { useAuth } from '../../context/AuthContext'
+import { sailsClient } from '../../lib/sailsClient'
 import { generateIntentWithQvac, type AgentGeneratedIntent } from '../../lib/qvacAgent'
-import {
-  NEGOTIATION_PROFILES,
-  PROFILE_META,
-  negotiationSteps,
-  nextBestOffer,
-  type NegotiationMandate,
-  type NegotiationProfile,
-} from '../../lib/aiNegotiator'
 import { InfoTooltip } from '../ui/InfoTooltip'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
 import { Input } from '../ui/input'
 import { Textarea } from '../ui/textarea'
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select'
-import { Bot, OctagonX, Check, Circle, ArrowDown, ChevronUp, ChevronDown } from 'lucide-react'
+import { Bot, ArrowDown, ChevronUp, ChevronDown, CheckCircle2, SearchX } from 'lucide-react'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import type { AssetType, FiatCurrency, TradeSide } from '../../types'
 
 const GOAL_PLACEHOLDER = 'Ex: quero comprar USDT pagando via PIX, tenho até R$ 500 disponíveis'
 
-// Corrected 2026-08-09 — "Nesta interface o resultado é simulado" was
-// true when this copy was written; the backend now has a real
-// POST /v1/agents/generate-trade-intent route (see lib/qvacAgent.ts's
-// own header comment). Only the negotiation TIMELINE below this
-// (aiNegotiator.ts's status steps, Agent Strategy panel) stays a
-// client-side simulation — that's a different gap, no backend accepts a
-// full delegation mandate yet.
+// Corrected 2026-08-15 (RFC-023) — "a negociação automática... ainda é
+// uma simulação" was true when this copy was written; POST
+// /v1/intents/:id/propose is now real (see this component's own
+// handleDelegate). "Negociar" here means a real, policy-constrained
+// search — the best real Offer within the price/reputation limits below
+// — not a back-and-forth of counter-offers (this protocol has no such
+// mechanism). QVAC never creates the trade or touches escrow itself: it
+// always returns a concrete proposal for you to approve first.
 const BOUNDARY_TEXT =
-  'QVAC roda um LLM local (llama.cpp, sem nuvem). É um agente Crypto-Native (RFC-016): só age sobre ativos digitais já na sua wallet — negociar, criar/aceitar ofertas, travar e liberar escrow via WDK. Ele nunca chama uma API bancária e nunca toca PIX ou qualquer trilho fiat — quem faz o PIX é sempre a contraparte humana, fora do protocolo. A geração da intenção estruturada abaixo já roda no modelo real; a negociação automática após "Delegar para IA" ainda é uma simulação — não existe backend aceitando um mandato de delegação completo ainda.'
+  'QVAC roda um LLM local (llama.cpp, sem nuvem). É um agente Crypto-Native (RFC-016): só age sobre ativos digitais já na sua wallet — negociar, criar/aceitar ofertas, travar e liberar escrow via WDK. Ele nunca chama uma API bancária e nunca toca PIX ou qualquer trilho fiat — quem faz o PIX é sempre a contraparte humana, fora do protocolo. A geração da intenção e a busca por uma contraparte real dentro dos limites que você definir (preço, reputação mínima) já rodam de verdade — "negociar" aqui é encontrar a melhor oferta real dentro da sua política, não um vaivém de contrapropostas. O QVAC nunca cria o trade nem move fundos sozinho: ele sempre devolve uma proposta concreta para você aprovar antes de qualquer ação de escrow.'
 
 interface Props {
   // Real fix: this panel used to live disconnected from the offer grid
@@ -54,6 +49,7 @@ interface Props {
 
 export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilters }: Props) {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [side, setSide] = useState<TradeSide>('BUY')
   const [goal, setGoal] = useState('')
@@ -62,27 +58,22 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
 
   const [quantity, setQuantity] = useState('')
   const [limitPrice, setLimitPrice] = useState('')
-  const [deadlineMinutes, setDeadlineMinutes] = useState(20)
-  const [tolerancePct, setTolerancePct] = useState(PROFILE_META.BALANCED.defaultTolerancePct)
-  const [profile, setProfile] = useState<NegotiationProfile>('BALANCED')
+  // RFC-023 — new real mandate field; nothing before this fed a backend
+  // that could enforce it. Optional: an empty value means no reputation
+  // floor, not zero.
+  const [minReputationRating, setMinReputationRating] = useState('')
 
-  const [delegated, setDelegated] = useState(false)
-  const [stopped, setStopped] = useState(false)
-  const [stepIndex, setStepIndex] = useState(0)
-  const [proposalsAnalyzed, setProposalsAnalyzed] = useState(0)
-  const [bestOffer, setBestOffer] = useState<number | null>(null)
-  const [secondsRemaining, setSecondsRemaining] = useState(0)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const iterationRef = useRef(0)
+  // undefined = mandate not yet submitted (still editing); null = a real
+  // propose call ran and found nothing within the declared limits; an
+  // object = a real matched TradeProposal. intentId is the persisted
+  // Intent this proposal came from — kept only to display, never reused
+  // across a "Delegar" resubmission (changed limits need a fresh Intent).
+  const [intentId, setIntentId] = useState<string | null>(null)
+  const [proposal, setProposal] = useState<TradeProposal | null | undefined>(undefined)
+  const [proposing, setProposing] = useState(false)
+  const [approving, setApproving] = useState(false)
 
-  const steps = result ? negotiationSteps(result.fiatMethod) : []
-  const finished = delegated && stepIndex >= steps.length - 1
-
-  useEffect(() => {
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-  }, [])
+  const isUsd = result?.currency === 'USD'
 
   const handleGenerate = async () => {
     if (!goal.trim()) {
@@ -97,11 +88,14 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     }
     setLoading(true)
     setResult(null)
+    setIntentId(null)
+    setProposal(undefined)
     try {
       const intent = await generateIntentWithQvac(goal.trim(), side)
       setResult(intent)
       setLimitPrice('')
       setQuantity('')
+      setMinReputationRating('')
       onIntentGenerated?.(intent.asset, intent.side, intent.currency)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Falha ao gerar intenção com o QVAC')
@@ -110,82 +104,102 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     }
   }
 
-  const handleProfileChange = (p: NegotiationProfile) => {
-    setProfile(p)
-    setTolerancePct(PROFILE_META[p].defaultTolerancePct)
-  }
-
-  const handleDelegate = () => {
+  // RFC-023 — real: persists a TradeIntent carrying the mandate's own
+  // limits (POST /v1/intents, already existed, previously unused by this
+  // panel), then asks the backend to search+match against it
+  // (proposeTrade -> POST /v1/intents/:id/propose). Never calls
+  // openp2p.trade() itself — approving is a separate, explicit step
+  // (handleApprove below), preserving the CTO's own boundary: QVAC
+  // negotiates, the human approves, only then does escrow ever enter
+  // the picture.
+  const handleDelegate = async () => {
     if (!result) return
     const qty = Number(quantity)
-    const price = Number(limitPrice)
     if (!qty || qty <= 0) {
       toast.error('Informe a quantidade')
       return
     }
-    if (!price || price <= 0) {
-      toast.error(`Informe o preço ${side === 'BUY' ? 'máximo' : 'mínimo'}`)
-      return
+
+    let priceLimit: string | undefined
+    if (isUsd) {
+      const price = Number(limitPrice)
+      if (!price || price <= 0) {
+        toast.error(`Informe o preço ${side === 'BUY' ? 'máximo' : 'mínimo'}`)
+        return
+      }
+      priceLimit = limitPrice
     }
 
-    const mandate: NegotiationMandate = {
-      asset: result.asset,
-      side: result.side,
-      quantity,
-      limitPrice,
-      currency: result.currency,
-      paymentMethod: result.fiatMethod,
-      deadlineMinutes,
-      tolerancePct,
-      profile,
+    let minReputation: number | undefined
+    const repInput = minReputationRating.trim()
+    if (repInput) {
+      minReputation = Number(repInput)
+      if (!Number.isFinite(minReputation) || minReputation < 0 || minReputation > 5) {
+        toast.error('Reputação mínima deve estar entre 0 e 5')
+        return
+      }
     }
 
-    setDelegated(true)
-    setStopped(false)
-    setStepIndex(0)
-    setProposalsAnalyzed(0)
-    setBestOffer(null)
-    setSecondsRemaining(deadlineMinutes * 60)
-    iterationRef.current = 0
-
-    const tickMs = PROFILE_META[profile].tickMs
-    intervalRef.current = setInterval(() => {
-      iterationRef.current += 1
-      setStepIndex((i) => Math.min(i + 1, negotiationSteps(mandate.paymentMethod).length - 1))
-      setProposalsAnalyzed((n) => n + Math.floor(1 + Math.random() * 4))
-      setBestOffer(nextBestOffer(price, mandate.side, iterationRef.current))
-      setSecondsRemaining((s) => Math.max(0, s - tickMs / 1000))
-    }, tickMs)
-
-    toast.success('Mandato delegado ao AI Negotiator', { icon: <Bot className="h-4 w-4" /> })
+    setProposing(true)
+    try {
+      const payload: TradeIntentPayload = {
+        asset: result.asset,
+        side: result.side,
+        currency: result.currency,
+        fiatMethod: result.fiatMethod,
+        minReputationRating: minReputation,
+        ...(priceLimit !== undefined
+          ? side === 'BUY' ? { maxPriceUsd: priceLimit } : { minPriceUsd: priceLimit }
+          : {}),
+      }
+      const intent = await sailsClient.createIntent('TradeIntent', payload)
+      const found = await sailsClient.proposeTrade(intent.id, quantity)
+      setIntentId(intent.id)
+      setProposal(found)
+      if (found) {
+        toast.success('QVAC encontrou uma proposta real dentro dos seus limites', { icon: <Bot className="h-4 w-4" /> })
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao negociar com o QVAC')
+    } finally {
+      setProposing(false)
+    }
   }
 
-  useEffect(() => {
-    if (delegated && stepIndex >= steps.length - 1 && intervalRef.current) {
-      clearInterval(intervalRef.current)
-      intervalRef.current = null
+  // Real, unmodified path: the exact same sailsClient.openp2p.trade()
+  // call OfferDetail.tsx's handleStartTrade() already makes for a
+  // manually-picked offer — this is the human's explicit approval
+  // gate, the only route from a QVAC proposal to a real Trade/Escrow.
+  const handleApprove = async () => {
+    if (!proposal) return
+    setApproving(true)
+    try {
+      const trade = await sailsClient.openp2p.trade(proposal.offerId, quantity)
+      toast.success('Trade iniciado')
+      navigate(`/trade/${trade.id}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao iniciar trade')
+    } finally {
+      setApproving(false)
     }
-  }, [delegated, stepIndex, steps.length])
+  }
 
-  const handleStop = () => {
-    if (intervalRef.current) clearInterval(intervalRef.current)
-    intervalRef.current = null
-    setStopped(true)
-    toast('Controle assumido pelo usuário', { icon: <OctagonX className="h-4 w-4" /> })
+  // Back to the mandate-editing screen — keeps the already-generated
+  // QVAC intent and the quantity/price/reputation values as-is, so
+  // adjusting one field doesn't force re-describing the whole goal.
+  const handleAdjust = () => {
+    setIntentId(null)
+    setProposal(undefined)
   }
 
   const handleReset = () => {
     setResult(null)
-    setDelegated(false)
-    setStopped(false)
-    setStepIndex(0)
     setGoal('')
-  }
-
-  const formatCountdown = (secs: number) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, '0')
-    const s = Math.floor(secs % 60).toString().padStart(2, '0')
-    return `${m}:${s}`
+    setQuantity('')
+    setLimitPrice('')
+    setMinReputationRating('')
+    setIntentId(null)
+    setProposal(undefined)
   }
 
   return (
@@ -247,7 +261,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
             </>
           )}
 
-          {result && !delegated && (
+          {result && proposal === undefined && (
             <div className="rounded-lg border border-brand-orange-accent/30 bg-brand-orange-accent/5 p-3">
               <div className="text-xs font-semibold text-brand-orange-accent mb-2">Intenção estruturada gerada</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
@@ -280,119 +294,95 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               )}
 
               <div className="text-xs font-semibold text-brand-text mb-2">Mandato para o AI Negotiator</div>
-              <div className="grid grid-cols-2 gap-2 mb-2">
+              <div className="grid grid-cols-2 gap-2 mb-3">
                 <label className="text-xs text-brand-text-muted">
                   Quantidade ({ASSET_SHORT_LABELS[result.asset]})
                   <Input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Ex: 100" className="w-full mt-1 text-sm" />
                 </label>
                 <label className="text-xs text-brand-text-muted">
-                  Preço {side === 'BUY' ? 'máximo' : 'mínimo'} ({result.currency}/un.)
-                  <Input value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} placeholder="Ex: 5.61" className="w-full mt-1 text-sm" />
-                </label>
-                <div className="text-xs text-brand-text-muted">
-                  Prazo (minutos)
-                  <Select value={String(deadlineMinutes)} onValueChange={(v) => setDeadlineMinutes(Number(v))}>
-                    <SelectTrigger aria-label="Prazo (minutos)" className="w-full mt-1 text-sm h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[15, 20, 30, 45, 60].map((m) => (
-                        <SelectItem key={m} value={String(m)}>{m} min</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <label className="text-xs text-brand-text-muted">
-                  Tolerância (%)
+                  Preço {side === 'BUY' ? 'máximo' : 'mínimo'} (USD/un.)
                   <Input
-                    type="number" step="0.05" min="0"
-                    value={tolerancePct}
-                    onChange={(e) => setTolerancePct(Number(e.target.value))}
+                    value={limitPrice}
+                    onChange={(e) => setLimitPrice(e.target.value)}
+                    placeholder="Ex: 1.02"
+                    disabled={!isUsd}
+                    className="w-full mt-1 text-sm disabled:opacity-50"
+                  />
+                  {/* Real gap, disclosed rather than silently mismatched:
+                      Offer.priceUsd is USD-denominated by construction and
+                      this app has no FX conversion anywhere — sending a
+                      raw non-USD number here would filter against the
+                      wrong currency. */}
+                  {!isUsd && (
+                    <span className="block mt-1 text-[11px] text-brand-text-muted normal-case">
+                      Limite de preço disponível apenas para moeda USD nesta versão
+                    </span>
+                  )}
+                </label>
+                <label className="text-xs text-brand-text-muted col-span-2">
+                  Reputação mínima da contraparte (0–5, opcional)
+                  <Input
+                    type="number" step="0.5" min="0" max="5"
+                    value={minReputationRating}
+                    onChange={(e) => setMinReputationRating(e.target.value)}
+                    placeholder="Ex: 3"
                     className="w-full mt-1 text-sm"
                   />
                 </label>
               </div>
 
-              <div className="text-xs text-brand-text-muted mb-1">Perfil de negociação</div>
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {NEGOTIATION_PROFILES.map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => handleProfileChange(p)}
-                    title={PROFILE_META[p].description}
-                    className={`rounded-full px-3 py-1 text-xs border transition-colors ${
-                      profile === p
-                        ? 'bg-brand-orange text-white border-brand-orange'
-                        : 'border-brand-border text-brand-text-secondary hover:border-brand-orange-accent'
-                    }`}
-                  >
-                    {PROFILE_META[p].label}
-                  </button>
-                ))}
-              </div>
-
               <div className="flex gap-2">
-                <Button onClick={handleDelegate} className="px-3 py-1.5 text-xs">
+                <Button onClick={handleDelegate} disabled={proposing} className="px-3 py-1.5 text-xs disabled:opacity-60">
                   <Bot className="h-3.5 w-3.5" />
-                  Delegar para IA
+                  {proposing ? 'QVAC negociando...' : 'Delegar para IA'}
                 </Button>
-                <Button variant="outline" onClick={handleReset} className="px-3 py-1.5 text-xs">
+                <Button variant="outline" onClick={handleReset} disabled={proposing} className="px-3 py-1.5 text-xs">
                   Cancelar
                 </Button>
               </div>
             </div>
           )}
 
-          {result && delegated && (
+          {result && proposal !== undefined && (
             <div className="rounded-lg border border-brand-orange-accent/30 bg-brand-orange-accent/5 p-3">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-brand-orange-accent">Status</span>
-                {!stopped && !finished && (
-                  <button onClick={handleStop} className="flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors">
-                    <OctagonX className="h-3.5 w-3.5" />
-                    Parar Agente / Assumir Controle
-                  </button>
-                )}
-              </div>
-
-              <div className="space-y-1.5 mb-4">
-                {steps.map((step, i) => (
-                  <div key={step.id} className="flex items-center gap-2 text-xs">
-                    <span className={i <= stepIndex ? 'text-green-500' : 'text-brand-text-muted'}>
-                      {i < stepIndex ? (
-                        <Check className="h-3.5 w-3.5" />
-                      ) : i === stepIndex ? (
-                        <Circle className="h-3.5 w-3.5" fill="currentColor" />
-                      ) : (
-                        <Circle className="h-3.5 w-3.5" />
-                      )}
-                    </span>
-                    <span className={i <= stepIndex ? 'text-brand-text' : 'text-brand-text-muted'}>{step.label}</span>
+              {proposal ? (
+                <>
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-orange-accent mb-2">
+                    <Bot className="h-3.5 w-3.5" />
+                    Proposta real encontrada
                   </div>
-                ))}
-              </div>
-
-              {(stopped || finished) && (
-                <div className="mb-3 rounded-md bg-brand-elevated px-3 py-2 text-xs text-brand-text-secondary">
-                  {stopped ? `Controle assumido pelo usuário — última etapa: "${steps[stepIndex]?.label}".` : 'Negociação concluída pela IA.'}
-                </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
+                    <Field label="Preço" value={`USD ${proposal.priceUsd}`} />
+                    <Field label="Quantidade" value={`${proposal.amount} ${ASSET_SHORT_LABELS[result.asset]}`} />
+                    <Field label="Reputação da contraparte" value={proposal.traderReputation !== null ? String(proposal.traderReputation) : '—'} />
+                    <Field label="Pagamento" value={proposal.paymentMethods.map((m) => PAYMENT_METHOD_LABELS[m as keyof typeof PAYMENT_METHOD_LABELS] ?? m).join(', ')} />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button onClick={handleApprove} disabled={approving} className="px-3 py-1.5 text-xs disabled:opacity-60">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      {approving ? 'Iniciando trade...' : 'Aprovar e iniciar trade'}
+                    </Button>
+                    <Button variant="outline" onClick={handleAdjust} disabled={approving} className="px-3 py-1.5 text-xs">
+                      Ajustar mandato
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-text-secondary mb-2">
+                    <SearchX className="h-3.5 w-3.5" />
+                    Nenhuma oferta encontrada dentro dos seus limites
+                  </div>
+                  <p className="text-xs text-brand-text-secondary mb-3">
+                    O QVAC buscou entre as ofertas reais de {ASSET_LABELS[result.asset]} e nenhuma atendeu ao preço e/ou reputação mínima informados.
+                  </p>
+                  <Button variant="outline" onClick={handleAdjust} className="px-3 py-1.5 text-xs">
+                    Ajustar mandato
+                  </Button>
+                </>
               )}
-
-              <div className="text-xs font-semibold text-brand-text mb-2">Agent Strategy</div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
-                <Field label="Modo" value={PROFILE_META[profile].label} />
-                <Field label="Objetivo" value={side === 'BUY' ? 'Comprar' : 'Vender'} />
-                <Field label="Quantidade" value={`${quantity} ${ASSET_SHORT_LABELS[result.asset]}`} />
-                <Field label={side === 'BUY' ? 'Preço máximo' : 'Preço mínimo'} value={`${result.currency} ${limitPrice}`} />
-                <Field label="Tempo restante" value={formatCountdown(secondsRemaining)} />
-                <Field label="Propostas analisadas" value={String(proposalsAnalyzed)} />
-                {bestOffer !== null && <Field label="Melhor oferta" value={`${result.currency} ${bestOffer}`} />}
-              </div>
-
-              {(stopped || finished) && (
-                <Button variant="outline" onClick={handleReset} className="px-3 py-1.5 text-xs">
-                  Novo mandato
-                </Button>
+              {intentId && (
+                <p className="mt-3 text-[11px] text-brand-text-muted font-mono">Intent #{intentId.slice(0, 8)}</p>
               )}
             </div>
           )}
