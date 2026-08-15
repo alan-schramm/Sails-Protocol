@@ -51,9 +51,13 @@ export function hasStoredIdentity(): boolean {
   return localStorage.getItem(KEYPAIR_STORAGE_KEY) !== null
 }
 
+// Reused by useEscrowKey.ts for the same failure against the escrow key
+// (same passphrase, different stored secret) — one error type so every
+// caller can catch it with a single `instanceof` check regardless of
+// which key failed to decrypt.
 export class WrongPassphraseError extends Error {
-  constructor() {
-    super('Senha incorreta.')
+  constructor(message = 'Senha incorreta.') {
+    super(message)
     this.name = 'WrongPassphraseError'
   }
 }

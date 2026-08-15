@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import type { Trade as SdkTrade, Escrow as SdkEscrow, Message as SdkMessage, ChatMessageEvent, WebSocketChannel, Ed25519Keypair, EncryptedChatMessage, Dispute } from '@satsails/p2p-trading-sdk'
 import { encryptChatMessage, decryptChatMessage } from '@satsails/p2p-trading-sdk'
 import type { EscrowStatus, Message, MessageType, User } from '../types'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, WrongPassphraseError } from '../context/AuthContext'
 import { useEscrowKey } from '../hooks/useEscrowKey'
 import { sailsClient } from '../lib/sailsClient'
 import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/StatusBadges'
@@ -118,6 +118,18 @@ export function Trade() {
   const { user, keypair, encryptionKey } = useAuth()
   const { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded } = useEscrowKey(encryptionKey)
 
+  // Both call sites below intentionally swallow errors — these are
+  // speculative/idempotent background calls (useEscrowKey.ts's own
+  // comments: "safe no-op when no round is in flight", etc.), so a
+  // network hiccup or "nothing to do" shouldn't interrupt the page.
+  // WrongPassphraseError is the one exception: it means this browser's
+  // escrow signing key genuinely could not be unlocked, which silently
+  // doing nothing would leave the user with zero explanation for why
+  // their trade stalled.
+  const ignoreExceptWrongPassphrase = (err: unknown) => {
+    if (err instanceof WrongPassphraseError) toast.error(err.message)
+  }
+
   const [trade, setTrade] = useState<SdkTrade | null>(null)
   const [escrow, setEscrow] = useState<SdkEscrow | null>(null)
   const [buyer, setBuyer] = useState<User | null>(null)
@@ -176,14 +188,14 @@ export function Trade() {
         // and requires an authenticated session, so only attempted for a
         // logged-in counterparty, not every visitor who opens this page.
         if (user && (user.id === t.buyerId || user.id === t.sellerId)) {
-          await submitEscrowKeyIfNeeded(e.type, e.id).catch(() => {})
+          await submitEscrowKeyIfNeeded(e.type, e.id).catch(ignoreExceptWrongPassphrase)
           // Phase 2 (2026-07-27), MULTISIG only — if a release/refund
           // signature round is already in flight and this user is one of
           // its required signers, auto-sign and submit (useEscrowKey's
           // own header comment on signAndSubmitPendingTransactionIfNeeded
           // has the full "no dedicated screen, call speculatively" scope
           // note). A safe no-op otherwise.
-          await signAndSubmitPendingTransactionIfNeeded(e.type, e.id, user.id).catch(() => {})
+          await signAndSubmitPendingTransactionIfNeeded(e.type, e.id, user.id).catch(ignoreExceptWrongPassphrase)
           e = await sailsClient.settlement.get(t.escrowId)
         }
         if (!cancelled) setEscrow(e)
@@ -293,7 +305,7 @@ export function Trade() {
           : escrow.type === 'LIGHTNING_HODL' ? DEMO_RELEASE_SCRIPT_HEX_ARKADE
             : DEMO_RELEASE_ADDRESS_EVM
       await sailsClient.settlement.initiateRelease(escrow.id, toAddress)
-      if (user) await signAndSubmitPendingTransactionIfNeeded(escrow.type, escrow.id, user.id).catch(() => {})
+      if (user) await signAndSubmitPendingTransactionIfNeeded(escrow.type, escrow.id, user.id).catch(ignoreExceptWrongPassphrase)
       const e = await sailsClient.settlement.get(escrow.id)
       setEscrow(e)
       toast.success(

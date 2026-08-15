@@ -27,6 +27,7 @@
 import { generateEscrowKeypair, signEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from '../lib/sailsClient'
 import { encryptBytes, decryptBytes } from '../lib/keyEncryption'
+import { WrongPassphraseError } from '../context/AuthContext'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
 
@@ -67,14 +68,17 @@ async function loadOrCreateEscrowKeypair(encryptionKey: CryptoKey): Promise<Stor
           // transactions. Silently regenerating here would orphan
           // whatever escrow this browser already submitted the OLD
           // public key for — surface the failure instead of masking it.
-          throw new Error('Não foi possível desbloquear sua chave de escrow — senha incorreta.')
+          // Same WrongPassphraseError AuthContext.tsx throws for the
+          // identity key, so every caller (Trade.tsx) can catch both
+          // with one `instanceof` check instead of string-matching.
+          throw new WrongPassphraseError('Não foi possível desbloquear sua chave de escrow — senha incorreta.')
         }
         // reason === 'corrupt' (pre-encryption legacy entry or a
         // corrupted one) — falls through and regenerates below, same as
         // the pre-2026-08-11 behavior for a JSON.parse failure.
       }
     } catch (err) {
-      if (err instanceof Error && err.message.includes('senha incorreta')) throw err
+      if (err instanceof WrongPassphraseError) throw err
       // JSON.parse failure or missing fields — fall through and regenerate.
     }
   }
