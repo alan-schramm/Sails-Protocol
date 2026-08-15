@@ -1,11 +1,8 @@
 # `@satsails/p2p-trading-sdk` — Sails P2P Trading SDK
 
+[![npm version](https://img.shields.io/npm/v/@satsails/p2p-trading-sdk.svg)](https://www.npmjs.com/package/@satsails/p2p-trading-sdk)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](../../LICENSE)
 [![CI](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml)
-
-<!-- No npm version badge yet — not published to any npm registry (see
-     the root README's identical note); a badge pointing at a 404 is
-     worse than no badge. -->
 
 The single typed client a wallet/fintech imports to reach every Sails
 Protocol module (OpenIdentity, OpenLiquidity, OpenP2P, OpenSettlement,
@@ -45,6 +42,46 @@ chat.send({ content: "Sending payment now", msgType: "TEXT" })
 
 The SDK works in both Node.js (18+/20+/22+) and modern browsers. It
 has no Node-only dependencies beyond `tweetnacl` (pure JS Ed25519).
+
+## React Native setup
+
+Confirmed bundling cleanly for both Android and iOS (Hermes, React
+Native 0.86, Expo SDK 57 — the same engine on both platforms since RN
+0.84's Hermes V1), via `expo export` and `hermesc` syntax validation
+directly against the built bundle. Not yet confirmed running end-to-end
+on a physical device (blocked on this session's own network tooling,
+not the SDK). Two things a React Native app needs to do that a web/Node
+consumer doesn't:
+
+1. **Polyfill `Buffer` before importing the SDK.** Hermes has no
+   Node.js globals; the SDK's Bitcoin-signing dependencies
+   (`bitcoinjs-lib`/`ecpair`) reference `Buffer` at module-load time.
+   Install `buffer` (`npm install buffer`) and add this as its own
+   module, imported *first* — before any other import in your app's
+   entry point:
+
+   ```ts
+   // polyfills.ts — must be its own file. ES module import
+   // declarations always evaluate before any plain statement in the
+   // importing file, so mixing `global.Buffer = Buffer` into the same
+   // file as your SDK import runs too late to matter — confirmed the
+   // hard way debugging this exact failure.
+   import { Buffer } from 'buffer'
+   global.Buffer = global.Buffer || Buffer
+   ```
+
+   ```ts
+   // App.tsx (or index.ts) — first line, before anything else
+   import './polyfills'
+   ```
+
+2. **No bundler configuration needed for the SDK's optional AWS KMS
+   path.** `custody/kms-signer.ts`'s lazy `import('@aws-sdk/client-kms')`
+   is built to be invisible to every major bundler's static analysis
+   (Metro, Turbopack, webpack) — confirmed against real `expo export`
+   (Android and iOS) and `next build` runs, not assumed. A consumer who
+   never instantiates `SailsSignerService` never triggers the import,
+   with no `metro.config.js` changes required.
 
 ## Module map
 

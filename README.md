@@ -1,12 +1,8 @@
 # Sails Protocol
 
+[![npm version](https://img.shields.io/npm/v/@satsails/p2p-trading-sdk.svg)](https://www.npmjs.com/package/@satsails/p2p-trading-sdk)
 [![CI](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-
-<!-- No npm version badge yet — @satsails/p2p-trading-sdk isn't published to any npm
-     registry (confirmed via `npm view @satsails/p2p-trading-sdk`, 404). Add one the
-     day it actually publishes; a badge pointing at a 404 is worse than
-     no badge for a partner-facing README. -->
 
 **Open infrastructure for interoperable P2P Financial Marketplaces.**
 
