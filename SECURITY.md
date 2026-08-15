@@ -57,6 +57,22 @@ This security policy applies to:
 - No logout/session-revocation endpoint exists yet — a session ends only
   by expiring; tracked as a real gap, not implemented
 
+### Long-lived credentials inventory
+
+<!-- Added 2026-08-15 — audited every long-lived secret in this codebase
+     for accidental exposure before writing this section, not assumed. -->
+- `ARKADE_SEED`, `WDK_SEED_PHRASE` — operator-held master secrets
+  (`.env.example`), used only server-side to derive/construct signing
+  material; confirmed no route ever returns either value or anything
+  derived directly from them (public keys derived from them are the only
+  thing ever exposed, by design). Neither has a rotation path — rotating
+  either changes every key it would derive going forward, breaking
+  in-flight escrows that depend on the current derivation; a real
+  operational constraint, not something this codebase automates today.
+- Session tokens and WS tickets — confirmed each has exactly one issuance
+  point (`POST /v1/identity/authenticate`, `POST /v1/identity/ws-ticket`
+  respectively); no other route echoes either back.
+
 ## Data Protection
 
 - No PII stored beyond public keys

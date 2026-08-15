@@ -7,6 +7,7 @@ import { childLogger } from '../../common/logger'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeIntentPayload } from '../../common/types/intent'
 import type { Prisma } from '@prisma/client'
+import { config } from '../../config'
 
 const log = childLogger('liquidity')
 
@@ -210,6 +211,54 @@ function buildTradeIntentPayload(input: CreateOfferInput): TradeIntentPayload {
   }
 }
 
+// 2026-08-15 security review — an Offer is public the instant it's
+// created, before any trade or chat room exists, so scam text planted in
+// its own free-text fields reaches more people, faster, than the same
+// text would in a private trade chat (which social-engineering-agent.ts
+// already screens). Same cheap pre-filter discipline that file's own
+// evaluate() uses: no text content, no QVAC call — spending a local-LLM
+// call on an offer with neither field filled would be pure cost, no
+// signal. Fire-and-forget, never awaited by createOffer() below: QVAC's
+// own doc comment (qvac-agent.provider.ts) measures cached calls at
+// ~8-9s — awaiting this inline would turn a fast write into an 8-second
+// one for a feature that's a background safety net, not a publish gate.
+// Detects, never acts — same posture as every other QVAC agent in this
+// codebase; a detected risk only logs + emits an event, it never blocks
+// or un-publishes the offer.
+//
+// qvac-agent.provider.ts is imported dynamically, inside this function,
+// after both early returns above — not as a module-scope import — on
+// purpose: it transitively pulls in the real @qvac/sdk package, which
+// ships code using `import.meta` that Jest's CJS transform can't parse.
+// A static import would make every test file that merely imports this
+// service (most of tests/, none of which enable
+// socialEngineeringDetection) crash at module-load time whether or not
+// they ever exercise this function — found for real running the full
+// suite, not assumed. Deferring the import until the two guards above
+// have already confirmed screening will actually run means the
+// overwhelming majority of test runs, and every production request with
+// the flag off, never touch that module at all.
+export function screenOfferContent(offerId: string, userId: string, description: string | undefined, paymentDetails: string | undefined): void {
+  if (!config.features.socialEngineeringDetection) return
+  if (!description?.trim() && !paymentDetails?.trim()) return
+
+  import('../open-agents/qvac-agent.provider')
+    .then(({ qvacAgentProvider }) => qvacAgentProvider.assessOfferContentRisk(description, paymentDetails))
+    .then(async (signal) => {
+      if (signal.pattern === 'none') return
+      log.warn({ msg: 'Offer content risk detected', offerId, userId, pattern: signal.pattern, riskScore: signal.riskScore, reasoning: signal.reasoning })
+      await eventBus.emit('liquidity.offer.content_risk_detected', {
+        offerId,
+        userId,
+        pattern: signal.pattern as 'off_channel_migration' | 'payment_instruction_change',
+        riskScore: signal.riskScore,
+        reasoning: signal.reasoning,
+        detectedAt: new Date().toISOString(),
+      }, offerId)
+    })
+    .catch((err) => log.error({ msg: 'Offer content risk screening failed', offerId, err: err instanceof Error ? err.message : String(err) }))
+}
+
 // ─── Router: tries providers in order, aggregates and ranks ──────────────────
 export class LiquidityRouter {
   private readonly providers: LiquidityProvider[]
@@ -253,6 +302,8 @@ export class LiquidityRouter {
       side: offer.side,
       priceUsd: offer.priceUsd.toString(),   // RFC-009 — Decimal -> decimal string at the event boundary
     }, offer.id)   // correlationId (RFC-010) — no tradeId exists yet for an offer
+
+    screenOfferContent(offer.id, offer.userId, input.description, input.paymentDetails)
 
     return offer
   }
@@ -451,7 +502,20 @@ export class LiquidityRouter {
     // `orderBy` above: cheapest SELL offer first when buying, highest BUY
     // offer first when selling.
     const sorted = offers.sort(counterSide === 'SELL' ? compareByPriceAsc : compareByPriceDesc)
-    return sorted.find((o) => (o.traderReputation ?? 0) >= (limits.minReputation ?? 0)) ?? null
+    const amountNum = Number(amount)
+    // Real bug found in a post-implementation review: getOffers()'s
+    // OfferFilters only covers price, not amount — unlike matchOrder()
+    // above, which explicitly bounds-checks minAmount/maxAmount against
+    // the requested amount at the Prisma level. Without this check here,
+    // this method could return an offer whose own limits don't actually
+    // cover the requested trade — createTrade() would still catch it at
+    // approval time (its own real bounds check, one layer over), but the
+    // whole point of "propose" is to only ever surface an offer that
+    // would actually succeed, not one the approval step then rejects.
+    return sorted.find((o) =>
+      (o.traderReputation ?? 0) >= (limits.minReputation ?? 0) &&
+      amountNum >= Number(o.minAmount) && amountNum <= Number(o.maxAmount)
+    ) ?? null
   }
 }
 

@@ -312,6 +312,24 @@ export interface SocialEngineeringRiskDetectedEvent {
   detectedAt: string
 }
 
+// Raised by qvac-agent.provider.ts's assessOfferContentRisk(), called
+// (best-effort, fire-and-forget — see liquidity.service.ts's own
+// createOffer() comment for why) from liquidity.service.ts's
+// createOffer() when config.features.socialEngineeringDetection is on.
+// Same detection-only posture as SocialEngineeringRiskDetectedEvent
+// above — an Offer's own description/paymentDetails text screened for
+// the same off_channel_migration/payment_instruction_change patterns,
+// distinct exposure since an Offer is public before any trade or chat
+// room exists.
+export interface OfferContentRiskDetectedEvent {
+  offerId: string
+  userId: string
+  pattern: 'off_channel_migration' | 'payment_instruction_change'
+  riskScore: number
+  reasoning: string
+  detectedAt: string
+}
+
 // Raised by common/security/suspicious-activity.ts the first time an
 // identity crosses a threshold within a detection window (repeated auth
 // failures, 404 clustering / ID enumeration, or repeated rate-limit hits).
@@ -401,6 +419,8 @@ export interface SailsEventMap {
 
   // Sails OpenAgents — Social Engineering Agent (RFC-007 D7 / RFC-017)
   'agents.social_engineering.risk_detected': SocialEngineeringRiskDetectedEvent
+  // Sails OpenLiquidity — QVAC offer-content screening, 2026-08-15
+  'liquidity.offer.content_risk_detected': OfferContentRiskDetectedEvent
 
   // Cross-cutting security — common/security/suspicious-activity.ts
   'security.suspicious_activity.detected': SuspiciousActivityDetectedEvent
