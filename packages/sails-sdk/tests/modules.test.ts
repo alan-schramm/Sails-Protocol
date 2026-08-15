@@ -352,19 +352,33 @@ class FakeSocket {
   }
 }
 
+// WebSocketChannel's constructor now kicks off an async ticket-fetch-
+// then-open (openSocket returns Promise<WebSocket> — security review,
+// 2026-08-15, P1: chat() fetches a real single-use ticket before every
+// connection attempt instead of reusing a raw session token) instead of
+// attaching a socket synchronously. Every test below needs to let that
+// resolve — a real setTimeout flush, not just one `await
+// Promise.resolve()`, since the exact microtask-hop count through an
+// async factory is an implementation detail not worth depending on.
+function flushConnect(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
 describe('WebSocketChannel', () => {
-  it('auto-joins the trade room as soon as the socket opens', () => {
+  it('auto-joins the trade room as soon as the socket opens', async () => {
     const socket = new FakeSocket()
-    new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1')
+    new WebSocketChannel(async () => socket as unknown as WebSocket, 'trade-1')
+    await flushConnect()
 
     socket.emitOpen()
 
     expect(JSON.parse(socket.sent[0])).toEqual({ type: 'JOIN_TRADE', payload: { tradeId: 'trade-1' } })
   })
 
-  it('send() wraps content in a SEND_MESSAGE frame scoped to the channel\'s tradeId', () => {
+  it('send() wraps content in a SEND_MESSAGE frame scoped to the channel\'s tradeId', async () => {
     const socket = new FakeSocket()
-    const channel = new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1')
+    const channel = new WebSocketChannel(async () => socket as unknown as WebSocket, 'trade-1')
+    await flushConnect()
 
     channel.send({ content: 'Sending payment now' })
 
@@ -374,9 +388,10 @@ describe('WebSocketChannel', () => {
     })
   })
 
-  it('onMessage() fires only for NEW_MESSAGE frames, onEvent() fires for every frame', () => {
+  it('onMessage() fires only for NEW_MESSAGE frames, onEvent() fires for every frame', async () => {
     const socket = new FakeSocket()
-    const channel = new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1')
+    const channel = new WebSocketChannel(async () => socket as unknown as WebSocket, 'trade-1')
+    await flushConnect()
     const messages: unknown[] = []
     const events: unknown[] = []
     channel.onMessage((m) => messages.push(m))
@@ -387,6 +402,13 @@ describe('WebSocketChannel', () => {
 
     expect(messages).toEqual([{ id: 'msg-1', content: 'hi' }])
     expect(events).toHaveLength(2)
+  })
+
+  it('throws if send() is called before the first connection attempt resolves — no silent no-op', () => {
+    const socket = new FakeSocket()
+    const channel = new WebSocketChannel(async () => socket as unknown as WebSocket, 'trade-1')
+    // No flushConnect() — asserts the pre-connect window's real behavior.
+    expect(() => channel.send({ content: 'too early' })).toThrow(/not connected yet/)
   })
 })
 
@@ -400,7 +422,7 @@ describe('WebSocketChannel — reconnect with backoff', () => {
   it('reopens via the factory and re-JOINs the trade after the socket closes unexpectedly', async () => {
     const sockets: FakeSocket[] = []
     const channel = new WebSocketChannel(
-      () => {
+      async () => {
         const s = new FakeSocket()
         sockets.push(s)
         return s as unknown as WebSocket
@@ -408,6 +430,7 @@ describe('WebSocketChannel — reconnect with backoff', () => {
       'trade-1',
       { initialReconnectDelayMs: 1, maxReconnectDelayMs: 2 }
     )
+    await flushConnect()
     sockets[0].emitOpen()
     expect(sockets).toHaveLength(1)
 
@@ -422,7 +445,7 @@ describe('WebSocketChannel — reconnect with backoff', () => {
   it('does not reconnect after close() — the caller asked it to stop', async () => {
     const sockets: FakeSocket[] = []
     const channel = new WebSocketChannel(
-      () => {
+      async () => {
         const s = new FakeSocket()
         sockets.push(s)
         return s as unknown as WebSocket
@@ -430,6 +453,7 @@ describe('WebSocketChannel — reconnect with backoff', () => {
       'trade-1',
       { initialReconnectDelayMs: 1 }
     )
+    await flushConnect()
     sockets[0].emitOpen()
 
     channel.close()
@@ -444,7 +468,7 @@ describe('WebSocketChannel — reconnect with backoff', () => {
     const sockets: FakeSocket[] = []
     const states: string[] = []
     const channel = new WebSocketChannel(
-      () => {
+      async () => {
         const s = new FakeSocket()
         sockets.push(s)
         return s as unknown as WebSocket
@@ -453,6 +477,7 @@ describe('WebSocketChannel — reconnect with backoff', () => {
       { initialReconnectDelayMs: 1, maxReconnectDelayMs: 1, maxReconnectAttempts: 2 }
     )
     channel.onConnectionStateChange((s) => states.push(s))
+    await flushConnect()
 
     // Every reconnected socket immediately closes again — never reaches 'open'.
     for (let i = 0; i < 5 && states[states.length - 1] !== 'closed'; i++) {
@@ -468,7 +493,7 @@ describe('WebSocketChannel — reconnect with backoff', () => {
     const sockets: FakeSocket[] = []
     const states: string[] = []
     const channel = new WebSocketChannel(
-      () => {
+      async () => {
         const s = new FakeSocket()
         sockets.push(s)
         return s as unknown as WebSocket
@@ -477,6 +502,7 @@ describe('WebSocketChannel — reconnect with backoff', () => {
       { reconnect: false }
     )
     channel.onConnectionStateChange((s) => states.push(s))
+    await flushConnect()
 
     sockets[0].emitClose()
     await new Promise((r) => setTimeout(r, 20))
@@ -489,7 +515,7 @@ describe('WebSocketChannel — reconnect with backoff', () => {
     const sockets: FakeSocket[] = []
     const states: string[] = []
     new WebSocketChannel(
-      () => {
+      async () => {
         const s = new FakeSocket()
         sockets.push(s)
         return s as unknown as WebSocket
@@ -497,6 +523,7 @@ describe('WebSocketChannel — reconnect with backoff', () => {
       'trade-1',
       { initialReconnectDelayMs: 1, maxReconnectDelayMs: 1, maxReconnectAttempts: 1 }
     ).onConnectionStateChange((s) => states.push(s))
+    await flushConnect()
 
     sockets[0].emitClose() // attempt 1 of 1
     await new Promise((r) => setTimeout(r, 10))
@@ -520,7 +547,8 @@ describe('WebSocketChannel — reconnect with backoff', () => {
 describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
   it('sends a PING frame on the configured interval', async () => {
     const socket = new FakeSocket()
-    new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1', { heartbeatIntervalMs: 5, heartbeatTimeoutMs: 1000 })
+    new WebSocketChannel(async () => socket as unknown as WebSocket, 'trade-1', { heartbeatIntervalMs: 5, heartbeatTimeoutMs: 1000 })
+    await flushConnect()
     socket.emitOpen()
 
     await new Promise((r) => setTimeout(r, 20))
@@ -532,7 +560,7 @@ describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
   it('does not force-close while PONGs keep arriving within the timeout', async () => {
     const sockets: FakeSocket[] = []
     new WebSocketChannel(
-      () => {
+      async () => {
         const s = new FakeSocket()
         sockets.push(s)
         return s as unknown as WebSocket
@@ -547,6 +575,7 @@ describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
       // scheduling jitter.
       { heartbeatIntervalMs: 20, heartbeatTimeoutMs: 300 }
     )
+    await flushConnect()
     sockets[0].emitOpen()
 
     // Answer every PING with a PONG, faster than the timeout.
@@ -561,7 +590,7 @@ describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
   it('force-closes (and reconnects) when no PONG arrives within heartbeatTimeoutMs — the zombie-connection case', async () => {
     const sockets: FakeSocket[] = []
     new WebSocketChannel(
-      () => {
+      async () => {
         const s = new FakeSocket()
         sockets.push(s)
         return s as unknown as WebSocket
@@ -569,6 +598,7 @@ describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
       'trade-1',
       { heartbeatIntervalMs: 20, heartbeatTimeoutMs: 40, initialReconnectDelayMs: 1, maxReconnectDelayMs: 1 }
     )
+    await flushConnect()
     sockets[0].emitOpen()
     // Never answer with PONG — simulates a socket object that's still
     // "open" but whose underlying network path is dead.
@@ -581,7 +611,8 @@ describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
 
   it('heartbeat: false disables PING entirely', async () => {
     const socket = new FakeSocket()
-    new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1', { heartbeat: false, heartbeatIntervalMs: 5 })
+    new WebSocketChannel(async () => socket as unknown as WebSocket, 'trade-1', { heartbeat: false, heartbeatIntervalMs: 5 })
+    await flushConnect()
     socket.emitOpen()
 
     await new Promise((r) => setTimeout(r, 20))
@@ -592,7 +623,8 @@ describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
 
   it('stops the heartbeat timer on close() — no PING sent after the caller closes', async () => {
     const socket = new FakeSocket()
-    const channel = new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1', { heartbeatIntervalMs: 5 })
+    const channel = new WebSocketChannel(async () => socket as unknown as WebSocket, 'trade-1', { heartbeatIntervalMs: 5 })
+    await flushConnect()
     socket.emitOpen()
     channel.close()
     socket.sent = [] // clear the JOIN_TRADE frame so only post-close activity shows up

@@ -11,11 +11,18 @@
  * relay that no client can ever reach is not a fallback; this is the
  * missing piece that makes it real.
  *
- * Auth follows chat.routes.ts's exact pattern (`?token=` query param,
- * resolved against the same Redis session store `requireAuth` uses) —
- * not `requireAuth`'s Authorization-header check, because a WebSocket
- * upgrade request from a browser client can't set arbitrary headers, the
- * same constraint that route already documents.
+ * Auth follows chat.routes.ts's exact pattern (`?ticket=` query param, a
+ * short-lived single-use value minted by POST /v1/identity/ws-ticket and
+ * burned on first resolution — not `requireAuth`'s Authorization-header
+ * check, because a WebSocket upgrade request from a browser client can't
+ * set arbitrary headers, the same constraint that route already
+ * documents). Migrated off a raw `?token=` session token, 2026-08-15
+ * security review P1 — see ws-auth.ts's resolveParticipantFromTicket()
+ * for the full rationale. Note this route currently has no in-repo SDK
+ * client (grep confirms `packages/sails-sdk` never constructs a
+ * `/ws/relay` URL) — any external client connecting here needs the same
+ * paired update: fetch a ticket via the authenticated HTTP endpoint
+ * first, then open the socket with `?ticket=`, not `?token=`.
  *
  * Scope, stated plainly: this makes `start()`/`sendToPeer()` degrade
  * gracefully when Pears/HyperDHT hole-punching doesn't complete in time
@@ -28,15 +35,15 @@
  * class comment).
  */
 import type { FastifyInstance } from 'fastify'
-import { resolveParticipantFromToken } from '../../common/middleware/ws-auth'
+import { resolveParticipantFromTicket } from '../../common/middleware/ws-auth'
 import { webSocketRelayTransportProvider } from './websocket-relay.service'
 
 export async function relayRoutes(app: FastifyInstance): Promise<void> {
   app.get('/ws/relay', { websocket: true }, async (socket, request) => {
-    const query = request.query as { token?: string }
-    const participantId = await resolveParticipantFromToken(query.token)
+    const query = request.query as { ticket?: string }
+    const participantId = await resolveParticipantFromTicket(query.ticket)
     if (!participantId) {
-      socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Missing or invalid token query param — authenticate via POST /v1/identity/authenticate first' } }))
+      socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Missing, invalid, or already-used ticket query param — call POST /v1/identity/ws-ticket first' } }))
       socket.close()
       return
     }

@@ -68,7 +68,7 @@ const DEFAULT_WS_OPTIONS: Required<WebSocketChannelOptions> = {
 };
 
 /**
- * Wraps the real WS protocol at `GET /v1/openp2p/chat?token=...`
+ * Wraps the real WS protocol at `GET /v1/openp2p/chat?ticket=...`
  * (API_REFERENCE.md section 5). Auto-joins `tradeId`'s room once the
  * socket opens (including every reconnect, not just the first time) —
  * matches SDK_GUIDE.md section 4's usage example (`chat.onMessage(...)`,
@@ -80,16 +80,24 @@ const DEFAULT_WS_OPTIONS: Required<WebSocketChannelOptions> = {
  * reconnection logic anywhere in the client stack" entry, closed
  * 2026-08-02): a real WebSocket can't be reopened once closed, so this
  * takes a *factory* (`openSocket`) rather than an already-constructed
- * socket, and calls it again for each reconnect attempt. **Disclosed,
- * deliberate breaking change to this class's own constructor** (not to
- * `chat(tradeId)`'s own signature, which is unchanged and still frozen
- * per docs/API_STABLE.md) — the same kind of justified pre-v1 exception
- * that doc's own freeze commitment allows; a caller constructing this
- * directly (rather than via `chat()`) now passes `() => new WebSocket(...)`
- * instead of a bare instance.
+ * socket, and calls it again for each reconnect attempt.
+ *
+ * `openSocket` is now `() => Promise<WebSocket>`, not `() => WebSocket`
+ * — disclosed, deliberate second breaking change to this class's own
+ * constructor (not to `chat(tradeId)`'s own signature, which is
+ * unchanged and still frozen per docs/API_STABLE.md), same justified
+ * pre-v1 exception as the first one. Security review finding, 2026-08-15
+ * (P1): the query param used to carry the raw, long-lived session token
+ * (`?token=`) — reusable, and dangerous to have sitting in a URL that
+ * proxies/load balancers commonly log in full. `chat()` below now fetches
+ * a short-lived, single-use ticket (`POST /v1/identity/ws-ticket`) before
+ * opening each connection attempt, which requires an async step ahead of
+ * the actual `new WebSocket(...)` call — hence the factory's new return
+ * type. `this.ws` is therefore nullable until the first `openSocket()`
+ * resolves; every method that touches it below accounts for that.
  */
 export class WebSocketChannel {
-  private ws: WebSocket;
+  private ws: WebSocket | null = null;
   private messageHandlers: Array<(msg: ChatMessageEvent) => void> = [];
   private eventHandlers: Array<(frame: ChatFrame) => void> = [];
   private connectionStateHandlers: Array<
@@ -103,12 +111,28 @@ export class WebSocketChannel {
   private lastPongAt = 0;
 
   constructor(
-    private readonly openSocket: () => WebSocket,
+    private readonly openSocket: () => Promise<WebSocket>,
     private readonly tradeId: string,
     options: WebSocketChannelOptions = {},
   ) {
     this.options = { ...DEFAULT_WS_OPTIONS, ...options };
-    this.ws = this.attachSocket(this.openSocket());
+    this.connect();
+  }
+
+  /** Fetches (or refetches, on reconnect) a fresh ticket via `openSocket()` and attaches it — a ticket is single-use, so unlike the old raw-token factory this can never reuse a prior value even if it wanted to. A rejected `openSocket()` (e.g. ticket fetch failed) is treated exactly like a real network drop: same reconnect-with-backoff path. Re-checks closedByCaller after the await: close() can now race a connection attempt that was already in flight (impossible with the old synchronous factory) — attaching (or reconnecting) after the caller asked to stop would leak an open socket nobody wants. */
+  private connect(): void {
+    this.openSocket()
+      .then((ws) => {
+        if (this.closedByCaller) {
+          ws.close();
+          return;
+        }
+        this.ws = this.attachSocket(ws);
+      })
+      .catch(() => {
+        if (this.closedByCaller) return;
+        this.scheduleReconnect();
+      });
   }
 
   private attachSocket(ws: WebSocket): WebSocket {
@@ -160,7 +184,7 @@ export class WebSocketChannel {
     this.lastPongAt = Date.now();
     this.heartbeatTimer = setInterval(() => {
       if (Date.now() - this.lastPongAt > this.options.heartbeatTimeoutMs) {
-        this.ws.close();
+        this.ws?.close();
         return;
       }
       this.sendFrame("PING", {});
@@ -199,7 +223,7 @@ export class WebSocketChannel {
     const delay = Math.max(0, baseDelay + jitter);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this.ws = this.attachSocket(this.openSocket());
+      this.connect();
     }, delay);
   }
 
@@ -208,6 +232,16 @@ export class WebSocketChannel {
   }
 
   private sendFrame(type: string, payload: unknown): void {
+    // Only reachable once a socket has actually attached (onMessage/
+    // onEvent/onConnectionStateChange registration, the realistic thing
+    // to do before a connection opens, don't hit this path) — a caller
+    // sending before 'open' would already get a real WebSocket error
+    // from the underlying socket today; this just makes the failure
+    // mode explicit during the brief window before the first ticket
+    // fetch + handshake resolves.
+    if (!this.ws) {
+      throw new Error("WebSocketChannel: not connected yet — wait for onConnectionStateChange('open') before sending.");
+    }
     this.ws.send(JSON.stringify({ type, payload }));
   }
 
@@ -240,7 +274,7 @@ export class WebSocketChannel {
     this.sendFrame("LEAVE_TRADE", { tradeId: this.tradeId });
   }
 
-  /** Closes for real and disables reconnect — the only way to stop this channel from trying to come back. */
+  /** Closes for real and disables reconnect — the only way to stop this channel from trying to come back. Safe to call before the first connection attempt resolves — closedByCaller stops connect()'s own reconnect-on-failure path too. */
   close(): void {
     this.closedByCaller = true;
     if (this.reconnectTimer) {
@@ -248,7 +282,7 @@ export class WebSocketChannel {
       this.reconnectTimer = null;
     }
     this.stopHeartbeat();
-    this.ws.close();
+    this.ws?.close();
   }
 }
 
@@ -337,26 +371,37 @@ export class SailsOpenP2PModule {
   }
 
   /**
-   * Requires an active session (token passed as a WS query param — the
-   * real route's own auth shape, distinct from the Bearer header every
-   * other authenticated call uses). Real reconnect-with-backoff by
-   * default (closed 2026-08-02, `options` param added — additive, this
-   * method's own signature was never in the frozen inventory beyond its
-   * return type) — the socket factory re-reads the session token fresh
-   * on every reconnect attempt rather than closing over the value
-   * captured here, in case it rotated meanwhile.
+   * Requires an active session. Real reconnect-with-backoff by default
+   * (closed 2026-08-02, `options` param added — additive, this method's
+   * own signature was never in the frozen inventory beyond its return
+   * type).
+   *
+   * Security review finding, 2026-08-15 (P1): the WS route used to take
+   * the raw session token as a `?token=` query param — reusable, and
+   * dangerous to have sitting in a URL that proxies/load balancers
+   * commonly log in full. Fixed at the source: this now calls the real
+   * `POST /v1/identity/ws-ticket` (Bearer-authenticated, same as every
+   * other authenticated call) to mint a short-lived, single-use ticket,
+   * then opens the socket with `?ticket=` instead. A fresh ticket is
+   * fetched for every connection attempt, including every reconnect —
+   * a ticket is single-use by design, so there is no "reuse the same
+   * value" option the old token factory had; this fully replaces that
+   * pattern rather than extending it.
    */
   chat(tradeId: string, options?: WebSocketChannelOptions): WebSocketChannel {
-    const token = this.transport.getSessionToken();
-    if (!token) {
+    if (!this.transport.getSessionToken()) {
       throw new SailsTransportError(
         "openp2p.chat() requires an active session — call identity.authenticate() first.",
       );
     }
-    const openSocket = () =>
-      this.transport.openWebSocket("/v1/openp2p/chat", {
-        token: this.transport.getSessionToken() ?? token,
-      });
+    const openSocket = async () => {
+      const { ticket } = await this.transport.post<{ ticket: string; expiresIn: number }>(
+        "/v1/identity/ws-ticket",
+        {},
+        true,
+      );
+      return this.transport.openWebSocket("/v1/openp2p/chat", { ticket });
+    };
     return new WebSocketChannel(openSocket, tradeId, options);
   }
 }

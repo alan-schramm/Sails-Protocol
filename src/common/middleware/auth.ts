@@ -31,6 +31,7 @@ export interface AuthenticatedRequest extends FastifyRequest {
 
 const CHALLENGE_PREFIX = 'auth:challenge:'
 const SESSION_PREFIX = 'auth:session:'
+const WS_TICKET_PREFIX = 'auth:ws-ticket:'
 
 function toBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, 'hex'))
@@ -104,6 +105,33 @@ export async function verifySignedChallenge(
   // every subsequent request — the challenge-response flow was unusable
   // end-to-end despite verifying correctly.
   return { verified: true, participantId: user.id, sessionToken }
+}
+
+/**
+ * Security review finding, 2026-08-15 (P1): chat.routes.ts/relay.routes.ts's
+ * WS upgrade routes authenticated via `?token=<raw session token>` — a
+ * browser WS handshake can't set an Authorization header the way
+ * requireAuth expects, but a raw session token is long-lived (1h
+ * default) and reusable, so putting it in a URL meant it could leak
+ * into proxy/load-balancer/observability logs (pino's own request-log
+ * redact only masks named object fields — 'token' — never a substring
+ * embedded inside req.url). Called from a new authenticated HTTP
+ * endpoint (POST /v1/identity/ws-ticket) — the caller already proved
+ * who they are via the Bearer session token on that call; this mints a
+ * short-lived, single-use value instead, so even a captured ticket is
+ * worthless within `wsTicketTtlSeconds` and can never be replayed a
+ * second time regardless. Resolution + one-time burn lives in
+ * ws-auth.ts's resolveParticipantFromTicket().
+ */
+export async function issueWsTicket(participantId: string): Promise<{ ticket: string; expiresIn: number }> {
+  const ticket = randomBytes(32).toString('hex')
+  await redis.set(
+    `${WS_TICKET_PREFIX}${ticket}`,
+    participantId,
+    'EX',
+    config.auth.wsTicketTtlSeconds
+  )
+  return { ticket, expiresIn: config.auth.wsTicketTtlSeconds }
 }
 
 /**

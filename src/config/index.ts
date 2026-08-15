@@ -49,6 +49,14 @@ export const config = {
     // this whole file. Challenge tokens expire fast on purpose.
     challengeTtlSeconds: requiredInt('AUTH_CHALLENGE_TTL', 120),
     sessionTtlSeconds: requiredInt('AUTH_SESSION_TTL', 3600),
+    // Security review finding, 2026-08-15 (P1): chat.routes.ts/relay.routes.ts's
+    // WS upgrade auth used to put the raw, long-lived session token in
+    // `?token=` — logged in full by any proxy/LB (pino's own request-log
+    // redact only masks named object fields, never a substring inside
+    // req.url). Replaced with a single-use ticket, deliberately short-
+    // lived: a ticket that leaks into a log is worthless within seconds
+    // and can never be replayed a second time even before it expires.
+    wsTicketTtlSeconds: requiredInt('AUTH_WS_TICKET_TTL', 30),
   },
 
   pear: {
@@ -93,6 +101,18 @@ export const config = {
     // routes need `requireAuth` first, which already raises the bar).
     criticalMax: requiredInt('RATE_LIMIT_CRITICAL_MAX', 20),
     criticalTimeWindow: process.env.RATE_LIMIT_CRITICAL_WINDOW ?? '1 minute',
+    // 2026-08-15 security review: the two tiers above are @fastify/rate-limit,
+    // which only fires on the HTTP request/response lifecycle — a WebSocket
+    // upgrade is one HTTP request, then the connection stays open and every
+    // later SEND_MESSAGE arrives as a `message` frame, never a new HTTP
+    // request, so neither tier ever sees it. chat.routes.ts's SEND_MESSAGE
+    // handler writes to Postgres and emits an event on every call — a
+    // connected client with a valid ws-ticket-derived session could otherwise
+    // flood both with no ceiling at all. Same in-memory, single-instance,
+    // deliberate-simplification precedent as the HTTP tiers above (no shared
+    // Redis store yet); see ws-message-rate-limiter.ts.
+    wsMessageMax: requiredInt('RATE_LIMIT_WS_MESSAGE_MAX', 20),
+    wsMessageWindowMs: requiredInt('RATE_LIMIT_WS_MESSAGE_WINDOW_MS', 10000),
   },
 
   features: {

@@ -271,11 +271,32 @@ jest.mock('@qvac/sdk', () => ({
 // dependencies, not the real Prisma/Redis/eventBus/pearNodeRegistry.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { buildApp } = require('../src/app')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { config } = require('../src/config')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { resetWsMessageRateLimiter } = require('../src/modules/open-p2p/ws-message-rate-limiter')
 
 async function authedSession(participantId: string): Promise<string> {
   const token = `session-${participantId}`
   redisStore.set(`auth:session:${token}`, participantId)
   return token
+}
+
+// Security review migration, 2026-08-15 (P1) — chat.routes.ts's WS route
+// no longer accepts the raw session token directly; it now needs a
+// short-lived, single-use ticket minted by the real
+// POST /v1/identity/ws-ticket route. Goes through the actual route
+// (not a direct redisStore.set()) so this also exercises issueWsTicket()
+// end-to-end, same discipline authedSession() itself doesn't bother with
+// only because no HTTP route mints a session token from a bare
+// participantId.
+async function wsTicketFor(app: FastifyInstance, sessionToken: string): Promise<string> {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/v1/identity/ws-ticket',
+    headers: { authorization: `Bearer ${sessionToken}` },
+  })
+  return JSON.parse(res.body).data.ticket
 }
 
 describe('Route restoration — HTTP round-trips through the real routes', () => {
@@ -363,6 +384,30 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body).data.id).toBe('user-1')
+    })
+
+    // Security review, 2026-08-15 (P1) — POST /v1/identity/ws-ticket
+    // replaces putting the raw session token in the chat/relay WS
+    // routes' `?token=` query param (see ws-auth.ts's own header).
+    it('rejects POST /v1/identity/ws-ticket without a session token — requireAuth is actually enforced', async () => {
+      const res = await app.inject({ method: 'POST', url: '/v1/identity/ws-ticket' })
+      expect(res.statusCode).toBe(401)
+      expect(JSON.parse(res.body).error).toBe('AUTH_ERROR')
+    })
+
+    it('issues a short-lived, single-use ticket for a valid session', async () => {
+      const token = await authedSession('user-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/ws-ticket',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body)
+      expect(body.data.ticket).toEqual(expect.any(String))
+      expect(body.data.ticket).not.toBe(token) // never the session token itself
+      expect(body.data.expiresIn).toEqual(expect.any(Number))
     })
   })
 
@@ -831,10 +876,11 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
   describe('open-p2p — chat WS best-effort Pears relay (chat-unification follow-up)', () => {
     it('relays a WS-sent message onto Pears when the sender has an active PearNode', async () => {
       const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
       mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
       mockPearNodeGet.mockReturnValueOnce({ sendToPeer: mockSendToPeer })
 
-      const ws = await app.injectWS(`/v1/openp2p/chat?token=${token}`)
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
       ws.send(JSON.stringify({ type: 'SEND_MESSAGE', payload: { tradeId: 'trade-1', content: 'sending payment now' } }))
       await new Promise((resolve) => setTimeout(resolve, 50))
       ws.terminate()
@@ -851,15 +897,70 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('attempts no relay when the sender has no active PearNode (nothing to relay from)', async () => {
       const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
       mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
       // mockPearNodeGet's default (no active node) applies — no override here.
 
-      const ws = await app.injectWS(`/v1/openp2p/chat?token=${token}`)
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
       ws.send(JSON.stringify({ type: 'SEND_MESSAGE', payload: { tradeId: 'trade-1', content: 'hi' } }))
       await new Promise((resolve) => setTimeout(resolve, 50))
       ws.terminate()
 
       expect(mockSendToPeer).not.toHaveBeenCalled()
+    })
+
+    // Security review, 2026-08-15 (P1) — the two cases that only exist
+    // because tickets are single-use, unlike the raw session token this
+    // route used to accept directly. Asserts on readyState (not the
+    // ERROR frame's content) — the server sends the frame and closes in
+    // the same tick, and a `.once('message', ...)` listener attached
+    // after `injectWS()` already resolved can lose that race and never
+    // fire; the connection actually ending up closed is the real,
+    // observable guarantee worth testing here regardless.
+    it('rejects an unknown/expired ticket — closes the connection instead of accepting it', async () => {
+      const ws = await app.injectWS('/v1/openp2p/chat?ticket=not-a-real-ticket')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(ws.readyState).toBe(ws.CLOSED)
+    })
+
+    it('rejects a reused ticket — burned on its first successful connection', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+
+      const firstWs = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      firstWs.terminate()
+
+      const secondWs = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(secondWs.readyState).toBe(secondWs.CLOSED)
+    })
+
+    // Security review, 2026-08-15 (P1) — closes the gap the Codex threat
+    // report flagged and this session verified was real: @fastify/rate-limit
+    // never sees WS `message` frames, so SEND_MESSAGE had no ceiling at all
+    // once a socket was open. See ws-message-rate-limiter.ts.
+    it('rate-limits SEND_MESSAGE per participant once wsMessageMax is exceeded within the window', async () => {
+      resetWsMessageRateLimiter()
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const frames: Array<{ type: string; payload?: unknown }> = []
+      ws.on('message', (data: Buffer) => frames.push(JSON.parse(data.toString())))
+
+      const totalSends = config.rateLimit.wsMessageMax + 1
+      for (let i = 0; i < totalSends; i++) {
+        ws.send(JSON.stringify({ type: 'SEND_MESSAGE', payload: { tradeId: 'trade-1', content: `msg-${i}` } }))
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      ws.terminate()
+
+      const errorFrames = frames.filter((f) => f.type === 'ERROR')
+      expect(errorFrames).toHaveLength(1)
+      expect((errorFrames[0].payload as { message: string }).message).toMatch(/Rate limit exceeded/)
     })
   })
 

@@ -43,8 +43,9 @@ import { prisma } from '../../common/database'
 import { eventBus } from '../../common/events/event-bus'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
-import { resolveParticipantFromToken } from '../../common/middleware/ws-auth'
+import { resolveParticipantFromTicket } from '../../common/middleware/ws-auth'
 import { joinRoom, leaveRoom, broadcastToTrade, type RoomMember } from './chat-room-registry'
+import { checkWsMessageRateLimit } from './ws-message-rate-limiter'
 import { pearNodeRegistry } from '../../infrastructure/p2p/pear.service'
 import { wireInboundNegotiationChannel } from './negotiation.service'
 import { tradeService } from './trade.service'
@@ -87,10 +88,10 @@ const paginationQuerySchema = z.object({
 
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
   app.get('/v1/openp2p/chat', { websocket: true }, async (socket, request) => {
-    const query = request.query as { token?: string }
-    const participantId = await resolveParticipantFromToken(query.token)
+    const query = request.query as { ticket?: string }
+    const participantId = await resolveParticipantFromTicket(query.ticket)
     if (!participantId) {
-      socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Missing or invalid token query param — authenticate via POST /v1/identity/authenticate first' } }))
+      socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Missing, invalid, or already-used ticket query param — call POST /v1/identity/ws-ticket first' } }))
       socket.close()
       return
     }
@@ -140,6 +141,14 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         }
 
         if (msg.type === 'SEND_MESSAGE') {
+          // 2026-08-15 security review: @fastify/rate-limit (app.ts) never
+          // sees this — it's a `message` frame on an already-open socket,
+          // not a new HTTP request. See ws-message-rate-limiter.ts.
+          if (!checkWsMessageRateLimit(participantId)) {
+            socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Rate limit exceeded — slow down' } }))
+            return
+          }
+
           const body = sendMessageSchema.parse(msg.payload)
           const trade = await tradeService.assertParticipant(body.tradeId, participantId)
 

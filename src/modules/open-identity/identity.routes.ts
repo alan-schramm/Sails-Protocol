@@ -10,7 +10,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { identityService } from './identity.service'
-import { issueChallenge, verifySignedChallenge, requireAuth } from '../../common/middleware/auth'
+import { issueChallenge, verifySignedChallenge, requireAuth, issueWsTicket } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { config } from '../../config'
 import { docsOnlySchema } from '../../common/openapi'
@@ -87,5 +87,19 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const participant = await identityService.getParticipant((request as AuthenticatedRequest).participantId)
     return reply.code(200).send({ success: true, data: participant })
+  })
+
+  // Security review finding, 2026-08-15 (P1) — see auth.ts's issueWsTicket()
+  // and ws-auth.ts's resolveParticipantFromTicket() for the full rationale.
+  // Requires an already-valid session (the caller proved who they are via
+  // the Bearer header requireAuth checks here); mints a short-lived,
+  // single-use ticket the caller then passes as chat.routes.ts/
+  // relay.routes.ts's `?ticket=` — never the raw session token itself.
+  app.post('/v1/identity/ws-ticket', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-identity'] },
+  }, async (request, reply) => {
+    const result = await issueWsTicket((request as AuthenticatedRequest).participantId)
+    return reply.code(200).send({ success: true, data: result })
   })
 }

@@ -108,8 +108,9 @@ describe('SDK breaker tests — edge-case failure handling', () => {
   })
 
   it('ignores malformed JSON chat frames and keeps processing later valid messages', async () => {
-    const socket = new FakeSocket('ws://localhost:3000/v1/openp2p/chat?token=session-abc')
-    const channel = new WebSocketChannel(() => socket as unknown as WebSocket, 'trade-1')
+    const socket = new FakeSocket('ws://localhost:3000/v1/openp2p/chat?ticket=some-ticket')
+    const channel = new WebSocketChannel(async () => socket as unknown as WebSocket, 'trade-1')
+    await new Promise((resolve) => setTimeout(resolve, 0)) // let the async factory's .then() attach
     const received: unknown[] = []
     channel.onMessage((msg) => received.push(msg))
 
@@ -122,12 +123,24 @@ describe('SDK breaker tests — edge-case failure handling', () => {
     ])
   })
 
-  it('uses the freshest session token when reconnecting a WebSocket channel', async () => {
+  // Security review, 2026-08-15 (P1) — this test used to be "uses the
+  // freshest session token when reconnecting," proving the old
+  // openSocket factory re-read transport.getSessionToken() fresh rather
+  // than closing over a stale value. That whole mechanism is gone: a
+  // session token is never in the WS URL anymore. What replaces it is
+  // stronger, not just different — a NEW single-use ticket, fetched via
+  // a real POST /v1/identity/ws-ticket call, for every single connection
+  // attempt (there is no "value to go stale" the way a long-lived token
+  // had).
+  it('fetches a fresh single-use ticket via POST /v1/identity/ws-ticket on every connection attempt, including reconnects', async () => {
     const sockets: FakeSocket[] = []
-    let sessionToken: string | null = 'token-1'
+    const fetchImpl = fakeFetchSequence(
+      { status: 200, body: { success: true, data: { ticket: 'ticket-1', expiresIn: 30 } } },
+      { status: 200, body: { success: true, data: { ticket: 'ticket-2', expiresIn: 30 } } },
+    )
     const transport = new SailsTransport({
       baseUrl: 'http://localhost:3000',
-      fetchImpl: fakeFetch(200, { success: true, data: { ok: true } }),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       webSocketImpl: class FakeWebSocket {
         public url: string
         constructor(url: string) {
@@ -139,21 +152,26 @@ describe('SDK breaker tests — edge-case failure handling', () => {
       } as unknown as typeof WebSocket,
     })
 
-    transport.setSessionToken(sessionToken)
+    transport.setSessionToken('session-abc')
     const openp2p = new SailsOpenP2PModule(transport)
-    const channel = openp2p.chat('trade-1', { initialReconnectDelayMs: 1, maxReconnectDelayMs: 1, maxReconnectAttempts: 1 })
+    openp2p.chat('trade-1', { initialReconnectDelayMs: 1, maxReconnectDelayMs: 1, maxReconnectAttempts: 1 })
 
+    await new Promise((resolve) => setTimeout(resolve, 10)) // let the first ticket fetch + connect resolve
     expect(sockets).toHaveLength(1)
+    expect(sockets[0].url).toContain('ticket=ticket-1')
+    expect(sockets[0].url).not.toContain('token=')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const [ticketUrl, ticketInit] = fetchImpl.mock.calls[0]
+    expect(ticketUrl).toBe('http://localhost:3000/v1/identity/ws-ticket')
+    expect(ticketInit.headers.authorization).toBe('Bearer session-abc')
     sockets[0].emitOpen()
-    expect(sockets[0].url).toContain('token=token-1')
 
-    sessionToken = 'token-2'
-    transport.setSessionToken(sessionToken)
-    sockets[0].emitClose()
+    sockets[0].emitClose() // unexpected drop — triggers a reconnect, which needs its own fresh ticket
     await new Promise((resolve) => setTimeout(resolve, 20))
 
     expect(sockets).toHaveLength(2)
-    expect(sockets[1].url).toContain('token=token-2')
+    expect(sockets[1].url).toContain('ticket=ticket-2')
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
   it('throws SailsTransportError for network failures on POST and does not retry mutating calls', async () => {

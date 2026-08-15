@@ -82,6 +82,18 @@ failure modes:
   no per-API-key tier (only per-IP), and a deployment behind a reverse
   proxy needs Fastify's `trustProxy` option configured separately for
   `request.ip` to reflect the real client.
+- ~~No rate limiting on WebSocket `SEND_MESSAGE` after the handshake~~
+  **Resolved** *(2026-08-15)* — `@fastify/rate-limit` above only fires on
+  the HTTP request/response lifecycle; a WS upgrade is one HTTP request,
+  then every later frame never touches it again, so a connected client
+  could flood `chat.routes.ts`'s `SEND_MESSAGE` (a Postgres write + event
+  emission per call) with no ceiling. Closed with a small in-memory,
+  per-participant fixed-window counter (`ws-message-rate-limiter.ts`,
+  `config.rateLimit.wsMessageMax`/`wsMessageWindowMs`, default 20/10s),
+  keyed by participant rather than socket or trade so opening multiple
+  connections doesn't multiply the budget. Same single-instance,
+  deliberate-simplification precedent as the HTTP tiers above — real
+  improvement over no ceiling, not a distributed solution.
 - ~~The Intent API (`POST /api/v1/intents`, `DELETE /api/v1/intents/:id`)
   had no authentication at all~~ **Resolved** *(2026-07-18)* — found
   during a general gap audit (not a report from an external party):
