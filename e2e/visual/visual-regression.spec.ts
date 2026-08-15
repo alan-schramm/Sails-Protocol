@@ -41,15 +41,18 @@ test.describe('Marketplace — OfferCard states', () => {
       seller.getByRole('button', { name: 'Publicar', exact: true }).click(),
     ])
 
+    // No viewerHome.goto() here — bobWallet already lands `viewer` on
+    // '/' (WalletPage.connect()'s own end state), and a real navigation
+    // to the SAME url would still reload and wipe that session
+    // (2026-08-11: no more silent restore-on-mount).
     const viewerHome = new HomePage(viewer)
-    await viewerHome.goto()
     await viewerHome.filterByAsset('USDT_ERC20')
     await expect(viewer).toHaveScreenshot('marketplace-usdt-listing-light.png', { maxDiffPixelRatio: 0.02 })
   })
 
   test('marketplace listing, dark mode', async ({ bobWallet: viewer }) => {
-    const viewerHome = new HomePage(viewer)
-    await viewerHome.goto()
+    // bobWallet already lands `viewer` on '/' — no goto() needed (see
+    // this describe block's first test for why one would be destructive).
     await viewer.getByRole('button', { name: 'Alternar tema' }).click()
     await expect(viewer).toHaveScreenshot('marketplace-dark-mode.png', { maxDiffPixelRatio: 0.02 })
   })
@@ -65,8 +68,8 @@ test.describe('Marketplace — mobile responsive', () => {
   // literally which rendering engine draws them.
   test.use({ viewport: devices['iPhone SE'].viewport })
   test('iPhone SE viewport', async ({ bobWallet: viewer }) => {
-    const viewerHome = new HomePage(viewer)
-    await viewerHome.goto()
+    // bobWallet already lands `viewer` on '/' — see the first test in
+    // this file's own comment on why a goto() here would be destructive.
     await expect(viewer).toHaveScreenshot('marketplace-mobile-iphone-se.png', { maxDiffPixelRatio: 0.02 })
   })
 })
@@ -74,8 +77,6 @@ test.describe('Marketplace — mobile responsive', () => {
 test.describe('Marketplace — mobile responsive (Pixel 5)', () => {
   test.use({ viewport: devices['Pixel 5'].viewport })
   test('Pixel 5 viewport', async ({ bobWallet: viewer }) => {
-    const viewerHome = new HomePage(viewer)
-    await viewerHome.goto()
     await expect(viewer).toHaveScreenshot('marketplace-mobile-pixel-5.png', { maxDiffPixelRatio: 0.02 })
   })
 })

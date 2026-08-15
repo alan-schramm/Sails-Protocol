@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect } from '@playwright/test'
 import { test } from '../fixtures/sails.fixture'
+import { WalletPage } from '../pages/wallet.page'
 
 /**
  * WCAG 2.1 AA via the real running UI (localhost:5173), not a static
@@ -22,13 +23,24 @@ test.describe('Accessibility — WCAG 2.1 AA', () => {
   })
 
   test('Marketplace (home) has no WCAG 2.1 AA violations', async ({ authenticatedPage: page }) => {
-    await page.goto('/')
+    // A bare page.goto() here would be a real navigation, wiping the
+    // session the fixture just established (2026-08-11: no more silent
+    // restore-on-mount — see WalletPage.connectAndGoTo()'s own header).
+    // Marketplace itself wouldn't crash logged-out, but this test is
+    // specifically meant to scan the authenticated render.
+    await new WalletPage(page).connectAndGoTo('/')
     const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
     expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
   })
 
   test('Profile has no WCAG 2.1 AA violations', async ({ authenticatedPage: page }) => {
-    await page.goto('/profile')
+    // Profile.tsx is the one real page that force-redirects to /login on
+    // a lost session (`if (!user) navigate('/login')`) — a bare
+    // page.goto('/profile') here would silently scan the LOGIN page
+    // instead of Profile, passing for the wrong reason. See
+    // WalletPage.connectAndGoTo()'s own header for why the session is
+    // lost at all on a real navigation since 2026-08-11.
+    await new WalletPage(page).connectAndGoTo('/profile')
     const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
     expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
   })
@@ -54,7 +66,7 @@ test.describe('Accessibility — WCAG 2.1 AA', () => {
     ])
     const offerId = (await offerResponse.json()).data.id
 
-    await page.goto(`/offer/${offerId}`)
+    await new WalletPage(page).connectAndGoTo(`/offer/${offerId}`)
     const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
     expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
   })
@@ -90,7 +102,7 @@ test.describe('Accessibility — keyboard navigation', () => {
   })
 
   test('Marketplace: asset filter is operable via keyboard', async ({ authenticatedPage: page }) => {
-    await page.goto('/')
+    await new WalletPage(page).connectAndGoTo('/')
     const allAssetsButton = page.getByRole('button', { name: 'Todos os ativos' })
     await allAssetsButton.focus()
     await expect(allAssetsButton).toBeFocused()

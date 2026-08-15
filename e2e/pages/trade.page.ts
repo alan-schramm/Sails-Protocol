@@ -1,4 +1,5 @@
 import { type Page, type Locator, expect } from '@playwright/test'
+import { WalletPage } from './wallet.page'
 
 /** Wraps `/trade/:id` (packages/sails-ui/src/pages/Trade.tsx) — chat + the real escrow state machine + dispute UI. */
 export class TradePage {
@@ -25,14 +26,11 @@ export class TradePage {
    * there is nothing left to silently restore — this actively drives
    * Login.tsx (fill passphrase, click Conectar Carteira) and navigates
    * back to the same trade, rather than waiting for something that no
-   * longer happens on its own.
+   * longer happens on its own. Delegates to WalletPage.connectAndGoTo()
+   * — same sequence any other spec needing mid-test re-auth uses.
    */
   async reauthenticate(tradeId: string, passphrase = 'e2e-test-passphrase'): Promise<void> {
-    await this.page.goto('/login')
-    await this.page.locator('input[type="password"]').fill(passphrase)
-    await this.page.getByRole('button', { name: 'Conectar Carteira' }).click()
-    await expect(this.page).toHaveURL('/')
-    await this.goto(tradeId)
+    await new WalletPage(this.page).connectAndGoTo(`/trade/${tradeId}`, passphrase)
   }
 
   // Locators below dropped their emoji prefixes (2026-08-11) — the

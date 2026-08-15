@@ -1,6 +1,7 @@
 import { expect, mergeTests } from '@playwright/test'
 import { test as walletTest } from '../fixtures/wallet.fixture'
 import { test as settlementTest } from '../fixtures/settlement.fixture'
+import { WalletPage } from '../pages/wallet.page'
 
 const test = mergeTests(walletTest, settlementTest)
 
@@ -75,8 +76,11 @@ test('timeout: an Intent whose window closed rejects trade creation and flips to
     // Direct navigation, not Marketplace discovery — see
     // create-trade.page.ts's startTradeDirect() header comment; this
     // spec is about trade-creation rejection, not the marketplace
-    // search UX.
-    await buyer.goto(`/offer/${offerId}`)
+    // search UX. A real navigation wipes the session established by the
+    // bobWallet fixture (2026-08-11: no more silent restore-on-mount —
+    // see WalletPage.connectAndGoTo()'s own header), so this has to
+    // re-authenticate rather than just goto().
+    await new WalletPage(buyer).connectAndGoTo(`/offer/${offerId}`)
     await buyer.getByPlaceholder('0.00').fill('20')
     const [tradeResponse] = await Promise.all([
       buyer.waitForResponse((res) => res.url().includes('/v1/openp2p/trades') && res.request().method() === 'POST'),

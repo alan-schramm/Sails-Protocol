@@ -43,6 +43,24 @@ export class WalletPage {
     await expect(this.page).toHaveURL('/')
   }
 
+  /**
+   * Re-establishes a session that a real browser navigation just wiped
+   * out (2026-08-11: no more silent restore-on-mount, see this class's
+   * own header on why `connect()` now needs a passphrase at all), then
+   * lands on `path` — since none of this app's real pages force-redirect
+   * to /login on a lost session (Trade.tsx/OfferDetail.tsx/
+   * ActiveTrades.tsx/TradeHistory.tsx/Disputes.tsx all just render a
+   * logged-out view on the same URL instead), simply waiting was never
+   * going to work here; this drives Login.tsx directly. Reused by
+   * TradePage.reauthenticate() and any spec that does a real `page.goto()`
+   * mid-test after already being logged in (e.g. timeout-flow.spec.ts's
+   * direct /offer/:id navigation) rather than duplicating this sequence.
+   */
+  async connectAndGoTo(path: string, passphrase = 'e2e-test-passphrase'): Promise<void> {
+    await this.connect(passphrase)
+    if (path !== '/') await this.page.goto(path)
+  }
+
   /** The connected identity's public key, as shown read-only on Profile — the closest real analog to a "wallet address" here. */
   async getPublicKeyFromProfile(): Promise<string> {
     await this.page.goto('/profile')

@@ -1,4 +1,5 @@
 import { type Page, expect } from '@playwright/test'
+import { WalletPage } from './wallet.page'
 
 /**
  * There is no separate "create trade" route — a trade is started from
@@ -38,9 +39,20 @@ export class CreateTradePage {
    * spec's whole point is the real discovery step, so it keeps using
    * HomePage.openOffer() and accepts the same flakiness risk as a
    * documented, known limitation.
+   *
+   * Real navigation, not a client-side `<Link>` click like
+   * HomePage.openOffer() — a real navigation wipes whatever session the
+   * caller already had (2026-08-11: no more silent restore-on-mount,
+   * see WalletPage.connectAndGoTo()'s own header), so this
+   * re-authenticates as part of the same call rather than assuming the
+   * caller is still logged in by the time startTrade() below needs to
+   * POST as an authenticated participant. The identity itself isn't
+   * recreated — WalletPage.connect() reuses the encrypted keypair
+   * already in this BrowserContext's localStorage from the fixture's
+   * own initial connect(), same passphrase.
    */
   async startTradeDirect(offerId: string, amount: string): Promise<string> {
-    await this.page.goto(`/offer/${offerId}`)
+    await new WalletPage(this.page).connectAndGoTo(`/offer/${offerId}`)
     return this.startTrade(amount)
   }
 }
