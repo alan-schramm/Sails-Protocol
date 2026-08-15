@@ -43,6 +43,12 @@ jest.mock('../src/config', () => ({
       // permanent throw-only stub.
       settlement: { trustedArbitrators: [], protocolFeeRate },
       arkade: { seed: '' },
+      // 2026-08-15 — escrow-circuit-breaker.ts (claimEscrowTransition()'s
+      // new first line) needs this. Threshold high enough that this
+      // file's own within-one-test conflict scenarios never trip it —
+      // this suite tests the pre-existing atomic-claim behavior itself,
+      // not the breaker (that's tests/escrowCircuitBreaker.test.ts's job).
+      escrowCircuitBreaker: { failureThreshold: 1000, windowMs: 60_000, cooldownMs: 60_000 },
     }
   },
 }))

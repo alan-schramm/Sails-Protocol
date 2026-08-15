@@ -66,3 +66,14 @@ export class ForbiddenError extends AppError {
     super(message, 403, 'FORBIDDEN')
   }
 }
+
+// escrow-circuit-breaker.ts, 2026-08-15 — 503 (not 409 like EscrowError):
+// this isn't "your specific request conflicted," it's "this escrow is
+// temporarily paused because of a recent burst of conflicts on it" —
+// the caller should back off and retry later, the same semantic
+// @fastify/rate-limit's own 429 already carries for volume limiting.
+export class CircuitBreakerOpenError extends AppError {
+  constructor(message: string) {
+    super(message, 503, 'CIRCUIT_BREAKER_OPEN')
+  }
+}

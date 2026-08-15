@@ -52,6 +52,13 @@ jest.mock('../src/config', () => ({
     // bootstrap default and keeps this race-condition test focused on
     // its own concern (the atomic-claim guarantee), not fee math.
     settlement: { protocolFeeRate: 0 },
+    // 2026-08-15 — escrow-circuit-breaker.ts (claimEscrowTransition()'s
+    // new first line) needs this. High threshold so it never interferes
+    // with what this file actually tests (the atomic-claim guarantee
+    // itself, exercised via many concurrent losing attempts on one
+    // escrow within a single test) — the breaker's own behavior is
+    // covered separately in tests/escrowCircuitBreaker.test.ts.
+    escrowCircuitBreaker: { failureThreshold: 1000, windowMs: 60_000, cooldownMs: 60_000 },
   },
 }))
 

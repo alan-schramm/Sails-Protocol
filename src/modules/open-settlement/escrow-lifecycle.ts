@@ -7,6 +7,7 @@ import { eventBus } from '../../common/events/event-bus'
 import { payoutAddressService } from './payout-address.service'
 import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
+import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 
 /**
  * Sails OpenSettlement — Escrow lifecycle shared helpers
@@ -97,6 +98,12 @@ export async function loadParticipantPubkeys(escrowId: string): Promise<{ buyerP
  *  count === 0 → throw + revert idiom every mutating method below uses
  *  (the robustness-audit fix from 2026-07-20). */
 export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string): Promise<void> {
+  // 2026-08-15 — checked first and cheaply, before any real work: once
+  // this escrow's circuit is open, every further attempt should fail
+  // fast, not pay for an authorization check + DB round trip first. See
+  // escrow-circuit-breaker.ts for why this is scoped per-escrowId.
+  assertCircuitClosed(escrowId)
+
   // Defense in depth — the caller already validated the transition, but
   // re-checking here means a typo or future refactor that bypassed
   // assertEscrowTransition() surfaces as a loud EscrowError, not a silent no-op.
@@ -106,6 +113,9 @@ export async function claimEscrowTransition(escrowId: string, fromStatus: string
   }
   const claimedCount = await escrowRepository.claimTransition(escrowId, fromStatus, toStatus)
   if (claimedCount === 0) {
+    // A real, concrete anomaly on this specific escrow — not a heuristic
+    // guess — so it feeds the circuit breaker directly.
+    recordEscrowConflict(escrowId)
     throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
   }
 }

@@ -133,6 +133,22 @@ export const config = {
     rateLimitedWindowMs: requiredInt('SUSPICIOUS_RATE_LIMITED_WINDOW_MS', 5 * 60 * 1000),
   },
 
+  // 2026-08-15 security review — escrow-circuit-breaker.ts. Deliberately
+  // scoped per-escrowId, never global: pausing the whole exchange because
+  // of anomalous activity on ONE trade would turn the circuit breaker
+  // itself into a denial-of-service lever (an attacker triggers a few
+  // conflicts on their own trade, every other user's trading grinds to a
+  // halt). Auto-resets after cooldownMs — this protocol has no
+  // operator/admin tier to manually reset it (no-platform-operator-
+  // visibility is a deliberate architectural choice, not an oversight),
+  // so a manual-reset design would leave a tripped breaker stuck open
+  // forever with nobody able to clear it.
+  escrowCircuitBreaker: {
+    failureThreshold: requiredInt('ESCROW_BREAKER_FAILURE_THRESHOLD', 5),
+    windowMs: requiredInt('ESCROW_BREAKER_WINDOW_MS', 30 * 1000),
+    cooldownMs: requiredInt('ESCROW_BREAKER_COOLDOWN_MS', 2 * 60 * 1000),
+  },
+
   features: {
     // RED_TEAM_REVIEW.md RT-001: this is the single most important line
     // in this file. Left true, "escrow" is theater — see escrow.service.ts.
