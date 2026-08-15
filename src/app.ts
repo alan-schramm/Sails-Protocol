@@ -180,13 +180,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     httpRequestsTotal.inc(labels)
     httpRequestDurationSeconds.observe(labels, reply.elapsedTime / 1000)
 
-    // 2026-08-15 security review — the Boltz-class gap: a volume rate
-    // limiter never flags a slow, patient probe. Keyed by participantId
-    // when requireAuth already ran (so repeated failures from one
-    // authenticated identity across different IPs still correlate), else
-    // request.ip — same fallback @fastify/rate-limit's own default keying
-    // already uses. See suspicious-activity.ts for what "suspicious"
-    // means here and why these three status codes specifically.
+    // 2026-08-15 security review — flags a slow, patient probe a volume
+    // rate limiter misses. Keyed by participantId when authenticated (so
+    // one identity's failures correlate across IPs), else request.ip.
+    // See suspicious-activity.ts for the threshold reasoning.
     const identity = (request as AuthenticatedRequest).participantId ?? request.ip
     if (reply.statusCode === 401) recordSuspiciousActivity('AUTH_FAILURE', identity, app.log)
     else if (reply.statusCode === 404) recordSuspiciousActivity('NOT_FOUND_CLUSTER', identity, app.log)

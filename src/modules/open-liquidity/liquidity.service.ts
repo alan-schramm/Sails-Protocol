@@ -211,33 +211,21 @@ function buildTradeIntentPayload(input: CreateOfferInput): TradeIntentPayload {
   }
 }
 
-// 2026-08-15 security review — an Offer is public the instant it's
-// created, before any trade or chat room exists, so scam text planted in
-// its own free-text fields reaches more people, faster, than the same
-// text would in a private trade chat (which social-engineering-agent.ts
-// already screens). Same cheap pre-filter discipline that file's own
-// evaluate() uses: no text content, no QVAC call — spending a local-LLM
-// call on an offer with neither field filled would be pure cost, no
-// signal. Fire-and-forget, never awaited by createOffer() below: QVAC's
-// own doc comment (qvac-agent.provider.ts) measures cached calls at
-// ~8-9s — awaiting this inline would turn a fast write into an 8-second
-// one for a feature that's a background safety net, not a publish gate.
-// Detects, never acts — same posture as every other QVAC agent in this
-// codebase; a detected risk only logs + emits an event, it never blocks
-// or un-publishes the offer.
+// 2026-08-15 security review — an Offer is public before any trade or
+// chat room exists, so scam text in its own free-text fields reaches
+// more people, faster, than the same text in a private chat (which
+// social-engineering-agent.ts already screens). Cheap pre-filter: no
+// text, no QVAC call. Fire-and-forget: QVAC's own doc comment measures
+// cached calls at ~8-9s, too slow to await in a publish path. Detects,
+// never acts — same posture as every QVAC agent in this codebase.
 //
-// qvac-agent.provider.ts is imported dynamically, inside this function,
-// after both early returns above — not as a module-scope import — on
-// purpose: it transitively pulls in the real @qvac/sdk package, which
-// ships code using `import.meta` that Jest's CJS transform can't parse.
-// A static import would make every test file that merely imports this
-// service (most of tests/, none of which enable
-// socialEngineeringDetection) crash at module-load time whether or not
-// they ever exercise this function — found for real running the full
-// suite, not assumed. Deferring the import until the two guards above
-// have already confirmed screening will actually run means the
-// overwhelming majority of test runs, and every production request with
-// the flag off, never touch that module at all.
+// The provider import below is dynamic, placed after both guards, on
+// purpose — a static import pulls in the real @qvac/sdk package (uses
+// `import.meta`, which Jest's CJS transform can't parse) at module-load
+// time, crashing every test file that merely imports this service
+// whether or not it exercises this function. Found running the full
+// suite, not assumed. Deferring past the guards means that never
+// happens with the flag off.
 export function screenOfferContent(offerId: string, userId: string, description: string | undefined, paymentDetails: string | undefined): void {
   if (!config.features.socialEngineeringDetection) return
   if (!description?.trim() && !paymentDetails?.trim()) return

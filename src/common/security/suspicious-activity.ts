@@ -1,17 +1,11 @@
 /**
- * Suspicious-activity detection — closes the gap rate limiting structurally
- * can't: a volume limiter (app.ts's @fastify/rate-limit, ws-message-rate-limiter.ts)
- * only stops a *fast* flood. A slow, patient probe — one request every few
- * seconds, well under any per-minute ceiling — looks identical to a real
- * user to a pure rate limiter, and is exactly the pattern Boltz's own
- * shutdown post-mortem described ("months of automated, AI-assisted
- * probing... before the pace accelerated sharply").
- *
- * Detection only, mirroring RFC-017's SocialEngineeringAgent posture: this
- * never blocks a request or bans an identity, it logs once per window
- * (checking count === max, not >=, fires exactly on the crossing — no
- * separate "already alerted" flag needed) and emits an event so a
- * human/alerting pipeline can act on it.
+ * Suspicious-activity detection — a volume limiter (app.ts's
+ * @fastify/rate-limit, ws-message-rate-limiter.ts) only stops a *fast*
+ * flood; a slow, patient probe stays under any per-minute ceiling and
+ * looks identical to a real user. Detection only, mirroring RFC-017's
+ * SocialEngineeringAgent: never blocks, just logs once per window
+ * (count === max, not >=, fires exactly on the crossing) and emits an
+ * event.
  */
 import { Counter } from 'prom-client'
 import type { FastifyBaseLogger } from 'fastify'

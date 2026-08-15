@@ -2,11 +2,8 @@
  * In-memory, per-key fixed-window counter — the shared primitive behind
  * every rate-limit/detection-window in this codebase
  * (ws-message-rate-limiter.ts, suspicious-activity.ts,
- * escrow-circuit-breaker.ts, previously three separate copies of the
- * same Map<string, {count, resetAt}> logic). Single-instance, not
- * distributed — same deliberate-simplification precedent app.ts's own
- * @fastify/rate-limit comment already established for the HTTP tiers: a
- * real improvement over no ceiling, not a distributed solution.
+ * escrow-circuit-breaker.ts — previously three separate copies of this
+ * same logic). Single-instance, not distributed.
  */
 export class FixedWindowCounter {
   private readonly windows = new Map<string, { count: number; resetAt: number }>()

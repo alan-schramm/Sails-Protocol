@@ -321,15 +321,11 @@ const DISPUTE_EVIDENCE_SYSTEM_PROMPT =
 
 // ─── Offer content risk assessment (2026-08-15 security review) — the
 // same off_channel_migration/payment_instruction_change patterns
-// assessSocialEngineeringRisk() already watches chat for, applied to an
-// Offer's own free-text fields (description/paymentDetails). Genuinely
-// distinct exposure, not a duplicate of the chat path: an Offer is
-// public the instant it's created — visible to any browsing participant
-// before a trade or chat room exists — so scam text planted there
-// reaches more people, faster, than the same text in a private trade
-// chat. unexpected_flow_deviation is deliberately excluded (reuses
-// SocialEngineeringSignal's shape, not its full pattern set): there is
-// no trade yet to have a real status to contradict.
+// assessSocialEngineeringRisk() watches chat for, applied to an Offer's
+// own free-text fields: an Offer is public before any trade or chat room
+// exists, so scam text there reaches more people, faster. Excludes
+// unexpected_flow_deviation — no trade yet to have a real status to
+// contradict.
 const OFFER_CONTENT_SCHEMA = {
   type: 'object',
   properties: {

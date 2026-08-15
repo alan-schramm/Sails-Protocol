@@ -312,15 +312,10 @@ export interface SocialEngineeringRiskDetectedEvent {
   detectedAt: string
 }
 
-// Raised by qvac-agent.provider.ts's assessOfferContentRisk(), called
-// (best-effort, fire-and-forget — see liquidity.service.ts's own
-// createOffer() comment for why) from liquidity.service.ts's
-// createOffer() when config.features.socialEngineeringDetection is on.
-// Same detection-only posture as SocialEngineeringRiskDetectedEvent
-// above — an Offer's own description/paymentDetails text screened for
-// the same off_channel_migration/payment_instruction_change patterns,
-// distinct exposure since an Offer is public before any trade or chat
-// room exists.
+// Raised by liquidity.service.ts's screenOfferContent() (fire-and-forget,
+// see its own comment) when config.features.socialEngineeringDetection is
+// on. Same detection-only posture as SocialEngineeringRiskDetectedEvent
+// above, applied to an Offer's own free-text fields instead of chat.
 export interface OfferContentRiskDetectedEvent {
   offerId: string
   userId: string
