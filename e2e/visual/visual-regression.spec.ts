@@ -90,6 +90,7 @@ test.describe('Trade page — real Trade+Escrow state progression', () => {
     const priceBrl = (5 + Math.random() * 5).toFixed(4)
 
     let offerId = ''
+    let tradeId = ''
     await test.step('setup: seller publishes, buyer starts a trade', async () => {
       await seller.getByRole('link', { name: 'Perfil' }).click()
       await seller.getByRole('button', { name: 'Nova Oferta' }).click()
@@ -111,7 +112,7 @@ test.describe('Trade page — real Trade+Escrow state progression', () => {
       // Direct navigation, not Marketplace discovery — see
       // create-trade.page.ts's startTradeDirect() header comment; this
       // spec snapshots Trade page states, not the marketplace search UX.
-      await createTrade.startTradeDirect(offerId, '20')
+      tradeId = await createTrade.startTradeDirect(offerId, '20')
     })
 
     // Trade.tsx renders a real UUID prefix ("Trade #xxxxxxx") that's
@@ -119,9 +120,7 @@ test.describe('Trade page — real Trade+Escrow state progression', () => {
     // any run could ever match against a fixed baseline.
     const tradeIdMask = [seller.locator('span.font-mono.text-sm.text-brand-text-muted')]
 
-    const tradeUrl = buyer.url()
-    await seller.goto(tradeUrl)
-    await sellerTrade.waitForAuthenticated()
+    await sellerTrade.reauthenticate(tradeId)
     await expect(seller).toHaveScreenshot('trade-pending-no-escrow.png', { maxDiffPixelRatio: 0.02, mask: tradeIdMask })
 
     await sellerTrade.createEscrow()
@@ -130,16 +129,14 @@ test.describe('Trade page — real Trade+Escrow state progression', () => {
     await sellerTrade.lockFunds()
     await expect(seller).toHaveScreenshot('trade-escrow-funds-locked.png', { maxDiffPixelRatio: 0.02, mask: tradeIdMask })
 
-    await buyer.reload()
-    await buyerTrade.waitForAuthenticated()
+    await buyerTrade.reauthenticate(tradeId)
     await buyerTrade.markPaymentSent()
     await expect(buyer).toHaveScreenshot('trade-escrow-payment-pending.png', {
       maxDiffPixelRatio: 0.02,
       mask: [buyer.locator('span.font-mono.text-sm.text-brand-text-muted')],
     })
 
-    await seller.reload()
-    await sellerTrade.waitForAuthenticated()
+    await sellerTrade.reauthenticate(tradeId)
     await sellerTrade.releaseFunds()
     await expect(seller).toHaveScreenshot('trade-completed.png', { maxDiffPixelRatio: 0.02, mask: tradeIdMask })
   })

@@ -22,14 +22,12 @@ import { TradePage } from '../pages/trade.page'
  *
  * Real findings from writing this test, not fixed here (already
  * registered in docs/TODO.md §22, unchanged by this rename):
- * - AuthContext.tsx's post-reload re-auth `loading` boolean is never
- *   read by any page, so a fast actor can act before `user` populates —
- *   TradePage.waitForAuthenticated() works around this the same way a
- *   real user cannot.
  * - Trade.tsx never subscribes to escrow-status WS frames, only chat —
  *   a counterparty's escrow action never appears on an already-open tab
- *   without a reload. The `.reload()` calls below model what a real
- *   user has to do today, not test scaffolding around a flaky UI.
+ *   without a fresh page load. The `TradePage.reauthenticate()` calls
+ *   below model what a real user has to do today (reload, then unlock
+ *   again since 2026-08-11's passphrase change), not test scaffolding
+ *   around a flaky UI.
  * - liquidity.service.ts's discover() hard-caps at 10 results with no
  *   pagination — priced deliberately tiny below so this spec keeps
  *   passing regardless of how much the shared local DB has accumulated.
@@ -89,20 +87,18 @@ test('golden path: register, publish, discover, trade, chat, escrow, settle', as
     await buyerHome.openOffer(offerId)
   })
 
-  let tradeUrl = ''
+  let tradeId = ''
   await test.step('buyer starts a real Trade against the discovered offer', async () => {
-    await createTrade.startTrade('20')
-    tradeUrl = buyer.url()
+    tradeId = await createTrade.startTrade('20')
   })
 
   await test.step('seller opens the same real Trade', async () => {
-    // A real goto() rather than clicking through nav — simpler test
+    // A real navigation rather than clicking through nav — simpler test
     // setup, not a real gap: ActiveTrades.tsx/TradeHistory.tsx both link
     // to a real trade now (corrected 2026-08-04; this comment used to
     // say no in-app link existed, back when TradeHistory.tsx was still
     // MOCK_TRADE_HISTORY).
-    await seller.goto(tradeUrl)
-    await sellerTrade.waitForAuthenticated()
+    await sellerTrade.reauthenticate(tradeId)
     await expect(sellerTrade.createEscrowButton).toBeVisible()
   })
 
@@ -123,15 +119,13 @@ test('golden path: register, publish, discover, trade, chat, escrow, settle', as
   })
 
   await test.step("buyer sees the locked escrow and the seller's PIX details, marks payment sent", async () => {
-    await buyer.reload() // no live WS push for escrow status yet — see this file's header
-    await buyerTrade.waitForAuthenticated()
+    await buyerTrade.reauthenticate(tradeId) // no live WS push for escrow status yet — see this file's header
     await expect(buyer.getByText(pixKey)).toBeVisible()
     await buyerTrade.markPaymentSent()
   })
 
   await test.step('seller releases funds — real WdkSettlementProvider/MockSettlementProvider call, trade completes', async () => {
-    await seller.reload()
-    await sellerTrade.waitForAuthenticated()
+    await sellerTrade.reauthenticate(tradeId)
     await sellerTrade.releaseFunds()
     await expect(seller.getByText('Concluído').first()).toBeVisible({ timeout: 10_000 })
   })

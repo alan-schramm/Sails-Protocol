@@ -58,22 +58,19 @@ test('dispute flow: buyer opens a real dispute mid-trade', async ({ aliceWallet:
     expect(offerId).toBeTruthy()
   })
 
-  let tradeUrl = ''
+  let tradeId = ''
   await test.step('buyer starts a real trade against the offer (direct navigation — see create-trade.page.ts on why)', async () => {
-    await createTrade.startTradeDirect(offerId, '20')
-    tradeUrl = buyer.url()
+    tradeId = await createTrade.startTradeDirect(offerId, '20')
   })
 
   await test.step('seller creates and locks escrow', async () => {
-    await seller.goto(tradeUrl)
-    await sellerTrade.waitForAuthenticated()
+    await sellerTrade.reauthenticate(tradeId)
     await sellerTrade.createEscrow()
     await sellerTrade.lockFunds()
   })
 
   await test.step('buyer opens a real dispute instead of marking payment sent', async () => {
-    await buyer.reload()
-    await buyerTrade.waitForAuthenticated()
+    await buyerTrade.reauthenticate(tradeId)
     await expect(buyerTrade.markPaymentSentButton).toBeVisible({ timeout: 10_000 })
     await buyerTrade.openDispute('Vendedor não respondeu no chat após o bloqueio dos fundos')
     // dispute() moves the escrow to DISPUTED — the dispute form closes
@@ -82,8 +79,7 @@ test('dispute flow: buyer opens a real dispute mid-trade', async ({ aliceWallet:
   })
 
   await test.step('seller sees the trade is disputed on reload', async () => {
-    await seller.reload()
-    await sellerTrade.waitForAuthenticated()
+    await sellerTrade.reauthenticate(tradeId)
     await expect(seller.getByText('Em disputa').first()).toBeVisible({ timeout: 10_000 })
   })
 })

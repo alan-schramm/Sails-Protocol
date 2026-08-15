@@ -58,15 +58,13 @@ test('network reconnection: state and messages survive a real offline/online cyc
     expect(offerId).toBeTruthy()
   })
 
-  let tradeUrl = ''
+  let tradeId = ''
   await test.step('buyer starts a real trade against the offer (direct navigation — see create-trade.page.ts on why)', async () => {
-    await createTrade.startTradeDirect(offerId, '20')
-    tradeUrl = buyer.url()
+    tradeId = await createTrade.startTradeDirect(offerId, '20')
   })
 
   await test.step('seller opens the trade and creates escrow', async () => {
-    await seller.goto(tradeUrl)
-    await sellerTrade.waitForAuthenticated()
+    await sellerTrade.reauthenticate(tradeId)
     await sellerTrade.createEscrow()
   })
 
@@ -89,8 +87,7 @@ test('network reconnection: state and messages survive a real offline/online cyc
 
   await test.step('buyer comes back online and reloads — no auto-reconnect exists, so this models what a real user has to do today', async () => {
     await buyer.context().setOffline(false)
-    await buyer.reload()
-    await buyerTrade.waitForAuthenticated()
+    await buyerTrade.reauthenticate(tradeId)
 
     // The message sent during the outage was never lost server-side —
     // it's in the REST chat history the fresh page load fetches.
