@@ -63,7 +63,13 @@ test.describe('Accessibility — WCAG 2.1 AA', () => {
 test.describe('Accessibility — keyboard navigation', () => {
   test('Login: the wallet-connect button is reachable and activatable via keyboard alone', async ({ page }) => {
     await page.goto('/login')
-    const connectButton = page.getByRole('button', { name: '🔑 Conectar Carteira' })
+    const connectButton = page.getByRole('button', { name: 'Conectar Carteira' })
+    // A passphrase is required since 2026-08-11 (real gap fixed: the
+    // identity/escrow keys used to sit in localStorage as plain hex) —
+    // filled directly rather than via keyboard, since this test's own
+    // purpose is proving the CONNECT BUTTON is keyboard-reachable, not
+    // re-testing the password field's own operability.
+    await page.locator('input[type="password"]').fill('e2e-test-passphrase')
 
     // Tab from a clean slate until the connect button itself receives
     // focus, rather than asserting a specific tab-index count (brittle
