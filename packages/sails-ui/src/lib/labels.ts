@@ -9,6 +9,7 @@
  * rendered to a person changes.
  */
 import type { AssetType, PaymentMethod } from '../types'
+import type { DisputeRuling } from '@satsails/p2p-trading-sdk'
 
 export const ASSET_LABELS: Record<AssetType, string> = {
   BTC: 'Bitcoin',
@@ -106,4 +107,12 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   AIRTM: 'Airtm',
   ASTROPAY: 'AstroPay',
   BINANCE_PAY: 'Binance Pay',
+}
+
+// De-duplicated 2026-08-11 — Disputes.tsx and TradeDisputePanel.tsx
+// each had their own identical copy of this map.
+export const DISPUTE_RULING_LABEL: Record<DisputeRuling, string> = {
+  RELEASE: 'liberar para o comprador',
+  REFUND: 'reembolsar o vendedor',
+  SPLIT: 'dividir entre as partes',
 }

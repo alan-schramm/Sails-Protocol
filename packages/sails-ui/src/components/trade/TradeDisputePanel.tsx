@@ -12,9 +12,8 @@ import type { Dispute } from '@satsails/p2p-trading-sdk'
 import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
 import { formatDateTime } from '../../lib/format'
+import { DISPUTE_RULING_LABEL } from '../../lib/labels'
 import { AlertTriangle, Bot } from 'lucide-react'
-
-const AUTO_RULING_LABEL: Record<string, string> = { RELEASE: 'liberar para o comprador', REFUND: 'reembolsar o vendedor', SPLIT: 'dividir entre as partes' }
 
 interface Props {
   dispute: Dispute
@@ -48,7 +47,7 @@ export function TradeDisputePanel({
       {dispute.status === 'AUTO_PROPOSED' && dispute.autoResolutionRecommendation && (
         <div className="mt-3 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-xs">
           <div className="flex items-center gap-1.5 font-semibold text-purple-500">
-            <Bot className="h-3.5 w-3.5" /> Recomendação da QVAC: {AUTO_RULING_LABEL[dispute.autoResolutionRecommendation]}
+            <Bot className="h-3.5 w-3.5" /> Recomendação da QVAC: {DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation]}
           </div>
           <p className="text-brand-text-secondary mt-1">{dispute.autoResolutionReasoning}</p>
           <p className="text-brand-text-muted mt-1">
@@ -65,7 +64,7 @@ export function TradeDisputePanel({
 
       {dispute.status === 'RESOLVED' && dispute.ruling && (
         <p className="text-xs text-green-500 mt-2">
-          Decisão: {AUTO_RULING_LABEL[dispute.ruling] ?? dispute.ruling}
+          Decisão: {DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling}
           {dispute.resolvedAt && ` — ${formatDateTime(dispute.resolvedAt)}`}
         </p>
       )}

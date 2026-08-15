@@ -19,11 +19,10 @@ import { sailsClient } from '../lib/sailsClient'
 import type { Dispute, DisputeRuling, Escrow, EscrowType } from '@satsails/p2p-trading-sdk'
 import { AssetBadge } from '../components/ui/StatusBadges'
 import { formatAmount, formatDateTime } from '../lib/format'
+import { DISPUTE_RULING_LABEL } from '../lib/labels'
 import { Button } from '../components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet'
 import { ArrowRight, Bot, ShieldCheck, Scissors } from 'lucide-react'
-
-const AUTO_RULING_LABEL: Record<string, string> = { RELEASE: 'liberar para o comprador', REFUND: 'reembolsar o vendedor', SPLIT: 'dividir entre as partes' }
 
 // Same disclosed-gap demo payout addresses Trade.tsx's own DEMO_RELEASE_*
 // constants use (no real per-user payout address onboarding yet in this
@@ -221,7 +220,7 @@ export function Disputes() {
                 )}
                 <p className="text-sm text-brand-text-muted mt-1 line-clamp-2">{d.reason}</p>
                 {d.status === 'RESOLVED' && d.ruling && (
-                  <p className="text-xs text-green-500 mt-1">Decisão: {AUTO_RULING_LABEL[d.ruling] ?? d.ruling}{d.resolvedAt && ` — ${formatDateTime(d.resolvedAt)}`}</p>
+                  <p className="text-xs text-green-500 mt-1">Decisão: {DISPUTE_RULING_LABEL[d.ruling] ?? d.ruling}{d.resolvedAt && ` — ${formatDateTime(d.resolvedAt)}`}</p>
                 )}
 
                 {/* RFC-021 D8 — QVAC-assisted first-pass resolution, off by
@@ -231,7 +230,7 @@ export function Disputes() {
                 {d.status === 'AUTO_PROPOSED' && d.autoResolutionRecommendation && (
                   <div className="mt-3 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-xs">
                     <div className="flex items-center gap-1.5 font-semibold text-purple-500">
-                      <Bot className="h-3.5 w-3.5" /> Recomendação: {AUTO_RULING_LABEL[d.autoResolutionRecommendation]}
+                      <Bot className="h-3.5 w-3.5" /> Recomendação: {DISPUTE_RULING_LABEL[d.autoResolutionRecommendation]}
                       <span className="ml-auto font-normal text-brand-text-muted">{Math.round((d.autoResolutionConfidence ?? 0) * 100)}% de confiança</span>
                     </div>
                     <p className="text-brand-text-secondary mt-1">{d.autoResolutionReasoning}</p>
@@ -307,7 +306,7 @@ export function Disputes() {
                     <span className="text-brand-text-muted">Rodada de apelação:</span>{' '}
                     <span className="text-brand-text">
                       #{selected.dispute.appealRound}
-                      {selected.dispute.previousRuling ? ` (decisão anterior: ${AUTO_RULING_LABEL[selected.dispute.previousRuling] ?? selected.dispute.previousRuling})` : ''}
+                      {selected.dispute.previousRuling ? ` (decisão anterior: ${DISPUTE_RULING_LABEL[selected.dispute.previousRuling] ?? selected.dispute.previousRuling})` : ''}
                     </span>
                   </div>
                 )}
@@ -316,7 +315,7 @@ export function Disputes() {
               {selected.dispute.status === 'AUTO_PROPOSED' && selected.dispute.autoResolutionRecommendation && (
                 <div className="mt-4 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-sm">
                   <div className="flex items-center gap-1.5 font-semibold text-purple-500">
-                    <Bot className="h-4 w-4" /> Recomendação da QVAC: {AUTO_RULING_LABEL[selected.dispute.autoResolutionRecommendation]}
+                    <Bot className="h-4 w-4" /> Recomendação da QVAC: {DISPUTE_RULING_LABEL[selected.dispute.autoResolutionRecommendation]}
                   </div>
                   <p className="text-brand-text-secondary mt-1.5">{selected.dispute.autoResolutionReasoning}</p>
                   <p className="text-brand-text-muted mt-1.5 text-xs">
