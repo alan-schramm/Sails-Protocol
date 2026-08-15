@@ -11,26 +11,34 @@ export class TradePage {
 
   /**
    * Every `page.goto()`/`.reload()` against `/trade/:id` is a full
-   * browser navigation, remounting the whole React app — Trade.tsx
-   * itself never redirects to /login on a lost session (same as
-   * ActiveTrades.tsx/TradeHistory.tsx/Disputes.tsx), it just renders a
-   * logged-out view on the same URL.
+   * browser navigation, remounting the whole React app and wiping
+   * AuthContext.tsx's in-memory `user` (no silent re-authenticate-on-
+   * mount since 2026-08-11 — the identity key is passphrase-encrypted,
+   * nothing left to silently restore).
    *
-   * Before 2026-08-11 this resolved itself silently: AuthContext.tsx
-   * auto-relogged-in on mount using the stored plaintext keypair, and
-   * this method (then called `waitForAuthenticated()`) just WAITED for
-   * that signal — the real gap p2p-trade-happy-path.spec.ts's header
-   * comment used to describe ("a fast actor can act before `user`
-   * populates"). Since the identity key is now passphrase-encrypted
-   * (real gap fixed: it used to sit in localStorage as plain hex),
-   * there is nothing left to silently restore — this actively drives
-   * Login.tsx (fill passphrase, click Conectar Carteira) and navigates
-   * back to the same trade, rather than waiting for something that no
-   * longer happens on its own. Delegates to WalletPage.connectAndGoTo()
-   * — same sequence any other spec needing mid-test re-auth uses.
+   * Real bug found running this spec against a real backend: this used
+   * to delegate to `WalletPage.connectAndGoTo(path)`, which re-
+   * authenticates FIRST (landing on '/') and THEN does a second hard
+   * `page.goto(path)` — but that second navigation is itself a full
+   * reload, wiping the session `connect()` just established right back
+   * out. Trade.tsx's action buttons (createEscrow/lockFunds/etc.) are
+   * gated on `isBuyer`/`isSeller`, both `false` while `user` is null, so
+   * every caller's next click just hung waiting for a button that would
+   * never render — a real product gap too, not just a test artifact:
+   * Trade.tsx had no actual way to reconnect from a lost session, only
+   * inert text ("Conecte sua carteira para agir neste trade"). Fixed at
+   * the source (Trade.tsx, 2026-08-15) with the same real affordance
+   * OfferDetail.tsx's `handleStartTrade()` already established: a button
+   * that navigates to `/login` carrying `{ from: location.pathname }` in
+   * `location.state`, which Login.tsx's own `handleConnect()` already
+   * knows how to return through. This method now drives that real flow
+   * directly instead of the broken generic helper.
    */
   async reauthenticate(tradeId: string, passphrase = 'e2e-test-passphrase'): Promise<void> {
-    await new WalletPage(this.page).connectAndGoTo(`/trade/${tradeId}`, passphrase)
+    await this.goto(tradeId)
+    await this.page.getByRole('button', { name: 'Conectar Carteira' }).click()
+    await new WalletPage(this.page).completeLogin(passphrase)
+    await expect(this.page).toHaveURL(new RegExp(`/trade/${tradeId}$`))
   }
 
   // Locators below dropped their emoji prefixes (2026-08-11) — the

@@ -12,12 +12,32 @@ export class HomePage {
     await this.page.goto('/')
   }
 
+  /**
+   * The trigger's accessible name is "Ativo" (AssetPicker.tsx's
+   * `aria-label`), not its visible text "Todos os ativos" — an
+   * `aria-label` overrides text-content in accessible-name computation.
+   * Matching by role name here (not the currently-displayed value) is
+   * also the more stable selector: the visible text changes once an
+   * asset is selected, the aria-label never does.
+   */
   get allAssetsButton(): Locator {
-    return this.page.getByRole('button', { name: 'Todos os ativos' })
+    return this.page.getByRole('button', { name: 'Ativo' })
   }
 
+  /**
+   * `title` alone isn't enough: AssetPicker.tsx's own option buttons
+   * render `ASSET_LABELS[asset]` as visible text/accessible name (e.g.
+   * "USDT (ERC-20)"), not the raw `AssetType` code this method takes —
+   * but each option button also carries `title={asset}` (the raw code),
+   * which is the stable hook this helper's callers actually want.
+   * However every OfferCard row on the SAME page also renders a
+   * `<span title={asset}>` asset badge (inside an `<a>`, not a
+   * `<button>`) — matching on `title` alone hits both and throws a
+   * strict-mode violation. `.and()` narrows to elements satisfying both
+   * conditions on the same node, which only the real dropdown option is.
+   */
   assetButton(asset: string): Locator {
-    return this.page.getByRole('button', { name: asset, exact: true })
+    return this.page.getByRole('button').and(this.page.getByTitle(asset, { exact: true }))
   }
 
   async filterByAsset(asset: string): Promise<void> {

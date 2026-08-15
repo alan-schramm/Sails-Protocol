@@ -41,8 +41,8 @@ test('timeout: an Intent whose window closed rejects trade creation and flips to
     await seller.getByRole('link', { name: 'Perfil' }).click()
     await seller.getByRole('button', { name: 'Nova Oferta' }).click()
     await seller.getByRole('button', { name: 'Vender' }).click()
-    await seller.getByRole('button', { name: 'Todos os ativos' }).click()
-    await seller.getByRole('button', { name: 'USDT_ERC20', exact: true }).click()
+    await seller.getByRole('button', { name: 'Ativo' }).click()
+    await seller.getByRole('button', { name: 'USDT (ERC-20)', exact: true }).click()
     await seller.getByPlaceholder('0').fill(priceBrl)
     await seller.getByRole('button', { name: 'Próximo' }).click()
 
@@ -78,9 +78,17 @@ test('timeout: an Intent whose window closed rejects trade creation and flips to
     // spec is about trade-creation rejection, not the marketplace
     // search UX. A real navigation wipes the session established by the
     // bobWallet fixture (2026-08-11: no more silent restore-on-mount —
-    // see WalletPage.connectAndGoTo()'s own header), so this has to
-    // re-authenticate rather than just goto().
-    await new WalletPage(buyer).connectAndGoTo(`/offer/${offerId}`)
+    // see WalletPage.connect()'s own header), so this has to
+    // re-authenticate rather than just goto() — driving OfferDetail.tsx's
+    // own real "logged out → Iniciar Trade → bounced to /login → back
+    // here" affordance directly, same as CreateTradePage.startTradeDirect()
+    // (not reused here since this spec needs the raw rejected response,
+    // not startTradeDirect()'s success-only return type).
+    await buyer.goto(`/offer/${offerId}`)
+    await buyer.getByPlaceholder('0.00').fill('20')
+    await buyer.getByRole('button', { name: 'Iniciar Trade' }).click()
+    await new WalletPage(buyer).completeLogin()
+    await expect(buyer).toHaveURL(new RegExp(`/offer/${offerId}$`))
     await buyer.getByPlaceholder('0.00').fill('20')
     const [tradeResponse] = await Promise.all([
       buyer.waitForResponse((res) => res.url().includes('/v1/openp2p/trades') && res.request().method() === 'POST'),

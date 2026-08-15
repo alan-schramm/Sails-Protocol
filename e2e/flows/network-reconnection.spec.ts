@@ -39,8 +39,8 @@ test('network reconnection: state and messages survive a real offline/online cyc
     await seller.getByRole('link', { name: 'Perfil' }).click()
     await seller.getByRole('button', { name: 'Nova Oferta' }).click()
     await seller.getByRole('button', { name: 'Vender' }).click()
-    await seller.getByRole('button', { name: 'Todos os ativos' }).click()
-    await seller.getByRole('button', { name: 'USDT_ERC20', exact: true }).click()
+    await seller.getByRole('button', { name: 'Ativo' }).click()
+    await seller.getByRole('button', { name: 'USDT (ERC-20)', exact: true }).click()
     await seller.getByPlaceholder('0').fill(priceBrl)
     await seller.getByRole('button', { name: 'Próximo' }).click()
 

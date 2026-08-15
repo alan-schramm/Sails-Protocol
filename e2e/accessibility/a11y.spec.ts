@@ -34,13 +34,18 @@ test.describe('Accessibility — WCAG 2.1 AA', () => {
   })
 
   test('Profile has no WCAG 2.1 AA violations', async ({ authenticatedPage: page }) => {
-    // Profile.tsx is the one real page that force-redirects to /login on
-    // a lost session (`if (!user) navigate('/login')`) — a bare
-    // page.goto('/profile') here would silently scan the LOGIN page
-    // instead of Profile, passing for the wrong reason. See
-    // WalletPage.connectAndGoTo()'s own header for why the session is
-    // lost at all on a real navigation since 2026-08-11.
-    await new WalletPage(page).connectAndGoTo('/profile')
+    // Profile.tsx force-redirects to /login on a lost session
+    // (`if (!user) navigate('/login', { state: { from: '/profile' } })`).
+    // A bare page.goto('/profile') wipes the session (no silent
+    // re-authenticate-on-mount since 2026-08-11) and would just bounce
+    // straight back to /login — this drives that real redirect-then-
+    // return round trip instead of a broken connectAndGoTo() shortcut
+    // (real bug found running this spec: connectAndGoTo() re-
+    // authenticates FIRST then hard-navigates SECOND, wiping the session
+    // it just established — see its own header).
+    await page.goto('/profile')
+    await new WalletPage(page).completeLogin()
+    await expect(page).toHaveURL('/profile')
     const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
     expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
   })
@@ -49,8 +54,8 @@ test.describe('Accessibility — WCAG 2.1 AA', () => {
     await page.getByRole('link', { name: 'Perfil' }).click()
     await page.getByRole('button', { name: 'Nova Oferta' }).click()
     await page.getByRole('button', { name: 'Vender' }).click()
-    await page.getByRole('button', { name: 'Todos os ativos' }).click()
-    await page.getByRole('button', { name: 'USDT_ERC20', exact: true }).click()
+    await page.getByRole('button', { name: 'Ativo' }).click()
+    await page.getByRole('button', { name: 'USDT (ERC-20)', exact: true }).click()
     // See e2e/flows/p2p-trade-happy-path.spec.ts's header comment on the
     // tiny-BRL-price → priceUsd=0.00 rounding bug this range avoids.
     await page.getByPlaceholder('0').fill((5 + Math.random() * 5).toFixed(4))
@@ -103,12 +108,12 @@ test.describe('Accessibility — keyboard navigation', () => {
 
   test('Marketplace: asset filter is operable via keyboard', async ({ authenticatedPage: page }) => {
     await new WalletPage(page).connectAndGoTo('/')
-    const allAssetsButton = page.getByRole('button', { name: 'Todos os ativos' })
+    const allAssetsButton = page.getByRole('button', { name: 'Ativo' })
     await allAssetsButton.focus()
     await expect(allAssetsButton).toBeFocused()
     await page.keyboard.press('Enter')
     // Opening the picker must expose at least one selectable asset option via keyboard.
-    await expect(page.getByRole('button', { name: 'USDT_ERC20', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'USDT (ERC-20)', exact: true })).toBeVisible()
   })
 })
 

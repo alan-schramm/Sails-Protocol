@@ -52,7 +52,29 @@ export class CreateTradePage {
    * own initial connect(), same passphrase.
    */
   async startTradeDirect(offerId: string, amount: string): Promise<string> {
-    await new WalletPage(this.page).connectAndGoTo(`/offer/${offerId}`)
+    await this.page.goto(`/offer/${offerId}`)
+    // The goto() above is a hard navigation — it does NOT restore the
+    // in-memory session even if this identity's encrypted keypair (and a
+    // real backend session) is still valid (WalletPage.connect()'s own
+    // header: no silent re-authenticate-on-mount since 2026-08-11).
+    // Real bug found running this spec against a real backend: the old
+    // connectAndGoTo() re-authenticated FIRST, landing on '/', then did
+    // this same hard goto() SECOND — which wipes the session it had just
+    // re-established, right back to logged-out, so `startTrade()` below
+    // clicked "Iniciar Trade" while logged out and hung forever waiting
+    // for a POST that OfferDetail.tsx's own `handleStartTrade()` never
+    // sends in that state (it redirects to /login instead — see its own
+    // `if (!user)` branch). Fixed by driving the REAL app affordance for
+    // exactly this case: fill the amount, click "Iniciar Trade" while
+    // logged out (which navigates to /login carrying {from, amount} in
+    // location.state), authenticate, and land back on this same offer
+    // page with the amount already restored (OfferDetail.tsx's own
+    // "Prefilled when arriving back here" logic) — the same round trip a
+    // real user hits, not a synthetic shortcut.
+    await this.page.getByPlaceholder('0.00').fill(amount)
+    await this.page.getByRole('button', { name: 'Iniciar Trade' }).click()
+    await new WalletPage(this.page).completeLogin()
+    await expect(this.page).toHaveURL(new RegExp(`/offer/${offerId}$`))
     return this.startTrade(amount)
   }
 }

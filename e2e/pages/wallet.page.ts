@@ -41,24 +41,54 @@ export class WalletPage {
     await this.passphraseInput.fill(passphrase)
     await this.connectButton.click()
     await expect(this.page).toHaveURL('/')
+    await this.dismissOnboardingIfPresent()
   }
 
   /**
-   * Re-establishes a session that a real browser navigation just wiped
-   * out (2026-08-11: no more silent restore-on-mount, see this class's
-   * own header on why `connect()` now needs a passphrase at all), then
-   * lands on `path` — since none of this app's real pages force-redirect
-   * to /login on a lost session (Trade.tsx/OfferDetail.tsx/
-   * ActiveTrades.tsx/TradeHistory.tsx/Disputes.tsx all just render a
-   * logged-out view on the same URL instead), simply waiting was never
-   * going to work here; this drives Login.tsx directly. Reused by
-   * TradePage.reauthenticate() and any spec that does a real `page.goto()`
-   * mid-test after already being logged in (e.g. timeout-flow.spec.ts's
-   * direct /offer/:id navigation) rather than duplicating this sequence.
+   * OnboardingTour.tsx auto-opens after every identity's first successful
+   * login (Layout.tsx's trigger, lib/onboarding.ts's localStorage flag) and
+   * blocks the whole page (a modal Dialog) until dismissed. Every e2e
+   * identity is brand-new (its own BrowserContext/localStorage — see this
+   * class's own header), so the flag is never set yet and this fires on
+   * every real connect() call, not just a one-time first-ever run.
+   */
+  private async dismissOnboardingIfPresent(): Promise<void> {
+    const skipButton = this.page.getByRole('button', { name: 'Pular' })
+    if (await skipButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await skipButton.click()
+    }
+  }
+
+  /**
+   * Only safe for `path === '/'` (skips the second navigation entirely —
+   * `connect()` already lands there). For any other path, DON'T use
+   * this: real bug found running these specs against a real backend —
+   * the `page.goto(path)` below is itself a full browser navigation,
+   * which wipes the session `connect()` just established a moment
+   * earlier the exact same way (AuthContext.tsx has no silent
+   * re-authenticate-on-mount since 2026-08-11), landing on `path`
+   * logged right back out. Kept only for the `path === '/'` case
+   * (e.g. a11y.spec.ts's Marketplace scan); every other caller needing
+   * mid-test re-auth should drive the real per-page affordance instead
+   * (see `completeLogin()` below) — `CreateTradePage.startTradeDirect()`
+   * and `TradePage.reauthenticate()` both do this now.
    */
   async connectAndGoTo(path: string, passphrase = 'e2e-test-passphrase'): Promise<void> {
     await this.connect(passphrase)
     if (path !== '/') await this.page.goto(path)
+  }
+
+  /**
+   * Fills the passphrase and clicks Connect, assuming the page is
+   * ALREADY on `/login` (arrived via the app's own `navigate()` — a
+   * click on a "reconnect" affordance, or a page's own mount-time
+   * redirect — not a fresh `connect()` call). Doesn't assert a landing
+   * URL itself: Login.tsx's `handleConnect()` returns to whatever
+   * `location.state.from` the trigger set, which only the caller knows.
+   */
+  async completeLogin(passphrase = 'e2e-test-passphrase'): Promise<void> {
+    await this.passphraseInput.fill(passphrase)
+    await this.connectButton.click()
   }
 
   /** The connected identity's public key, as shown read-only on Profile — the closest real analog to a "wallet address" here. */
