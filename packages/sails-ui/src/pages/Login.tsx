@@ -84,7 +84,7 @@ export function Login() {
           <Feature icon={Globe} title="Multi-chain" desc="BTC, Lightning, Liquid, USDT e mais" />
         </ul>
 
-        <p className="mt-16 text-xs text-neutral-500">Powered by Pears · WDK · QVAC · Holepunch</p>
+        <p className="mt-16 text-xs text-neutral-500">Powered by Satsails</p>
       </div>
 
       <div className="flex flex-col justify-center px-6 lg:px-16 py-16 relative">
@@ -134,7 +134,7 @@ export function Login() {
             </>
           )}
         </Button>
-        <p className="text-xs text-brand-text-muted text-center mt-2">Powered by Tether WDK</p>
+        <p className="text-xs text-brand-text-muted text-center mt-2">Powered by Satsails</p>
 
         <div className="mt-8 bg-brand-elevated border border-brand-border rounded-lg p-4 flex gap-3">
           <ShieldCheck className="h-4 w-4 text-brand-text-secondary shrink-0" />

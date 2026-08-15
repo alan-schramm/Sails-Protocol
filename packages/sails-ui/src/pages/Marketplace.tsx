@@ -113,7 +113,7 @@ export function Marketplace() {
   return (
     <div>
       <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Marketplace P2P</h1>
-      <p className="text-sm text-brand-text-muted mt-1">{offers.length} ofertas disponíveis · Non-custodial · Powered by Pears</p>
+      <p className="text-sm text-brand-text-muted mt-1">{offers.length} ofertas disponíveis · Non-custodial · Powered by Satsails</p>
 
       <div className="mt-4">
         <AgentIntentionPanel
