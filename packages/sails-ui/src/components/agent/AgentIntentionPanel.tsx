@@ -174,7 +174,13 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     if (!proposal) return
     setApproving(true)
     try {
-      const trade = await sailsClient.openp2p.trade(proposal.offerId, quantity)
+      // proposal.amount, not the quantity input state — the proposal
+      // already echoes back the exact amount it was matched for; reading
+      // from it directly removes any implicit dependency on `quantity`
+      // not having changed between the propose and approve calls (it
+      // can't today, since no input re-renders once a proposal exists,
+      // but this doesn't rely on that staying true).
+      const trade = await sailsClient.openp2p.trade(proposal.offerId, proposal.amount)
       toast.success('Trade iniciado')
       navigate(`/trade/${trade.id}`)
     } catch (err) {

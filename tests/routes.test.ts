@@ -1736,6 +1736,35 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(mockIntentUpdateMany).toHaveBeenCalled() // still records the attempt via the audit-trail transition
     })
 
+    // Real bug found in a post-implementation review: proposeForIntent()
+    // originally only filtered by price/reputation, never checking
+    // whether the matched offer's own minAmount/maxAmount actually cover
+    // the requested amount — unlike matchOrder(), which does this at the
+    // Prisma level. createTrade() would still catch it at approval time
+    // (a real, separate bounds check), but "propose" is supposed to only
+    // ever surface an offer that would actually succeed.
+    it("does not propose an offer whose own minAmount/maxAmount don't cover the requested amount", async () => {
+      const token = await authedSession('buyer-1')
+      mockIntentFindUnique
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', participantId: 'buyer-1', payload: intentPayload, expiresAt: null })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', payload: intentPayload })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING', payload: intentPayload })
+      mockIntentEventFindFirst.mockResolvedValueOnce(null)
+      // Price and reputation both clear the Intent's own limits, but this
+      // offer's own minAmount (0.5) is above the requested amount (0.1).
+      mockOfferFindMany.mockResolvedValueOnce([
+        { id: 'offer-1', userId: 'seller-1', asset: 'BTC', side: 'SELL', priceUsd: '65000', priceBrl: null, minAmount: '0.5', maxAmount: '1', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 50 } },
+      ])
+
+      const res = await app.inject({
+        method: 'POST', url: '/v1/intents/intent-1/propose',
+        headers: { authorization: `Bearer ${token}` }, payload: { amount: '0.1' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data.proposal).toBeNull()
+    })
+
     it('does not re-attempt the COORDINATED -> DISCOVERING transition on a retried propose call', async () => {
       const token = await authedSession('buyer-1')
       // Already DISCOVERING (a prior propose call already transitioned
