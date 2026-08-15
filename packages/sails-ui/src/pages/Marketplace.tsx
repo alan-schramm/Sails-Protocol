@@ -205,7 +205,7 @@ export function Marketplace() {
           load successfully, since a total-outage message would be
           dishonest when some (asset, side) pairs actually succeeded. */}
       {!loadingOffers && offersError && offers.length > 0 && (
-        <div className="mt-4 flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/25 text-yellow-700 text-xs rounded-lg px-3.5 py-2.5">
+        <div className="mt-4 flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 text-xs rounded-lg px-3.5 py-2.5">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           Algumas ofertas podem não ter carregado — houve falha ao buscar parte do Marketplace.
         </div>

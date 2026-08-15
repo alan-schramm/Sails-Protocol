@@ -40,13 +40,13 @@ export function TradeDisputePanel({
         <span className="font-semibold text-red-500">
           {dispute.status === 'RESOLVED' ? 'Disputa resolvida' : 'Disputa em andamento'}
         </span>
-        {dispute.status === 'AUTO_PROPOSED' && <Bot className="h-3.5 w-3.5 text-purple-500" />}
+        {dispute.status === 'AUTO_PROPOSED' && <Bot className="h-3.5 w-3.5 text-purple-400" />}
       </div>
       <p className="text-sm text-brand-text-secondary mt-1.5">{dispute.reason}</p>
 
       {dispute.status === 'AUTO_PROPOSED' && dispute.autoResolutionRecommendation && (
         <div className="mt-3 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-xs">
-          <div className="flex items-center gap-1.5 font-semibold text-purple-500">
+          <div className="flex items-center gap-1.5 font-semibold text-purple-400">
             <Bot className="h-3.5 w-3.5" /> Recomendação da QVAC: {DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation]}
           </div>
           <p className="text-brand-text-secondary mt-1">{dispute.autoResolutionReasoning}</p>

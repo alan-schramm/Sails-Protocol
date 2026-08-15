@@ -207,7 +207,7 @@ export function Disputes() {
                       d.status === 'RESOLVED'
                         ? 'bg-green-500/10 text-green-500'
                         : d.status === 'AUTO_PROPOSED'
-                          ? 'bg-purple-500/10 text-purple-500'
+                          ? 'bg-purple-500/10 text-purple-400'
                           : 'bg-red-500/10 text-red-500'
                     }`}
                   >
@@ -229,7 +229,7 @@ export function Disputes() {
                     judge the recommendation, not just accept it blindly. */}
                 {d.status === 'AUTO_PROPOSED' && d.autoResolutionRecommendation && (
                   <div className="mt-3 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-xs">
-                    <div className="flex items-center gap-1.5 font-semibold text-purple-500">
+                    <div className="flex items-center gap-1.5 font-semibold text-purple-400">
                       <Bot className="h-3.5 w-3.5" /> Recomendação: {DISPUTE_RULING_LABEL[d.autoResolutionRecommendation]}
                       <span className="ml-auto font-normal text-brand-text-muted">{Math.round((d.autoResolutionConfidence ?? 0) * 100)}% de confiança</span>
                     </div>
@@ -314,7 +314,7 @@ export function Disputes() {
 
               {selected.dispute.status === 'AUTO_PROPOSED' && selected.dispute.autoResolutionRecommendation && (
                 <div className="mt-4 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-sm">
-                  <div className="flex items-center gap-1.5 font-semibold text-purple-500">
+                  <div className="flex items-center gap-1.5 font-semibold text-purple-400">
                     <Bot className="h-4 w-4" /> Recomendação da QVAC: {DISPUTE_RULING_LABEL[selected.dispute.autoResolutionRecommendation]}
                   </div>
                   <p className="text-brand-text-secondary mt-1.5">{selected.dispute.autoResolutionReasoning}</p>
