@@ -87,7 +87,18 @@ async function loadOrCreateEscrowKeypair(encryptionKey: CryptoKey): Promise<Stor
     encryptedPrivateKey: await encryptBytes(encryptionKey, kp.privateKey),
     publicKeyHex: kp.publicKeyHex,
   }
-  localStorage.setItem(ESCROW_KEY_STORAGE_KEY, JSON.stringify(envelope))
+  try {
+    localStorage.setItem(ESCROW_KEY_STORAGE_KEY, JSON.stringify(envelope))
+  } catch {
+    // Same fund-safety class as the wrong-passphrase branch above: if this
+    // key isn't actually persisted, the next call here (from either
+    // caller below) would silently generate a DIFFERENT keypair — either
+    // submitting a pubkey that doesn't match one already on file for this
+    // escrow, or signing with a key that doesn't match what was
+    // submitted. Must fail loudly, not let an unpersisted key be used as
+    // if it were durable.
+    throw new Error('Não foi possível salvar sua chave de escrow neste navegador (modo privado ou armazenamento cheio) — tente em uma janela normal ou libere espaço.')
+  }
   return { privateKeyHex: bytesToHex(kp.privateKey), publicKeyHex: kp.publicKeyHex }
 }
 

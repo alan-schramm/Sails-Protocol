@@ -30,13 +30,28 @@ export function Marketplace() {
   const [search, setSearch] = useState('')
   const [filterPanelOpen, setFilterPanelOpen] = useState(false)
   const [filters, setFilters] = useState<MarketplaceFilters>(() => {
-    const stored = localStorage.getItem(FILTERS_STORAGE_KEY)
-    return stored ? JSON.parse(stored) : DEFAULT_FILTERS
+    // Real bug found live: an unguarded JSON.parse in a useState
+    // initializer throws synchronously during render — a corrupted or
+    // pre-existing-incompatible-shape stored value would crash this whole
+    // page (the app's own landing page) on every visit, not just fail to
+    // load a preference.
+    try {
+      const stored = localStorage.getItem(FILTERS_STORAGE_KEY)
+      return stored ? JSON.parse(stored) : DEFAULT_FILTERS
+    } catch {
+      return DEFAULT_FILTERS
+    }
   })
 
   useEffect(() => {
-    if (filters.saveForNext) localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters))
-    else localStorage.removeItem(FILTERS_STORAGE_KEY)
+    // Best-effort — a quota/private-browsing throw here shouldn't crash
+    // the filter UI, just fail to persist the preference.
+    try {
+      if (filters.saveForNext) localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters))
+      else localStorage.removeItem(FILTERS_STORAGE_KEY)
+    } catch {
+      // ignore — filters still work for this session, just won't survive a reload
+    }
   }, [filters])
 
   const activeFilterCount = [
