@@ -20,6 +20,7 @@ import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { config } from '../../config'
 import { docsOnlySchema } from '../../common/openapi'
 import { MAX_PAGE_LIMIT } from '../../common/pagination'
+import { positiveDecimalString } from '../../common/validation'
 
 // CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — see
 // config/index.ts's own comment on `rateLimit.criticalMax` for the full
@@ -42,7 +43,10 @@ const createEscrowSchema = z.object({
   // WDK_USDT_EVM was a pre-existing gap found while adding SAFE_GUARD_EVM
   // (RFC-020), fixed here rather than left alongside the new one.
   type: z.enum(['MULTISIG', 'LIGHTNING_HODL', 'LIQUID_COVENANT', 'WDK_USDT_EVM', 'SAFE_GUARD_EVM', 'MOCK']).optional(),
-  lockedAmount: z.string().min(1),
+  // 2026-08-15 security review — was z.string().min(1) (non-empty only,
+  // no positive/finite check); see common/validation.ts's own header
+  // comment for why that's the exact Bisq-incident bug class.
+  lockedAmount: positiveDecimalString('lockedAmount'),
   asset: z.enum(['BTC', 'USDT_ERC20', 'USDT_TRC20', 'USDT_LIQUID', 'USDT_LIGHTNING', 'LN_BTC', 'LIQUID_BTC', 'SPARK', 'STACKS', 'RSK_BTC']),
   network: z.string().optional(),
   timelockHours: z.number().optional(),

@@ -483,6 +483,31 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       )
     })
 
+    // Security review, 2026-08-15 — the exact Bisq-incident bug class
+    // (an unvalidated peer-submitted numeric field corrupting downstream
+    // fund math): these three fields used to accept any non-empty
+    // string. A negative priceUsd here would have flowed straight into
+    // trade.service.ts's totalUsd = priceUsd * amount, going negative
+    // even though amount itself is validated. See
+    // common/validation.ts's positiveDecimalString().
+    it.each([
+      ['negative priceUsd', { priceUsd: '-65000', minAmount: '0.001', maxAmount: '0.5' }],
+      ['zero priceUsd', { priceUsd: '0', minAmount: '0.001', maxAmount: '0.5' }],
+      ['non-numeric priceUsd', { priceUsd: 'not-a-number', minAmount: '0.001', maxAmount: '0.5' }],
+      ['negative minAmount', { priceUsd: '65000', minAmount: '-0.001', maxAmount: '0.5' }],
+      ['negative maxAmount', { priceUsd: '65000', minAmount: '0.001', maxAmount: '-0.5' }],
+    ])('rejects offer creation with %s', async (_label, overrides) => {
+      const token = await authedSession('user-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/liquidity/offers',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { asset: 'BTC', side: 'SELL', paymentMethod: 'PIX', ...overrides },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(mockOfferCreate).not.toHaveBeenCalled()
+    })
+
     it('lists aggregated offers for an asset/side (GET /v1/liquidity/offers) with total/hasMore', async () => {
       mockOfferFindMany.mockResolvedValueOnce([
         { id: 'offer-1', userId: 'user-1', asset: 'BTC', side: 'SELL', priceUsd: '65000', priceBrl: null, minAmount: '0.001', maxAmount: '0.5', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 42 } },
@@ -991,6 +1016,26 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(201)
       expect(JSON.parse(res.body).data.id).toBe('escrow-1')
+    })
+
+    // Security review, 2026-08-15 — same Bisq-incident bug class as the
+    // liquidity offer test above: lockedAmount used to accept any
+    // non-empty string, flowing unchecked into escrow.service.ts's
+    // createEscrow() and from there into fee/multisig math.
+    it.each([
+      ['negative lockedAmount', '-0.01'],
+      ['zero lockedAmount', '0'],
+      ['non-numeric lockedAmount', 'not-a-number'],
+    ])('rejects escrow creation with %s', async (_label, lockedAmount) => {
+      const token = await authedSession('buyer-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/escrow',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { tradeId: 'trade-1', lockedAmount, asset: 'BTC' },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(mockEscrowCreate).not.toHaveBeenCalled()
     })
 
     // RFC-020, 2026-07-28 — SAFE_GUARD_EVM is a real, registered escrow

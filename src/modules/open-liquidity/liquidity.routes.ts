@@ -12,6 +12,7 @@ import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import type { AssetType, PaymentMethod } from '../../common/types'
 import { docsOnlySchema } from '../../common/openapi'
+import { positiveDecimalString } from '../../common/validation'
 
 const assetSideQuerySchema = z.object({
   asset: z.string().min(1),
@@ -26,17 +27,25 @@ const assetSideQuerySchema = z.object({
   // strings for price, same RFC-009 convention as every other
   // amount/price field in this API.
   paymentMethod: z.string().min(1).optional(),
-  priceMin: z.string().min(1).optional(),
-  priceMax: z.string().min(1).optional(),
+  // 2026-08-15 security review — see common/validation.ts's own header
+  // comment; these two were z.string().min(1) (non-empty only).
+  priceMin: positiveDecimalString('priceMin').optional(),
+  priceMax: positiveDecimalString('priceMax').optional(),
 })
 
 const createOfferSchema = z.object({
   asset: z.string().min(1),
   side: z.enum(['BUY', 'SELL']),
-  priceUsd: z.string().min(1),
+  // 2026-08-15 security review — all three were z.string().min(1)
+  // (non-empty only, no positive/finite check). Concretely exploitable,
+  // not just theoretical: a negative priceUsd here would flow straight
+  // into trade.service.ts's `totalUsd = priceUsd * amount`, going
+  // negative even though `amount` itself is already validated positive —
+  // see common/validation.ts's own header comment.
+  priceUsd: positiveDecimalString('priceUsd'),
   priceBrl: z.string().optional(),
-  minAmount: z.string().min(1),
-  maxAmount: z.string().min(1),
+  minAmount: positiveDecimalString('minAmount'),
+  maxAmount: positiveDecimalString('maxAmount'),
   paymentMethod: z.string().min(1),
   paymentDetails: z.string().optional(),
   network: z.string().optional(),
