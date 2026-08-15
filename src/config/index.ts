@@ -123,7 +123,11 @@ export const config = {
   // gets the highest bar (a real user mistyping a password looks
   // identical for one or two attempts); 404 clustering (ID enumeration)
   // gets the lowest, since it's the cheapest pattern for an attacker to
-  // generate.
+  // generate. The three numbers below are reasoned starting points, not
+  // measured ones — this deployment has no real production traffic yet
+  // to calibrate a false-positive rate against. Env-var overridable for
+  // exactly that reason: tune them once real traffic exists, don't
+  // treat the defaults as validated.
   suspiciousActivity: {
     authFailureMax: requiredInt('SUSPICIOUS_AUTH_FAILURE_MAX', 8),
     authFailureWindowMs: requiredInt('SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', 5 * 60 * 1000),
@@ -142,7 +146,12 @@ export const config = {
   // operator/admin tier to manually reset it (no-platform-operator-
   // visibility is a deliberate architectural choice, not an oversight),
   // so a manual-reset design would leave a tripped breaker stuck open
-  // forever with nobody able to clear it.
+  // forever with nobody able to clear it. Same disclosure as
+  // suspiciousActivity above: these three numbers are a reasoned
+  // starting point (real concurrent conflicts on one escrow should be
+  // rare in normal use — a handful per escrow's whole lifetime, not
+  // per minute — so this threshold has room before it risks a false
+  // trip), not something measured against real traffic.
   escrowCircuitBreaker: {
     failureThreshold: requiredInt('ESCROW_BREAKER_FAILURE_THRESHOLD', 5),
     windowMs: requiredInt('ESCROW_BREAKER_WINDOW_MS', 30 * 1000),
