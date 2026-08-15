@@ -115,8 +115,8 @@ function toUiMessageFromEvent(
 
 export function Trade() {
   const { id } = useParams()
-  const { user, keypair } = useAuth()
-  const { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded } = useEscrowKey()
+  const { user, keypair, encryptionKey } = useAuth()
+  const { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded } = useEscrowKey(encryptionKey)
 
   const [trade, setTrade] = useState<SdkTrade | null>(null)
   const [escrow, setEscrow] = useState<SdkEscrow | null>(null)

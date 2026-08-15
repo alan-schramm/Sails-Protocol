@@ -1,19 +1,33 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { toast } from 'sonner'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, hasStoredIdentity, WrongPassphraseError } from '../context/AuthContext'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
 import { Lock, Zap, Globe, KeyRound, ShieldCheck, type LucideIcon } from 'lucide-react'
+
+const PASSPHRASE_EXPLAINER =
+  'Essa senha nunca sai do seu navegador nem é enviada ao Sails Protocol — ela só criptografa sua chave privada aqui localmente (AES-256-GCM). Se esquecer, não tem como recuperar: a chave (e o acesso à conta/fundos vinculados) fica permanentemente inacessível.'
 
 export function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [connecting, setConnecting] = useState(false)
+  const [passphrase, setPassphrase] = useState('')
+  // Computed once at mount, not re-checked per keystroke — whether this
+  // browser already has an encrypted keypair decides the copy below
+  // ("crie uma senha" vs "digite sua senha"), same signal
+  // AuthContext.tsx's own hasStoredIdentity() exports for this purpose.
+  const [isReturning] = useState(() => hasStoredIdentity())
 
   const handleConnect = async () => {
+    if (!passphrase) {
+      toast.error(isReturning ? 'Digite sua senha' : 'Crie uma senha para proteger sua chave')
+      return
+    }
     setConnecting(true)
     try {
       // Real Ed25519 challenge-response — identity.create() once (fresh
@@ -21,8 +35,10 @@ export function Login() {
       // (packages/sails-sdk/src/modules/identity.ts). WDK itself
       // (@tetherto/wdk-wallet-evm) never runs in a browser tab — it holds
       // seed material, server-side only; this is the separate identity
-      // keypair (Ed25519), not a WDK-managed key.
-      await login()
+      // keypair (Ed25519), not a WDK-managed key. `passphrase` never
+      // reaches the SDK/backend — AuthContext.tsx uses it only locally,
+      // to derive the AES key that encrypts the stored keypair.
+      await login(passphrase)
       toast.success('Conectado!')
       // Real fix: this used to always navigate to '/', so any protected
       // action (e.g. OfferDetail's "Iniciar Trade") that bounced an
@@ -33,7 +49,11 @@ export function Login() {
       const state = location.state as { from?: string; amount?: number } | null
       navigate(state?.from ?? '/', { state: state?.amount ? { amount: state.amount } : undefined })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao conectar')
+      if (err instanceof WrongPassphraseError) {
+        toast.error(err.message)
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Falha ao conectar')
+      }
     } finally {
       setConnecting(false)
     }
@@ -86,7 +106,25 @@ export function Login() {
         </div>
         <p className="text-sm text-brand-text-muted mt-1">Conecte sua carteira para comprar e vender com segurança</p>
 
-        <Button onClick={handleConnect} disabled={connecting} className="mt-8 h-14">
+        <div className="mt-6">
+          <label className="text-xs text-brand-text-muted mb-1.5 block">
+            <span className="flex items-center gap-1">
+              {isReturning ? 'Sua senha' : 'Crie uma senha'}
+              <InfoTooltip text={PASSPHRASE_EXPLAINER} />
+            </span>
+            <Input
+              type="password"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !connecting && handleConnect()}
+              placeholder={isReturning ? 'Digite sua senha' : 'Crie uma senha para proteger sua chave'}
+              className="w-full mt-1.5"
+              autoComplete={isReturning ? 'current-password' : 'new-password'}
+            />
+          </label>
+        </div>
+
+        <Button onClick={handleConnect} disabled={connecting || !passphrase} className="mt-4 h-14">
           {connecting ? (
             'Conectando...'
           ) : (

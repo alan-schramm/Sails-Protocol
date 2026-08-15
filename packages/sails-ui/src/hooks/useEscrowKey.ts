@@ -9,6 +9,14 @@
  * ever leaves, via `sailsClient.settlement.submitKey()`. A real wallet
  * integration would keep this in the wallet's own secure storage instead.
  *
+ * Encrypted at rest since 2026-08-11, same fix and same reasoning as
+ * AuthContext.tsx's identity key (real gap flagged live: plain-hex in
+ * localStorage) — reuses the SAME derived key from AuthContext (passed
+ * in below) rather than asking for the passphrase a second time. This is
+ * arguably the more important of the two keys to have encrypted: unlike
+ * the identity key, this one directly signs fund release/refund
+ * transactions.
+ *
  * One key is reused across every such escrow this browser profile
  * participates in, rather than a fresh key per trade (HodlHodl's own
  * real design derives one per contract) — kept simple here since this
@@ -18,6 +26,7 @@
  */
 import { generateEscrowKeypair, signEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from '../lib/sailsClient'
+import { encryptBytes, decryptBytes } from '../lib/keyEncryption'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
 
@@ -36,20 +45,46 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes
 }
 
-function loadOrCreateEscrowKeypair(): StoredEscrowKeypair {
+// Public key is stored alongside the encrypted private key, in plain
+// text — it's not secret (it's the same value submitKey() sends to the
+// server), so there's no reason to make the caller decrypt just to read
+// it back.
+interface StoredEscrowEnvelope {
+  encryptedPrivateKey: string // keyEncryption.ts's packed `iv:ciphertext` format
+  publicKeyHex: string
+}
+
+async function loadOrCreateEscrowKeypair(encryptionKey: CryptoKey): Promise<StoredEscrowKeypair> {
   const raw = localStorage.getItem(ESCROW_KEY_STORAGE_KEY)
   if (raw) {
     try {
-      const parsed = JSON.parse(raw)
-      if (parsed?.privateKeyHex && parsed?.publicKeyHex) return parsed
-    } catch {
-      // fall through and regenerate — a corrupted entry shouldn't block trading
+      const parsed = JSON.parse(raw) as Partial<StoredEscrowEnvelope>
+      if (parsed?.encryptedPrivateKey && parsed?.publicKeyHex) {
+        const result = await decryptBytes(encryptionKey, parsed.encryptedPrivateKey)
+        if (result.ok) return { privateKeyHex: bytesToHex(result.bytes), publicKeyHex: parsed.publicKeyHex }
+        if (result.reason === 'wrong-passphrase') {
+          // Real fund-safety guard: this key signs escrow release/refund
+          // transactions. Silently regenerating here would orphan
+          // whatever escrow this browser already submitted the OLD
+          // public key for — surface the failure instead of masking it.
+          throw new Error('Não foi possível desbloquear sua chave de escrow — senha incorreta.')
+        }
+        // reason === 'corrupt' (pre-encryption legacy entry or a
+        // corrupted one) — falls through and regenerates below, same as
+        // the pre-2026-08-11 behavior for a JSON.parse failure.
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('senha incorreta')) throw err
+      // JSON.parse failure or missing fields — fall through and regenerate.
     }
   }
   const kp = generateEscrowKeypair()
-  const stored: StoredEscrowKeypair = { privateKeyHex: bytesToHex(kp.privateKey), publicKeyHex: kp.publicKeyHex }
-  localStorage.setItem(ESCROW_KEY_STORAGE_KEY, JSON.stringify(stored))
-  return stored
+  const envelope: StoredEscrowEnvelope = {
+    encryptedPrivateKey: await encryptBytes(encryptionKey, kp.privateKey),
+    publicKeyHex: kp.publicKeyHex,
+  }
+  localStorage.setItem(ESCROW_KEY_STORAGE_KEY, JSON.stringify(envelope))
+  return { privateKeyHex: bytesToHex(kp.privateKey), publicKeyHex: kp.publicKeyHex }
 }
 
 // Escrow types whose address/script depends on a client-submitted pubkey
@@ -72,13 +107,20 @@ const PUBKEY_SUBMISSION_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL', 'S
 // own doc comment).
 const CLIENT_SIGNING_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
 
-export function useEscrowKey() {
+// `encryptionKey` — the same derived key AuthContext.tsx produces from
+// the user's passphrase at login, reused here rather than prompting a
+// second time (see this file's own header comment). Callers only reach
+// this hook while authenticated (Trade.tsx), so a null encryptionKey
+// here would mean a real auth-state bug elsewhere, not a normal path —
+// both functions below throw immediately rather than silently no-op-ing.
+export function useEscrowKey(encryptionKey: CryptoKey | null) {
   // Idempotent (the server upserts by role, see submitParticipantKey()) —
   // safe to call every time an escrow of the right type loads, no need to
   // track "already submitted" state client-side.
   const submitEscrowKeyIfNeeded = async (escrowType: string, escrowId: string) => {
     if (!PUBKEY_SUBMISSION_ESCROW_TYPES.has(escrowType)) return null
-    const { publicKeyHex } = loadOrCreateEscrowKeypair()
+    if (!encryptionKey) throw new Error('No encryption key available — user is not authenticated')
+    const { publicKeyHex } = await loadOrCreateEscrowKeypair(encryptionKey)
     return sailsClient.settlement.submitKey(escrowId, publicKeyHex)
   }
 
@@ -105,8 +147,9 @@ export function useEscrowKey() {
       return null // no signing round in flight for this escrow — nothing to do
     }
     if (!pending.requiredSigners.includes(participantId)) return null
+    if (!encryptionKey) throw new Error('No encryption key available — user is not authenticated')
 
-    const { privateKeyHex } = loadOrCreateEscrowKeypair()
+    const { privateKeyHex } = await loadOrCreateEscrowKeypair(encryptionKey)
     const privateKey = hexToBytes(privateKeyHex)
     const signedPsbtBase64 = escrowType === 'LIGHTNING_HODL'
       ? await signEscrowArkTx(pending.unsignedPsbtBase64, privateKey)

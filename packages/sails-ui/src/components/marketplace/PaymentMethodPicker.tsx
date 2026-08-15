@@ -40,7 +40,7 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger className="input-field flex items-center gap-2 min-w-[170px] justify-between">
+      <PopoverTrigger aria-label="Métodos de pagamento" className="input-field flex items-center gap-2 min-w-[170px] justify-between">
         <span className={`truncate ${value.length > 0 ? 'font-medium text-brand-orange-accent' : ''}`}>{label}</span>
         <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
       </PopoverTrigger>
