@@ -92,7 +92,7 @@ export function TradeHistory() {
   if (error) {
     return (
       <div className="text-center py-16">
-        <p className="text-red-700 text-sm">{error}</p>
+        <p className="text-red-500 text-sm">{error}</p>
         <Button variant="outline" onClick={load} className="mt-3 text-xs px-3 py-1.5">Tentar novamente</Button>
       </div>
     )
@@ -128,7 +128,7 @@ export function TradeHistory() {
               <span className="font-medium text-sm text-brand-text">{formatAmount(Number(t.amount))}</span>
             </div>
             <div className="flex items-center gap-2 md:ml-4">
-              <span className={`text-xs px-2 py-0.5 rounded-full ${t.buyerId === user.id ? 'bg-blue-500/10 text-blue-700' : 'bg-green-500/10 text-green-500'}`}>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${t.buyerId === user.id ? 'bg-blue-500/10 text-blue-500' : 'bg-green-500/10 text-green-500'}`}>
                 {t.buyerId === user.id ? 'Comprador' : 'Vendedor'}
               </span>
               <span className="text-xs text-brand-text-muted">{formatDateTime(t.createdAt)}</span>

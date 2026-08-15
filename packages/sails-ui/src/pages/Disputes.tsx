@@ -170,7 +170,7 @@ export function Disputes() {
   if (error) {
     return (
       <div className="text-center py-16">
-        <p className="text-red-700 text-sm">{error}</p>
+        <p className="text-red-500 text-sm">{error}</p>
         <Button variant="outline" onClick={load} className="mt-3 text-xs px-3 py-1.5">Tentar novamente</Button>
       </div>
     )
@@ -183,7 +183,7 @@ export function Disputes() {
       <div className="flex items-center gap-2">
         <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Disputas</h1>
         {openCount > 0 && (
-          <span className="bg-red-500/10 text-red-700 text-xs font-bold rounded-full px-2 py-0.5">{openCount}</span>
+          <span className="bg-red-500/10 text-red-500 text-xs font-bold rounded-full px-2 py-0.5">{openCount}</span>
         )}
       </div>
 
@@ -208,7 +208,7 @@ export function Disputes() {
                         ? 'bg-green-500/10 text-green-500'
                         : d.status === 'AUTO_PROPOSED'
                           ? 'bg-purple-500/10 text-purple-500'
-                          : 'bg-red-500/10 text-red-700'
+                          : 'bg-red-500/10 text-red-500'
                     }`}
                   >
                     {d.status === 'AUTO_PROPOSED' && <Bot className="h-3 w-3" />}

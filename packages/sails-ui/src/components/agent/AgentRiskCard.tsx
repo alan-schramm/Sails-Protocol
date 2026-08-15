@@ -9,7 +9,7 @@ import type { AssetType, TradeSide } from '../../types'
 const RISK_STYLE: Record<AgentRiskAssessment['risk'], string> = {
   low: 'text-green-500 bg-green-500/10 border-green-500/25',
   medium: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/25',
-  high: 'text-red-700 bg-red-500/10 border-red-500/25',
+  high: 'text-red-500 bg-red-500/10 border-red-500/25',
 }
 
 const RECOMMENDATION_LABEL: Record<AgentRiskAssessment['recommendation'], string> = {
@@ -74,7 +74,7 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
           Analisando negociação com QVAC...
         </div>
       ) : error ? (
-        <p className="text-xs text-red-700">{error}</p>
+        <p className="text-xs text-red-500">{error}</p>
       ) : assessment ? (
         <div>
           <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${RISK_STYLE[assessment.risk]}`}>

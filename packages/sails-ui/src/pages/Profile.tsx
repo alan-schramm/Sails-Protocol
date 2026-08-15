@@ -231,7 +231,7 @@ export function Profile() {
         <div className="mt-3 space-y-2">
           {loadingOffers && <p className="text-sm text-brand-text-muted">Carregando ofertas...</p>}
           {!loadingOffers && offersError && (
-            <p className="text-sm text-red-700">Não foi possível carregar suas ofertas agora — tente novamente.</p>
+            <p className="text-sm text-red-500">Não foi possível carregar suas ofertas agora — tente novamente.</p>
           )}
           {!loadingOffers && !offersError && myOffers.length === 0 && (
             <p className="text-sm text-brand-text-muted">
@@ -269,7 +269,7 @@ export function Profile() {
                         </button>
                         <button
                           onClick={() => setConfirmingCancelId(o.id)}
-                          className="text-xs text-red-700 hover:text-red-400 border border-red-500/25 rounded-md px-2 py-1 transition-colors"
+                          className="text-xs text-red-500 hover:text-red-400 border border-red-500/25 rounded-md px-2 py-1 transition-colors"
                         >
                           Cancelar oferta
                         </button>

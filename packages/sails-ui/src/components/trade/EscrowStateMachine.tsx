@@ -18,7 +18,7 @@ const HAPPY_PATH: { status: EscrowStatus; label: string }[] = [
 export function EscrowStateMachine({ status }: { status: EscrowStatus }) {
   if (status === 'DISPUTED' || status === 'REFUNDED') {
     return (
-      <div className={`rounded-lg p-4 text-sm border flex items-start gap-2 ${status === 'DISPUTED' ? 'bg-red-500/10 text-red-700 border-red-500/25' : 'bg-brand-elevated text-brand-text-secondary border-brand-border'}`}>
+      <div className={`rounded-lg p-4 text-sm border flex items-start gap-2 ${status === 'DISPUTED' ? 'bg-red-500/10 text-red-500 border-red-500/25' : 'bg-brand-elevated text-brand-text-secondary border-brand-border'}`}>
         {status === 'DISPUTED' ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" /> : <Undo2 className="h-4 w-4 shrink-0 mt-0.5" />}
         {status === 'DISPUTED' ? 'Este trade está em disputa — aguardando resolução do árbitro.' : 'Fundos reembolsados ao vendedor.'}
       </div>

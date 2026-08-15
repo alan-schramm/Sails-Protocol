@@ -59,7 +59,7 @@ export function EscrowCountdown({
 
   return (
     <div
-      className={`mt-3 flex items-center gap-1.5 text-xs ${expired ? 'text-red-700' : 'text-brand-text-muted'}`}
+      className={`mt-3 flex items-center gap-1.5 text-xs ${expired ? 'text-red-500' : 'text-brand-text-muted'}`}
     >
       <span>
         {expired

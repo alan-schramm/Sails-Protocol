@@ -61,7 +61,7 @@ export function EscrowActions({ status, isBuyer, isSeller, acting, onLockFunds, 
 
       {!isTerminal && canDispute && (
         // POST /v1/settlement/escrow/:id/dispute (dispute.service.ts's raiseDispute())
-        <Button variant="outline" onClick={onOpenDispute} disabled={acting} className="w-full py-2 text-sm border-red-500/25 text-red-700 hover:bg-red-500/10 hover:text-red-700">
+        <Button variant="outline" onClick={onOpenDispute} disabled={acting} className="w-full py-2 text-sm border-red-500/25 text-red-500 hover:bg-red-500/10 hover:text-red-500">
           <AlertTriangle className="h-4 w-4" />
           Abrir Disputa
         </Button>

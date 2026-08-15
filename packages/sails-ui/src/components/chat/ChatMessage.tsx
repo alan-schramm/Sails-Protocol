@@ -18,7 +18,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
       <div className="self-stretch flex items-start gap-2 text-xs bg-red-500/10 border border-red-500/25 text-brand-text rounded-lg px-3.5 py-2.5 my-1">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         <div className="flex-1">
-          <div className="flex items-center gap-1.5 font-semibold text-red-700">
+          <div className="flex items-center gap-1.5 font-semibold text-red-500">
             {message.riskPattern ? RISK_PATTERN_LABEL[message.riskPattern] : 'Sinal de risco detectado'}
             <InfoTooltip text="Reflete RISK_WARNING (RFC-017, SocialEngineeringAgent) — no backend real, o QVAC analisa a mensagem via qvacAgentProvider.assessSocialEngineeringRisk() e essa detecção fica desligada por padrão (config.features.socialEngineeringDetection). Nesta interface, a detecção em si é simulada por palavras-chave — não existe rota conectando o navegador ao agente real ainda." />
           </div>

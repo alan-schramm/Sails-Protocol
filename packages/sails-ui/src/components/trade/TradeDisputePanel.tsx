@@ -36,8 +36,8 @@ export function TradeDisputePanel({
   return (
     <div className="mt-4 pt-4 border-t border-brand-border">
       <div className="flex items-center gap-2 text-xs">
-        <AlertTriangle className="h-3.5 w-3.5 text-red-700 shrink-0" />
-        <span className="font-semibold text-red-700">
+        <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+        <span className="font-semibold text-red-500">
           {dispute.status === 'RESOLVED' ? 'Disputa resolvida' : 'Disputa em andamento'}
         </span>
         {dispute.status === 'AUTO_PROPOSED' && <Bot className="h-3.5 w-3.5 text-purple-500" />}

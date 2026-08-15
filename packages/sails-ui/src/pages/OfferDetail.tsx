@@ -105,7 +105,7 @@ export function OfferDetail() {
   if (!offer) {
     return (
       <div className="text-center py-16">
-        <p className={fetchError ? 'text-red-700' : 'text-brand-text-secondary'}>
+        <p className={fetchError ? 'text-red-500' : 'text-brand-text-secondary'}>
           {fetchError ? 'Não foi possível carregar esta oferta agora — tente novamente.' : 'Oferta não encontrada.'}
         </p>
         <Link to="/" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Voltar ao Marketplace</Link>
@@ -264,7 +264,7 @@ export function OfferDetail() {
                 </div>
               </label>
               {amount && !withinLimits && (
-                <p className="text-xs text-red-700 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
+                <p className="text-xs text-red-500 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
               )}
 
               <div className="mt-4 pt-4 border-t border-brand-border">

@@ -74,7 +74,7 @@ export function ActiveTrades() {
   if (error) {
     return (
       <div className="text-center py-16">
-        <p className="text-red-700 text-sm">{error}</p>
+        <p className="text-red-500 text-sm">{error}</p>
         <Button variant="outline" onClick={load} className="mt-3 text-xs px-3 py-1.5">Tentar novamente</Button>
       </div>
     )
