@@ -8,6 +8,18 @@ services:
     # name) and opens a DB-shaped attack surface to anything else running
     # on the developer machine. To debug with psql from the host:
     #   docker compose exec postgres psql -U postgres -d sails_protocol
+    # Real gap found 2026-08-15 running a genuinely fresh `docker compose up`
+    # (empty volume, no prior state) for the first time: this block never
+    # existed, so the official postgres image refused to initialize at all
+    # ("Database is uninitialized and superuser password is not specified"),
+    # failing the healthcheck and blocking `migrate`/`app` from ever
+    # starting. Every environment so far reused an already-initialized
+    # volume, so this had never actually been exercised. Values match
+    # `migrate`/`app`'s own hardcoded DATABASE_URL below exactly.
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: sails_protocol
     expose:
       - "5432"
     volumes:
