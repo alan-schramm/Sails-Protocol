@@ -1,22 +1,38 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router'
 import { Toaster } from 'sonner'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import { TooltipProvider } from './components/ui/tooltip'
 import { Layout } from './components/layout/Layout'
-import { Marketplace } from './pages/Marketplace'
-import { OfferDetail } from './pages/OfferDetail'
-import { Trade } from './pages/Trade'
+
+// Route-level code splitting (2026-08-11) — vite build's own warning
+// (a single ~2.6MB chunk) was every page in one bundle regardless of
+// which one a visitor actually loads first. Each page is a named
+// export, not default, so `.then()` re-shapes it into what `lazy()`
+// requires. `Login` stays a normal (non-lazy) import — it's the one
+// page an unauthenticated first visit always needs immediately, so
+// deferring it would just move the same waterfall one step earlier.
 import { Login } from './pages/Login'
-import { Profile } from './pages/Profile'
-import { PublishOffer } from './pages/PublishOffer'
-import { TradeHistory } from './pages/TradeHistory'
-import { ActiveTrades } from './pages/ActiveTrades'
-import { Disputes } from './pages/Disputes'
+const Marketplace = lazy(() => import('./pages/Marketplace').then((m) => ({ default: m.Marketplace })))
+const OfferDetail = lazy(() => import('./pages/OfferDetail').then((m) => ({ default: m.OfferDetail })))
+const Trade = lazy(() => import('./pages/Trade').then((m) => ({ default: m.Trade })))
+const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.Profile })))
+const PublishOffer = lazy(() => import('./pages/PublishOffer').then((m) => ({ default: m.PublishOffer })))
+const TradeHistory = lazy(() => import('./pages/TradeHistory').then((m) => ({ default: m.TradeHistory })))
+const ActiveTrades = lazy(() => import('./pages/ActiveTrades').then((m) => ({ default: m.ActiveTrades })))
+const Disputes = lazy(() => import('./pages/Disputes').then((m) => ({ default: m.Disputes })))
 
 function ThemedToaster() {
   const { theme } = useTheme()
   return <Toaster position="bottom-right" theme={theme} />
+}
+
+// Same loading copy/style Trade.tsx's own initial-load state already
+// uses — one consistent "carregando" look across the app, not a new one
+// invented just for route transitions.
+function RouteFallback() {
+  return <div className="text-center py-16 text-brand-text-muted">Carregando...</div>
 }
 
 export default function App() {
@@ -29,14 +45,14 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route element={<Layout />}>
-                <Route path="/" element={<Marketplace />} />
-                <Route path="/offer/:id" element={<OfferDetail />} />
-                <Route path="/trade/:id" element={<Trade />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/profile/active" element={<ActiveTrades />} />
-                <Route path="/profile/history" element={<TradeHistory />} />
-                <Route path="/profile/new-offer" element={<PublishOffer />} />
-                <Route path="/disputes" element={<Disputes />} />
+                <Route path="/" element={<Suspense fallback={<RouteFallback />}><Marketplace /></Suspense>} />
+                <Route path="/offer/:id" element={<Suspense fallback={<RouteFallback />}><OfferDetail /></Suspense>} />
+                <Route path="/trade/:id" element={<Suspense fallback={<RouteFallback />}><Trade /></Suspense>} />
+                <Route path="/profile" element={<Suspense fallback={<RouteFallback />}><Profile /></Suspense>} />
+                <Route path="/profile/active" element={<Suspense fallback={<RouteFallback />}><ActiveTrades /></Suspense>} />
+                <Route path="/profile/history" element={<Suspense fallback={<RouteFallback />}><TradeHistory /></Suspense>} />
+                <Route path="/profile/new-offer" element={<Suspense fallback={<RouteFallback />}><PublishOffer /></Suspense>} />
+                <Route path="/disputes" element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
               </Route>
             </Routes>
           </BrowserRouter>
