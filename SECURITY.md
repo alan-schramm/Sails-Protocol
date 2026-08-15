@@ -40,29 +40,40 @@ This security policy applies to:
 
 ### For Users
 
-1. **Never share your private key** — Not even with support
+1. **Never share your private key** — Not even with support; it's the only credential that exists, there's no password to fall back on
 2. **Verify URLs** — Only use official domains
-3. **Enable 2FA** — Where available
-4. **Report suspicious activity** — Contact security@sailsprotocol.io
+3. **Report suspicious activity** — Contact security@sailsprotocol.io
 
 ## Authentication
 
-- JWT tokens with short expiry (15 minutes)
-- Refresh tokens stored securely
-- No password-based authentication (public key based)
-- Session invalidation on logout
+<!-- Corrected 2026-08-15 — this section previously described JWT/refresh
+     tokens, which never existed in this codebase; found stale while
+     verifying claims against the real implementation before adding
+     automated CI scanning below. -->
+- Ed25519 challenge-response — the client signs a server-issued nonce with
+  their own keypair; no password ever exists to authenticate with
+- Session token (a random 32-byte value, not a JWT) issued on successful
+  verification, stored server-side in Redis, default 1-hour TTL
+- No logout/session-revocation endpoint exists yet — a session ends only
+  by expiring; tracked as a real gap, not implemented
 
 ## Data Protection
 
 - No PII stored beyond public keys
-- No logging of sensitive data (headers, tokens)
-- Encryption at rest for database
+- No logging of sensitive data (headers/cookies/tokens redacted — `app.ts`'s
+  own pino `redact` config)
+- Encryption at rest for the database is a deployment-time choice (e.g. AWS
+  RDS storage encryption), not something this codebase enforces or verifies
+  itself — confirm it's enabled for your own deployment, don't assume it
 - TLS for all communications
 
 ## Dependency Security
 
-- Regular dependency updates via Dependabot
-- Automated vulnerability scanning in CI
+- Regular dependency updates via Dependabot (`.github/dependabot.yml`)
+- Automated static analysis (CodeQL, `security-extended` query pack) on
+  every PR, every push to `main`, and weekly — `.github/workflows/codeql.yml`,
+  added 2026-08-15. This line was aspirational before that date; corrected
+  once it became true, not before.
 - Lock files committed (`package-lock.json`)
 
 ## Compliance
@@ -77,4 +88,4 @@ This security policy applies to:
 
 ---
 
-> **Last updated:** 2026-08-07
+> **Last updated:** 2026-08-15

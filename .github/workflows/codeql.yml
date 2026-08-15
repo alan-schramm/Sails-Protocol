@@ -1,0 +1,46 @@
+name: CodeQL
+
+# 2026-08-15 — SECURITY.md has claimed "Automated vulnerability scanning
+# in CI" since 2026-08-07, but no workflow in this repo ever ran a
+# security scanner; that line was aspirational, not real. This closes the
+# gap for real rather than just removing the claim.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, not just on push/PR — CodeQL's own query packs get updated
+    # independently of this repo's commits, so a dependency-free branch
+    # can still surface a newly-added finding against unchanged code.
+    - cron: '0 6 * * 1'
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # security-extended: CodeQL's default query pack is precision-
+          # tuned to minimize false positives; security-extended adds
+          # broader coverage (includes lower-confidence queries) —
+          # deliberate tradeoff for a pre-audit reference implementation
+          # where surfacing more candidates for human review matters more
+          # than a quiet CI log.
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:javascript-typescript'
