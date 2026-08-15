@@ -101,7 +101,21 @@ async function loadStoredKeypair(encryptionKey: CryptoKey): Promise<Ed25519Keypa
 }
 
 async function storeKeypair(encryptionKey: CryptoKey, kp: Ed25519Keypair) {
-  localStorage.setItem(KEYPAIR_STORAGE_KEY, await encryptBytes(encryptionKey, kp.secretKey))
+  const packed = await encryptBytes(encryptionKey, kp.secretKey)
+  // Real bug found live: this runs right after identity.create() already
+  // registered a real Participant server-side (login()'s own call order,
+  // just above this function's only call site) — an unguarded setItem
+  // throwing here (quota exceeded, Safari private browsing) orphaned that
+  // identity permanently: the keypair only ever existed in this function's
+  // local scope, so a retry just generates and registers a brand new one,
+  // leaving the first stranded with no way back in. Must fail loudly with
+  // an actionable message, not the generic "Falha ao conectar" a bare
+  // rethrow would surface.
+  try {
+    localStorage.setItem(KEYPAIR_STORAGE_KEY, packed)
+  } catch {
+    throw new Error('Não foi possível salvar sua chave neste navegador (modo privado ou armazenamento cheio) — tente em uma janela normal ou libere espaço.')
+  }
 }
 
 interface AuthContextType {

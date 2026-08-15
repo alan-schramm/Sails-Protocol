@@ -40,7 +40,17 @@ function getOrCreateSalt(): Uint8Array {
   const parsed = stored ? hexToBytes(stored) : null
   if (parsed) return parsed
   const salt = crypto.getRandomValues(new Uint8Array(16))
-  localStorage.setItem(SALT_STORAGE_KEY, bytesToHex(salt))
+  // Real bug found live: an unguarded setItem here (quota exceeded, or
+  // Safari private browsing) generated a salt that was never persisted —
+  // the next derivation would silently generate a DIFFERENT salt, so even
+  // the correct passphrase would never again produce the same key. Must
+  // fail loudly here, not swallow: there's no "corrupt/legacy" fallback
+  // for a salt, unlike decryptBytes()'s own callers.
+  try {
+    localStorage.setItem(SALT_STORAGE_KEY, bytesToHex(salt))
+  } catch {
+    throw new Error('Não foi possível salvar dados neste navegador (modo privado ou armazenamento cheio) — tente em uma janela normal ou libere espaço.')
+  }
   return salt
 }
 

@@ -23,8 +23,17 @@ function readFavorites(): string[] {
   }
 }
 
-function writeFavorites(ids: string[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(ids))
+// Returns whether the write actually landed — a quota-exceeded or
+// private-browsing localStorage throw shouldn't crash the toggle, but the
+// caller needs to know so it doesn't report a "favorited" state that
+// silently reverts on the next reload.
+function writeFavorites(ids: string[]): boolean {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(ids))
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function isFavoriteTrader(userId: string): boolean {
@@ -34,8 +43,9 @@ export function isFavoriteTrader(userId: string): boolean {
 export function toggleFavoriteTrader(userId: string): boolean {
   const current = readFavorites()
   const isFav = current.includes(userId)
-  writeFavorites(isFav ? current.filter((id) => id !== userId) : [...current, userId])
-  return !isFav
+  const next = isFav ? current.filter((id) => id !== userId) : [...current, userId]
+  const saved = writeFavorites(next)
+  return saved ? !isFav : isFav
 }
 
 export function getFavoriteTraderIds(): string[] {
