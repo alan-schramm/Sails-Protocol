@@ -31,6 +31,8 @@ import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
 import { metricsRegistry, httpRequestsTotal, httpRequestDurationSeconds } from './common/metrics'
+import { recordSuspiciousActivity } from './common/security/suspicious-activity'
+import type { AuthenticatedRequest } from './common/middleware/auth'
 import packageJson from '../package.json'
 
 // TECHNICAL_DEBT_AUDIT.md item 17 — '0.1.0' was hardcoded 4 times below,
@@ -177,6 +179,18 @@ export async function buildApp(): Promise<FastifyInstance> {
     const labels = { method: request.method, route, status_code: String(reply.statusCode) }
     httpRequestsTotal.inc(labels)
     httpRequestDurationSeconds.observe(labels, reply.elapsedTime / 1000)
+
+    // 2026-08-15 security review — the Boltz-class gap: a volume rate
+    // limiter never flags a slow, patient probe. Keyed by participantId
+    // when requireAuth already ran (so repeated failures from one
+    // authenticated identity across different IPs still correlate), else
+    // request.ip — same fallback @fastify/rate-limit's own default keying
+    // already uses. See suspicious-activity.ts for what "suspicious"
+    // means here and why these three status codes specifically.
+    const identity = (request as AuthenticatedRequest).participantId ?? request.ip
+    if (reply.statusCode === 401) recordSuspiciousActivity('AUTH_FAILURE', identity, app.log)
+    else if (reply.statusCode === 404) recordSuspiciousActivity('NOT_FOUND_CLUSTER', identity, app.log)
+    else if (reply.statusCode === 429) recordSuspiciousActivity('RATE_LIMITED', identity, app.log)
   })
 
   // Unauthenticated by default, matching standard Prometheus exporter

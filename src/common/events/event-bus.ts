@@ -312,6 +312,20 @@ export interface SocialEngineeringRiskDetectedEvent {
   detectedAt: string
 }
 
+// Raised by common/security/suspicious-activity.ts the first time an
+// identity crosses a threshold within a detection window (repeated auth
+// failures, 404 clustering / ID enumeration, or repeated rate-limit hits).
+// Detection only, same posture as SocialEngineeringRiskDetectedEvent above
+// — never blocks or bans anything itself, just surfaces a signal for a
+// human or alerting pipeline.
+export interface SuspiciousActivityDetectedEvent {
+  kind: 'AUTH_FAILURE' | 'NOT_FOUND_CLUSTER' | 'RATE_LIMITED'
+  identity: string // participantId if authenticated, request.ip otherwise
+  count: number
+  windowMs: number
+  detectedAt: string
+}
+
 // ─── Event Map — canonical namespace {module}.{entity}.{action} ──────────────
 export interface SailsEventMap {
   // Intent Engine — §2.5, cross-cutting Core, not module-owned
@@ -387,6 +401,9 @@ export interface SailsEventMap {
 
   // Sails OpenAgents — Social Engineering Agent (RFC-007 D7 / RFC-017)
   'agents.social_engineering.risk_detected': SocialEngineeringRiskDetectedEvent
+
+  // Cross-cutting security — common/security/suspicious-activity.ts
+  'security.suspicious_activity.detected': SuspiciousActivityDetectedEvent
 }
 
 export type SailsEventName = keyof SailsEventMap

@@ -115,6 +115,24 @@ export const config = {
     wsMessageWindowMs: requiredInt('RATE_LIMIT_WS_MESSAGE_WINDOW_MS', 10000),
   },
 
+  // 2026-08-15 security review — common/security/suspicious-activity.ts.
+  // A volume rate limiter (the tiers above) never catches a slow, patient
+  // probe; this is a separate, threshold-based detection layer, not
+  // another rate limit — it never blocks anything, only logs + emits an
+  // event once an identity crosses its threshold within the window. 401
+  // gets the highest bar (a real user mistyping a password looks
+  // identical for one or two attempts); 404 clustering (ID enumeration)
+  // gets the lowest, since it's the cheapest pattern for an attacker to
+  // generate.
+  suspiciousActivity: {
+    authFailureMax: requiredInt('SUSPICIOUS_AUTH_FAILURE_MAX', 8),
+    authFailureWindowMs: requiredInt('SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', 5 * 60 * 1000),
+    notFoundClusterMax: requiredInt('SUSPICIOUS_NOT_FOUND_MAX', 15),
+    notFoundClusterWindowMs: requiredInt('SUSPICIOUS_NOT_FOUND_WINDOW_MS', 5 * 60 * 1000),
+    rateLimitedMax: requiredInt('SUSPICIOUS_RATE_LIMITED_MAX', 3),
+    rateLimitedWindowMs: requiredInt('SUSPICIOUS_RATE_LIMITED_WINDOW_MS', 5 * 60 * 1000),
+  },
+
   features: {
     // RED_TEAM_REVIEW.md RT-001: this is the single most important line
     // in this file. Left true, "escrow" is theater — see escrow.service.ts.

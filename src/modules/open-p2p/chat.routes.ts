@@ -46,6 +46,7 @@ import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { resolveParticipantFromTicket } from '../../common/middleware/ws-auth'
 import { joinRoom, leaveRoom, broadcastToTrade, type RoomMember } from './chat-room-registry'
 import { checkWsMessageRateLimit } from './ws-message-rate-limiter'
+import { recordSuspiciousActivity } from '../../common/security/suspicious-activity'
 import { pearNodeRegistry } from '../../infrastructure/p2p/pear.service'
 import { wireInboundNegotiationChannel } from './negotiation.service'
 import { tradeService } from './trade.service'
@@ -145,6 +146,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
           // sees this — it's a `message` frame on an already-open socket,
           // not a new HTTP request. See ws-message-rate-limiter.ts.
           if (!checkWsMessageRateLimit(participantId)) {
+            recordSuspiciousActivity('RATE_LIMITED', participantId, request.log)
             socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Rate limit exceeded — slow down' } }))
             return
           }
