@@ -125,7 +125,14 @@ export async function main() {
   await capabilityRegistry.grant({
     grantedTo: buyer.id,
     capabilityName: CAPABILITY_IMPLEMENTATIONS.openp2p, // 'trade-coordination'
-    scope: ['intent.created'],
+    // Missão 02.5 — 'intent.discovering' added alongside the original
+    // 'intent.created': Missão 02 (RFC-023 amendment) gated
+    // POST /v1/intents/:id/propose behind this same capability, and this
+    // grant's own reason for existing (see header comment above) is to
+    // keep working unmodified the moment ENFORCE_CAPABILITIES=true — a
+    // grant that only covered Intent creation and not the propose step
+    // that now follows it would have silently broken that promise.
+    scope: ['intent.created', 'intent.discovering'],
     issuedBy: buyer.id, // self-issued — RFC-013's own MVP scope cut, not a new one here
   })
   await capabilityRegistry.grant({

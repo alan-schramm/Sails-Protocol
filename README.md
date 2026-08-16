@@ -260,7 +260,7 @@ wishlist.
 
 The v1.0 specification is frozen — no new primitive, module, or Core
 component gets added without a numbered RFC first. `docs/rfcs/00-INDEX.md`
-has the process and every RFC (001-012) that has amended the frozen spec
+has the process and every RFC (001-023) that has amended the frozen spec
 so far. If you hit an architectural ambiguity while implementing, that's
 a proposal to write up, not a decision to make silently — see
 `CONTRIBUTING.md`.

@@ -31,14 +31,23 @@
     "url": "git+https://github.com/alan-schramm/Sails-Protocol.git",
     "directory": "packages/sdk-react"
   },
-  "keywords": ["sails", "p2p", "bitcoin", "escrow", "non-custodial", "sdk", "react"],
+  "keywords": [
+    "sails",
+    "p2p",
+    "bitcoin",
+    "escrow",
+    "non-custodial",
+    "sdk",
+    "react"
+  ],
   "peerDependencies": {
+    "@tanstack/react-query": "^5.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "@tanstack/react-query": "^5.0.0"
+    "react-dom": "^19.0.0"
   },
   "dependencies": {
-    "@satsails/p2p-trading-sdk": "^0.1.0"
+    "@satsails/p2p-trading-sdk": "^0.1.0",
+    "hardhat": "3.13.0"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^3.2.7",
@@ -57,13 +66,13 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
-    "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/coverage-v8": "^4.1.10",
     "jsdom": "^25.0.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "storybook": "^8.6.14",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.10"
   }
 }

@@ -170,6 +170,12 @@ export class SailsClient {
   // boundary).
   proposeTrade: SailsIntentFacade["proposeTrade"] = (...args) =>
     this.intents.proposeTrade(...args);
+  // Missão 02.5 — additive 8th delegate alongside proposeTrade, not a
+  // replacement (see intent-facade.ts's own doc comment on
+  // proposeTradeOutcome for why proposeTrade's frozen return type can't
+  // represent a counterProposal safely).
+  proposeTradeOutcome: SailsIntentFacade["proposeTradeOutcome"] = (...args) =>
+    this.intents.proposeTradeOutcome(...args);
 
   /**
    * Retrieve the balance of a specific asset using the injected wallet adapter.

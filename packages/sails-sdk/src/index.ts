@@ -157,6 +157,8 @@ export type {
   Intent,
   TradeIntentPayload,
   TradeProposal,
+  CounterProposal,
+  TradeProposalOutcome,
   PeerStatus,
   CapabilityGrant,
   Vouch,

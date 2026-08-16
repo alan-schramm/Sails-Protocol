@@ -955,7 +955,7 @@ primitive with its own persisted lifecycle. Kept separate from the
 already-shipped, per-Claim `getEvidenceBundle(claimId)` (its own real
 SDK/React-hook surface) rather than renaming that method.
 
-### `Timeline` — not a table (RFC-007 D5, corrected by RFC-017)
+### `Timeline` — not its own table; a projection over `durable_events` (RFC-007 D5, corrected by RFC-017 and RFC-008 D2)
 
 **Corrected 2026-07-19** (a consolidation-audit catch): RFC-007 D5
 originally keyed this by `intentId`. RFC-017
@@ -967,19 +967,63 @@ not `intentId` — no Intent-to-Trade persistence link exists yet to make
 `getTimeline(correlationId)` reflects RFC-017's correction; this section
 previously still described RFC-007's original, superseded shape.
 
-`Timeline.getEvents(correlationId)` is a read projection over events
-already persisted by each module's own audit trail (e.g. `EscrowEvent`
-above, `ReputationEvent`, future `DisputeEvent`), ordered by `createdAt`
-and filtered to one `correlationId` (`tradeId` today; `intentId` once
-Intent persistence exists — RFC-010's own convention). No new table —
-adding one would duplicate state that already exists per-module, which
-is exactly the outcome RFC-007's primitive-rejection reasoning was
-written to avoid.
-**RFC-008 D2** adds `entryHash`/`prevHash` columns directly to those same
-per-module tables (see `EscrowEvent`/`ReputationEvent` above) rather than
-a separate chain-ledger table — still no new table, but a real (nullable,
-backward-compatible) schema change RFC-007's original "no new write path"
-framing didn't anticipate.
+**Corrected again, 2026-08-15 (found stale while working on Missão 05.7,
+fixed as part of it per this repo's own "fix a confirmed-stale doc found
+in a file already being touched" convention — not scope creep, the
+convention itself):** the paragraph below, as it read before this pass,
+said Timeline is "a read projection over events already persisted by
+each module's own audit trail (`EscrowEvent`, `ReputationEvent`...)" and
+that RFC-008 D2 "adds `entryHash`/`prevHash` columns directly to those
+same per-module tables." Both claims were already false by the time
+RFC-017 shipped (2026-08-04) — `core/timeline.ts`'s real
+`getTimeline(correlationId)` has only ever read from
+`EventStore.getEvents(correlationId)` (`common/events/event-store.ts`),
+never from `EscrowEvent`/`ReputationEvent` directly; RFC-008's own D2
+section already documents this correction and says so explicitly. This
+file's own copy of that claim was simply never updated to match — see
+RFC-008's D2 section for the full history, and its Missão 05.5 and
+Missão 05.7 amendments below it for what actually did (and didn't)
+change on `EscrowEvent` and the `EventStore` backend since.
+
+`Timeline.getEvents(correlationId)` is a read projection over
+`EventStore.getEvents(correlationId)` — the Event Bus's own
+`DurableEvent` stream (RFC-010), ordered by `publishedAt` and filtered to
+one `correlationId` (`tradeId` today; `intentId` once Intent persistence
+exists). As of Missão 05.7 (2026-08-15), that stream is durable by
+default: `PostgresEventStore` persists it to a real table,
+`durable_events` (Prisma model `DurableEventRecord`, documented below) —
+before this, the default `InMemoryEventStore` held it only in-process,
+gone on restart. `EscrowEvent`/`ReputationEvent` remain each module's own
+separate audit trail (real, Postgres-backed, and — for `EscrowEvent` —
+independently hash-chained since Missão 05.5), but `Timeline` does not
+read them; it is not a projection over them and never has been since
+RFC-017 shipped.
+
+### `DurableEventRecord` — `EventStore`'s durable backing table, owned by Core (RFC-010, RFC-008 D2 amendment — Missão 05.7)
+
+```prisma
+model DurableEventRecord {
+  id            String @id @default(uuid())
+  eventName     String
+  correlationId String
+  payload       Json
+  publishedAt   String  // exact ISO-8601 string hashed by computeEntryHash() — never a native DateTime, see this model's own schema.prisma comment for why
+  entryHash     String  // RFC-008 D2 — sha256(eventName:publishedAt:JSON(payload):prevHash), computed at write time by EventStore.publish()
+  prevHash      String  // prior DurableEventRecord.entryHash for this correlationId; GENESIS_HASH ('genesis') for the first
+
+  @@index([correlationId, publishedAt])
+  @@map("durable_events")
+}
+```
+
+One shared table for every module's events — not a per-module table like
+`EscrowEvent`/`IntentEvent` above. This is the storage behind `EventStore`
+itself (`common/events/event-store.ts`'s `PostgresEventStore`, now
+`SailsEventBus`'s default), not a second, competing copy of any one
+module's own audit trail. No historical-rows question applies: this
+table is new, created directly with `entryHash`/`prevHash` as `NOT NULL`
+columns (unlike `EscrowEvent`/`IntentEvent`'s nullable ones, which had to
+account for pre-hash-chain rows).
 
 ### `OperationalProfileGrant` — owned by `openidentity` (RFC-007 D8/D11)
 

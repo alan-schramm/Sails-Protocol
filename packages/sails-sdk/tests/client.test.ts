@@ -72,6 +72,54 @@ describe('SailsClient — Intent facade', () => {
     await expect(client.negotiate('intent-1', { type: 'MESSAGE_EXCHANGED' })).rejects.toThrow(/openp2p\.chat/)
   })
 
+  // Missão 02.5 — proposeTrade() (RFC-023) previously had zero SDK-level
+  // coverage anywhere in this package; only the backend route itself was
+  // tested. Closing that real, pre-existing gap here, plus the new
+  // proposeTradeOutcome() this mission adds alongside it.
+  it('proposeTrade() calls the real POST /v1/intents/:id/propose route and returns only the proposal half', async () => {
+    const fetchImpl = fakeFetch(200, {
+      success: true,
+      data: {
+        proposal: { offerId: 'offer-1', priceUsd: '65000', amount: '0.1', traderReputation: 50, paymentMethods: ['PIX'] },
+        counterProposal: null,
+      },
+    })
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-token-1')
+
+    const proposal = await client.proposeTrade('intent-1', '0.1')
+
+    expect(proposal).toEqual({ offerId: 'offer-1', priceUsd: '65000', amount: '0.1', traderReputation: 50, paymentMethods: ['PIX'] })
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/intents/intent-1/propose')
+    expect(JSON.parse(init.body)).toEqual({ amount: '0.1' })
+    expect(init.headers.authorization).toBe('Bearer session-token-1')
+  })
+
+  it('proposeTrade() returns null, not an error, when nothing matched — same route\'s "no proposal" outcome', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { proposal: null, counterProposal: null } })
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-token-1')
+
+    expect(await client.proposeTrade('intent-1', '0.1')).toBeNull()
+  })
+
+  it('proposeTradeOutcome() calls the exact same route as proposeTrade() but surfaces the counterProposal proposeTrade() discards', async () => {
+    const counterProposal = {
+      referenceOfferId: 'offer-1', listedPriceUsd: '75000', suggestedPriceUsd: '70000', reasoning: 'informational only',
+    }
+    const fetchImpl = fakeFetch(200, { success: true, data: { proposal: null, counterProposal } })
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-token-1')
+
+    const outcome = await client.proposeTradeOutcome('intent-1', '0.1')
+
+    expect(outcome).toEqual({ proposal: null, counterProposal })
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/intents/intent-1/propose')
+    expect(JSON.parse(init.body)).toEqual({ amount: '0.1' })
+  })
+
   // Real as of 2026-08-01 — the Proof primitive's routes turned out to
   // already exist (proof.service.ts/proof.routes.ts, dated 2026-07-21),
   // contradicting the stale docs/BACKLOG.md claim this test used to

@@ -53,7 +53,7 @@
  */
 import type { SailsTransport } from './transport'
 import { SailsNotImplementedError } from './errors'
-import type { Intent, IntentStatus, TradeIntentPayload, TradeProposal, Trade, Dispute, Proof, Escrow } from './types'
+import type { Intent, IntentStatus, TradeIntentPayload, TradeProposal, TradeProposalOutcome, Trade, Dispute, Proof, Escrow } from './types'
 
 export interface NegotiationEvent {
   type: 'OFFER_PROPOSED' | 'COUNTER_OFFERED' | 'TERMS_ACCEPTED' | 'TERMS_REJECTED' | 'MESSAGE_EXCHANGED'
@@ -111,6 +111,24 @@ export class SailsIntentFacade {
       `/v1/intents/${intentId}/propose`, { amount }, true
     )
     return proposal
+  }
+
+  /**
+   * Missão 02.5 — additive, not a replacement for `proposeTrade()` above.
+   * `proposeTrade()`'s own return type (`TradeProposal | null`) is
+   * documented and frozen in `docs/API_STABLE.md` — it cannot represent
+   * "no match, but a real counterProposal exists" (both would have to
+   * collapse to `null`, silently dropping the counterProposal), so
+   * extending it in place would be a breaking change to a shape a caller
+   * may already depend on. This method calls the exact same route and
+   * returns everything it sends back, including the counterProposal
+   * `proposeTrade()` today discards — see `CounterProposal`'s own doc
+   * comment in `types.ts` for what it means and, importantly, what it is
+   * not (never an id this protocol accepts back into a trade-creation or
+   * settlement call).
+   */
+  async proposeTradeOutcome(intentId: string, amount: string): Promise<TradeProposalOutcome> {
+    return this.transport.post<TradeProposalOutcome>(`/v1/intents/${intentId}/propose`, { amount }, true)
   }
 
   async negotiate(_intentId: string, _event: NegotiationEvent): Promise<void> {

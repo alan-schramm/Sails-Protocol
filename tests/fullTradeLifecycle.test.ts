@@ -21,9 +21,10 @@
  * actually dispatching to the REAL handlers.ts reactions. This file does:
  * only the database (an in-memory fake standing in for Prisma) and the
  * two genuinely-external providers (WDK/HyperDHT) are replaced — every
- * service singleton, the real eventBus (InMemoryEventStore, RFC-010's
- * always-available default — no Redis needed), and registerEventHandlers()
- * are the actual production code. This is exactly the kind of gap that
+ * service singleton, the real eventBus (PostgresEventStore as of Missão
+ * 05.7, backed by this file's own fake durableEventRecord table below —
+ * no live Postgres/Redis needed), and registerEventHandlers() are the
+ * actual production code. This is exactly the kind of gap that
  * caught the Trade.escrowId bug fixed earlier this pass (a unit test
  * mocking dispute.service.ts's own database calls directly would never
  * have caught that createEscrow() never wrote the FK another module
@@ -144,6 +145,38 @@ const intentEvents = {
   }),
 }
 
+// eventBus's default store is PostgresEventStore as of Missão 05.7 — the
+// real eventBus this file deliberately exercises (see this file's own
+// header comment) now needs prisma.durableEventRecord too. Same
+// last-match-by-correlationId shape as intentEvents above, for the same
+// reason (publish() needs the most recent prior row for a correlationId
+// to chain prevHash, not just any match).
+const durableEventRows: any[] = []
+let durableEventSeq = 0
+const durableEventRecords = {
+  create: jest.fn(async ({ data }: any) => {
+    const row = { id: `durableEvent-${++durableEventSeq}`, ...data }
+    durableEventRows.push(row)
+    return { ...row }
+  }),
+  findFirst: jest.fn(async ({ where }: any) => {
+    const matches = durableEventRows.filter((r) => r.correlationId === where.correlationId)
+    return matches.length ? matches[matches.length - 1] : null
+  }),
+  findMany: jest.fn(async ({ where }: any) => {
+    return durableEventRows.filter((r) => r.correlationId === where.correlationId)
+  }),
+}
+
+// PostgresEventStore.publish() (Missão 05.8) wraps its write in a real
+// Postgres transaction (pg_advisory_xact_lock-serialized per
+// correlationId) — a trivial passthrough is enough here since this file
+// doesn't test EventStore concurrency (tests/postgresEventStore.test.ts
+// does).
+const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
+  callback({ durableEventRecord: durableEventRecords, $executeRaw: jest.fn().mockResolvedValue(0) })
+)
+
 jest.mock('../src/common/database', () => ({
   prisma: {
     user: users,
@@ -155,6 +188,8 @@ jest.mock('../src/common/database', () => ({
     intent: intents,
     intentEvent: intentEvents,
     vouch: vouches,
+    durableEventRecord: durableEventRecords,
+    $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
 

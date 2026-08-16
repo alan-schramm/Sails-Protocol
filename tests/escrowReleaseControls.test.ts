@@ -89,6 +89,7 @@ const mockEscrowUpdate = jest.fn()
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowCreate = jest.fn()
 const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
 const mockCapabilityGrantFindMany = jest.fn()
 const mockApprovalUpsert = jest.fn()
@@ -117,7 +118,14 @@ jest.mock('../src/common/database', () => ({
       updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
       create: (...args: unknown[]) => mockEscrowCreate(...args),
     },
-    escrowEvent: { create: (...args: unknown[]) => mockEscrowEventCreate(...args) },
+    escrowEvent: {
+      create: (...args: unknown[]) => mockEscrowEventCreate(...args),
+      // Missão 05.5 — emitEscrowTransition() now reads the last event for
+      // this escrowId to compute prevHash before creating the next one.
+      // null (no prior event) is the correct default for every test here
+      // that doesn't care about the chain specifically.
+      findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
+    },
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
     capabilityGrant: { findMany: (...args: unknown[]) => mockCapabilityGrantFindMany(...args) },
     escrowReleaseApproval: {

@@ -7,9 +7,32 @@
  * the real handlers.ts reactions actually run and increment the counter,
  * not that a mocked .on() was called with the right arguments.
  */
+export {} // same reasoning as fullTradeLifecycle.test.ts/chatUnification.test.ts's
+// identical comment — forces this file to be a module so its top-level
+// consts (mockDurableEventRecordDelegate, mockTransaction, added in
+// Missão 05.8) don't leak into the shared global scope and collide with
+// another test file's identically-named ones.
+const mockDurableEventRecordDelegate = {
+  findFirst: jest.fn().mockResolvedValue(null),
+  create: jest.fn().mockImplementation(async ({ data }: any) => data),
+  findMany: jest.fn().mockResolvedValue([]),
+}
+// PostgresEventStore.publish() (Missão 05.8) wraps its write in a real
+// Postgres transaction (pg_advisory_xact_lock-serialized per
+// correlationId) — a trivial passthrough is enough here since this file
+// doesn't test concurrency.
+const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
+  callback({ durableEventRecord: mockDurableEventRecordDelegate, $executeRaw: jest.fn().mockResolvedValue(0) })
+)
+
 jest.mock('../src/common/database', () => ({
   prisma: {
     trade: { update: jest.fn().mockResolvedValue({ id: 'trade-1', intentId: null, buyerId: 'buyer-1', sellerId: 'seller-1' }) },
+    // eventBus's default store is PostgresEventStore as of Missão 05.7 —
+    // eventBus.emit() below now writes through here too, not just the
+    // handlers.ts reactions this file's own header comment describes.
+    durableEventRecord: mockDurableEventRecordDelegate,
+    $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
 

@@ -9,6 +9,11 @@
  * round-trips against both routes in the same running app, not just
  * reasoned about.
  */
+export {} // forces this file to be a module (no top-level import/export
+// otherwise) so its top-level consts don't leak into the shared global
+// scope and collide with another such file's identically named ones
+// (found for real, Missão 06: mockOfferFindMany colliding with
+// tests/liquidityProposeForIntent.test.ts's own module-scope one).
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: { emit: jest.fn().mockResolvedValue(undefined), on: jest.fn(), onDurable: jest.fn() },
 }))

@@ -30,3 +30,10 @@ GITHUB_ORGANIZATION.md
 # what's since been fixed). Files here still exist locally; they're just
 # not part of what gets pushed to GitHub.
 internal/
+
+# Local-only compose override (docker-compose.yml's own app-service
+# comment already documents this convention) — used to temporarily
+# expose postgres/redis to the host for real-Postgres integration
+# testing (Missão 06) without changing the committed, deliberately
+# host-unexposed default.
+docker-compose.override.yml

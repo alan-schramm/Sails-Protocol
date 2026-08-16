@@ -22,6 +22,16 @@ the returned proposal; only then does the existing, unmodified
 `POST /v1/openp2p/trades` flow run — the same call the UI already makes
 today for a manually-selected offer.
 
+**Status at a glance, after the Missão 02 amendment below:** QVAC
+Negotiation — **REAL / IMPLEMENTED** (discovery + single-shot bounded
+counterproposal, both real, both tested). Settlement autonomy — **NOT
+ENABLED** (unchanged: this route and everything it calls never touches
+`open-settlement`). Policy — **implemented only to the extent this flow
+needs** (`evaluateIntentPolicy()`, real, renamed/restructured from this
+document's own `authorizeIntentAction()` by the Missão 03 amendment
+below; the governed multi-stakeholder `PolicyEngine` remains Months
+10-12 scope, unchanged).
+
 ## Motivation
 
 `TradeIntentPayload` already carries `minValue`/`maxValue` (a *quantity*
@@ -127,3 +137,133 @@ flow already in production for a manually-selected offer
 `packages/sails-sdk/src/modules/` (new typed client method),
 `packages/sails-ui/src/components/agent/AgentIntentionPanel.tsx` (real
 `handleDelegate()`, replacing `lib/aiNegotiator.ts`'s deleted simulation).
+
+## Amendment (Missão 02, 2026-08-15) — authorization boundary + counterproposal
+
+Two additive extensions to this RFC's own vertical slice, both confirmed
+with the project owner before implementation (three explicit decisions —
+see below) rather than decided unilaterally, per this codebase's own
+"stop and report a real architectural inconsistency" discipline.
+
+**1. `/propose` now goes through a named authorization boundary.**
+Alternatives Considered #5 above correctly kept the *governed*
+`PolicyEngine` (`get`/`propose`/`activate`) out of scope — that decision
+is unchanged. What this amendment adds is narrower: the
+ownership/expiry/status checks this route was already making inline are
+now one function, `authorizeIntentAction()` (`core/policy-engine.ts` —
+renamed `evaluateIntentPolicy()` by the Missão 03 amendment below, same
+function, extended further),
+plus a real `capabilityRegistry.check()` call this route never made
+before (gated by `config.features.enforceCapabilities`, still off by
+default — no behavior change while that flag stays off). Scope reuses
+the existing `'trade-coordination'` capability and the real
+`'intent.discovering'` event-name-as-scope convention `intent-engine.ts`'s
+own `'intent.created'` check already set — no new capability, no new
+scope vocabulary. Fails closed: every branch of that function explicitly
+denies; `{ allowed: true }` is reached only once nothing objected.
+
+**2. `proposeForIntent()` now returns a bounded counterproposal, not just
+match-or-null.** When no real `Offer` clears every limit but one clears
+amount + reputation and misses only on price, the response now also
+carries a `counterProposal` (`referenceOfferId`, `listedPriceUsd`,
+`suggestedPriceUsd`, `reasoning`) alongside the still-`null` `proposal`.
+`suggestedPriceUsd` is always exactly the Intent's own already-declared
+bound (`maxPriceUsd` for a BUY, `minPriceUsd` for a SELL) — never a
+fabricated number, never worse than what the participant already
+authorized themselves. Deliberately single-shot and informational only:
+no automated back-and-forth with the counterparty (that would need the
+real `NegotiationService`/chat channel, materially bigger scope, and
+edges toward the "chatbot that negotiates" this mission explicitly
+avoided), and `referenceOfferId` is not accepted by any trade-creation or
+settlement call — trading against it directly still executes at its own
+*listed* price, not the suggestion. This is the real, if narrow, sense in
+which QVAC now "negotiates" rather than only discovering: it computes and
+surfaces a counter-term, bounded by what the human already authorized,
+for the human to act on — it does not act on it itself.
+
+**Explicitly still not built, same as before this amendment:** iterative
+negotiation with the counterparty, the governed `PolicyEngine`, and any
+authority for this route (or anything it calls) to create a Trade or
+touch escrow/settlement — `core/intent.routes.ts` still never imports
+`open-settlement`.
+
+**Reference implementation, additions:** `core/policy-engine.ts`
+(`authorizeIntentAction`, superseded by `evaluateIntentPolicy` — see the
+Missão 03 amendment below), `core/intent.routes.ts` (wiring),
+`modules/open-liquidity/liquidity.service.ts` (`CounterProposal`, the
+extended `proposeForIntent()`). Tests: `tests/evaluateIntentPolicy.test.ts`
+(supersedes `tests/authorizeIntentAction.test.ts`),
+`tests/liquidityProposeForIntent.test.ts`,
+`tests/qvacAgentProviderAvailability.test.ts`, and the extended
+"Intent API — propose (RFC-023)" block in `tests/routes.test.ts`.
+**Not touched by this amendment, disclosed gap:** `packages/sails-sdk`'s
+`proposeTrade()` still returns only `TradeProposal | null` — it does not
+yet surface `counterProposal`. Left alone deliberately: that method's
+return type is part of the SDK's frozen public API
+(`docs/API_STABLE.md`), and changing it is a separate, explicitly-scoped
+SDK pass, not an in-place change bundled into this backend amendment.
+(Since resolved — see the Missão 02.5 amendment below.)
+
+## Amendment (Missão 02.5, 2026-08-15) — SDK/UI closed, capability readiness audited
+
+Closes the integration debt the two amendments above left open, without
+touching this route's own logic. `proposeTradeOutcome(intentId, amount)`
+added alongside `proposeTrade()` (`packages/sails-sdk/src/intent-facade.ts`)
+— same route, additive, not a replacement — returning
+`{ proposal, counterProposal }` so a caller can see the counterProposal
+`proposeTrade()` itself still discards by design (its own frozen return
+type cannot represent it). `packages/sails-ui`'s `AgentIntentionPanel.tsx`
+now calls the new method and renders a real counterProposal instead of
+showing the same "nothing found" message a true no-match gets.
+
+A real, separate finding from the same pass: this codebase's capability
+readiness was audited end to end (grants, seed data, active users,
+production config) — **`ENFORCE_CAPABILITIES` is not ready to turn on**.
+No real user holds a `CapabilityGrant` today; the only script that
+pre-issues one (`examples/demo/pix-to-usdt-flow.ts`) had itself drifted
+out of sync with the scope this route's own capability check (below)
+introduced, fixed as part of this pass. Full findings in that mission's
+own report, not duplicated here — this RFC only records that the flag
+stays off, and why, since it's directly relevant to whether this route's
+`requireCapability` branch is ever actually exercised in production
+today (it is not).
+
+## Amendment (Missão 03, 2026-08-15) — Capability vs. Policy made explicit
+
+`authorizeIntentAction()` (added by the first amendment above) is renamed
+`evaluateIntentPolicy()` and extended — same function, same file
+(`core/policy-engine.ts`), not a new system. The rename exists to make a
+distinction explicit that was previously only implicit in a comment:
+
+- **Capability** answers "does this actor hold potential authority for
+  this class of action?" — `capabilityRegistry.check()`, a pure grant
+  lookup, no business context.
+- **Policy** answers "given this actor, this specific resource, and the
+  current contextual conditions, is this exact action permitted right
+  now?" A valid capability is necessary but never sufficient.
+
+The concrete, previously-missing proof of that second point: the
+amount-vs-Intent's-own-`minValue`/`maxValue` bounds check this route was
+already making (Decision §3 above, "amount is inherently per-request")
+lived inline in the route, separate from the capability check — meaning
+in practice, once ownership/expiry/status/capability all cleared,
+nothing else stood between a request and a match. That check is now
+folded into `evaluateIntentPolicy()` itself as a real policy condition,
+so "capability granted" and "this specific request is authorized" are
+never conflated even inside this one route.
+
+**Reference implementation:** `core/policy-engine.ts`
+(`evaluateIntentPolicy`, `PolicyDecision`, `PolicyEffect`),
+`core/intent.routes.ts` (updated wiring, amount-bounds check removed
+from the route body). Tests: `tests/evaluateIntentPolicy.test.ts` (19
+tests — supersedes `tests/authorizeIntentAction.test.ts`), the updated
+"policy-enforcement wiring" block in `tests/routes.test.ts`.
+
+**Still unchanged, still correctly out of scope:** the governed
+`get`/`propose`/`activate` `PolicyEngine` interface (Months 10-12);
+settlement authorization (`escrow.service.ts`'s own ownership/RFC-014/
+RFC-015 checks — `policy-engine.ts` never imports `open-settlement`,
+proven directly by a source-scan test, not just asserted in a comment);
+counterparty-reputation filtering (stays in `liquidityRouter`'s
+discovery logic — a property of what a search finds, not of whether the
+requester is authorized to search).

@@ -12,10 +12,12 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { intentEngine } from '../core/intent-engine'
 import { intentRepository } from '../core/intent-repository'
-import { isExpired } from '../core/state-machine'
+import { evaluateIntentPolicy } from '../core/policy-engine'
+import { CAPABILITY_IMPLEMENTATIONS } from '../core/capability-registry'
 import { liquidityRouter } from '../modules/open-liquidity/liquidity.service'
 import { requireAuth } from '../common/middleware/auth'
 import type { AuthenticatedRequest } from '../common/middleware/auth'
+import { config } from '../config'
 import { NotFoundError, ForbiddenError, ValidationError } from '../common/errors'
 import { docsOnlySchema } from '../common/openapi'
 import type { IntentType, IntentStatus, TradeIntentPayload } from '../common/types/intent'
@@ -152,41 +154,40 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
 
     const record = await intentRepository.findById(id)
     if (!record) throw new NotFoundError('Intent', id)
-    // Same ownership check as DELETE /v1/intents/:id above — only the
-    // Intent's own creator may request a proposal against it. The price/
-    // reputation limits this route reads come from the *persisted* Intent
-    // row, never re-trusted from the request body — the whole reason this
-    // lives under /v1/intents/:id rather than an unauthenticated
-    // /v1/liquidity/ route that would accept them as raw params instead.
-    if (record.participantId !== participantId) {
-      throw new ForbiddenError(`${participantId} does not own Intent ${id}`)
-    }
 
     const status = record.status as IntentStatus
-    if (isExpired({ status, expiresAt: record.expiresAt })) {
-      throw new ValidationError(`Intent ${id} has expired`)
-    }
-    if (status !== 'COORDINATED' && status !== 'DISCOVERING') {
-      throw new ValidationError(`Intent ${id} is not in a proposable state (status: ${status})`)
-    }
-
     const payload = record.payload as unknown as TradeIntentPayload
     const amountNum = Number(amount)
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
       throw new ValidationError(`amount must be a positive decimal string, got "${amount}"`)
     }
-    // Real fund-safety-adjacent check: the Intent's own declared quantity
-    // range must not be silently decorative — mirrors the bounds check
-    // trade.service.ts's createTrade() already applies against an Offer's
-    // own minAmount/maxAmount, one layer over.
-    if (payload.minValue !== undefined && amountNum < Number(payload.minValue)) {
-      throw new ValidationError(`amount ${amount} is below Intent ${id}'s own minValue (${payload.minValue})`)
-    }
-    if (payload.maxValue !== undefined && amountNum > Number(payload.maxValue)) {
-      throw new ValidationError(`amount ${amount} is above Intent ${id}'s own maxValue (${payload.maxValue})`)
+
+    // Missão 03 — ownership/expiry/status/capability/amount-bounds, all
+    // through the one named Policy decision (core/policy-engine.ts). The
+    // price/reputation limits this route reads come from the *persisted*
+    // Intent row, never re-trusted from the request body — the whole
+    // reason this lives under /v1/intents/:id rather than an
+    // unauthenticated /v1/liquidity/ route that would accept them as raw
+    // params instead. Capability scope reuses 'intent.discovering' — the
+    // real event this action can produce (see the transition below) —
+    // rather than inventing a separate scope vocabulary, same convention
+    // intent-engine.ts's own 'intent.created' check already set.
+    const decision = await evaluateIntentPolicy({
+      action: 'intent.propose',
+      intent: { id: record.id, participantId: record.participantId, status, expiresAt: record.expiresAt },
+      requestedBy: participantId,
+      allowedStatuses: ['COORDINATED', 'DISCOVERING'],
+      requireCapability: config.features.enforceCapabilities,
+      capabilityName: CAPABILITY_IMPLEMENTATIONS.openp2p,
+      capabilityScope: 'intent.discovering',
+      requestedAmount: { amount, minValue: payload.minValue, maxValue: payload.maxValue },
+    })
+    if (decision.effect === 'DENY') {
+      if (decision.denialCategory === 'forbidden') throw new ForbiddenError(decision.reason)
+      throw new ValidationError(decision.reason)
     }
 
-    const match = await liquidityRouter.proposeForIntent(
+    const { match, counterProposal } = await liquidityRouter.proposeForIntent(
       payload.asset as AssetType, payload.side, amount,
       { priceMin: payload.minPriceUsd, priceMax: payload.maxPriceUsd, minReputation: payload.minReputationRating }
     )
@@ -208,7 +209,9 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
     if (status === 'COORDINATED') {
       const note = match
         ? `QVAC proposal: matched offer ${match.id} @ ${match.priceUsd}`
-        : 'QVAC proposal: no match found within declared limits'
+        : counterProposal
+          ? `QVAC counter-proposal: suggested ${counterProposal.suggestedPriceUsd} vs listed ${counterProposal.listedPriceUsd} (ref offer ${counterProposal.referenceOfferId})`
+          : 'QVAC proposal: no match found within declared limits'
       await intentEngine.transition(id, 'DISCOVERING', participantId, 'intent.discovering', { intentId: id }, note)
     }
 
@@ -222,6 +225,11 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
           traderReputation: match.traderReputation ?? null,
           paymentMethods: match.paymentMethods,
         } : null,
+        // Missão 02 Fase 4 — additive field, present alongside `proposal`
+        // (never both non-null at once). Informational only: `referenceOfferId`
+        // is not accepted by any trade-creation or settlement call — see
+        // liquidity.service.ts's CounterProposal doc comment.
+        counterProposal,
       },
     })
   })

@@ -167,7 +167,23 @@ the caller to approve — `null` is a legitimate "nothing matched within
 your limits" outcome, not an error. Never creates a `Trade` and has no
 authority over escrow/settlement; approve a returned proposal by calling
 the existing, unmodified `openp2p.trade(proposal.offerId, amount)`
-directly.
+directly. **This method's return type is frozen as-is** — it cannot
+represent a `counterProposal` without a breaking change, which is exactly
+why the method below exists instead of extending this one in place.
+
+`proposeTradeOutcome(intentId, amount)` → `{ proposal, counterProposal }`
+— an 8th delegate, added Missão 02.5 (2026-08-15), calling the exact same
+route as `proposeTrade` above but returning everything the route sends
+back. `counterProposal` (`referenceOfferId`/`listedPriceUsd`/
+`suggestedPriceUsd`/`reasoning`) is populated only when no real `Offer`
+cleared every limit but one cleared amount/reputation and missed only on
+price — `suggestedPriceUsd` is always exactly the Intent's own declared
+bound, never worse than what the caller already authorized. Informational
+only: `referenceOfferId` is not accepted by `openp2p.trade()` or any
+other trade-creation/settlement call — trading against it directly still
+executes at its own *listed* price. Not yet frozen (new this pass, same
+as `proposeTrade` was when it first shipped); expected to stabilize
+alongside it.
 
 ### Escape hatch
 `setSessionToken(token)` / `getSessionToken()` — direct session control,

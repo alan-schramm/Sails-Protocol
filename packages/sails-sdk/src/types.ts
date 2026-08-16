@@ -356,6 +356,32 @@ export interface TradeProposal {
   paymentMethods: string[]
 }
 
+// Missão 02 Fase 4 amendment (RFC-023) — the single-shot, non-persisted
+// counter-term intentFacade.proposeTradeOutcome() returns when no real
+// Offer cleared the Intent's own limits, but a real one cleared amount/
+// reputation and missed only on price. `suggestedPriceUsd` is always
+// exactly the Intent's own already-declared bound — never worse than what
+// the caller already authorized. `referenceOfferId` is informational
+// only: trading against it directly (openp2p.trade()) still executes at
+// its own *listed* price, never at this suggestion, and this protocol
+// does not accept it back into any trade-creation or settlement call.
+export interface CounterProposal {
+  referenceOfferId: string
+  listedPriceUsd: string
+  suggestedPriceUsd: string
+  reasoning: string
+}
+
+// The full /v1/intents/:id/propose response — proposeTrade() above only
+// ever surfaces the `proposal` half (its own frozen, pre-existing
+// contract, docs/API_STABLE.md); proposeTradeOutcome() surfaces both, for
+// a caller that wants to show a real counterProposal rather than have it
+// silently discarded.
+export interface TradeProposalOutcome {
+  proposal: TradeProposal | null
+  counterProposal: CounterProposal | null
+}
+
 export interface PeerStatus {
   userId: string
   started: boolean

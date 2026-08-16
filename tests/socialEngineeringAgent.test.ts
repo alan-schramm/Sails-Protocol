@@ -20,6 +20,44 @@ jest.mock('@qvac/sdk', () => ({
   LLAMA_3_2_1B_INST_Q4_0: { name: 'LLAMA_3_2_1B_INST_Q4_0' },
 }))
 
+// eventBus's default store is PostgresEventStore as of Missão 05.7 — this
+// file's own real eventBus.emit()/getTimeline() calls below now need
+// prisma.durableEventRecord, same small in-memory fake standing in for
+// it that tests/timeline.test.ts and tests/postgresEventStore.test.ts
+// already use. fakeTradeRepo() (below) already covers this file's other
+// real dependency, prisma.trade — nothing else here touches prisma.
+let durableEvents: any[] = []
+const mockDurableCreate = jest.fn(async (args: any) => {
+  const row = { ...args.data }
+  durableEvents.push(row)
+  return row
+})
+const mockDurableFindFirst = jest.fn(async (args: any) => {
+  const matching = durableEvents.filter((e) => e.correlationId === args.where.correlationId)
+  return matching.length === 0 ? null : matching[matching.length - 1]
+})
+const mockDurableFindMany = jest.fn(async (args: any) => {
+  return durableEvents.filter((e) => e.correlationId === args.where.correlationId)
+})
+const mockDurableEventRecordDelegate = {
+  create: (...args: unknown[]) => mockDurableCreate(...(args as [any])),
+  findFirst: (...args: unknown[]) => mockDurableFindFirst(...(args as [any])),
+  findMany: (...args: unknown[]) => mockDurableFindMany(...(args as [any])),
+}
+// PostgresEventStore.publish() (Missão 05.8) wraps its write in a real
+// Postgres transaction (pg_advisory_xact_lock-serialized per
+// correlationId) — a trivial passthrough is enough here since this file
+// doesn't test concurrency.
+const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
+  callback({ durableEventRecord: mockDurableEventRecordDelegate, $executeRaw: jest.fn().mockResolvedValue(0) })
+)
+jest.mock('../src/common/database', () => ({
+  prisma: {
+    durableEventRecord: mockDurableEventRecordDelegate,
+    $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
+  },
+}))
+
 function fakeCompletionRun(contentText: string) {
   return { final: Promise.resolve({ contentText }) }
 }
@@ -54,7 +92,10 @@ function messageEntry(tradeId: string, content: string, eventId = 'evt-1'): Time
 }
 
 describe('SocialEngineeringAgent.evaluate', () => {
-  beforeEach(() => jest.clearAllMocks())
+  beforeEach(() => {
+    jest.clearAllMocks()
+    durableEvents = []
+  })
 
   it('returns null without calling QVAC for a non-message event type', async () => {
     const agent = new SocialEngineeringAgent(new QvacAgentProvider(), fakeTradeRepo())

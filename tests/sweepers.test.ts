@@ -112,6 +112,7 @@ const mockEscrowUpdate = jest.fn(async ({ where, data }: any) => {
   return { ...row }
 })
 const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn(async ({ where }: any) => {
   const sellerId = fakeDb.tradeSeller.get(where.id)
   if (!sellerId) return null
@@ -140,7 +141,10 @@ jest.mock('../src/common/database', () => {
         updateMany: ((...args: unknown[]) => (mockEscrowUpdateMany as any)(...args)) as any,
         update: ((...args: unknown[]) => (mockEscrowUpdate as any)(...args)) as any,
       },
-      escrowEvent: { create: ((...args: unknown[]) => (mockEscrowEventCreate as any)(...args)) as any },
+      escrowEvent: {
+        create: ((...args: unknown[]) => (mockEscrowEventCreate as any)(...args)) as any,
+        findFirst: ((...args: unknown[]) => (mockEscrowEventFindFirst as any)(...args)) as any,
+      },
       trade: { findUnique: ((...args: unknown[]) => (mockTradeFindUnique as any)(...args)) as any },
       dispute: { findFirst: ((...args: unknown[]) => (mockDisputeFindFirst as any)(...args)) as any },
       escrowParticipantKey: { findMany: ((...args: unknown[]) => (mockParticipantKeyFindMany as any)(...args)) as any },

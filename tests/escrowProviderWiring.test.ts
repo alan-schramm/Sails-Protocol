@@ -91,6 +91,7 @@ const mockEscrowUpdate = jest.fn()
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowCreate = jest.fn()
 const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
 const mockParticipantKeyUpsert = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
@@ -99,6 +100,25 @@ const mockPendingTxCreate = jest.fn()
 const mockPendingTxDelete = jest.fn()
 const mockTxSignatureUpsert = jest.fn()
 const mockTxSignatureFindMany = jest.fn()
+// eventBus's default store is PostgresEventStore as of Missão 05.7 — this
+// file's real eventBus.emit() calls (via escrow.service.ts/escrow-lifecycle.ts,
+// not mocked here) now need prisma.durableEventRecord too.
+const mockDurableEventCreate = jest.fn()
+const mockDurableEventFindFirst = jest.fn().mockResolvedValue(null)
+// PostgresEventStore.publish() (Missão 05.8) wraps its write in a real
+// Postgres transaction (pg_advisory_xact_lock-serialized per
+// correlationId) — a trivial passthrough is enough here since this file
+// doesn't test EventStore concurrency (tests/postgresEventStore.test.ts
+// does).
+const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
+  callback({
+    durableEventRecord: {
+      create: (...args: unknown[]) => mockDurableEventCreate(...args),
+      findFirst: (...args: unknown[]) => mockDurableEventFindFirst(...args),
+    },
+    $executeRaw: jest.fn().mockResolvedValue(0),
+  })
+)
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -108,7 +128,10 @@ jest.mock('../src/common/database', () => ({
       updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
       create: (...args: unknown[]) => mockEscrowCreate(...args),
     },
-    escrowEvent: { create: (...args: unknown[]) => mockEscrowEventCreate(...args) },
+    escrowEvent: {
+      create: (...args: unknown[]) => mockEscrowEventCreate(...args),
+      findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
+    },
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
     escrowParticipantKey: {
       upsert: (...args: unknown[]) => mockParticipantKeyUpsert(...args),
@@ -124,6 +147,11 @@ jest.mock('../src/common/database', () => ({
       findMany: (...args: unknown[]) => mockTxSignatureFindMany(...args),
     },
     dispute: { findFirst: jest.fn().mockResolvedValue(null) },
+    durableEventRecord: {
+      create: (...args: unknown[]) => mockDurableEventCreate(...args),
+      findFirst: (...args: unknown[]) => mockDurableEventFindFirst(...args),
+    },
+    $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
 

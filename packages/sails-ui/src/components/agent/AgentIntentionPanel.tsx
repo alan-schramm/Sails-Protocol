@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
-import type { TradeIntentPayload, TradeProposal } from '@satsails/p2p-trading-sdk'
+import type { TradeIntentPayload, TradeProposal, CounterProposal } from '@satsails/p2p-trading-sdk'
 import { useAuth } from '../../context/AuthContext'
 import { sailsClient } from '../../lib/sailsClient'
 import { generateIntentWithQvac, type AgentGeneratedIntent } from '../../lib/qvacAgent'
@@ -70,6 +70,12 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
   // across a "Delegar" resubmission (changed limits need a fresh Intent).
   const [intentId, setIntentId] = useState<string | null>(null)
   const [proposal, setProposal] = useState<TradeProposal | null | undefined>(undefined)
+  // Missão 02.5 — previously invisible: handleDelegate() called
+  // proposeTrade(), which discards the backend's counterProposal, so a
+  // real "your price was close, here's what would clear it" result
+  // rendered identically to "nothing found at all." Same undefined/null/
+  // object lifecycle as `proposal` above, kept in lockstep with it.
+  const [counterProposal, setCounterProposal] = useState<CounterProposal | null>(null)
   const [proposing, setProposing] = useState(false)
   const [approving, setApproving] = useState(false)
 
@@ -90,6 +96,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     setResult(null)
     setIntentId(null)
     setProposal(undefined)
+    setCounterProposal(null)
     try {
       const intent = await generateIntentWithQvac(goal.trim(), side)
       setResult(intent)
@@ -153,11 +160,17 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           : {}),
       }
       const intent = await sailsClient.createIntent('TradeIntent', payload)
-      const found = await sailsClient.proposeTrade(intent.id, quantity)
+      // Missão 02.5 — proposeTradeOutcome() instead of proposeTrade(): the
+      // exact same route and request, but this also surfaces
+      // counterProposal instead of silently discarding it.
+      const { proposal: found, counterProposal: counter } = await sailsClient.proposeTradeOutcome(intent.id, quantity)
       setIntentId(intent.id)
       setProposal(found)
+      setCounterProposal(counter)
       if (found) {
         toast.success('QVAC encontrou uma proposta real dentro dos seus limites', { icon: <Bot className="h-4 w-4" /> })
+      } else if (counter) {
+        toast.info('Nenhuma oferta dentro do limite, mas o QVAC sugere uma contraproposta', { icon: <Bot className="h-4 w-4" /> })
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Falha ao negociar com o QVAC')
@@ -196,6 +209,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
   const handleAdjust = () => {
     setIntentId(null)
     setProposal(undefined)
+    setCounterProposal(null)
   }
 
   const handleReset = () => {
@@ -206,6 +220,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     setMinReputationRating('')
     setIntentId(null)
     setProposal(undefined)
+    setCounterProposal(null)
   }
 
   return (
@@ -372,6 +387,28 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                       Ajustar mandato
                     </Button>
                   </div>
+                </>
+              ) : counterProposal ? (
+                // Missão 02.5 — previously this branch never distinguished
+                // "nothing at all" from "a real counterproposal exists but
+                // wasn't shown." No new approval action here on purpose
+                // (Missão 02.5 explicitly scopes this as read-only
+                // visibility, not a new negotiation flow) — "Ajustar
+                // mandato" is the only real path forward, same as the
+                // true-nothing-found case below.
+                <>
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-orange-accent mb-2">
+                    <Bot className="h-3.5 w-3.5" />
+                    Nenhuma oferta dentro do limite — contraproposta do QVAC
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
+                    <Field label={side === 'BUY' ? 'Seu limite (máximo)' : 'Seu limite (mínimo)'} value={`USD ${counterProposal.suggestedPriceUsd}`} />
+                    <Field label="Preço da oferta mais próxima" value={`USD ${counterProposal.listedPriceUsd}`} />
+                  </div>
+                  <p className="text-xs text-brand-text-secondary mb-3">{counterProposal.reasoning}</p>
+                  <Button variant="outline" onClick={handleAdjust} className="px-3 py-1.5 text-xs">
+                    Ajustar mandato
+                  </Button>
                 </>
               ) : (
                 <>

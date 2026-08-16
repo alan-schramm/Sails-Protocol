@@ -122,7 +122,11 @@ jest.mock('../src/common/database', () => ({
         return { ...fakeDb.escrow }
       }),
     },
-    escrowEvent: { create: jest.fn().mockResolvedValue({}) },
+    // Missão 05.5 — emitEscrowTransition() now reads the last event for
+    // this escrowId (findFirst) before creating the next one, to compute
+    // prevHash. null is correct here: every race scenario in this file
+    // starts a fresh escrow with no prior event.
+    escrowEvent: { create: jest.fn().mockResolvedValue({}), findFirst: jest.fn().mockResolvedValue(null) },
     trade: {
       findUnique: jest.fn().mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' }),
     },

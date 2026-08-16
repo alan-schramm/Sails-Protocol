@@ -1,0 +1,68 @@
+# Merged with the root docker-compose.yml by devcontainer.json's
+# `dockerComposeFile` array — reuses that file's real `postgres`/`redis`
+# services and network as-is, adds only the interactive shell a human
+# (or an AI agent) actually codes inside. Never used by
+# `docker compose up` on its own; VS Code Dev Containers / GitHub
+# Codespaces are the only real callers.
+#
+# `dockerfile_inline` instead of a separate `.devcontainer/Dockerfile`
+# on purpose — found the hard way: `docker compose`'s bake builder
+# doesn't reliably resolve a `dockerfile:` path the same way it
+# resolves `context`/volume paths once this file is combined with the
+# root docker-compose.yml via multiple `-f` flags. Inlining removes
+# that path entirely, so there's nothing left to mis-resolve.
+#
+# `context`/volume source are `.`, not `..` — found the hard way too:
+# relative paths in a file combined via multiple `-f` flags resolve
+# against the PROJECT root (the first/primary compose file's own
+# directory, i.e. the repo root — where `docker-compose.yml` lives),
+# not against this file's own directory (`.devcontainer/`). `..` here
+# actually pointed one level ABOVE the repo root (verified via `docker
+# compose config`, right where this repo's own folder name happens to
+# repeat itself: `.../sails-push-ready/sails-push-ready/` — the mount
+# silently resolved to the outer, wrong one until this was caught by
+# actually `exec`-ing into the running container and checking).
+services:
+  workspace:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM node:20-bookworm-slim
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+            python3 make g++ git \
+            && rm -rf /var/lib/apt/lists/*
+    volumes:
+      - .:/workspace:cached
+      # Anonymous volumes, one per real node_modules in this workspace
+      # (root + every package/example/contract that has its own nested
+      # tree — confirmed by listing them, not guessed) — found the hard
+      # way: a bare bind mount of the whole repo also drags in whatever
+      # node_modules the HOST already installed (this repo is normally
+      # developed on Windows), including platform-specific native
+      # binaries (e.g. lightningcss-win32-x64-msvc). `npm ci` inside
+      # this Linux container then hits real I/O errors trying to unlink
+      # those Windows binaries across the bind-mount boundary. These
+      # overlays shadow just those directories with the container's own
+      # Linux-native volumes, so `npm ci` installs cleanly while every
+      # other file still round-trips through the bind mount normally —
+      # the standard fix for this exact class of cross-platform
+      # devcontainer problem, not specific to this repo.
+      - /workspace/node_modules
+      - /workspace/packages/sails-sdk/node_modules
+      - /workspace/packages/sails-ui/node_modules
+      - /workspace/packages/sdk-react/node_modules
+      - /workspace/examples/sails-integration-starter/node_modules
+      - /workspace/contracts/node_modules
+    working_dir: /workspace
+    environment:
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/sails_protocol
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Keeps the container running so VS Code can attach — this service
+    # is a shell, not a process supervisor; `npm run dev` is started
+    # interactively from inside the attached terminal, not here.
+    command: sleep infinity
