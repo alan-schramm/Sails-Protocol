@@ -1,7 +1,6 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
 import { config } from '../../config'
-import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 import { SIGNATURE_COLLECTION_PROVIDERS } from './escrow-providers'
 import {
   assertEscrowTransition,
@@ -11,6 +10,7 @@ import {
   revertEscrowStatus,
   emitEscrowTransition,
   resolvePayoutAddress,
+  checkFundMovementCapability,
 } from './escrow-lifecycle'
 import { hasDualApproval } from './escrow-dual-approval'
 import { escrowRepository } from './escrow-repository'
@@ -73,6 +73,18 @@ async function initiateSignatureCollectionCore(
     throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
   }
 
+  // Missão 06.9 (RFC-014 wiring completion) — moved here, into the one
+  // shared skeleton every signature-collection kind funnels through, so
+  // release/refund/split get the identical check instead of only release
+  // having it (the exact drift Missão 06.7's audit found: this used to
+  // live only in initiateRelease()'s own wrapper below, so
+  // initiateRefund()/initiateSplit() silently never got it).
+  const capabilityScope =
+    kind === 'release' ? 'settlement.escrow.released' as const
+    : kind === 'refund' ? 'settlement.escrow.refunded' as const
+    : 'settlement.escrow.split' as const
+  await checkFundMovementCapability(triggeredBy, capabilityScope)
+
   const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
   if (existingPending) {
     throw new EscrowError(`Escrow ${escrowId} already has a pending ${existingPending.kind} transaction awaiting signatures`)
@@ -105,16 +117,9 @@ async function initiateSignatureCollectionCore(
 }
 
 export async function initiateRelease(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
-  // Capability check — only release has this (RFC-014).
-  if (config.features.enforceCapabilities) {
-    const capabilityName = CAPABILITY_IMPLEMENTATIONS.opensettlement
-    const allowed = await capabilityRegistry.check(triggeredBy, capabilityName, 'settlement.escrow.released')
-    if (!allowed) {
-      throw new ForbiddenError(
-        `${triggeredBy} has no active '${capabilityName}' capability grant covering 'settlement.escrow.released'`
-      )
-    }
-  }
+  // Capability check (RFC-014) now lives in initiateSignatureCollectionCore()
+  // above, shared by release/refund/split (Missão 06.9) — this file used
+  // to duplicate it here, which is exactly why refund/split never got it.
   // Dual-approval check — only release has this (RFC-015).
   const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)

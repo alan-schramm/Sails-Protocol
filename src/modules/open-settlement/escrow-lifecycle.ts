@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { createHash } from 'crypto'
 import { prisma } from '../../common/database'
 import { NotFoundError, EscrowError, ForbiddenError } from '../../common/errors'
 import { AssetType } from '../../common/types'
@@ -8,6 +9,7 @@ import { payoutAddressService } from './payout-address.service'
 import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
+import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 
 /**
  * Sails OpenSettlement — Escrow lifecycle shared helpers
@@ -66,6 +68,47 @@ export async function isSellerOrAssignedArbiter(tradeId: string, sellerId: strin
   if (isPartyOrAgent(triggeredBy, sellerId)) return true
   const dispute = await escrowRepository.findDisputeByTradeAndArbiter(tradeId, triggeredBy)
   return dispute !== null
+}
+
+// Missão 06.9 (RFC-014 wiring completion) — RFC-014's own convention
+// ("the required scope string is the real event name this action
+// produces") already covers refund/split semantically; it was only ever
+// wired for release (`escrow.service.ts`'s `releaseFunds()` and
+// `escrow-pending-tx.ts`'s `initiateRelease()`). `refundFunds()`,
+// `splitFunds()`, `initiateRefund()`, and `initiateSplit()` never called
+// it — a real, found-by-audit inconsistency (Missão 06.7), not a
+// deliberate design choice; `splitFunds()`'s own comment already claimed
+// parity with `releaseFunds()` that didn't actually exist.
+//
+// A single, tiny helper (not a new service/layer) shared by every direct
+// and pending-tx fund-movement call site, specifically so this class of
+// drift — one call site gets the check, its siblings quietly don't —
+// can't happen again the same way. Checked against `triggeredBy`
+// exactly as `releaseFunds()` already did: whoever is actually driving
+// the transition (the seller for a normal release/refund, or the
+// assigned arbiter for a disputed ruling — `dispute.service.ts`'s
+// `applyRuling()` already passes `arbiterId` as `triggeredBy` for every
+// ruling type, RELEASE included, so this mirrors release's own existing
+// behavior rather than inventing a new distinction between seller and
+// arbiter capability). A sweeper-triggered refund (`sweepExpiredEscrows()`)
+// is unaffected by this being a "new" check in practice: it already
+// passes the trade's real `sellerId` as `triggeredBy` (its own comment:
+// "never a fabricated 'system' actor... mirrors settlement-orchestrator.ts's
+// own sellerTriggeredBy precedent"), so it is subject to the identical
+// capability requirement a manual seller-initiated refund already would
+// be — not a new rule, the natural consequence of an existing one.
+export async function checkFundMovementCapability(
+  triggeredBy: string,
+  scope: 'settlement.escrow.released' | 'settlement.escrow.refunded' | 'settlement.escrow.split'
+): Promise<void> {
+  if (!config.features.enforceCapabilities) return
+  const capabilityName = CAPABILITY_IMPLEMENTATIONS.opensettlement
+  const allowed = await capabilityRegistry.check(triggeredBy, capabilityName, scope)
+  if (!allowed) {
+    throw new ForbiddenError(
+      `${triggeredBy} has no active '${capabilityName}' capability grant covering '${scope}'`
+    )
+  }
 }
 
 /** Loads an escrow + its trade + verifies the seller-or-arbiter authorization
@@ -139,6 +182,19 @@ export function assertEscrowTransition(current: string, next: string) {
   }
 }
 
+// RFC-008 D2 amendment (Missão 05.5, 2026-08-15) — EscrowEvent's own hash
+// chain, same composition and same reasoning as intent-engine.ts's
+// writeIntentEvent(): sha256(fromStatus + toStatus + triggeredBy +
+// prevHash). Deliberately excludes `note` and `createdAt` from the hash —
+// mirroring IntentEvent's own precedent exactly, not inventing a new
+// composition. Exported so verifyEscrowEventChain() below (and its own
+// tests) can recompute and compare against the stored entryHash — the
+// only way to catch an entry mutated in place, not just prevHash links
+// reordered.
+export function computeEscrowEventHash(fromStatus: string, toStatus: string, triggeredBy: string, prevHash: string): string {
+  return createHash('sha256').update(`${fromStatus}|${toStatus}|${triggeredBy}|${prevHash}`).digest('hex')
+}
+
 export async function emitEscrowTransition(
   escrowId: string,
   tradeId: string,
@@ -149,8 +205,23 @@ export async function emitEscrowTransition(
   eventExtra: Record<string, unknown> = {},
   note?: string
 ) {
+  // RFC-008 D2 amendment — read-then-write, no explicit DB transaction,
+  // the exact same pattern intent-engine.ts's writeIntentEvent() already
+  // uses safely. Race-free for the same reason that one is: this function
+  // is only ever called after the caller's own claimEscrowTransition()
+  // (or openDispute()'s identical atomic claim) has already succeeded for
+  // this escrowId — Postgres itself already guaranteed only one request
+  // reaches this point per escrowId at a time, so there is no concurrent
+  // writer left to race against when reading "the last event" below.
+  // entryHash/prevHash are never accepted from a caller — this function's
+  // own signature has no such parameters, so they can only ever be what
+  // the server itself derives here.
+  const last = await prisma.escrowEvent.findFirst({ where: { escrowId }, orderBy: { createdAt: 'desc' } })
+  const prevHash = last?.entryHash ?? 'genesis'
+  const entryHash = computeEscrowEventHash(from, to, triggeredBy, prevHash)
+
   await prisma.escrowEvent.create({
-    data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note },
+    data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note, entryHash, prevHash },
   })
   // correlationId = tradeId (RFC-010) — stand-in for intentId until Intent
   // persistence exists; Trade already IS the concrete TradeIntent (§2.3).
@@ -162,6 +233,62 @@ export async function emitEscrowTransition(
     triggeredBy,
     ...eventExtra,
   }, tradeId)
+}
+
+// RFC-008 D2 amendment — Fase 5's own verification primitive. Same shape
+// as core/timeline.ts's Timeline.verifyChain() (explanatory result, not a
+// bare boolean): reports the first index where the chain is provably
+// wrong and why, so a Dispute UI or ArbitrationProvider can point at
+// exactly where tampering occurred.
+//
+// Historical-row strategy (Fase 6, matches RFC-008 D2's own already-
+// specified policy for the identical situation on Timeline/DurableEvent —
+// not a new decision invented here): a row with entryHash === null
+// predates this migration and is skipped, never treated as a broken
+// link. The FIRST row that does have a real entryHash is required to
+// have prevHash === 'genesis' regardless of whether older, unchained rows
+// exist before it — this is exactly what the write path above already
+// produces (`last?.entryHash ?? 'genesis'` evaluates to 'genesis' for a
+// row whose most recent predecessor has a null entryHash, the identical
+// nullish-coalescing behavior as "no predecessor at all"), so the
+// verifier's expectation and the writer's real behavior are provably the
+// same rule, not two independently-asserted ones that could drift apart.
+export interface EscrowChainVerification {
+  valid: boolean
+  brokenAtIndex?: number
+  reason?: string
+}
+
+export async function verifyEscrowEventChain(escrowId: string): Promise<EscrowChainVerification> {
+  const events = await prisma.escrowEvent.findMany({ where: { escrowId }, orderBy: { createdAt: 'asc' } })
+
+  let expectedPrevHash = 'genesis'
+  let chainStarted = false
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i]
+    if (event.entryHash === null) continue // pre-migration row — unverifiable by construction, not a break
+
+    const storedPrevHash = event.prevHash ?? 'genesis'
+    const recomputed = computeEscrowEventHash(event.fromStatus, event.toStatus, event.triggeredBy, storedPrevHash)
+    if (event.entryHash !== recomputed) {
+      return { valid: false, brokenAtIndex: i, reason: 'entryHash does not match the recomputed hash — this entry was mutated in place after being written' }
+    }
+
+    const expected = chainStarted ? expectedPrevHash : 'genesis'
+    if (storedPrevHash !== expected) {
+      return {
+        valid: false, brokenAtIndex: i,
+        reason: chainStarted
+          ? `prevHash does not match the running chain (expected ${expected}, got ${storedPrevHash}) — an entry was reordered, inserted, or deleted`
+          : `the first chained entry's prevHash must be 'genesis', got ${storedPrevHash}`,
+      }
+    }
+
+    expectedPrevHash = event.entryHash
+    chainStarted = true
+  }
+
+  return { valid: true }
 }
 
 // RFC-021 Phase 0 — real Protocol Fee computation + PROTOCOL_ECONOMY.md

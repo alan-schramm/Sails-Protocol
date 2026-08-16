@@ -211,6 +211,70 @@ existing caller of `intentEngine.create()`/`executeSettlement()`, every
 existing test, and the pre-this-RFC demo script all continue to work
 unmodified with `ENFORCE_CAPABILITIES` unset.
 
+## Amendment — capability coverage completed for refund/split (Missão 06.9, 2026-08-16)
+
+**Gap found (Missão 06.7's full route-authorization audit).** This RFC's
+own Decision section only ever described one fund-movement action —
+release ("the one irreversible action that actually sends signed
+funds," Alternatives Considered #4) — and the real implementation
+matched that literally: `escrowService.releaseFunds()` and
+`escrow-pending-tx.ts`'s `initiateRelease()` both checked
+`capabilityRegistry`, but `refundFunds()`, `splitFunds()`,
+`initiateRefund()`, and `initiateSplit()` never did. `splitFunds()`'s own
+code comment claimed "same authorization check" as `releaseFunds()`,
+which was false. This was a real, exploitable inconsistency when
+`ENFORCE_CAPABILITIES=true`: refund and split moved the identical class
+of real, signed funds as release, through the identical Providers, with
+zero capability gate.
+
+**Determination: wiring gap, not a semantic gap.** This RFC's own stated
+convention — "the required scope string is the real event name this
+action produces" — already extends cleanly to refund
+(`settlement.escrow.refunded`) and split (`settlement.escrow.split`),
+both already-real event names in `common/events/event-bus.ts`'s
+`SailsEventMap`. No new capability, no new scope vocabulary, no Policy
+Engine involvement — the same `CAPABILITY_IMPLEMENTATIONS.opensettlement`
+capability already used for release, checked against the same
+`triggeredBy` value already threaded through every escrow transition in
+this codebase.
+
+**Actor for arbitrated rulings.** `dispute.service.ts`'s `applyRuling()`
+already passes the assigned arbiter's own id as `triggeredBy` for
+*every* ruling type, RELEASE included — meaning an arbitrated release
+was already being capability-checked against the arbiter's own grant,
+not the seller's, before this pass. Refund/split now inherit that exact
+same existing behavior for arbitrated rulings; this amendment does not
+introduce a new distinction between seller-triggered and
+arbiter-triggered capability requirements — it did not exist for release
+either, and this pass does not add it.
+
+**Sweeper-triggered refund.** `sweepExpiredEscrows()` passes the trade's
+real `sellerId` as `triggeredBy` (a deliberate, pre-existing design — see
+that method's own comment, "never a fabricated 'system' actor... mirrors
+`settlement-orchestrator.ts`'s own `sellerTriggeredBy` precedent for
+automated calls"). It is therefore subject to the same capability
+requirement a manual seller-initiated refund already is when
+`ENFORCE_CAPABILITIES=true` — not a new rule invented for this
+amendment, the direct consequence of a design decision already made
+before it.
+
+**Decision:** `refundFunds()`, `splitFunds()`, and (via the shared
+`initiateSignatureCollectionCore()` skeleton, closing the same gap for
+the pending-transaction path in one place) `initiateRefund()`/
+`initiateSplit()` now call the identical check `releaseFunds()`/
+`initiateRelease()` already did, extracted into one shared helper
+(`checkFundMovementCapability()`, `escrow-lifecycle.ts`) specifically so
+this class of drift — one call site protected, its siblings silently
+not — cannot happen again the same way without also being visible as a
+single, obviously-incomplete call graph. No new primitive, no new
+Capability, no Policy Engine change, no schema change, no change to
+`enforceCapabilities`'s own default (`false`) or to what "off" means.
+
+**Verification:** `tests/fundMovementCapabilityCoverage.test.ts` — 12
+scenarios covering release/refund/split (direct and initiate) with and
+without a grant, `enforcement=false` preserving today's unchecked
+behavior, wrong capability name, expired grant, and wrong actor.
+
 ## Reference Implementation Plan
 
 1. Config flag (this pass).

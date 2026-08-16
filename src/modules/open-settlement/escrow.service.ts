@@ -4,7 +4,6 @@ import { AssetType } from '../../common/types'
 import { EscrowType } from '../../common/types/trade'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
-import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 import {
   EscrowRecord,
   SettlementProvider,
@@ -25,6 +24,7 @@ import {
   emitEscrowTransition,
   chargeProtocolFee,
   resolvePayoutAddress,
+  checkFundMovementCapability,
 } from './escrow-lifecycle'
 import * as dualApproval from './escrow-dual-approval'
 import * as pendingTx from './escrow-pending-tx'
@@ -335,16 +335,12 @@ export class EscrowService {
     // arbitrated resolveDispute()); a check placed only in the
     // orchestrator silently missed the other two. Off by default
     // (config.features.enforceCapabilities) — see that flag's own doc
-    // comment in config/index.ts.
-    if (config.features.enforceCapabilities) {
-      const capabilityName = CAPABILITY_IMPLEMENTATIONS.opensettlement
-      const allowed = await capabilityRegistry.check(triggeredBy, capabilityName, 'settlement.escrow.released')
-      if (!allowed) {
-        throw new ForbiddenError(
-          `${triggeredBy} has no active '${capabilityName}' capability grant covering 'settlement.escrow.released'`
-        )
-      }
-    }
+    // comment in config/index.ts. Missão 06.9 — moved into the shared
+    // checkFundMovementCapability() helper (escrow-lifecycle.ts) so
+    // refundFunds()/splitFunds() below get the identical check instead
+    // of silently missing it, same class of gap this comment already
+    // describes for the pre-RFC-015 orchestrator-only version.
+    await checkFundMovementCapability(triggeredBy, 'settlement.escrow.released')
 
     // RFC-015: two-person control. Only on the normal (non-disputed)
     // path — escrow.status is still the pre-transition value here
@@ -466,6 +462,12 @@ export class EscrowService {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'REFUNDED')
 
+    // Missão 06.9 (RFC-014 wiring completion) — same check releaseFunds()
+    // above already had; refund moves the exact same class of real,
+    // signed funds and was found (Missão 06.7's audit) to have no
+    // capability check at all, a real gap, not a deliberate exemption.
+    await checkFundMovementCapability(triggeredBy, 'settlement.escrow.refunded')
+
     // Same fix as releaseFunds() above, same reason: claim REFUNDED
     // atomically before ever calling the real, side-effecting provider.
     await claimEscrowTransition(escrowId, escrow.status, 'REFUNDED')
@@ -492,17 +494,21 @@ export class EscrowService {
   // RFC-021 D9 (2026-08-02) — the direct-call half of SPLIT's real
   // settlement action, for providers in PROVIDERS that move funds
   // synchronously in one call (MOCK, WDK_USDT_EVM this pass). Mirrors
-  // releaseFunds()/refundFunds() above exactly (same authorization check,
-  // same atomic-claim-before-provider-call race protection) — only
-  // reachable from DISPUTED (VALID_TRANSITIONS), since SPLIT has no
-  // non-disputed happy path. See initiateSplit() (escrow-pending-tx.ts)
-  // for the client-signature-collection equivalent (MULTISIG).
+  // releaseFunds()/refundFunds() above — same atomic-claim-before-
+  // provider-call race protection, and (Missão 06.9, corrected — this
+  // comment previously claimed "same authorization check" too, which
+  // was false until this pass actually wired it) now the same capability
+  // check as well — only reachable from DISPUTED (VALID_TRANSITIONS),
+  // since SPLIT has no non-disputed happy path. See initiateSplit()
+  // (escrow-pending-tx.ts) for the client-signature-collection
+  // equivalent (MULTISIG).
   async splitFunds(escrowId: string, buyerAddress: string | undefined, sellerAddress: string | undefined, buyerBps: number, triggeredBy: string) {
     if (!(buyerBps > 0 && buyerBps < 10000)) {
       throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
     }
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'SPLIT')
+    await checkFundMovementCapability(triggeredBy, 'settlement.escrow.split')
     const resolvedBuyerAddress = await resolvePayoutAddress(buyerAddress, trade.buyerId, escrow.asset)
     const resolvedSellerAddress = await resolvePayoutAddress(sellerAddress, trade.sellerId, escrow.asset)
 
