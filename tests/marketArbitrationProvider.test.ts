@@ -14,6 +14,13 @@ const mockArbiterProfileUpdate = jest.fn()
 const mockArbiterProfileFindMany = jest.fn()
 const mockDisputeFindUnique = jest.fn()
 const mockEscrowFindUnique = jest.fn()
+// Missão 04 — assign()/assignAppealPanel() now look up the disputed
+// trade to exclude its own buyer/seller from the eligible pool (the
+// hardening fix itself). Default resolved value uses ids that never
+// collide with any candidate participantId used below, so every
+// pre-existing test in this file keeps working unmodified — only the
+// new "excludes the trade's own parties" tests further down override it.
+const mockTradeFindUnique = jest.fn().mockResolvedValue({ id: 'trade-1', buyerId: 'trade-buyer', sellerId: 'trade-seller' })
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -25,6 +32,7 @@ jest.mock('../src/common/database', () => ({
     },
     dispute: { findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args) },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
+    trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
   },
 }))
 
@@ -164,6 +172,51 @@ describe('MarketArbitrationProvider — assign() (the real ArbitrationProvider i
     }
     // heavy has 99x the weight of light — expect it to dominate, not a 50/50 split.
     expect(picks.heavy).toBeGreaterThan(picks.light * 10)
+  })
+
+  // Missão 04 hardening finding: neither assign() nor assignAppealPanel()
+  // ever excluded the disputed trade's own buyer/seller from the
+  // eligible pool. A trade party who registered as an arbiter with
+  // enough collateral to clear K_ELIGIBILITY for their own trade's value
+  // had a real chance of being selected to arbitrate their own dispute —
+  // resolveDispute()'s only check (`dispute.arbiterId === arbiterId`) is
+  // trivially satisfied by a self-assigned arbiter, giving them a
+  // unilateral path to a favorable ruling with none of RFC-015's
+  // two-person control (which arbitration is deliberately exempt from,
+  // on the assumption the arbiter is neutral).
+  it("excludes the disputed trade's own buyer and seller from the eligible pool — a trade party can never be assigned to arbitrate their own dispute", async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', escrowId: 'escrow-1', tradeId: 'trade-1' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', lockedAmount: '0.01' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'malicious-buyer', sellerId: 'seller-x' })
+    mockArbiterProfileFindMany.mockResolvedValue([
+      // The buyer, having registered as an arbiter with more than enough
+      // collateral to clear eligibility for their own trade.
+      { participantId: 'malicious-buyer', monetaryCollateral: '1000', collateralAsset: 'BTC', arbiterReputation: 0, slashedAt: null },
+      { participantId: 'genuine-third-party', monetaryCollateral: '1', collateralAsset: 'BTC', arbiterReputation: 0, slashedAt: null },
+    ])
+
+    const provider = new MarketArbitrationProvider()
+    // Run many draws — if the exclusion were missing, 'malicious-buyer'
+    // (1000x the stake) would dominate essentially every draw.
+    for (let i = 0; i < 100; i++) {
+      const arbiterId = await provider.assign('dispute-1', 'trade-1')
+      expect(arbiterId).toBe('genuine-third-party')
+      expect(arbiterId).not.toBe('malicious-buyer')
+    }
+  })
+
+  it('throws when the only eligible candidate is a trade party — never silently falls back to assigning them anyway', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', escrowId: 'escrow-1', tradeId: 'trade-1' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', lockedAmount: '0.01' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'malicious-buyer', sellerId: 'seller-x' })
+    mockArbiterProfileFindMany.mockResolvedValue([
+      { participantId: 'malicious-buyer', monetaryCollateral: '1000', collateralAsset: 'BTC', arbiterReputation: 0, slashedAt: null },
+    ])
+
+    const provider = new MarketArbitrationProvider()
+    await expect(provider.assign('dispute-1', 'trade-1')).rejects.toThrow(
+      /no registered arbiter clears the 1\.5x eligibility threshold/
+    )
   })
 })
 
@@ -353,6 +406,26 @@ describe('MarketArbitrationProvider — assignAppealPanel() (RFC-021 D6)', () =>
     await expect(provider.assignAppealPanel('dispute-1', 'trade-1', 1, 'only-one')).rejects.toThrow(
       /no eligible arbiter available for appeal round/
     )
+  })
+
+  // Missão 04 — same exclusion as assign() above, proven for the appeal
+  // panel too: a trade party could otherwise still get drawn onto the
+  // panel judging their own dispute's appeal, even with the original
+  // arbiter correctly excluded.
+  it("excludes the disputed trade's own buyer and seller from the appeal panel too", async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', escrowId: 'escrow-1', tradeId: 'trade-1' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', lockedAmount: '0.0001' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'malicious-seller', sellerId: 'seller-x' })
+    mockArbiterProfileFindMany.mockResolvedValue([
+      { participantId: 'malicious-seller', monetaryCollateral: '1000', collateralAsset: 'BTC', arbiterReputation: 10000, cumulativeFeesObserved: '1', slashedAt: null },
+      { participantId: 'genuine-third-party', monetaryCollateral: '1', collateralAsset: 'BTC', arbiterReputation: 1, cumulativeFeesObserved: '1', slashedAt: null },
+    ])
+
+    const provider = new MarketArbitrationProvider()
+    for (let i = 0; i < 50; i++) {
+      const picked = await provider.assignAppealPanel('dispute-1', 'trade-1', 3)
+      expect(picked).toBe('genuine-third-party')
+    }
   })
 })
 

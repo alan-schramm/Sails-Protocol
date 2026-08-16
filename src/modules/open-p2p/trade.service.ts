@@ -26,6 +26,27 @@ export interface TradePagination {
   offset?: number
 }
 
+// Missão 04 hardening finding — updateStatus() below previously wrote
+// `status` unconditionally, with no check on the trade's *current*
+// status at all. Escrow.status has a rigorous VALID_TRANSITIONS map
+// (escrow-lifecycle.ts); Trade.status had nothing equivalent for the one
+// write path a client can call directly. Concretely: a trade already
+// COMPLETED (settlement.escrow.released already fired, real funds
+// already moved) or DISPUTED could have its Trade.status silently
+// overwritten back to CANCELLED by either party calling
+// PATCH /v1/openp2p/trades/:id/status — not a path to re-move funds
+// (Escrow's own state machine is untouched and remains authoritative
+// for that), but a real state-integrity/audit-trail corruption: the
+// Trade record would misrepresent what actually happened. Every other
+// Trade.status transition (ACTIVE/COMPLETED/DISPUTED/the event-driven
+// CANCELLED-via-refund) is already driven automatically by a real,
+// separately-gated Escrow transition (common/events/handlers.ts) — this
+// map only needs to cover the two targets a client can request directly.
+const MANUAL_TRADE_TRANSITIONS: Record<string, Array<'ACTIVE' | 'CANCELLED'>> = {
+  PENDING: ['ACTIVE', 'CANCELLED'],
+  ACTIVE: ['CANCELLED'],
+}
+
 export class TradeService {
   constructor(private readonly repo: TradeRepository = tradeRepository) {}
 
@@ -196,6 +217,14 @@ export class TradeService {
     if (!trade) throw new NotFoundError('Trade', tradeId)
     if (triggeredBy !== trade.buyerId && triggeredBy !== trade.sellerId) {
       throw new ForbiddenError(`${triggeredBy} is not a party to trade ${tradeId}`)
+    }
+
+    const allowed = MANUAL_TRADE_TRANSITIONS[trade.status] ?? []
+    if (!allowed.includes(status)) {
+      throw new ValidationError(
+        `Trade ${tradeId} cannot transition from ${trade.status} to ${status} — only ${allowed.join('/') || 'no'} ` +
+        `transition(s) are valid from ${trade.status}`
+      )
     }
 
     const updated = await this.repo.updateStatus(tradeId, status, status === 'CANCELLED' ? new Date() : undefined)

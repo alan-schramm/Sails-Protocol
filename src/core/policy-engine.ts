@@ -37,6 +37,165 @@ export interface PolicyEngine {
   activate(policyId: string): Promise<void>
 }
 
+// ─── Policy decision primitive — Missão 03 ─────────────────────────────────
+// Deliberately NOT the governed get/propose/activate system above (that
+// remains Months 10-12 scope, unchanged — RFC-023's own Alternatives
+// Considered #5 already rejected building it out for the /propose route,
+// and the CTO's own Missão 03 brief re-confirms the distinction rather
+// than asking for that system to be built now).
+//
+// The distinction this file now makes explicit, not just in a comment:
+// Capability answers "does this actor hold potential authority for this
+// class of action?" (capability-registry.ts, a pure grant lookup, no
+// business context). Policy answers "given this actor, this specific
+// resource, and the current contextual conditions, is this exact action
+// permitted right now?" A valid capability grant is necessary but never
+// sufficient — evaluateIntentPolicy() below explicitly proves this by
+// still denying a capability-holding, Intent-owning caller whose
+// requested amount falls outside the Intent's own declared bounds.
+//
+// Evolved from Missão 02's authorizeIntentAction() (same function,
+// renamed and extended — 2026-08-15): ownership/expiry/status/capability
+// were already unified there; the amount-vs-declared-bounds check that
+// core/intent.routes.ts's propose handler still made inline is folded in
+// here too, since it is exactly the kind of contextual condition this
+// primitive exists to own, not a route-level formatting concern.
+//
+// Deliberately excluded, per Missão 03 Fase 3's own explicit boundary:
+// settlement authorization (escrow.service.ts's isSellerOrAssignedArbiter,
+// RFC-014/RFC-015's own checks) stays exactly where it is — this file
+// never imports anything from open-settlement, and never will (see
+// policyEngineHasNoSettlementAccess in the test file for a direct,
+// structural proof of that, not just a comment promise). Counterparty
+// reputation filtering (minReputationRating) also stays out — that is a
+// discovery/matching concern (liquidityRouter.proposeForIntent()), a
+// property of what a search finds, not of whether the actor asking is
+// authorized to ask.
+import type { IntentStatus } from './state-machine'
+import { isExpired } from './state-machine'
+import { capabilityRegistry, type CapabilityRegistry } from './capability-registry'
+
+export type PolicyEffect = 'ALLOW' | 'DENY'
+
+// Fase 9 — a decision must be auditable: who, which action, on which
+// resource, ALLOW/DENY, and why. No secrets, no capability-grant
+// internals beyond the name/scope already public to the caller.
+export interface PolicyDecision {
+  effect: PolicyEffect
+  reason: string
+  actor: string
+  action: string
+  resource: { type: string; id: string }
+  // Lets the caller map a denial onto the right HTTP error class without
+  // string-matching `reason` — 'forbidden' for identity/authority
+  // failures (403), 'validation' for state/context failures (400),
+  // matching this route's pre-existing status codes exactly.
+  denialCategory?: 'forbidden' | 'validation'
+}
+
+function allow(actor: string, action: string, resource: { type: string; id: string }): PolicyDecision {
+  return { effect: 'ALLOW', reason: 'all policy conditions satisfied', actor, action, resource }
+}
+
+function deny(
+  actor: string, action: string, resource: { type: string; id: string },
+  reason: string, denialCategory: 'forbidden' | 'validation'
+): PolicyDecision {
+  return { effect: 'DENY', reason, actor, action, resource, denialCategory }
+}
+
+// The only action this evaluator currently knows how to decide — Fase 5's
+// "unknown action -> DENY" applied literally: a caller asking about any
+// other action string gets a real denial, not a silent no-op ALLOW. Grows
+// by adding a name here plus a real branch, never by accepting an
+// arbitrary string and assuming it's fine.
+const KNOWN_INTENT_ACTIONS = new Set(['intent.propose'])
+
+export async function evaluateIntentPolicy(
+  params: {
+    action: string
+    // Intentionally nullable — Fase 5's "recurso inexistente -> DENY"
+    // covered directly rather than trusted to always be pre-checked by
+    // the caller (defense in depth: a caller that races a lookup against
+    // a deletion still gets a real DENY, not a crash on `.participantId`).
+    intent: { id: string; participantId: string; status: IntentStatus; expiresAt: Date | null } | null
+    requestedBy: string
+    allowedStatuses: IntentStatus[]
+    requireCapability: boolean
+    capabilityName: string
+    capabilityScope: string
+    // The condition the CTO's own example names directly ("preço está
+    // dentro do limite; quantidade está dentro do limite") — optional
+    // because not every intent action involves a requested amount
+    // (cancel, for instance), but when present it's evaluated as a real
+    // policy condition, not a separate inline check the caller re-derives.
+    requestedAmount?: { amount: string; minValue?: string; maxValue?: string }
+  },
+  registry: Pick<CapabilityRegistry, 'check'> = capabilityRegistry
+): Promise<PolicyDecision> {
+  const resource = { type: 'Intent', id: params.intent?.id ?? 'unknown' }
+
+  if (!KNOWN_INTENT_ACTIONS.has(params.action)) {
+    return deny(params.requestedBy, params.action, resource, `No policy exists for action '${params.action}'`, 'validation')
+  }
+
+  if (!params.intent) {
+    return deny(params.requestedBy, params.action, resource, 'Resource does not exist', 'validation')
+  }
+
+  if (!params.requestedBy) {
+    return deny(params.requestedBy, params.action, resource, 'Incomplete policy context: requestedBy is required', 'validation')
+  }
+
+  if (params.intent.participantId !== params.requestedBy) {
+    return deny(params.requestedBy, params.action, resource, `${params.requestedBy} does not own this Intent`, 'forbidden')
+  }
+
+  if (isExpired({ status: params.intent.status, expiresAt: params.intent.expiresAt })) {
+    return deny(params.requestedBy, params.action, resource, 'Intent has expired', 'validation')
+  }
+
+  if (!params.allowedStatuses.includes(params.intent.status)) {
+    return deny(
+      params.requestedBy, params.action, resource,
+      `Intent is not in a valid state for '${params.action}' (status: ${params.intent.status})`, 'validation'
+    )
+  }
+
+  if (params.requireCapability) {
+    const hasCapability = await registry.check(params.requestedBy, params.capabilityName, params.capabilityScope)
+    if (!hasCapability) {
+      return deny(
+        params.requestedBy, params.action, resource,
+        `${params.requestedBy} has no active '${params.capabilityName}' capability grant covering '${params.capabilityScope}'`,
+        'forbidden'
+      )
+    }
+  }
+
+  // Reached only once ownership, expiry, status, and capability all
+  // cleared — proves by construction that a valid capability alone never
+  // reaches ALLOW on its own; this condition still runs after it.
+  if (params.requestedAmount) {
+    const { amount, minValue, maxValue } = params.requestedAmount
+    const amountNum = Number(amount)
+    if (minValue !== undefined && amountNum < Number(minValue)) {
+      return deny(
+        params.requestedBy, params.action, resource,
+        `amount ${amount} is below Intent ${resource.id}'s own minValue (${minValue})`, 'validation'
+      )
+    }
+    if (maxValue !== undefined && amountNum > Number(maxValue)) {
+      return deny(
+        params.requestedBy, params.action, resource,
+        `amount ${amount} is above Intent ${resource.id}'s own maxValue (${maxValue})`, 'validation'
+      )
+    }
+  }
+
+  return allow(params.requestedBy, params.action, resource)
+}
+
 // TODO(Meses 1-3): implement. Governance transition (Satsails-controlled →
 // multi-stakeholder) tracked in PROTOCOL_ECONOMY.md section 7.
 export const policyEngine: PolicyEngine = {

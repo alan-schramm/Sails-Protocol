@@ -27,6 +27,7 @@
 import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
+import { tradeRepository } from '../open-p2p/trade-repository'
 import { AssetType } from '../../common/types'
 import { eventBus } from '../../common/events/event-bus'
 import type { ArbitrationProvider } from './arbitration-provider'
@@ -177,34 +178,53 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
    * string (RFC-009); Number() here is a bounds comparison only, never
    * stored or propagated as a number — same precedent
    * `policy-engine.ts`'s `validateFinancialSanity` already established.
+   *
+   * excludeParticipantIds — Missão 04 hardening finding: neither this
+   * method nor assign()/assignAppealPanel() below ever excluded the
+   * disputed trade's own buyer/seller from the eligible pool. A trade
+   * party who registered as an arbiter (permissionless, D2) with enough
+   * collateral to clear K_ELIGIBILITY for their own trade's value had a
+   * real, non-zero chance of being weighted-random-selected to arbitrate
+   * their own dispute — resolveDispute()'s only check is
+   * `dispute.arbiterId === arbiterId`, trivially true for a self-assigned
+   * arbiter, giving them a real, unilateral path to a favorable
+   * RELEASE/REFUND/SPLIT ruling with none of RFC-015's two-person control
+   * (arbitration is explicitly exempted from that by design, on the
+   * assumption the arbiter is neutral — this bug broke that assumption).
+   * Fixed at the source (the eligible pool itself) so both assign() and
+   * assignAppealPanel() get the fix for free.
    */
-  async eligibleFor(disputeValue: string): Promise<ArbiterCandidate[]> {
+  async eligibleFor(disputeValue: string, excludeParticipantIds: string[] = []): Promise<ArbiterCandidate[]> {
     const profiles = await prisma.arbiterProfile.findMany({ where: { slashedAt: null } })
     const threshold = Number(disputeValue) * K_ELIGIBILITY
-    return profiles.map((p) => this.toCandidate(p)).filter((c) => c.effectiveStake >= threshold)
+    return profiles
+      .map((p) => this.toCandidate(p))
+      .filter((c) => c.effectiveStake >= threshold && !excludeParticipantIds.includes(c.participantId))
   }
 
   /**
    * The real assign() the ArbitrationProvider interface requires.
    * Weighted-random selection among eligible candidates, weight =
    * effectiveStake — replaces TrustedArbitratorProvider's round-robin.
-   * tradeId isn't needed for this provider's own logic (kept in the
-   * signature only to satisfy the shared interface); disputeId is used
-   * to look up the dispute's real value so eligibility can be computed
-   * against it.
+   * The trade's own buyer/seller are excluded from the eligible pool —
+   * see eligibleFor()'s own doc comment for why. Read from the dispute's
+   * own persisted `tradeId` (authoritative), not the `_tradeId` parameter
+   * alone, though the two should always agree for a correct caller.
    */
   async assign(disputeId: string, _tradeId: string): Promise<string> {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new EscrowError(`MarketArbitrationProvider: no dispute found for id ${disputeId}`)
     const escrow = await this.repo.findById(dispute.escrowId)
     if (!escrow) throw new EscrowError(`MarketArbitrationProvider: no escrow found for dispute ${disputeId}`)
+    const trade = await tradeRepository.findById(dispute.tradeId)
+    if (!trade) throw new EscrowError(`MarketArbitrationProvider: no trade found for dispute ${disputeId}`)
 
-    const eligible = await this.eligibleFor(String(escrow.lockedAmount))
+    const eligible = await this.eligibleFor(String(escrow.lockedAmount), [trade.buyerId, trade.sellerId])
     if (eligible.length === 0) {
       throw new EscrowError(
         `MarketArbitrationProvider: no registered arbiter clears the ${K_ELIGIBILITY}x eligibility threshold ` +
-        `for a dispute of value ${escrow.lockedAmount} — register more collateral/reputation, or configure ` +
-        'TRUSTED_ARBITRATORS and set ARBITRATION_MODE=trusted-list instead.'
+        `for a dispute of value ${escrow.lockedAmount} (excluding the trade's own buyer/seller) — register more ` +
+        'collateral/reputation, or configure TRUSTED_ARBITRATORS and set ARBITRATION_MODE=trusted-list instead.'
       )
     }
 
@@ -233,20 +253,24 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
    * dominate the appeal panel — the concrete mechanism for the
    * full-node-vs-hashpower analogy this design started from. Panel size
    * grows with round (PANEL_SIZE_BASE * 2^round); the excluded original
-   * arbiter can't be redrawn onto their own appeal.
+   * arbiter can't be redrawn onto their own appeal. Same Missão 04
+   * exclusion as assign() — the trade's own buyer/seller can never sit
+   * on the panel judging their own dispute, appeal round or not.
    */
   async assignAppealPanel(disputeId: string, _tradeId: string, round: number, excludeParticipantId?: string): Promise<string> {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new EscrowError(`MarketArbitrationProvider: no dispute found for id ${disputeId}`)
     const escrow = await this.repo.findById(dispute.escrowId)
     if (!escrow) throw new EscrowError(`MarketArbitrationProvider: no escrow found for dispute ${disputeId}`)
+    const trade = await tradeRepository.findById(dispute.tradeId)
+    if (!trade) throw new EscrowError(`MarketArbitrationProvider: no trade found for dispute ${disputeId}`)
 
-    let eligible = await this.eligibleFor(String(escrow.lockedAmount))
-    if (excludeParticipantId) eligible = eligible.filter((c) => c.participantId !== excludeParticipantId)
+    const excluded = [trade.buyerId, trade.sellerId, ...(excludeParticipantId ? [excludeParticipantId] : [])]
+    const eligible = await this.eligibleFor(String(escrow.lockedAmount), excluded)
     if (eligible.length === 0) {
       throw new EscrowError(
         `MarketArbitrationProvider: no eligible arbiter available for appeal round ${round} of dispute ${disputeId} ` +
-        '(excluding the original arbiter) — more arbiters need to register collateral/reputation.'
+        '(excluding the original arbiter and the trade\'s own buyer/seller) — more arbiters need to register collateral/reputation.'
       )
     }
 
