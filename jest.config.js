@@ -40,7 +40,25 @@ module.exports = {
   // already does for this repo's own source, regardless of which
   // package it came from. Verified: the full existing suite still passes
   // with this change (slower, not broken).
-  transformIgnorePatterns: [],
+  //
+  // @prisma/client exception (Missão 06, 2026-08-16): found running the
+  // first real-Postgres integration test with an interpolated `$queryRaw`
+  // tagged template (`` prisma.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${x}))` ``,
+  // event-store.ts's PostgresEventStore.publish()) — re-transpiling
+  // @prisma/client's own pre-built runtime bundle breaks a real
+  // `class Sql extends Array` its runtime constructs internally for
+  // exactly this interpolated-template code path (a non-interpolated
+  // `` $queryRaw`SELECT 1` `` never touches it, which is why app.ts's own
+  // healthcheck query never surfaced this): "Must call super constructor
+  // in derived class before accessing 'this'" — down-leveling an
+  // already-built bundle's native `extends Array` under ts-jest breaks
+  // native super-call semantics. Unlike the genuinely ESM-only packages
+  // this empty-array default exists for, @prisma/client already ships a
+  // valid, CJS-interoperable bundle and never needed re-transpiling —
+  // excluding just it (and the generated `.prisma/client` query-engine
+  // glue) is narrower than reverting to a real ignore list, and doesn't
+  // reintroduce the ESM-only failures the empty array was added to fix.
+  transformIgnorePatterns: ['node_modules/(?:@prisma/client|\\.prisma/client)/'],
   transform: {
     '^.+\\.(t|j)sx?$': ['ts-jest'],
   },

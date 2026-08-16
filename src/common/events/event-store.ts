@@ -1,7 +1,9 @@
 import { EventEmitter } from 'events'
 import { randomUUID as uuidv4, createHash } from 'crypto'
+import type { Prisma } from '@prisma/client'
 import type { SailsEventName, SailsEventMap } from './event-bus'
 import { childLogger } from '../logger'
+import { prisma } from '../database'
 
 const log = childLogger('event-store')
 
@@ -163,7 +165,7 @@ export class InMemoryEventStore implements EventStore {
       const result = handler(event)
       if (result instanceof Promise) {
         result.catch((err) => {
-          log.error({ msg: 'Handler error', eventName, eventId: event.eventId, err: err instanceof Error ? err.message : err })
+          log.error({ msg: 'Handler error', eventName, eventId: event.eventId, correlationId: event.correlationId, err: err instanceof Error ? err.message : err })
         })
       }
     })
@@ -173,6 +175,202 @@ export class InMemoryEventStore implements EventStore {
     // Already publish-ordered (array push is append-only) — no separate
     // sort needed, unlike a real store that might return out of order.
     return this.byCorrelationId.get(correlationId) ?? []
+  }
+}
+
+// ─── Postgres — real, default as of Missão 05.7 (2026-08-15). Backs
+// DurableEvent with the same Postgres database every other durable
+// record in this system already lives in (IntentEvent, EscrowEvent,
+// Trade, Escrow, ...), closing the one gap RFC-008 D2's own amendment
+// history explicitly disclosed and deferred twice: the hash-chained
+// DurableEvent stream (what Timeline actually reads, RFC-017) lived only
+// in InMemoryEventStore, gone on every process restart. See this file's
+// own RedisStreamsEventStore header and RFC-008's D2 amendment section
+// for the comparison against Redis Streams — this repo's `docker-compose.yml`
+// runs Redis with no AOF/save override, i.e. not configured for the
+// durability guarantee dispute evidence needs, whereas Postgres already
+// is (every migration in this repo assumes it).
+//
+// subscribe() is deliberately unchanged from InMemoryEventStore's own
+// shape — a synchronous, in-process EventEmitter, not Postgres
+// LISTEN/NOTIFY and not a new consumer-group mechanism. Nothing in this
+// codebase today needs cross-process fan-out (every handler registered
+// in common/events/handlers.ts runs in the same process that published
+// the event); RedisStreamsEventStore already exists for the day that
+// changes. This class's whole job is making publish()/getEvents()
+// durable, not reinventing subscribe() — same "cirurgical" scope the
+// mission that added this class was given.
+export class PostgresEventStore implements EventStore {
+  readonly storeName = 'postgres'
+  readonly durable = true
+  private emitter = new EventEmitter()
+
+  constructor(private readonly client: Pick<typeof prisma, 'durableEventRecord' | '$transaction'> = prisma) {
+    this.emitter.setMaxListeners(50)
+  }
+
+  // Missão 05.8 — the read-then-write (findFirst, then create) below runs
+  // inside a real Postgres transaction, serialized per-correlationId by a
+  // `pg_advisory_xact_lock`, closing the fork exposure this class's own
+  // header comment used to disclose here (see this file's git history/
+  // RFC-008's D2 amendment for the original, now-superseded disclosure).
+  //
+  // Why an advisory lock, not an in-process mutex: this app can run as
+  // more than one instance (this repo's own AWS App Runner deployment
+  // plan, DEPLOYMENT.md), each with its own Node process and its own
+  // memory — a `Map<correlationId, Promise>` queue would only serialize
+  // writers *within* one instance, doing nothing to stop two different
+  // instances from forking the same correlationId's chain. An advisory
+  // lock lives in Postgres itself, so it serializes every writer talking
+  // to the same database regardless of which process or instance they're
+  // in — and it needs no schema change (no new table/column), keeping
+  // `EventStore`'s contract, `computeEntryHash()`, and `GENESIS_HASH`
+  // exactly as they were.
+  //
+  // Why `pg_advisory_xact_lock`, not `pg_advisory_lock`: the `_xact_`
+  // variant is scoped to and released automatically at the end of the
+  // enclosing transaction (commit OR rollback) — no explicit unlock call,
+  // so a crashed request or a thrown error can never leak a held lock
+  // past its own transaction the way a session-level lock could if the
+  // matching unlock call were ever skipped.
+  //
+  // Why `hashtext(correlationId)`, not the raw string: Postgres advisory
+  // locks are keyed by a bigint (or two int4s), not an arbitrary string.
+  // `hashtext()` is Postgres's own built-in string-to-int4 hash, used
+  // here purely as a lock key, never mixed into `entryHash`/`prevHash` —
+  // the hash chain's own hash function (`computeEntryHash` above) is
+  // completely untouched. This does mean two different correlationIds
+  // could, in principle, hash to the same int4 and briefly contend for
+  // the same lock — a false-positive serialization, not a correctness
+  // bug (it can only make two unrelated writes wait on each other for a
+  // moment, never let two events on the wrong correlationId collide) —
+  // see tests/postgresEventStore.test.ts's own independence test, which
+  // proves distinct correlationIds still complete without waiting on each
+  // other in the common (non-colliding) case.
+  async publish<K extends SailsEventName>(
+    eventName: K,
+    payload: SailsEventMap[K],
+    correlationId: string
+  ): Promise<void> {
+    const eventId = uuidv4()
+    let prevHash = GENESIS_HASH
+    let entryHash = ''
+    let publishedAt = ''
+
+    await this.client.$transaction(async (tx) => {
+      // $executeRaw, not $queryRaw — Missão 06 (2026-08-16) real-Postgres
+      // integration testing found $queryRaw fails against a live server
+      // here: pg_advisory_xact_lock() returns void, and Prisma's
+      // $queryRaw tries to deserialize every returned column into a JS
+      // value, which a void column has none of ("Failed to deserialize
+      // column of type 'void'"). The mocked suite (tests/postgresEventStore.test.ts)
+      // never caught this — its fake $queryRaw resolves unconditionally,
+      // never executing real SQL against a real engine. $executeRaw is
+      // the correct tool for a call whose only purpose is the side
+      // effect (the lock itself), with no row data ever needed back.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${correlationId})::bigint)`
+
+      // Real prevHash: this correlationId's own last row, not a
+      // separately maintained counter — same read-then-write shape
+      // emitEscrowTransition()/writeIntentEvent() already established
+      // (escrow-lifecycle.ts, intent-engine.ts). Now genuinely race-free
+      // (not just race-free "as long as the caller already serialized
+      // upstream," the precondition this comment used to state): the
+      // advisory lock above means no other publish() call for this same
+      // correlationId can be inside this transaction at the same time,
+      // on this process or any other.
+      const last = await tx.durableEventRecord.findFirst({
+        where: { correlationId },
+        orderBy: { publishedAt: 'desc' },
+      })
+      prevHash = last?.entryHash ?? GENESIS_HASH
+
+      // Computed here, AFTER acquiring the lock and reading `last` — not
+      // before entering the transaction — and forced strictly greater
+      // than the prior entry's own publishedAt. Missão 06 (2026-08-16)
+      // real-Postgres load testing found the previous version (timestamp
+      // captured once, before the lock, from wall-clock time alone) let
+      // several advisory-lock-serialized writers land in the SAME
+      // millisecond under genuine concurrency — harmless for the write
+      // path itself, but `getEvents()`'s `ORDER BY "publishedAt" ASC`
+      // has no tie-break guarantee in Postgres for equal values, so a
+      // read could return two same-millisecond rows in the opposite of
+      // their real write order, and `verifyChain()` (which walks rows in
+      // query order) reported a false-positive broken chain — reproduced
+      // directly against the live database, not assumed. Bumping by 1ms
+      // past the real last write when a collision would occur keeps
+      // every row's publishedAt strictly monotonic within a
+      // correlationId, which is the only ordering guarantee `getEvents()`
+      // actually needs — no schema change, no change to
+      // `computeEntryHash()`'s formula, publishedAt stays an ISO-8601
+      // string throughout.
+      publishedAt = new Date().toISOString()
+      if (last && publishedAt <= last.publishedAt) {
+        publishedAt = new Date(new Date(last.publishedAt).getTime() + 1).toISOString()
+      }
+
+      entryHash = computeEntryHash(eventName, publishedAt, payload, prevHash)
+
+      await tx.durableEventRecord.create({
+        data: {
+          id: eventId,
+          eventName,
+          correlationId,
+          payload: payload as unknown as Prisma.InputJsonValue,
+          publishedAt,
+          entryHash,
+          prevHash,
+        },
+      })
+    })
+
+    // Same log-level reasoning InMemoryEventStore.publish() already
+    // states — debug, not info, since this dumps full event payloads
+    // (trade amounts, participant ids, escrow details).
+    if (process.env.NODE_ENV === 'development') {
+      log.debug({ msg: 'Event emitted', eventName, correlationId, payload })
+    }
+
+    const event: DurableEvent<K> = {
+      eventId,
+      eventName,
+      correlationId,
+      payload,
+      publishedAt,
+      entryHash,
+      prevHash,
+    }
+    this.emitter.emit(eventName, event)
+  }
+
+  subscribe<K extends SailsEventName>(
+    eventName: K,
+    handler: (event: DurableEvent<K>) => void | Promise<void>
+  ): void {
+    this.emitter.on(eventName, (event: DurableEvent<K>) => {
+      const result = handler(event)
+      if (result instanceof Promise) {
+        result.catch((err) => {
+          log.error({ msg: 'Handler error', eventName, eventId: event.eventId, correlationId: event.correlationId, err: err instanceof Error ? err.message : err })
+        })
+      }
+    })
+  }
+
+  async getEvents(correlationId: string): Promise<DurableEvent[]> {
+    const rows = await this.client.durableEventRecord.findMany({
+      where: { correlationId },
+      orderBy: { publishedAt: 'asc' },
+    })
+    return rows.map((row): DurableEvent => ({
+      eventId: row.id,
+      eventName: row.eventName as SailsEventName,
+      correlationId: row.correlationId,
+      payload: row.payload as unknown as SailsEventMap[SailsEventName],
+      publishedAt: row.publishedAt,
+      entryHash: row.entryHash,
+      prevHash: row.prevHash,
+    }))
   }
 }
 
@@ -369,7 +567,7 @@ export class RedisStreamsEventStore implements EventStore {
             // passes, same "don't silently drop a failed real event"
             // principle InMemoryEventStore's own subscribe() comment
             // already states for its in-process equivalent.
-            log.error({ msg: 'Handler error', eventName, messageId, err: err instanceof Error ? err.message : err })
+            log.error({ msg: 'Handler error', eventName, messageId, correlationId: event.correlationId, eventId: event.eventId, err: err instanceof Error ? err.message : err })
           }
         }
       } catch (err) {

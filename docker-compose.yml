@@ -102,18 +102,29 @@ services:
       HOST: 0.0.0.0
       MOCK_ESCROW: "true"
       MOCK_SETTLEMENT: "true"
-      # Both off by default in the codebase (config/index.ts), on here for
-      # this reference deployment (2026-08-09, project-owner decision) —
-      # real found gap fixed alongside this: this environment: block never
-      # passed .env's own QVAC_AUTO_RESOLUTION_ENABLED/
-      # SOCIAL_ENGINEERING_DETECTION through at all (no env_file: .env,
-      # and this block didn't list them), so setting them in .env alone
-      # never actually reached the container. See .env.example's own
-      # comments on each flag for what turning them on means.
-      QVAC_AUTO_RESOLUTION_ENABLED: "true"
+      # Both off by default in the codebase (config/index.ts) — kept off
+      # here too as of the 2026-08-15 security review (P2 finding): the
+      # 2026-08-09 project-owner decision that turned these on here was a
+      # real, deliberate demo choice ("one command up, AI already
+      # visible"), but an external security review correctly flagged it
+      # as a surprising baseline — anyone running `docker compose up` for
+      # the first time gets automated AI dispute resolution active by
+      # default, protected only by MOCK_ESCROW/MOCK_SETTLEMENT (no real
+      # funds move, but still not an obvious thing to opt into silently).
+      # To restore the demo behavior deliberately: uncomment below, or
+      # set the same two env vars in a docker-compose.override.yml (not
+      # tracked). QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD/_WINDOW_HOURS
+      # only matter once QVAC_AUTO_RESOLUTION_ENABLED is true — see
+      # .env.example's own comments on each flag for what turning them on
+      # means. The env-var-not-passed-through gap this comment used to
+      # describe (QVAC_AUTO_RESOLUTION_ENABLED/SOCIAL_ENGINEERING_DETECTION
+      # never reaching the container even if set in .env, since this
+      # block has no `env_file: .env`) is fixed by listing them explicitly
+      # here, same as every other var in this block.
+      QVAC_AUTO_RESOLUTION_ENABLED: "false"
       QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: "0.85"
       QVAC_AUTO_RESOLUTION_WINDOW_HOURS: "24"
-      SOCIAL_ENGINEERING_DETECTION: "true"
+      SOCIAL_ENGINEERING_DETECTION: "false"
     depends_on:
       postgres:
         condition: service_healthy

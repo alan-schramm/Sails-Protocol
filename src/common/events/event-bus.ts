@@ -1,5 +1,5 @@
 import type { EventStore } from './event-store'
-import { InMemoryEventStore } from './event-store'
+import { PostgresEventStore } from './event-store'
 
 /**
  * Sails Protocol — Event Contract
@@ -425,11 +425,20 @@ export type SailsEventName = keyof SailsEventMap
 
 // ─── Typed Event Bus (RFC-010 — delegates to a pluggable EventStore) ─────────
 // Previously extended EventEmitter directly (in-memory only, no durability,
-// no correlationId). Now wraps an EventStore (InMemoryEventStore by default)
-// so a durable backend can be swapped in via the constructor without any
-// eventBus.emit()/on() call site changing — see event-store.ts.
-class SailsEventBus {
-  constructor(private readonly store: EventStore = new InMemoryEventStore()) {}
+// no correlationId). Now wraps an EventStore — PostgresEventStore by
+// default as of Missão 05.7 (2026-08-15; InMemoryEventStore was the
+// default before this, still available and still used directly by tests
+// that want a fast, zero-infrastructure store) — so a durable backend can
+// be swapped in via the constructor without any eventBus.emit()/on() call
+// site changing — see event-store.ts.
+//
+// Exported (Missão 05.7) so a test can construct a genuinely independent
+// instance sharing zero in-process state with the module singleton below
+// — the only way to actually simulate "the process restarted" rather
+// than merely asserting it in prose. Not a change anything else needed:
+// every real call site still just imports the `eventBus` singleton.
+export class SailsEventBus {
+  constructor(private readonly store: EventStore = new PostgresEventStore()) {}
 
   get storeName(): string {
     return this.store.storeName

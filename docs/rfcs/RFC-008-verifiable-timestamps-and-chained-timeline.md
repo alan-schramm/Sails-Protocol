@@ -181,7 +181,9 @@ nobody actually consults. The real implementation instead adds
 (`common/events/event-store.ts`), computed by `EventStore.publish()` at
 write time (`InMemoryEventStore` today; `RedisStreamsEventStore` inherits
 the same obligation once built) — `EscrowEvent`/`ReputationEvent` are
-unchanged, no migration needed. `Timeline.verifyChain()` does two
+unchanged, no migration needed (**this specific claim corrected below,
+2026-08-15 — it traded away durability+tamper-evidence together without
+saying so at the time**). `Timeline.verifyChain()` does two
 independent checks per entry: `prevHash` matches the running chain
 (catches reordering/insertion/deletion) AND recomputing `entryHash` from
 the entry's own stored fields matches what was stored (catches a single
@@ -242,6 +244,271 @@ without the rewrite being detectable against the anchored hash. This is
 the natural point where D1's external assurance and D2's internal
 tamper-evidence reinforce each other; it is not a new mechanism, just
 applying D1 to D2's chain tip instead of to a single `EvidenceReference`.
+
+### D2 amendment — EscrowEvent gets its own chain too (Missão 05.5, 2026-08-15)
+
+**The gap, found by direct audit, not assumed:** D2's real implementation
+(above) correctly chains `DurableEvent` because that's what `Timeline`
+actually reads — but the 2026-08-04 note's "`EscrowEvent`/
+`ReputationEvent` are unchanged, no migration needed" traded away a
+property D2's own motivation explicitly cares about, without saying so at
+the time. `EscrowEvent` is the durable (Postgres) record of every real
+fund-movement transition — who locked, who released, who refunded, who
+disputed — and it had no tamper-evidence at all: an operator or attacker
+with database write access could edit or delete a row with nothing
+detecting it. Meanwhile the chained `DurableEvent` stream lives in
+`InMemoryEventStore` by default, which is explicitly non-durable — gone
+on restart. Neither store alone gave settlement's own audit trail both
+properties D2 exists to guarantee together.
+
+**Decision:** `EscrowEvent` gains its own `entryHash`/`prevHash`,
+independent of `DurableEvent`'s chain — not a second copy of the same
+chain, a second chain scoped to a different, already-existing table that
+needed the same property. Same composition IntentEvent already
+established for the identical situation (`IntentEvent` already has both
+durability and this exact chain — this amendment brings `EscrowEvent` to
+parity with it, not a new pattern): `entryHash =
+sha256(fromStatus|toStatus|triggeredBy|prevHash)`. Scope is per-`escrowId`
+— the natural aggregate boundary this whole module's authorization model
+(`isSellerOrAssignedArbiter`, `claimEscrowTransition`) already uses, same
+reasoning D2's own per-`intentId` scoping decision already gives for
+`Timeline` (Alternatives Considered: reject a single global structure).
+
+**Write path:** `escrow-lifecycle.ts`'s `emitEscrowTransition()` — the
+single function every mutating `EscrowService` method already funnels
+through — computes and persists both fields; no caller can supply them.
+Race-free for the same reason `IntentEvent`'s identical read-then-write
+pattern already is: this function is only ever called after the caller's
+own `claimEscrowTransition()` atomic claim (a conditional `updateMany`)
+has already succeeded for that `escrowId`, so there is no concurrent
+writer left to race against by the time it reads "the last event."
+Proven, not just asserted: `tests/escrowEventHashChain.test.ts`'s
+concurrency test calls `emitEscrowTransition()` directly, bypassing that
+discipline on purpose, and shows the fork that would result if it were
+ever violated — the atomic claim upstream is load-bearing, not
+decorative.
+
+**Verification:** `verifyEscrowEventChain(escrowId)`
+(`escrow-lifecycle.ts`), same explanatory shape as `Timeline.verifyChain()`
+(`{ valid, brokenAtIndex?, reason? }`, not a bare boolean). 17 tests
+(`tests/escrowEventHashChain.test.ts`) prove it catches: an entry mutated
+in place, a directly-tampered `entryHash`, a tampered `prevHash`, a
+deleted entry, a reordered chain (real `createdAt` timestamps swapped —
+the actual attack a Postgres `orderBy: createdAt` query is exposed to,
+not just array order), an inserted forged entry, a broken genesis
+pointer, and two entries forking off the same ancestor.
+
+**Historical rows (pre-migration) — same policy D2 already specified for
+`DurableEvent`, applied here, not a new decision:** `entryHash`/`prevHash`
+ship as nullable columns; existing rows keep `entryHash = null` with no
+backfill. A deterministic hash needs the exact historical
+`(fromStatus, toStatus, triggeredBy)` triple in true write order, which
+these rows do have — but computing a chain over them now would assert a
+tamper-evidence guarantee that was never actually enforced at the time
+they were written, the same reasoning D2's own Backward Compatibility
+section already gives for why `Timeline`'s guarantee "only covers entries
+written after this RFC ships, not retroactively." `verifyEscrowEventChain()`
+skips a leading run of null-hash rows (never treats them as a break) and
+requires the first real-hash row's `prevHash` to be `'genesis'`
+regardless of what unchained history precedes it — proven to match the
+write path exactly, not just asserted to (the write path's own
+`last?.entryHash ?? 'genesis'` already evaluates to `'genesis'` when the
+most recent predecessor is a null-hash row, by construction of nullish
+coalescing, so verifier and writer enforce the identical rule).
+
+**Not done, disclosed, matches this mission's own scope:** `DurableEvent`
+(the `Timeline`/`InMemoryEventStore` chain, unaffected by this amendment)
+is still not durable by default — that gap (durability, not
+tamper-evidence) is a separate, larger infrastructure/deployment decision
+(swapping the default `EventStore`), reported and explicitly deferred,
+not decided here.
+
+### D2 amendment — `DurableEvent` becomes durable by default: `PostgresEventStore` (Missão 05.7, 2026-08-15)
+
+**The gap this closes:** the amendment directly above disclosed and
+deferred it explicitly — `Timeline`'s hash chain lived only in
+`InMemoryEventStore`, gone on every process restart. Every other durable
+record this protocol relies on for dispute evidence (`IntentEvent`,
+`EscrowEvent` since the Missão 05.5 amendment above, `Claim`/`Proof`/
+`Verification`) survives a restart; `Timeline` — the one D2 exists for —
+did not. A preceding architecture-comparison pass (Missão 05.6, not
+itself a code change) evaluated Postgres against Redis Streams
+(`RedisStreamsEventStore`, already real, see this file's own D2
+implementation note above) as the default durable backend and chose
+Postgres: this repo's `docker-compose.yml` runs Redis with no
+`appendonly`/`--save` override, i.e. not configured for the durability
+guarantee dispute evidence needs, whereas every migration in this repo
+already assumes Postgres is. Redis Streams stays available and real for
+the day cross-process fan-out is actually needed — nothing about this
+decision removes it, it simply isn't the default.
+
+**Decision:** a new `PostgresEventStore` (`common/events/event-store.ts`)
+implements `EventStore`, backed by a new table, `durable_events`
+(Prisma model `DurableEventRecord`, `prisma/schema.prisma`). It is now
+`SailsEventBus`'s default backing store (`common/events/event-bus.ts`) —
+`InMemoryEventStore` remains available and is still what several test
+files construct directly when they want a fast, zero-infrastructure
+store. No call site (`eventBus.emit`/`eventBus.on`/`getTimeline`)
+changed — this is the same "swap the backend, not the contract"
+adapter substitution D1/D2's own Reference Implementation Plan already
+anticipated for `EvidenceProvider`/`ArbitrationProvider`-style adapters.
+
+**Reused, not reinvented, on purpose:** `PostgresEventStore.publish()`
+calls the exact same `computeEntryHash()`/`GENESIS_HASH` this D2 section
+already defines and `InMemoryEventStore`/`RedisStreamsEventStore` already
+call — `entryHash = sha256(eventName:publishedAt:JSON(payload):prevHash)`,
+unchanged. `Timeline.verifyChain()` (`core/timeline.ts`) required zero
+code changes: it already only ever calls `eventBus.getEvents()` and
+recomputes via the same exported `computeEntryHash()`, so a
+`PostgresEventStore`-backed bus produces byte-identical `entryHash`
+values to what `InMemoryEventStore` always did — this is precisely why
+D2's earlier architectural correction (chaining `DurableEvent` itself,
+not `EscrowEvent`/`ReputationEvent`) mattered: it is what made the
+backend swappable without touching the verifier at all.
+
+**`publishedAt` is stored as `TEXT`, not `TIMESTAMPTZ`, on purpose:**
+`computeEntryHash()` hashes the exact ISO-8601 string produced at
+`publish()` time; a native timestamp column read back through Prisma
+would round-trip through a JS `Date` object first, a real and avoidable
+risk of the recomputed hash silently disagreeing with what was stored.
+Storing the literal string removes that risk entirely — ISO-8601's own
+format still sorts correctly under a plain lexicographic `ORDER BY`.
+
+**A genuinely new, disclosed exposure `InMemoryEventStore` never had:**
+`InMemoryEventStore.publish()`'s body has no internal `await` — in
+Node's single-threaded event loop, two "concurrent" calls to it can
+never actually interleave. `PostgresEventStore.publish()` needs real
+I/O (`findFirst` then `create`), so two calls for the *same*
+`correlationId` issued without an intervening `await` genuinely can
+both read the same "last row" and fork the chain — the identical
+exposure the Missão 05.5 `EscrowEvent` amendment above already disclosed
+and left unfixed, for the identical reason: today's dominant callers
+(escrow/intent transitions) are already serialized per-correlationId by
+their own atomic claim *before* they ever call `eventBus.emit()`, and a
+new serialization mechanism was explicitly out of this mission's scope.
+Proven, not just asserted: `tests/postgresEventStore.test.ts`'s own
+concurrency test calls `publish()` twice with no intervening `await` and
+shows the resulting fork, same precedent `tests/escrowEventHashChain.test.ts`
+already set for `EscrowEvent`.
+
+**Verification — the restart proof.** Beyond the same tamper-detection
+matrix `tests/escrowEventHashChain.test.ts` established (mutated
+payload, tampered `entryHash`/`prevHash`, deleted entry, reordered
+chain, inserted forged entry, broken genesis), `tests/postgresEventStore.test.ts`
+proves the actual property this mission exists for: a **freshly
+constructed `SailsEventBus`**, sharing no in-process state whatsoever
+with the bus that originally wrote the events (not the same object, no
+shared fields — `PostgresEventStore` itself holds no in-process cache,
+unlike `InMemoryEventStore`'s own `byCorrelationId` Map), reads back the
+identical events for a `correlationId` and reports `verifyChain(): {
+valid: true }` — the closest a single Jest process can get to proving
+survival across an actual process restart, since the only thing the
+fresh instance shares with the old one is the durable backing store
+itself (the mocked `durable_events` table in the test; the real Postgres
+database in production, which persists independently of any Node
+process's lifetime).
+
+**Historical rows:** none — `durable_events` is a brand-new table, no
+backfill question applies (unlike the Missão 05.5 `EscrowEvent`
+amendment, which had to account for pre-migration rows).
+
+**Not done, disclosed, matches this mission's own scope:** Redis's own
+persistence configuration was not touched (no `appendonly`/`--save`
+change to `docker-compose.yml`); no new Redis consumer groups; the
+Evidence Bundle (`proof.service.ts`'s `getEvidenceBundleForTrade()`,
+Missão 05) needed no code change — it already reads `eventBus.durable`/
+`eventBus.storeName` directly, so `timelineDurable`/`timelineStore` now
+correctly report `true`/`'postgres'` automatically, exactly the
+"swapping in a durable backend flips it automatically" design that
+disclosure was built for; no retention policy; no archival system;
+`subscribe()` stays a synchronous in-process `EventEmitter`, not
+Postgres `LISTEN`/`NOTIFY` — nothing in this codebase today needs
+cross-process fan-out, and `RedisStreamsEventStore` already exists for
+the day that changes.
+
+### D2 amendment — three real bugs found only by testing against a live Postgres (Missão 06, 2026-08-16)
+
+**Every claim above (05.7/05.8) was verified only against the mocked
+suite** (`tests/postgresEventStore.test.ts`'s fake `prisma.durableEventRecord`).
+Missão 06's own explicit mandate — "testes contra Postgres real, não
+apenas mocks" — is what surfaced these; neither is theoretical, both are
+reproduced with a live `docker-compose` Postgres in
+`tests/integration/postgresProductionReadiness.test.ts`.
+
+**Bug 1 — `pg_advisory_xact_lock()` cannot go through `$queryRaw`.**
+`PostgresEventStore.publish()`'s advisory-lock call used
+`` tx.$queryRaw`SELECT pg_advisory_xact_lock(...)` ``. Against a real
+server this throws: `pg_advisory_xact_lock()` returns `void`, and
+Prisma's `$queryRaw` tries to deserialize every returned column into a
+JS value — a `void` column has none. The mock never caught this because
+it never executes real SQL. Fixed by switching to `$executeRaw` (the
+correct tool for a call whose only purpose is the side effect, no row
+data ever needed back) — `event-store.ts`'s own comment on the call site
+has the detail. Zero change to `EventStore`'s contract, `computeEntryHash()`,
+or `GENESIS_HASH`.
+
+**Bug 2 — `jsonb` does not preserve payload key order, breaking
+`entryHash` verification.** `DurableEventRecord.payload` (`prisma/schema.prisma`)
+was `Json`, which maps to Postgres `jsonb` by default. `jsonb` is a
+binary format with no order guarantee — confirmed directly, not assumed:
+a payload written as `{escrowId, tradeId, from, to, triggeredBy}` read
+back as `{to, from, tradeId, escrowId, triggeredBy}`. Since `entryHash`
+hashes `JSON.stringify(payload)`, a reordered payload recomputes to a
+different hash than the one stored at write time — `verifyChain()`
+reported a false-positive tamper (`brokenAtIndex: 0`) on every fresh,
+genuine, untampered chain written against a real database. Fixed at the
+storage layer only: `payload Json @db.Json` forces Postgres's plain
+`json` type (stores the exact submitted text verbatim, never
+reparsed/reordered) instead of `jsonb` — migration
+`20260816000000_durable_events_payload_json_not_jsonb`. **`computeEntryHash()`
+itself and this RFC's own hash formula are untouched** — this was a
+storage bug, never a protocol one, and the CTO explicitly confirmed this
+was the right boundary before it was implemented (schema/protocol
+changes are this mission's own designated stop-and-report trigger).
+Costs `jsonb`'s native indexing/query operators on this one column,
+unused today (every reader takes the whole payload, never queries into
+its structure).
+
+**Bug 3 — `publishedAt` ties under real concurrent load broke read-order,
+not write-order.** Fixing Bug 1 made the advisory lock actually take
+effect, and the write path itself was already correct (each writer
+genuinely serialized, each correctly reading the true prior entry) — but
+`tests/integration/postgresProductionReadiness.test.ts`'s 5-real-connection
+concurrency test still failed intermittently (reproduced directly,
+~30-40% of runs, `brokenAtIndex: 0`), even after Bug 1's fix. Root cause:
+`publishedAt` was computed once, from wall-clock time, *before* entering
+the transaction — several advisory-lock-serialized writers, each fast
+enough, could land in the *same millisecond*. `getEvents()`'s `ORDER BY
+"publishedAt" ASC` has no tie-break guarantee in Postgres for equal
+values, so a read could return two same-millisecond rows in the opposite
+of their real write order. `verifyChain()` walks rows in *query* order,
+not *write* order, so a tie could make a genuinely correct chain read
+back as broken. Fixed by moving `publishedAt`'s computation inside the
+transaction, after acquiring the lock and reading the prior entry, and
+forcing it strictly greater than that entry's own `publishedAt` (bumping
+by 1ms when a real-time collision would otherwise occur) —
+`event-store.ts`'s own comment on the call site has the detail. No
+schema change (`publishedAt` stays the same `String` column), no change
+to `computeEntryHash()`'s formula — `publishedAt` is still a plain
+ISO-8601 string throughout, just guaranteed monotonic per-`correlationId`
+now instead of merely "usually distinct."
+
+**Verification:** `tests/integration/postgresProductionReadiness.test.ts`,
+7 tests, all against a live `docker-compose` Postgres — real concurrent
+writers (multiple independent `PrismaClient` connections) for the same
+correlationId never fork, real concurrent writers for different
+correlationIds never wait on each other, a transaction that acquires the
+advisory lock and then aborts leaves no row and does not leak the lock,
+an independently-constructed `PrismaClient`/`SailsEventBus` reads back
+identical data with a valid chain, and — reusing the same live database —
+`EscrowEvent`'s own chain (Missão 05.5) verified valid and its real
+tamper-detection path (`UPDATE escrow_events SET ...`, a genuine SQL
+statement, not a mock array mutation) both proven for real too. The
+concurrency test specifically was re-run 10 consecutive times after Bug
+3's fix with zero failures — the whole reason it's called out separately
+here rather than folded into Bug 1's own verification note above, which
+was written before Bug 3 was found and does not, on its own, mean the
+concurrency guarantee was actually reliable yet.
 
 ## Primitives Used or Extended
 

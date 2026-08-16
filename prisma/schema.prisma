@@ -506,7 +506,22 @@ model EscrowEvent {
   triggeredBy String
   note        String?
   createdAt   DateTime     @default(now())
+  // RFC-008 D2 amendment (Missão 05.5, 2026-08-15) — the same
+  // tamper-evident hash chain IntentEvent already has, same composition:
+  // sha256(fromStatus+toStatus+triggeredBy+prevHash), computed once at
+  // write time by escrow-lifecycle.ts's emitEscrowTransition(), never
+  // (re)computed at read time. Nullable so pre-migration rows stay valid
+  // as-is — see this model's own migration file for the historical-rows
+  // strategy (a NULL entryHash marks "written before the chain existed,"
+  // not a break in it).
+  entryHash   String?
+  prevHash    String?  // prior EscrowEvent.entryHash for this escrowId; 'genesis' for the first post-migration entry
 
+  // Same hot-path reasoning RELATORIO_PERFORMANCE.md already established
+  // for intent_events: the chain's write path does
+  // findFirst(where: { escrowId }, orderBy: { createdAt: 'desc' }) on
+  // every single Escrow transition to read the prior entryHash.
+  @@index([escrowId, createdAt])
   @@map("escrow_events")
 }
 
@@ -573,6 +588,55 @@ model IntentEvent {
   // directly.
   @@index([intentId, createdAt])
   @@map("intent_events")
+}
+
+// RFC-008 D2 amendment (Missão 05.7, 2026-08-15) — the durable backing
+// store for EventStore's DurableEvent stream (common/events/event-store.ts).
+// One shared table, not a per-module one like EscrowEvent/IntentEvent
+// above: this IS the EventStore's own storage, the same generic stream
+// Timeline (core/timeline.ts) has read via EventStore.getEvents(correlationId)
+// since RFC-017 — not a second, competing copy of any one module's audit
+// trail. Closes the gap the 2026-08-04 D2 note and the Missão 05.5
+// EscrowEvent amendment both disclosed and deferred: the hash-chained
+// DurableEvent stream lived only in InMemoryEventStore, gone on restart.
+model DurableEventRecord {
+  id            String @id @default(uuid())
+  eventName     String
+  correlationId String
+  // @db.Json (Postgres `json`, not the default `jsonb`), on purpose —
+  // Missão 06 (2026-08-16) real-Postgres integration testing found
+  // `jsonb`'s binary storage does not preserve object key order (a
+  // confirmed, reproduced fact, not a guess: a payload written as
+  // {escrowId, tradeId, from, to, triggeredBy} read back as {to, from,
+  // tradeId, escrowId, triggeredBy}), which silently broke
+  // `entryHash` verification — `computeEntryHash()` hashes
+  // `JSON.stringify(payload)`, so a payload reordered on the way back
+  // out of storage recomputes to a different hash than what was stored
+  // at write time, even though nothing was actually tampered with.
+  // Postgres's plain `json` type stores the exact submitted text
+  // verbatim (validated, never reparsed/canonicalized), which is what
+  // this column needs. No change to `computeEntryHash()` itself or to
+  // RFC-008's hash formula — this is a storage-layer fix, not a
+  // protocol one. Costs `jsonb`'s native indexing/query operators on
+  // this column, unused today (every reader takes the whole payload,
+  // never queries into its structure).
+  payload Json @db.Json
+  // The exact ISO-8601 string computeEntryHash() hashed at write time —
+  // never a native DateTime column. A DateTime column would round-trip
+  // through a JS Date object on every read, a real and avoidable risk of
+  // the recomputed hash silently disagreeing with what was stored.
+  // ISO-8601's own format still sorts correctly under a plain
+  // lexicographic ORDER BY, so ordering doesn't need a native type either.
+  publishedAt String
+  entryHash   String
+  prevHash    String
+
+  // Same hot-path shape IntentEvent/EscrowEvent already established:
+  // publish() reads the last event for a correlationId before writing the
+  // next one (to chain prevHash); getEvents()/Timeline reads the full
+  // ordered history for one correlationId.
+  @@index([correlationId, publishedAt])
+  @@map("durable_events")
 }
 
 model Message {

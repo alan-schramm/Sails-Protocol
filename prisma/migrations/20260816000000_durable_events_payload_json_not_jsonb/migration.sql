@@ -1,0 +1,25 @@
+-- Missão 06 (2026-08-16) — real-Postgres integration testing found that
+-- `jsonb` (this column's original type, migration 20260815100000) does
+-- not preserve object key order on the way back out of storage.
+-- Confirmed directly, not assumed: a payload written as {escrowId,
+-- tradeId, from, to, triggeredBy} read back as {to, from, tradeId,
+-- escrowId, triggeredBy}. `entryHash` (event-store.ts's computeEntryHash())
+-- hashes `JSON.stringify(payload)`, so a payload reordered on read
+-- recomputes to a different hash than the one stored at write time —
+-- verifyChain() reported a false-positive tamper on every fresh, genuine
+-- chain, on the very first entry, with nothing actually tampered.
+--
+-- Postgres's plain `json` type stores the exact submitted text verbatim
+-- (validated as JSON, never reparsed/canonicalized into a different key
+-- order the way `jsonb`'s binary representation does) — the fix belongs
+-- entirely at the storage layer. `computeEntryHash()` itself, and
+-- RFC-008's hash formula, are untouched.
+--
+-- `USING "payload"::json` is a direct, lossless cast — jsonb to json
+-- always succeeds (jsonb is already valid JSON), and since durable_events
+-- is a brand-new table (previous migration, same pass) there is no
+-- meaningful historical-data question here, unlike the nullable-column
+-- backfill policy IntentEvent/EscrowEvent's own hash-chain columns needed.
+
+-- AlterTable
+ALTER TABLE "durable_events" ALTER COLUMN "payload" TYPE json USING "payload"::json;
