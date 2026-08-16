@@ -682,6 +682,37 @@ describe('SailsSettlementModule — RFC-021 settlement gaps', () => {
     const [url] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/settlement/arbitration/profile/participant-1')
   })
+
+  // Missão 07.1 — get()/getDispute() were previously called with no `auth`
+  // argument, so no Authorization header ever went out. Both backend routes
+  // became party/arbiter-scoped (requireAuth) as of Missão 06.8, so every
+  // real call 401'd unconditionally — never caught because neither method
+  // had test coverage until this pass. Asserting the header directly (not
+  // just "no throw") is the point: a passing 200-mock test would have
+  // stayed green even with the bug, since fakeFetch doesn't enforce auth.
+  it('get() hits GET /v1/settlement/escrow/:id WITH auth (Missão 06.8 made this a party-scoped read)', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    const result = await settlement.get('escrow-1')
+
+    expect(result.id).toBe('escrow-1')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/escrow/escrow-1')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+  })
+
+  it('getDispute() hits GET /v1/settlement/disputes/:id WITH auth (same Missão 06.8 fix)', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'dispute-1', tradeId: 'trade-1', status: 'OPENED' } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    const result = await settlement.getDispute('dispute-1')
+
+    expect(result.id).toBe('dispute-1')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/disputes/dispute-1')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+  })
 })
 
 describe('SailsOpenP2PModule — reconcileTrade()', () => {
@@ -779,6 +810,24 @@ describe('SailsProofModule', () => {
     expect(result.claim.id).toBe('claim-1')
     const [url] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/proof/claims/claim-1/bundle')
+  })
+
+  // Missão 07.1 — getTradeEvidenceBundle() was previously called with no
+  // `auth` argument (its own doc comment even claimed "public read, no
+  // session required"). The real route became trade-participant-scoped as
+  // of Missão 06.6, so every real call 401'd unconditionally — zero prior
+  // test coverage meant this went undetected until Missão 07's golden-path
+  // audit. Asserting the header directly is the point, same reasoning as
+  // the settlement.get()/getDispute() fix above.
+  it('getTradeEvidenceBundle() hits GET /v1/proof/trades/:id/bundle WITH auth (Missão 06.6 made this participant-scoped)', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { claims: [], proofs: [], verifications: [], evidence: [], timeline: [] } })
+    const proof = new SailsProofModule(authedTransport(fetchImpl))
+
+    await proof.getTradeEvidenceBundle('trade-1')
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/proof/trades/trade-1/bundle')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
   })
 })
 

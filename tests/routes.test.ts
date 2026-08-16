@@ -28,6 +28,13 @@ const mockOfferFindUnique = jest.fn()
 const mockOfferFindMany = jest.fn()
 const mockOfferCreate = jest.fn()
 const mockOfferUpdate = jest.fn()
+// Missão 07.1 — getAggregatedOffers()'s real total/hasMore now come from
+// a real COUNT query (InternalOrderBook.countOffers()), not the size of
+// whatever page findMany() happened to return. Defaults to 0 (matches
+// this file's own mockUserCount/mockTradeCount convention); every test
+// that actually exercises GET /v1/liquidity/offers overrides it to the
+// real expected total.
+const mockOfferCount = jest.fn().mockResolvedValue(0)
 const mockTradeFindUnique = jest.fn()
 const mockTradeFindMany = jest.fn()
 const mockTradeCount = jest.fn()
@@ -36,6 +43,7 @@ const mockTradeUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
 const mockEscrowCreate = jest.fn()
 const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockMessageFindMany = jest.fn()
 const mockMessageCount = jest.fn().mockResolvedValue(0)
 const mockDisputeCreate = jest.fn()
@@ -107,6 +115,7 @@ jest.mock('../src/common/database', () => ({
     offer: {
       findUnique: (...args: unknown[]) => mockOfferFindUnique(...args),
       findMany: (...args: unknown[]) => mockOfferFindMany(...args),
+      count: (...args: unknown[]) => mockOfferCount(...args),
       create: (...args: unknown[]) => mockOfferCreate(...args),
       update: (...args: unknown[]) => mockOfferUpdate(...args),
     },
@@ -128,7 +137,10 @@ jest.mock('../src/common/database', () => ({
       // escrowReleaseControls.test.ts's job).
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
-    escrowEvent: { create: (...args: unknown[]) => mockEscrowEventCreate(...args) },
+    escrowEvent: {
+      create: (...args: unknown[]) => mockEscrowEventCreate(...args),
+      findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
+    },
     arbiterProfile: {
       findUnique: (...args: unknown[]) => mockArbiterProfileFindUnique(...args),
       create: (...args: unknown[]) => mockArbiterProfileCreate(...args),
@@ -275,6 +287,13 @@ const { buildApp } = require('../src/app')
 const { config } = require('../src/config')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { resetWsMessageRateLimiter } = require('../src/modules/open-p2p/ws-message-rate-limiter')
+// Missão 02/03 — used by the RFC-023 "propose" block below to spy on
+// evaluateIntentPolicy() for the two policy-enforcement wiring tests,
+// without a top-level jest.mock('../src/core/policy-engine') that would
+// also need to fake validateFinancialSanity() for every other describe
+// block in this file that creates an Intent.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const policyEngine = require('../src/core/policy-engine')
 
 async function authedSession(participantId: string): Promise<string> {
   const token = `session-${participantId}`
@@ -512,19 +531,26 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       mockOfferFindMany.mockResolvedValueOnce([
         { id: 'offer-1', userId: 'user-1', asset: 'BTC', side: 'SELL', priceUsd: '65000', priceBrl: null, minAmount: '0.001', maxAmount: '0.5', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 42 } },
         { id: 'offer-2', userId: 'user-2', asset: 'BTC', side: 'SELL', priceUsd: '66000', priceBrl: null, minAmount: '0.002', maxAmount: '1.0', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 50 } },
-        { id: 'offer-3', userId: 'user-3', asset: 'BTC', side: 'SELL', priceUsd: '67000', priceBrl: null, minAmount: '0.003', maxAmount: '0.3', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 35 } },
       ])
+      mockOfferCount.mockResolvedValueOnce(3)
       const res = await app.inject({ method: 'GET', url: '/v1/liquidity/offers?asset=BTC&side=SELL&limit=2&offset=0' })
       expect(res.statusCode).toBe(200)
       const data = JSON.parse(res.body).data
       expect(data.offers).toHaveLength(2) // limit=2 applied after sort
       expect(data.sources).toEqual(['internal'])
-      expect(data.total).toBe(3)
+      expect(data.total).toBe(3) // real COUNT (Missão 07.1), not findMany()'s page length
       expect(data.hasMore).toBe(true)
       // offers sorted by priceUsd ascending for SELL side
       expect(data.offers[0].id).toBe('offer-1') // lowest price
       expect(data.offers[1].id).toBe('offer-2')
     })
+
+    // The "dirty marketplace" (>10 offers) regression proof for this fix
+    // lives in tests/liquidityDiscoverPagination.test.ts, its own isolated
+    // app/rate-limit budget — same reason tests/settlementReadAccess.test.ts
+    // and tests/proofBundleAccess.test.ts already stay out of this file's
+    // shared budget, which this file's own sequential request count
+    // already runs close to.
 
     // Production Readiness Audit (2026-08-09) — paymentMethod/priceMin/
     // priceMax were documented in API_REFERENCE.md but silently dropped
@@ -772,6 +798,38 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(200)
       expect(mockIntentUpdateMany).not.toHaveBeenCalled()
+    })
+
+    // Missão 04 hardening finding: this route previously accepted
+    // {status: 'CANCELLED'} regardless of the trade's *current* status —
+    // a trade already COMPLETED (real funds already released via Escrow)
+    // or DISPUTED could have its Trade record silently overwritten back
+    // to CANCELLED by either party. Escrow's own state machine was never
+    // reachable this way (this route never touches escrow), so this
+    // wasn't a path to re-move funds — but it let the Trade record lie
+    // about what actually happened, corrupting the audit trail. This one
+    // HTTP-level test proves the route wires the new guard through to a
+    // real 400; the full state-transition matrix (DISPUTED, already-
+    // CANCELLED, ACTIVE-revival, the still-valid ACTIVE->CANCELLED path)
+    // is proven cheaply against tradeService directly, no HTTP/shared
+    // rate-limit budget involved — see tests/tradeUpdateStatus.test.ts
+    // (same "trim to one HTTP proof, move the matrix to a unit test"
+    // lesson already learned in Missão 02/tests/liquidityProposeForIntent.test.ts).
+    it('rejects cancelling an already-COMPLETED trade — settlement already happened, the record cannot be rewritten', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce({
+        id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'COMPLETED', intentId: null,
+      })
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/v1/openp2p/trades/trade-1/status',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { status: 'CANCELLED' },
+      })
+
+      expect(res.statusCode).toBe(400)
+      expect(mockTradeUpdate).not.toHaveBeenCalled()
     })
   })
 
@@ -1782,6 +1840,141 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(200)
       expect(mockIntentUpdateMany).not.toHaveBeenCalled()
     })
+
+    // Missão 02 Fase 4 — real counterproposal: a nearest offer exists and
+    // clears amount/reputation but is priced above the Intent's own
+    // maxPriceUsd. The suggested counter must equal that declared limit
+    // exactly (never exceed it) and `proposal` must stay null (this is
+    // not a real match).
+    it('returns a counterProposal, never a match, when the nearest offer clears amount/reputation but misses only on price', async () => {
+      const token = await authedSession('buyer-1')
+      mockIntentFindUnique
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', participantId: 'buyer-1', payload: intentPayload, expiresAt: null })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', payload: intentPayload })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING', payload: intentPayload })
+      mockIntentEventFindFirst.mockResolvedValueOnce(null)
+      mockOfferFindMany.mockResolvedValueOnce([
+        { id: 'offer-1', userId: 'seller-1', asset: 'BTC', side: 'SELL', priceUsd: '75000', priceBrl: null, minAmount: '0.01', maxAmount: '1', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 50 } },
+      ])
+
+      const res = await app.inject({
+        method: 'POST', url: '/v1/intents/intent-1/propose',
+        headers: { authorization: `Bearer ${token}` }, payload: { amount: '0.1' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const data = JSON.parse(res.body).data
+      expect(data.proposal).toBeNull()
+      expect(data.counterProposal).toEqual({
+        referenceOfferId: 'offer-1',
+        listedPriceUsd: '75000',
+        suggestedPriceUsd: '70000', // == intentPayload.maxPriceUsd, never exceeds the buyer's own declared ceiling
+        reasoning: expect.stringContaining('informational only'),
+      })
+    })
+
+    // A negotiation that ends without a real match — no real trade, no
+    // touch of open-settlement at all. Direct, cheap proof that the
+    // discovery/negotiation slice this route implements cannot execute
+    // settlement simply by having run, matching Missão 02's explicit
+    // acceptance criterion.
+    it('never touches Trade or Escrow persistence — QVAC negotiation has no settlement authority', async () => {
+      const token = await authedSession('buyer-1')
+      mockIntentFindUnique
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', participantId: 'buyer-1', payload: intentPayload, expiresAt: null })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', payload: intentPayload })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING', payload: intentPayload })
+      mockIntentEventFindFirst.mockResolvedValueOnce(null)
+      mockOfferFindMany.mockResolvedValueOnce([
+        { id: 'offer-1', userId: 'seller-1', asset: 'BTC', side: 'SELL', priceUsd: '65000', priceBrl: null, minAmount: '0.01', maxAmount: '1', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 50 } },
+      ])
+
+      const res = await app.inject({
+        method: 'POST', url: '/v1/intents/intent-1/propose',
+        headers: { authorization: `Bearer ${token}` }, payload: { amount: '0.1' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(mockTradeCreate).not.toHaveBeenCalled()
+      expect(mockEscrowCreate).not.toHaveBeenCalled()
+    })
+
+    // Missão 02 Fase 5 items 12/13 ("negociação expirada"/"concorrente")
+    // — deliberately not duplicated as HTTP round-trips here. This whole
+    // describe block shares one buildApp() instance across ~120 tests
+    // (beforeAll above), so every extra app.inject() call spends a unit
+    // of the same shared, ordered @fastify/rate-limit budget a later,
+    // unrelated test elsewhere in this file also depends on (confirmed:
+    // adding more real requests here pushed a later open-proof test over
+    // budget and broke it). Both properties already have full, real
+    // coverage with no HTTP cost: expiry is unit-tested directly in
+    // tests/evaluateIntentPolicy.test.ts ("DENYs (validation) when the
+    // Intent has expired"), and concurrent-transition race-safety is
+    // unit-tested directly in intentFlow.test.ts ("rejects a transition()
+    // lost to a concurrent request..." — the exact claimTransition()
+    // mechanism this route's own transition() call also goes through,
+    // with no route-specific race logic of its own to add new risk).
+
+    // Missão 02 Fase 5 item 14 ("resultado determinístico") — same
+    // shared-rate-limit reasoning as above: determinism is a property of
+    // proposeForIntent()'s own sort/filter logic, not of route wiring, so
+    // it's proven directly against liquidityRouter in
+    // tests/liquidityProposeForIntent.test.ts instead of through HTTP.
+
+    // Policy-enforcement wiring — Missão 03. Spies on
+    // evaluateIntentPolicy() rather than flipping the real, shared
+    // config.features.enforceCapabilities global (which every other
+    // describe block in this huge shared file also implicitly depends on
+    // staying false) — this proves the route correctly reads and obeys
+    // the decision it receives, which is the one thing this route layer
+    // is actually responsible for; evaluateIntentPolicy()'s own decision
+    // logic (ownership, expiry, status, capability, amount bounds,
+    // determinism, fail-closed on unknown action/missing context) has
+    // full, isolated coverage in tests/evaluateIntentPolicy.test.ts.
+    describe('policy-enforcement wiring', () => {
+      afterEach(() => {
+        jest.restoreAllMocks()
+      })
+
+      it('denies with 403 and never queries offers when evaluateIntentPolicy DENYs (forbidden)', async () => {
+        const token = await authedSession('buyer-1')
+        mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', participantId: 'buyer-1', payload: intentPayload, expiresAt: null })
+        jest.spyOn(policyEngine, 'evaluateIntentPolicy').mockResolvedValueOnce({
+          effect: 'DENY', denialCategory: 'forbidden',
+          reason: "buyer-1 has no active 'trade-coordination' capability grant covering 'intent.discovering'",
+          actor: 'buyer-1', action: 'intent.propose', resource: { type: 'Intent', id: 'intent-1' },
+        })
+
+        const res = await app.inject({
+          method: 'POST', url: '/v1/intents/intent-1/propose',
+          headers: { authorization: `Bearer ${token}` }, payload: { amount: '0.1' },
+        })
+
+        expect(res.statusCode).toBe(403)
+        expect(mockOfferFindMany).not.toHaveBeenCalled()
+      })
+
+      it('proceeds normally when evaluateIntentPolicy ALLOWs', async () => {
+        const token = await authedSession('buyer-1')
+        mockIntentFindUnique
+          .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', participantId: 'buyer-1', payload: intentPayload, expiresAt: null })
+          .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED', payload: intentPayload })
+          .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING', payload: intentPayload })
+        mockIntentEventFindFirst.mockResolvedValueOnce(null)
+        mockOfferFindMany.mockResolvedValueOnce([])
+        jest.spyOn(policyEngine, 'evaluateIntentPolicy').mockResolvedValueOnce({
+          effect: 'ALLOW', reason: 'all policy conditions satisfied',
+          actor: 'buyer-1', action: 'intent.propose', resource: { type: 'Intent', id: 'intent-1' },
+        })
+
+        const res = await app.inject({
+          method: 'POST', url: '/v1/intents/intent-1/propose',
+          headers: { authorization: `Bearer ${token}` }, payload: { amount: '0.1' },
+        })
+
+        expect(res.statusCode).toBe(200)
+      })
+    })
   })
 
   describe('open-proof', () => {
@@ -1931,6 +2124,18 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
       expect(res.statusCode).toBe(400)
     })
+
+    // Missão 02 Fase 5 item 10 ("agente indisponível") — real coverage of
+    // this lives in tests/qvacAgentProviderAvailability.test.ts, not here:
+    // this whole describe block shares one buildApp() instance across
+    // ~120 tests (beforeAll above), so its @fastify/rate-limit state is
+    // shared and ordered too — an extra request against this route's
+    // 'criticalMax' tier here would silently eat into the budget a later,
+    // unrelated test in this same tier (open-proof's claims route) also
+    // depends on, which is exactly what happened when this was first
+    // tried inline. The isolated file tests the same real behavior
+    // (QVAC failure propagates as a real error, never a fabricated
+    // result) at the provider layer instead, with no shared HTTP state.
 
     it('rejects generate-offer-intent without auth', async () => {
       const res = await app.inject({ method: 'POST', url: '/v1/agents/generate-offer-intent', payload: { goal: 'vender bitcoin' } })

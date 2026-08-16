@@ -66,10 +66,26 @@ export interface OfferFilters {
   priceMax?: string
 }
 
+// Missão 02 Fase 4 — the single-shot, non-persisted counterproposal
+// proposeForIntent() returns when no existing Offer clears the Intent's
+// own limits, but a real one clears amount/reputation and misses only on
+// price. `referenceOfferId` is informational/audit-trail only — never an
+// id this protocol accepts back into any trade-creation or settlement
+// call, and never wired to one (Missão 02's explicit "settlement autonomy
+// not enabled" boundary).
+export interface CounterProposal {
+  referenceOfferId: string
+  listedPriceUsd: string
+  suggestedPriceUsd: string
+  reasoning: string
+}
+
 export interface LiquidityProvider {
   name: string
   isAvailable(): Promise<boolean>
   getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination, filters?: OfferFilters): Promise<LiquidityOffer[]>
+  /** True count of matching offers, same filters as getOffers() — Missão 07.1, getAggregatedOffers()'s own real `total`/`hasMore`, not the size of whatever page happened to be fetched. */
+  countOffers(asset: AssetType, side: TradeSide, filters?: OfferFilters): Promise<number>
   matchOrder(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null>
 }
 
@@ -78,12 +94,26 @@ export interface LiquidityProvider {
 // paginated list in this codebase already follows (trade.service.ts's
 // getTrades(), dispute.service.ts's listForArbiter(), routes.test.ts's own
 // zod schemas). Keep it as a pure helper so both providers and the router can
-// reuse it.
-function normalizePagination(pagination?: OfferPagination): { limit: number; offset: number } {
-  const limit = Math.min(Math.max(pagination?.limit ?? DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT)
+// reuse it. `maxLimit` defaults to MAX_PAGE_LIMIT (the real page-size ceiling
+// ever shown to an API caller) but getOffers() below passes a distinct,
+// higher ceiling for its own internal deep-fetch use (Missão 07.1) — a
+// different concern with a different, deliberately looser bound, not the
+// same "page size" this default protects.
+function normalizePagination(pagination?: OfferPagination, maxLimit: number = MAX_PAGE_LIMIT): { limit: number; offset: number } {
+  const limit = Math.min(Math.max(pagination?.limit ?? DEFAULT_PAGE_LIMIT, 1), maxLimit)
   const offset = Math.max(pagination?.offset ?? 0, 0)
   return { limit, offset }
 }
+
+// Missão 07.1 — getAggregatedOffers() asks each provider for its own top
+// `offset + limit` matches so a deep `offset` can be answered correctly
+// (see that method's own comment for the full reasoning) — that request
+// is never itself shown to an API caller (MAX_PAGE_LIMIT, unchanged,
+// still bounds what actually comes back from getAggregatedOffers()), it's
+// how deep this one provider query needs to look internally. Kept
+// generous but real, not unbounded, so a pathological offset still can't
+// turn into an unbounded query.
+const MAX_PROVIDER_FETCH = 500
 
 // Number() coercion here is intentional and safe — a sort comparator only
 // needs correct relative order, not exact arithmetic, so float precision
@@ -126,6 +156,26 @@ function mapOfferToLiquidityOffer(offer: OfferRow): LiquidityOffer {
   }
 }
 
+// Shared by getOffers()/countOffers() below — one source of truth for
+// "which offers match this asset/side/filters query," same reasoning as
+// mapOfferToLiquidityOffer() above (the mapping half of the same split).
+function buildOfferWhere(asset: AssetType, side: TradeSide, filters?: OfferFilters): Prisma.OfferWhereInput {
+  return {
+    asset,
+    side,
+    status: 'ACTIVE',
+    ...(filters?.paymentMethod ? { paymentMethod: filters.paymentMethod } : {}),
+    ...(filters?.priceMin || filters?.priceMax
+      ? {
+          priceUsd: {
+            ...(filters?.priceMin ? { gte: filters.priceMin } : {}),
+            ...(filters?.priceMax ? { lte: filters.priceMax } : {}),
+          },
+        }
+      : {}),
+  }
+}
+
 // ─── Internal P2P Order Book ──────────────────────────────────────────────────
 class InternalOrderBook implements LiquidityProvider {
   name = 'internal'
@@ -135,28 +185,19 @@ class InternalOrderBook implements LiquidityProvider {
   }
 
   async getOffers(asset: AssetType, side: TradeSide, pagination?: OfferPagination, filters?: OfferFilters): Promise<LiquidityOffer[]> {
-    const { limit, offset } = normalizePagination(pagination)
+    const { limit, offset } = normalizePagination(pagination, MAX_PROVIDER_FETCH)
     const offers = await prisma.offer.findMany({
-      where: {
-        asset,
-        side,
-        status: 'ACTIVE',
-        ...(filters?.paymentMethod ? { paymentMethod: filters.paymentMethod } : {}),
-        ...(filters?.priceMin || filters?.priceMax
-          ? {
-              priceUsd: {
-                ...(filters?.priceMin ? { gte: filters.priceMin } : {}),
-                ...(filters?.priceMax ? { lte: filters.priceMax } : {}),
-              },
-            }
-          : {}),
-      },
+      where: buildOfferWhere(asset, side, filters),
       orderBy: { priceUsd: side === 'SELL' ? 'asc' : 'desc' },
       take: limit,
       skip: offset,
       include: { user: { select: { reputationScore: true } } },
     })
     return offers.map(mapOfferToLiquidityOffer)
+  }
+
+  async countOffers(asset: AssetType, side: TradeSide, filters?: OfferFilters): Promise<number> {
+    return prisma.offer.count({ where: buildOfferWhere(asset, side, filters) })
   }
 
   async matchOrder(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null> {
@@ -376,36 +417,49 @@ export class LiquidityRouter {
     return { asset, bids: bids.offers, asks: asks.offers, spread }
   }
 
-  // Real, pre-existing limitation found while wiring OfferFilters through
-  // here (Production Readiness Audit, 2026-08-09), left as-is rather than
-  // silently fixed alongside an unrelated feature: `collectFromProviders()`
-  // below never actually forwards `pagination` to each provider's own
-  // getOffers() call (only `filters` now does) — every provider always
-  // fetches its own first DEFAULT_PAGE_LIMIT page internally, and this
-  // method's own slice below re-paginates *that* fixed window, not the
-  // true full result set. Harmless for `offset=0` with a small `limit`
-  // (today's only real caller shape); a caller requesting `offset > 0` or
-  // `limit > DEFAULT_PAGE_LIMIT` against a single real provider
-  // (InternalOrderBook; HodlHodl stays disabled) would get an incorrectly
-  // short/empty page. `filters` narrows what each provider's own query
-  // matches *before* that fixed-window fetch, so it composes correctly
-  // regardless of this — a separate fix, tracked, not bundled in here.
+  // Missão 07.1 (Golden Path audit, Fase 1) — real bug, confirmed live and
+  // disclosed here since 2026-08-09 until this fix: collectFromProviders()
+  // used to call every provider's getOffers() with pagination: undefined,
+  // so each provider silently capped at its own DEFAULT_PAGE_LIMIT (10)
+  // internally, and this method's slice below re-paginated *that* fixed
+  // 10-row window, not the true result set. Any offset > 0, or a total
+  // matching-offer count > 10, produced a wrong (short/empty) page with a
+  // `total`/`hasMore` that lied — both computed from `sorted.length`, the
+  // capped window's size, not reality.
+  //
+  // Fix: ask each provider for its own top `offset + limit` matches
+  // (`neededCount` below) instead of an unrelated fixed page. This is
+  // sufficient and correct for a k-way merge of independently-sorted
+  // sources — the true top-N of the merged set can never draw more than N
+  // items from any single source, so N per source is always enough
+  // candidates, regardless of how many providers exist (same reasoning
+  // proposeForIntent() above already applies with MAX_PAGE_LIMIT, made
+  // precise here instead of using one fixed cap for every request). Right
+  // now there is exactly one provider (InternalOrderBook), so this also
+  // works out to "ask Postgres for exactly the rows this page needs,"
+  // still bounded by a real ORDER BY/LIMIT/OFFSET query, not an unbounded
+  // fetch-everything. `total`/`hasMore` now come from a real COUNT query
+  // (countOffers()) against the same filters, not the fetched window's size.
   async getAggregatedOffers(
     asset: AssetType,
     side: TradeSide,
     pagination?: OfferPagination,
     filters?: OfferFilters
   ): Promise<{ offers: LiquidityOffer[]; sources: string[]; total: number; hasMore: boolean }> {
-    const { offers: all, sources } = await this.collectFromProviders(asset, side, filters)
+    const { limit, offset } = normalizePagination(pagination)
+    const neededCount = offset + limit
+
+    const [{ offers: all, sources }, total] = await Promise.all([
+      this.collectFromProviders(asset, side, filters, neededCount),
+      this.countAcrossProviders(asset, side, filters),
+    ])
 
     // Number() coercion here is intentional and safe — a sort comparator only
     // needs correct relative order, not exact arithmetic, so float precision
     // is immaterial (unlike a stored/computed amount). See RFC-009.
     const sorted = all.sort(side === 'BUY' ? compareByPriceDesc : compareByPriceAsc)
 
-    const { limit, offset } = normalizePagination(pagination)
     const paginated = sorted.slice(offset, offset + limit)
-    const total = sorted.length
     const hasMore = offset + limit < total
 
     return { offers: paginated, sources, total, hasMore }
@@ -415,15 +469,17 @@ export class LiquidityRouter {
   // already uses — a single provider going down (e.g. HodlHodl API auth
   // expiring) should never take the whole discovery endpoint down with it.
   // Extracted so the for-loop body is the single source of truth for
-  // "what counts as a provider succeeding."
-  private async collectFromProviders(asset: AssetType, side: TradeSide, filters?: OfferFilters): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
+  // "what counts as a provider succeeding." `neededCount` is the top-N
+  // (offset + limit) each provider is asked for — see getAggregatedOffers()'s
+  // own comment for why that's the correct, sufficient amount per provider.
+  private async collectFromProviders(asset: AssetType, side: TradeSide, filters: OfferFilters | undefined, neededCount: number): Promise<{ offers: LiquidityOffer[]; sources: string[] }> {
     const offers: LiquidityOffer[] = []
     const sources: string[] = []
 
     for (const provider of this.providers) {
       try {
         if (!(await provider.isAvailable())) continue
-        offers.push(...await provider.getOffers(asset, side, undefined, filters))
+        offers.push(...await provider.getOffers(asset, side, { limit: neededCount, offset: 0 }, filters))
         sources.push(provider.name)
       } catch (err) {
         log.error({ err, provider: provider.name }, '[Router] Provider failed')
@@ -431,6 +487,23 @@ export class LiquidityRouter {
     }
 
     return { offers, sources }
+  }
+
+  // Real total across every available provider, same filters — a plain sum
+  // is correct here (no double-counting risk: each provider owns a
+  // disjoint slice of the marketplace, unlike offers themselves which get
+  // merged/sorted above).
+  private async countAcrossProviders(asset: AssetType, side: TradeSide, filters?: OfferFilters): Promise<number> {
+    let total = 0
+    for (const provider of this.providers) {
+      try {
+        if (!(await provider.isAvailable())) continue
+        total += await provider.countOffers(asset, side, filters)
+      } catch (err) {
+        log.error({ err, provider: provider.name }, '[Router] Provider count failed')
+      }
+    }
+    return total
   }
 
   async findBestMatch(asset: AssetType, side: TradeSide, amount: string): Promise<LiquidityOffer | null> {
@@ -448,19 +521,30 @@ export class LiquidityRouter {
 
   // RFC-023 — the backend half of making packages/sails-ui's "AI
   // Negotiator" real. Composes existing pieces rather than a new matching
-  // algorithm: getOffers()'s already-real priceMin/priceMax filters, plus
-  // an application-level filter over `traderReputation` (the join already
-  // exists on every returned row, just unused for this purpose until now).
-  // Called from the new POST /v1/intents/:id/propose route
-  // (core/intent.routes.ts) — this method itself has no knowledge of
-  // Intent/auth/ownership, same separation getOffers()/findBestMatch()
-  // above already keep from their own route-layer callers.
+  // algorithm: getOffers(), plus an application-level filter over price/
+  // traderReputation/amount (the join already exists on every returned
+  // row, just unused for this purpose until now). Called from
+  // POST /v1/intents/:id/propose (core/intent.routes.ts) — this method
+  // itself has no knowledge of Intent/auth/ownership, same separation
+  // getOffers()/findBestMatch() above already keep from their own
+  // route-layer callers.
+  //
+  // Missão 02 Fase 2/4 — price filtering moved from getOffers()'s own
+  // Prisma-level where clause (the original RFC-023 shape) to an
+  // in-memory check below. Deliberate: a Prisma-level price filter can
+  // only ever return "match" or "nothing," and Fase 4 asks for a real
+  // counterproposal when the only reason nothing matched is price — that
+  // needs to see the near-miss candidates to reason about them, not just
+  // their absence. Reputation/amount are still hard requirements (no
+  // counterproposal, computed or otherwise, is offered when either of
+  // those two is the blocker — counter-pricing can't fix a reputation or
+  // quantity mismatch, only a price one).
   async proposeForIntent(
     asset: AssetType,
     side: TradeSide,
     amount: string,
     limits: { priceMin?: string; priceMax?: string; minReputation?: number }
-  ): Promise<LiquidityOffer | null> {
+  ): Promise<{ match: LiquidityOffer | null; counterProposal: CounterProposal | null }> {
     // Same counter-side flip matchOrder() above already applies — `side`
     // here is the Intent's own declared side (what the user wants to do),
     // so the actual counterparty offers to search are the opposite side
@@ -472,15 +556,13 @@ export class LiquidityRouter {
       try {
         if (!(await provider.isAvailable())) continue
         // Explicit MAX_PAGE_LIMIT, not the smaller DEFAULT_PAGE_LIMIT a
-        // pagination-less call would use — applying the reputation filter
-        // below after only a 10-row page could report "no match" when a
-        // valid one sits just past that page (same disclosed-limitation
-        // class getAggregatedOffers()'s own comment already flags for a
-        // different filter).
-        offers.push(...await provider.getOffers(
-          asset, counterSide, { limit: MAX_PAGE_LIMIT, offset: 0 },
-          { priceMin: limits.priceMin, priceMax: limits.priceMax }
-        ))
+        // pagination-less call would use — applying the filters below
+        // after only a 10-row page could report "no match" when a valid
+        // one sits just past that page (same disclosed-limitation class
+        // getAggregatedOffers()'s own comment already flags for a
+        // different filter). No price filter passed here anymore — see
+        // header comment above.
+        offers.push(...await provider.getOffers(asset, counterSide, { limit: MAX_PAGE_LIMIT, offset: 0 }))
       } catch (err) {
         log.error({ err, provider: provider.name }, '[Router] proposeForIntent provider fetch failed')
       }
@@ -491,19 +573,71 @@ export class LiquidityRouter {
     // offer first when selling.
     const sorted = offers.sort(counterSide === 'SELL' ? compareByPriceAsc : compareByPriceDesc)
     const amountNum = Number(amount)
-    // Real bug found in a post-implementation review: getOffers()'s
-    // OfferFilters only covers price, not amount — unlike matchOrder()
-    // above, which explicitly bounds-checks minAmount/maxAmount against
-    // the requested amount at the Prisma level. Without this check here,
+    const minReputation = limits.minReputation ?? 0
+    const priceMinNum = limits.priceMin !== undefined ? Number(limits.priceMin) : undefined
+    const priceMaxNum = limits.priceMax !== undefined ? Number(limits.priceMax) : undefined
+
+    // Real bug found in a post-implementation review (pre-Missão 02):
+    // getOffers()'s OfferFilters only covered price, not amount — unlike
+    // matchOrder() above, which explicitly bounds-checks minAmount/
+    // maxAmount against the requested amount. Without this check here,
     // this method could return an offer whose own limits don't actually
     // cover the requested trade — createTrade() would still catch it at
     // approval time (its own real bounds check, one layer over), but the
     // whole point of "propose" is to only ever surface an offer that
     // would actually succeed, not one the approval step then rejects.
-    return sorted.find((o) =>
-      (o.traderReputation ?? 0) >= (limits.minReputation ?? 0) &&
+    const passesAmountAndReputation = (o: LiquidityOffer): boolean =>
+      (o.traderReputation ?? 0) >= minReputation &&
       amountNum >= Number(o.minAmount) && amountNum <= Number(o.maxAmount)
-    ) ?? null
+
+    const passesPrice = (o: LiquidityOffer): boolean => {
+      const p = Number(o.priceUsd)
+      if (priceMinNum !== undefined && p < priceMinNum) return false
+      if (priceMaxNum !== undefined && p > priceMaxNum) return false
+      return true
+    }
+
+    const fullMatch = sorted.find((o) => passesAmountAndReputation(o) && passesPrice(o)) ?? null
+    if (fullMatch) return { match: fullMatch, counterProposal: null }
+
+    // Counterproposal — Missão 02 Fase 4, single-shot only (no automated
+    // back-and-forth with the counterparty; that's a materially bigger
+    // feature, deliberately out of scope here). The relevant bound is the
+    // one the Intent's own `side` actually cares about: a BUY intent has
+    // a price ceiling (maxPriceUsd), a SELL intent has a price floor
+    // (minPriceUsd) — the other bound, if present, isn't what a
+    // counterproposal along this axis could fix. The suggested price is
+    // always the caller's own already-declared limit, never a fabricated
+    // number and never worse than what they already authorized
+    // themselves — this cannot be used to silently exceed the Intent's
+    // own bounds (Missão 02's explicit "não permitir alteração arbitrária
+    // da Intent").
+    const relevantBoundNum = side === 'BUY' ? priceMaxNum : priceMinNum
+    if (relevantBoundNum === undefined) return { match: null, counterProposal: null }
+
+    const nearMiss = sorted.find((o) => {
+      if (!passesAmountAndReputation(o)) return false
+      const p = Number(o.priceUsd)
+      return side === 'BUY' ? p > relevantBoundNum : p < relevantBoundNum
+    })
+    if (!nearMiss) return { match: null, counterProposal: null }
+
+    const suggestedPriceUsd = String(relevantBoundNum)
+    const boundName = side === 'BUY' ? 'maxPriceUsd' : 'minPriceUsd'
+
+    return {
+      match: null,
+      counterProposal: {
+        referenceOfferId: nearMiss.id,
+        listedPriceUsd: nearMiss.priceUsd,
+        suggestedPriceUsd,
+        reasoning:
+          `Nearest real offer (${nearMiss.id}) is listed at ${nearMiss.priceUsd}, outside this ` +
+          `Intent's own ${boundName} (${suggestedPriceUsd}). Suggesting your own declared limit as ` +
+          `a counter — this is informational only: it does not create or modify any Offer, and ` +
+          `trading against ${nearMiss.id} directly still executes at its own listed price, not this suggestion.`,
+      },
+    }
   }
 }
 

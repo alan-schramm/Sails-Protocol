@@ -174,8 +174,19 @@ export class SailsSettlementModule {
     );
   }
 
+  /**
+   * Requires an active session — Missão 06.8 (2026-08-16) made this a
+   * party/arbiter-scoped read server-side (it used to be a public read);
+   * this call was never updated to match and 401'd unconditionally until
+   * this fix. Only the trade's buyer/seller or an assigned dispute
+   * arbiter may fetch it.
+   */
   async get(escrowId: string): Promise<Escrow> {
-    return this.transport.get<Escrow>(`/v1/settlement/escrow/${escrowId}`);
+    return this.transport.get<Escrow>(
+      `/v1/settlement/escrow/${escrowId}`,
+      undefined,
+      true,
+    );
   }
 
   /**
@@ -197,9 +208,17 @@ export class SailsSettlementModule {
     );
   }
 
-  /** Public read, no session required — same as get() above for escrows. */
+  /**
+   * Requires an active session — same Missão 06.8 fix as get() above,
+   * same reason: this route is now party/arbiter-scoped server-side, not
+   * a public read, and this call 401'd unconditionally until fixed.
+   */
   async getDispute(disputeId: string): Promise<Dispute> {
-    return this.transport.get<Dispute>(`/v1/settlement/disputes/${disputeId}`);
+    return this.transport.get<Dispute>(
+      `/v1/settlement/disputes/${disputeId}`,
+      undefined,
+      true,
+    );
   }
 
   /**

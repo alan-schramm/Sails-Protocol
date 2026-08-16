@@ -164,12 +164,17 @@ export class SailsProofModule {
   }
 
   /**
-   * RFC-007 D6, closed 2026-08-04. Public read, no session required —
-   * same as `getEvidenceBundle()` above for a single claim, aggregated
-   * here across every Claim/Proof/Verification/EvidenceReference for an
-   * entire trade, plus its real hash-chained Timeline (RFC-008 D2).
+   * RFC-007 D6 (2026-08-04): aggregated across every
+   * Claim/Proof/Verification/EvidenceReference for an entire trade, plus
+   * its real hash-chained Timeline (RFC-008 D2). Requires an active
+   * session — Missão 06.6 (2026-08-16) closed a real privacy gap here
+   * (the route used to be a public read, but the aggregated bundle
+   * includes private chat content) and scoped it to the trade's own
+   * buyer/seller; this comment and call previously still claimed "public
+   * read, no session required" and 401'd unconditionally until fixed
+   * (Missão 07.1). Only a party to the trade may fetch it.
    */
   async getTradeEvidenceBundle(tradeId: string): Promise<TradeEvidenceBundle> {
-    return this.transport.get<TradeEvidenceBundle>(`/v1/proof/trades/${tradeId}/bundle`)
+    return this.transport.get<TradeEvidenceBundle>(`/v1/proof/trades/${tradeId}/bundle`, undefined, true)
   }
 }
