@@ -11,10 +11,19 @@
  * is exactly the case tests/routes.test.ts's own "lists aggregated
  * offers" test never exercised (only ever 3 offers, offset 0).
  *
+ * Also covers the invalid-`asset` validation gap found in the same
+ * Missão 07.2 cold-start audit: `createOfferSchema`/`assetSideQuerySchema`
+ * validated `asset` as a bare non-empty string, not the real AssetType
+ * enum (unlike every other route that takes one) — an invalid value sailed
+ * through and crashed inside Prisma, leaking a raw stack trace (internal
+ * file paths, source lines, the caller's own field values) back to the
+ * caller instead of a clean 400. Confirmed live against a real running
+ * node before the fix, not assumed.
+ *
  * Isolated file, own app/rate-limit budget — same reason
  * tests/settlementReadAccess.test.ts and tests/proofBundleAccess.test.ts
- * stay out of tests/routes.test.ts's shared one (see routes.test.ts's own
- * comment at this test's original location for why it moved here).
+ * stay out of tests/routes.test.ts's shared one (confirmed twice now:
+ * routes.test.ts's own shared budget flaked from adding requests there).
  */
 import type { FastifyInstance } from 'fastify'
 
@@ -50,22 +59,37 @@ jest.mock('../src/common/events/event-bus', () => ({
 // tries a real TCP connection and hangs indefinitely in an environment with
 // no Redis reachable, same Map-backed fake tests/settlementReadAccess.test.ts
 // and tests/joinTradeAuthorization.test.ts already use.
+const redisStore = new Map<string, string>()
 jest.mock('../src/common/redis', () => ({
   redis: {
-    get: jest.fn().mockResolvedValue(null),
-    set: jest.fn().mockResolvedValue('OK'),
-    del: jest.fn().mockResolvedValue(1),
+    get: jest.fn((key: string) => Promise.resolve(redisStore.get(key) ?? null)),
+    set: jest.fn((key: string, value: string) => {
+      redisStore.set(key, value)
+      return Promise.resolve('OK')
+    }),
+    del: jest.fn((key: string) => {
+      redisStore.delete(key)
+      return Promise.resolve(1)
+    }),
     ping: jest.fn().mockResolvedValue('PONG'),
   },
 }))
 
+async function authedSession(participantId: string): Promise<string> {
+  const token = `session-${participantId}`
+  redisStore.set(`auth:session:${token}`, participantId)
+  return token
+}
+
 const mockOfferFindMany = jest.fn()
 const mockOfferCount = jest.fn()
+const mockOfferCreate = jest.fn()
 jest.mock('../src/common/database', () => ({
   prisma: {
     offer: {
       findMany: (...args: unknown[]) => mockOfferFindMany(...args),
       count: (...args: unknown[]) => mockOfferCount(...args),
+      create: (...args: unknown[]) => mockOfferCreate(...args),
     },
   },
 }))
@@ -127,5 +151,28 @@ describe('GET /v1/liquidity/offers — pagination on a marketplace with >10 offe
     expect(data.offers).toHaveLength(0)
     expect(data.total).toBe(15)
     expect(data.hasMore).toBe(false)
+  })
+
+  describe('invalid `asset` — clean 400, not a leaked Prisma stack trace (Missão 07.2)', () => {
+    it('GET /v1/liquidity/offers with an invalid asset — 400, not 500', async () => {
+      const res = await app.inject({ method: 'GET', url: '/v1/liquidity/offers?asset=NOT_A_REAL_ASSET&side=SELL' })
+      expect(res.statusCode).toBe(400)
+      expect(mockOfferFindMany).not.toHaveBeenCalled()
+    })
+
+    it('POST /v1/liquidity/offers with an invalid asset — 400, no leaked internal detail', async () => {
+      const token = await authedSession('user-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/liquidity/offers',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { asset: 'NOT_A_REAL_ASSET', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '0.5', paymentMethod: 'PIX' },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(mockOfferCreate).not.toHaveBeenCalled()
+      const body = JSON.parse(res.body)
+      expect(body.success).toBe(false)
+      expect(JSON.stringify(body)).not.toMatch(/liquidity\.service\.js|prisma\.offer\.create/)
+    })
   })
 })

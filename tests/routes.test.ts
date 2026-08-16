@@ -527,6 +527,13 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(mockOfferCreate).not.toHaveBeenCalled()
     })
 
+    // Invalid-`asset` coverage (Missão 07.2) lives in
+    // tests/liquidityDiscoverPagination.test.ts, its own isolated
+    // app/rate-limit budget — same reason the pagination test moved
+    // there (Missão 07.1): this file's own shared budget is already
+    // tight, confirmed twice now by real 429 flakes from adding requests
+    // here.
+
     it('lists aggregated offers for an asset/side (GET /v1/liquidity/offers) with total/hasMore', async () => {
       mockOfferFindMany.mockResolvedValueOnce([
         { id: 'offer-1', userId: 'user-1', asset: 'BTC', side: 'SELL', priceUsd: '65000', priceBrl: null, minAmount: '0.001', maxAmount: '0.5', paymentMethod: 'PIX', status: 'ACTIVE', user: { reputationScore: 42 } },

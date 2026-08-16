@@ -14,8 +14,15 @@ import type { AssetType, PaymentMethod } from '../../common/types'
 import { docsOnlySchema } from '../../common/openapi'
 import { positiveDecimalString } from '../../common/validation'
 
+// Missão 07.2 (cold-start audit) — `asset` here and in createOfferSchema
+// below was `z.string().min(1)`, unlike every other route that takes an
+// `asset` field (intent.routes.ts, agent.routes.ts, settlement.routes.ts
+// all already use this exact enum) — an invalid value sailed through this
+// route's own validation, then crashed inside Prisma with a raw stack
+// trace (internal file paths, source lines, the caller's own field
+// values) leaking straight back to the caller instead of a clean 400.
 const assetSideQuerySchema = z.object({
-  asset: z.string().min(1),
+  asset: z.enum(['BTC', 'USDT_ERC20', 'USDT_TRC20', 'USDT_LIQUID', 'USDT_LIGHTNING', 'LN_BTC', 'LIQUID_BTC', 'SPARK', 'STACKS', 'RSK_BTC']),
   side: z.enum(['BUY', 'SELL']),
   // Pagination (docs/TODO.md §25) — both optional, clamped again in
   // liquidity.service.ts's getOffers() (limit: 1-50, default 10) so a
@@ -34,7 +41,7 @@ const assetSideQuerySchema = z.object({
 })
 
 const createOfferSchema = z.object({
-  asset: z.string().min(1),
+  asset: z.enum(['BTC', 'USDT_ERC20', 'USDT_TRC20', 'USDT_LIQUID', 'USDT_LIGHTNING', 'LN_BTC', 'LIQUID_BTC', 'SPARK', 'STACKS', 'RSK_BTC']),
   side: z.enum(['BUY', 'SELL']),
   // 2026-08-15 security review — all three were z.string().min(1)
   // (non-empty only, no positive/finite check). Concretely exploitable,
