@@ -23,9 +23,15 @@ function requiredInt(name: string, fallback: number): number {
   return parsed
 }
 
+// Missão 06.5 — computed once, before the object literal, so the
+// database/redis fallback logic below can read it (a field can't
+// reference `config.isProduction` from inside `config`'s own literal —
+// it doesn't exist yet during its own construction).
+const isProductionEnv = process.env.NODE_ENV === 'production'
+
 export const config = {
   env: process.env.NODE_ENV ?? 'development',
-  isProduction: process.env.NODE_ENV === 'production',
+  isProduction: isProductionEnv,
 
   // Matches what app.ts (the pre-existing Fastify bootstrap) actually
   // reads — found via a real `tsc --noEmit` run, not assumed.
@@ -36,12 +42,26 @@ export const config = {
     logLevel: process.env.LOG_LEVEL ?? 'info',
   },
 
+  // Missão 06.5 — the `localhost`/default-credential fallback stays for
+  // development/test ergonomics (unchanged local-onboarding experience,
+  // same value docker-compose.yml's own `app` service still overrides
+  // explicitly anyway) but is withheld in production: `required()` then
+  // has no fallback to fall back to, so a production boot with no real
+  // DATABASE_URL/REDIS_URL set throws immediately at config load —
+  // before a single query or connection is attempted — rather than
+  // silently talking to `localhost` with a well-known default password.
+  // Same "structural, not someone-remembering-to-check" posture RT-001
+  // (mockEscrow, below) already established for this file.
   database: {
-    url: required('DATABASE_URL', 'postgresql://postgres:password@localhost:5432/sails_protocol'),
+    url: isProductionEnv
+      ? required('DATABASE_URL')
+      : required('DATABASE_URL', 'postgresql://postgres:password@localhost:5432/sails_protocol'),
   },
 
   redis: {
-    url: required('REDIS_URL', 'redis://localhost:6379'),
+    url: isProductionEnv
+      ? required('REDIS_URL')
+      : required('REDIS_URL', 'redis://localhost:6379'),
   },
 
   auth: {
@@ -394,6 +414,32 @@ if (config.isProduction && config.features.mockEscrow) {
     'FATAL: NODE_ENV=production but MOCK_ESCROW is not explicitly false. ' +
     'Refusing to boot — see RED_TEAM_REVIEW.md RT-001. Set MOCK_ESCROW=false ' +
     'in your production environment once a real SettlementProvider is wired in.'
+  )
+}
+
+// Missão 06.5 — structural guard against ENFORCE_CAPABILITIES silently
+// resolving to "no enforcement" in production. Deliberately narrower
+// than RT-001's rule above: Missão 02.5 already found automatic
+// CapabilityGrant issuance isn't ready for real users yet, so this does
+// NOT mandate enforceCapabilities=true in production (that would invent
+// a policy this mission was explicitly told not to invent, and would
+// break every deployment that hasn't done capability onboarding). It
+// mandates only that the operator set the variable EXPLICITLY — 'true'
+// once grants are issued, or 'false' to consciously acknowledge running
+// without capability enforcement — rather than a production boot
+// silently inheriting the exact same unset-default a forgotten .env
+// file would give a throwaway dev environment. Reads
+// `process.env.ENFORCE_CAPABILITIES` directly, not
+// `config.features.enforceCapabilities` — that field has already
+// collapsed "unset" and "explicitly false" into the same `false`,
+// which is precisely the distinction this guard exists to preserve.
+if (config.isProduction && process.env.ENFORCE_CAPABILITIES === undefined) {
+  throw new Error(
+    'FATAL: NODE_ENV=production but ENFORCE_CAPABILITIES is not set. ' +
+    'Refusing to boot — see docs/rfcs/RFC-014-capability-registry-enforcement.md. ' +
+    "Set ENFORCE_CAPABILITIES=true once this deployment's participants have " +
+    'real CapabilityGrants issued, or explicitly set ENFORCE_CAPABILITIES=false ' +
+    'to acknowledge running without capability enforcement for now.'
   )
 }
 

@@ -343,8 +343,30 @@ export class ProofService {
     const externalReferences = proofs.flatMap((p) => p.evidenceReferences)
 
     const timeline = await getTimeline(tradeId).getEvents()
-
-    return { tradeId, claims, proofs, verifications, externalReferences, timeline }
+    // Missão 05 (2026-08-15) — evidence-integrity finding, disclosed in
+    // the bundle itself rather than left for a reader to discover.
+    // `claims`/`proofs`/`verifications`/`externalReferences` above are
+    // Postgres-backed and survive a restart. `timeline` is NOT: it reads
+    // `EventStore.getEvents()`, and the default store
+    // (`InMemoryEventStore`, event-bus.ts's own singleton) is explicitly
+    // `durable = false` — its history lives in a process-lifetime Map.
+    // After any restart/redeploy, this array is silently EMPTY, and an
+    // arbiter reading this bundle had no way to tell "nothing happened"
+    // apart from "the history was lost." That ambiguity is the actual
+    // defect: RFC-008 D2's hash chain makes the Timeline tamper-EVIDENT
+    // (verifyChain() genuinely catches mutation/reordering/deletion —
+    // tests/timeline.test.ts proves it), but tamper-evidence over a
+    // non-durable store cannot prove absence. These two fields make the
+    // distinction explicit at the point of use. Not a fix for the
+    // underlying durability gap — switching the default store is a real
+    // infrastructure/deployment decision, reported to the CTO rather
+    // than changed silently here.
+    const timelineDurable = eventBus.durable
+    return {
+      tradeId, claims, proofs, verifications, externalReferences, timeline,
+      timelineDurable,
+      timelineStore: eventBus.storeName,
+    }
   }
 }
 

@@ -48,7 +48,18 @@ jest.mock('@arkade-os/sdk', () => ({
 
 jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 
-const ENV_BASE = { MOCK_ESCROW: 'false', TRUSTED_ARBITRATORS: 'arbiter-1' }
+// Missão 06.5 — ENFORCE_CAPABILITIES/DATABASE_URL/REDIS_URL added
+// explicitly alongside NODE_ENV=production, same reasoning as
+// tests/cors.test.ts's identical comment: config/index.ts now refuses to
+// boot in production with any of these left to a fallback/unset, and
+// this test's outcome must not depend on a local, gitignored .env file.
+const ENV_BASE = {
+  MOCK_ESCROW: 'false',
+  ENFORCE_CAPABILITIES: 'false',
+  DATABASE_URL: 'postgresql://postgres:password@localhost:5432/sails_protocol',
+  REDIS_URL: 'redis://localhost:6379',
+  TRUSTED_ARBITRATORS: 'arbiter-1',
+}
 
 async function buildAppWithEnv(envOverrides: Record<string, string>): Promise<FastifyInstance> {
   jest.resetModules()

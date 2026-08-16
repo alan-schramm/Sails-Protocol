@@ -15,9 +15,11 @@ import { getDisputeService } from './dispute.service'
 import { marketArbitrationProvider } from './market-arbitration.provider'
 import { paymentAccountService } from './payment-account.service'
 import { payoutAddressService } from './payout-address.service'
+import { tradeService } from '../open-p2p/trade.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { config } from '../../config'
+import { ForbiddenError } from '../../common/errors'
 import { docsOnlySchema } from '../../common/openapi'
 import { MAX_PAGE_LIMIT } from '../../common/pagination'
 import { positiveDecimalString } from '../../common/validation'
@@ -184,11 +186,31 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send(success(escrow))
   })
 
+  // Missão 06.8 — corrected from a public read (found in Missão 06.7's
+  // route audit: findByIdWithDetails() includes disputes: true, so this
+  // route returned Dispute.reason/Dispute.evidence — real, free-text
+  // negotiation/dispute content, potentially PII — to anyone who knew or
+  // guessed an escrowId, no auth at all). Same class of exposure as the
+  // Proof Bundle (Missão 06.6), same fix shape: requireAuth + resource
+  // authorization, reusing what already exists rather than a new
+  // primitive — tradeService.getTrade() (already used elsewhere in this
+  // codebase for a bare fetch) for the buyer/seller check, and the
+  // escrow's own already-loaded `disputes` array (no extra query) for
+  // the assigned-arbiter case, so an arbiter reviewing a disputed escrow
+  // they're assigned to isn't locked out.
   app.get('/v1/settlement/escrow/:id', {
+    preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
+    const callerId = participantId(request)
     const escrow = await escrowService.getEscrow(id)
+    const trade = await tradeService.getTrade(escrow.tradeId)
+    const isParty = callerId === trade.buyerId || callerId === trade.sellerId
+    const isAssignedArbiter = escrow.disputes.some((d: { arbiterId: string | null }) => d.arbiterId === callerId)
+    if (!isParty && !isAssignedArbiter) {
+      throw new ForbiddenError(`${callerId} is not authorized to view escrow ${id}`)
+    }
     return reply.code(200).send(success(escrow))
   })
 
@@ -350,14 +372,29 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send(success(result))
   })
 
-  // Public read, same as GET /v1/settlement/escrow/:id above — no
-  // participant-scoping on a fetch-by-id (only the write actions below
-  // enforce who may act on a dispute).
+  // Missão 06.8 — corrected from a public read (Missão 06.7's route
+  // audit: this returns Dispute.reason/Dispute.evidence directly — real,
+  // free-text dispute content, potentially PII — to anyone who knew or
+  // guessed a disputeId, no auth at all). Same class of exposure as the
+  // Proof Bundle (Missão 06.6). Authorized readers: the trade's buyer,
+  // its seller, or the dispute's own assigned arbiter (dispute.arbiterId) —
+  // the same three actors already established as legitimate elsewhere in
+  // this file (resolveDispute() below is arbiter-only; appeal/evidence/
+  // contest are party-only) — a non-assigned arbiter gets the same 403 an
+  // outsider would, matching resolveDispute()'s own existing boundary.
   app.get('/v1/settlement/disputes/:id', {
+    preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
+    const callerId = participantId(request)
     const dispute = await getDisputeService().getDispute(id)
+    const trade = await tradeService.getTrade(dispute.tradeId)
+    const isParty = callerId === trade.buyerId || callerId === trade.sellerId
+    const isAssignedArbiter = dispute.arbiterId === callerId
+    if (!isParty && !isAssignedArbiter) {
+      throw new ForbiddenError(`${callerId} is not authorized to view dispute ${id}`)
+    }
     return reply.code(200).send(success(dispute))
   })
 

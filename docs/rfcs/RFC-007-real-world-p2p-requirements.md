@@ -301,6 +301,37 @@ interface OpenProofService {
 is the general-purpose read model; `Dispute` still owns which subset
 becomes formal evidence for a ruling.
 
+### D6 amendment — `GET /v1/proof/trades/:tradeId/bundle` requires authentication (Missão 06.6, 2026-08-16)
+
+**What changed:** the real route implementing this section
+(`proof.routes.ts`) originally shipped as a public read, no session
+required — the same "read by id needs no auth" precedent
+`GET /v1/settlement/escrow/:id`/`GET /v1/settlement/disputes/:id`
+established for coarse status fields. That precedent didn't actually fit
+this endpoint: `EvidenceBundle.timeline` (above) is a full projection of
+every event correlated to the trade, and for an `openp2p`-module trade
+that includes real chat message content
+(`OpenP2PMessageSentEvent.content`) — private negotiation content, not a
+status field. `chat.routes.ts`'s own `GET /v1/openp2p/chat/:tradeId/messages`
+already required `requireAuth` + participant-ownership for this exact
+same content (an earlier, separate security review found and fixed that
+route specifically); this route was the one place the same fix never
+reached, found in Missão 06.5's route audit and closed here.
+
+**Decision:** the route now requires `requireAuth`, and only a party to
+the trade (`Trade.buyerId`/`Trade.sellerId`) may fetch its bundle —
+reusing `trade.service.ts`'s existing `assertParticipant()`, the same
+mechanism `chat.routes.ts` already uses for the identical problem. No new
+primitive, no change to `EvidenceBundle`'s own shape, `Timeline`, the
+hash chain (RFC-008 D2), the Policy Engine, or Capability — this is
+purely who may call the endpoint, not what it returns to someone
+authorized to call it.
+
+**Not affected:** the per-`claimId` `GET /v1/proof/claims/:id/bundle`
+route above already required `requireAuth` from when it first shipped —
+this amendment only concerns the per-`tradeId` aggregate route, the one
+place the gap existed.
+
 ### D7 — Social Engineering Agent (`RWR-007`): extends OpenAgents
 
 A specialized agent behavior within OpenAgents (§1.7), not a new

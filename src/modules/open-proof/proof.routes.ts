@@ -11,6 +11,7 @@ import { proofService } from './proof.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { docsOnlySchema } from '../../common/openapi'
+import { tradeService } from '../open-p2p/trade.service'
 
 const assertClaimSchema = z.object({
   claimType: z.string().min(1),
@@ -137,13 +138,27 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send({ success: true, data: reference })
   })
 
-  // RFC-007 D6, closed 2026-08-04 — public read, no session required,
-  // same "read by id needs no auth" precedent GET /v1/settlement/escrow/:id
-  // and GET /v1/settlement/disputes/:id already established.
+  // Missão 06.6 — corrected from "public read, no session required" (RFC-007
+  // D6, closed 2026-08-04; amended 2026-08-16, see that RFC's own amendment
+  // note). Found in Missão 06.5's route audit: this bundle's own `timeline`
+  // field (proof.service.ts's getEvidenceBundleForTrade()) is a full
+  // projection of every correlated event for the trade — including real
+  // chat message content (`openp2p.message.sent`'s `content` field), not
+  // just coarse status fields like GET /v1/settlement/escrow/:id (the
+  // precedent D6 originally borrowed). chat.routes.ts's own
+  // GET /v1/openp2p/chat/:tradeId/messages already requires requireAuth +
+  // tradeService.assertParticipant() for this exact same content, found
+  // and fixed there in an earlier security review — this route was the
+  // one place that fix never reached. Reuses that exact same mechanism,
+  // no new primitive: EvidenceBundle's own shape, Timeline, the hash
+  // chain, Policy Engine, and Capability are all untouched.
   app.get('/v1/proof/trades/:tradeId/bundle', {
+    preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-proof'], params: tradeIdParamsSchema }),
   }, async (request, reply) => {
     const { tradeId } = tradeIdParamsSchema.parse(request.params)
+    const participantId = (request as AuthenticatedRequest).participantId
+    await tradeService.assertParticipant(tradeId, participantId)
     const bundle = await proofService.getEvidenceBundleForTrade(tradeId)
     return reply.code(200).send({ success: true, data: bundle })
   })

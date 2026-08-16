@@ -59,6 +59,15 @@ jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 
 const ENV_BASE = {
   MOCK_ESCROW: 'false', // required alongside NODE_ENV=production — RT-001 refuses to boot otherwise
+  // Missão 06.5 — required alongside NODE_ENV=production for the same
+  // reason: config/index.ts now refuses to boot in production with
+  // ENFORCE_CAPABILITIES unset, and no fallback for DATABASE_URL/REDIS_URL.
+  // Explicit here so this test's outcome never depends on whatever a
+  // local, gitignored .env file happens to already have in process.env —
+  // CI (and any fresh checkout) has none of that.
+  ENFORCE_CAPABILITIES: 'false',
+  DATABASE_URL: 'postgresql://postgres:password@localhost:5432/sails_protocol',
+  REDIS_URL: 'redis://localhost:6379',
   TRUSTED_ARBITRATORS: 'arbiter-1',
 }
 

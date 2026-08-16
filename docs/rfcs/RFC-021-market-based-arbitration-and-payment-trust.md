@@ -130,6 +130,31 @@ this session). **Implemented** (RFC-021 Phase 1):
 remains the default — this is an opt-in per deployment, not an
 automatic upgrade).
 
+**Hardening fix, Missão 04 (2026-08-15) — a real, previously-open gap:**
+permissionless registration is only safe under the unstated but obvious
+invariant "an arbiter is not a party to the dispute it arbitrates."
+Neither `assign()` nor `assignAppealPanel()` ever enforced that — a
+trade's own buyer or seller could register enough collateral to clear
+D3's `K_ELIGIBILITY` threshold for their own trade's value and had a
+real, non-zero chance of being weighted-random-selected to arbitrate
+(or sit on the appeal panel for) their own dispute.
+`resolveDispute()`'s only authorization check is
+`dispute.arbiterId === arbiterId`, trivially true for a self-assigned
+arbiter — a real, unilateral path to a favorable RELEASE/REFUND/SPLIT
+ruling with none of RFC-015's two-person control (which arbitration is
+deliberately exempt from, on the assumption the arbiter is neutral —
+this bug broke that assumption). Fixed at the source: `eligibleFor()`
+now takes an `excludeParticipantIds` list, and both `assign()` and
+`assignAppealPanel()` populate it with the disputed trade's own
+`buyerId`/`sellerId`, looked up from the dispute's own persisted
+`tradeId` (not trusted from a caller-supplied parameter). Not live by
+default (`arbitrationMode` defaults to `'trusted-list'`), so no
+production deployment was ever exposed — found and closed before
+`market` mode's first real use, not after. Tests:
+`tests/marketArbitrationProvider.test.ts`'s "excludes the disputed
+trade's own buyer and seller" cases (both `assign()` and
+`assignAppealPanel()`).
+
 ### D3 — Reputation as slashable collateral, eligibility scaled to dispute value
 
 Not two currencies with an exchange rate — one property (*"has skin in
@@ -618,6 +643,50 @@ only when `ruling === 'SPLIT'`. New route body fields
 (a real end-to-end SPLIT resolution through the actual event chain, not
 just mocked service-level dispatch), `tests/routes.test.ts`, and
 `packages/sails-sdk/tests/modules.test.ts`.
+
+### D10 — `GET` escrow/dispute reads require authentication + party/arbiter authorization (Missão 06.8, 2026-08-16)
+
+**Previous behavior.** `GET /v1/settlement/escrow/:id` and
+`GET /v1/settlement/disputes/:id` (`settlement.routes.ts`) shipped as
+public reads, no session required — an inline code comment, never
+elevated to an RFC decision, reasoning "read by id needs no auth" the
+same way a few other coarse-status routes in this codebase do. That
+reasoning didn't actually fit these two: the escrow route's own
+`findByIdWithDetails()` query includes `disputes: true`, and the dispute
+route returns `Dispute.reason`/`Dispute.evidence` directly — real,
+free-text content describing the actual conflict between two named
+parties, potentially containing PII, not a coarse status field.
+
+**Risk discovered.** Missão 06.7's full route-authorization audit found
+this: anyone who knew or merely guessed an `escrowId`/`disputeId` (both
+UUIDs, but not otherwise access-controlled) could read another pair's
+private dispute reasoning and evidence descriptors, no authentication at
+all. The same class of exposure D6's amendment above closed for the
+Proof Bundle (Missão 06.6) — found separately, by the same audit, and
+disclosed as a known-open finding until this pass closed it.
+
+**New rule.** Both routes now require `requireAuth`, and only three
+actors may read the result: the trade's buyer, its seller, or — new,
+not previously checked anywhere for a *read* — the dispute's own
+assigned arbiter (`Dispute.arbiterId`), when a dispute exists on that
+escrow. A non-assigned arbiter (or any other authenticated outsider)
+gets the same `403` a stranger would — this mirrors the boundary
+`resolveDispute()` already enforces for arbiter *actions* (D1 above:
+"reputation attestor, not fund mover" — the arbiter's authority is
+scoped to the disputes actually assigned to them, never a caller-claimed
+`arbiterId`), applied here to the read path for the first time. No new
+primitive: the buyer/seller comparison reuses the same inline pattern
+`trade.routes.ts`/`chat.routes.ts` already use; the arbiter check reads
+`Dispute.arbiterId` (escrow route: from the escrow's own already-loaded
+`disputes` array, no extra query) or compares directly (dispute route).
+
+**Not changed:** the response shape for an authorized reader — same
+`Escrow`/`Dispute` fields as before, this is purely an access-control
+fix, not a data-minimization one. `POST /v1/settlement/disputes` (list,
+already `requireAuth` + scoped to the caller's own `arbiterId` since the
+2026-08-03 UI-audit gap fix) and every write action on these resources
+were already correctly authorized before this amendment — only the two
+bare-`GET`-by-id reads changed.
 
 ## Known Risks — Mitigated, Not Solved
 
