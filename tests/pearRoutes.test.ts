@@ -3,8 +3,14 @@
  * `src/infrastructure/p2p/relay.routes.ts`. Pre-existing tests/routes.test.ts
  * covers /v1/peers/start at the level of "auth required + happy path",
  * but every other route in those files — stop, status, join-topic,
- * join-trade, broadcast-offer — had no test coverage at all until this
- * pass.
+ * broadcast-offer — had no test coverage at all until this pass.
+ *
+ * POST /v1/peers/join-trade moved to modules/open-p2p/trade.routes.ts
+ * (Missão 06.10) — no longer registered by pear.routes.ts at all, so its
+ * coverage moved with it, to tests/joinTradeAuthorization.test.ts (that
+ * file also covers the domain-authorization behavior this one never
+ * could, since it registers only pear.routes.ts in isolation with no
+ * Trade/tradeService available to check against).
  *
  * This file's approach is intentionally narrower than tests/routes.test.ts:
  * it imports pear.routes DIRECTLY (no buildApp()) and registers it on a
@@ -14,9 +20,9 @@
  * make this file's failures un-attributable.
  *
  * Gap findings this file targets (tests/TEST_AUDIT_REPORT.md P2P
- * Transport row): /v1/peers/{stop,status,join-topic,join-trade,
- * broadcast-offer}, plus the 409-on-missing-node contract those routes'
- * only meaningful business rule actually enforces.
+ * Transport row): /v1/peers/{stop,status,join-topic,broadcast-offer},
+ * plus the 409-on-missing-node contract those routes' only meaningful
+ * business rule actually enforces.
  *
  * /ws/relay is exercised in tests/routes.test.ts's existing routes
  * block (the websocket-relay.transport-provider mock there is the same
@@ -45,8 +51,8 @@ jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 // pearNodeRegistry-level mocks (called directly on the registry):
 //   stop, getStatus — both handlers reach the registry, not the node.
 // Node-level mocks (called on the object returned by registry.get):
-//   joinTopic, joinTradeTopic, broadcast — pear.routes.ts calls these
-//   on the resolved PearNode instance, not the registry.
+//   joinTopic, broadcast — pear.routes.ts calls these on the resolved
+//   PearNode instance, not the registry.
 const mockPearNodeStop = jest.fn().mockResolvedValue(undefined)
 const mockPearNodeGetStatus = jest.fn().mockReturnValue({
   userId: 'u', started: true, peerId: 'fake-peer-id', connectedPeers: 0, activeTopics: [], peers: [],
@@ -59,12 +65,11 @@ jest.mock('../src/infrastructure/p2p/pear.service', () => ({
     stop: (...args: unknown[]) => mockPearNodeStop(...args),
     get: (...args: unknown[]) => mockPearNodeGet(...args),
     getStatus: (...args: unknown[]) => mockPearNodeGetStatus(...args),
-    // The next three are never called by pear.routes.ts itself (it calls
+    // The next two are never called by pear.routes.ts itself (it calls
     // them on the node, see above) — they're stubbed here so a future
     // route addition that does call them directly doesn't NPE the
     // shared registry mock.
     joinTopic: jest.fn(),
-    joinTradeTopic: jest.fn(),
     broadcastOffer: jest.fn(),
   },
 }))
@@ -120,7 +125,6 @@ const { peerRoutes } = require('../src/infrastructure/p2p/pear.routes')
 
 function mockActiveNode(overrides: {
   joinTopic?: jest.Mock
-  joinTradeTopic?: jest.Mock
   broadcast?: jest.Mock
 } = {}): any {
   // pear.routes.ts calls these on the resolved PearNode instance. Each
@@ -128,7 +132,6 @@ function mockActiveNode(overrides: {
   return {
     start: jest.fn(),
     joinTopic: overrides.joinTopic ?? jest.fn().mockResolvedValue(undefined),
-    joinTradeTopic: overrides.joinTradeTopic ?? jest.fn().mockResolvedValue(undefined),
     broadcast: overrides.broadcast ?? jest.fn().mockReturnValue(3),
   }
 }
@@ -160,7 +163,6 @@ describe('P2P Transport — /v1/peers/* routes (pear.routes.ts)', () => {
         { method: 'POST' as const, url: '/v1/peers/stop' },
         { method: 'GET' as const, url: '/v1/peers/status' },
         { method: 'POST' as const, url: '/v1/peers/join-topic', payload: { topic: 'btc' } },
-        { method: 'POST' as const, url: '/v1/peers/join-trade', payload: { tradeId: 't-1' } },
         { method: 'POST' as const, url: '/v1/peers/broadcast-offer', payload: { offerId: 'o-1', asset: 'BTC', side: 'SELL', priceUsd: '1' } },
       ]
       for (const r of routes) {
@@ -226,34 +228,6 @@ describe('P2P Transport — /v1/peers/* routes (pear.routes.ts)', () => {
       })
       expect(res.statusCode).toBe(200)
       expect(joinTopicSpy).toHaveBeenCalledWith('btc')
-    })
-  })
-
-  // ── /v1/peers/join-trade ───────────────────────────────────────────────────
-
-  describe('POST /v1/peers/join-trade', () => {
-    it('returns 409 when the caller has not started a node yet', async () => {
-      authedParticipantId = 'user-1'
-      mockPearNodeGet.mockReturnValue(undefined)
-      const res = await app.inject({
-        method: 'POST',
-        url: '/v1/peers/join-trade',
-        payload: { tradeId: 'trade-1' },
-      })
-      expect(res.statusCode).toBe(409)
-    })
-
-    it('joins the per-trade P2P room when the caller has an active node', async () => {
-      authedParticipantId = 'user-1'
-      const joinTradeSpy = jest.fn().mockResolvedValue(undefined)
-      mockPearNodeGet.mockReturnValue(mockActiveNode({ joinTradeTopic: joinTradeSpy }))
-      const res = await app.inject({
-        method: 'POST',
-        url: '/v1/peers/join-trade',
-        payload: { tradeId: 'trade-42' },
-      })
-      expect(res.statusCode).toBe(200)
-      expect(joinTradeSpy).toHaveBeenCalledWith('trade-42')
     })
   })
 

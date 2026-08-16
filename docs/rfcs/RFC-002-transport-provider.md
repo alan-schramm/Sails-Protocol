@@ -85,6 +85,58 @@ See `PROTOCOL_SPECIFICATION.md` §4B for the full interface and
 No `protocolVersion` bump. No data migration — this is an Infrastructure
 Layer interface introduction around existing, unchanged behavior.
 
+## Amendment — join-trade authorization moved to the domain layer (Missão 06.10, 2026-08-16)
+
+**What was found:** Missão 06.7's route-authorization audit (Achado #2)
+found that `POST /v1/peers/join-trade` let any authenticated participant
+join any trade's DHT topic just by supplying its `tradeId` — no check
+that they were actually the trade's buyer or seller. Impact was bounded
+(message content stayed protected by `payload-crypto.ts`'s per-peer
+encryption, unaffected by this), but an outsider could observe
+presence/timing on a trade's topic and provoke connection attempts —
+this RFC never actually specified either behavior (no prior text here
+said "any peer may join" or "only participants may join"), so this was a
+wiring gap, not a semantic decision this amendment reverses.
+
+**The architectural constraint:** the obvious-looking fix — have
+`infrastructure/p2p/pear.routes.ts` import `modules/open-p2p/trade.service`
+to check `Trade.buyerId`/`sellerId` — was explicitly rejected. This
+RFC's own `## Principle Alignment` section already commits to Principle 6
+(Infrastructure Neutral); `CONTRIBUTING.md`'s "Infrastructure vs Domain"
+rule states the same boundary concretely: "how peers connect" is this
+file's concern, "who may act on a Trade" is not. `infrastructure/p2p/`
+has never imported anything from `modules/`, and starting now — even for
+a one-line authorization check — would be a real, lasting architectural
+regression for a single bug fix.
+
+**Decision:** `POST /v1/peers/join-trade` moved to
+`modules/open-p2p/trade.routes.ts` — same URL, same request/response
+shape, only the file that registers it changed. `modules/open-p2p/` →
+`infrastructure/p2p/` is the direction already established elsewhere
+(`chat.routes.ts` and `negotiation.service.ts` both already import
+`pearNodeRegistry`), so the route now authorizes first
+(`tradeService.assertParticipant()` — the same primitive
+`chat.routes.ts`'s WS `JOIN_TRADE` already uses for the identical
+problem) and only then delegates the actual join to `pearNodeRegistry`.
+`infrastructure/p2p/` stays exactly as agnostic to what a Trade or a
+participant is as this RFC always intended — it executes an
+already-authorized request, it never decides who's authorized.
+
+```
+Authenticated actor
+    → Domain authorization (modules/open-p2p, tradeService.assertParticipant)
+    → Authorized join request
+    → P2P infrastructure (infrastructure/p2p, pearNodeRegistry)
+    → Pears / HyperDHT
+```
+
+**Not affected:** every other route still in `pear.routes.ts` (start,
+stop, status, join-topic, broadcast-offer) has no such decision to make
+— each acts only on the caller's own node/identity, never on another
+domain's entity, so none of them needed to move. `TransportProvider`'s
+own interface (`## Decision` above) is unchanged; `PearsTransportProvider`
+still wraps `pearNodeRegistry` with zero behavioral change.
+
 ## Reference Implementation Plan
 
 Satsails' reference implementation wraps `PearNode` as

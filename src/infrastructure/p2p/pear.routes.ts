@@ -6,6 +6,16 @@
  * Every route requires auth — a caller can only start/stop/broadcast on
  * their own node (`req.participantId` from the session, never a bare
  * `userId` in the body).
+ *
+ * POST /v1/peers/join-trade moved to modules/open-p2p/trade.routes.ts
+ * (Missão 06.10, same URL — see that file's header comment and RFC-002's
+ * dated amendment for the full reasoning). It needed a Trade-domain
+ * authorization decision (is this actor a party to this trade?) that
+ * this file structurally cannot make without infrastructure/ importing
+ * modules/ — a dependency direction that's never existed and stays
+ * rejected. Every route still here (start/stop/status/join-topic/
+ * broadcast-offer) has no such decision to make: they act only on the
+ * caller's own node/identity, never on another domain's entity.
  */
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -17,10 +27,6 @@ import { docsOnlySchema } from '../../common/openapi'
 
 const joinTopicSchema = z.object({
   topic: z.enum(['marketplace', 'btc', 'lnBtc', 'liquidBtc', 'usdtErc20', 'usdtLiquid']),
-})
-
-const joinTradeSchema = z.object({
-  tradeId: z.string().min(1),
 })
 
 const broadcastOfferSchema = z.object({
@@ -89,20 +95,6 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(409).send({ success: false, error: 'CONFLICT', message: 'No active node — call POST /v1/peers/start first', details: [] })
     }
     await node.joinTopic(body.topic)
-    return reply.code(200).send({ success: true })
-  })
-
-  app.post('/v1/peers/join-trade', {
-    preHandler: requireAuth,
-    ...docsOnlySchema({ tags: ['peers'], body: joinTradeSchema }),
-  }, async (request, reply) => {
-    const body = joinTradeSchema.parse(request.body)
-    const participantId = (request as AuthenticatedRequest).participantId
-    const node = pearNodeRegistry.get(participantId)
-    if (!node) {
-      return reply.code(409).send({ success: false, error: 'CONFLICT', message: 'No active node — call POST /v1/peers/start first', details: [] })
-    }
-    await node.joinTradeTopic(body.tradeId)
     return reply.code(200).send({ success: true })
   })
 

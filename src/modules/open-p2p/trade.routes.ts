@@ -1,6 +1,23 @@
 /**
  * Sails OpenP2P trade routes — API_REFERENCE.md section 5 (trade half;
  * chat.routes.ts has the WebSocket negotiation channel + message history).
+ *
+ * POST /v1/peers/join-trade (Missão 06.10) — moved here from
+ * infrastructure/p2p/pear.routes.ts. The URL is unchanged (public API
+ * contract preserved); only which file registers it changed. Reason:
+ * "is this actor a party to this Trade" is a Domain/OpenP2P decision
+ * (CONTRIBUTING.md's own "Infrastructure vs Domain" rule — "how peers
+ * connect" is Infrastructure, what they may do with a Trade is not), but
+ * infrastructure/p2p/ has never imported modules/open-p2p/ and must not
+ * start now — that direction was explicitly rejected (the reverse,
+ * modules/open-p2p/ → infrastructure/p2p/, is the one already established:
+ * chat.routes.ts and negotiation.service.ts both already import
+ * pearNodeRegistry). This route follows that exact existing direction:
+ * it authorizes here (tradeService.assertParticipant(), the same
+ * primitive chat.routes.ts's WS JOIN_TRADE already uses), then delegates
+ * the actual join to pearNodeRegistry — infrastructure stays agnostic to
+ * what a Trade or a participant is, it only executes an already-authorized
+ * request. See RFC-002's dated amendment for the full writeup.
  */
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
@@ -10,6 +27,7 @@ import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { ForbiddenError } from '../../common/errors'
 import { docsOnlySchema } from '../../common/openapi'
+import { pearNodeRegistry } from '../../infrastructure/p2p/pear.service'
 
 const createTradeSchema = z.object({
   offerId: z.string().min(1),
@@ -27,6 +45,10 @@ const listTradesSchema = z.object({
 
 const reconcileSchema = z.object({
   sinceMessageCreatedAt: z.coerce.date().optional(),
+})
+
+const joinTradeSchema = z.object({
+  tradeId: z.string().min(1),
 })
 
 const tradeIdParamsSchema = z.object({ id: z.string().min(1) })
@@ -140,5 +162,39 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
 
     const result = await reconciliationService.reconcileTrade(id, body.sinceMessageCreatedAt ?? null)
     return reply.code(200).send({ success: true, data: result })
+  })
+
+  // Missão 06.10 — Achado #2 (route-authorization audit, Missão 06.7):
+  // this endpoint let any authenticated participant supply an arbitrary
+  // tradeId and join that trade's DHT topic, without ever proving they
+  // were the buyer or seller — an outsider could observe presence/timing
+  // and provoke connection attempts on a trade they have no part in
+  // (content itself stayed protected by payload-crypto.ts's per-peer
+  // encryption, unaffected by this). Domain authorization now happens
+  // BEFORE any P2P infrastructure effect: assertParticipant() throws
+  // (404 for an unknown trade, 403 for a real outsider) before
+  // pearNodeRegistry is ever touched, so a denied caller never triggers a
+  // DHT announce/join — no observable network effect leaks ahead of the
+  // authorization decision. Also closes the "arbitrary topic" question
+  // (Fase 5): the client only ever supplies tradeId; PearNode.joinTradeTopic()
+  // derives the real topic key server-side (pear.service.ts's
+  // TOPICS.trade()) — no raw topic is ever accepted from the caller, and
+  // an unknown tradeId is rejected by assertParticipant() before a topic
+  // would even be derived for it.
+  app.post('/v1/peers/join-trade', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['peers'], body: joinTradeSchema }),
+  }, async (request, reply) => {
+    const body = joinTradeSchema.parse(request.body)
+    const participantId = (request as AuthenticatedRequest).participantId
+
+    await tradeService.assertParticipant(body.tradeId, participantId)
+
+    const node = pearNodeRegistry.get(participantId)
+    if (!node) {
+      return reply.code(409).send({ success: false, error: 'CONFLICT', message: 'No active node — call POST /v1/peers/start first', details: [] })
+    }
+    await node.joinTradeTopic(body.tradeId)
+    return reply.code(200).send({ success: true })
   })
 }
