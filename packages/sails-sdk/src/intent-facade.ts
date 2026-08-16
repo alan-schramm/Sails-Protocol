@@ -105,6 +105,15 @@ export class SailsIntentFacade {
    * — call that directly with the returned `proposal.offerId` once the
    * human approves; this method has no authority over escrow/settlement
    * and never calls anything in that direction.
+   *
+   * Missão 07.3 truthfulness note: this method makes NO QVAC/LLM call —
+   * it's deterministic price/reputation/amount matching against the
+   * Intent's own already-persisted limits (`maxPriceUsd`/`minPriceUsd`/
+   * `minReputationRating`). The real QVAC call, if any, happened earlier
+   * and separately, when the Intent itself was drafted (see
+   * `packages/sails-sdk`'s `agents` module — `generateTradeIntent()`/
+   * `generateOfferIntent()`). `negotiate()` below is a third, distinct
+   * thing that doesn't exist yet at all — don't conflate the three.
    */
   async proposeTrade(intentId: string, amount: string): Promise<TradeProposal | null> {
     const { proposal } = await this.transport.post<{ proposal: TradeProposal | null }>(
@@ -126,6 +135,9 @@ export class SailsIntentFacade {
    * comment in `types.ts` for what it means and, importantly, what it is
    * not (never an id this protocol accepts back into a trade-creation or
    * settlement call).
+   *
+   * Same Missão 07.3 truthfulness note as `proposeTrade()` above applies
+   * here too: no QVAC/LLM call in this method, deterministic matching only.
    */
   async proposeTradeOutcome(intentId: string, amount: string): Promise<TradeProposalOutcome> {
     return this.transport.post<TradeProposalOutcome>(`/v1/intents/${intentId}/propose`, { amount }, true)
