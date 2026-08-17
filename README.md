@@ -21,6 +21,15 @@ production. It is one implementation of the spec, not the spec itself
 trade flow in 8 steps with no file names, and a "which endpoint for
 which action" lookup table. Everything below is the fuller picture.
 
+**The canonical developer journey (Missão 07.4):** this README (what it
+is) → `docs/GETTING_STARTED.md` (zero to first operation) →
+`examples/simple-wallet` (the full golden path, real and continuously
+verified — run it, don't just read about it) → `docs/SDK_GUIDE.md` (how
+to build a real integration) → `docs/API_REFERENCE.md` (detailed
+reference) → `docs/API_STABLE.md` (the version/freeze contract). If two
+docs ever seem to disagree, `API_STABLE.md` is the one that's actually
+frozen — trust it.
+
 ```
                     Wallet
                        │
@@ -128,11 +137,15 @@ examples/wallet-integration/  A real, non-mock WalletAdapter —
                         (MULTISIG), not the `MockWalletAdapter` used
                         above for a quick local run. Start here if
                         you're integrating a real wallet.
-examples/simple-wallet/       The dogfooding test: the full golden path
-                        (register -> publish offer -> trade -> escrow
-                        -> release) against a real local node, using
-                        only the SDK's public API — ~140 lines,
-                        answers "can I integrate this in 15 minutes?"
+examples/simple-wallet/       **The canonical golden-path reference**
+                        (Missão 07.4) — every other doc points here
+                        instead of keeping its own copy. Identity ->
+                        authenticate -> publish offer -> discover ->
+                        trade -> chat -> escrow -> mark payment ->
+                        release -> reputation, against a real local
+                        node, using only the SDK's public API — ~150
+                        lines, answers "can I integrate this in 15
+                        minutes?"
 examples/sails-integration-starter/  Next.js starter — a real app
                         talking to a live Sails node, plus two
                         standalone end-to-end protocol scripts

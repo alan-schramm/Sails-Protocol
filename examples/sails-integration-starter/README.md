@@ -9,10 +9,15 @@ a mock of the protocol itself (the `wallet-mock/` folder is a mock of a
 
 ## Quick start
 
-This package is workspace-linked, not a standalone install — `@satsails/p2p-trading-sdk`
-isn't published to npm yet, it only exists inside this monorepo (see
-`docs/FAQ.md`). All commands below run from the **repo root**
-(`sails-push-ready/`), not from this directory.
+This starter itself is workspace-linked, not a standalone install — it's
+a template meant to be copied out of this monorepo, not published on its
+own. `@satsails/p2p-trading-sdk` itself IS published
+(https://www.npmjs.com/package/@satsails/p2p-trading-sdk) — a real,
+separate project would just `npm install @satsails/p2p-trading-sdk`
+directly, no workspace-linking needed; the steps below use the
+monorepo's own npm workspace only because this starter lives inside it.
+All commands below run from the **repo root** (`sails-push-ready/`), not
+from this directory.
 
 **Prerequisites:** Node.js 20+, npm. No Docker needed — local Postgres
 and Redis are scripted (see step 2).

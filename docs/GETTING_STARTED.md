@@ -1,5 +1,15 @@
 # Getting Started
 
+> **Role in the canonical developer journey (Missão 07.4):** this
+> document is "from zero to your first real operation." `README.md` is
+> "what this is and where to start"; `examples/simple-wallet` is the
+> full, continuously-verified golden path (run the code, don't just read
+> about it); `SDK_GUIDE.md` is "how to build a real integration";
+> `API_REFERENCE.md` is the detailed reference; `API_STABLE.md` is the
+> version/freeze contract. If you're not sure which doc to open next:
+> README → **this file** → `examples/simple-wallet` → `SDK_GUIDE.md` →
+> `API_REFERENCE.md`, in that order.
+
 Commands only — no architectural context here, that's `PROJECT_CONTEXT.md`.
 For the full narrated version of everything below, see `TRANSACTION_WALKTHROUGH.md`.
 
@@ -20,7 +30,7 @@ npm run demo:qvac    # QVAC decides -> Pears connects the peers -> Intent Engine
 ## 3. Use the SDK from your own code
 
 ```bash
-npm install @satsails/p2p-trading-sdk   # not on npm yet — for now, workspace-link this monorepo, see docs/FAQ.md
+npm install @satsails/p2p-trading-sdk
 ```
 
 ```ts
@@ -101,6 +111,123 @@ The full reference, with every field and edge case, is
 | Check my reputation | `GET /v1/reputation/:participantId` |
 | Rate a completed trade | `POST /v1/reputation/rate` |
 | Start P2P networking | `POST /v1/peers/start` |
+
+## What QVAC actually does (Missão 07.3 model — see that mission's report for the full audit)
+
+QVAC is a real local LLM (llama.cpp, no cloud dependency). It does
+exactly three things, each a single call, none of them stateful or
+conversational:
+
+| QVAC does | Real? | Call |
+|---|---|---|
+| Draft a structured Intent from a plain-language goal | ✅ real | `sdk.agents.generateTradeIntent(goal)` |
+| Draft a structured Offer from a plain-language goal | ✅ real | `sdk.agents.generateOfferIntent(goal)` |
+| Assess risk on a trade intent's shape | ✅ real | `sdk.agents.assessIntentRisk(intent)` |
+
+What happens after Intent generation — finding a real matching `Offer`
+within the price/reputation limits you declared, or computing a bounded
+counter-price — is **not** a QVAC call. It's deterministic matching
+(`sdk.proposeTrade`/`sdk.proposeTradeOutcome`), no LLM involved. And
+**interactive, back-and-forth negotiation with a counterparty doesn't
+exist** — `sdk.negotiate()` throws on purpose; use
+`sdk.openp2p.chat(tradeId)` for real human-to-human chat instead.
+
+```
+AI-generated Intent (QVAC)  →  Bounded discovery/proposal (deterministic)  →  You approve  →  Interactive negotiation: FUTURE, not built
+```
+
+## Capability — what it is, and whether you need it
+
+**What it is:** an optional, opt-in authorization layer (RFC-013). A
+`CapabilityGrant` says "participant X may perform actions under
+capability Y, for real events matching scope Z." `sdk.capabilities`
+lets you register/list/revoke your own grants.
+
+**What it is NOT:** it is not required to use the SDK. It is not
+identity, not a KYC step, and it does not gate reading public data
+(discover, get a trade you're party to, etc).
+
+**When it's enforced:** only when the server sets
+`ENFORCE_CAPABILITIES=true` — **off by default**, including in this
+repo's own `docker-compose.yml` quickstart. With it off (the common
+case for local dev and for most deployments today), every capability
+check inside the backend short-circuits and returns immediately —
+`sdk.capabilities` calls still work (they always write/read real rows),
+they just don't gate anything yet. Why it's off by default: turning it
+on requires a real deployment to have already issued grants to every
+participant who needs one — flipping it on cold locks everyone out. See
+`src/config/index.ts`'s own doc comment on this flag for the production
+boot-guard around it.
+
+**Real capability names in this codebase today** (`CAPABILITY_IMPLEMENTATIONS`,
+`src/core/capability-registry.ts` — not invented for this doc):
+
+| Capability name | Module | Status |
+|---|---|---|
+| `trade-coordination` | OpenP2P | in use |
+| `settlement` | OpenSettlement | in use |
+| `liquidity-discovery` | OpenLiquidity | defined, not yet checked anywhere |
+| `identity-verification` | OpenIdentity | defined, not yet checked anywhere |
+| `reputation-scoring` | OpenReputation | defined, not yet checked anywhere |
+| `agent-delegation` | OpenAgents | defined, not yet checked anywhere |
+| `financial-instruments` | OpenFinance | future — module doesn't exist yet |
+| `proof-verification` | OpenProof | future (RFC-006) |
+
+**Real scope strings actually checked today** (the `requiredScope`
+argument to `capabilities.register()`'s `scope` array — these are real
+event names, not a separate vocabulary): `intent.created`,
+`intent.discovering`, `settlement.escrow.released`,
+`settlement.escrow.refunded`, `settlement.escrow.split`.
+
+**How to register a grant:**
+```typescript
+await sails.capabilities.register({
+  grantedTo: myParticipantId,
+  capabilityName: 'settlement',
+  scope: ['settlement.escrow.released'],
+})
+```
+**How to revoke one:** `await sails.capabilities.revoke(grantId)`.
+
+This is documentation only — no automatic onboarding UI/flow exists for
+Capability, and building one is explicitly out of scope for this pass.
+
+## Settlement providers — what's actually usable today
+
+Every provider below is real code (none are UI mockups), but "real
+code" and "you can settle real value with it right now" are different
+claims. `MOCK` is the only one meant for everyday development.
+
+| Provider | Real | Infra needed | Direct `release()`? | Client-held keys? | Status |
+|---|---|---|---|---|---|
+| `MOCK` | ✅ | none | ✅ | no | **Development/test only — not real money, ever.** |
+| `WDK_USDT_EVM` | ✅ | `WDK_SEED_PHRASE` + Sepolia RPC | ✅ | no — single seed, operator-custodial | Testnet only. One seed controls the treasury *and* every escrow sub-account — not a production custody model as-is. |
+| `MULTISIG` | ✅ | real testnet BTC, sent manually by the trade parties | ❌ — use `initiateRelease()` + `submitTransactionSignature()` | ✅ (2-of-3 Bitcoin PSBT) | Testnet only. |
+| `LIGHTNING_HODL` | ✅ | pinned to Ark Labs' public `mutinynet.arkade.sh`, real testnet funding | ❌ — same signature-collection flow as MULTISIG | ✅ | Testnet/mutinynet only, single-arbiter limitation. |
+| `SAFE_GUARD_EVM` | ✅ (client-side signing) / ❌ (server side) | a live EVM RPC + ERC-4337 bundler — **not available in this environment** | ❌ — same signature-collection flow | ✅ (KMS-backed arbiter co-signer) | **Not deployable today** — the one provider that's real code but genuinely can't run end-to-end here. |
+| `LIQUID_COVENANT` | ❌ | — | — | — | Never built. `type: 'LIQUID_COVENANT'` is rejected at escrow-creation time, not silently accepted. |
+
+**Local dev note:** `docker-compose.yml`'s default (`MOCK_ESCROW=true`,
+i.e. `config.features.mockEscrow`) routes **every** escrow type to the
+`MOCK` provider regardless of what `type` you pass — so
+`examples/simple-wallet` calling `release()` directly "works" locally
+even though its own code never sets `type`, because the *type stored* on
+the Escrow row and the *provider actually used* are different things
+when this flag is on. Don't take a working local run as proof a
+non-MOCK type is production-ready — check this table.
+
+## Common integration errors
+
+| Status | Means | Fix |
+|---|---|---|
+| `401` | No session, or an invalid/expired one | Call `identity.authenticate()` first (or `client.setSessionToken()` if restoring a saved session) |
+| `403` | Authenticated, but not authorized for this specific resource | You're not a party to this trade/escrow, or (rarely, only if the server has `ENFORCE_CAPABILITIES=true`) you're missing a capability grant — see the Capability section above |
+| `409` | The action conflicts with current state | Common causes: calling an escrow action from the wrong lifecycle status (e.g. `release()` before `markPaymentSent()`), or calling a `peers` route with no active node (`peers.start()` first) |
+| `400` | Malformed input | Check the field the error message names — every route validates with zod; the message says which field and why |
+| `5xx` | Server/infrastructure problem, not your request | Retry with backoff (the SDK already does this for GET); if persistent, the node itself likely has a real problem (DB/Redis down, etc) — not something a client-side fix resolves |
+
+Only these five appear in this backend — if you see something else, it's
+worth reporting as a real gap, not assuming it's documented elsewhere.
 
 **Note:** `MULTISIG`/`LIGHTNING_HODL`/`SAFE_GUARD_EVM` escrow types don't
 use `release` directly — client-held keys mean `initiate-release` +

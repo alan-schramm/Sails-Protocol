@@ -1,6 +1,12 @@
 # SDK_GUIDE.md
 ### Sails Protocol — Engineering Handoff · Document 5 of 20
 
+> **Role in the canonical developer journey (Missão 07.4):** "how to
+> build a real integration." Come here after `examples/simple-wallet`
+> has already proven the golden path works for you — this document goes
+> deeper (module layout, retry/timeout behavior, wallet-stack
+> compatibility), it isn't a second quickstart.
+>
 > **Status: 🟢 v0.1 real, partial** *(2026-07-17)*. `@satsails/p2p-trading-sdk`
 > (`packages/sails-sdk`) now exists as a real npm workspace package —
 > this document is no longer purely aspirational, it is the spec a real
@@ -164,7 +170,11 @@ interface SailsClient {
     // Informational feedback only as of RFC-007 — stored, displayed, but
     // does not alter ReputationScore. Do not build UI that implies this
     // is "leaving a rating that affects reputation."
-    leaderboard(limit?: number): Promise<ReputationScore[]>
+    leaderboard(pagination?: { limit?: number; offset?: number }): Promise<LeaderboardResult>
+    // Missão 07.4 — this signature/return type was stale (used to say
+    // `leaderboard(limit?): Promise<ReputationScore[]>`); see
+    // docs/API_STABLE.md's own `reputation`/`trustScore` entry, the real
+    // frozen-vs-not source of truth, for the exact `LeaderboardResult` shape.
     vouchFor(voucheeId: string): Promise<Vouch>   // requires an active session — RFC-021 D7 peer vouching. Caller must have real trade history; the caller's own reputation is slashed if the vouchee's first payment account is later abused
     getScoreByPeerId(peerId: string): Promise<ReputationScore>   // public read — returns the peer's aggregated reputation score (RFC-021 D8)
   }
@@ -383,52 +393,42 @@ are not redefined here.
 
 ## 4. Expected Usage (what "done" looks like)
 
+**Missão 07.4 — this section used to keep its own copy of the full
+identity → discover → trade → chat → escrow → release → reputation flow
+here, in prose, unchecked by any compiler. That copy drifted from the
+real SDK three separate times across Missões 07.1-07.3 (a wrong
+`discover()` return shape, a `release()` call on an escrow type that
+doesn't support it, a missing auth step) before anyone noticed, because
+nothing ever ran it.** The fix isn't a fourth correction — it's not
+keeping a second copy at all.
+
+**`examples/simple-wallet/src/index.ts` is the canonical, continuously-
+verified reference for this exact flow** — same ten steps, real
+`@satsails/p2p-trading-sdk` package, real local node, `npx tsc --noEmit`
+clean, and re-run against a live server as part of every Missão 07.x
+pass. Read that file for the full flow with real error handling; run it
+yourself with `npm run start -w @sails/example-simple-wallet`.
+
+What's genuinely specific to *this* section — a minimal client, to show
+the constructor shape, not the whole flow:
+
 ```typescript
-import { SailsClient } from "@satsails/p2p-trading-sdk"
+import { SailsClient, generateKeypair } from "@satsails/p2p-trading-sdk"
 
-const sails = new SailsClient({
-  baseUrl: "http://localhost:3000",
-})
+const sails = new SailsClient({ baseUrl: "http://localhost:3000" })
 
-// Discover counterparties for a trade intent
-const matches = await sails.liquidity.discover({
-  asset: "BTC",
-  side: "BUY",
-  limit: 10,
-  offset: 0,
-})
+const keypair = generateKeypair()
+await sails.identity.create(keypair)
+await sails.identity.authenticate(keypair) // required before any other call below
 
-// Start a trade with the best match (trade() requires the caller's
-// session to be set first -- see identity.authenticate() below).
-const trade = await sails.openp2p.trade(matches[0].id, "0.001")
-
-// Open the negotiation channel -- chat() requires an active session.
-const chat = sails.openp2p.chat(trade.id)
-chat.onMessage((msg) => console.log(msg))
-chat.send({ content: "Sending payment now", msgType: "TEXT" })
-
-// Lock, then release escrow once payment is confirmed.
-// create/lock/release all require the session token set by
-// identity.authenticate() -- see SailsClient.setSessionToken() if
-// loading the session from your own secure storage.
-const escrow = await sails.settlement.create({
-  tradeId: trade.id,
-  type: "MULTISIG",
-  lockedAmount: "0.001",
-  asset: "BTC",
-})
-await sails.settlement.lock(escrow.id)
-// ... buyer sends fiat directly to seller, shares proof via chat ...
-await sails.settlement.release(escrow.id, buyerPayoutAddress)
-
-// Rate the completed trade -- informational only as of RFC-007 D8/D9;
-// does not feed the ReputationScore that get() returns.
-await sails.reputation.rate({
-  tradeId: trade.id,
-  ratedId: sellerId,
-  score: 5,
-})
+const matches = await sails.liquidity.discover({ asset: "BTC", side: "BUY", limit: 10, offset: 0 })
+// discover() returns { offers, sources, total, hasMore } -- offers is
+// the array, matches itself is not.
 ```
+
+For the rest of the flow (trade → chat → escrow → mark payment →
+release → reputation), see `examples/simple-wallet` — copying it here a
+second time is exactly the duplication this fix removes.
 
 
 ## 4B. Internal SDK Layering (v7.4 — CTO review finding)

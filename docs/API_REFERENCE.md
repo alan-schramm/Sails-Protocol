@@ -4,6 +4,12 @@
 > Base URL (reference implementation, local dev): `http://localhost:3000`
 > Docs UI (Swagger, when routes are restored): `http://localhost:3000/docs`
 > WebSocket: `ws://localhost:3000/ws?userId=<uuid>`
+>
+> **Role in the canonical developer journey (Missão 07.4):** "the
+> detailed reference" — every field and edge case. Not where to start;
+> start at `docs/GETTING_STARTED.md` or `examples/simple-wallet`. If
+> this document and `docs/API_STABLE.md` ever disagree on an SDK method
+> shape, `API_STABLE.md` is the frozen contract — trust it.
 
 ---
 
@@ -33,13 +39,25 @@ protocol.dispute(intent.id, { reason: '...' })
 protocol.cancelIntent(intent.id)
 ```
 
+This is the protocol's own conceptual verb shape, not a literal copy-paste
+of `@satsails/p2p-trading-sdk` today (Missão 07.3 note, 2026-08-16):
+**`negotiate()` currently throws `SailsNotImplementedError`** — the
+canonical single-call signature can't represent the real negotiation
+channel, which is a persistent `WebSocketChannel`
+(`openp2p.chat(tradeId)`), not a fire-and-forget event. Use
+`openp2p.chat(tradeId)` directly for the real, working channel; see
+`docs/API_STABLE.md`'s own note that `negotiate` is deliberately not
+frozen while this gap is open. Every other verb in this example
+(`createIntent`/`submitProof`/`releaseAsset`/`dispute`/`cancelIntent`) is
+real and callable as shown.
+
 ### Canonical Intent Verbs
 
 | Verb | Maps to (internally) | Primitive it invokes |
 |---|---|---|
 | `createIntent` | `POST /v1/{module}/intents` | Intent (`PROTOCOL_SPECIFICATION.md` §1.2) |
 | `cancelIntent` | `PATCH /v1/{module}/intents/:id` (status → CANCELLED) | Intent |
-| `negotiate` | Sends a `NegotiationEvent` over the Negotiation channel | Negotiation (§1.4) |
+| `negotiate` | **Not implemented in the SDK today** — throws `SailsNotImplementedError`; use `openp2p.chat(tradeId)`'s real `WebSocketChannel` instead | Negotiation (§1.4) |
 | `submitProof` | Submits a `Proof` — `claimType` is open-ended (`payment_sent`, `invoice_paid`, `oracle_verified`, `delivery_confirmed`, `collateral_held`, ...), never hardcoded at the API level | Proof (§1.8) |
 | `releaseAsset` | `POST /v1/settlement/escrow/:id/release` | Settlement (§1.5) |
 | `dispute` | `POST /v1/settlement/escrow/:id/dispute` | Dispute (§1.9) |
@@ -345,10 +363,18 @@ First HTTP surface for `QvacAgentProvider`'s structured-generation/risk
 capabilities (`qvac-agent.provider.ts`) — real local LLM inference
 (LLAMA_3_2_1B_INST_Q4_0, llama.cpp, no cloud dependency), previously
 only reachable from the reference `BuyerAgent`/`SellerAgent`
-implementations and `src/demo/pix-to-usdt-flow.ts`. Unblocks
+implementations and `src/demo/pix-to-usdt-flow.ts`. Unblocked
 `packages/sails-ui`'s "AI Negotiator" panel and `AgentRiskCard`, which
-had been running a client-side simulation of these exact three calls
-(disclosed as such in the UI) pending this route's existence.
+used to run a client-side simulation of these exact three calls
+(disclosed as such in the UI) before this route existed — now call it
+for real. **Scope note (Missão 07.3):** these three calls
+(`generate-trade-intent`/`generate-offer-intent`/`assess-intent-risk`)
+are the entire QVAC surface — a real LLM drafts a structured Intent/Offer
+or assesses risk, once, given a goal/text. The subsequent offer search
+(`POST /v1/intents/:id/propose`, `rfcs/RFC-023-qvac-negotiated-trade-proposal.md`)
+that the "AI Negotiator" panel also drives is deterministic
+price/reputation/amount matching against the Intent's own declared
+limits — not a QVAC call. See that RFC for the real matching logic.
 
 | Method | Path | Description |
 |---|---|---|

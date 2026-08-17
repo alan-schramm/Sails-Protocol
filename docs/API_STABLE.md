@@ -1,5 +1,11 @@
 # @satsails/p2p-trading-sdk — Stable API (frozen as of v0.1)
 
+> **Role in the canonical developer journey (Missão 07.4):** "the
+> version/freeze contract." Not a tutorial — read this to know exactly
+> what will and won't change under you before v1. If any other doc
+> (`API_REFERENCE.md`, `SDK_GUIDE.md`) disagrees with this one on an SDK
+> method's real shape, this document wins.
+
 This is the CTO-directed SDK hardening commitment (docs/TODO.md §25/§26):
 now that `@satsails/p2p-trading-sdk` is the primary product surface, the goal is no
 longer "add more" — it's "make every name below safe for a wallet to
@@ -19,6 +25,22 @@ New optional parameters, new methods, and new modules may be added —
 those are additive, not breaking. If a real design mistake is found
 before v1 that genuinely requires a breaking change, it will be called
 out explicitly as an exception here, not made silently.
+
+**Tier legend (Missão 07.4)** — every method below is tagged with one of:
+- 🔒 **FROZEN** — the freeze commitment above applies in full; a
+  parameter/return shape change here is a breaking change.
+- ➕ **ADDITIVE** — real and callable today, but explicitly not yet
+  frozen (usually because its shape is still expected to gain fields,
+  same category `releaseAsset` and `proposeTrade` were in before they
+  stabilized). Safe to build against; expect only additive changes, not
+  removals, before it graduates to 🔒.
+- 🧪 **EXPERIMENTAL** — real, but throws/behaves as an explicit
+  placeholder today (`negotiate`) rather than doing the thing its name
+  suggests. No freeze commitment at all; the shape itself may change,
+  not just gain fields.
+Untagged methods are 🔒 FROZEN by default (the pre-existing, original
+v0.1 surface) — only methods added or reclassified since Missão 02.5
+onward carry an explicit tag, to avoid re-annotating the entire document.
 
 ## Two names, one client — why
 
@@ -62,7 +84,19 @@ would promise more than it returns, so the friendly name is
 | `sdk.reputation` | `sdk.trustScore` | `modules/reputation.ts` | Reputation score, leaderboard, rating submission |
 | `sdk.peers` | — | `modules/peers.ts` | P2P transport node (start/stop, topic/trade rooms, direct offer broadcast) |
 | `sdk.capabilities` | — | `modules/capabilities.ts` | RFC-013 Capability Registry: register/list/revoke capability grants |
-| `sdk.intents` (private; see below) | — | `intent-facade.ts` | The Intent-oriented facade — SDK_GUIDE.md's original six canonical verbs, plus `proposeTrade` (RFC-023) |
+| `sdk.arbitration` | — | `modules/arbitration.ts` | RFC-021 D2 permissionless arbiter registration — only meaningful when the server runs `ARBITRATION_MODE=market` |
+| `sdk.paymentAccounts` | — | `modules/payment-account.ts` | RFC-021 D5 payment-account trust ramp (register/get/sign) |
+| `sdk.proof` | — | `modules/proof.ts` | OpenProof: assert claims, submit proofs, verify, read evidence bundles |
+| `sdk.agents` | — | `modules/agents.ts` | OpenAgents: QVAC-backed structured Intent/Offer generation and risk assessment from a plain-language goal (real local LLM — see Missão 07.3's QVAC truthfulness note in `SDK_GUIDE.md`) |
+| `sdk.intents` (private; see below) | — | `intent-facade.ts` | The Intent-oriented facade — SDK_GUIDE.md's original six canonical verbs, plus `proposeTrade`/`proposeTradeOutcome` (RFC-023) |
+
+`arbitration`/`paymentAccounts`/`proof`/`agents` have no friendly alias
+(none read as more natural in either integrator vocabulary than the
+protocol name itself) — same reasoning `peers`/`capabilities` already
+had. **Documentation gap closed here, not a code change**: all four have
+existed as real, wired `SailsClient` properties (`client.ts`) since
+before this document was last updated — this table was simply never
+kept in sync (found during Missão 07's golden-path audit).
 
 `sdk.peers` and `sdk.capabilities` have no friendly alias — both names
 are already the plain-English word for what they do; a second name
@@ -81,7 +115,7 @@ would just be a synonym, not a real accessibility gain.
 - Standalone helper: `generateKeypair()` (not a method — a top-level SDK export)
 
 ### `liquidity` / `offers`
-- `discover({ asset, side, limit?, offset? })` → `{ offers, sources }` (`limit`/`offset` added 2026-07-20, docs/TODO.md §25 — default `limit` 10, max 50)
+- `discover({ asset, side, limit?, offset?, paymentMethod?, priceMin?, priceMax? })` → `{ offers, sources, total, hasMore }` (`limit`/`offset` added 2026-07-20, docs/TODO.md §25 — default `limit` 10, max 50; `total`/`hasMore` and the three filter params were already real but missing from this line — Missão 07.4 doc-sync fix, no code change; `total`/`hasMore` also fixed to be *correct*, not just present, by Missão 07.1's pagination bug fix)
 - `getOffer(offerId)` → `Offer & { user: Participant }`
 - `publish(input)` → `Offer` *(requires session)*
 - `book(asset)` → `OrderBook`
@@ -103,7 +137,7 @@ would just be a synonym, not a real accessibility gain.
 
 ### `settlement` / `escrow`
 - `create(input)` → `Escrow` *(requires session)*
-- `get(escrowId)` → `Escrow`
+- `get(escrowId)` → `Escrow` *(requires session + trade party/assigned arbiter — was a public read until Missão 06.8 closed a real privacy gap; this line was stale until Missão 07.4)*
 - `submitKey(escrowId, pubkeyHex)` → `{ escrow, buyerKeySubmitted, sellerKeySubmitted }` *(requires session; MULTISIG/LIGHTNING_HODL client-held-keys path)*
 - `lock(escrowId)` → `Escrow` *(requires session)*
 - `markPaymentSent(escrowId)` → `Escrow` *(requires session)*
@@ -115,17 +149,48 @@ would just be a synonym, not a real accessibility gain.
 - `submitTransactionSignature(escrowId, signedPsbtBase64)` → `{ complete }` *(requires session)*
 - `getPendingTransaction(escrowId)` → `EscrowPendingTransaction`
 - `listDisputes(pagination?)` → `PaginatedDisputes` *(requires session; UI-audit gap closed 2026-08-03 — always scoped to the caller's own arbiterId, never a client-supplied filter)*
-- `getDispute(disputeId)` → `Dispute` *(public read; UI-audit gap closed 2026-08-03)*
-- `resolveDispute(disputeId, ruling, releaseToAddress?)` → `Dispute` *(requires session + assigned arbiter)*
+- `getDispute(disputeId)` → `Dispute` *(requires session + trade party/assigned arbiter — was a public read until Missão 06.8; this line was stale until Missão 07.4, same as `get()` above)*
+- `resolveDispute(disputeId, ruling, releaseToAddress?, refundToAddress?, splitBuyerBps?)` → `Dispute` *(requires session + assigned arbiter; the last two params were missing from this line until Missão 07.4 — both required together, only for `ruling: 'SPLIT'`, RFC-021 D9)*
 - `appealDispute(disputeId)` → `{ dispute, appealFeeRequired }` *(requires session + trade party; RFC-021 D6, market arbitration mode only)*
 - `submitDisputeEvidence(disputeId, descriptor)` → `Dispute` *(requires session + trade party; RFC-021 D8, may trigger a QVAC auto-resolution attempt server-side)*
 - `contestAutoResolution(disputeId)` → `Dispute` *(requires session + trade party; RFC-021 D8, rejects a proposed automated ruling)*
 - `parseSafeGuardBundle(unsignedPsbtBase64)` → `SafeGuardBundle` *(pure parsing helper, no transport call; SAFE_GUARD_EVM only — decodes the Safe Guard deployment info a `create()`/`initiateRelease()` response carries for that escrow type)*
 - `signEscrowSafeUserOp(unsignedPsbtBase64, privateKey)` → `string` *(top-level SDK export, not a `settlement` method — same client-held-key pattern as `signEscrowPsbt()`/`signEscrowArkTx()`; produces a `0x`-prefixed 65-byte ECDSA signature over the bundle's `userOpHash`, ready for `submitTransactionSignature()`; UI-audit gap closed 2026-08-03 — SAFE_GUARD_EVM disputes were previously stuck forever with no way to actually produce this signature client-side)*
+- `setPayoutAddress({ asset, address })` → `PayoutAddress` *(requires session; missing from this line until Missão 07.4 — real since the "Participant payout address" gap closed)*
+- `getPayoutAddress(participantId, asset)` → `PayoutAddress` *(no session required; same gap as above)*
+
+### `arbitration`
+- `register(monetaryCollateral, collateralAsset?)` → `ArbiterCandidate` *(requires session; registers or tops up the caller's own ArbiterProfile — permissionless, no approval step)*
+- `getProfile(participantId)` → `ArbiterCandidate` *(no session required; throws `SailsNotFoundError` if this participant never registered)*
+
+### `paymentAccounts`
+- `register(accountHash, paymentMethod)` → `PaymentAccount` *(requires session; idempotent for an already-registered hash — hash the raw account identifier client-side first via the top-level `hashPaymentAccount()` export, never send the raw value)*
+- `get(accountHash)` → `PaymentAccount & { tradeLimit: string }` *(no session required)*
+- `sign(accountHash)` → `PaymentAccount` *(requires session; RFC-021 D1 — attests a specific completed trade, not a general vouch for the account owner)*
+
+### `proof`
+- `assertClaim(input)` → `Proof` *(requires session; `input: { claimType, assertion, tradeId? }`)*
+- `submitProof(input)` → `Proof` *(requires session; `input: { claimId, evidence, claimedHash? }` — distinct from the top-level Intent-facade `submitProof(intentId, proof)` below, same name, different module)*
+- `issueVerificationNonce(proofId)` → `{ nonce }` *(requires session)*
+- `verifyProof(proofId, { verdict, nonce, reason? })` → `Verification` *(requires session)*
+- `getEvidenceBundle(claimId)` → `EvidenceBundle` *(requires session)*
+- `attachEvidence(proofId, media, mimeType, wallet)` → `EvidenceReference` *(requires session + a `WalletAdapter`; signs the media's own sha256 digest client-side, RFC-007 D2)*
+- `anchorEvidence(evidenceReferenceId)` → `EvidenceReference` *(requires session; submits to a real, live OpenTimestamps calendar server — a genuine network call/cost, not automatic)*
+- `getTradeEvidenceBundle(tradeId)` → `TradeEvidenceBundle` *(requires session + trade party — was a public read until Missão 06.6 closed a real privacy gap; SDK call itself didn't send auth until Missão 07.1 fixed it)*
+
+### `agents`
+➕ **ADDITIVE** (real since the `open-agents` module shipped, not yet
+carrying the same multi-mission stability history as the original v0.1
+surface). Missão 07.3 truthfulness note applies to all three: each is a
+single, real local-LLM call (QVAC, llama.cpp) — none of them negotiate,
+converse with a counterparty, or hold state across calls.
+- `generateTradeIntent(goal)` → `GeneratedTradeIntent` *(requires session; real QVAC call)*
+- `generateOfferIntent(goal)` → `GeneratedOfferIntent` *(requires session; real QVAC call)*
+- `assessIntentRisk(intent)` → `IntentRiskAssessment` *(requires session; real QVAC call)*
 
 ### `reputation` / `trustScore`
 - `get(participantId)` → `ReputationScore`
-- `leaderboard(limit?)` → `ReputationScore[]`
+- `leaderboard(pagination?: { limit?, offset? })` → `LeaderboardResult` (`{ items, total, hasMore, nextOffset }`, each `items[]` entry a `LeaderboardEntry`, not the full `ReputationScore` shape — stale signature/return type fixed here Missão 07.4, no code change)
 - `rate(input)` → informational only, does not affect the score `get()` returns *(requires session)*
 - `vouchFor(voucheeId)` → `Vouch` *(requires session; RFC-021 D7 peer vouching — caller must have real trade history, own reputation is slashed if the vouchee's first payment account is later abused)*
 
@@ -144,21 +209,28 @@ would just be a synonym, not a real accessibility gain.
 - `registerFromWallet(wallet)` → `CapabilityGrant`
 
 ### Top-level (Intent facade, delegated straight off `SailsClient`)
-`createIntent`, `cancelIntent`, `dispute`, `submitProof(intentId,
+🔒 `createIntent`, `cancelIntent`, `dispute`, `submitProof(intentId,
 proof)`, and `releaseAsset(intentId, toAddress)` are all real as of
 2026-08-01 — the last two were previously believed blocked
 (`submitProof` on a missing Proof-primitive route that turned out to
 already exist; `releaseAsset` on a missing `toAddress` parameter, now
-added). Only `negotiate` still throws `SailsNotImplementedError` — the
-canonical fire-and-forget signature can't represent the real
-`WebSocketChannel` negotiation channel (`intent-facade.ts`'s own header
-has the full reasoning). `negotiate` is **not** frozen — its
-throw-vs-real status is expected to change before v1, and `releaseAsset`
-gaining a required `toAddress` parameter is this document's own
-precedent for why that kind of change is additive, not breaking, for
-these six-verb methods specifically.
+added). `releaseAsset` gaining a required `toAddress` parameter is this
+document's own precedent for why that kind of change is additive, not
+breaking, for these six-verb methods specifically.
 
-`proposeTrade(intentId, amount)` → `TradeProposal | null` — a 7th
+🧪 **EXPERIMENTAL** — `negotiate` still throws `SailsNotImplementedError`
+unconditionally — the canonical fire-and-forget signature can't
+represent the real `WebSocketChannel` negotiation channel
+(`intent-facade.ts`'s own header has the full reasoning; use
+`openp2p.chat(tradeId)` for the real, working channel today). Not
+frozen — its throw-vs-real status, and even its shape, are expected to
+change before v1. Per Missão 07.3's QVAC-truthfulness pass: this is not
+"AI negotiation" that's merely unimplemented — no version of this
+protocol has ever done interactive agent-to-agent negotiation; see
+`proposeTrade`/`proposeTradeOutcome` below for what QVAC-assisted
+discovery actually does today.
+
+🔒 **FROZEN** — `proposeTrade(intentId, amount)` → `TradeProposal | null` — a 7th
 top-level delegate, **not** part of the original six-verb facade above
 (RFC-023, `rfcs/RFC-023-qvac-negotiated-trade-proposal.md`). Given a
 persisted TradeIntent's own declared `maxPriceUsd`/`minPriceUsd`/
@@ -171,7 +243,7 @@ directly. **This method's return type is frozen as-is** — it cannot
 represent a `counterProposal` without a breaking change, which is exactly
 why the method below exists instead of extending this one in place.
 
-`proposeTradeOutcome(intentId, amount)` → `{ proposal, counterProposal }`
+➕ **ADDITIVE** — `proposeTradeOutcome(intentId, amount)` → `{ proposal, counterProposal }`
 — an 8th delegate, added Missão 02.5 (2026-08-15), calling the exact same
 route as `proposeTrade` above but returning everything the route sends
 back. `counterProposal` (`referenceOfferId`/`listedPriceUsd`/
