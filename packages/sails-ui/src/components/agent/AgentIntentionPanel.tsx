@@ -231,7 +231,15 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           className="flex items-center gap-2 text-sm font-semibold text-brand-text"
         >
           <Bot className="h-4 w-4 shrink-0" />
-          AI Negotiator — negociação assistida por IA (Agente QVAC)
+          {/* Missão 07.3 — the previous subtitle ("negociação assistida
+              por IA (Agente QVAC)") attributed the whole flow to QVAC;
+              only the intent itself is AI-generated (real LLM call) —
+              the offer search/match that follows is deterministic, not
+              QVAC, per BOUNDARY_TEXT below. Kept the "AI Negotiator"
+              product name (the AI-generated-intent part is genuinely
+              real), fixed the subtitle to not over-attribute the search
+              step. */}
+          AI Negotiator — intenção gerada por IA, busca automática de oferta
         </button>
         <div className="flex items-center gap-2">
           <InfoTooltip text={BOUNDARY_TEXT} />
