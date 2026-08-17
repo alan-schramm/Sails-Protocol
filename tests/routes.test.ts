@@ -12,7 +12,20 @@
  * are never imported here — transportFallback.test.ts's own comment
  * already documents why that can't be verified without a live P2P
  * network in this environment.
+ *
+ * RATE_LIMIT_MAX raised well above this file's own request volume
+ * (100+ requests across every route, one shared per-IP global-tier
+ * counter) — set before any src/ import so config/index.ts picks it up.
+ * Since Missão 08B, the auth/critical routes exercised throughout this
+ * file no longer carry a `config.rateLimit` override that excludes them
+ * from the global counter (they moved to the Redis-shared preHandler in
+ * redis-rate-limit.ts instead), so they now also count against it —
+ * this file tests route wiring/auth, not rate limiting itself (that's
+ * tests/rateLimit.test.ts and tests/criticalRateLimit.test.ts's job), so
+ * the global ceiling should just stay out of its way.
  */
+process.env.RATE_LIMIT_MAX = '10000'
+
 import type { FastifyInstance } from 'fastify'
 
 // Valid 64-character hex-encoded Ed25519 public key for testing
@@ -195,6 +208,19 @@ jest.mock('../src/common/redis', () => ({
       redisStore.delete(key)
       return Promise.resolve(1)
     }),
+    // Missão 08B Fase 9 — the auth/critical rate-limit tiers now run
+    // through a small Redis-shared preHandler (redis-rate-limit.ts)
+    // instead of @fastify/rate-limit's own local store, so any route
+    // under those tiers (challenge/authenticate, dispute/resolve/appeal,
+    // capability revoke, agent-intent generation — all exercised in this
+    // file) needs a real INCR/PEXPIRE/PTTL mock, not just GET/SET/DEL.
+    incr: jest.fn((key: string) => {
+      const next = (parseInt(redisStore.get(key) ?? '0', 10) || 0) + 1
+      redisStore.set(key, String(next))
+      return Promise.resolve(next)
+    }),
+    pexpire: jest.fn(() => Promise.resolve(1)),
+    pttl: jest.fn(() => Promise.resolve(60000)),
   },
 }))
 

@@ -12,8 +12,20 @@ import { z } from 'zod'
 import { identityService } from './identity.service'
 import { issueChallenge, verifySignedChallenge, requireAuth, issueWsTicket } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
+import { createSharedRateLimit } from '../../common/middleware/redis-rate-limit'
 import { config } from '../../config'
 import { docsOnlySchema } from '../../common/openapi'
+
+// Missão 08B Fase 9 — Redis-shared (cross-instance) counter, replacing
+// the per-route `config: { rateLimit: {...} } }` local-store override
+// these two routes used before (see redis-rate-limit.ts's header for
+// why). The global `@fastify/rate-limit` registration in app.ts still
+// applies underneath, untouched, as the broader per-instance ceiling.
+const authRateLimit = createSharedRateLimit({
+  max: config.rateLimit.authMax,
+  windowMs: config.rateLimit.authWindowMs,
+  keyPrefix: 'auth',
+})
 
 const registerSchema = z.object({
   publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be a 64-character hex-encoded Ed25519 public key'),
@@ -53,7 +65,7 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
   // would hit (RED_TEAM_REVIEW.md RT-002), so they get their own ceiling
   // rather than sharing the general API's more permissive ones.
   app.post('/v1/identity/challenge', {
-    config: { rateLimit: { max: config.rateLimit.authMax, timeWindow: config.rateLimit.authTimeWindow } },
+    preHandler: authRateLimit,
     ...docsOnlySchema({ tags: ['open-identity'], body: challengeSchema }),
   }, async (request, reply) => {
     const body = challengeSchema.parse(request.body)
@@ -62,7 +74,7 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.post('/v1/identity/authenticate', {
-    config: { rateLimit: { max: config.rateLimit.authMax, timeWindow: config.rateLimit.authTimeWindow } },
+    preHandler: authRateLimit,
     ...docsOnlySchema({ tags: ['open-identity'], body: authenticateSchema }),
   }, async (request, reply) => {
     const body = authenticateSchema.parse(request.body)

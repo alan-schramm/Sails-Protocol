@@ -77,3 +77,26 @@ export class CircuitBreakerOpenError extends AppError {
     super(message, 503, 'CIRCUIT_BREAKER_OPEN')
   }
 }
+
+// redis-rate-limit.ts (Missão 08B Fase 9) — same code/shape
+// @fastify/rate-limit's own plugin-thrown 429 already produces via
+// app.ts's error handler (statusCode===429 -> 'RATE_LIMIT_EXCEEDED'), so
+// a caller can't tell whether a given route is on the local plugin or
+// the shared Redis limiter from the response alone.
+export class RateLimitExceededError extends AppError {
+  constructor(retryAfterSeconds: number) {
+    super('Rate limit exceeded', 429, 'RATE_LIMIT_EXCEEDED', { retryAfterSeconds })
+  }
+}
+
+// Fase 8's route matrix: auth + critical tiers both already hard-depend
+// on Redis independent of rate limiting (challenge/session lookups),
+// so failing closed here adds no new single point of failure — same
+// 503/"temporarily unavailable, retry" semantic as CircuitBreakerOpenError
+// above, not a 500 (this isn't a bug, it's a deliberate fail-closed
+// policy decision).
+export class RateLimitUnavailableError extends AppError {
+  constructor() {
+    super('Rate limiting store temporarily unavailable', 503, 'RATE_LIMIT_UNAVAILABLE')
+  }
+}

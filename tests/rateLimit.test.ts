@@ -1,20 +1,32 @@
 /**
- * @fastify/rate-limit — verifies the plugin is actually wired in and
- * enforcing both tiers (global default, tighter auth-route override),
- * not just that config fields exist. Own isolated `buildApp()` instance
- * (not shared with routes.test.ts) so this file's deliberately-exceeded
- * limits never pollute that file's shared rate-limit counter — both
- * count against the same in-memory store, keyed by IP, for every request
- * within one app instance.
+ * Auth-tier rate limiting — verifies the tier is actually wired in and
+ * enforcing (not just that config fields exist). Since Missão 08B Fase 9
+ * this is a Redis-shared custom preHandler (redis-rate-limit.ts), not
+ * @fastify/rate-limit's own per-route local store — the mock `redis`
+ * below implements real INCR/PEXPIRE/PTTL semantics against an in-memory
+ * Map so the limiter's actual counting logic runs for real, only its
+ * storage backend is faked. Own isolated `buildApp()` instance (not
+ * shared with routes.test.ts) so this file's deliberately-exceeded
+ * limits never pollute that file's shared counters.
  *
  * Env vars are set before any src/ import so config/index.ts (a
  * module-level singleton, computed once on first import) picks up these
  * low, fast-to-hit values instead of the real defaults.
+ *
+ * RATE_LIMIT_MAX (global) is deliberately well above this suite's total
+ * request count, not artificially tight like the auth tier below — since
+ * Missão 08B, a route with no @fastify/rate-limit `config.rateLimit`
+ * override (true of /challenge and /authenticate now — they moved to the
+ * Redis-shared preHandler instead) still counts against the global
+ * per-instance ceiling underneath, same as any other route. Before, the
+ * per-route override excluded a route from the global counter entirely;
+ * that exclusion is gone, so this suite must not let the global ceiling
+ * trip as a side effect of exercising the auth tier.
  */
-process.env.RATE_LIMIT_MAX = '5'
+process.env.RATE_LIMIT_MAX = '20'
 process.env.RATE_LIMIT_WINDOW = '1 minute'
 process.env.RATE_LIMIT_AUTH_MAX = '2'
-process.env.RATE_LIMIT_AUTH_WINDOW = '1 minute'
+process.env.RATE_LIMIT_AUTH_WINDOW_MS = '60000'
 
 import type { FastifyInstance } from 'fastify'
 
@@ -36,6 +48,13 @@ jest.mock('../src/common/redis', () => ({
       redisStore.delete(key)
       return Promise.resolve(1)
     }),
+    incr: jest.fn((key: string) => {
+      const next = (parseInt(redisStore.get(key) ?? '0', 10) || 0) + 1
+      redisStore.set(key, String(next))
+      return Promise.resolve(next)
+    }),
+    pexpire: jest.fn(() => Promise.resolve(1)),
+    pttl: jest.fn(() => Promise.resolve(60000)),
   },
 }))
 
@@ -77,6 +96,8 @@ jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 const { buildApp } = require('../src/app')
 
 describe('Rate limiting (@fastify/rate-limit, RATE_LIMIT_MAX=5, RATE_LIMIT_AUTH_MAX=2 for this suite)', () => {
+  jest.setTimeout(30_000) // real buildApp() registers @fastify/swagger-ui — see tests/cors.test.ts's identical comment
+
   let app: FastifyInstance
 
   beforeAll(async () => {
@@ -94,14 +115,12 @@ describe('Rate limiting (@fastify/rate-limit, RATE_LIMIT_MAX=5, RATE_LIMIT_AUTH_
   })
 
   it('returns a real 429 (not a flattened 500) once the auth-specific limit (2/window) is exceeded', async () => {
-    // @fastify/rate-limit tracks each route's own config.rateLimit
-    // override independently (per route, per IP) — it does not pool
-    // /challenge and /authenticate into one shared budget unless a
-    // custom keyGenerator/store is configured to do that, which this
-    // pass deliberately doesn't add (kept simple; still a real
-    // improvement over no rate limiting at all — see app.ts's comment
-    // on the plugin registration). So this exercises /challenge's own
-    // counter: the previous test already used 1 of its 2 allowed
+    // redis-rate-limit.ts's shared preHandler keys by route pattern + IP
+    // (not just tier + IP) — it does not pool /challenge and
+    // /authenticate into one shared budget, same independent-per-route
+    // tracking the old @fastify/rate-limit local-store config had before
+    // Missão 08B moved this tier to Redis. So this exercises /challenge's
+    // own counter: the previous test already used 1 of its 2 allowed
     // requests; one more should still succeed, the third should be
     // rejected with the app's own error shape, not a generic 500 (a
     // real bug found and fixed in app.ts's error handler while writing

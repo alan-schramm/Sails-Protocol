@@ -111,6 +111,9 @@ export const config = {
     max: requiredInt('RATE_LIMIT_MAX', 100),
     timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
     authMax: requiredInt('RATE_LIMIT_AUTH_MAX', 10),
+    // Unused since Missão 08B (see authWindowMs below) — kept, still
+    // settable, only in case a local-store fallback is ever reintroduced
+    // for this tier.
     authTimeWindow: process.env.RATE_LIMIT_AUTH_WINDOW ?? '1 minute',
     // CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — the
     // global ceiling above covers every route generically, but disputes/
@@ -120,7 +123,26 @@ export const config = {
     // tighter than the global default, looser than the auth tier (these
     // routes need `requireAuth` first, which already raises the bar).
     criticalMax: requiredInt('RATE_LIMIT_CRITICAL_MAX', 20),
+    // Unused since Missão 08B (see criticalWindowMs below) — same reason
+    // as authTimeWindow above.
     criticalTimeWindow: process.env.RATE_LIMIT_CRITICAL_WINDOW ?? '1 minute',
+    // Missão 08B Fase 9 — auth/critical moved from @fastify/rate-limit's
+    // own per-route local store (`config: { rateLimit: {...} } }`,
+    // consuming authTimeWindow/criticalTimeWindow above) to a small
+    // custom Redis-backed preHandler (redis-rate-limit.ts), so the two
+    // tiers that actually matter for security (credential-stuffing,
+    // dispute/arbitration/capability-revoke spam) share one counter
+    // across every instance instead of counting per-instance. Native
+    // @fastify/rate-limit double-registration was empirically proven to
+    // not cleanly isolate two stores (see the 08B report) — hence the
+    // small purpose-built preHandler instead of a second plugin
+    // registration. Separate, additive, milliseconds-typed env vars
+    // (not reusing the string vars above — no `ms`-string-parsing
+    // dependency added just for this) so Redis's PEXPIRE gets a plain
+    // number directly — same default window (60s) as the tiers they
+    // parallel and supersede.
+    authWindowMs: requiredInt('RATE_LIMIT_AUTH_WINDOW_MS', 60000),
+    criticalWindowMs: requiredInt('RATE_LIMIT_CRITICAL_WINDOW_MS', 60000),
     // 2026-08-15 security review: the two tiers above are @fastify/rate-limit,
     // which only fires on the HTTP request/response lifecycle — a WebSocket
     // upgrade is one HTTP request, then the connection stays open and every

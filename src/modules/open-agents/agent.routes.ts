@@ -36,6 +36,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { QvacAgentProvider } from './qvac-agent.provider'
 import { requireAuth } from '../../common/middleware/auth'
+import { createSharedRateLimit } from '../../common/middleware/redis-rate-limit'
 import { config } from '../../config'
 import { docsOnlySchema } from '../../common/openapi'
 
@@ -63,11 +64,16 @@ const assessIntentRiskSchema = z.object({
 })
 
 export async function agentRoutes(app: FastifyInstance): Promise<void> {
-  const rateLimitConfig = { rateLimit: { max: config.rateLimit.criticalMax, timeWindow: config.rateLimit.criticalTimeWindow } }
+  // Missão 08B Fase 9 — Redis-shared counter (see redis-rate-limit.ts);
+  // same critical tier capability.routes.ts's revoke route uses.
+  const criticalRateLimit = createSharedRateLimit({
+    max: config.rateLimit.criticalMax,
+    windowMs: config.rateLimit.criticalWindowMs,
+    keyPrefix: 'critical',
+  })
 
   app.post('/v1/agents/generate-trade-intent', {
-    preHandler: requireAuth,
-    config: rateLimitConfig,
+    preHandler: [criticalRateLimit, requireAuth],
     ...docsOnlySchema({ tags: ['open-agents'], body: goalSchema }),
   }, async (request, reply) => {
     const { goal } = goalSchema.parse(request.body)
@@ -76,8 +82,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.post('/v1/agents/generate-offer-intent', {
-    preHandler: requireAuth,
-    config: rateLimitConfig,
+    preHandler: [criticalRateLimit, requireAuth],
     ...docsOnlySchema({ tags: ['open-agents'], body: goalSchema }),
   }, async (request, reply) => {
     const { goal } = goalSchema.parse(request.body)
@@ -86,8 +91,7 @@ export async function agentRoutes(app: FastifyInstance): Promise<void> {
   })
 
   app.post('/v1/agents/assess-intent-risk', {
-    preHandler: requireAuth,
-    config: rateLimitConfig,
+    preHandler: [criticalRateLimit, requireAuth],
     ...docsOnlySchema({ tags: ['open-agents'], body: assessIntentRiskSchema }),
   }, async (request, reply) => {
     const intent = assessIntentRiskSchema.parse(request.body)

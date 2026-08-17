@@ -1,16 +1,20 @@
 /**
- * Critical-route rate limiting (@fastify/rate-limit) — CTO_DUE_DILIGENCE_REPORT.md
- * A-SEC-05, closed 2026-08-08. Verifies `/v1/capabilities/:grantId/revoke`
- * (a real authority-change action, not a read) has its own tighter,
+ * Critical-route rate limiting — CTO_DUE_DILIGENCE_REPORT.md A-SEC-05,
+ * closed 2026-08-08. Verifies `/v1/capabilities/:grantId/revoke` (a real
+ * authority-change action, not a read) has its own tighter,
  * independently-tracked ceiling — same pattern tests/rateLimit.test.ts
- * already established for the auth tier, applied here to the critical tier.
+ * already established for the auth tier, applied here to the critical
+ * tier. Since Missão 08B Fase 9 this is a Redis-shared custom preHandler
+ * (redis-rate-limit.ts), not @fastify/rate-limit's own per-route local
+ * store — see tests/rateLimit.test.ts's header for why the `redis` mock
+ * below implements real INCR/PEXPIRE/PTTL counting semantics.
  *
  * Env vars set before any src/ import so config/index.ts (a module-level
  * singleton) picks up these low, fast-to-hit values.
  */
 process.env.RATE_LIMIT_MAX = '100'
 process.env.RATE_LIMIT_CRITICAL_MAX = '2'
-process.env.RATE_LIMIT_CRITICAL_WINDOW = '1 minute'
+process.env.RATE_LIMIT_CRITICAL_WINDOW_MS = '60000'
 
 import type { FastifyInstance } from 'fastify'
 
@@ -38,6 +42,13 @@ jest.mock('../src/common/redis', () => ({
       redisStore.delete(key)
       return Promise.resolve(1)
     }),
+    incr: jest.fn((key: string) => {
+      const next = (parseInt(redisStore.get(key) ?? '0', 10) || 0) + 1
+      redisStore.set(key, String(next))
+      return Promise.resolve(next)
+    }),
+    pexpire: jest.fn(() => Promise.resolve(1)),
+    pttl: jest.fn(() => Promise.resolve(60000)),
   },
 }))
 

@@ -20,8 +20,17 @@ import { z } from 'zod'
 import { capabilityRegistry } from '../../core/capability-registry'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
+import { createSharedRateLimit } from '../../common/middleware/redis-rate-limit'
 import { config } from '../../config'
 import { docsOnlySchema } from '../../common/openapi'
+
+// Missão 08B Fase 9 — Redis-shared counter (see redis-rate-limit.ts);
+// same critical tier as settlement.routes.ts's dispute/resolve/appeal.
+const criticalRateLimit = createSharedRateLimit({
+  max: config.rateLimit.criticalMax,
+  windowMs: config.rateLimit.criticalWindowMs,
+  keyPrefix: 'critical',
+})
 
 const registerSchema = z.object({
   capabilityName: z.string().min(1),
@@ -64,8 +73,7 @@ export async function capabilityRoutes(app: FastifyInstance): Promise<void> {
   // capability grant is a real authority change, not a read; the global
   // rate limit alone left this route as exposed as any GET.
   app.post('/v1/capabilities/:grantId/revoke', {
-    preHandler: requireAuth,
-    config: { rateLimit: { max: config.rateLimit.criticalMax, timeWindow: config.rateLimit.criticalTimeWindow } },
+    preHandler: [criticalRateLimit, requireAuth],
     ...docsOnlySchema({ tags: ['open-agents'], params: grantIdParamsSchema }),
   }, async (request, reply) => {
     const { grantId } = grantIdParamsSchema.parse(request.params)

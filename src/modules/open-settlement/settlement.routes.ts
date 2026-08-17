@@ -18,6 +18,7 @@ import { payoutAddressService } from './payout-address.service'
 import { tradeService } from '../open-p2p/trade.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
+import { createSharedRateLimit } from '../../common/middleware/redis-rate-limit'
 import { config } from '../../config'
 import { ForbiddenError } from '../../common/errors'
 import { docsOnlySchema } from '../../common/openapi'
@@ -26,10 +27,17 @@ import { positiveDecimalString } from '../../common/validation'
 
 // CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — see
 // config/index.ts's own comment on `rateLimit.criticalMax` for the full
-// reasoning. Shared object (not inlined per route) so all four
-// dispute/arbitration-adjacent routes below stay in sync if this is ever
-// tuned.
-const criticalRateLimit = { max: config.rateLimit.criticalMax, timeWindow: config.rateLimit.criticalTimeWindow }
+// reasoning. Shared preHandler (not inlined per route) so all three
+// dispute/arbitration routes below stay in sync if this is ever tuned.
+// Missão 08B Fase 9 — moved from @fastify/rate-limit's per-route local
+// store to a Redis-shared counter (redis-rate-limit.ts) so the limit is
+// enforced across instances, not per-instance; the global plugin
+// registration in app.ts still applies underneath, untouched.
+const criticalRateLimit = createSharedRateLimit({
+  max: config.rateLimit.criticalMax,
+  windowMs: config.rateLimit.criticalWindowMs,
+  keyPrefix: 'critical',
+})
 
 // ─── Schemas ───────────────────────────────────────────────────────────────────
 // One zod schema per distinct request body shape — kept inline rather than
@@ -367,8 +375,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // directly — that's the lower-level state transition raiseDispute
   // itself calls as its first step.
   app.post('/v1/settlement/escrow/:id/dispute', {
-    preHandler: requireAuth,
-    config: { rateLimit: criticalRateLimit },
+    preHandler: [criticalRateLimit, requireAuth],
     ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: disputeSchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
@@ -432,8 +439,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // file's own doc update. Only the assigned arbiter may call this
   // (enforced in dispute.service.ts's resolveDispute).
   app.post('/v1/settlement/disputes/:id/resolve', {
-    preHandler: requireAuth,
-    config: { rateLimit: criticalRateLimit },
+    preHandler: [criticalRateLimit, requireAuth],
     ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: resolveSchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
@@ -446,8 +452,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // under ARBITRATION_MODE=market (dispute.service.ts's appeal() surfaces
   // a clear config error otherwise, not a crash).
   app.post('/v1/settlement/disputes/:id/appeal', {
-    preHandler: requireAuth,
-    config: { rateLimit: criticalRateLimit },
+    preHandler: [criticalRateLimit, requireAuth],
     ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
