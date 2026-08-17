@@ -635,6 +635,63 @@ describe('WebSocketChannel — heartbeat (A-STA-03)', () => {
   })
 })
 
+// Missão 07.5 — the external-Node reconnect-loop investigation confirmed
+// this class's own factory (POST /v1/identity/ws-ticket then openWebSocket)
+// was never actually exercised end-to-end by a test: every WebSocketChannel
+// test above hands it a raw `async () => socket` factory, bypassing
+// SailsOpenP2PModule.chat() entirely. The real bug turned out to be a stale
+// npm publish (dist predated the 2026-08-15 ticket migration), not a source
+// defect, but this gap — "does chat() really mint a NEW single-use ticket on
+// every reconnect, not just the first connect" — was real and untested.
+describe("SailsOpenP2PModule.chat() — ticket lifecycle (Missão 07.5)", () => {
+  it('mints a fresh single-use ticket via POST /v1/identity/ws-ticket for the initial connection AND again for every reconnect', async () => {
+    let ticketCounter = 0
+    const urls: string[] = []
+    const sockets: FakeSocket[] = []
+
+    const fetchImpl = jest.fn(async (url: string) => {
+      if (url.endsWith('/v1/identity/ws-ticket')) {
+        ticketCounter += 1
+        return { ok: true, status: 200, json: async () => ({ success: true, data: { ticket: `ticket-${ticketCounter}`, expiresIn: 30 } }) }
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    class RecordingSocket extends FakeSocket {
+      constructor(url: string) {
+        super()
+        urls.push(url)
+        sockets.push(this)
+      }
+    }
+
+    const transport = new SailsTransport({
+      baseUrl: 'http://localhost:3000',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      webSocketImpl: RecordingSocket as unknown as typeof WebSocket,
+    })
+    transport.setSessionToken('session-abc')
+
+    const openp2p = new SailsOpenP2PModule(transport)
+    openp2p.chat('trade-1', { initialReconnectDelayMs: 1, maxReconnectDelayMs: 1 })
+
+    await flushConnect()
+    expect(ticketCounter).toBe(1)
+    expect(urls[0]).toContain('ticket=ticket-1')
+
+    // An unexpected drop must trigger a real reconnect — and since a ticket
+    // is single-use by design, the reconnect attempt has no valid credential
+    // to reuse even if it wanted to; it must go mint a brand new one.
+    sockets[0].emitClose()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await flushConnect()
+
+    expect(ticketCounter).toBe(2)
+    expect(urls[1]).toContain('ticket=ticket-2')
+    expect(urls[1]).not.toBe(urls[0])
+  })
+})
+
 describe('SailsSettlementModule — RFC-021 settlement gaps', () => {
   it('approveRelease() posts to /v1/settlement/escrow/:id/approve-release with auth', async () => {
     const fetchImpl = fakeFetch(200, { success: true, data: { approval: { id: 'appr-1', escrowId: 'escrow-1', approverId: 'participant-1', approvedAt: '2026-08-01T00:00:00Z' }, readyToRelease: false } })
