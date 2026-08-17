@@ -62,7 +62,67 @@ silently as a side effect of tagging a release candidate.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-16
+
+**Missão 07.5 finding, the main reason for this release:** `0.1.2`
+(published 2026-08-11) predates a 2026-08-15 security fix
+(`openp2p.ts`) that migrated `chat()`'s WebSocket auth from a raw,
+reusable `?token=<session token>` query param to a short-lived,
+single-use `?ticket=` (minted via `POST /v1/identity/ws-ticket`
+immediately before every connection attempt, including every
+reconnect). The backend (`chat.routes.ts`) only accepts `?ticket=` —
+there is no fallback — so every `0.1.2` client's chat connection opened
+successfully at the WebSocket-handshake level and was then immediately
+rejected by the server, which the client's own reconnect-with-backoff
+logic (correctly) interpreted as a dropped connection and kept retrying
+forever. Confirmed via a raw-socket diagnostic against the real local
+backend: `0.1.2`'s exact connection shape gets an `ERROR` frame +
+close within single-digit milliseconds; the current `?ticket=` shape
+connects cleanly. This was a **stale-publish problem, not a source
+defect** — `packages/sails-sdk/src`'s `WebSocketChannel`/`chat()` were
+already correct; `0.1.2`'s `dist/` simply predated that fix and nobody
+bumped the version to ship it. Verified fixed: built current source,
+`npm pack`'d it, installed the tarball into a directory with zero
+monorepo access, and ran the full 10-step canonical golden path —
+chat opened cleanly on both sides with no reconnect loop, message
+delivered, escrow released, reputation rated.
+
+### Fixed
+- `openp2p.chat()`'s WebSocket auth (see above) — now actually shipped
+  to npm, not just present in source. No API change: `chat()`'s own
+  signature was already unchanged when this landed in source on
+  2026-08-15.
+- `settlement.get(escrowId)` / `settlement.getDispute(disputeId)` sent
+  no `Authorization` header, so both 401'd against the backend's
+  Missão 06.8 auth requirement (party-scoped reads) — every consumer
+  of a completed trade's own escrow/dispute record was broken. Now
+  sends `Authorization` like every other authenticated call.
+- `proof.getTradeEvidenceBundle(tradeId)` — same missing-auth bug,
+  same fix (Missão 06.6 made this route participant-scoped).
+- `liquidity.discover()`'s pagination/aggregation — `getAggregatedOffers()`
+  now requests enough rows from each provider to actually satisfy
+  `offset + limit` (previously capped at a fixed 10 regardless of what
+  was asked for) and computes `total`/`hasMore` from a real count
+  across providers run in parallel, instead of an arbitrary provider-local
+  slice. Found via a full 13-stage Golden Path Matrix audit exercising a
+  marketplace with more than 10 real offers.
+- `src/modules/open-liquidity/liquidity.routes.ts` (backend) — `asset`
+  query/body param now validated against the real `AssetType` enum
+  instead of accepting any non-empty string, closing a stack-trace-leak
+  path found during a real npm-install cold-start dogfooding pass.
+
 ### Added
+- Test coverage for all of the above at both the SDK level
+  (`packages/sails-sdk/tests/modules.test.ts` — `Authorization` header
+  assertions for the three fixed calls, plus a new test proving
+  `chat()` mints a fresh single-use ticket on the initial connection
+  AND again on every reconnect, never reusing one) and the backend
+  level (`tests/liquidityDiscoverPagination.test.ts`).
+- `examples/simple-wallet` — the canonical golden-path reference now
+  completes all 10 real steps end to end, including both sides rating
+  the trade via `reputation.rate()` and reading back
+  `reputation.get()`. Wired to a real `typecheck` npm script so this
+  example is continuously verified, not just runnable.
 - `WebSocketChannel` now sends a real heartbeat (`PING` every 30s by default,
   force-closes if no `PONG` arrives within 60s) to catch "zombie
   connections" — a socket object that's still open but whose underlying
@@ -91,13 +151,22 @@ silently as a side effect of tagging a release candidate.
   total, hasMore }` instead of `{ offers, sources }`. The backend now applies
   global pagination (sort-then-slice across all aggregated providers) rather
   than per-provider pagination, and returns the total count and `hasMore`
-  flag directly. `getOrderBook()` is unaffected — it only reads `.offers`
-  from each side's result.
+  flag directly (Missão 07.1 closed the remaining gap: providers were still
+  being asked for a fixed 10 rows regardless of what `offset+limit` actually
+  needed — see Fixed above). `getOrderBook()` is unaffected — it only reads
+  `.offers` from each side's result.
 - `docs/SDK_GUIDE.md` section 2 updated to document `discove()`'s new
   `DiscoverResult` shape (with `total`/`hasMore`), plus the previously-undocumented
   `approveRelease()`, `getReleaseApprovals()`, `registerArbiter()`,
   `getArbiterProfile()`, `reconcileTrade()`, `getScoreByPeerId()`, and the
   full `proof:` namespace.
+
+### Process change (Missão 07.5 CTO decision)
+- No future SDK version will be published from a `dist/` that wasn't
+  freshly rebuilt from the exact source it's tagged against. Missão
+  07.6 adds an explicit `source → clean build → npm pack → external
+  smoke test → publish` gate to the release process so the registry is
+  part of the release test, not a disconnected manual step.
 
 ## [1.0.0-rc1] - 2026-07-20
 
