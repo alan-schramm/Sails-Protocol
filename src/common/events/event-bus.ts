@@ -491,6 +491,28 @@ export class SailsEventBus {
   ): void {
     this.store.subscribe(event, listener)
   }
+
+  // Missão 08B — thin passthrough, same shape as getEvents() above. Not
+  // part of the generic EventStore interface (InMemoryEventStore/
+  // RedisStreamsEventStore have no such concept, same reason those two
+  // don't implement pg_advisory_xact_lock's serialization either) — a
+  // runtime check rather than an interface method keeps that boundary
+  // real instead of forcing every EventStore implementation to know about
+  // Redis. A no-op for any store that isn't PostgresEventStore (e.g. the
+  // InMemoryEventStore many tests construct their own bus around), same
+  // as this being a no-op is already the correct behavior for a
+  // single-instance deployment that never calls it at all.
+  enableCrossInstanceFanout(publisher: import('ioredis').Redis): void {
+    if ('enableCrossInstanceFanout' in this.store) {
+      (this.store as import('./event-store').PostgresEventStore).enableCrossInstanceFanout(publisher)
+    }
+  }
+
+  async disableCrossInstanceFanout(): Promise<void> {
+    if ('disableCrossInstanceFanout' in this.store) {
+      await (this.store as import('./event-store').PostgresEventStore).disableCrossInstanceFanout()
+    }
+  }
 }
 
 // Singleton — shared across all modules. This IS the "zero coupling" mechanism:

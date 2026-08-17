@@ -1,11 +1,19 @@
 import { EventEmitter } from 'events'
 import { randomUUID as uuidv4, createHash } from 'crypto'
+import type { Redis } from 'ioredis'
 import type { Prisma } from '@prisma/client'
 import type { SailsEventName, SailsEventMap } from './event-bus'
 import { childLogger } from '../logger'
 import { prisma } from '../database'
 
 const log = childLogger('event-store')
+
+// Missão 08B — cross-instance real-time fan-out. One shared channel for
+// every event type (simpler than one channel per eventName, and this
+// codebase has no need yet to subscribe to a subset) — the eventName
+// travels inside the message itself, same as it always has for the
+// in-process EventEmitter this extends rather than replaces.
+const CROSS_INSTANCE_CHANNEL = 'sails:cross-instance-events'
 
 /**
  * Sails Protocol — EventStore (RFC-010, rfcs/RFC-010-durable-event-store.md)
@@ -213,8 +221,92 @@ export class PostgresEventStore implements EventStore {
   readonly durable = true
   private emitter = new EventEmitter()
 
+  // Missão 08B — cross-instance fan-out is entirely opt-in, activated only
+  // by enableCrossInstanceFanout() (called once, from the real app boot
+  // path in app.ts's startServer() — never from buildApp(), which every
+  // test calls). Every existing single-instance/test code path is
+  // byte-for-byte unchanged unless this is explicitly turned on: publish()
+  // still emits synchronously to this.emitter first, same as before this
+  // pass; the Redis publish below is a pure addition, never a replacement,
+  // and its own failure can never affect publish()'s durable write or its
+  // local dispatch (see the try/catch around it below).
+  //
+  // instanceId is generated once per process — the tag every published
+  // message carries so a subscriber can recognize "this is an echo of my
+  // own publish()" and skip it, rather than dispatching the same event to
+  // this same process's handlers twice (once from the synchronous local
+  // emit in publish(), once from the Redis subscription this same process
+  // is also listening on).
+  private readonly instanceId = uuidv4()
+  private crossInstancePublisher: Redis | null = null
+  private crossInstanceSubscriber: Redis | null = null
+
   constructor(private readonly client: Pick<typeof prisma, 'durableEventRecord' | '$transaction'> = prisma) {
     this.emitter.setMaxListeners(50)
+  }
+
+  // Opt-in — see the class-level comment above for why this is never
+  // called automatically from the constructor. `publisher` is a real,
+  // already-connected ioredis client (the app's normal shared `redis`
+  // singleton in production; a real Redis in integration tests that want
+  // to exercise this for real). A dedicated connection is opened via
+  // publisher.duplicate() for subscribing — ioredis's own documented
+  // requirement: a connection in subscriber mode can no longer run normal
+  // commands, so the app's one shared `redis` client (used everywhere else
+  // for sessions/tickets/rate limits) must never itself be put into
+  // subscriber mode. duplicate() copies the original client's connection
+  // options (host, port, retryStrategy), so the subscriber reconnects with
+  // the same backoff policy the rest of the app already relies on; ioredis
+  // itself re-issues SUBSCRIBE automatically after a reconnect for a
+  // connection that was already in subscriber mode, so no manual
+  // re-subscribe logic is needed here.
+  enableCrossInstanceFanout(publisher: Redis): void {
+    if (this.crossInstanceSubscriber) return // idempotent — a second call is a no-op, not an error
+    this.crossInstancePublisher = publisher
+
+    const subscriber = publisher.duplicate()
+    this.crossInstanceSubscriber = subscriber
+
+    subscriber.on('error', (err) => {
+      log.error({ msg: 'Cross-instance event subscriber connection error', err: err instanceof Error ? err.message : String(err) })
+    })
+
+    subscriber.subscribe(CROSS_INSTANCE_CHANNEL, (err) => {
+      if (err) {
+        log.error({ msg: 'Failed to subscribe to cross-instance event channel', err: err.message })
+      } else {
+        log.info({ msg: 'Subscribed to cross-instance event channel', channel: CROSS_INSTANCE_CHANNEL, instanceId: this.instanceId })
+      }
+    })
+
+    subscriber.on('message', (channel: string, message: string) => {
+      if (channel !== CROSS_INSTANCE_CHANNEL) return
+      let parsed: DurableEvent & { __originInstanceId?: string }
+      try {
+        parsed = JSON.parse(message)
+      } catch {
+        log.error({ msg: 'Received malformed cross-instance event message, dropping' })
+        return
+      }
+      // Echo of this same process's own publish() below — already
+      // dispatched synchronously there; dispatching again here would be
+      // exactly the double-processing Missão 08B's own acceptance
+      // criteria forbids.
+      if (parsed.__originInstanceId === this.instanceId) return
+      const { __originInstanceId, ...event } = parsed
+      this.emitter.emit(event.eventName, event)
+    })
+  }
+
+  // Graceful shutdown / test cleanup — mirrors startServer()'s existing
+  // redis.quit() pattern. Safe to call even if fan-out was never enabled.
+  async disableCrossInstanceFanout(): Promise<void> {
+    if (this.crossInstanceSubscriber) {
+      await this.crossInstanceSubscriber.unsubscribe(CROSS_INSTANCE_CHANNEL).catch(() => {})
+      await this.crossInstanceSubscriber.quit().catch(() => {})
+      this.crossInstanceSubscriber = null
+    }
+    this.crossInstancePublisher = null
   }
 
   // Missão 05.8 — the read-then-write (findFirst, then create) below runs
@@ -349,6 +441,21 @@ export class PostgresEventStore implements EventStore {
       prevHash,
     }
     this.emitter.emit(eventName, event)
+
+    // Missão 08B — best-effort signal for any OTHER instance's own
+    // subscription (enableCrossInstanceFanout() above) to dispatch this
+    // same event to its own local handlers. Deliberately fire-and-forget,
+    // wrapped so a Redis outage can never turn an already-committed
+    // durable write (everything above this line already succeeded) into a
+    // thrown error — the boundary this mission's own Fase 3 requires:
+    // Pub/Sub is a signal, never durability, and its failure must never
+    // retroactively affect the transaction that already committed.
+    if (this.crossInstancePublisher) {
+      const message = JSON.stringify({ ...event, __originInstanceId: this.instanceId })
+      this.crossInstancePublisher.publish(CROSS_INSTANCE_CHANNEL, message).catch((err) => {
+        log.error({ msg: 'Cross-instance event publish failed (durable write already committed, unaffected)', eventName, eventId, err: err instanceof Error ? err.message : String(err) })
+      })
+    }
   }
 
   subscribe<K extends SailsEventName>(

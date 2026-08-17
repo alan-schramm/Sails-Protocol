@@ -14,6 +14,7 @@ import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
 import { AppError, ERROR_DOCS_URL } from './common/errors'
 import { registerEventHandlers } from './common/events/handlers'
+import { eventBus } from './common/events/event-bus'
 import { intentEngine } from './core/intent-engine'
 import { OpenP2PTradeIntentHandler } from './modules/open-p2p/intent-handler'
 import { intentRoutes } from './core/intent.routes'
@@ -358,6 +359,18 @@ export async function startServer() {
   await connectDatabase()
   await connectRedis()
 
+  // Missão 08B — cross-instance event fan-out. Deliberately only wired
+  // here (the real boot path), never in buildApp() itself — every test
+  // calls buildApp() directly and would otherwise attempt a real Redis
+  // pub/sub connection. A no-op for InMemoryEventStore-backed buses (see
+  // SailsEventBus.enableCrossInstanceFanout()'s own comment); for the real
+  // PostgresEventStore-backed eventBus, opens a dedicated duplicate()
+  // connection and subscribes so this instance's own local handlers
+  // (TRADE_STATUS_UPDATE/ESCROW_STATUS_UPDATE/NEW_MESSAGE/reputation
+  // updates, everything registered in handlers.ts/chat.routes.ts) fire for
+  // events published by ANY instance, not only this one.
+  eventBus.enableCrossInstanceFanout(redis)
+
   // ── Graceful shutdown ──────────────────────────────────────────────────────
   // PRODUCTION_READINESS_FIXES.md P1 item 15, closed 2026-08-08 —
   // app.close() stops accepting new requests and drains in-flight ones,
@@ -369,6 +382,7 @@ export async function startServer() {
   const shutdown = async (signal: string) => {
     app.log.info({ msg: 'Shutting down gracefully', signal })
     await app.close()
+    await eventBus.disableCrossInstanceFanout()
     await prisma.$disconnect()
     await redis.quit()
     process.exit(0)
