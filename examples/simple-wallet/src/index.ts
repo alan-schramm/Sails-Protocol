@@ -1,13 +1,25 @@
 /**
  * @sails/example-simple-wallet
  *
- * The dogfooding test for @satsails/p2p-trading-sdk (docs/TODO.md §25): a wallet
- * developer's first 15 minutes with the SDK, written using ONLY its
- * public surface (`@satsails/p2p-trading-sdk`'s exports) — no reaching into this
+ * The dogfooding test for @satsails/p2p-trading-sdk (docs/TODO.md §25) —
+ * and, as of Missão 07.4, the canonical golden-path reference every other
+ * doc (README/GETTING_STARTED/SDK_GUIDE) points to instead of duplicating
+ * its own copy of this flow. A wallet developer's first 15 minutes with
+ * the SDK, written using ONLY its public surface
+ * (`@satsails/p2p-trading-sdk`'s exports) — no reaching into this
  * monorepo's internal services, no mocks. It runs the real golden path
- * (register → publish → discover → trade → chat → escrow → release)
- * against a real local Sails node, exactly like a wallet integrating
- * this protocol for the first time would.
+ * (identity → authenticate → publish → discover → trade → chat → escrow
+ * → mark payment → release → reputation) against a real local Sails
+ * node, exactly like a wallet integrating this protocol for the first
+ * time would, ending on the same "rate the trade" step
+ * README.md's own endpoint table names last.
+ *
+ * QVAC-assisted discovery (natural-language goal → generateTradeIntent()
+ * → proposeTradeOutcome() → match/counterProposal) is a separate,
+ * optional flow, not part of this golden path — see SDK_GUIDE.md's own
+ * QVAC section for why it's kept apart (Missão 07.3: it's bounded
+ * discovery, not interactive negotiation, and conflating the two here
+ * would misrepresent both).
  *
  * Prerequisites: a Sails node running locally (`npm run dev` from the
  * repo root — see README.md in this directory for the full walkthrough,
@@ -50,12 +62,12 @@ async function main() {
   const buyerWallet = new SailsClient({ baseUrl: BASE_URL })
 
   step('Seller registers and authenticates (identity.create + identity.authenticate)')
-  const { keypair: sellerKeypair } = await sellerWallet.identity.create(undefined, 'Simple Wallet — Seller')
+  const { participant: seller, keypair: sellerKeypair } = await sellerWallet.identity.create(undefined, 'Simple Wallet — Seller')
   await sellerWallet.identity.authenticate(sellerKeypair)
   console.log('    seller session established')
 
   step('Buyer registers and authenticates')
-  const { keypair: buyerKeypair } = await buyerWallet.identity.create(undefined, 'Simple Wallet — Buyer')
+  const { participant: buyer, keypair: buyerKeypair } = await buyerWallet.identity.create(undefined, 'Simple Wallet — Buyer')
   await buyerWallet.identity.authenticate(buyerKeypair)
   console.log('    buyer session established')
 
@@ -124,6 +136,18 @@ async function main() {
   step('Seller releases the escrow (settlement.release)')
   const released = await sellerWallet.settlement.release(escrow.id, 'example-payout-address')
   console.log(`    escrow status: ${released.status}, txReleaseId: ${released.txReleaseId}`)
+
+  // Missão 07.4 — the canonical golden path's own last step (README.md's
+  // "Which endpoint for which action" table: "Rate a completed trade").
+  // Informational only (RFC-007 D8/D9) — never feeds the ReputationScore
+  // reputation.get() returns, see that method's own SDK doc comment —
+  // included anyway because a real integration ends here, and a golden
+  // path that stops at release() leaves the last documented step out.
+  step('Both sides rate the completed trade (reputation.rate)')
+  await sellerWallet.reputation.rate({ tradeId: trade.id, ratedId: buyer.id, score: 5, comment: 'Smooth trade.' })
+  await buyerWallet.reputation.rate({ tradeId: trade.id, ratedId: seller.id, score: 5, comment: 'Smooth trade.' })
+  const sellerScore = await sellerWallet.reputation.get(seller.id)
+  console.log(`    both sides rated; seller's own reputation.get(): totalTrades=${sellerScore.totalTrades}`)
 
   console.log('\nDone — full golden path completed using only @satsails/p2p-trading-sdk\'s public API.')
 }

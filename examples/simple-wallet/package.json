@@ -4,7 +4,8 @@
   "private": true,
   "description": "Dogfooding example: the smallest real wallet integration of @satsails/p2p-trading-sdk — no mocks, runs against a real local Sails node. Answers one question: can a wallet integrate this SDK in under 15 minutes?",
   "scripts": {
-    "start": "ts-node --transpile-only src/index.ts"
+    "start": "ts-node --transpile-only src/index.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@satsails/p2p-trading-sdk": "^0.1.0"
