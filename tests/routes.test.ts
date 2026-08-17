@@ -27,6 +27,7 @@
 process.env.RATE_LIMIT_MAX = '10000'
 
 import type { FastifyInstance } from 'fastify'
+import { redis } from '../src/common/redis'
 
 // Valid 64-character hex-encoded Ed25519 public key for testing
 const TEST_PUBLIC_KEY = 'a'.repeat(64)
@@ -1077,6 +1078,64 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const errorFrames = frames.filter((f) => f.type === 'ERROR')
       expect(errorFrames).toHaveLength(1)
       expect((errorFrames[0].payload as { message: string }).message).toMatch(/Rate limit exceeded/)
+    })
+
+    // Missão 08B Fase 12 — regression for a real bug found via a genuine
+    // 2-process restart acceptance test (generation-tagged client/server
+    // instrumentation, not assumed): `socket.on('message', ...)` used to
+    // be registered only *after* `await resolveParticipantFromTicket()`
+    // resolved. The underlying `ws` connection starts emitting 'message'
+    // events for incoming frames the instant the WS upgrade completes —
+    // it does not buffer them for a listener attached later — so a frame
+    // arriving during that await (exactly what happens when a client's
+    // `WebSocketChannel` sends `JOIN_TRADE` the instant its own socket
+    // reports 'open', openp2p.ts) was silently dropped. Reproduced
+    // reliably against a just-restarted (cold) real instance; simulated
+    // here by delaying the mocked `redis.get()` ticket lookup by one
+    // tick past when the client's frame is sent, the same ordering a
+    // slow/cold ticket-resolution await produces for real. `PING`/`PONG`
+    // needs no trade/prisma setup, so it isolates the transport-level
+    // race from any business-logic path — the correct fix (queue frames
+    // that arrive before the listener is "ready", drain them once
+    // participantId resolves) makes this pass; the pre-fix code would
+    // never receive a PONG and this test would time out instead.
+    it('does not drop a frame that arrives while ticket resolution is still in flight', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+
+      let resolveDelayedGet!: () => void
+      const delayedGet = new Promise<void>((resolve) => { resolveDelayedGet = resolve })
+      const realGet = redis.get as jest.Mock
+      const originalImpl = realGet.getMockImplementation()
+      realGet.mockImplementationOnce(async (key: string) => {
+        await delayedGet
+        return originalImpl ? originalImpl(key) : null
+      })
+
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const frames: Array<{ type: string; payload?: unknown }> = []
+      const gotPong = new Promise<void>((resolve) => {
+        ws.on('message', (data: Buffer) => {
+          const frame = JSON.parse(data.toString())
+          frames.push(frame)
+          if (frame.type === 'PONG') resolve()
+        })
+      })
+
+      // Sent immediately — before the delayed ticket lookup above ever
+      // resolves, i.e. before the pre-fix code would have registered its
+      // message listener.
+      ws.send(JSON.stringify({ type: 'PING', payload: {} }))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      resolveDelayedGet()
+
+      await Promise.race([
+        gotPong,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for PONG — the early PING frame was dropped')), 2000)),
+      ])
+      ws.terminate()
+
+      expect(frames.some((f) => f.type === 'PONG')).toBe(true)
     })
   })
 

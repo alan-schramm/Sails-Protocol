@@ -90,6 +90,36 @@ const paginationQuerySchema = z.object({
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
   app.get('/v1/openp2p/chat', { websocket: true }, async (socket, request) => {
     const query = request.query as { ticket?: string }
+
+    // Missão 08B Fase 12 root cause — this listener must be attached
+    // SYNCHRONOUSLY, before the `await resolveParticipantFromTicket()`
+    // below, not after. The underlying `ws` connection starts emitting
+    // 'message' events for incoming frames the instant the WS upgrade
+    // completes — it does not buffer them for a listener registered
+    // later. A client's `WebSocketChannel` sends `JOIN_TRADE` the moment
+    // its own socket reports 'open' (openp2p.ts), which can — and, per
+    // this mission's real 2-process restart acceptance test, reliably
+    // does on a just-restarted (cold) instance — arrive before this
+    // async handler resumes past its first `await`. Previously,
+    // `socket.on('message', ...)` was registered only after that await,
+    // so a `JOIN_TRADE` arriving in that window was silently dropped:
+    // the socket stayed open, the room was never joined, and every
+    // later cross-instance-relayed message for that trade found nobody
+    // to broadcast to (chat-room-registry.ts's `rooms` empty for that
+    // tradeId) — reproducible via generation-tagged client/server
+    // instrumentation, not assumed. Fix: attach the listener first,
+    // queue any frame that arrives before ticket resolution finishes,
+    // then drain the queue in order once `participantId` is known.
+    const pendingRaw: Buffer[] = []
+    let handleMessage: ((raw: Buffer) => Promise<void>) | null = null
+    socket.on('message', (raw: Buffer) => {
+      if (handleMessage) {
+        void handleMessage(raw)
+      } else {
+        pendingRaw.push(raw)
+      }
+    })
+
     const participantId = await resolveParticipantFromTicket(query.ticket)
     if (!participantId) {
       socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Missing, invalid, or already-used ticket query param — call POST /v1/identity/ws-ticket first' } }))
@@ -99,7 +129,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
 
     const joined = new Set<string>()
 
-    socket.on('message', async (raw: Buffer) => {
+    handleMessage = async (raw: Buffer) => {
       let msg: { type: string; payload?: unknown }
       try {
         msg = JSON.parse(raw.toString())
@@ -207,7 +237,13 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         request.log.error({ participantId, msgType: msg.type, err: message }, 'chat WS message handler failed')
         socket.send(JSON.stringify({ type: 'ERROR', payload: { message } }))
       }
-    })
+    }
+
+    // Drain, in arrival order, whatever came in during the ticket-
+    // resolution await above — see the header comment on `pendingRaw`.
+    for (const raw of pendingRaw) {
+      await handleMessage(raw)
+    }
 
     socket.on('close', () => {
       for (const tradeId of joined) {

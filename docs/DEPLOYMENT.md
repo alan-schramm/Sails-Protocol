@@ -347,3 +347,70 @@ Deliberately **not** set for this deployment: `WDK_SEED_PHRASE`,
 `AWS_KMS_KEY_ID` (`SAFE_GUARD_EVM`) — both stay empty, keeping those two
 providers inert, consistent with the decision to bring exactly one real
 custody path live at a time.
+
+## 9. Multi-Instance Deployment (Missão 08B, 2026-08-17)
+
+Section 8's deployment above runs a single App Runner instance. Running
+**two or more instances behind a load balancer** (App Runner's own
+auto-scaling, or any other setup) is safe for the primary HTTP + WebSocket
+trading experience as of this mission, provided every instance shares the
+same real Postgres and Redis — real, tested via genuinely separate Node
+processes sharing one dockerized Postgres/Redis, not simulated in one
+process. What makes this true, and what still doesn't:
+
+- **Durable state (source of truth) — Postgres, always instance-independent.**
+  Every Trade/Message/Escrow/Dispute write, and the full `durable_events`
+  event log (`PostgresEventStore`, RFC-010), lands in Postgres regardless
+  of which instance handled the request. Restarting or replacing any
+  instance never loses data.
+- **Real-time push across instances — Redis Pub/Sub, a signal only.**
+  `PostgresEventStore.publish()` broadcasts every event on
+  `sails:cross-instance-events` (see `docs/DATABASE.md`'s Redis key
+  table) so an instance whose WS clients didn't originate an event still
+  learns about it immediately and pushes it to its own connected
+  sockets. If Redis is briefly unreachable, this fan-out fails silently
+  and is logged — the durable write already succeeded either way; the
+  only thing lost is *live* delivery to another instance's sockets for
+  events published during the outage (not: the events themselves, which
+  remain queryable via `getEvents()`/reconcile). The subscriber
+  reconnects and resumes automatically once Redis recovers — no app
+  restart needed.
+- **Which sockets get a push — process-local, and correctly so.**
+  `chat-room-registry.ts`'s room membership is a plain in-process `Map`,
+  one instance's own view of who's currently connected to *it*. This is
+  deliberately not shared — fixing the event fan-out above is sufficient,
+  since each instance already only needs to know about its own sockets.
+- **Auth-tier and critical-tier rate limits — shared via Redis.**
+  `/v1/identity/challenge`+`authenticate` and the dispute/capability-revoke/
+  agent-intent routes share one counter across every instance
+  (`common/middleware/redis-rate-limit.ts`) instead of each instance
+  getting its own full budget. Both fail closed (503) if Redis is
+  unreachable — both tiers already hard-depend on Redis independent of
+  rate limiting (session/challenge lookups), so this adds no new failure
+  mode. The global and WS-message tiers stay local/per-instance,
+  unchanged, by design (low-severity volume ceiling, not a security
+  boundary in the same sense).
+- **Escrow circuit breaker — process-local by design, not a gap.**
+  `escrow-circuit-breaker.ts` is a secondary fast-reject optimization; the
+  real correctness guarantee is `claimEscrowTransition()`'s atomic
+  Postgres `updateMany`+count-check, which is already instance-independent.
+  Not moved to Redis.
+- **`pearNodeRegistry` / Pears-HyperDHT P2P transport — process-local,
+  a real deployment constraint, not fixed by this mission.** A `PearNode`
+  holds live DHT/socket state with no serializable resumable form — a
+  participant's real-time P2P connection is pinned to whichever instance
+  first accepted it. Postgres reconciliation (RFC-011,
+  `reconcileTrade()`) is what a client should fall back to for anything
+  missed, same as it already is for any transient drop.
+- **WS-ticket single-use property (GET-then-DEL)** — a documentation-only
+  note carried over from Missão 08A's audit, not escalated: a real
+  window exists in principle between reading and deleting a ticket in
+  Redis where two racing requests could theoretically both see it valid.
+  No real replay was produced during this mission's multi-instance
+  testing; left as a known, disclosed limitation rather than a fixed
+  finding.
+
+None of the above requires sticky sessions at the load balancer — any
+instance can serve any HTTP request or accept any new WebSocket
+connection; a client's own SDK-side reconnect-with-backoff handles
+picking up wherever it lands next.

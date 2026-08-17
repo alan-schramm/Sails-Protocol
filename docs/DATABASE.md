@@ -1089,18 +1089,33 @@ one.
 
 
 
-| Key pattern | Purpose |
+**Corrected 2026-08-17 (Missão 08B)** — this table previously described
+`trade:room:<tradeId>` / `users:online` as real Redis-cached chat
+state, and named `InMemoryEventStore` as still the active `EventStore`.
+Both were stale: `InMemoryEventStore` stopped being the default at
+Missão 05.7 (2026-08-15, `PostgresEventStore` since); the two chat keys
+below were never actually implemented this way — `chat-room-registry.ts`
+has only ever been a plain in-process `Map<tradeId, Set<socket>>`, one
+instance's own view of who's currently WS-connected, holding no chat
+history at all (that's `Message`, Postgres, above). Removed rather than
+"corrected in place" — they described a design that was never built.
+
+Missão 08B (multi-instance runtime safety) added the one real, new
+Redis usage below: a Pub/Sub channel carrying a fan-out *signal*, never
+the data of record.
+
+| Key / channel | Purpose |
 |---|---|
-| `trade:room:<tradeId>` | Last ~100 chat messages cached, TTL ~48h |
-| `users:online` | Set of currently connected userIds (WebSocket) |
-| `offers:<asset>:<side>` | Cached order book slice per asset/side |
-| `reputation:<userId>` | Cached reputation score |
-| `escrow:state:<escrowId>` | Cached current escrow state |
-| `sails:events:<eventName>` | RFC-010's `RedisStreamsEventStore` (closed 2026-08-04) — Redis Stream, one per event name, real data (not cache): `XADD`ed at publish, consumer-group `XREADGROUP`/`XACK`'d at subscribe. Not currently the active store (`InMemoryEventStore` still is; see `BACKLOG.md`'s own precondition before switching) |
-| `sails:events:by-correlation:<correlationId>` | Same store's second index — one Stream per correlationId, what `Timeline`/`getEvents()` would actually query once this store is active. A real design decision RFC-010 had left undecided (its own plan only named the per-eventName stream above) |
+| `sails:cross-instance-events` | Pub/Sub channel (not a Stream/list — no persistence, no replay) `PostgresEventStore.publish()` also broadcasts every event to, so every other app instance's own local `EventStore.subscribe()` handlers fire too (`event-store.ts`'s `enableCrossInstanceFanout()`). Purely a real-time signal: the event itself is already durably committed to `durable_events` (Postgres, above) before this fires, and a message lost to this channel (e.g. a subscriber briefly disconnected) never loses data — only the live push, not the record. A local chat-room-registry `Map` (per-instance, in-process, not Redis) still decides which of *that instance's own* WS sockets actually receive the resulting push. |
+| `auth:challenge:<publicKeyHex>` | Ed25519 login challenge nonce, short TTL (`common/middleware/auth.ts`) |
+| `auth:session:<token>` | Active session → participantId, TTL `AUTH_SESSION_TTL` |
+| `auth:ws-ticket:<ticket>` | Single-use WS-upgrade ticket, burned on first use (`common/middleware/ws-auth.ts`) |
+| `ratelimit:auth:<route>:<ip>`, `ratelimit:critical:<route>:<ip>` | Missão 08B — shared counters for the two rate-limit tiers moved off `@fastify/rate-limit`'s local store (`common/middleware/redis-rate-limit.ts`), so the limit is enforced across every instance, not per-instance. Global and WS-message tiers stay local/in-memory, unchanged. |
+| `sails:events:<eventName>` | RFC-010's `RedisStreamsEventStore` — a real, working, tested alternative `EventStore` implementation (Redis Streams, `XADD`/consumer-group `XREADGROUP`/`XACK`). Never instantiated outside its own tests; Missão 08A's architectural audit explicitly evaluated and rejected it as the cross-instance fan-out mechanism (consumer groups load-balance one message to *one* consumer — the opposite of the broadcast-to-every-instance shape needed here) in favor of the Pub/Sub channel above. |
+| `sails:events:by-correlation:<correlationId>` | Same (inactive) store's second index. |
 
 None of this is mandated by the protocol — a different reference
-implementation could use any cache strategy or none at all.
+implementation could use any cache/fan-out strategy or none at all.
 
 ---
 
