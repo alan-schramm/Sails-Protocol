@@ -339,4 +339,202 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
       }
     })
   })
+
+  // ─── payout_addresses / evidence_references / proofs.evidenceHash idx ────
+  // (Missão 07.6.2, R2) — same regression class as R1 above: schema.prisma
+  // declared these but no migration ever created them, only caught by a
+  // database built solely from prisma/migrations/.
+  describe('Schema/migration reconciliation — PayoutAddress, EvidenceReference, Proof.evidenceHash idx (R2)', () => {
+    it('payout_addresses exists with its unique index and FK to users, exactly as prisma/migrations/20260817010000_.../migration.sql adds', async () => {
+      if (skip('payout_addresses structure')) return
+      const columns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+        SELECT column_name FROM information_schema.columns WHERE table_name = 'payout_addresses'
+      `
+      expect(columns.map((c) => c.column_name).sort()).toEqual(
+        ['address', 'asset', 'createdAt', 'id', 'moduleId', 'participantId', 'protocolVersion', 'updatedAt'].sort()
+      )
+
+      const uniqueIdx = await prisma.$queryRaw<Array<{ indexname: string }>>`
+        SELECT indexname FROM pg_indexes WHERE tablename = 'payout_addresses' AND indexname = 'payout_addresses_participantId_asset_key'
+      `
+      expect(uniqueIdx).toHaveLength(1)
+
+      const fk = await prisma.$queryRaw<Array<{ conname: string }>>`
+        SELECT conname FROM pg_constraint WHERE conname = 'payout_addresses_participantId_fkey'
+      `
+      expect(fk).toHaveLength(1)
+    })
+
+    it('evidence_references exists with its index and FK to proofs, exactly as the migration adds', async () => {
+      if (skip('evidence_references structure')) return
+      const columns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+        SELECT column_name FROM information_schema.columns WHERE table_name = 'evidence_references'
+      `
+      expect(columns.map((c) => c.column_name).sort()).toEqual(
+        ['anchorProof', 'createdAt', 'id', 'mimeType', 'provider', 'proofId', 'sha256', 'signature', 'uri'].sort()
+      )
+
+      const idx = await prisma.$queryRaw<Array<{ indexname: string }>>`
+        SELECT indexname FROM pg_indexes WHERE tablename = 'evidence_references' AND indexname = 'evidence_references_proofId_idx'
+      `
+      expect(idx).toHaveLength(1)
+
+      const fk = await prisma.$queryRaw<Array<{ conname: string }>>`
+        SELECT conname FROM pg_constraint WHERE conname = 'evidence_references_proofId_fkey'
+      `
+      expect(fk).toHaveLength(1)
+    })
+
+    it('proofs.evidenceHash has its index, exactly as the migration adds', async () => {
+      if (skip('proofs.evidenceHash index presence')) return
+      const idx = await prisma.$queryRaw<Array<{ indexname: string }>>`
+        SELECT indexname FROM pg_indexes WHERE tablename = 'proofs' AND indexname = 'proofs_evidenceHash_idx'
+      `
+      expect(idx).toHaveLength(1)
+    })
+
+    it('PayoutAddress create() persists and round-trips through an independent connection', async () => {
+      if (skip('PayoutAddress create + round-trip')) return
+      const user = await prisma.user.create({ data: { publicKey: `real-pg-user-${Date.now()}` } })
+      const created = await prisma.payoutAddress.create({
+        data: { participantId: user.id, asset: 'BTC', address: 'real-pg-payout-address' },
+      })
+      expect(created.address).toBe('real-pg-payout-address')
+
+      const independent = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
+      try {
+        const reread = await independent.payoutAddress.findUnique({ where: { id: created.id } })
+        expect(reread?.address).toBe('real-pg-payout-address')
+        expect(reread?.participantId).toBe(user.id)
+      } finally {
+        await independent.$disconnect()
+      }
+    })
+
+    it('EvidenceReference create() persists, the Proof FK relation resolves, and it round-trips through an independent connection', async () => {
+      if (skip('EvidenceReference create + FK + round-trip')) return
+      const claim = await prisma.claim.create({
+        data: { claimedBy: 'real-pg-participant', claimType: 'PAYMENT_CONFIRMATION', assertion: { note: 'R2 proof' } },
+      })
+      const proof = await prisma.proof.create({
+        data: { claimId: claim.id, evidence: { note: 'R2 evidence' }, evidenceHash: 'real-pg-hash', submittedBy: 'real-pg-participant' },
+      })
+      const created = await prisma.evidenceReference.create({
+        data: { proofId: proof.id, provider: 'local-fs', uri: 'real-pg-uri', sha256: 'real-pg-sha256', mimeType: 'document', signature: 'real-pg-signature' },
+      })
+      expect(created.proofId).toBe(proof.id)
+
+      const independent = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
+      try {
+        const reread = await independent.evidenceReference.findUnique({ where: { id: created.id }, include: { proof: true } })
+        expect(reread?.sha256).toBe('real-pg-sha256')
+        expect(reread?.proof.claimId).toBe(claim.id)
+      } finally {
+        await independent.$disconnect()
+      }
+    })
+  })
+
+  // ─── Escrow FK referential integrity (Missão 07.6.3, R3) ─────────────────
+  // schema.prisma now DECLARES the three escrowId relations that already
+  // existed at the database level since the first migration — this proves
+  // real Postgres behavior (not Prisma metadata): a real FK violation on
+  // insert, and the real RESTRICT/CASCADE the existing constraint defines.
+  describe('Escrow FK referential integrity (real Postgres, R3)', () => {
+    async function createFixtureEscrow(): Promise<{ escrowId: string; tradeId: string }> {
+      const suffix = `r3-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-${suffix}` } })
+      const seller = await prisma.user.create({ data: { publicKey: `pk-seller-${suffix}` } })
+      const offer = await prisma.offer.create({
+        data: {
+          userId: seller.id, asset: 'BTC', side: 'SELL',
+          priceUsd: '65000', minAmount: '0.001', maxAmount: '1',
+          paymentMethod: 'PIX',
+        },
+      })
+      const trade = await prisma.trade.create({
+        data: {
+          offerId: offer.id, buyerId: buyer.id, sellerId: seller.id,
+          asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650',
+        },
+      })
+      const escrow = await prisma.escrow.create({
+        data: { tradeId: trade.id, type: 'MOCK', asset: 'BTC', lockedAmount: '0.01' },
+      })
+      return { escrowId: escrow.id, tradeId: trade.id }
+    }
+
+    it('EscrowReleaseApproval: valid escrowId persists; a real nonexistent escrowId is rejected by Postgres, not just Prisma', async () => {
+      if (skip('EscrowReleaseApproval FK')) return
+      const { escrowId } = await createFixtureEscrow()
+      const created = await prisma.escrowReleaseApproval.create({ data: { escrowId, approverId: 'real-pg-approver' } })
+      expect(created.escrowId).toBe(escrowId)
+
+      await expect(
+        prisma.escrowReleaseApproval.create({ data: { escrowId: 'does-not-exist', approverId: 'x' } })
+      ).rejects.toThrow(/Foreign key constraint/i)
+    })
+
+    it('EscrowParticipantKey: valid escrowId persists (one-to-many, up to one per role); a real nonexistent escrowId is rejected by Postgres', async () => {
+      if (skip('EscrowParticipantKey FK')) return
+      const { escrowId } = await createFixtureEscrow()
+      const buyerKey = await prisma.escrowParticipantKey.create({ data: { escrowId, role: 'buyer', participantId: 'real-pg-buyer', pubkey: 'ab'.repeat(33) } })
+      const sellerKey = await prisma.escrowParticipantKey.create({ data: { escrowId, role: 'seller', participantId: 'real-pg-seller', pubkey: 'cd'.repeat(33) } })
+      expect(buyerKey.escrowId).toBe(escrowId)
+      expect(sellerKey.escrowId).toBe(escrowId)
+
+      await expect(
+        prisma.escrowParticipantKey.create({ data: { escrowId: 'does-not-exist', role: 'buyer', participantId: 'x', pubkey: 'ef'.repeat(33) } })
+      ).rejects.toThrow(/Foreign key constraint/i)
+    })
+
+    it('EscrowPendingTransaction: real one-to-one — a SECOND row for the same escrowId is rejected by Postgres (the @unique, not application code)', async () => {
+      if (skip('EscrowPendingTransaction FK + uniqueness')) return
+      const { escrowId } = await createFixtureEscrow()
+      const created = await prisma.escrowPendingTransaction.create({
+        data: { escrowId, kind: 'release', toAddress: 'real-pg-address', unsignedPsbtBase64: 'cHNidP8=', requiredSigners: ['buyer-1'], triggeredBy: 'seller-1' },
+      })
+      expect(created.escrowId).toBe(escrowId)
+
+      await expect(
+        prisma.escrowPendingTransaction.create({
+          data: { escrowId, kind: 'refund', toAddress: 'second-address', unsignedPsbtBase64: 'cHNidP9=', requiredSigners: ['buyer-1'], triggeredBy: 'seller-1' },
+        })
+      ).rejects.toThrow(/Unique constraint/i)
+
+      await expect(
+        prisma.escrowPendingTransaction.create({
+          data: { escrowId: 'does-not-exist', kind: 'release', toAddress: 'x', unsignedPsbtBase64: 'cHNidP8=', requiredSigners: [], triggeredBy: 'x' },
+        })
+      ).rejects.toThrow(/Foreign key constraint/i)
+    })
+
+    it('real ON DELETE RESTRICT: deleting a referenced Escrow is blocked by Postgres while a child row exists', async () => {
+      if (skip('ON DELETE RESTRICT real behavior')) return
+      const { escrowId } = await createFixtureEscrow()
+      await prisma.escrowReleaseApproval.create({ data: { escrowId, approverId: 'restrict-check' } })
+
+      await expect(prisma.escrow.delete({ where: { id: escrowId } })).rejects.toThrow(/foreign key constraint|violates/i)
+
+      // Once the child is gone, the same delete succeeds — proves this is
+      // a real RESTRICT, not a permanent block.
+      await prisma.escrowReleaseApproval.deleteMany({ where: { escrowId } })
+      await expect(prisma.escrow.delete({ where: { id: escrowId } })).resolves.toBeDefined()
+    })
+
+    it('real ON UPDATE CASCADE: a raw update of the parent Escrow.id propagates to the child escrowId', async () => {
+      if (skip('ON UPDATE CASCADE real behavior')) return
+      const { escrowId } = await createFixtureEscrow()
+      await prisma.escrowReleaseApproval.create({ data: { escrowId, approverId: 'cascade-check' } })
+      const newId = `${escrowId}-cascaded`
+
+      // Raw SQL — application code never updates a primary key, but the
+      // constraint's real ON UPDATE CASCADE behavior is only provable by
+      // actually triggering it, not by reading Prisma's schema metadata.
+      await prisma.$executeRawUnsafe(`UPDATE escrows SET id = $1 WHERE id = $2`, newId, escrowId)
+
+      const child = await prisma.escrowReleaseApproval.findFirst({ where: { approverId: 'cascade-check' } })
+      expect(child?.escrowId).toBe(newId)
+    })
+  })
 })

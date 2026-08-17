@@ -183,6 +183,42 @@ type (`unknown`) already accommodates this without changing `Proof`'s
 shape. Each Reference Implementation chooses its own `EvidenceProvider`;
 OpenProof only ever persists the reference, hash, and signature.
 
+### D2 amendment — `evidence_references` table was missing its migration (Missão 07.6.2, 2026-08-17, R2)
+
+**What changed:** `EvidenceReference` above ("Implemented 2026-08-04")
+was real in `schema.prisma` and in `proof.service.ts`'s `attachEvidence()`,
+but — the same class of gap the D6 amendment above closed for
+`Claim.tradeId` — no migration in `prisma/migrations/` ever created the
+`evidence_references` table. A full `prisma migrate diff` audit run
+alongside this fix (Missão 07.6.2's "Schema Completeness Gate") also
+found two smaller instances of the identical root cause in the same
+area: `PayoutAddress`'s `payout_addresses` table (RFC-021 §"Participant
+payout address," unrelated RFC section, same missing-migration pattern)
+and `Proof.evidenceHash`'s own declared index (this RFC's §1.8,
+"`ProofRegistry.findDuplicates()` queries by this"). All three were
+closed together in one additive migration
+(`prisma/migrations/20260817010000_reconcile_payout_evidence_proof_index/`)
+— no change to `EvidenceReference`'s shape, `EvidenceProvider`'s
+interface, or any public API. Verified against a database built
+exclusively from `prisma migrate deploy` on the official history, an
+in-place upgrade of a database with pre-existing Claim/Proof rows, and
+the real published `@satsails/p2p-trading-sdk@0.1.3` exercising
+`assertClaim → submitProof → attachEvidence → getTradeEvidenceBundle`
+end to end against real Postgres, including a full app-process restart
+with the same data and authorization behavior confirmed unchanged.
+
+**Not affected:** this amendment is schema/migration hygiene, not a
+design change — D2's decision (`EvidenceProvider` as a pluggable
+Adapter, `EvidenceReference` as OpenProof's own persisted row) stands as
+originally written. A separate, deliberately unresolved drift
+(`R3` — three `escrowId` foreign keys the live database still enforces
+that `schema.prisma`'s `EscrowParticipantKey`/`EscrowPendingTransaction`/
+`EscrowReleaseApproval` models no longer declare as relations) was found
+in the same completeness audit and explicitly deferred — a separate,
+pending architectural decision (keep the FKs and formalize them as real
+Prisma relations, or drop them and rely on `escrow.service.ts`'s
+existing application-level checks), not addressed by this amendment.
+
 ### D3 — `PendingBankSettlement` (`RWR-003`): extends Settlement primitive
 
 A new `SettlementStatus` value, added to the enum referenced in §1.5. In

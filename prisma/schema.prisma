@@ -230,6 +230,15 @@ model Escrow {
   events            EscrowEvent[]
   disputes          Dispute[]
   feeDistribution   FeeDistribution?
+  // Missão 07.6.3 (R3) — back-relations for the three FKs that already
+  // existed at the database level (first migration) but weren't
+  // declared here. releaseApprovals/participantKeys are one-to-many
+  // (each has its own @@unique([escrowId, ...]) allowing up to one row
+  // per role/approver); pendingTransaction is one-to-one, matching
+  // EscrowPendingTransaction.escrowId's own @unique.
+  releaseApprovals   EscrowReleaseApproval[]
+  participantKeys    EscrowParticipantKey[]
+  pendingTransaction EscrowPendingTransaction?
 
   // DB_AUDIT_REPORT.md / RELATORIO_PERFORMANCE.md, closed 2026-08-08 —
   // sweepExpiredEscrows() (escrow.service.ts) filters by exactly this
@@ -710,7 +719,13 @@ model CapabilityGrant {
 model EscrowReleaseApproval {
   id         String   @id @default(uuid())
   escrowId   String
-  approverId String   // must equal the trade's buyerId or sellerId — enforced in escrow.service.ts, not by a DB constraint
+  escrow     Escrow   @relation(fields: [escrowId], references: [id])
+  // Missão 07.6.3 (R3): this field's own FK has always existed at the
+  // database level (present in the very first migration) — this comment
+  // used to claim otherwise. Corrected: escrowId is real DB-enforced
+  // referential integrity; the check below is a separate, additional
+  // domain-level validation the FK alone can't express.
+  approverId String   // must equal the trade's buyerId or sellerId — enforced in escrow.service.ts
   approvedAt DateTime @default(now())
 
   @@unique([escrowId, approverId])
@@ -731,7 +746,13 @@ model EscrowReleaseApproval {
 model EscrowParticipantKey {
   id            String   @id @default(uuid())
   escrowId      String
-  role          String   // 'buyer' | 'seller' — must match the trade's own buyerId/sellerId, enforced in escrow.service.ts, not by a DB constraint
+  escrow        Escrow   @relation(fields: [escrowId], references: [id])
+  // Missão 07.6.3 (R3): same correction as EscrowReleaseApproval.escrowId
+  // above — the FK to escrows(id) is real and has existed since the
+  // first migration; only the domain check below (role must match the
+  // trade's own buyer/seller) is application-level, not this field's
+  // referential integrity.
+  role          String   // 'buyer' | 'seller' — must match the trade's own buyerId/sellerId, enforced in escrow.service.ts
   participantId String
   // 33-byte compressed secp256k1 pubkey, hex (66 chars) — the canonical
   // submitted format. MultisigProvider's P2WSH/OP_CHECKMULTISIG script
@@ -764,6 +785,12 @@ model EscrowParticipantKey {
 model EscrowPendingTransaction {
   id                 String   @id @default(uuid())
   escrowId           String   @unique
+  // Missão 07.6.3 (R3): this FK to escrows(id) has existed at the
+  // database level since the first migration — declaring it here just
+  // makes schema.prisma match reality. `@unique` above (already
+  // present) is what makes this a real one-to-one relation — at most
+  // one in-flight signature-collection round per escrow.
+  escrow             Escrow   @relation(fields: [escrowId], references: [id])
   kind               String   // 'release' | 'refund' | 'split'
   toAddress          String
   // Only set for kind='split' — the seller's payout address, alongside

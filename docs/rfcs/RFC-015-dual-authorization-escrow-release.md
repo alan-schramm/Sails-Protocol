@@ -258,3 +258,49 @@ check was never in the orchestrator and needed no relocation.
    (currently only `releaseFunds()` is gated — a refund moves the same
    real funds back, and arguably deserves the same control, but was kept
    out of scope for this pass to keep the change reviewable).
+
+## Amendment — Escrow FK referential integrity formalized (Missão 07.6.3, R3, 2026-08-17)
+
+**What was found:** `EscrowReleaseApproval.escrowId` — and, sharing the
+identical situation, `EscrowParticipantKey.escrowId` (client-held-keys
+upgrade, 2026-07-27) and `EscrowPendingTransaction.escrowId`
+(signature-collection flow, same upgrade) — have all had a real foreign
+key to `escrows(id)` at the database level since this repo's very first
+migration. `schema.prisma`, however, declared these as plain scalar
+fields with a comment claiming the check was "enforced in
+escrow.service.ts, not by a DB constraint." That comment was wrong: both
+layers of protection existed, only one was visible in the schema.
+
+**Decision (CTO, Missão 07.6.3):** resolve in the direction of the
+database — the existing constraints are the real source of truth for
+this invariant (an `EscrowReleaseApproval`/`EscrowParticipantKey`/
+`EscrowPendingTransaction` row can never reference a non-existent
+escrow), and `schema.prisma` now declares all three as real `@relation`
+fields, with `Escrow` gaining matching back-relations
+(`releaseApprovals EscrowReleaseApproval[]`, `participantKeys
+EscrowParticipantKey[]`, `pendingTransaction EscrowPendingTransaction?`
+— the last one-to-one, matching `EscrowPendingTransaction.escrowId`'s
+own pre-existing `@unique`). **No migration was needed**: every
+relation uses Prisma's default (unannotated) referential action, which
+already matches the existing `ON DELETE RESTRICT ON UPDATE CASCADE`
+byte-for-byte — confirmed via an authoritative `prisma migrate diff`
+against a database built solely from the official migration history,
+which reported zero difference before and after this schema change.
+
+**What this changes and doesn't:** `escrow.service.ts`'s own
+domain-level checks (`approverId` must equal the trade's real
+buyer/seller; `role` must match `buyerId`/`sellerId`) remain exactly as
+they were — the FK can enforce "this escrowId exists," never "this is
+the correct participant for this escrow," which is a business rule, not
+a referential-integrity concern. Application-level validation and the
+database constraint were always doing different jobs; formalizing the
+FK in the schema doesn't remove or duplicate either. No behavior change,
+no new migration, no API/protocol/SDK impact — verified via a real
+Postgres FK-violation test for each of the three relations (an insert
+against a nonexistent `escrowId` is rejected by Postgres itself, not
+just by application code), a real `ON DELETE RESTRICT` proof (deleting
+a referenced `Escrow` is blocked while a child row exists, succeeds once
+it doesn't), and a real `ON UPDATE CASCADE` proof (a raw update of an
+`Escrow.id` propagates to the child's `escrowId`), plus the full
+external golden path (including `PayoutAddress`/`EvidenceReference`
+from R2) re-run clean against `@satsails/p2p-trading-sdk@0.1.3`.

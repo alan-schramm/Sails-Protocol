@@ -38,6 +38,7 @@
     "db:migrate": "npx prisma migrate deploy",
     "db:migrate:dev": "npx prisma migrate dev",
     "db:generate": "npx prisma generate",
+    "db:completeness-check": "npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code",
     "db:seed": "ts-node src/test/seeds/seed.ts",
     "db:studio": "npx prisma studio",
     "demo:pix-to-usdt": "ts-node --transpile-only examples/demo/pix-to-usdt-flow.ts",
