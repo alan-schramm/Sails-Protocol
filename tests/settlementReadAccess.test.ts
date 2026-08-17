@@ -58,6 +58,11 @@ const ESCROW_ROW = {
   id: ESCROW_ID, tradeId: TRADE_ID, type: 'MOCK', status: 'DISPUTED', lockedAmount: '0.01', asset: 'BTC',
   events: [], disputes: [DISPUTE_ROW],
 }
+const PENDING_TX_ROW = {
+  id: 'pending-tx-1', escrowId: ESCROW_ID, unsignedPsbtBase64: 'cHNidP8BA...', toAddress: 'bc1qoutsider-cannot-see-this',
+  requiredSigners: [BUYER_ID, SELLER_ID], signatures: [],
+}
+const RELEASE_APPROVAL_ROWS = [{ id: 'approval-1', escrowId: ESCROW_ID, participantId: BUYER_ID, approvedAt: new Date() }]
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -69,6 +74,14 @@ jest.mock('../src/common/database', () => ({
     },
     dispute: {
       findUnique: jest.fn(({ where }: any) => Promise.resolve(where.id === DISPUTE_ID ? DISPUTE_ROW : null)),
+    },
+    // Missão 07.6 — pending-transaction / release-approvals IDOR fix coverage
+    escrowPendingTransaction: {
+      findUnique: jest.fn(({ where }: any) => Promise.resolve(where.escrowId === ESCROW_ID ? PENDING_TX_ROW : null)),
+    },
+    escrowReleaseApproval: {
+      findMany: jest.fn(({ where }: any) => Promise.resolve(where.escrowId === ESCROW_ID ? RELEASE_APPROVAL_ROWS : [])),
+      count: jest.fn(({ where }: any) => Promise.resolve(where.escrowId === ESCROW_ID ? RELEASE_APPROVAL_ROWS.length : 0)),
     },
   },
 }))
@@ -197,6 +210,62 @@ describe('GET /v1/settlement/escrow/:id and /disputes/:id — access control (Mi
       expect(body.data).toMatchObject({
         id: DISPUTE_ID, tradeId: TRADE_ID, reason: 'Seller never sent PIX confirmation', arbiterId: ARBITER_ID,
       })
+    })
+  })
+
+  // Missão 07.6 release-readiness audit — these two routes had NO
+  // requireAuth at all (found live, not from a prior report): anyone who
+  // knew or guessed an escrowId could read the unsigned PSBT, destination
+  // address, and submitted signatures for a live multisig release/refund/
+  // split, plus who had approved a dual-approval release. Same fix shape
+  // and same test shape as the GET /v1/settlement/escrow/:id suite above.
+  describe('GET /v1/settlement/escrow/:id/pending-transaction', () => {
+    it('buyer can read it — ALLOW', async () => {
+      const token = await authedSession(BUYER_ID)
+      const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}/pending-transaction`, headers: { authorization: `Bearer ${token}` } })
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('seller can also read it — ALLOW', async () => {
+      const token = await authedSession(SELLER_ID)
+      const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}/pending-transaction`, headers: { authorization: `Bearer ${token}` } })
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('the assigned arbiter can read it — ALLOW', async () => {
+      const token = await authedSession(ARBITER_ID)
+      const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}/pending-transaction`, headers: { authorization: `Bearer ${token}` } })
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('an authenticated outsider is rejected — DENY', async () => {
+      const token = await authedSession(OUTSIDER_ID)
+      const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}/pending-transaction`, headers: { authorization: `Bearer ${token}` } })
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('an unauthenticated request is rejected — DENY (this was the real gap: used to be 200)', async () => {
+      const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}/pending-transaction` })
+      expect(res.statusCode).toBe(401)
+    })
+  })
+
+  describe('GET /v1/settlement/escrow/:id/release-approvals', () => {
+    it('buyer can read it — ALLOW', async () => {
+      const token = await authedSession(BUYER_ID)
+      const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}/release-approvals`, headers: { authorization: `Bearer ${token}` } })
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('an authenticated outsider is rejected — DENY', async () => {
+      const token = await authedSession(OUTSIDER_ID)
+      const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}/release-approvals`, headers: { authorization: `Bearer ${token}` } })
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('an unauthenticated request is rejected — DENY (this was the real gap: used to be 200)', async () => {
+      const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}/release-approvals` })
+      expect(res.statusCode).toBe(401)
     })
   })
 })

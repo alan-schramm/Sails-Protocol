@@ -198,6 +198,13 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         socket.send(JSON.stringify({ type: 'ERROR', payload: { message: `Unknown message type: ${msg.type}` } }))
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Internal error'
+        // Missão 07.6 release-readiness audit — this catch previously only
+        // told the client something failed; an operator had no server-side
+        // trace at all for a failed JOIN_TRADE/SEND_MESSAGE/LEAVE_TRADE
+        // (a ForbiddenError from assertParticipant, a Prisma failure, an
+        // event-bus publish failure). Every other failure path in this
+        // codebase logs; this one silently didn't.
+        request.log.error({ participantId, msgType: msg.type, err: message }, 'chat WS message handler failed')
         socket.send(JSON.stringify({ type: 'ERROR', payload: { message } }))
       }
     })

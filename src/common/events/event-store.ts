@@ -95,12 +95,20 @@ export function computeEntryHash(eventName: string, publishedAt: string, payload
     .digest('hex')
 }
 
-// ─── Default: in-memory, explicitly NOT durable ───────────────────────────────
-// Same runtime behavior the bare EventEmitter-based SailsEventBus had before
+// ─── Non-durable fallback (test/dev use only — NOT the wired default) ─────────
+// Corrected 2026-08-17 (Missão 07.6 release-readiness audit): this section
+// header used to read "Default: in-memory, explicitly NOT durable," which
+// was accurate when written but went stale once RFC-010/Missão 05.7-05.8
+// swapped the real application default to `PostgresEventStore` (see
+// event-bus.ts's `SailsEventBus` constructor — `store: EventStore = new
+// PostgresEventStore()`). `InMemoryEventStore` still exists and is real —
+// same runtime behavior the bare EventEmitter-based SailsEventBus had before
 // RFC-010 (events lost on process crash between publish and handler
-// completion) — the difference is every event now carries eventId/
-// correlationId/publishedAt, and the shape matches EventStore so swapping in
-// a durable backend later requires zero changes to any call site.
+// completion), every event still carries eventId/correlationId/publishedAt,
+// and the shape still matches EventStore — but it is not what a freshly
+// booted app actually uses; it stays around as an explicit, disclosed
+// non-durable option for tests and any caller that constructs
+// `SailsEventBus` with it directly.
 export class InMemoryEventStore implements EventStore {
   readonly storeName = 'in-memory'
   readonly durable = false
@@ -108,9 +116,9 @@ export class InMemoryEventStore implements EventStore {
   // Real, in-process history keyed by correlationId — what makes
   // getEvents() (Timeline, RFC-017) actually work against this store,
   // not just a name that implies storage. "In-memory" already disclosed
-  // this is lost on process restart (readonly durable = false above); a
-  // durable backend (RedisStreamsEventStore, once built) persists this
-  // properly instead of an unbounded process-lifetime array.
+  // this is lost on process restart (readonly durable = false above);
+  // PostgresEventStore (the real wired default, see event-bus.ts) persists
+  // this properly instead of an unbounded process-lifetime array.
   private byCorrelationId = new Map<string, DurableEvent[]>()
 
   constructor() {

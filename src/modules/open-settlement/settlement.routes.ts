@@ -299,10 +299,28 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send(success(result))
   })
 
+  // Missão 07.6 release-readiness audit — found unauthenticated, same
+  // exposure class Missão 06.8 already fixed on GET /v1/settlement/escrow/:id
+  // above (this route was simply missed at the time): the pending
+  // transaction includes the unsigned PSBT, destination address(es), and
+  // every already-submitted signature for a live multisig release/refund/
+  // split — real financial data, readable by anyone who knew or guessed
+  // an escrowId. Same fix shape as the sibling route: requireAuth +
+  // buyer/seller/assigned-arbiter check, reusing escrowService.getEscrow()
+  // + tradeService.getTrade() rather than a new authorization primitive.
   app.get('/v1/settlement/escrow/:id/pending-transaction', {
+    preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
+    const callerId = participantId(request)
+    const escrow = await escrowService.getEscrow(id)
+    const trade = await tradeService.getTrade(escrow.tradeId)
+    const isParty = callerId === trade.buyerId || callerId === trade.sellerId
+    const isAssignedArbiter = escrow.disputes.some((d: { arbiterId: string | null }) => d.arbiterId === callerId)
+    if (!isParty && !isAssignedArbiter) {
+      throw new ForbiddenError(`${callerId} is not authorized to view escrow ${id}'s pending transaction`)
+    }
     const pending = await escrowService.getPendingTransaction(id)
     return reply.code(200).send(success(pending))
   })
@@ -323,10 +341,22 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send(success({ ...approval, readyToRelease }))
   })
 
+  // Missão 07.6 — same unauthenticated-sibling-route fix as
+  // pending-transaction above; who has approved a release is trade-party/
+  // arbiter-scoped information, not public.
   app.get('/v1/settlement/escrow/:id/release-approvals', {
+    preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
+    const callerId = participantId(request)
+    const escrow = await escrowService.getEscrow(id)
+    const trade = await tradeService.getTrade(escrow.tradeId)
+    const isParty = callerId === trade.buyerId || callerId === trade.sellerId
+    const isAssignedArbiter = escrow.disputes.some((d: { arbiterId: string | null }) => d.arbiterId === callerId)
+    if (!isParty && !isAssignedArbiter) {
+      throw new ForbiddenError(`${callerId} is not authorized to view escrow ${id}'s release approvals`)
+    }
     const approvals = await escrowService.getReleaseApprovals(id)
     const readyToRelease = await escrowService.hasDualApproval(id)
     return reply.code(200).send(success({ approvals, readyToRelease }))
