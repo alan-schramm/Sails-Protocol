@@ -296,4 +296,47 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
       expect(result.valid).toBe(false)
     })
   })
+
+  // ─── Claim.tradeId (Missão 07.6.1, R1) — real Postgres, real migrations ──
+  // The exact regression this exists to catch: schema.prisma declaring a
+  // field/index that the committed migration history never actually
+  // creates. A mocked prisma.claim.create() would never surface this —
+  // only a database built solely from prisma/migrations/ can.
+  describe('Claim.tradeId (real Postgres, real migration history)', () => {
+    it('the claims table has a tradeId column with an index, exactly as prisma/migrations/20260817000000_add_claim_trade_id/migration.sql adds', async () => {
+      if (skip('claims.tradeId column presence')) return
+      const columns = await prisma.$queryRaw<Array<{ column_name: string; is_nullable: string }>>`
+        SELECT column_name, is_nullable FROM information_schema.columns
+        WHERE table_name = 'claims' AND column_name = 'tradeId'
+      `
+      expect(columns).toHaveLength(1)
+      expect(columns[0].is_nullable).toBe('YES')
+
+      const indexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
+        SELECT indexname FROM pg_indexes WHERE tablename = 'claims' AND indexname = 'claims_tradeId_idx'
+      `
+      expect(indexes).toHaveLength(1)
+    })
+
+    it('prisma.claim.create() with a real tradeId persists and round-trips through an independent connection', async () => {
+      if (skip('Claim.tradeId create + round-trip')) return
+      const tradeId = `real-pg-claim-${Date.now()}`
+
+      const created = await prisma.claim.create({
+        data: { claimedBy: 'participant-real-pg', claimType: 'PAYMENT_CONFIRMATION', assertion: { note: 'real Postgres proof' }, tradeId },
+      })
+      expect(created.tradeId).toBe(tradeId)
+
+      // Independent connection — the closest thing to "did this actually
+      // persist" this harness can prove, same discipline the rest of this
+      // file already uses for durable_events/escrow_events.
+      const independent = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
+      try {
+        const reread = await independent.claim.findUnique({ where: { id: created.id } })
+        expect(reread?.tradeId).toBe(tradeId)
+      } finally {
+        await independent.$disconnect()
+      }
+    })
+  })
 })

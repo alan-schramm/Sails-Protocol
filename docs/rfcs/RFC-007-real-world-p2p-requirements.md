@@ -332,6 +332,28 @@ route above already required `requireAuth` from when it first shipped —
 this amendment only concerns the per-`tradeId` aggregate route, the one
 place the gap existed.
 
+### D6 amendment — `Claim.tradeId` migration was missing from history (Missão 07.6/07.6.1, 2026-08-17)
+
+**What changed:** the `Claim.tradeId` column described above as
+"Implemented 2026-08-04" was real in `schema.prisma` and in
+`proof.service.ts`'s `assertClaim()`/`getEvidenceBundleForTrade()`, but no
+migration in `prisma/migrations/` ever created the column — the repo's
+first migration (`20260807090000_init`, generated after 2026-08-04) never
+included it. Any database built solely from the committed migration
+history was missing a column the schema and code both assumed existed;
+`proof.assertClaim({ tradeId })` 500'd in that state. Found by Missão
+07.6's external golden-path audit, fixed in 07.6.1 by
+`prisma/migrations/20260817000000_add_claim_trade_id/` — purely additive
+(nullable column + its index, matching the schema exactly), no change to
+`Claim`'s semantics, `EvidenceBundle`'s shape, or any public API. Verified
+against a database built exclusively from `prisma migrate deploy` on the
+official history, and against an in-place upgrade of a database with
+pre-existing Claim rows (unaffected, `tradeId` reads back `NULL`).
+
+**Not affected:** this amendment is schema/migration hygiene, not a
+design change — D6's own decision (`EvidenceBundle` as an OpenProof-owned
+query aggregate, `tradeId` over `intentId`) stands as originally written.
+
 ### D7 — Social Engineering Agent (`RWR-007`): extends OpenAgents
 
 A specialized agent behavior within OpenAgents (§1.7), not a new
