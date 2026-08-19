@@ -73,6 +73,7 @@ import { createHash } from 'crypto'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
+import { validateOutput } from './bitcoin-dust-policy'
 
 bitcoin.initEccLib(ecc)
 const bip32 = BIP32Factory(ecc)
@@ -115,6 +116,12 @@ export type MultisigEscrowInput = {
   buyerId?: string
   sellerId?: string
   txLockId?: string | null
+  // Missão 10 — the persisted funding outpoint's vout, alongside
+  // txLockId's own txid. Undefined/null for an escrow that locked funds
+  // before this was introduced (buildUnsignedSpend() falls back to the
+  // pre-existing txid-only match in that case, disclosed explicitly
+  // there — never silently).
+  txLockVout?: number | null
   status?: string
   triggeredBy?: string
 }
@@ -238,7 +245,13 @@ export class MultisigProvider implements SettlementProvider {
     return Math.round(parseFloat(lockedAmount) * 1e8)
   }
 
-  async lockFunds(escrow: MultisigEscrowInput): Promise<{ txId: string; address: string }> {
+  // Missão 10 — now returns vout alongside txId. This is still the ONE
+  // place an outpoint is discovered by value/address heuristic (there is
+  // no persisted outpoint yet to check against — that's exactly what
+  // this call is establishing) — everything downstream of this
+  // (buildUnsignedSpend()) must use the vout this returns exactly, never
+  // re-discover it.
+  async lockFunds(escrow: MultisigEscrowInput): Promise<{ txId: string; vout: number; address: string }> {
     const parties = this.partiesFor(escrow)
     const { p2wsh } = this.buildScript(parties)
     const address = p2wsh.address!
@@ -252,7 +265,7 @@ export class MultisigProvider implements SettlementProvider {
         `it verifies external funding, it does not move funds itself. Send the trade's collateral to ${address} first, then retry lockFunds.`
       )
     }
-    return { txId: funding.txid, address }
+    return { txId: funding.txid, vout: funding.vout, address }
   }
 
   async verifyLock(escrow: MultisigEscrowInput): Promise<boolean> {
@@ -339,9 +352,27 @@ export class MultisigProvider implements SettlementProvider {
       throw new EscrowError(`Escrow for trade ${escrow.tradeId} has no recorded funding txid (txLockId) — cannot spend before lockFunds() has confirmed one`)
     }
     const utxos = await this.fetchUtxos(p2wsh.address!)
-    const utxo = utxos.find((u) => u.txid === escrow.txLockId)
-    if (!utxo) {
-      throw new EscrowError(`Funding UTXO ${escrow.txLockId} for ${p2wsh.address} not found by the explorer — it may already be spent`)
+
+    // Missão 10 — outpoint-exact selection whenever a vout has been
+    // persisted (every escrow locked from this point on). Bitcoin
+    // identifies a UTXO by txid:vout, not txid alone — a funding
+    // transaction with more than one output paying this same address
+    // would otherwise be ambiguous. Only escrows that locked funds
+    // BEFORE this migration (txLockVout is null — disclosed, not
+    // silent) fall back to the original txid-only match; every new lock
+    // always has a vout, so this fallback can never mask a real
+    // ambiguity going forward.
+    let utxo: ExplorerUtxo | undefined
+    if (escrow.txLockVout !== null && escrow.txLockVout !== undefined) {
+      utxo = utxos.find((u) => u.txid === escrow.txLockId && u.vout === escrow.txLockVout)
+      if (!utxo) {
+        throw new EscrowError(`Funding outpoint ${escrow.txLockId}:${escrow.txLockVout} for ${p2wsh.address} not found by the explorer — it may already be spent`)
+      }
+    } else {
+      utxo = utxos.find((u) => u.txid === escrow.txLockId)
+      if (!utxo) {
+        throw new EscrowError(`Funding UTXO ${escrow.txLockId} for ${p2wsh.address} not found by the explorer — it may already be spent`)
+      }
     }
 
     // Real fee estimation (2026-08-02) — see fetchFeeRateSatsPerVByte()/
@@ -353,6 +384,22 @@ export class MultisigProvider implements SettlementProvider {
       throw new EscrowError(`UTXO value ${utxo.value} sats too small to cover the estimated ${feeSats} sat fee (${feeRateSatsPerVByte} sat/vB)`)
     }
 
+    // Missão 10, Fase 4 — validate EVERY output (address decodes for this
+    // network, clears the real dust-relay threshold for its own script
+    // type) BEFORE building the PSBT at all. Centralized here since this
+    // is the one function release/refund/split all funnel through — no
+    // per-caller duplication, and rejection happens before a pending
+    // transaction exists, before any signature is requested, before
+    // broadcast. See bitcoin-dust-policy.ts's own header for why this is
+    // script-derived rather than a universal DUST=546 constant, and why
+    // it deliberately does not use feeRateSatsPerVByte (dust-relay policy
+    // is a separate, static parameter from this transaction's own miner
+    // fee).
+    const computedOutputs = computeOutputs(spendableValue)
+    for (const output of computedOutputs) {
+      validateOutput(output.address, output.value, network)
+    }
+
     const psbt = new bitcoin.Psbt({ network })
     psbt.addInput({
       hash: utxo.txid,
@@ -360,7 +407,7 @@ export class MultisigProvider implements SettlementProvider {
       witnessUtxo: { script: p2wsh.output!, value: BigInt(utxo.value) },
       witnessScript: p2ms.output!,
     })
-    for (const output of computeOutputs(spendableValue)) {
+    for (const output of computedOutputs) {
       psbt.addOutput({ address: output.address, value: output.value })
     }
     return psbt

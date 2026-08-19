@@ -34,6 +34,7 @@ import { prisma } from '../../common/database'
 import type { Prisma } from '@prisma/client'
 import type { AssetType } from '../../common/types'
 import type { EscrowType } from '../../common/types/trade'
+import { EscrowError } from '../../common/errors'
 
 type EscrowRow = NonNullable<Awaited<ReturnType<typeof prisma.escrow.findUnique>>>
 type EscrowWithDetailsRow = Prisma.EscrowGetPayload<{ include: { events: true; disputes: true } }>
@@ -69,8 +70,11 @@ export interface EscrowRepository {
   /** submitParticipantKey()'s own write, once both buyer/seller keys exist. */
   updateMultisigAddr(escrowId: string, multisigAddr: string): Promise<EscrowRow>
 
-  /** lockFunds()'s own write. */
-  updateLockResult(escrowId: string, data: { txLockId: string; multisigAddr: string; lockedAt: Date; expiresAt: Date }): Promise<EscrowRow>
+  /** lockFunds()'s own write. txLockVout is null for providers with no
+   *  Bitcoin-style outpoint (everything but MULTISIG) — the DB's
+   *  @@unique([txLockId, txLockVout]) constraint only ever fires when
+   *  BOTH columns are non-null for two different rows (Missão 10). */
+  updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date }): Promise<EscrowRow>
 
   /** Atomic conditional update — returns the affected-row count (0 = a concurrent caller already transitioned this Escrow). */
   claimTransition(escrowId: string, fromStatus: string, toStatus: string): Promise<number>
@@ -136,8 +140,24 @@ class PrismaEscrowRepository implements EscrowRepository {
     return prisma.escrow.update({ where: { id: escrowId }, data: { multisigAddr } })
   }
 
-  async updateLockResult(escrowId: string, data: { txLockId: string; multisigAddr: string; lockedAt: Date; expiresAt: Date }) {
-    return prisma.escrow.update({ where: { id: escrowId }, data })
+  async updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date }) {
+    try {
+      return await prisma.escrow.update({ where: { id: escrowId }, data })
+    } catch (err: any) {
+      // Missão 10 — the @@unique([txLockId, txLockVout]) constraint
+      // firing here means another escrow already claimed this exact
+      // outpoint (only possible when data.txLockVout is non-null — see
+      // that column's own schema comment for why legacy/null-vout rows
+      // never trigger this). Same P2002-to-EscrowError wrap
+      // escrow-pending-tx.ts's initiateSignatureCollectionCore() already
+      // uses for its own unique-constraint race.
+      if (err?.code === 'P2002') {
+        throw new EscrowError(
+          `Funding outpoint ${data.txLockId}:${data.txLockVout} is already claimed by another escrow — refusing to double-assign the same Bitcoin UTXO.`
+        )
+      }
+      throw err
+    }
   }
 
   async claimTransition(escrowId: string, fromStatus: string, toStatus: string): Promise<number> {

@@ -259,8 +259,13 @@ export class EscrowService {
       const now = new Date()
       const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
 
+      // Missão 10 — result.vout is only populated by providers with a
+      // real Bitcoin-style outpoint (MULTISIG today); every other
+      // provider's lockFunds() return has no `vout`, so this stays null
+      // for them — exactly the "no outpoint concept" case
+      // txLockVout's own schema comment documents.
       const updated = await this.repo.updateLockResult(escrowId, {
-        txLockId: result.txId, multisigAddr: result.address, lockedAt: now, expiresAt,
+        txLockId: result.txId, txLockVout: result.vout ?? null, multisigAddr: result.address, lockedAt: now, expiresAt,
       })
 
       // NOTE: previously this method also called prisma.trade.update(...) to set

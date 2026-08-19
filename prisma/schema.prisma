@@ -208,6 +208,25 @@ model Escrow {
   multisigAddr String?
   redeemScript String?
   txLockId     String?
+  // Missão 10 (2026-08-19), additive — Bitcoin identifies a UTXO by
+  // outpoint (txid:vout), not txid alone. txLockId's own meaning is
+  // UNCHANGED (still the bare funding txid, exactly as before) — this is
+  // a new, separate, nullable column, not a repurposing of an existing
+  // one. Null for every escrow that locked funds before this migration
+  // (including the real Missão 09 mainnet escrow) — those rows remain
+  // fully readable; multisig.provider.ts's buildUnsignedSpend() falls
+  // back to the pre-existing txid-only match only when this is null. Set
+  // atomically alongside txLockId for every new lock from this point on.
+  // The @@unique([txLockId, txLockVout]) below relies on Postgres's own
+  // default NULLS DISTINCT behavior for a two-column unique constraint —
+  // verified directly against a real Postgres instance (Missão 10's own
+  // upgrade-proof), not assumed from documentation: a row with either
+  // column NULL never collides with another NULL row, so legacy rows
+  // (txLockVout IS NULL) are completely unaffected, while two new rows
+  // that ever tried to claim the identical outpoint (both columns
+  // non-null and equal) are rejected by the database itself, not just an
+  // application-level check-then-write.
+  txLockVout   Int?
   txReleaseId  String?
   timelockHours Int         @default(24)
   // RFC-021 Phase 0 — real fee collection (PROTOCOL_ECONOMY.md §6.2).
@@ -245,6 +264,15 @@ model Escrow {
   // pair; with zero indexes on this table it was a full table scan on
   // every sweep interval tick.
   @@index([status, expiresAt])
+  // Missão 10 — cross-escrow double-claim protection for a funding
+  // outpoint. Deliberately a plain (non-partial) unique constraint: see
+  // txLockVout's own comment above for why Postgres's default
+  // NULLS DISTINCT behavior already gives exactly the wanted semantics
+  // (legacy null-vout rows never collide; two genuinely identical
+  // non-null outpoints do) without needing a filtered index Prisma's own
+  // schema language can't express — keeps prisma migrate diff / this
+  // project's db:completeness-check honest (schema and DB agree exactly).
+  @@unique([txLockId, txLockVout])
   @@map("escrows")
 }
 

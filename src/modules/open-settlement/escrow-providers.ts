@@ -32,6 +32,13 @@ export type EscrowRecord = {
   multisigAddr: string | null
   redeemScript: string | null
   txLockId: string | null
+  // Missão 10 — the funding UTXO's vout, alongside txLockId's own
+  // (unchanged) txid. Null for every escrow that locked funds before
+  // this migration, and for every non-Bitcoin provider (EVM/mock
+  // providers have no outpoint concept) — multisig.provider.ts's
+  // buildUnsignedSpend() falls back to its pre-existing txid-only match
+  // only when this is null.
+  txLockVout: number | null
   txReleaseId: string | null
   timelockHours: number
   lockedAt: Date | null
@@ -64,7 +71,11 @@ export type EscrowRecord = {
 // ─── SettlementProvider — the protocol interface (Sails Protocol Spec) ────────
 export interface SettlementProvider {
   name: string
-  lockFunds(escrow: EscrowRecord): Promise<{ txId: string; address: string }>
+  // Missão 10 — vout is optional and additive: only providers with a
+  // real Bitcoin-style outpoint (MULTISIG) populate it; every other
+  // provider's existing return shape ({txId, address}) still satisfies
+  // this type unchanged.
+  lockFunds(escrow: EscrowRecord): Promise<{ txId: string; address: string; vout?: number }>
   releaseFunds(escrow: EscrowRecord, toAddress: string): Promise<{ txId: string }>
   refundFunds(escrow: EscrowRecord): Promise<{ txId: string }>
   verifyLock(escrow: EscrowRecord): Promise<boolean>
