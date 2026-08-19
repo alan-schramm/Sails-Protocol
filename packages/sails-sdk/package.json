@@ -34,6 +34,7 @@
     "@bitcoinerlab/secp256k1": "^1.2.0",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
+    "@scure/bip32": "^2.0.1",
     "@scure/btc-signer": "^2.0.1",
     "bitcoinjs-lib": "^7.0.1",
     "ecpair": "^3.0.1",

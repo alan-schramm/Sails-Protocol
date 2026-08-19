@@ -71,6 +71,31 @@ import { tradeRepository } from '../open-p2p/trade-repository'
 export type { EscrowRecord, SettlementProvider }
 export { recommendedEscrowType }
 
+// Missão 10, Fase 6.10/6.11 — the wire shape getEscrow()/getEscrowByTrade()
+// expose for `EscrowParticipantKey` rows: trimmed to exactly what a
+// recovering wallet needs to compare its own re-derived key against the
+// server's registration (SDK's verifyRecoveredKeyRegistration(), "Level
+// 2"). Deliberately narrower than the raw Prisma row — drops `id`,
+// `escrowId` (redundant, caller already has it), `createdAt` (not needed
+// for this purpose) — and renames `pubkey` -> `publicKeyHex` to match the
+// naming convention the SDK's derivation types already use throughout.
+// Gated by the SAME authorization the whole GET route already enforces
+// (isParty || isAssignedArbiter, settlement.routes.ts) — no new
+// authorization logic, no new route, no reverse pubkey->escrow lookup
+// (that capability remains explicitly out of scope, deferred to a future
+// "Seed-only Recovery Discovery" mission).
+function mapParticipantKeysShape(escrow: any): any {
+  if (!escrow.participantKeys) return escrow
+  return {
+    ...escrow,
+    participantKeys: escrow.participantKeys.map((k: { participantId: string; role: string; pubkey: string }) => ({
+      participantId: k.participantId,
+      role: k.role,
+      publicKeyHex: k.pubkey,
+    })),
+  }
+}
+
 export interface CreateEscrowInput {
   tradeId: string
   type?: EscrowType
@@ -599,13 +624,13 @@ export class EscrowService {
   async getEscrow(escrowId: string) {
     const escrow = await this.repo.findByIdWithDetails(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
-    return escrow
+    return mapParticipantKeysShape(escrow)
   }
 
   async getEscrowByTrade(tradeId: string) {
     const escrow = await this.repo.findByTradeIdWithDetails(tradeId)
     if (!escrow) throw new NotFoundError('Escrow for this trade', tradeId)
-    return escrow
+    return mapParticipantKeysShape(escrow)
   }
 
   // Real gap found (BACKLOG.md P0, "Escrow timelock proactive sweeper"):

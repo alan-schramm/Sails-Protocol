@@ -150,6 +150,14 @@ export interface Escrow {
   // (`Dispute`'s `@@unique([tradeId])`), but real Prisma `include` shape,
   // so this stays an array rather than `Dispute | null`.
   disputes?: Dispute[]
+  // Missão 10, Fase 6.10/6.11 — additive, same precedent as `disputes`
+  // above: escrow.service.ts's getEscrow()/getEscrowByTrade() now include
+  // this for MULTISIG/LIGHTNING_HODL escrows once participants have
+  // submitted keys, gated by the SAME authorization every other field on
+  // this response already requires (buyer/seller/assigned arbiter only).
+  // This is "Level 2" (server registration integrity) — see
+  // verifyRecoveredKeyRegistration() in modules/escrow-key-derivation.ts.
+  participantKeys?: Array<{ participantId: string; role: 'buyer' | 'seller'; publicKeyHex: string }>
 }
 
 // Sails OpenProof (RFC-006, PROTOCOL_SPECIFICATION.md §1.8) — real as of

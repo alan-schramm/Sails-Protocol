@@ -54,9 +54,15 @@ const DISPUTE_ROW = {
   reason: 'Seller never sent PIX confirmation', evidence: [], arbiterId: ARBITER_ID,
   status: 'OPENED', ruling: null, resolvedAt: null,
 }
+const BUYER_PUBKEY_HEX = '02' + 'a1'.repeat(32)
+const SELLER_PUBKEY_HEX = '03' + 'b2'.repeat(32)
+const PARTICIPANT_KEY_ROWS = [
+  { id: 'pk-buyer', escrowId: ESCROW_ID, role: 'buyer', participantId: BUYER_ID, pubkey: BUYER_PUBKEY_HEX, createdAt: new Date() },
+  { id: 'pk-seller', escrowId: ESCROW_ID, role: 'seller', participantId: SELLER_ID, pubkey: SELLER_PUBKEY_HEX, createdAt: new Date() },
+]
 const ESCROW_ROW = {
   id: ESCROW_ID, tradeId: TRADE_ID, type: 'MOCK', status: 'DISPUTED', lockedAmount: '0.01', asset: 'BTC',
-  events: [], disputes: [DISPUTE_ROW],
+  events: [], disputes: [DISPUTE_ROW], participantKeys: PARTICIPANT_KEY_ROWS,
 }
 const PENDING_TX_ROW = {
   id: 'pending-tx-1', escrowId: ESCROW_ID, unsignedPsbtBase64: 'cHNidP8BA...', toAddress: 'bc1qoutsider-cannot-see-this',
@@ -158,6 +164,75 @@ describe('GET /v1/settlement/escrow/:id and /disputes/:id — access control (Mi
       const body = JSON.parse(res.body)
       expect(body.success).toBe(true)
       expect(body.data).toMatchObject({ id: ESCROW_ID, tradeId: TRADE_ID, status: 'DISPUTED', asset: 'BTC' })
+    })
+
+    // Missão 10, Fase 6.11 — participantKeys additive exposure, gated by
+    // the SAME authorization this whole route already enforces. Backend
+    // half of Level 2 (server registration integrity) verification.
+    describe('participantKeys (Missão 10, Fase 6.11 — additive, same authorization gate)', () => {
+      const expectedShape = [
+        { participantId: BUYER_ID, role: 'buyer', publicKeyHex: BUYER_PUBKEY_HEX },
+        { participantId: SELLER_ID, role: 'seller', publicKeyHex: SELLER_PUBKEY_HEX },
+      ]
+
+      it('buyer (authorized) sees participantKeys with the exact persisted pubkeys', async () => {
+        const token = await authedSession(BUYER_ID)
+        const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}`, headers: { authorization: `Bearer ${token}` } })
+        const body = JSON.parse(res.body)
+        expect(body.data.participantKeys).toEqual(expectedShape)
+      })
+
+      it('seller (authorized) sees the same participantKeys', async () => {
+        const token = await authedSession(SELLER_ID)
+        const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}`, headers: { authorization: `Bearer ${token}` } })
+        const body = JSON.parse(res.body)
+        expect(body.data.participantKeys).toEqual(expectedShape)
+      })
+
+      it('the assigned arbiter (authorized via the dispute) sees participantKeys too', async () => {
+        const token = await authedSession(ARBITER_ID)
+        const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}`, headers: { authorization: `Bearer ${token}` } })
+        const body = JSON.parse(res.body)
+        expect(res.statusCode).toBe(200)
+        expect(body.data.participantKeys).toEqual(expectedShape)
+      })
+
+      it('an authenticated outsider still gets 403 — never reaches a body containing participantKeys', async () => {
+        const token = await authedSession(OUTSIDER_ID)
+        const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}`, headers: { authorization: `Bearer ${token}` } })
+        expect(res.statusCode).toBe(403)
+        expect(res.body).not.toContain(BUYER_PUBKEY_HEX)
+        expect(res.body).not.toContain(SELLER_PUBKEY_HEX)
+      })
+
+      it('an unauthenticated request still gets 401 — never reaches a body containing participantKeys', async () => {
+        const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}` })
+        expect(res.statusCode).toBe(401)
+        expect(res.body).not.toContain(BUYER_PUBKEY_HEX)
+      })
+
+      it('the wire field is publicKeyHex, not the raw DB column name pubkey — and no private key/seed material appears anywhere in the response', async () => {
+        const token = await authedSession(BUYER_ID)
+        const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}`, headers: { authorization: `Bearer ${token}` } })
+        expect(res.body).toContain('publicKeyHex')
+        expect(res.body).not.toMatch(/"pubkey":/)
+        expect(res.body.toLowerCase()).not.toMatch(/privatekey|"seed"|xprv/)
+      })
+
+      it('no reverse lookup surface exists — this route is scoped by escrowId only, no pubkey-keyed query parameter is accepted', async () => {
+        const token = await authedSession(BUYER_ID)
+        const res = await app.inject({
+          method: 'GET',
+          url: `/v1/settlement/escrow/${ESCROW_ID}?pubkey=${BUYER_PUBKEY_HEX}`,
+          headers: { authorization: `Bearer ${token}` },
+        })
+        // A stray query param is simply ignored by this route (it only
+        // ever reads :id from params) — same 200/scoped response as
+        // without it, proving no pubkey-based filtering/lookup exists.
+        expect(res.statusCode).toBe(200)
+        const body = JSON.parse(res.body)
+        expect(body.data.id).toBe(ESCROW_ID)
+      })
     })
   })
 

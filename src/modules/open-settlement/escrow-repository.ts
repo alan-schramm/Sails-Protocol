@@ -117,14 +117,20 @@ class PrismaEscrowRepository implements EscrowRepository {
   async findByIdWithDetails(escrowId: string) {
     return prisma.escrow.findUnique({
       where: { id: escrowId },
-      include: { events: { orderBy: { createdAt: 'asc' } }, disputes: true },
+      // Missão 10, Fase 6.10 — participantKeys added so escrow.service.ts's
+      // getEscrow() can expose registered public keys to this escrow's own
+      // authorized readers (same GET route, same authorization gate as
+      // events/disputes above — no new query, no new auth logic). The
+      // relation itself already existed on Escrow (schema.prisma), unused
+      // by any query until now — zero migration.
+      include: { events: { orderBy: { createdAt: 'asc' } }, disputes: true, participantKeys: true },
     })
   }
 
   async findByTradeIdWithDetails(tradeId: string) {
     return prisma.escrow.findUnique({
       where: { tradeId },
-      include: { events: { orderBy: { createdAt: 'asc' } }, disputes: true },
+      include: { events: { orderBy: { createdAt: 'asc' } }, disputes: true, participantKeys: true },
     })
   }
 

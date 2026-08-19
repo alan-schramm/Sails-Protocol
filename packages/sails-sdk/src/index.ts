@@ -73,6 +73,56 @@ export {
 } from './modules/agents'
 export type { Proof, Verification } from './types'
 export { generateEscrowKeypair, signEscrowPsbt, type EscrowKeypair } from './modules/escrow-key'
+// Deterministic, recoverable participant-key derivation (Missão 10,
+// Fase 6-9) — ADDITIVE to generateEscrowKeypair() above, which is
+// unchanged and remains the default (fresh random, non-recoverable) key
+// generation path. This is an opt-in mechanism for a wallet that wants
+// seed + local-metadata recovery (Cenários A/B only — seed-only recovery
+// with zero local metadata needs a server-side capability that does not
+// exist today and is deliberately out of scope, see
+// escrow-key-derivation.ts's own header comment).
+export {
+  deriveEscrowKey,
+  recoverEscrowKey,
+  verifyRecoveredKeyRegistration,
+  buildEscrowKeyDerivationPath,
+  EscrowKeyVerificationError,
+  SAILS_ESCROW_PURPOSE,
+  ESCROW_KEY_DERIVATION_VERSION,
+  ESCROW_KEY_METADATA_FORMAT_VERSION,
+  type EscrowKeyNetwork,
+  type EscrowKeyRole,
+  type EscrowScriptType,
+  type EscrowKeyDerivationScope,
+  type EscrowKeyRecord,
+  type EscrowKeyMetadata,
+  type EscrowRegistrationLookup,
+} from './modules/escrow-key-derivation'
+// InMemoryEscrowKeyIndexStore deliberately NOT re-exported here (Missão
+// 10, Fase 6.10/6.11, CTO decision — Option B): it loses every counter on
+// restart, so an integrator using it in production would silently
+// reintroduce the exact account_index reuse risk this whole scheme
+// exists to eliminate. The CONTRACT (EscrowKeyIndexStore) is the real
+// public surface — a wallet integrator must implement it against real
+// durable/transactional storage. Same "internal plumbing, not part of
+// the public @satsails/p2p-trading-sdk surface" precedent this file
+// already applies to SailsTransport above — still exported from its own
+// source file for this monorepo's own tests, just not from this barrel.
+export { type EscrowKeyIndexStore, type EscrowKeyIndexScope } from './modules/escrow-key-index-store'
+// Pre-signature PSBT verification (Missão 10, Fase 6-9) — decodes the
+// real PSBT and compares it against the caller's own expectation before
+// any signature is produced. verifyAndSignEscrowPsbt() is the
+// recommended entry point: signing is structurally unreachable when
+// verification fails.
+export {
+  verifySigningIntent,
+  verifyAndSignEscrowPsbt,
+  SigningIntentVerificationError,
+  type EscrowOperation,
+  type ExpectedSigningIntent,
+  type SigningIntentMismatch,
+  type SigningIntentVerification,
+} from './modules/wallet-verification'
 export { signEscrowArkTx } from './modules/escrow-ark-signing'
 export { signEscrowSafeUserOp } from './modules/escrow-safe-signing'
 export { SailsPeersModule, type StaticTopic } from './modules/peers'
