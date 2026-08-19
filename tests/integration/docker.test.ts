@@ -19,7 +19,19 @@ describe('Docker integration test', () => {
   // 60s-bounded health poll (30 attempts x 2s) already fails fast with a
   // clear message if the server itself never comes up; this larger
   // ceiling only accounts for the build step ahead of it.
-  jest.setTimeout(600_000);
+  //
+  // 600s was still not enough -- measured for real, 2026-08-19 (Missão
+  // 10, Fase 6.10/6.11): a from-scratch build took 1745s (npm ci alone:
+  // 843.5s; image layer export/unpack alone: 1460.5s), and a SECOND
+  // consecutive build with nothing changed took 2161s -- LONGER, not
+  // shorter, meaning this is not simply "cold cache, warms up on rerun":
+  // BuildKit's cache was not effectively reused across separate `docker
+  // compose build` invocations on this machine. 3_000_000 (50 min) gives
+  // real margin over the worst measured run (2161s) on this specific
+  // Docker Desktop/Windows/WSL2 environment. This is a timeout
+  // accommodation, not a fix for the underlying build performance --
+  // that root cause (cache reuse, image export cost) is untouched here.
+  jest.setTimeout(3_000_000);
 
   let dockerAvailable = false;
 
