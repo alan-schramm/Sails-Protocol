@@ -533,7 +533,18 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
       // actually triggering it, not by reading Prisma's schema metadata.
       await prisma.$executeRawUnsafe(`UPDATE escrows SET id = $1 WHERE id = $2`, newId, escrowId)
 
-      const child = await prisma.escrowReleaseApproval.findFirst({ where: { approverId: 'cascade-check' } })
+      // Query by escrowId (unique per run — createFixtureEscrow()'s own
+      // escrow.id is always a fresh uuid()), not by the literal
+      // approverId 'cascade-check' — that literal is never cleaned up
+      // after a run, so this test's own persistent dev-Postgres target
+      // accumulates one such row every time it's ever been run; a bare
+      // findFirst({approverId}) with no orderBy then nondeterministically
+      // returns whichever historical row Postgres happens to scan first,
+      // not necessarily the one this run just created. Found for real by
+      // re-running this suite twice in the same session (Missão 10, Fase
+      // 6.10/6.11 STOP GATE) — same class of fixture-hygiene bug already
+      // fixed elsewhere this session (multisigOutpointIntegrity.test.ts).
+      const child = await prisma.escrowReleaseApproval.findFirst({ where: { escrowId: newId } })
       expect(child?.escrowId).toBe(newId)
     })
   })
