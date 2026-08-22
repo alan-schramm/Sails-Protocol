@@ -22,6 +22,7 @@ function fixtureDraft(overrides: Record<string, any> = {}) {
     treasuryPct: '25',
     walletRebatePct: '35',
     arbitratorReservePct: '10',
+    requiredConfirmations: 2, // fixture value (Missão 11 Fase 5 §3) — never a chosen production number
     smallTradeRule: {},
     triggerSemantics: {},
     createdBy: 'test-fixture',
@@ -94,6 +95,84 @@ describe('FeePolicyService.publish — structural validation (G/H/F)', () => {
 
     await expect(service.publish(already.id)).rejects.toThrow(/only a DRAFT policy may be published/)
     expect(repo.publish).not.toHaveBeenCalled()
+  })
+
+  // Missão 11 Fase 5 §3 — structural validation only: publish() refuses to
+  // activate a policy with no confirmation-depth rule set, never picks one.
+  it('rejects a missing requiredConfirmations', async () => {
+    const draft = fixtureDraft({ requiredConfirmations: null })
+    const repo = fakeRepo({ findById: jest.fn().mockResolvedValue(draft) })
+    const service = new FeePolicyService(repo)
+
+    await expect(service.publish(draft.id)).rejects.toThrow(/requiredConfirmations must be a positive integer/)
+    expect(repo.publish).not.toHaveBeenCalled()
+  })
+
+  it('rejects a zero or negative requiredConfirmations', async () => {
+    const draft = fixtureDraft({ requiredConfirmations: 0 })
+    const repo = fakeRepo({ findById: jest.fn().mockResolvedValue(draft) })
+    const service = new FeePolicyService(repo)
+
+    await expect(service.publish(draft.id)).rejects.toThrow(/requiredConfirmations must be a positive integer/)
+    expect(repo.publish).not.toHaveBeenCalled()
+  })
+
+  // Missão 11 Fase 5 §10 / Fase 4.2 Activation Blocker B — rail-activation
+  // gating: a rail with no real fee-aware construction can never publish.
+  it('rejects publishing a policy for a real rail with no fee-aware collection (LIGHTNING_HODL)', async () => {
+    const draft = fixtureDraft({ railScope: 'LIGHTNING_HODL' })
+    const repo = fakeRepo({ findById: jest.fn().mockResolvedValue(draft) })
+    const service = new FeePolicyService(repo)
+
+    await expect(service.publish(draft.id)).rejects.toThrow(/Fee policy activation is not supported for rail 'LIGHTNING_HODL'/)
+    expect(repo.publish).not.toHaveBeenCalled()
+  })
+
+  it('rejects publishing a policy for SAFE_GUARD_EVM', async () => {
+    const draft = fixtureDraft({ railScope: 'SAFE_GUARD_EVM' })
+    const repo = fakeRepo({ findById: jest.fn().mockResolvedValue(draft) })
+    const service = new FeePolicyService(repo)
+
+    await expect(service.publish(draft.id)).rejects.toThrow(/Fee policy activation is not supported for rail 'SAFE_GUARD_EVM'/)
+  })
+
+  it('rejects publishing a policy for WDK_USDT_EVM', async () => {
+    const draft = fixtureDraft({ railScope: 'WDK_USDT_EVM' })
+    const repo = fakeRepo({ findById: jest.fn().mockResolvedValue(draft) })
+    const service = new FeePolicyService(repo)
+
+    await expect(service.publish(draft.id)).rejects.toThrow(/Fee policy activation is not supported for rail 'WDK_USDT_EVM'/)
+  })
+
+  it('rejects publishing a policy for MOCK', async () => {
+    const draft = fixtureDraft({ railScope: 'MOCK' })
+    const repo = fakeRepo({ findById: jest.fn().mockResolvedValue(draft) })
+    const service = new FeePolicyService(repo)
+
+    await expect(service.publish(draft.id)).rejects.toThrow(/Fee policy activation is not supported for rail 'MOCK'/)
+  })
+
+  it('allows publishing a policy for MULTISIG (the one rail with real fee-aware collection)', async () => {
+    const draft = fixtureDraft({ railScope: 'MULTISIG' })
+    const repo = fakeRepo({
+      findById: jest.fn().mockResolvedValue(draft),
+      publish: jest.fn().mockResolvedValue({ ...draft, status: 'PUBLISHED', publishedAt: new Date() }),
+    })
+    const service = new FeePolicyService(repo)
+
+    const published = await service.publish(draft.id)
+    expect(published.status).toBe('PUBLISHED')
+  })
+
+  it('a fixture-only railScope (not a real EscrowType) is never gated by rail-activation — existing isolated accounting tests must keep working', async () => {
+    const draft = fixtureDraft({ railScope: 'FIXTURE_RAIL_SOMETHING_UNRELATED' })
+    const repo = fakeRepo({
+      findById: jest.fn().mockResolvedValue(draft),
+      publish: jest.fn().mockResolvedValue({ ...draft, status: 'PUBLISHED', publishedAt: new Date() }),
+    })
+    const service = new FeePolicyService(repo)
+
+    await expect(service.publish(draft.id)).resolves.toMatchObject({ status: 'PUBLISHED' })
   })
 })
 

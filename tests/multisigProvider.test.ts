@@ -96,15 +96,15 @@ describe('MultisigProvider.getDepositAddress (real P2WSH address derivation from
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const a = await multisigProvider.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
     const b = await multisigProvider.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
-    expect(a).toBe(b)
-    expect(a).toMatch(/^tb1/) // testnet bech32 (P2WSH) prefix
+    expect(a.address).toBe(b.address)
+    expect(a.address).toMatch(/^tb1/) // testnet bech32 (P2WSH) prefix
   })
 
   it('derives a different address for a different buyer/seller pubkey pair', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const a = await multisigProvider.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
     const b = await multisigProvider.getDepositAddress('trade-2', BUYER2_PUBKEY, SELLER2_PUBKEY)
-    expect(a).not.toBe(b)
+    expect(a.address).not.toBe(b.address)
   })
 
   it('derives a different address under a different arbiter seed (same buyer/seller pubkeys)', async () => {
@@ -112,7 +112,124 @@ describe('MultisigProvider.getDepositAddress (real P2WSH address derivation from
     const a = await p1.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
     const { multisigProvider: p2 } = loadProvider({ MULTISIG_SEED: 'seed-b', TRUSTED_ARBITRATORS: 'arb-1' })
     const b = await p2.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
-    expect(a).not.toBe(b)
+    expect(a.address).not.toBe(b.address)
+  })
+
+  // Missão 11 Fase 5.2 §2/§5 — the return now also carries the arbiter
+  // commitment (arbiterPubkeyHex/arbiterId) that escrow.service.ts
+  // persists as this escrow's immutable cryptographic record.
+  it('also returns the arbiterPubkeyHex/arbiterId used to build the script — the exact value that gets persisted', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const { arbiterPubkeyHex, arbiterId } = await multisigProvider.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
+    expect(arbiterId).toBe('arb-1')
+    expect(arbiterPubkeyHex).toBe(multisigProvider.getArbiterPubkeyHex('arb-1'))
+  })
+
+  // §5 — the persisted key must be byte-for-byte the same key actually
+  // embedded in the script: reconstruct the P2WSH address from the three
+  // raw pubkeys (buyer, seller, and the RETURNED arbiterPubkeyHex) exactly
+  // the way a remote wallet would, and confirm it equals what
+  // getDepositAddress() itself returned as the deposit address.
+  it('the returned arbiterPubkeyHex, combined with buyer/seller pubkeys, reconstructs the SAME address getDepositAddress() returned', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const { address, arbiterPubkeyHex } = await multisigProvider.getDepositAddress('trade-1', BUYER_PUBKEY, SELLER_PUBKEY)
+
+    const bitcoin = require('bitcoinjs-lib')
+    const ecc = require('tiny-secp256k1')
+    bitcoin.initEccLib(ecc)
+    const pubkeys = [BUYER_PUBKEY, SELLER_PUBKEY, arbiterPubkeyHex].map((hex) => Buffer.from(hex, 'hex')).sort(Buffer.compare)
+    const p2ms = bitcoin.payments.p2ms({ m: 2, pubkeys, network: bitcoin.networks.testnet })
+    const p2wsh = bitcoin.payments.p2wsh({ redeem: p2ms, network: bitcoin.networks.testnet })
+    expect(p2wsh.address).toBe(address)
+  })
+})
+
+// Missão 11 Fase 5.2 §6/§9 — server-side historical-stability proof: once
+// an escrow's arbiterPubkey is persisted (simulating what escrow.service.ts
+// does at getDepositAddress() time), does a LATER live-config change
+// (TRUSTED_ARBITRATORS reordered/replaced, or MULTISIG_SEED rotated) get
+// silently trusted, or does the escrow's own persisted commitment win and
+// fail the operation closed? A legacy escrow (no persisted commitment) is
+// exercised the same way for direct comparison — it must behave exactly as
+// it always has (oblivious to any of this), proving the compatibility path
+// is untouched.
+describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift detection (assertArbiterMatchesScript)', () => {
+  const ecc = require('tiny-secp256k1')
+  const bitcoin = require('bitcoinjs-lib')
+  const { ECPairFactory } = require('ecpair')
+  const crypto = require('crypto')
+  bitcoin.initEccLib(ecc)
+  const ECPair = ECPairFactory(ecc)
+  const network = bitcoin.networks.testnet
+  const buyerKey = ECPair.fromPrivateKey(crypto.createHash('sha256').update('fase52-buyer').digest(), { network })
+  const sellerKey = ECPair.fromPrivateKey(crypto.createHash('sha256').update('fase52-seller').digest(), { network })
+  const buyerPubkeyHex = Buffer.from(buyerKey.publicKey).toString('hex')
+  const sellerPubkeyHex = Buffer.from(sellerKey.publicKey).toString('hex')
+  const REFUND_ADDRESS_UNUSED = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
+
+  it('no drift: a persisted commitment matching the current live arbiter allows a disputed release to proceed', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const { arbiterPubkeyHex } = await multisigProvider.getDepositAddress('trade-1', buyerPubkeyHex, sellerPubkeyHex)
+
+    const fetchMock = jest.fn()
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid: 'aa'.repeat(32), vout: 0, value: 100_000, status: { confirmed: true } }] })
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ halfHourFee: 5 }) })
+    ;(global as any).fetch = fetchMock
+
+    const { requiredSigners } = await multisigProvider.buildUnsignedRelease(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: arbiterPubkeyHex, lockedAmount: '0.001', txLockId: 'aa'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-1' },
+      REFUND_ADDRESS_UNUSED
+    )
+    expect(requiredSigners).toEqual(['buyer-1'])
+  })
+
+  it('TRUSTED_ARBITRATORS changed after creation (same seed): the persisted commitment no longer matches the new live arbiter — fails closed, never silently trusts today\'s config', async () => {
+    const { multisigProvider: creationTimeProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const { arbiterPubkeyHex: persistedCommitment } = await creationTimeProvider.getDepositAddress('trade-1', buyerPubkeyHex, sellerPubkeyHex)
+
+    // Config drift: arb-1 -> arb-2, same seed. A real deployment would
+    // reach this new provider instance on the next request/process.
+    const { multisigProvider: driftedProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-2' })
+
+    await expect(
+      driftedProvider.buildUnsignedRelease(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'bb'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' },
+        REFUND_ADDRESS_UNUSED
+      )
+    ).rejects.toThrow('no longer matches the arbiter public key committed')
+  })
+
+  it('MULTISIG_SEED rotated after creation (same arbiter id): the persisted commitment no longer matches the new live key — fails closed', async () => {
+    const { multisigProvider: creationTimeProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const { arbiterPubkeyHex: persistedCommitment } = await creationTimeProvider.getDepositAddress('trade-1', buyerPubkeyHex, sellerPubkeyHex)
+
+    // Config drift: the master seed itself rotated, same arbiter identity.
+    const { multisigProvider: driftedProvider } = loadProvider({ MULTISIG_SEED: 'seed-ROTATED', TRUSTED_ARBITRATORS: 'arb-1' })
+
+    await expect(
+      driftedProvider.buildUnsignedRefund(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'cc'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-1' }
+      )
+    ).rejects.toThrow('no longer matches the arbiter public key committed')
+  })
+
+  it('legacy escrow (no persisted arbiterPubkey) is completely unaffected by the same config drift — compatibility path preserved byte-for-byte', async () => {
+    // Same drift as the TRUSTED_ARBITRATORS test above, but this escrow
+    // fixture has no arbiterPubkey field at all (exactly what every
+    // pre-Fase-5.2 escrow looks like) — the new check never fires, and the
+    // pre-existing identity-string check (triggeredBy === defaultArbiterId())
+    // is satisfied since triggeredBy correctly names TODAY's single arbiter.
+    const { multisigProvider: driftedProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-2' })
+    const fetchMock = jest.fn()
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid: 'dd'.repeat(32), vout: 0, value: 100_000, status: { confirmed: true } }] })
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ halfHourFee: 5 }) })
+    ;(global as any).fetch = fetchMock
+
+    const { requiredSigners } = await driftedProvider.buildUnsignedRelease(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: 'dd'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' },
+      REFUND_ADDRESS_UNUSED
+    )
+    expect(requiredSigners).toEqual(['buyer-1'])
   })
 })
 

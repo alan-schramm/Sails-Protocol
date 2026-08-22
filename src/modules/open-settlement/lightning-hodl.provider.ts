@@ -273,14 +273,19 @@ export class LightningHodlProvider implements SettlementProvider {
   // submitted, to populate Escrow.multisigAddr. Same role as
   // MultisigProvider.getDepositAddress() — takes raw submitted hex
   // directly for the same reason that one does.
-  async getDepositAddress(tradeId: string, buyerPubkeyHex: string, sellerPubkeyHex: string): Promise<string> {
+  async getDepositAddress(tradeId: string, buyerPubkeyHex: string, sellerPubkeyHex: string): Promise<{ address: string }> {
     const parties: ArkParties = {
       buyerPubkey: toXOnly(this.parsePubkey(buyerPubkeyHex, 'buyer', tradeId)),
       sellerPubkey: toXOnly(this.parsePubkey(sellerPubkeyHex, 'seller', tradeId)),
       arbiterId: this.defaultArbiterId(),
     }
     const { address } = await this.buildScript(parties)
-    return address.encode()
+    // Missão 11 Fase 5.2 — return shape widened to match
+    // NON_CUSTODIAL_PROVIDERS' shared interface (escrow-providers.ts's own
+    // comment). This provider's arbiter commitment is NOT persisted here —
+    // out of this phase's explicit MULTISIG-only scope, disclosed as an
+    // analogous gap in this mission's report, not fixed.
+    return { address: address.encode() }
   }
 
   private expectedSats(lockedAmount: string): number {

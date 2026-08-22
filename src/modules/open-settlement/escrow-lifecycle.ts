@@ -127,13 +127,18 @@ export async function loadEscrowWithAuthorization(
   return { escrow, trade }
 }
 
-/** Buyer/seller pubkeys from EscrowParticipantKey — only the non-custodial
- *  providers consume these. */
-export async function loadParticipantPubkeys(escrowId: string): Promise<{ buyerPubkey?: string; sellerPubkey?: string }> {
+/** Buyer/seller/arbiter pubkeys from EscrowParticipantKey — only the
+ *  non-custodial providers consume these. arbiterPubkey is undefined for a
+ *  legacy escrow (Missão 11 Fase 5.2 — no role='arbiter' row exists for
+ *  one) or for a rail that has never populated one (LIGHTNING_HODL/
+ *  SAFE_GUARD_EVM today); MultisigProvider.partiesFor() falls back to live
+ *  derivation in that case, unchanged from before this phase. */
+export async function loadParticipantPubkeys(escrowId: string): Promise<{ buyerPubkey?: string; sellerPubkey?: string; arbiterPubkey?: string }> {
   const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
   return {
     buyerPubkey: keys.find((k: { role: string }) => k.role === 'buyer')?.pubkey,
     sellerPubkey: keys.find((k: { role: string }) => k.role === 'seller')?.pubkey,
+    arbiterPubkey: keys.find((k: { role: string }) => k.role === 'arbiter')?.pubkey,
   }
 }
 
@@ -302,7 +307,22 @@ export async function verifyEscrowEventChain(escrowId: string): Promise<EscrowCh
 // matters. Called from releaseFunds() only; PROTOCOL_ECONOMY.md §3 is
 // explicit the Protocol Fee "only ever attaches to a completed
 // Settlement," never a refund.
-export async function chargeProtocolFee(escrow: { id: string; lockedAmount: Prisma.Decimal | string; asset: string }): Promise<Prisma.Decimal | null> {
+//
+// Missão 11 Fase 5 §11 — Phase-0/new-mechanism mutual exclusion (Fase 4.2
+// Activation Blocker C). An escrow that has opted into the new
+// FeePolicyVersion/FeeObligation mechanism (feePolicyVersionId set) never
+// gets a Phase-0 FeeDistribution row, regardless of what PROTOCOL_FEE_RATE
+// is configured to — this makes coexistence structurally impossible per
+// escrow, not merely a runbook rule an operator has to remember. Historical
+// FeeDistribution rows (written before this guard existed, or for a
+// legacy escrow that never adopted a policy) remain fully readable — this
+// is a forward-only guard on NEW writes, never a migration, never a
+// deletion. A legacy escrow (feePolicyVersionId === null/undefined) is
+// completely unaffected: PROTOCOL_FEE_RATE continues to behave exactly as
+// it always has for it.
+export async function chargeProtocolFee(escrow: { id: string; lockedAmount: Prisma.Decimal | string; asset: string; feePolicyVersionId?: string | null }): Promise<Prisma.Decimal | null> {
+  if (escrow.feePolicyVersionId) return null
+
   const rate = config.settlement.protocolFeeRate
   if (!rate || rate <= 0) return null
 

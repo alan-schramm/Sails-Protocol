@@ -31,6 +31,7 @@ import { agentRoutes } from './modules/open-agents/agent.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
+import { sweepMultisigFeeConfirmations } from './modules/open-settlement/multisig-fee-confirmation-job'
 import { metricsRegistry, httpRequestsTotal, httpRequestDurationSeconds } from './common/metrics'
 import { recordSuspiciousActivity } from './common/security/suspicious-activity'
 import type { AuthenticatedRequest } from './common/middleware/auth'
@@ -457,6 +458,24 @@ export async function startServer() {
         .catch((err) => app.log.error({ msg: 'Dispute auto-resolution sweep failed', module: 'dispute-auto-resolution-sweeper', err: err instanceof Error ? err.message : err }))
     }, config.trade.disputeAutoResolutionSweepIntervalMs)
     disputeSweepInterval.unref()
+  }
+
+  // Missão 11 Fase 5 §7 — off by default, see config/index.ts's own
+  // comment. unref()'d for the same reason the two sweepers above are.
+  // Structurally inert (zero IN_PROGRESS obligations to find) until a real
+  // FeePolicyVersion is published for MULTISIG — safe to enable ahead of
+  // that.
+  if (config.features.multisigFeeConfirmationSweeper) {
+    const feeConfirmationInterval = setInterval(() => {
+      sweepMultisigFeeConfirmations()
+        .then(({ collected, stillPending, failed }) => {
+          if (collected.length || failed.length) {
+            app.log.info({ msg: 'MULTISIG fee confirmation sweep completed', module: 'multisig-fee-confirmation-sweeper', collected: collected.length, stillPending: stillPending.length, failed: failed.length })
+          }
+        })
+        .catch((err) => app.log.error({ msg: 'MULTISIG fee confirmation sweep failed', module: 'multisig-fee-confirmation-sweeper', err: err instanceof Error ? err.message : err }))
+    }, config.trade.multisigFeeConfirmationSweepIntervalMs)
+    feeConfirmationInterval.unref()
   }
 
   return app

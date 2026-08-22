@@ -34,17 +34,7 @@ import { Prisma, FeePayerModel, FeeEconomicBasis } from '@prisma/client'
 import { feePolicyService, FeePolicyService } from './fee-policy.service'
 import { computeMaxProtocolFee } from './fee-reserve-math'
 import { evaluateFeeCollectibility } from './multisig.provider'
-
-// Missão 11 Fase 4.1 §1 — the pre-funding collectibility check is
-// inherently Bitcoin/script-specific (dust-relay policy, script types —
-// see bitcoin-dust-policy.ts's own header). Only MULTISIG implements ANY
-// fee-aware output construction today (Fase 4's own rail-parity scope
-// boundary, unchanged here) — every other rail has no dust/collection-
-// address concept to evaluate at all, so this check simply never applies
-// to them: their Fmax is computed from the raw rate alone, same as
-// before, and their (currently nonexistent) fee-aware construction has no
-// use for snapshotFeeCollectionAddress either way.
-const RAILS_WITH_COLLECTION_ECONOMICS: ReadonlySet<string> = new Set(['MULTISIG'])
+import { FEE_COLLECTION_CAPABLE_RAILS, assertRailCanActivateFeeCollection } from './escrow-providers'
 
 export interface FeeSnapshotFields {
   feePolicyVersionId: string
@@ -69,6 +59,16 @@ export class EscrowFeeSnapshotService {
     const policy = await this.policyService.findLivePolicyForRail(railScope)
     if (!policy) return null
 
+    // Missão 11 Fase 5 §10 — defense-in-depth: fee-policy.service.ts's
+    // publish() is the real, only application path that can make a policy
+    // PUBLISHED, and it already refuses this for a rail with no real
+    // fee-aware construction. Reaching a PUBLISHED policy for such a rail
+    // HERE would mean that gate was bypassed (e.g. a raw-SQL insert) — a
+    // real invariant violation, not a normal runtime condition, so this
+    // fails loudly rather than silently snapshotting a phantom obligation
+    // (Fase 4.2's own Activation Blocker B).
+    assertRailCanActivateFeeCollection(railScope)
+
     const rate = new Prisma.Decimal(policy.protocolFeeRate)
     let collectionAddress: string | null = null
     let waivedPreFunding = false
@@ -78,7 +78,7 @@ export class EscrowFeeSnapshotService {
     // follows from the rate math alone downstream) — the two are recorded
     // separately so accounting can always tell them apart (Fase 4.1 §6),
     // never inferred from Fmax=0 alone.
-    if (rate.greaterThan(0) && RAILS_WITH_COLLECTION_ECONOMICS.has(railScope)) {
+    if (rate.greaterThan(0) && FEE_COLLECTION_CAPABLE_RAILS.has(railScope)) {
       const fmaxCandidate = computeMaxProtocolFee(lockedAmount, rate)
       const fmaxCandidateSats = Number(fmaxCandidate.times(1e8).toFixed(0))
       const decision = evaluateFeeCollectibility(fmaxCandidateSats)

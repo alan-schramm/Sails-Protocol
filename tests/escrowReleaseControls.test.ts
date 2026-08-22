@@ -254,6 +254,30 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 real Protocol Fee', () 
     await escrowService.refundFunds('escrow-1', 'seller-1')
     expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
   })
+
+  // Missão 11 Fase 5 §11 (Fase 4.2 Activation Blocker C, closed): an escrow
+  // that has opted into the new FeePolicyVersion mechanism must never also
+  // get a Phase-0 FeeDistribution row, regardless of PROTOCOL_FEE_RATE.
+  it('charges no Phase-0 fee for a policy-aware escrow, even with a nonzero PROTOCOL_FEE_RATE — mutual exclusion', async () => {
+    protocolFeeRate = 0.004
+    mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, feePolicyVersionId: 'policy-1', snapshotProtocolFeeRate: '0.004' })
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
+    await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
+
+    expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ feeCharged: null }) })
+    )
+  })
+
+  it('a legacy escrow (no feePolicyVersionId) is completely unaffected — PROTOCOL_FEE_RATE behaves exactly as before', async () => {
+    protocolFeeRate = 0.004
+    mockEscrowFindUnique.mockResolvedValue(baseEscrow) // no feePolicyVersionId
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
+    await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
+
+    expect(mockFeeDistributionCreate).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('escrowService — RFC-015 two-person control', () => {

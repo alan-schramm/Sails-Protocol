@@ -16,6 +16,11 @@ import { hasDualApproval } from './escrow-dual-approval'
 import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
+import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
+import { identifyFeeOutput, networkFor } from './multisig.provider'
+import { childLogger } from '../../common/logger'
+
+const log = childLogger('escrow-pending-tx')
 
 /**
  * Sails OpenSettlement — client-signature-collection pending-transaction
@@ -91,8 +96,21 @@ async function initiateSignatureCollectionCore(
     throw new EscrowError(`Escrow ${escrowId} already has a pending ${existingPending.kind} transaction awaiting signatures`)
   }
 
-  const { buyerPubkey, sellerPubkey } = await loadParticipantPubkeys(escrowId)
-  const escrowRecord = { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey }
+  const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrowId)
+  // Missão 11 Fase 5.3 §A — restores context this function already HAD
+  // (triggeredBy is its own parameter, already used for the authorization
+  // check above and already persisted onto EscrowPendingTransaction.triggeredBy
+  // below) but never threaded onto the record the provider itself
+  // receives — escrow.service.ts's direct-call releaseFunds() has always
+  // included `triggeredBy` in its own equivalent record (see its own
+  // `{ ...escrow, buyerId, sellerId, triggeredBy }`); this brings the
+  // signature-collection path to the same parity, closing the gap that
+  // left MultisigProvider.assertArbiterMatchesScript()'s pre-existing
+  // triggeredBy/arbiter identity check structurally unreachable on the
+  // only path MULTISIG actually uses for a real disputed release/refund/
+  // split. Not a new authorization mechanism — the check itself already
+  // existed; only its input was missing.
+  const escrowRecord = { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey, triggeredBy }
 
   const result = await buildProvider(provider, escrowRecord)
 
@@ -271,6 +289,53 @@ export async function submitTransactionSignature(escrowId: string, participantId
       ? { feeSats: pending.feeCollectionSats, waived: pending.feeCollectionWaived ?? false }
       : undefined
     await feeObligationService.recordObligationForEscrowSettlement(escrow, feeOutcome, pending.buyerBps ?? undefined, actualCollection)
+
+    // Missão 11 Fase 5 §6 — broadcast success -> IN_PROGRESS, closing the
+    // gap Fase 4.2 flagged (Activation Blocker A): a real, non-waived
+    // Sails fee output was just broadcast (result.txId, above) — record
+    // real, deterministic collection evidence for it and advance the
+    // FeeObligation past PENDING_COLLECTION. Deliberately excludes:
+    //   - refund (never has a fee output at all — §6's own rule);
+    //   - a waived or legacy outcome (actualCollection is undefined or
+    //     .waived — no fee output was ever built, so there is nothing to
+    //     identify and no evidence to fake);
+    //   - any rail other than MULTISIG (the only one whose pending
+    //     transaction is a real Bitcoin PSBT identifyFeeOutput() can
+    //     decode — LIGHTNING_HODL/SAFE_GUARD_EVM never populate
+    //     feeCollectionSats at all today, so actualCollection is already
+    //     undefined for them; the explicit type check here is a second,
+    //     self-documenting guard against that ever changing silently).
+    // Broadcast success != confirmed revenue — this never marks COLLECTED
+    // itself (see fee-collection-recognition.service.ts's own contract).
+    if (pending.kind !== 'refund' && escrow.type === 'MULTISIG' && actualCollection && !actualCollection.waived) {
+      try {
+        const obligation = await feeObligationService.findByEscrowId(escrowId)
+        if (!obligation) {
+          throw new Error('recordObligationForEscrowSettlement() just ran for a non-waived collectible fee but no FeeObligation was found')
+        }
+        if (!escrow.snapshotFeeCollectionAddress) {
+          throw new Error('escrow has a real, non-waived actualCollection but no frozen snapshotFeeCollectionAddress — structurally impossible per Fase 4.1\'s own invariant')
+        }
+        const network = networkFor(config.multisig.network)
+        const evidence = identifyFeeOutput(pending.unsignedPsbtBase64, escrow.snapshotFeeCollectionAddress, actualCollection.feeSats, network)
+        await feeCollectionRecognitionService.recordBroadcastAndAdvance(obligation.id, {
+          txid: result.txId, vout: evidence.vout, scriptPubKey: evidence.scriptPubKeyHex, amountSats: evidence.amountSats,
+        })
+      } catch (err) {
+        // Same established safety pattern as recordObligationForEscrowSettlement()
+        // itself (Fase 3 §6/§9): the real settlement has ALREADY broadcast
+        // successfully by this point — collection-evidence recording is
+        // strictly secondary accounting, never allowed to un-do or fail a
+        // settlement whose funds already moved. Logged loudly, never
+        // thrown; the obligation simply remains PENDING_COLLECTION,
+        // exactly the safe/honest state when evidence couldn't be recorded
+        // (detectable later via reconciliation, never silently masked).
+        log.error({
+          msg: 'Broadcast-evidence recording failed after a successful settlement — FeeObligation remains PENDING_COLLECTION, not silently advanced',
+          escrowId, err: err instanceof Error ? err.message : err,
+        })
+      }
+    }
 
     const eventName = pending.kind === 'release'
       ? 'settlement.escrow.released'

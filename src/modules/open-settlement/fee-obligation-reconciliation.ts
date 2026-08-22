@@ -20,7 +20,10 @@
  */
 import { prisma } from '../../common/database'
 import { Prisma } from '@prisma/client'
+import * as bitcoin from 'bitcoinjs-lib'
 import { computeRequiredFundingAmount } from './fee-reserve-math'
+import { networkFor } from './multisig.provider'
+import { config } from '../../config'
 
 export interface MissingObligationRow {
   escrowId: string
@@ -120,4 +123,171 @@ export async function findCollectionEvidenceMismatches(): Promise<CollectionEvid
     }
   }
   return mismatches
+}
+
+// ─── Missão 11 Fase 5 §9 — collection-recognition reconciliation ──────────
+// All DETECT-only, same discipline as every function above: never creates,
+// updates, or deletes anything. "Legacy escrow with collection evidence"
+// and "obligation exists, no FeeObligation for evidence to attach to" are
+// deliberately NOT implemented as functions here — both are already
+// structurally impossible (FeeCollectionEvidence.feeObligationId is a
+// required FK to FeeObligation, which itself is only ever created for a
+// policy-aware escrow — recordObligationForEscrowSettlement()'s own first
+// line makes this the one case that can never even be queried for).
+
+export interface WaivedWithEvidenceRow {
+  feeObligationId: string
+  escrowId: string
+  collectionStatus: string
+  evidenceCount: number
+}
+
+// A WAIVED or UNCOLLECTIBLE_BYPASSED obligation should never have ANY
+// collection evidence at all — no fee output was ever built for either
+// outcome, so there is nothing real to have evidence of.
+export async function findWaivedOrBypassedWithEvidence(): Promise<WaivedWithEvidenceRow[]> {
+  const obligations = await prisma.feeObligation.findMany({
+    where: { collectionStatus: { in: ['WAIVED', 'UNCOLLECTIBLE_BYPASSED'] } },
+    include: { evidence: true },
+  })
+  return obligations
+    .filter((o) => o.evidence.length > 0)
+    .map((o) => ({ feeObligationId: o.id, escrowId: o.escrowId, collectionStatus: o.collectionStatus!, evidenceCount: o.evidence.length }))
+}
+
+export interface SettlementTxidMismatchRow {
+  feeObligationId: string
+  escrowId: string
+  escrowTxReleaseId: string | null
+  evidenceTxid: string | null
+}
+
+// The escrow's own recorded txReleaseId (written by
+// escrow-pending-tx.ts's updateSignatureCollectionResult(), independently
+// of the fee-evidence write) must always match what collection evidence
+// says was broadcast for the SAME settlement — the two are written from
+// the same real broadcast, moments apart, and should never disagree.
+export async function findSettlementTxidMismatches(): Promise<SettlementTxidMismatchRow[]> {
+  const obligations = await prisma.feeObligation.findMany({
+    where: { collectionStatus: { in: ['IN_PROGRESS', 'COLLECTED', 'DISTRIBUTED'] } },
+    include: { escrow: true, evidence: { where: { kind: 'BROADCAST' }, orderBy: { recordedAt: 'desc' }, take: 1 } },
+  })
+  const mismatches: SettlementTxidMismatchRow[] = []
+  for (const obligation of obligations) {
+    const evidenceTxid = obligation.evidence[0]?.txid ?? null
+    if (obligation.escrow.txReleaseId !== evidenceTxid) {
+      mismatches.push({
+        feeObligationId: obligation.id,
+        escrowId: obligation.escrowId,
+        escrowTxReleaseId: obligation.escrow.txReleaseId,
+        evidenceTxid,
+      })
+    }
+  }
+  return mismatches
+}
+
+export interface DuplicateBroadcastEvidenceRow {
+  feeObligationId: string
+  escrowId: string
+  txid: string
+  count: number
+}
+
+// More than one BROADCAST evidence row for the IDENTICAL txid on the same
+// obligation is a real duplicate (a genuine RBF replacement produces a
+// BROADCAST row for a DIFFERENT txid, recorded alongside a REPLACED row
+// for the old one — never two BROADCAST rows sharing one txid).
+export async function findDuplicateBroadcastEvidence(): Promise<DuplicateBroadcastEvidenceRow[]> {
+  const evidenceRows = await prisma.feeCollectionEvidence.findMany({
+    where: { kind: 'BROADCAST', txid: { not: null } },
+  })
+  const counts = new Map<string, { feeObligationId: string; txid: string; count: number }>()
+  for (const row of evidenceRows) {
+    const key = `${row.feeObligationId}:${row.txid}`
+    const existing = counts.get(key)
+    counts.set(key, { feeObligationId: row.feeObligationId, txid: row.txid!, count: (existing?.count ?? 0) + 1 })
+  }
+  const duplicates = [...counts.values()].filter((c) => c.count > 1)
+  if (duplicates.length === 0) return []
+
+  const obligations = await prisma.feeObligation.findMany({
+    where: { id: { in: duplicates.map((d) => d.feeObligationId) } },
+    select: { id: true, escrowId: true },
+  })
+  const escrowIdByObligation = new Map(obligations.map((o) => [o.id, o.escrowId]))
+  return duplicates.map((d) => ({ feeObligationId: d.feeObligationId, escrowId: escrowIdByObligation.get(d.feeObligationId) ?? '(unknown)', txid: d.txid, count: d.count }))
+}
+
+export interface WrongCollectionDestinationRow {
+  feeObligationId: string
+  escrowId: string
+  expectedScriptPubKey: string
+  actualScriptPubKey: string | null
+}
+
+// Every recorded BROADCAST/CONFIRMED evidence's scriptPubKey must match
+// the escrow's own FROZEN snapshotFeeCollectionAddress — compared as raw
+// script bytes (pure, local bitcoinjs-lib decode of an address string
+// already in the database; no live chain call, consistent with this
+// module's own "DB-only" scope). A mismatch here would mean a real fee
+// output was built against a destination different from what the escrow
+// was actually snapshotted with — the exact class of bug Fase 4.1's
+// destination-freeze exists to make structurally impossible; this is the
+// detection backstop in case that guarantee is ever violated some other
+// way (e.g. a future code change bypassing multisig.provider.ts entirely).
+export async function findWrongCollectionDestinationEvidence(): Promise<WrongCollectionDestinationRow[]> {
+  const obligations = await prisma.feeObligation.findMany({
+    where: { collectionStatus: { in: ['IN_PROGRESS', 'COLLECTED', 'DISTRIBUTED'] } },
+    include: { escrow: true, evidence: { where: { kind: { in: ['BROADCAST', 'CONFIRMED'] } }, orderBy: { recordedAt: 'desc' }, take: 1 } },
+  })
+  const mismatches: WrongCollectionDestinationRow[] = []
+  const network = networkFor(config.multisig.network)
+  for (const obligation of obligations) {
+    if (!obligation.escrow.snapshotFeeCollectionAddress) continue // nothing frozen to compare against — a different anomaly class, not this one
+    let expectedScriptHex: string
+    try {
+      expectedScriptHex = Buffer.from(bitcoin.address.toOutputScript(obligation.escrow.snapshotFeeCollectionAddress, network)).toString('hex')
+    } catch {
+      continue // malformed frozen address is its own, separately-surfaced problem — not a destination MISMATCH per se
+    }
+    const actualScriptHex = obligation.evidence[0]?.scriptPubKey ?? null
+    if (actualScriptHex !== expectedScriptHex) {
+      mismatches.push({ feeObligationId: obligation.id, escrowId: obligation.escrowId, expectedScriptPubKey: expectedScriptHex, actualScriptPubKey: actualScriptHex })
+    }
+  }
+  return mismatches
+}
+
+export interface UnresolvedChainEventRow {
+  feeObligationId: string
+  escrowId: string
+  collectionStatus: string
+  lastEvidenceKind: string
+}
+
+// An IN_PROGRESS obligation whose most recent evidence is DROPPED, or a
+// COLLECTED obligation whose most recent evidence is REORGED_OUT (the
+// "already DISTRIBUTED, could not auto-revert" exceptional case
+// fee-collection-recognition.service.ts's own recordReorgAndRevert()
+// explicitly refuses to improvise past) — both are real chain events that
+// were correctly recorded but left the obligation in a state that needs a
+// human decision, never an automatic one.
+export async function findUnresolvedChainEvents(): Promise<UnresolvedChainEventRow[]> {
+  const obligations = await prisma.feeObligation.findMany({
+    where: { collectionStatus: { in: ['IN_PROGRESS', 'COLLECTED', 'DISTRIBUTED'] } },
+    include: { evidence: { orderBy: { recordedAt: 'desc' }, take: 1 } },
+  })
+  const flagged: UnresolvedChainEventRow[] = []
+  for (const obligation of obligations) {
+    const lastKind = obligation.evidence[0]?.kind
+    if (!lastKind) continue
+    const isUnresolved =
+      (obligation.collectionStatus === 'IN_PROGRESS' && lastKind === 'DROPPED') ||
+      ((obligation.collectionStatus === 'COLLECTED' || obligation.collectionStatus === 'DISTRIBUTED') && lastKind === 'REORGED_OUT')
+    if (isUnresolved) {
+      flagged.push({ feeObligationId: obligation.id, escrowId: obligation.escrowId, collectionStatus: obligation.collectionStatus!, lastEvidenceKind: lastKind })
+    }
+  }
+  return flagged
 }

@@ -96,6 +96,7 @@ const mockTradeFindUnique = jest.fn()
 const mockFeePolicyVersionFindMany = jest.fn().mockResolvedValue([])
 const mockParticipantKeyUpsert = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
+const mockParticipantKeyCreate = jest.fn()
 const mockPendingTxFindUnique = jest.fn()
 const mockPendingTxCreate = jest.fn()
 const mockPendingTxDelete = jest.fn()
@@ -147,6 +148,7 @@ jest.mock('../src/common/database', () => ({
     escrowParticipantKey: {
       upsert: (...args: unknown[]) => mockParticipantKeyUpsert(...args),
       findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
+      create: (...args: unknown[]) => mockParticipantKeyCreate(...args),
     },
     escrowPendingTransaction: {
       findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
@@ -306,7 +308,13 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
       { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
       { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
     ])
-    mockGetDepositAddress.mockResolvedValue('tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+    // Missão 11 Fase 5.2 — getDepositAddress() now returns
+    // { address, arbiterPubkeyHex, arbiterId }, not a bare string.
+    mockGetDepositAddress.mockResolvedValue({
+      address: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+      arbiterPubkeyHex: 'ARBITER_PUBKEY_HEX_FIXTURE',
+      arbiterId: 'arb-1',
+    })
     mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', multisigAddr: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' })
 
     const result = await escrowService.submitParticipantKey('escrow-1', 'seller-1', SELLER_PUBKEY)
@@ -317,6 +325,27 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
       data: { multisigAddr: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' },
     })
     expect(result.escrow.multisigAddr).toBe('tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+
+    // Fase 5.2 §2/§3 — the escrow-specific arbiter commitment is persisted
+    // via create() (write-once), using EXACTLY what the provider returned.
+    expect(mockParticipantKeyCreate).toHaveBeenCalledWith({
+      data: { escrowId: 'escrow-1', role: 'arbiter', participantId: 'arb-1', pubkey: 'ARBITER_PUBKEY_HEX_FIXTURE' },
+    })
+  })
+
+  it('does NOT attempt to persist an arbiter commitment when the provider does not return one (LIGHTNING_HODL/SAFE_GUARD_EVM today)', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockParticipantKeyFindMany.mockResolvedValue([
+      { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
+      { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
+    ])
+    mockGetDepositAddress.mockResolvedValue({ address: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' })
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', multisigAddr: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' })
+
+    await escrowService.submitParticipantKey('escrow-1', 'seller-1', SELLER_PUBKEY)
+
+    expect(mockParticipantKeyCreate).not.toHaveBeenCalled()
   })
 
   it('does not re-derive an address that already exists (idempotent re-submission)', async () => {

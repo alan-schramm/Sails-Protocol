@@ -157,7 +157,17 @@ export interface Escrow {
   // this response already requires (buyer/seller/assigned arbiter only).
   // This is "Level 2" (server registration integrity) — see
   // verifyRecoveredKeyRegistration() in modules/escrow-key-derivation.ts.
-  participantKeys?: Array<{ participantId: string; role: 'buyer' | 'seller'; publicKeyHex: string }>
+  //
+  // Missão 11 Fase 5.2 — 'arbiter' added to the role union: a new MULTISIG
+  // escrow now carries a persisted, escrow-specific arbiter public-key
+  // commitment (EscrowParticipantKey role='arbiter'), exposed through this
+  // SAME field with zero new endpoint. A remote wallet's own independent
+  // policy reconstruction (packages/sails-sdk/src/modules/wallet-verification.ts's
+  // deriveExpectedMultisigAddress()) reads the arbiter's publicKeyHex from
+  // here, never from any server-private material. Widening a union is
+  // backward compatible — existing `role === 'buyer'` narrowing is
+  // unaffected.
+  participantKeys?: Array<{ participantId: string; role: 'buyer' | 'seller' | 'arbiter'; publicKeyHex: string }>
 }
 
 // Sails OpenProof (RFC-006, PROTOCOL_SPECIFICATION.md §1.8) — real as of

@@ -271,6 +271,14 @@ export const config = {
     // below) is also true — otherwise no dispute is ever AUTO_PROPOSED for
     // this to find.
     disputeAutoResolutionSweeper: process.env.DISPUTE_AUTO_RESOLUTION_SWEEPER === 'true',
+    // Missão 11 Fase 5 §7 — off by default, same reasoning as the two
+    // sweepers above: a real background process recognizing on-chain
+    // Protocol Fee collections is real economic-accounting behavior a
+    // deployment opts into deliberately. Structurally inert until a real
+    // FeePolicyVersion is published for MULTISIG (the only rail that can
+    // ever produce an IN_PROGRESS obligation) — safe to enable ahead of
+    // that with zero effect, but left off by default regardless.
+    multisigFeeConfirmationSweeper: process.env.MULTISIG_FEE_CONFIRMATION_SWEEPER === 'true',
   },
 
   trade: {
@@ -284,6 +292,12 @@ export const config = {
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.
     disputeAutoResolutionSweepIntervalMs: requiredInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
+    // How often the Fase 5 confirmation sweeper (when enabled) checks
+    // IN_PROGRESS MULTISIG fee obligations against the chain. Same
+    // 5-minute default as the other two sweepers — confirmation depth
+    // itself is a per-policy decision (FeePolicyVersion.requiredConfirmations),
+    // this is only how often the job bothers to look.
+    multisigFeeConfirmationSweepIntervalMs: requiredInt('MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 300000),
   },
 
   // Sails OpenProof (proof.service.ts) — Fase 1 Task 3(c). Evidence

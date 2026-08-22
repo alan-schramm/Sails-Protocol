@@ -72,8 +72,11 @@ import { OpenP2PTradeIntentHandler } from '../../src/modules/open-p2p/intent-han
 // Lazy require() (CODE_STYLE.md §8) — @satsails/p2p-trading-sdk is a heavy ESM-adjacent
 // package; no other demo script imports it, so it stays out of every path
 // that doesn't need it.
-function loadEscrowKeyModule(): typeof import('../../packages/sails-sdk/src/modules/escrow-key') {
-  return require('../../packages/sails-sdk/src/modules/escrow-key')
+// Missão 11 Fase 5 §12 — the canonical SDK verification module, not an ad-
+// hoc re-implementation. Lazy require() (CODE_STYLE.md §8), same reasoning
+// as this file's other heavy/ESM-adjacent imports.
+function loadWalletVerificationModule(): typeof import('../../packages/sails-sdk/src/modules/wallet-verification') {
+  return require('../../packages/sails-sdk/src/modules/wallet-verification')
 }
 
 const bip32 = BIP32Factory(ecc)
@@ -224,8 +227,6 @@ export async function main() {
   // was simply never updated after that refactor landed.
   intentEngine.registerHandler(OpenP2PTradeIntentHandler)
 
-  const { signEscrowPsbt } = loadEscrowKeyModule()
-
   // Missão 09 (2026-08-17, mainnet-readiness pass) — real gap found
   // running this script with MULTISIG_NETWORK=bitcoin for the first
   // time: every "testnet" string below was hardcoded (createOffer()'s/
@@ -299,7 +300,10 @@ export async function main() {
     // escrow's already-stored multisigAddr (submitParticipantKey() only
     // ever computes it once, so this check is not implicitly repeated by
     // resubmitting the keys — it has to be done explicitly here).
-    const rederived = await multisigProvider.getDepositAddress(escrowId, buyerKeys.publicKeyHex, sellerKeys.publicKeyHex)
+    // Missão 11 Fase 5.2 — getDepositAddress() now returns { address,
+    // arbiterPubkeyHex, arbiterId }, not a bare string (see its own header
+    // comment in multisig.provider.ts).
+    const { address: rederived } = await multisigProvider.getDepositAddress(escrowId, buyerKeys.publicKeyHex, sellerKeys.publicKeyHex)
     if (rederived !== depositAddress) {
       throw new Error(`Recovery FAILED: re-derived address (${rederived}) does not match the escrow's stored multisigAddr (${depositAddress}) — do not fund this escrow.`)
     }
@@ -416,6 +420,7 @@ export async function main() {
   if (!pending) throw new Error('unreachable — pending is always assigned in both branches above')
 
   step(8, TOTAL, 'Relatório pré-assinatura (obrigatório antes de qualquer assinatura real)...')
+  const escrowDetails = await escrowService.getEscrow(escrowId)
   const psbt = bitcoin.Psbt.fromBase64(pending.unsignedPsbtBase64)
   const txInput = psbt.txInputs[0]
   const inputTxid = Buffer.from(txInput.hash).reverse().toString('hex')
@@ -425,11 +430,11 @@ export async function main() {
   const totalOutputSats = outputs.reduce((sum, o) => sum + BigInt(o.value), 0n)
   const feeSats = BigInt(inputValueSats) - totalOutputSats
   // Same conservative 2-of-3 P2WSH vByte estimate multisig.provider.ts's
-  // own estimateFeeSats() uses (11 + 110 + 43*outputCount, outputCount=1
-  // for a release) — an estimate of the rate the provider actually paid,
-  // not a second independent fee-estimation call.
+  // own estimateFeeSats() uses (11 + 110 + 43*outputCount) — reported here
+  // for the human report only; the REAL independent verification below
+  // recomputes its own expected fee from a fresh explorer query, never
+  // from this display-only estimate.
   const estimatedVBytes = 11 + 110 + 43 * outputs.length
-  const onlyExpectedOutput = outputs.length === 1 && outputs[0].address === pending.toAddress
 
   console.log('\n=== RELATÓRIO PRÉ-ASSINATURA — NENHUMA ASSINATURA FOI FEITA ===')
   console.log(`   Funding txid: ${fundingUtxo?.txid ?? '(não observado nesta execução — reaproveitado de execução anterior, ver Escrow.txLockId)'}`)
@@ -442,13 +447,64 @@ export async function main() {
   console.log(`   Destination esperado (payout): ${pending.toAddress}`)
   outputs.forEach((o, i) => console.log(`   Output[${i}]: ${o.address} — ${o.value} sats`))
   console.log(`   Fee absoluta: ${feeSats} sats`)
-  console.log(`   Fee rate (estimado, ${estimatedVBytes} vB conservador p/ 2-of-3 P2WSH 1 output): ~${(Number(feeSats) / estimatedVBytes).toFixed(2)} sat/vB`)
-  console.log(`   Somente o output de payout esperado presente: ${onlyExpectedOutput}`)
+  console.log(`   Fee rate (estimado, ${estimatedVBytes} vB conservador p/ 2-of-3 P2WSH): ~${(Number(feeSats) / estimatedVBytes).toFixed(2)} sat/vB`)
   console.log(`   Required signers: ${pending.requiredSigners.join(', ')} (buyerId=${buyerId}, sellerId=${sellerId})`)
+  console.log(`   Escrow com fee policy ativa: ${!!escrowDetails.feePolicyVersionId} (waivedPreFunding=${escrowDetails.snapshotFeeCollectionWaivedPreFunding})`)
 
-  if (!onlyExpectedOutput) {
-    throw new Error('STOP — a PSBT tem outputs inesperados. Não prosseguir.')
+  // Missão 11 Fase 5 §12 (Fase 4.2 Activation Blocker D, closed for this
+  // real client flow): REAL, independent pre-signature verification via
+  // the canonical SDK helper (verifyAndSignEscrowPsbt()) — replacing the
+  // prior ad-hoc "onlyExpectedOutput" check, which also only ever handled
+  // the legacy single-output shape and never verified the input/outpoint,
+  // miner fee, threshold, or participant pubkeys at all. Every expected
+  // value below is reconstructed independently — from this escrow's own
+  // frozen fee-policy snapshot, the buyer's own known payout address, and
+  // a fresh, second fee-rate query against the SAME public explorer
+  // estimateFeeSats() itself queries — never by reading the PSBT and
+  // re-asserting what it already claims. Disclosed limitation: the
+  // arbiter's pubkey (needed for the threshold/participantPubkeys check)
+  // is obtained here via multisigProvider.getArbiterPubkeyHex(), which
+  // only works because this rehearsal script is co-located with
+  // MULTISIG_SEED — a genuinely remote wallet has no API to learn this
+  // today; that gap is real and tracked separately (Fase 5's own final
+  // report), not solved by this demo.
+  const { verifyAndSignEscrowPsbt, buildExpectedFeeAwareReleaseOutputs } = loadWalletVerificationModule()
+  const escrowKeyNetwork = config.multisig.network === 'bitcoin' || config.multisig.network === 'mainnet' ? 'mainnet' : 'testnet'
+  const lockedAmountSats = BigInt(Math.round(parseFloat(lockedAmountBtc) * 1e8))
+  const isPolicyAware = !!escrowDetails.feePolicyVersionId && escrowDetails.snapshotProtocolFeeRate !== null && escrowDetails.snapshotProtocolFeeRate !== undefined
+  const feeCollectible = isPolicyAware && !escrowDetails.snapshotFeeCollectionWaivedPreFunding
+
+  const feeRateBody = (await (await fetch(`${config.multisig.explorerApiUrl}/v1/fees/recommended`)).json()) as { halfHourFee: number }
+  const outputCountForFeeEstimate = feeCollectible ? 2 : 1
+  const expectedMinerFee = BigInt(Math.ceil(feeRateBody.halfHourFee * (11 + 110 + 43 * outputCountForFeeEstimate)))
+
+  const expectedOutputs = feeCollectible
+    ? buildExpectedFeeAwareReleaseOutputs({
+        lockedAmountSats,
+        protocolFeeRate: Number(escrowDetails.snapshotProtocolFeeRate),
+        minerFee: expectedMinerFee,
+        buyerAddress: buyerPayoutAddress,
+        secondOutputAddress: escrowDetails.snapshotFeeCollectionAddress!,
+      })
+    : [{ address: buyerPayoutAddress, value: lockedAmountSats - expectedMinerFee }]
+
+  const arbiterId = config.settlement.trustedArbitrators[0]
+  if (!arbiterId) throw new Error('TRUSTED_ARBITRATORS must have at least one entry for this rehearsal to verify the multisig script')
+  const arbiterPubkeyHex = multisigProvider.getArbiterPubkeyHex(arbiterId)
+
+  const expectedIntent = {
+    operation: 'RELEASE' as const,
+    network: escrowKeyNetwork as 'mainnet' | 'testnet',
+    escrowId,
+    input: { txid: inputTxid, vout: inputVout, value: BigInt(inputValueSats), multisigAddress: depositAddress },
+    outputs: expectedOutputs,
+    minerFee: expectedMinerFee,
+    threshold: 2,
+    participantPubkeys: [buyerKeys.publicKeyHex, sellerKeys.publicKeyHex, arbiterPubkeyHex],
+    requiredSigners: pending.requiredSigners,
   }
+
+  console.log(`   Verificação independente esperada: outputs=${JSON.stringify(expectedOutputs.map((o: { address: string; value: bigint }) => ({ address: o.address, value: o.value.toString() })))}, minerFee=${expectedMinerFee} sats`)
 
   if (process.env.DEMO_AUTHORIZE_SIGN !== 'true') {
     console.log('\n>>> STOP GATE: DEMO_AUTHORIZE_SIGN não está definido como "true" — nenhuma assinatura ou broadcast será feito.')
@@ -456,9 +512,13 @@ export async function main() {
     process.exit(0)
   }
 
-  step(8, TOTAL, 'Autorizado — assinando e enviando as 2 assinaturas (buyer + seller), a 2ª dispara combine + broadcast real...')
-  const buyerSigned = signEscrowPsbt(pending.unsignedPsbtBase64, buyerKeys.privateKey)
-  const sellerSigned = signEscrowPsbt(pending.unsignedPsbtBase64, sellerKeys.privateKey)
+  step(8, TOTAL, 'Autorizado — verificando (SDK real, cada parte independentemente) e assinando as 2 assinaturas (buyer + seller), a 2ª dispara combine + broadcast real...')
+  // verifyAndSignEscrowPsbt() makes signing STRUCTURALLY unreachable when
+  // verification fails — signEscrowPsbt() is never called directly here
+  // anymore. Both buyer and seller run the identical check independently,
+  // exactly as two separate real wallets would.
+  const buyerSigned = verifyAndSignEscrowPsbt(pending.unsignedPsbtBase64, expectedIntent, pending.requiredSigners, buyerKeys.privateKey)
+  const sellerSigned = verifyAndSignEscrowPsbt(pending.unsignedPsbtBase64, expectedIntent, pending.requiredSigners, sellerKeys.privateKey)
   await escrowService.submitTransactionSignature(escrowId, buyerId, buyerSigned)
   const result = await escrowService.submitTransactionSignature(escrowId, sellerId, sellerSigned)
   if (!result.complete || !result.escrow) {

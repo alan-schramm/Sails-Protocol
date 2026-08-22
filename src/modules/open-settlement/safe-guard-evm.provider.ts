@@ -337,9 +337,13 @@ export class SafeGuardEvmProvider implements SettlementProvider {
   // `submitParticipantKey()`) — called once both buyer and seller pubkeys
   // have arrived, same timing MULTISIG/LIGHTNING_HODL already use. Pure
   // CREATE2 math once owners are known — no RPC needed.
-  async getDepositAddress(tradeId: string, buyerPubkey: string, sellerPubkey: string): Promise<string> {
+  async getDepositAddress(tradeId: string, buyerPubkey: string, sellerPubkey: string): Promise<{ address: string }> {
     const owners = await this.owners({ tradeId, buyerPubkey, sellerPubkey })
-    return predictSafeAddress(owners, deriveSaltNonce(tradeId))
+    // Missão 11 Fase 5.2 — return shape widened to match
+    // NON_CUSTODIAL_PROVIDERS' shared interface (escrow-providers.ts's own
+    // comment). This provider's KMS-backed arbiter co-signer address is NOT
+    // persisted here — out of this phase's explicit MULTISIG-only scope.
+    return { address: predictSafeAddress(owners, deriveSaltNonce(tradeId)) }
   }
 
   private requireSafeAddress(escrow: SafeGuardEvmEscrowInput): string {

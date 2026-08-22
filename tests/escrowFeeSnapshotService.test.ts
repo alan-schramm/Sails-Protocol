@@ -146,12 +146,30 @@ describe('EscrowFeeSnapshotService.computeSnapshotFields() — Fase 4.1 pre-fund
     expect(result!.snapshotFeeCollectionAddress).toBe(COLLECTIBLE_ADDRESS)
   })
 
-  it('nonzero rate, a rail with no collection-economics concept (not MULTISIG): never pre-funding-waived, no address evaluated', async () => {
-    config.settlement.protocolFeeCollectionAddress = undefined // would waive if evaluated — proving it is NOT evaluated
+  // Missão 11 Fase 5 §10 (Fase 4.2 Activation Blocker B, closed): a
+  // PUBLISHED policy for a real rail with no fee-aware construction must
+  // never be snapshotted onto an escrow at all — this is a defense-in-depth
+  // backstop behind fee-policy.service.ts's own publish()-time gate, so it
+  // fails loudly here too if that gate is ever somehow bypassed (a raw-SQL
+  // insert, never a real application path). Superseded from Fase 4.1's own
+  // "never pre-funding-waived, no address evaluated" expectation, which
+  // predates this gate.
+  it('a real rail with no fee-collection capability (LIGHTNING_HODL) is refused, never silently snapshotted', async () => {
+    config.settlement.protocolFeeCollectionAddress = undefined
     const policy = fixturePolicy({ railScope: 'LIGHTNING_HODL', protocolFeeRate: '0.004' })
     const service = new EscrowFeeSnapshotService(new FeePolicyService(fakePolicyRepo(policy)))
 
-    const result = await service.computeSnapshotFields('LIGHTNING_HODL', '0.01')
+    await expect(service.computeSnapshotFields('LIGHTNING_HODL', '0.01')).rejects.toThrow(
+      /Fee policy activation is not supported for rail 'LIGHTNING_HODL'/
+    )
+  })
+
+  it('a fixture-only railScope (not a real EscrowType) is never gated by rail-activation', async () => {
+    config.settlement.protocolFeeCollectionAddress = undefined
+    const policy = fixturePolicy({ railScope: 'FIXTURE_RAIL_UNRELATED', protocolFeeRate: '0.004' })
+    const service = new EscrowFeeSnapshotService(new FeePolicyService(fakePolicyRepo(policy)))
+
+    const result = await service.computeSnapshotFields('FIXTURE_RAIL_UNRELATED', '0.01')
     expect(result!.snapshotFeeCollectionWaivedPreFunding).toBe(false)
     expect(result!.snapshotFeeCollectionAddress).toBeNull()
   })

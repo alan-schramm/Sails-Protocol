@@ -252,8 +252,26 @@ export class EscrowService {
 
     let updatedEscrow = escrow
     if (buyerKey && sellerKey && !escrow.multisigAddr && !config.features.mockEscrow) {
-      const address = await provider.getDepositAddress(trade.id, buyerKey.pubkey, sellerKey.pubkey)
+      const { address, arbiterPubkeyHex, arbiterId } = await provider.getDepositAddress(trade.id, buyerKey.pubkey, sellerKey.pubkey)
       updatedEscrow = await this.repo.updateMultisigAddr(escrowId, address)
+
+      // Missão 11 Fase 5.2 §2/§3 — persist the escrow-specific, immutable
+      // arbiter public-key commitment, using the EXACT bytes
+      // getDepositAddress() just used to build the script (never a second,
+      // independent derivation). Only MULTISIG populates arbiterPubkeyHex/
+      // arbiterId today (LIGHTNING_HODL/SAFE_GUARD_EVM leave them
+      // undefined — a disclosed, out-of-scope analogous gap, not fixed
+      // this phase). create() (not upsert) — this row is meant to be
+      // write-once; the DB trigger (escrow_participant_keys_arbiter_
+      // immutability_guard) is the defense-in-depth backstop if this
+      // branch is ever reached twice for the same escrow, which the
+      // `!escrow.multisigAddr` guard above should already make impossible
+      // in the normal flow.
+      if (arbiterPubkeyHex && arbiterId) {
+        await prisma.escrowParticipantKey.create({
+          data: { escrowId, role: 'arbiter', participantId: arbiterId, pubkey: arbiterPubkeyHex },
+        })
+      }
     }
 
     return { escrow: updatedEscrow, buyerKeySubmitted: !!buyerKey, sellerKeySubmitted: !!sellerKey }
@@ -294,11 +312,11 @@ export class EscrowService {
       // verifies against — every other provider ignores these extra
       // fields, same "optional, only two providers care" shape as
       // buyerId/sellerId below.
-      const { buyerPubkey, sellerPubkey } = NON_CUSTODIAL_PROVIDERS[escrow.type]
+      const { buyerPubkey, sellerPubkey, arbiterPubkey } = NON_CUSTODIAL_PROVIDERS[escrow.type]
         ? await loadParticipantPubkeys(escrowId)
-        : { buyerPubkey: undefined, sellerPubkey: undefined }
+        : { buyerPubkey: undefined, sellerPubkey: undefined, arbiterPubkey: undefined }
       const result = await provider.lockFunds({
-        ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey,
+        ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey,
       } as unknown as EscrowRecord)
 
       const now = new Date()

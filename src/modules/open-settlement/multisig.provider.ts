@@ -85,7 +85,10 @@ const log = childLogger('multisig-provider')
 
 type ExplorerUtxo = { txid: string; vout: number; value: number; status: { confirmed: boolean } }
 
-function networkFor(name: string): (typeof bitcoin.networks)[keyof typeof bitcoin.networks] {
+// Missão 11 Fase 5 — exported so escrow-pending-tx.ts's collection-
+// recognition wiring can resolve the same network identifyFeeOutput()
+// needs, without duplicating this mapping a second time.
+export function networkFor(name: string): (typeof bitcoin.networks)[keyof typeof bitcoin.networks] {
   if (name === 'bitcoin' || name === 'mainnet') return bitcoin.networks.bitcoin
   if (name === 'regtest') return bitcoin.networks.regtest
   return bitcoin.networks.testnet
@@ -132,6 +135,117 @@ export function evaluateFeeCollectibility(candidateFeeSats: number): { collectib
   return { collectible: true, collectionAddress: address }
 }
 
+export interface FeeOutputEvidence {
+  vout: number
+  amountSats: number
+  address: string
+  scriptPubKeyHex: string
+}
+
+// Missão 11 Fase 5 §5 — deterministic Sails-output identification. Matches
+// by the FROZEN expected destination script + expected amount — never "the
+// second output," "whatever isn't buyer/seller," or "whatever remains."
+// Works identically for RELEASE and SPLIT: a finalized PSBT's outputs are
+// byte-identical to the unsigned one construction produced (finalization
+// only adds witness/signature data, never touches outputs), so this can be
+// called against either `EscrowPendingTransaction.unsignedPsbtBase64`
+// (before broadcast) or a decoded broadcast transaction (after). Fails
+// closed — throws, never guesses — on zero matching outputs, more than one
+// matching output, or an amount mismatch, exactly as Fase 5 §5 requires.
+export function identifyFeeOutput(
+  psbtBase64: string,
+  expectedAddress: string,
+  expectedAmountSats: number,
+  network: bitcoin.Network
+): FeeOutputEvidence {
+  const psbt = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+  let expectedScript: Buffer
+  try {
+    expectedScript = Buffer.from(bitcoin.address.toOutputScript(expectedAddress, network))
+  } catch (err) {
+    throw new EscrowError(`identifyFeeOutput: expected collection address '${expectedAddress}' is invalid for the configured network: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  const matches = psbt.txOutputs
+    .map((o, vout) => ({ vout, script: Buffer.from(o.script), value: Number(o.value) }))
+    .filter((o) => o.script.equals(expectedScript))
+
+  if (matches.length === 0) {
+    throw new EscrowError(`identifyFeeOutput: no output pays the expected frozen collection destination '${expectedAddress}' — refusing to guess which output (if any) is the Protocol Fee.`)
+  }
+  if (matches.length > 1) {
+    throw new EscrowError(`identifyFeeOutput: ${matches.length} outputs pay the expected frozen collection destination '${expectedAddress}' — ambiguous, refusing to guess which one is the Protocol Fee.`)
+  }
+  const match = matches[0]
+  if (match.value !== expectedAmountSats) {
+    throw new EscrowError(`identifyFeeOutput: the output paying the expected destination carries ${match.value} sats, but ${expectedAmountSats} sats was expected — refusing to record collection evidence for a mismatched amount.`)
+  }
+  return { vout: match.vout, amountSats: match.value, address: expectedAddress, scriptPubKeyHex: match.script.toString('hex') }
+}
+
+export interface TransactionConfirmationStatus {
+  confirmed: boolean
+  blockHeight: number | null
+}
+
+// Missão 11 Fase 5 §7 — the one real chain query the confirmation-
+// recognition job needs: is this specific, already-broadcast txid
+// confirmed, and at what height. Same esplora/mempool.space-style REST
+// shape (`GET /tx/{txid}/status`) this provider's own fetchUtxos()/
+// broadcast() already rely on — no new explorer dependency introduced.
+export async function fetchTransactionConfirmationStatus(txid: string): Promise<TransactionConfirmationStatus> {
+  const res = await fetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`)
+  if (!res.ok) {
+    throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} checking confirmation status for ${txid}`)
+  }
+  const body = (await res.json()) as { confirmed: boolean; block_height?: number }
+  return { confirmed: !!body.confirmed, blockHeight: body.confirmed && typeof body.block_height === 'number' ? body.block_height : null }
+}
+
+export interface BroadcastTransactionOutput {
+  vout: number
+  /** Raw scriptPubKey, hex — esplora's own `scriptpubkey` field, always
+   *  present regardless of whether the script decodes to a standard
+   *  address. Comparing raw script bytes (never the human-readable
+   *  address string) is what makes this directly comparable against
+   *  identifyFeeOutput()'s own scriptPubKeyHex output. */
+  scriptPubKeyHex: string
+  valueSats: number
+}
+
+// Missão 11 Fase 5 §7 — fetches the REAL broadcast transaction's outputs
+// from the chain itself (never trusts the previously-recorded
+// FeeCollectionEvidence row on faith at confirmation time) so the
+// confirmation job can independently re-verify the fee output's
+// destination and amount against the escrow's own frozen snapshot before
+// ever recognizing a collection. Same esplora/mempool.space REST shape
+// (`GET /tx/{txid}`) every other explorer call in this file already uses.
+export async function fetchTransactionOutputs(txid: string): Promise<BroadcastTransactionOutput[]> {
+  const res = await fetch(`${config.multisig.explorerApiUrl}/tx/${txid}`)
+  if (!res.ok) {
+    throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} fetching transaction ${txid}`)
+  }
+  const body = (await res.json()) as { vout: Array<{ scriptpubkey: string; value: number }> }
+  return body.vout.map((o, vout) => ({ vout, scriptPubKeyHex: o.scriptpubkey, valueSats: o.value }))
+}
+
+// Missão 11 Fase 5 §7 — the second half of computing "how many
+// confirmations does this transaction actually have": confirmations =
+// tipHeight - blockHeight + 1. Same esplora/mempool.space REST shape
+// (`GET /blocks/tip/height`, a bare integer response) every other
+// explorer call in this file already relies on.
+export async function fetchChainTipHeight(): Promise<number> {
+  const res = await fetch(`${config.multisig.explorerApiUrl}/blocks/tip/height`)
+  if (!res.ok) {
+    throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} fetching the chain tip height`)
+  }
+  const text = (await res.text()).trim()
+  const height = Number(text)
+  if (!Number.isFinite(height)) {
+    throw new EscrowError(`MULTISIG provider: explorer API returned a non-numeric chain tip height: '${text}'`)
+  }
+  return height
+}
+
 // Same shape as wdk-settlement.provider.ts's escrowIndexFor/buyerIndexFor —
 // sha256(role:id) -> a stable, evenly-distributed non-hardened BIP-32
 // index. Exported for direct unit testing, same reason those are.
@@ -143,7 +257,15 @@ export function keyIndexFor(role: 'buyer' | 'seller' | 'arbiter', id: string): n
 export interface MultisigParties {
   buyerPubkey: Buffer   // 33-byte compressed secp256k1, client-submitted
   sellerPubkey: Buffer  // 33-byte compressed secp256k1, client-submitted
-  arbiterId: string     // still server-derived — see this file's header comment
+  // Missão 11 Fase 5.2 — the RESOLVED arbiter public key bytes, not an id
+  // to re-derive from. For a NEW escrow (one carrying a persisted
+  // arbiterPubkey commitment) this is that exact persisted value, parsed
+  // once; for a legacy escrow it is derived from live config, same as
+  // before. buildScript() below never derives an arbiter key itself
+  // anymore — it only ever consumes what partiesFor()/getDepositAddress()
+  // already resolved, so there is exactly one place per call path where a
+  // live derivation can happen, not two.
+  arbiterPubkey: Buffer
 }
 
 // Minimal shape this provider actually needs from an EscrowRecord — a
@@ -184,6 +306,17 @@ export type MultisigEscrowInput = {
   // never redirect its fee to a different destination.
   snapshotFeeCollectionAddress?: string | null
   snapshotFeeCollectionWaivedPreFunding?: boolean | null
+  // Missão 11 Fase 5.2 §2/§4 — the escrow-specific, immutable arbiter
+  // public-key commitment (hex, 33-byte compressed), from
+  // EscrowParticipantKey's role='arbiter' row. Undefined/null for a
+  // LEGACY escrow (one created before this phase, or one whose
+  // getDepositAddress() call never persisted a commitment for any other
+  // reason) — partiesFor() below falls back to live derivation in that
+  // case, byte-for-byte the pre-Fase-5.2 behavior. Never re-derived for a
+  // NEW escrow that has one: this is the one field that makes a future
+  // TRUSTED_ARBITRATORS/MULTISIG_SEED change unable to silently redefine
+  // what this specific escrow's script means.
+  arbiterPubkey?: string | null
 }
 
 export class MultisigProvider implements SettlementProvider {
@@ -223,23 +356,44 @@ export class MultisigProvider implements SettlementProvider {
     return master.derivePath(`m/0'/0/${index}`)
   }
 
+  // Missão 11 Fase 5 §12 — the ONE piece of information a real client-side
+  // pre-signature verification (verifySigningIntent()'s participantPubkeys/
+  // threshold check) needs that this provider derives itself rather than
+  // receiving from a client: the arbiter's PUBLIC key. Exposed as its own
+  // narrow, public-key-only method (never the private key, never the
+  // master node) so a co-located rehearsal script — or, in a real
+  // deployment, a future dedicated read endpoint, not built in this pass —
+  // can construct a genuine, independently-verified expectation instead of
+  // trusting the server's own PSBT on faith for the one pubkey it can't
+  // otherwise learn. Disclosed limitation: this method call itself is only
+  // meaningful when the caller is co-located with MULTISIG_SEED (as this
+  // mission's own rehearsal script is) — a truly remote wallet has no real
+  // way to call it today; see examples/demo/multisig-testnet-flow.ts's own
+  // comment at its call site for the honest scope of what this proves.
+  getArbiterPubkeyHex(arbiterId: string): string {
+    return Buffer.from(this.deriveArbiterKey(arbiterId).publicKey).toString('hex')
+  }
+
   // Sorted pubkey order (lexicographic, BIP67-style) — deterministic
   // regardless of submission order, so the same 3 parties always produce
-  // the same script/address.
+  // the same script/address. Missão 11 Fase 5.2 — no longer derives the
+  // arbiter key itself; consumes parties.arbiterPubkey exactly as resolved
+  // by the caller (getDepositAddress() or partiesFor() below), so this
+  // function can never itself be a point of divergence between what gets
+  // persisted and what gets built into the script.
   private buildScript(parties: MultisigParties) {
     const network = networkFor(config.multisig.network)
-    const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
 
-    const pubkeys = [parties.buyerPubkey, parties.sellerPubkey, Buffer.from(arbiterKey.publicKey)]
+    const pubkeys = [parties.buyerPubkey, parties.sellerPubkey, parties.arbiterPubkey]
       .sort(Buffer.compare)
 
     const p2ms = bitcoin.payments.p2ms({ m: 2, pubkeys, network })
     const p2wsh = bitcoin.payments.p2wsh({ redeem: p2ms, network })
 
-    return { p2ms, p2wsh, arbiterKey, network }
+    return { p2ms, p2wsh, network }
   }
 
-  private parsePubkey(hex: string | undefined, role: 'buyer' | 'seller', tradeId: string): Buffer {
+  private parsePubkey(hex: string | undefined, role: 'buyer' | 'seller' | 'arbiter', tradeId: string): Buffer {
     if (!hex) {
       throw new EscrowError(
         `MULTISIG provider requires a submitted ${role} pubkey for trade ${tradeId} — call POST /v1/settlement/escrow/:id/submit-key first (see EscrowParticipantKey)`
@@ -252,11 +406,20 @@ export class MultisigProvider implements SettlementProvider {
     return buf
   }
 
+  // Missão 11 Fase 5.2 §2 — branches on whether this escrow carries a
+  // persisted arbiter commitment. A NEW escrow's script is ALWAYS built
+  // from that persisted value, never re-derived from live config — the
+  // only way a future TRUSTED_ARBITRATORS/MULTISIG_SEED change can never
+  // silently redefine what this escrow's script means. A legacy escrow
+  // (arbiterPubkey undefined) falls back to the exact pre-Fase-5.2
+  // derivation, unchanged.
   private partiesFor(escrow: MultisigEscrowInput): MultisigParties {
     return {
       buyerPubkey: this.parsePubkey(escrow.buyerPubkey, 'buyer', escrow.tradeId),
       sellerPubkey: this.parsePubkey(escrow.sellerPubkey, 'seller', escrow.tradeId),
-      arbiterId: this.defaultArbiterId(),
+      arbiterPubkey: escrow.arbiterPubkey
+        ? this.parsePubkey(escrow.arbiterPubkey, 'arbiter', escrow.tradeId)
+        : Buffer.from(this.deriveArbiterKey(this.defaultArbiterId()).publicKey),
     }
   }
 
@@ -268,6 +431,28 @@ export class MultisigProvider implements SettlementProvider {
   private assertArbiterMatchesScript(escrow: MultisigEscrowInput) {
     if (escrow.status !== 'DISPUTED') return
     const scriptArbiter = this.defaultArbiterId()
+
+    // Missão 11 Fase 5.2 §6 — additive, escrow-specific check. For a NEW
+    // escrow carrying a persisted arbiterPubkey commitment, prefer that
+    // persisted cryptographic truth over live config: does the CURRENTLY
+    // live-derivable arbiter key still equal the exact key actually
+    // committed into THIS escrow's script at creation time? A future
+    // TRUSTED_ARBITRATORS/MULTISIG_SEED change can never silently redefine
+    // what a historical escrow's script means — if the live-derivable key
+    // no longer matches the persisted commitment, this fails closed here,
+    // before ever building a script or signing, rather than silently
+    // trusting "the identity matches today's config" as a stand-in for
+    // "the key matches what was actually committed."
+    if (escrow.arbiterPubkey) {
+      const liveArbiterPubkeyHex = this.getArbiterPubkeyHex(scriptArbiter)
+      if (liveArbiterPubkeyHex !== escrow.arbiterPubkey) {
+        throw new EscrowError(
+          `MULTISIG provider: the currently-configured arbiter key no longer matches the arbiter public key committed into trade ${escrow.tradeId}'s escrow at creation time ` +
+          '(TRUSTED_ARBITRATORS/MULTISIG_SEED changed since). Refusing to sign against a script whose committed arbiter cannot be reproduced from live configuration.'
+        )
+      }
+    }
+
     if (escrow.triggeredBy && escrow.triggeredBy !== scriptArbiter) {
       throw new EscrowError(
         `MULTISIG provider: dispute arbiter '${escrow.triggeredBy}' does not match the arbiter key ('${scriptArbiter}') baked into this escrow's script at creation time. ` +
@@ -282,15 +467,25 @@ export class MultisigProvider implements SettlementProvider {
   // hex directly (not an EscrowEscrowInput) since this runs before any
   // Escrow-shaped object with those fields necessarily exists in the
   // caller's hands.
-  async getDepositAddress(tradeId: string, buyerPubkeyHex: string, sellerPubkeyHex: string): Promise<string> {
+  //
+  // Missão 11 Fase 5.2 §2 — the arbiter key is derived EXACTLY ONCE here
+  // (arbiterPubkey below) and that same Buffer feeds BOTH buildScript()
+  // (script/address construction) AND the returned arbiterPubkeyHex
+  // (what escrow.service.ts persists as this escrow's immutable
+  // commitment) — there is no second, independent derivation anywhere in
+  // this call, so the persisted value and the script's real embedded key
+  // cannot diverge by construction.
+  async getDepositAddress(tradeId: string, buyerPubkeyHex: string, sellerPubkeyHex: string): Promise<{ address: string; arbiterPubkeyHex: string; arbiterId: string }> {
+    const arbiterId = this.defaultArbiterId()
+    const arbiterPubkey = Buffer.from(this.deriveArbiterKey(arbiterId).publicKey)
     const parties: MultisigParties = {
       buyerPubkey: this.parsePubkey(buyerPubkeyHex, 'buyer', tradeId),
       sellerPubkey: this.parsePubkey(sellerPubkeyHex, 'seller', tradeId),
-      arbiterId: this.defaultArbiterId(),
+      arbiterPubkey,
     }
     const { p2wsh } = this.buildScript(parties)
     if (!p2wsh.address) throw new EscrowError(`Failed to derive a P2WSH address for trade ${tradeId}`)
-    return p2wsh.address
+    return { address: p2wsh.address, arbiterPubkeyHex: arbiterPubkey.toString('hex'), arbiterId }
   }
 
   private async fetchUtxos(address: string): Promise<ExplorerUtxo[]> {
@@ -647,7 +842,7 @@ export class MultisigProvider implements SettlementProvider {
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: fmax, waived: fmax === 0 } : null
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
+      const arbiterKey = this.deriveArbiterKey(this.defaultArbiterId()) // Fase 5.2 — signing key still comes from live config, gated by assertArbiterMatchesScript() above having already confirmed it matches this escrow's persisted commitment
       psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
       if (!escrow.buyerId) {
         throw new EscrowError(`MULTISIG provider: missing buyerId for disputed release of trade ${escrow.tradeId}`)
@@ -687,7 +882,7 @@ export class MultisigProvider implements SettlementProvider {
     const psbt = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
+      const arbiterKey = this.deriveArbiterKey(this.defaultArbiterId()) // Fase 5.2 — signing key still comes from live config, gated by assertArbiterMatchesScript() above having already confirmed it matches this escrow's persisted commitment
       psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
       if (!escrow.sellerId) {
         throw new EscrowError(`MULTISIG provider: missing sellerId for disputed refund of trade ${escrow.tradeId}`)
@@ -750,8 +945,15 @@ export class MultisigProvider implements SettlementProvider {
     // Seller's bps-portion of T, in BTC-decimal, for the fee basis —
     // computed the same truncating way fee-obligation.service.ts's own
     // Decimal arithmetic does (floor, never round), so the two never
-    // disagree on the basis itself.
-    const sellerBasisSats = Math.floor((tSats * (10000 - buyerBps)) / 10000)
+    // disagree on the basis itself. Missão 11 Fase 5 §16 hardening: exact
+    // BigInt arithmetic, not JS Number multiplication — the prior
+    // `Math.floor((tSats * (10000 - buyerBps)) / 10000)` could lose
+    // precision once `tSats * (10000 - buyerBps)` exceeded
+    // Number.MAX_SAFE_INTEGER (~9,007 BTC in a single trade), a real gap
+    // Fase 4.2's adversarial audit found. The final result (always ≤ tSats)
+    // is safely representable as a Number regardless; only the
+    // intermediate product needed BigInt exactness.
+    const sellerBasisSats = Number((BigInt(tSats) * BigInt(10000 - buyerBps)) / 10000n)
     const sellerBasisBtc = new Prisma.Decimal(sellerBasisSats).dividedBy(1e8)
     const feeDecision = policyAware && fmax > 0
       ? this.decideFeeCollection(escrow, sellerBasisBtc, network)
@@ -782,7 +984,7 @@ export class MultisigProvider implements SettlementProvider {
 
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: collectedFee, waived: feeDecision.waived } : null
 
-    const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
+    const arbiterKey = this.deriveArbiterKey(this.defaultArbiterId()) // Fase 5.2 — signing key still comes from live config, gated by assertArbiterMatchesScript() above having already confirmed it matches this escrow's persisted commitment
     psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
     if (!escrow.buyerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId for disputed split of trade ${escrow.tradeId}`)

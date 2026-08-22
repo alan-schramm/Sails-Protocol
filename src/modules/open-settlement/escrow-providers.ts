@@ -175,7 +175,15 @@ export const PROVIDERS: Record<string, SettlementProvider> = {
 // previously absent here entirely, meaning submitParticipantKey() never
 // derived/persisted a Safe address for it and lockFunds() had no
 // multisigAddr to verify a balance against.
-export const NON_CUSTODIAL_PROVIDERS: Record<string, { getDepositAddress(tradeId: string, buyerPubkey: string, sellerPubkey: string): Promise<string> }> = {
+// Missão 11 Fase 5.2 §2 — getDepositAddress()'s return shape widened from a
+// bare address string to include the arbiter commitment MultisigProvider
+// now resolves as part of the SAME script-building call (never a second,
+// independent derivation — see its own header comment). arbiterPubkeyHex/
+// arbiterId are optional: LIGHTNING_HODL/SAFE_GUARD_EVM don't populate them
+// (out of this phase's scope — their own analogous arbiter-commitment gap
+// is disclosed, not fixed, in this mission's report), so they simply wrap
+// their existing address in `{ address }` and leave the rest undefined.
+export const NON_CUSTODIAL_PROVIDERS: Record<string, { getDepositAddress(tradeId: string, buyerPubkey: string, sellerPubkey: string): Promise<{ address: string; arbiterPubkeyHex?: string; arbiterId?: string }> }> = {
   MULTISIG: multisigProvider,
   LIGHTNING_HODL: lightningHodlProvider,
   SAFE_GUARD_EVM: safeGuardEvmProvider,
@@ -251,6 +259,50 @@ const RECOMMENDED_ESCROW_TYPE: Partial<Record<AssetType, EscrowType>> = {
   BTC: 'MULTISIG',
   LN_BTC: 'LIGHTNING_HODL',
   USDT_ERC20: 'WDK_USDT_EVM',
+}
+
+// Missão 11 Fase 5 §10 — Rail Activation Gating. Fee-collection capability
+// is SEPARATE from settlement capability: implementing SettlementProvider
+// (every rail in PROVIDERS above) does not imply real, atomic Protocol Fee
+// construction. Only MULTISIG builds a real Sails fee output today (Fase
+// 4/4.1) — this is the ONE place that truth is declared, consumed by both
+// escrow-fee-snapshot.service.ts's pre-funding check and
+// fee-policy.service.ts's publish()-time activation gate, so the two
+// questions ("is this rail collection-capable" and "can this rail's
+// policy go live") can never independently drift. Extend this set only
+// once a rail's own buildUnsignedRelease()/buildUnsignedSplit() actually
+// construct a real, tested fee output — never in anticipation of one.
+export const FEE_COLLECTION_CAPABLE_RAILS: ReadonlySet<string> = new Set(['MULTISIG'])
+
+// The five real EscrowType values this gate applies to — deliberately
+// NOT every possible railScope string. FeePolicyVersion.railScope is
+// intentionally free-form (this file's own EscrowRecord/PROVIDERS
+// comments explain why), and this codebase's own isolated accounting
+// tests (Fase 2.2/3) legitimately publish policies against fixture rail
+// names that were never meant to represent a real settlement rail — this
+// gate must never reject those. It only ever fires for a railScope that
+// IS one of these five real, addressable rails.
+const REAL_ESCROW_TYPES: ReadonlySet<string> = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM', 'WDK_USDT_EVM', 'MOCK'])
+
+// Missão 11 Fase 4.2's own Activation Blocker B, closed here: a
+// FeePolicyVersion must not become active for a rail with no real
+// fee-aware collection — publishing one for LIGHTNING_HODL/SAFE_GUARD_EVM/
+// WDK_USDT_EVM/MOCK would silently create FeeObligation rows reporting a
+// real, positive computedFee while the underlying settlement never
+// collects a single unit. Two real call sites use this identically:
+// fee-policy.service.ts's publish() (the real production activation gate)
+// and escrow-fee-snapshot.service.ts's computeSnapshotFields() (a second,
+// defense-in-depth check — catching a policy that somehow reached
+// PUBLISHED status without going through publish(), e.g. a raw-SQL
+// insert, which should never happen via any real application path but
+// must fail loudly, not silently snapshot, if it ever does).
+export function assertRailCanActivateFeeCollection(railScope: string): void {
+  if (REAL_ESCROW_TYPES.has(railScope) && !FEE_COLLECTION_CAPABLE_RAILS.has(railScope)) {
+    throw new EscrowError(
+      `Fee policy activation is not supported for rail '${railScope}' — it has no real, atomic Protocol Fee collection implementation ` +
+      `(Missão 11 Fase 5 rail-activation gating). Only ${[...FEE_COLLECTION_CAPABLE_RAILS].join(', ')} may activate a real fee policy today.`
+    )
+  }
 }
 
 export function recommendedEscrowType(asset: AssetType): EscrowType {

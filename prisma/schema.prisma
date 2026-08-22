@@ -478,6 +478,22 @@ model FeePolicyVersion {
   treasuryPct          Decimal           @db.Decimal(24, 8)
   walletRebatePct      Decimal           @db.Decimal(24, 8)
   arbitratorReservePct Decimal           @db.Decimal(24, 8)
+  // Missão 11 Fase 5 §3 — the confirmation-depth rule a rail's collection-
+  // recognition job uses to decide when a broadcast fee output becomes
+  // COLLECTED, not a global constant. Nullable, no default: a DRAFT policy
+  // may omit it, but publish() (fee-policy.service.ts) refuses to publish
+  // a policy without a real, positive value set — same "structural
+  // validation only, never a chosen production number" discipline the
+  // bucket-percentage-sum-to-100 check already uses. Deliberately NOT
+  // duplicated onto Escrow as a separate snapshot column: Escrow.
+  // feePolicyVersionId is itself frozen forever (DB trigger,
+  // onDelete: Restrict), and this column is protected by the SAME
+  // publish-time immutability trigger as every other economic column below
+  // — reading it via escrow.feePolicyVersion.requiredConfirmations at
+  // confirmation-check time is therefore already guaranteed to return the
+  // exact value that was live when this escrow was created, with no
+  // separate freeze mechanism needed.
+  requiredConfirmations Int?
   // Rail-specific, deliberately still-evolving structured data (Fase 1.2
   // §4/§5) — genuinely variable shape per rail, same "flexible JSON for
   // still-evolving structured data" precedent this schema already uses for
@@ -1099,7 +1115,30 @@ model EscrowParticipantKey {
   // first migration; only the domain check below (role must match the
   // trade's own buyer/seller) is application-level, not this field's
   // referential integrity.
-  role          String   // 'buyer' | 'seller' — must match the trade's own buyerId/sellerId, enforced in escrow.service.ts
+  //
+  // Missão 11 Fase 5.2 — a third role, 'arbiter', was added to this SAME
+  // table rather than a new column/table (chosen over a dedicated
+  // Escrow.arbiterPubkeyHex column after reading this model's own
+  // @@unique([escrowId, role]) and mapParticipantKeysShape() first, per
+  // the Fase 5.2 report's own storage-model reasoning): it already gives
+  // per-escrow-per-role uniqueness, and the existing authenticated GET
+  // /v1/settlement/escrow/:id response already returns participantKeys
+  // verbatim, so an arbiter row is exposed to the escrow's own
+  // buyer/seller/assigned-arbiter with ZERO route/DTO changes. For an
+  // 'arbiter' row, participantId is the arbiter's TRUSTED_ARBITRATORS
+  // identity string (the same identity space as Dispute.arbiterId, NOT a
+  // trade party id), written ONCE, server-side, by
+  // escrow.service.ts's submitParticipantKey() at first-script-build
+  // time (never by the client-facing submit-key route, which only ever
+  // upserts 'buyer'/'seller'). Write-once: enforced at the DB level by
+  // escrow_participant_keys_arbiter_immutability_guard (see this
+  // migration's own comment) — UPDATE/DELETE of an existing 'arbiter' row
+  // is rejected by Postgres itself, not just application discipline. A
+  // legacy escrow (created before this phase) has no 'arbiter' row at
+  // all — MultisigProvider.partiesFor() falls back to live derivation for
+  // those, unchanged from before this phase (no fake backfill was ever
+  // performed to manufacture one).
+  role          String   // 'buyer' | 'seller' | 'arbiter' — buyer/seller must match the trade's own buyerId/sellerId, enforced in escrow.service.ts; arbiter is write-once, DB-enforced (see above)
   participantId String
   // 33-byte compressed secp256k1 pubkey, hex (66 chars) — the canonical
   // submitted format. MultisigProvider's P2WSH/OP_CHECKMULTISIG script

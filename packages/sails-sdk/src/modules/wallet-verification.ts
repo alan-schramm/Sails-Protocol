@@ -74,6 +74,37 @@ function sortedJoin(values: string[]): string {
   return [...values].map((v) => v.toLowerCase()).sort().join(',')
 }
 
+// Missão 11 Fase 5.1 §4 — a genuinely remote wallet's own independent
+// reconstruction of the escrow's expected 2-of-3 P2WSH deposit address,
+// from nothing but the three participant pubkeys and the threshold — no
+// server-side derivation, no PSBT, no witnessScript decode. This is the
+// SAME construction multisig.provider.ts's own buildScript() uses
+// server-side (m-of-n P2MS wrapped in P2WSH, pubkeys sorted
+// lexicographically as raw bytes — BIP67-style, for determinism, not a
+// security requirement of the script itself: a 2-of-3 P2MS is equally
+// spendable by any 2 of the 3 keys regardless of push order). Address
+// derivation DOES depend on the exact script bytes, so reproducing the
+// identical sort is what makes this address match Sails' own — unlike
+// verifySigningIntent()'s witnessScript check below (which correctly
+// treats the 3 keys as an order-independent SET, since a decoded script's
+// pubkeys are already fixed and spendability never depends on their
+// order), this function must sort BEFORE constructing the script, exactly
+// as the server does, to arrive at a byte-identical result.
+//
+// Fails closed structurally, not just by convention: an invalid pubkey or
+// unsupported network throws (via bitcoinjs-lib itself), never returns a
+// best-effort guess.
+export function deriveExpectedMultisigAddress(pubkeysHex: string[], threshold: number, network: EscrowKeyNetwork): string {
+  const btcNetwork = networkFor(network)
+  const pubkeys = pubkeysHex.map((hex) => Buffer.from(hex, 'hex')).sort(Buffer.compare)
+  const p2ms = bitcoin.payments.p2ms({ m: threshold, pubkeys, network: btcNetwork })
+  const p2wsh = bitcoin.payments.p2wsh({ redeem: p2ms, network: btcNetwork })
+  if (!p2wsh.address) {
+    throw new Error('deriveExpectedMultisigAddress: bitcoinjs-lib did not produce an address for the given pubkeys/threshold/network')
+  }
+  return p2wsh.address
+}
+
 /**
  * Decodes the real PSBT and compares it, field by field, against
  * `expected` and the `requiredSignersActual` the caller received

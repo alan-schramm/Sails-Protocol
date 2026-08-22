@@ -10,22 +10,38 @@
 // trigger), and whether the Escrow fee-snapshot columns get the same
 // protection.
 //
-// Same skip-gracefully pattern as tests/integration/postgresProductionReadiness.test.ts.
+// Missão 11 Fase 5.3 §B — this file used to fall back to a stale,
+// hardcoded ":5433" connection string whenever `DATABASE_URL` wasn't
+// already present in `process.env` at module-evaluation time (before
+// `src/config`'s own `dotenv/config` import had ever run). Confirmed
+// reproducible: run in an isolated process (`npx jest --runInBand
+// tests/integration/feePolicyImmutability.test.ts` alone, nothing else in
+// the same worker), every single assertion below silently early-returned
+// while Jest still reported "8 passed" — a genuine false green, not a
+// hypothetical one, even though the real local Postgres (.env's own
+// DATABASE_URL, port 5432) was reachable the entire time. Fixed two ways:
+// (1) the connection string now comes from `config.database.url` itself
+// (the same canonical, dotenv-resolved source Fase 5.2's own
+// escrowArbiterCommitmentIntegration.test.ts already established), never
+// a second, independently-guessed fallback; (2) unreachable Postgres now
+// FAILS the test loudly (requirePostgres() throws) instead of silently
+// returning — a test that requires real Postgres must never appear green
+// without having actually run.
 
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-
-const DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5433/sails_protocol'
 
 describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2.2, real Postgres)', () => {
   jest.setTimeout(60_000)
 
   let dbAvailable = false
+  let dbUrl = ''
   let prisma: PrismaClient
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = DATABASE_URL
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
+    const { config } = require('../../src/config')
+    dbUrl = config.database.url
+    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: dbUrl }) })
     try {
       await probe.$queryRaw`SELECT 1`
       dbAvailable = true
@@ -42,12 +58,13 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  function skip(name: string): boolean {
+  // Missão 11 Fase 5.3 §B — replaces the old skip()-and-silently-return
+  // helper. Throws (fails the test loudly) rather than returning quietly,
+  // so an unreachable Postgres can never masquerade as a passing test.
+  function requirePostgres(name: string): void {
     if (!dbAvailable) {
-      console.warn(`Skipping "${name}" - no real Postgres reachable at ${DATABASE_URL}`)
-      return true
+      throw new Error(`"${name}" requires a real Postgres connection, unreachable at ${dbUrl} — start it (npm run db:local:start) before running this suite.`)
     }
-    return false
   }
 
   function fixturePolicyData(overrides: Record<string, any> = {}) {
@@ -62,6 +79,7 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
       treasuryPct: '25',
       walletRebatePct: '35',
       arbitratorReservePct: '10',
+      requiredConfirmations: 2, // fixture value (Missão 11 Fase 5 §3) — never a chosen production number
       createdBy: 'integration-test-fixture',
       ...overrides,
     }
@@ -71,7 +89,7 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
   // the trigger's own OLD.status <> 'DRAFT' condition genuinely gates on
   // status, not on some other property).
   it('Test A: a DRAFT policy\'s economic fields can be changed via raw SQL', async () => {
-    if (skip('Test A')) return
+    requirePostgres('Test A')
     const draft = await prisma.feePolicyVersion.create({ data: fixturePolicyData() })
 
     await prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET "protocolFeeRate" = 0.01 WHERE id = $1`, draft.id)
@@ -86,7 +104,7 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
   // fee-policy-repository.ts itself (no update() member); reconfirmed here
   // behaviorally: publish() only ever writes status+publishedAt.
   it('Test B: FeePolicyService.publish() never touches economic columns, even though it has full row access', async () => {
-    if (skip('Test B')) return
+    requirePostgres('Test B')
     const { FeePolicyService } = require('../../src/modules/open-settlement/fee-policy.service')
     const { feePolicyVersionRepository } = require('../../src/modules/open-settlement/fee-policy-repository')
     const service = new FeePolicyService(feePolicyVersionRepository)
@@ -103,7 +121,7 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
   // proof the CTO explicitly required against a real database, not mocked
   // Prisma.
   it('Test C: a raw SQL UPDATE touching an economic column on a PUBLISHED policy is rejected by the database trigger', async () => {
-    if (skip('Test C')) return
+    requirePostgres('Test C')
     const draft = await prisma.feePolicyVersion.create({ data: fixturePolicyData() })
     await prisma.feePolicyVersion.update({ where: { id: draft.id }, data: { status: 'PUBLISHED', publishedAt: new Date() } })
 
@@ -117,7 +135,7 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
 
   // Test D: RETIRED stays exactly as locked as PUBLISHED.
   it('Test D: a raw SQL UPDATE touching an economic column on a RETIRED policy is also rejected', async () => {
-    if (skip('Test D')) return
+    requirePostgres('Test D')
     const draft = await prisma.feePolicyVersion.create({ data: fixturePolicyData() })
     await prisma.feePolicyVersion.update({ where: { id: draft.id }, data: { status: 'PUBLISHED', publishedAt: new Date() } })
     await prisma.feePolicyVersion.update({ where: { id: draft.id }, data: { status: 'RETIRED', retiredAt: new Date() } })
@@ -134,9 +152,26 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
     expect(row.retiredAt).not.toBeNull()
   })
 
+  // Test D2 (Missão 11 Fase 5 §3): requiredConfirmations is protected by
+  // the SAME trigger as every other economic/identity column — a
+  // confirmation-depth rule cannot be changed out from under an escrow
+  // that already snapshotted this policy.
+  it('Test D2: a raw SQL UPDATE touching requiredConfirmations on a PUBLISHED policy is rejected', async () => {
+    requirePostgres('Test D2')
+    const draft = await prisma.feePolicyVersion.create({ data: fixturePolicyData() })
+    await prisma.feePolicyVersion.update({ where: { id: draft.id }, data: { status: 'PUBLISHED', publishedAt: new Date() } })
+
+    await expect(
+      prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET "requiredConfirmations" = 99 WHERE id = $1`, draft.id)
+    ).rejects.toThrow(/economic\/identity fields are immutable/)
+
+    const unchanged = await prisma.feePolicyVersion.findUniqueOrThrow({ where: { id: draft.id } })
+    expect(unchanged.requiredConfirmations).toBe(2)
+  })
+
   // Test E: Escrow's own thin fee-policy scalar snapshot is immutable once set.
   it('Test E: an Escrow\'s fee-policy snapshot cannot change once set, via raw SQL', async () => {
-    if (skip('Test E')) return
+    requirePostgres('Test E')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fee-snap-${suffix}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fee-snap-${suffix}` } })
@@ -181,7 +216,7 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
   // and the database itself is the real guarantee, not just application
   // code (multisig.provider.ts always reading the frozen field).
   it('Test F: an Escrow\'s frozen collection destination cannot change once set, via raw SQL (Fase 4.1)', async () => {
-    if (skip('Test F')) return
+    requirePostgres('Test F')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fee-dest-${suffix}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fee-dest-${suffix}` } })
@@ -235,7 +270,7 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
   // the part of "must reference a valid, real policy" the database enforces
   // on its own.
   it('Test I (FK layer): a FeeObligation referencing a nonexistent FeePolicyVersion is rejected by Postgres', async () => {
-    if (skip('Test I (FK layer)')) return
+    requirePostgres('Test I (FK layer)')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fk-${suffix}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fk-${suffix}` } })

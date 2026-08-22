@@ -36,6 +36,7 @@ import {
   type FeePolicyVersionRepository,
   type CreateDraftFeePolicyVersionData,
 } from './fee-policy-repository'
+import { assertRailCanActivateFeeCollection } from './escrow-providers'
 
 const HUNDRED = new Prisma.Decimal(100)
 const ZERO = new Prisma.Decimal(0)
@@ -92,6 +93,25 @@ export class FeePolicyService {
         { total: total.toString() }
       )
     }
+
+    // Missão 11 Fase 5 §3 — structural validation only, same discipline as
+    // the percentage-sum check above: a real confirmation depth is never
+    // chosen here, but publish() refuses to activate a policy with no
+    // depth (or a non-positive one) set at all. Fixture values (1, 2) are
+    // exactly what this codebase's own tests use — this only rejects the
+    // absence of a real decision, never picks one.
+    if (policy.requiredConfirmations === null || policy.requiredConfirmations === undefined || policy.requiredConfirmations <= 0) {
+      throw new ValidationError(
+        'requiredConfirmations must be a positive integer before a policy can be published — the collection-recognition job has no confirmation-depth rule to apply otherwise',
+        { requiredConfirmations: String(policy.requiredConfirmations) }
+      )
+    }
+
+    // Missão 11 Fase 5 §10 — the real activation gate (Fase 4.2 Activation
+    // Blocker B): a rail with no real, atomic fee-aware construction must
+    // never have a policy go live, regardless of how structurally valid
+    // its rate/bucket-split/confirmation-depth fields are.
+    assertRailCanActivateFeeCollection(policy.railScope)
 
     return this.repo.publish(id)
   }
