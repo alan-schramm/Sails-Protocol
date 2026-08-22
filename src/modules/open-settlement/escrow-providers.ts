@@ -66,6 +66,21 @@ export type EscrowRecord = {
   // signature instead of attempting one that would fail to validate. See
   // multisig.provider.ts's assertArbiterMatchesScript().
   triggeredBy?: string
+  // Missão 11 Fase 4 — the escrow's own immutable fee-policy snapshot
+  // (Escrow columns, Fase 2.2/2.3). Already carried through by every real
+  // call site's existing `{ ...escrow, ... }` spread (escrow.service.ts/
+  // escrow-pending-tx.ts) — declared here so provider code can read them
+  // with real types instead of an unsafe cast. Null/undefined for every
+  // legacy escrow, unchanged behavior.
+  feePolicyVersionId?: string | null
+  snapshotProtocolFeeRate?: string | null
+  fundedAmount?: string | null
+  // Missão 11 Fase 4.1 — the frozen collection destination and
+  // pre-funding-waiver decision (see multisig.provider.ts's own
+  // MultisigEscrowInput comment for the full explanation). Same
+  // null/undefined-for-legacy convention as the other snapshot fields.
+  snapshotFeeCollectionAddress?: string | null
+  snapshotFeeCollectionWaivedPreFunding?: boolean | null
 }
 
 // ─── SettlementProvider — the protocol interface (Sails Protocol Spec) ────────
@@ -75,7 +90,13 @@ export interface SettlementProvider {
   // real Bitcoin-style outpoint (MULTISIG) populate it; every other
   // provider's existing return shape ({txId, address}) still satisfies
   // this type unchanged.
-  lockFunds(escrow: EscrowRecord): Promise<{ txId: string; address: string; vout?: number }>
+  // Missão 11 Fase 4 — fundedAmount is optional/additive: only providers
+  // that observe a real external funding amount (MULTISIG) populate it;
+  // every other provider's existing return shape stays valid unchanged.
+  // Purely observational (escrow.service.ts persists it to Escrow.fundedAmount
+  // for policy-aware escrows only) — never the source of truth for
+  // construction, which always re-reads the real chain/provider state.
+  lockFunds(escrow: EscrowRecord): Promise<{ txId: string; address: string; vout?: number; fundedAmount?: number }>
   releaseFunds(escrow: EscrowRecord, toAddress: string): Promise<{ txId: string }>
   refundFunds(escrow: EscrowRecord): Promise<{ txId: string }>
   verifyLock(escrow: EscrowRecord): Promise<boolean>
@@ -172,8 +193,21 @@ export const NON_CUSTODIAL_PROVIDERS: Record<string, { getDepositAddress(tradeId
 // checkpoint PSBTs (see lightning-hodl.provider.ts's own header comment)
 // — this service never inspects the string's contents itself, only
 // stores/relays it, so the difference is invisible here.
+// Missão 11 Fase 4 — populated only by a provider that actually implements
+// fee-aware output construction (MULTISIG this pass); null/absent for a
+// legacy (non-policy-aware) escrow, and for any provider that hasn't been
+// extended yet (LIGHTNING_HODL/SAFE_GUARD_EVM — see this mission's own
+// rail-parity audit for why their construction is deliberately unchanged
+// this phase). Lets escrow-pending-tx.ts persist the real, actually-built
+// fee amount as collection evidence, rather than a second independent
+// recomputation.
+export interface FeeCollectionResult {
+  feeSats: number
+  waived: boolean
+}
+
 export interface SignatureCollectionProvider {
-  buildUnsignedRelease(escrow: unknown, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }>
+  buildUnsignedRelease(escrow: unknown, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null }>
   buildUnsignedRefund(escrow: unknown): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string }>
   finalizeRelease(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
   finalizeRefund(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
@@ -184,7 +218,7 @@ export interface SignatureCollectionProvider {
   // how many outputs it spends to. Only MULTISIG implements this pass;
   // LIGHTNING_HODL/SAFE_GUARD_EVM each have a real, provider-specific
   // reason they can't (see each one's own buildUnsignedSplit() override).
-  buildUnsignedSplit?(escrow: unknown, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[] }>
+  buildUnsignedSplit?(escrow: unknown, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null }>
   finalizeSplit?(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
 }
 export const SIGNATURE_COLLECTION_PROVIDERS: Record<string, SignatureCollectionProvider> = {

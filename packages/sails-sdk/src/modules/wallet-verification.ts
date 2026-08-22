@@ -34,6 +34,17 @@ export interface ExpectedSigningIntent {
     /** The escrow's own known deposit address (Escrow.multisigAddr) — cross-checks that the input being spent really is this escrow's funding UTXO, not just "some UTXO". */
     multisigAddress: string
   }
+  // Missão 11 Fase 4 §I — deliberately GENERIC, not "buyer output + seller
+  // output" fields. This is what already makes Protocol Fee verification
+  // possible with ZERO change to the comparison loop below: a caller that
+  // includes the expected Sails fee output (or, in the waived case, the
+  // seller's reserve-refund output) as one more entry in this array gets
+  // the exact same script-bytes + value verification, and the exact same
+  // "no output expected at this index" fail-closed rejection of any
+  // unexpected/extra output (including a residual value-extraction
+  // attempt), as every other output already receives. See
+  // buildExpectedFeeAwareOutputs() below for computing this array's fee
+  // leg without reimplementing the arithmetic from scratch.
   outputs: Array<{ address: string; value: bigint }>
   minerFee: bigint
   /** Informational only — never compared against dust-relay policy or used to gate verification; miner fee, dust threshold, and Sails protocol fee remain distinct concepts (Missão 10 Fase 4-5). */
@@ -232,6 +243,56 @@ export function verifySigningIntent(
   }
 
   return { ok: mismatches.length === 0, mismatches }
+}
+
+// Missão 11 Fase 4 §I — the wallet-side mirror of multisig.provider.ts's
+// own fee-reserve arithmetic (fee-reserve-math.ts), so a wallet can build
+// its OWN expected fee-aware outputs and pass them into
+// ExpectedSigningIntent.outputs above, independent of anything the server
+// claims — never trusting a server-supplied fee amount without
+// recomputing it from the escrow's own frozen policy snapshot.
+//
+// Precision note, disclosed rather than hidden: this SDK has no Decimal.js
+// dependency, so this computes directly in integer satoshis using a plain
+// floating-point multiply-then-floor, unlike the server's own
+// Prisma.Decimal-based computation (fee-reserve-math.ts). At the trade
+// sizes and rates this protocol targets, this cannot silently UNDER-verify
+// (float error, if any, can only ever make this helper's number disagree
+// with the server's exact one, which fails the comparison CLOSED — the
+// safe direction — never causes a bad output to be silently accepted).
+// A wallet author needing bit-for-bit parity with the server's exact
+// rounding should implement this with their own fixed-point arithmetic
+// instead of relying on this convenience helper.
+export interface FeeAwareReleaseParams {
+  lockedAmountSats: bigint
+  protocolFeeRate: number
+  minerFee: bigint
+  buyerAddress: string
+  /** Sails' configured collection address, OR the seller's own refund
+   *  address if the caller already knows the fee will be waived — this
+   *  helper does not decide waiver itself (that requires the real
+   *  destination's dust threshold, a rail-specific concept this SDK
+   *  module deliberately does not own — see bitcoin-dust-policy.ts on the
+   *  server side for the authoritative check). */
+  secondOutputAddress: string
+}
+
+/** Computes the two expected RELEASE outputs (buyer = T-M, second = Fmax)
+ *  for a policy-aware escrow — Fmax equals the actual fee for a plain
+ *  release (basis = T always), so this single computation serves both the
+ *  normal (Sails) and waived (seller-refund) destination cases; the caller
+ *  decides which address the second output should be. */
+export function buildExpectedFeeAwareReleaseOutputs(params: FeeAwareReleaseParams): Array<{ address: string; value: bigint }> {
+  const fmax = BigInt(Math.floor(Number(params.lockedAmountSats) * params.protocolFeeRate))
+  // buyerPool = T - M. Algebraically this is the server's own
+  // (spendableValue - Fmax) with spendableValue = (T+Fmax) - M — the +Fmax
+  // and -Fmax cancel, so this is written directly rather than through the
+  // intermediate reserve-inclusive form.
+  const buyerPool = params.lockedAmountSats - params.minerFee
+  return [
+    { address: params.buyerAddress, value: buyerPool },
+    { address: params.secondOutputAddress, value: fmax },
+  ]
 }
 
 export class SigningIntentVerificationError extends Error {

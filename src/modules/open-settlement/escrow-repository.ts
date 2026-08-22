@@ -47,6 +47,19 @@ export interface CreateEscrowData {
   asset: AssetType
   network: string | undefined
   timelockHours: number
+  // Missão 11 Fase 4.1 §4 — the fee-policy snapshot, computed BEFORE this
+  // escrow exists (escrow-fee-snapshot.service.ts's computeSnapshotFields())
+  // and folded into this SAME insert rather than a separate update
+  // afterward. Optional/undefined for every legacy escrow (no PUBLISHED
+  // policy for this rail) — identical to today's behavior in that case.
+  feeSnapshot?: {
+    feePolicyVersionId: string
+    snapshotProtocolFeeRate: Prisma.Decimal
+    snapshotPayerModel: Prisma.EscrowCreateInput['snapshotPayerModel']
+    snapshotEconomicBasis: Prisma.EscrowCreateInput['snapshotEconomicBasis']
+    snapshotFeeCollectionAddress: string | null
+    snapshotFeeCollectionWaivedPreFunding: boolean
+  }
 }
 
 export interface EscrowRepository {
@@ -73,8 +86,11 @@ export interface EscrowRepository {
   /** lockFunds()'s own write. txLockVout is null for providers with no
    *  Bitcoin-style outpoint (everything but MULTISIG) — the DB's
    *  @@unique([txLockId, txLockVout]) constraint only ever fires when
-   *  BOTH columns are non-null for two different rows (Missão 10). */
-  updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date }): Promise<EscrowRow>
+   *  BOTH columns are non-null for two different rows (Missão 10).
+   *  fundedAmount (Missão 11 Fase 4) is purely observational — undefined
+   *  for legacy escrows and any provider that doesn't report it, keeping
+   *  the column NULL exactly as it already is for every existing row. */
+  updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date; fundedAmount?: number }): Promise<EscrowRow>
 
   /** Atomic conditional update — returns the affected-row count (0 = a concurrent caller already transitioned this Escrow). */
   claimTransition(escrowId: string, fromStatus: string, toStatus: string): Promise<number>
@@ -106,6 +122,14 @@ class PrismaEscrowRepository implements EscrowRepository {
         asset: input.asset as any,
         network: input.network,
         timelockHours: input.timelockHours,
+        ...(input.feeSnapshot ? {
+          feePolicyVersionId: input.feeSnapshot.feePolicyVersionId,
+          snapshotProtocolFeeRate: input.feeSnapshot.snapshotProtocolFeeRate,
+          snapshotPayerModel: input.feeSnapshot.snapshotPayerModel,
+          snapshotEconomicBasis: input.feeSnapshot.snapshotEconomicBasis,
+          snapshotFeeCollectionAddress: input.feeSnapshot.snapshotFeeCollectionAddress,
+          snapshotFeeCollectionWaivedPreFunding: input.feeSnapshot.snapshotFeeCollectionWaivedPreFunding,
+        } : {}),
       },
     })
   }
@@ -146,7 +170,7 @@ class PrismaEscrowRepository implements EscrowRepository {
     return prisma.escrow.update({ where: { id: escrowId }, data: { multisigAddr } })
   }
 
-  async updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date }) {
+  async updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date; fundedAmount?: number }) {
     try {
       return await prisma.escrow.update({ where: { id: escrowId }, data })
     } catch (err: any) {

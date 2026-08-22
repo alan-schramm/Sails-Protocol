@@ -116,6 +116,13 @@ offers.findMany = jest.fn(async (args: any) => {
 const trades = makeTable('trade', { status: 'PENDING', escrowId: null })
 const escrows = makeTable('escrow', { status: 'CREATED' })
 const escrowEvents = makeTable('escrowEvent')
+// Missão 11 Fase 4.1 — createEscrow() now unguardedly calls
+// escrowFeeSnapshotService.computeSnapshotFields() (fail-closed) before
+// creating the escrow row. No test in this file publishes a fee policy,
+// so findMany() correctly returns [] every time (same "every table
+// round-trips for real, empty is a real answer too" convention this
+// file already uses for the vouch table below).
+const feePolicyVersions = makeTable('feePolicyVersion')
 const disputes = makeTable('dispute', { status: 'OPENED' })
 const intents = makeTable('intent', { expiresAt: null })
 // RFC-021 D7 — vouch.service.ts's burnVouchesFor() (called from
@@ -184,6 +191,7 @@ jest.mock('../src/common/database', () => ({
     trade: trades,
     escrow: escrows,
     escrowEvent: escrowEvents,
+    feePolicyVersion: feePolicyVersions,
     dispute: disputes,
     intent: intents,
     intentEvent: intentEvents,

@@ -155,6 +155,10 @@ jest.mock('../src/common/database', () => ({
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
     },
+    // Missão 11 Fase 4.1 — createEscrow() now unguardedly calls
+    // escrowFeeSnapshotService.computeSnapshotFields() (fail-closed) —
+    // resolves to "no PUBLISHED policy" (today's real, unchanged state).
+    feePolicyVersion: { findMany: jest.fn().mockResolvedValue([]) },
     arbiterProfile: {
       findUnique: (...args: unknown[]) => mockArbiterProfileFindUnique(...args),
       create: (...args: unknown[]) => mockArbiterProfileCreate(...args),

@@ -269,6 +269,38 @@ model Escrow {
   snapshotProtocolFeeRate Decimal?          @db.Decimal(24, 8)
   snapshotPayerModel      FeePayerModel?
   snapshotEconomicBasis   FeeEconomicBasis?
+  // Missão 11 Fase 4.1 §1/§3 — the FROZEN collection destination and
+  // pre-funding-waiver decision, computed ONCE at policy-snapshot time
+  // (escrow-fee-snapshot.service.ts's computeSnapshotFields(), before the
+  // seller ever funds anything) and never re-derived from live config
+  // afterward. snapshotFeeCollectionAddress is the exact destination the
+  // required-funding amount (R) was quoted against — construction later
+  // (multisig.provider.ts) reads this frozen value, never
+  // config.settlement.protocolFeeCollectionAddress directly, so a live
+  // config change after this escrow was created can never redirect its
+  // fee. snapshotFeeCollectionWaivedPreFunding distinguishes "the policy
+  // rate is genuinely 0" (this stays false) from "the rate is nonzero but
+  // the maximum possible fee was already known, before funding, to be
+  // uncollectible against the frozen destination" (this is true, and
+  // Fmax=0/R=T for this escrow specifically) — deliberately NOT inferred
+  // from Fmax=0 alone, which would destroy that distinction (Fase 4.1 §5).
+  // Both are part of the SAME immutable-once-set group as the four
+  // columns above (see escrows_enforce_fee_snapshot_immutability(),
+  // extended in this same migration).
+  snapshotFeeCollectionAddress          String?
+  snapshotFeeCollectionWaivedPreFunding Boolean?
+  // Missão 11 Fase 4 §B/C — purely observational audit data, NOT the source
+  // of truth for transaction construction (that remains the real chain/
+  // explorer lookup, unchanged — Missão 10's own outpoint-exact selection).
+  // Populated only for policy-aware escrows, at lockFunds() success time,
+  // with the actual value the provider observed funding the escrow (under
+  // exact-funding enforcement this always equals requiredFundingAmount in
+  // the success case — recorded anyway so reconciliation can flag a
+  // divergence without a live chain call, per Fase 3.3's own finding that
+  // the actually-funded value was never persisted anywhere before this).
+  // Legacy escrows (feePolicyVersionId NULL) never populate this — stays
+  // NULL forever for them, unchanged behavior.
+  fundedAmount            Decimal?          @db.Decimal(24, 8)
   moduleId     String       @default("opensettlement")
   protocolVersion String    @default("0.1")
   lockedAt     DateTime?
@@ -1113,6 +1145,23 @@ model EscrowPendingTransaction {
   // release/refund's one, so it needs a second address column rather than
   // reusing toAddress twice.
   toAddressSecondary String?
+  // Missão 11 Fase 3 — real gap found wiring FeeObligation into the
+  // signature-collection finalize path: initiateSplit() validated and used
+  // buyerBps to build the PSBT, but never persisted it anywhere, so
+  // submitTransactionSignature() (which can run much later, once all
+  // signatures arrive) had no way to compute the seller's basisAmount for
+  // a SPLIT settled via this path. Only set for kind='split'.
+  buyerBps           Int?
+  // Missão 11 Fase 4 §J — the fee-collection decision the provider ACTUALLY
+  // built into unsignedPsbtBase64 at construction time (multisig.provider.ts's
+  // buildUnsignedRelease()/buildUnsignedSplit()), persisted so
+  // submitTransactionSignature() (which can finalize long after this row
+  // was created) records a FeeObligation that is guaranteed to match the
+  // real transaction rather than an independent, possibly-diverging
+  // recomputation. Null for a legacy (non-policy-aware) escrow or a
+  // provider that doesn't yet implement fee-aware construction.
+  feeCollectionSats   Int?
+  feeCollectionWaived Boolean?
   unsignedPsbtBase64 String
   // Participant ids who must each submit their own signed copy. On a
   // DISPUTED release/refund this list has only ONE entry (buyer or

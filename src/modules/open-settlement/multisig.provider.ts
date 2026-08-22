@@ -70,13 +70,18 @@ import * as ecc from 'tiny-secp256k1'
 import { BIP32Factory, type BIP32Interface } from 'bip32'
 import * as bitcoin from 'bitcoinjs-lib'
 import { createHash } from 'crypto'
+import { Prisma } from '@prisma/client'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
-import { validateOutput } from './bitcoin-dust-policy'
+import { validateOutput, dustThresholdSats } from './bitcoin-dust-policy'
+import { computeMaxProtocolFee, computeProtocolFee } from './fee-reserve-math'
+import type { FeeCollectionResult } from './escrow-providers'
+import { childLogger } from '../../common/logger'
 
 bitcoin.initEccLib(ecc)
 const bip32 = BIP32Factory(ecc)
+const log = childLogger('multisig-provider')
 
 type ExplorerUtxo = { txid: string; vout: number; value: number; status: { confirmed: boolean } }
 
@@ -84,6 +89,47 @@ function networkFor(name: string): (typeof bitcoin.networks)[keyof typeof bitcoi
   if (name === 'bitcoin' || name === 'mainnet') return bitcoin.networks.bitcoin
   if (name === 'regtest') return bitcoin.networks.regtest
   return bitcoin.networks.testnet
+}
+
+// Missão 11 Fase 4.1 §1/§3 — the pre-funding waiver decision
+// (escrow-fee-snapshot.service.ts's computeSnapshotFields(), made ONCE
+// before the seller ever funds anything) must ask the EXACT SAME question
+// decideFeeCollection() below asks at settlement-construction time: "is a
+// fee of N sats collectible against the currently configured collection
+// destination, right now". Extracted to this one function so the two can
+// never independently drift on what "collectible" means.
+//
+// Deliberately reads LIVE config — this IS the one legitimate place to
+// consult it, at the single moment its value gets frozen onto an escrow
+// forever (Escrow.snapshotFeeCollectionAddress). Every other read in this
+// file (decideFeeCollection) uses that frozen snapshot, never this live
+// value again — that split is what makes a later config change unable to
+// redirect an already-funded escrow's fee (Fase 4.1 §9).
+export function evaluateFeeCollectibility(candidateFeeSats: number): { collectible: boolean; collectionAddress: string | null } {
+  if (candidateFeeSats <= 0) return { collectible: false, collectionAddress: null }
+  const address = config.settlement.protocolFeeCollectionAddress
+  if (!address) return { collectible: false, collectionAddress: null }
+  const network = networkFor(config.multisig.network)
+  let script: Buffer
+  try {
+    script = Buffer.from(bitcoin.address.toOutputScript(address, network))
+  } catch (err) {
+    // A configured-but-malformed address is a real infra bug, not a
+    // sellerless/unconfigured rail — logged loudly so it's visible in
+    // monitoring, but treated as "not collectible" (pre-funding-waived)
+    // rather than blocking escrow creation outright: an operator typo in
+    // this one setting should degrade to "no fee collected" for policy-
+    // aware escrows, not take down trading for every escrow on this rail.
+    log.error({
+      msg: 'SAILS_PROTOCOL_FEE_COLLECTION_ADDRESS is configured but invalid for the configured network — treating as pre-funding-uncollectible, not blocking escrow creation',
+      address, network: config.multisig.network, err: err instanceof Error ? err.message : String(err),
+    })
+    return { collectible: false, collectionAddress: null }
+  }
+  if (BigInt(candidateFeeSats) < dustThresholdSats(script)) {
+    return { collectible: false, collectionAddress: null }
+  }
+  return { collectible: true, collectionAddress: address }
 }
 
 // Same shape as wdk-settlement.provider.ts's escrowIndexFor/buyerIndexFor —
@@ -124,6 +170,20 @@ export type MultisigEscrowInput = {
   txLockVout?: number | null
   status?: string
   triggeredBy?: string
+  // Missão 11 Fase 4 — the escrow's own immutable fee-policy snapshot.
+  // Undefined/null for a legacy escrow — every method below preserves
+  // today's exact behavior in that case (see isPolicyAware()).
+  feePolicyVersionId?: string | null
+  snapshotProtocolFeeRate?: string | null
+  // Missão 11 Fase 4.1 §1/§3 — the FROZEN collection destination and
+  // pre-funding-waiver decision (escrow-fee-snapshot.service.ts's
+  // computeSnapshotFields(), computed once before the seller ever funds
+  // anything). maxFeeSats()/decideFeeCollection() below read these
+  // exclusively — never config.settlement.protocolFeeCollectionAddress
+  // directly — so a live config change after this escrow was created can
+  // never redirect its fee to a different destination.
+  snapshotFeeCollectionAddress?: string | null
+  snapshotFeeCollectionWaivedPreFunding?: boolean | null
 }
 
 export class MultisigProvider implements SettlementProvider {
@@ -245,18 +305,135 @@ export class MultisigProvider implements SettlementProvider {
     return Math.round(parseFloat(lockedAmount) * 1e8)
   }
 
+  // Missão 11 Fase 3.2-3.4 — the seller-funded Protocol Fee reserve. Every
+  // method below that needs to distinguish "legacy" from "policy-aware"
+  // funding/output behavior goes through this one check.
+  private isPolicyAware(escrow: MultisigEscrowInput): boolean {
+    return !!escrow.feePolicyVersionId && escrow.snapshotProtocolFeeRate !== null && escrow.snapshotProtocolFeeRate !== undefined
+  }
+
+  // A Decimal->sats conversion that trusts computeMaxProtocolFee()/
+  // computeProtocolFee() to have already floored to 8 decimal places (=
+  // satoshi precision for a BTC-denominated amount) — .toFixed(0) on an
+  // already-integer-at-the-satoshi-level Decimal is an exact conversion,
+  // not a second independent rounding step.
+  private decimalBtcToSats(amount: Prisma.Decimal): number {
+    return Number(amount.times(1e8).toFixed(0))
+  }
+
+  // Fmax — sized against the worst case (a full release, basis = the
+  // entire trade notional T), computed from the SAME shared function
+  // fee-obligation.service.ts uses, so a mismatch between what's built
+  // into a real PSBT and what's recorded as the FeeObligation is
+  // structurally impossible (Fase 4 §J).
+  private maxFeeSats(escrow: MultisigEscrowInput): number {
+    if (!this.isPolicyAware(escrow)) return 0
+    // Missão 11 Fase 4.1 §1/§5 — the pre-funding waiver decision, frozen
+    // at policy-snapshot time, is authoritative: if the maximum possible
+    // fee was already known, before funding, to be uncollectible against
+    // the frozen destination, Fmax is 0 and no reserve was ever funded —
+    // never recomputed live from the raw rate. Distinct from a genuine
+    // zero-rate policy (which reaches the same Fmax=0 result below via
+    // the math itself, not this flag) — see the escrow column's own
+    // schema comment for why the two are tracked separately.
+    if (escrow.snapshotFeeCollectionWaivedPreFunding) return 0
+    const lockedAmount = new Prisma.Decimal(escrow.lockedAmount)
+    const rate = new Prisma.Decimal(escrow.snapshotProtocolFeeRate!)
+    return this.decimalBtcToSats(computeMaxProtocolFee(lockedAmount, rate))
+  }
+
+  // R = T + Fmax. For a legacy escrow this equals expectedSats(T) exactly
+  // (Fmax = 0), preserving today's behavior byte-for-byte.
+  private requiredFundingSats(escrow: MultisigEscrowInput): number {
+    return this.expectedSats(escrow.lockedAmount) + this.maxFeeSats(escrow)
+  }
+
+  // The one place the dust-vs-collectible decision is made (Fase 3.3/3.4
+  // §E/§G): computes the ACTUAL fee for the given basis (T for a plain
+  // release, the seller's own bps-portion of T for a split — never the
+  // buyer's share), then checks it against the real dust threshold for
+  // WHATEVER script the configured collection address actually is —
+  // never a universal constant (bitcoin-dust-policy.ts's own governing
+  // principle). Never alters basisSats/buyerBps to "make room" for a
+  // collectible fee (Fase 3.3 §G's own hard rule) — a dust-doomed fee is
+  // waived outright, never shrunk-then-forced.
+  private decideFeeCollection(escrow: MultisigEscrowInput, basisAmountBtc: Prisma.Decimal, network: bitcoin.Network): { feeSats: number; waived: boolean; collectionAddress: string | null } {
+    if (!this.isPolicyAware(escrow)) return { feeSats: 0, waived: false, collectionAddress: null }
+    const rate = new Prisma.Decimal(escrow.snapshotProtocolFeeRate!)
+    const feeSats = this.decimalBtcToSats(computeProtocolFee(basisAmountBtc, rate))
+    if (feeSats <= 0) return { feeSats: 0, waived: true, collectionAddress: null }
+
+    // Missão 11 Fase 4.1 §3/§9 — the FROZEN destination decided at
+    // policy-snapshot time, never live config: this is what guarantees a
+    // later config change can never redirect an already-funded escrow's
+    // fee to a different destination. Callers only ever reach this line
+    // with a caller-computed basis whose corresponding Fmax was > 0
+    // (maxFeeSats() above already returns 0, short-circuiting the caller,
+    // whenever the pre-funding decision found no viable frozen
+    // destination) — reaching here with no frozen address is therefore a
+    // real invariant violation, not a normal runtime condition.
+    const collectionAddress = escrow.snapshotFeeCollectionAddress
+    if (!collectionAddress) {
+      throw new EscrowError(
+        `MULTISIG provider: escrow for trade ${escrow.tradeId} has a collectible fee (${feeSats} sats) but no frozen snapshotFeeCollectionAddress — this should be structurally impossible once maxFeeSats() > 0 (escrow-fee-snapshot.service.ts's pre-funding decision should have prevented this).`
+      )
+    }
+    let script: Buffer
+    try {
+      script = Buffer.from(bitcoin.address.toOutputScript(collectionAddress, network))
+    } catch (err) {
+      throw new EscrowError(`MULTISIG provider: frozen snapshotFeeCollectionAddress '${collectionAddress}' is invalid for the configured network: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    if (BigInt(feeSats) < dustThresholdSats(script)) {
+      // SETTLEMENT-TIME WAIVER (Fase 4.1 §2) — distinct from the
+      // PRE-FUNDING waiver maxFeeSats() already applies above. Only
+      // reachable from a SPLIT, whose actual basis (the seller's own
+      // bps-portion of T) can be smaller than the full-T basis the
+      // pre-funding decision evaluated Fmax against — never reachable
+      // from a plain RELEASE post-Fase-4.1 (its basis is always the same
+      // full T the pre-funding check already verified against this exact
+      // frozen destination). The unused reserve returns entirely to the
+      // seller (handled by each caller below); Sails never attempts a
+      // sub-dust output.
+      return { feeSats, waived: true, collectionAddress: null }
+    }
+    return { feeSats, waived: false, collectionAddress }
+  }
+
   // Missão 10 — now returns vout alongside txId. This is still the ONE
   // place an outpoint is discovered by value/address heuristic (there is
   // no persisted outpoint yet to check against — that's exactly what
   // this call is establishing) — everything downstream of this
   // (buildUnsignedSpend()) must use the vout this returns exactly, never
   // re-discover it.
-  async lockFunds(escrow: MultisigEscrowInput): Promise<{ txId: string; vout: number; address: string }> {
+  async lockFunds(escrow: MultisigEscrowInput): Promise<{ txId: string; vout: number; address: string; fundedAmount?: number }> {
     const parties = this.partiesFor(escrow)
     const { p2wsh } = this.buildScript(parties)
     const address = p2wsh.address!
-
     const utxos = await this.fetchUtxos(address)
+
+    // Missão 11 Fase 3.4/4 — policy-aware escrows require EXACT,
+    // single-outpoint funding (A = R = T + Fmax). This single strict-equality
+    // predicate is what rejects underfunding, overfunding, AND multi-UTXO
+    // funding uniformly (Fase 3.4 §A/§F) — no separate cases needed. A
+    // mismatch throws BEFORE any txLockId/txLockVout is ever persisted and
+    // BEFORE the escrow transitions past its current status (escrow.service.ts's
+    // own claimEscrowTransition()/revertEscrowStatus() flow, unchanged) —
+    // confirmed structurally, not assumed (Fase 3.4 §4's own audit).
+    if (this.isPolicyAware(escrow)) {
+      const required = this.requiredFundingSats(escrow)
+      const funding = utxos.find((u) => u.value === required)
+      if (!funding) {
+        throw new EscrowError(
+          `No funding UTXO of EXACTLY ${required} sats (trade amount + maximum Protocol Fee reserve) found at ${address}. ` +
+          'This escrow is under a Protocol Fee policy and requires exact, single-outpoint funding — a value below, above, or split across ' +
+          'multiple UTXOs is rejected, not silently accepted. This is a non-custodial provider — it verifies external funding, it does not move funds itself.'
+        )
+      }
+      return { txId: funding.txid, vout: funding.vout, address, fundedAmount: funding.value }
+    }
+
+    // Legacy — unchanged, byte-for-byte, from before this phase.
     const expected = this.expectedSats(escrow.lockedAmount)
     const funding = utxos.find((u) => u.value >= expected)
     if (!funding) {
@@ -272,6 +449,13 @@ export class MultisigProvider implements SettlementProvider {
     const parties = this.partiesFor(escrow)
     const { p2wsh } = this.buildScript(parties)
     const utxos = await this.fetchUtxos(p2wsh.address!)
+
+    if (this.isPolicyAware(escrow)) {
+      const required = this.requiredFundingSats(escrow)
+      return utxos.some((u) => u.value === required && u.status.confirmed)
+    }
+
+    // Legacy — unchanged.
     const expected = this.expectedSats(escrow.lockedAmount)
     return utxos.some((u) => u.value >= expected && u.status.confirmed)
   }
@@ -420,9 +604,47 @@ export class MultisigProvider implements SettlementProvider {
   // (mirroring the old pre-Phase-1 signer selection — arbiter co-signs
   // with the buyer, favoring the RELEASE ruling) and returns only the
   // buyer as a required (real, client) signer.
-  async buildUnsignedRelease(escrow: MultisigEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
+  // Missão 11 Fase 4.1 — fee-aware release, simplified from Fase 4's own
+  // first cut. Legacy escrows are byte-for-byte unchanged (single output,
+  // buyer gets the full spendableValue). A policy-aware escrow now has
+  // only TWO shapes, not three:
+  //   fmax = 0  — no reserve was ever funded for this escrow, either a
+  //               genuine zero-rate policy OR the pre-funding waiver
+  //               decision (escrow-fee-snapshot.service.ts) already
+  //               determined, before the seller ever funded anything,
+  //               that the maximum possible fee would be uncollectible.
+  //               Single output, byte-for-byte the legacy shape.
+  //   fmax > 0  — ALWAYS collectible: the pre-funding decision already
+  //               verified the full-T fee clears dust against this
+  //               escrow's frozen destination before funding, and a plain
+  //               release's basis is always that same full T — so F=Fmax
+  //               here, unconditionally. Two outputs: buyer gets T-M,
+  //               Sails gets the fixed F=Fmax, never a residual.
+  // The old third shape ("Fmax funded but turned out sub-dust at
+  // settlement, refund the standalone reserve to the seller") is no
+  // longer reachable and has been removed — it was Fase 4's own real,
+  // CTO-flagged gap (a nonzero Fmax with no dust-safe way to construct
+  // either the Sails leg or the seller-refund leg), closed by moving the
+  // collectibility check before funding instead of discovering it at
+  // settlement time.
+  async buildUnsignedRelease(escrow: MultisigEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null }> {
     const parties = this.partiesFor(escrow)
-    const psbt = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: toAddress, value: spendableValue }])
+    const policyAware = this.isPolicyAware(escrow)
+    const fmax = this.maxFeeSats(escrow)
+
+    const outputCount = policyAware && fmax > 0 ? 2 : 1
+    const psbt = await this.buildUnsignedSpend(escrow, parties, outputCount, (spendableValue) => {
+      if (!policyAware || fmax === 0) {
+        return [{ address: toAddress, value: spendableValue }]
+      }
+      const buyerPool = spendableValue - BigInt(fmax) // = T - M (Fmax = F always, here)
+      return [
+        { address: toAddress, value: buyerPool },
+        { address: escrow.snapshotFeeCollectionAddress!, value: BigInt(fmax) },
+      ]
+    })
+
+    const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: fmax, waived: fmax === 0 } : null
 
     if (escrow.status === 'DISPUTED') {
       const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
@@ -430,15 +652,26 @@ export class MultisigProvider implements SettlementProvider {
       if (!escrow.buyerId) {
         throw new EscrowError(`MULTISIG provider: missing buyerId for disputed release of trade ${escrow.tradeId}`)
       }
-      return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId] }
+      return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId], feeCollection: feeCollectionResult }
     }
 
     if (!escrow.buyerId || !escrow.sellerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId/sellerId for release of trade ${escrow.tradeId}`)
     }
-    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId, escrow.sellerId] }
+    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId, escrow.sellerId], feeCollection: feeCollectionResult }
   }
 
+  // Missão 11 Fase 4 — deliberately UNCHANGED. Per this mission's own
+  // conservation equations (Fase 3.3/3.4 §H): a refund is Sails=0 always,
+  // and the seller's single existing output already receives 100% of
+  // spendableValue — which, under exact-funding, already equals
+  // (T+Fmax) - M in full. No code change is needed to make the frozen
+  // refund topology real; the pre-existing single-output construction
+  // already implements it correctly the moment lockFunds() enforces exact
+  // funding above. The reserve cannot disappear, cannot become revenue,
+  // and cannot go to the buyer — there is no code path here that could do
+  // any of those things.
+  //
   // Mirror of buildUnsignedRelease() above, for refund-to-seller. Refund
   // address = the seller's own CLIENT-SUBMITTED pubkey's P2WPKH form — a
   // reference stand-in (no per-user BTC payout address exists in the
@@ -485,23 +718,76 @@ export class MultisigProvider implements SettlementProvider {
   // Picking the buyer here, mirroring buildUnsignedRelease()'s own
   // arbiter+buyer disputed pairing above — arbitrary (the split amounts
   // are already fixed by the arbiter's ruling either way), but consistent.
-  async buildUnsignedSplit(escrow: MultisigEscrowInput, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
+  // Missão 11 Fase 4.1 — fee-aware split, updated for the pre-funding
+  // waiver. Legacy escrows are byte-for-byte unchanged. A policy-aware
+  // escrow: the arbiter's own buyerBps ruling is NEVER altered by fee
+  // logic (Fase 3.3/3.4 §G's own hard rule) — the fee basis is the
+  // seller's bps-portion of T only (never the buyer's share), and
+  // buyerPool = spendableValue - Fmax is the SAME T-M quantity
+  // buildUnsignedRelease() uses, preserving M's existing proportional-by-
+  // bps treatment exactly (Fase 3.4 §3's decision to leave miner-fee
+  // economics unchanged). The seller's own output always absorbs both
+  // their net share AND the unused reserve (Fmax - F) in one output — the
+  // "residual computation" from Fase 3.3 §7, verified to conserve exactly
+  // in this mission's own equations.
+  //
+  // decideFeeCollection() below is only ever consulted when fmax > 0 —
+  // i.e. when a reserve actually exists. A SETTLEMENT-TIME waiver (Fase
+  // 4.1 §2, distinct from the PRE-FUNDING waiver maxFeeSats() already
+  // applies) remains a real, valid outcome HERE, unlike in a plain
+  // release: SPLIT's actual basis (the seller's own bps-portion of T) can
+  // be smaller than the full-T basis the pre-funding decision evaluated
+  // Fmax against, so a funded reserve can still turn out sub-dust for a
+  // specific buyerBps ruling. 3 outputs when the fee is collectible, 2
+  // when either kind of waiver applies (never fewer for the buyer/seller
+  // legs regardless).
+  async buildUnsignedSplit(escrow: MultisigEscrowInput, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null }> {
     const parties = this.partiesFor(escrow)
-    const psbt = await this.buildUnsignedSpend(escrow, parties, 2, (spendableValue) => {
-      const buyerValue = (spendableValue * BigInt(buyerBps)) / 10000n
-      const sellerValue = spendableValue - buyerValue
-      return [
+    const network = networkFor(config.multisig.network)
+    const policyAware = this.isPolicyAware(escrow)
+    const fmax = this.maxFeeSats(escrow)
+    const tSats = this.expectedSats(escrow.lockedAmount)
+    // Seller's bps-portion of T, in BTC-decimal, for the fee basis —
+    // computed the same truncating way fee-obligation.service.ts's own
+    // Decimal arithmetic does (floor, never round), so the two never
+    // disagree on the basis itself.
+    const sellerBasisSats = Math.floor((tSats * (10000 - buyerBps)) / 10000)
+    const sellerBasisBtc = new Prisma.Decimal(sellerBasisSats).dividedBy(1e8)
+    const feeDecision = policyAware && fmax > 0
+      ? this.decideFeeCollection(escrow, sellerBasisBtc, network)
+      : { feeSats: 0, waived: true, collectionAddress: null }
+    const collectedFee = feeDecision.waived ? 0 : feeDecision.feeSats
+    const outputCount = policyAware && fmax > 0 ? (feeDecision.waived ? 2 : 3) : 2
+
+    const psbt = await this.buildUnsignedSpend(escrow, parties, outputCount, (spendableValue) => {
+      const buyerPool = policyAware ? spendableValue - BigInt(fmax) : spendableValue
+      const buyerValue = (buyerPool * BigInt(buyerBps)) / 10000n
+      const sellerBase = buyerPool - buyerValue
+      if (!policyAware || fmax === 0) {
+        return [
+          { address: buyerAddress, value: buyerValue },
+          { address: sellerAddress, value: sellerBase },
+        ]
+      }
+      const sellerFinal = sellerBase + BigInt(fmax) - BigInt(collectedFee)
+      const outputs = [
         { address: buyerAddress, value: buyerValue },
-        { address: sellerAddress, value: sellerValue },
+        { address: sellerAddress, value: sellerFinal },
       ]
+      if (!feeDecision.waived) {
+        outputs.push({ address: feeDecision.collectionAddress!, value: BigInt(collectedFee) })
+      }
+      return outputs
     })
+
+    const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: collectedFee, waived: feeDecision.waived } : null
 
     const arbiterKey = this.deriveArbiterKey(parties.arbiterId)
     psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
     if (!escrow.buyerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId for disputed split of trade ${escrow.tradeId}`)
     }
-    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId] }
+    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId], feeCollection: feeCollectionResult }
   }
 
   // Shared finalize: combines the unsigned PSBT with every independently-

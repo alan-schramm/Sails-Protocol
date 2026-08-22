@@ -353,6 +353,19 @@ export class LightningHodlProvider implements SettlementProvider {
   // the server-held arbiter key (mirroring the old pre-Phase-1 signer
   // selection — arbiter co-signs with the buyer, favoring RELEASE) and
   // returns only the buyer as a required (real, client) signer.
+  //
+  // Missão 11 Fase 4 — rail-parity audit: fee-aware output construction
+  // (the seller-funded reserve, Sails collection output, waived-fee
+  // handling) is implemented for MULTISIG only this phase — see
+  // multisig.provider.ts's own buildUnsignedRelease()/buildUnsignedSplit().
+  // This provider's economic SEMANTICS remain identical (the same
+  // recordObligationForEscrowSettlement() call in escrow-pending-tx.ts
+  // still fires for any LIGHTNING_HODL escrow), but this method's actual
+  // transaction construction is deliberately UNCHANGED — a policy-aware
+  // LIGHTNING_HODL escrow would need the same lockFunds()/verifyLock()
+  // exact-funding treatment and output-construction extension MULTISIG
+  // received, not yet built. Disclosed here rather than silently
+  // assumed identical.
   async buildUnsignedRelease(escrow: ArkEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
     const parties = this.partiesFor(escrow)
     const { buyerSeller, buyerArbiter } = await this.buildScript(parties)

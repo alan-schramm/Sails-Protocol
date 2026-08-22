@@ -30,6 +30,8 @@ import * as dualApproval from './escrow-dual-approval'
 import * as pendingTx from './escrow-pending-tx'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
+import { feeObligationService } from './fee-obligation.service'
+import { escrowFeeSnapshotService } from './escrow-fee-snapshot.service'
 
 /**
  * Sails OpenSettlement — Reference Implementation
@@ -165,6 +167,23 @@ export class EscrowService {
 
     const type = input.type ?? (config.features.mockEscrow ? 'MOCK' : recommendedEscrowType(input.asset))
 
+    // Missão 11 Fase 4.1 §4 — computed BEFORE the escrow row exists and
+    // folded into the SAME insert below, not a separate best-effort update
+    // afterward (Fase 4's earlier, now-superseded design). This is what
+    // makes the whole operation fail-closed by construction: if a
+    // PUBLISHED policy exists for this rail, Fmax/R already depend on it,
+    // so a failure computing or persisting the snapshot must fail escrow
+    // creation itself — there is no separate persistence step left to
+    // fail independently, and therefore no way for a fee-aware escrow to
+    // silently end up downgraded to a legacy (feePolicyVersionId=NULL)
+    // one because of a DB hiccup. Deliberately UNGUARDED (no try/catch):
+    // a no-op (null) only when no PUBLISHED FeePolicyVersion exists for
+    // this rail — which is every rail today (Fase 4's own scope boundary)
+    // — so this has zero effect on any real deployment right now; any
+    // OTHER failure here (a real active policy, but the lookup itself
+    // errors) must propagate and fail this call, per CTO decision.
+    const feeSnapshot = await escrowFeeSnapshotService.computeSnapshotFields(type, input.lockedAmount)
+
     // MULTISIG/LIGHTNING_HODL's buyer/seller keys are now client-held
     // (each provider's own header comment) — the deposit address
     // genuinely cannot be derived yet at creation time, only once both
@@ -177,6 +196,7 @@ export class EscrowService {
       asset: input.asset,
       network: input.network,
       timelockHours: input.timelockHours ?? config.trade.defaultTimelockHours,
+      ...(feeSnapshot ? { feeSnapshot } : {}),
     })
 
     await eventBus.emit('settlement.escrow.created', {
@@ -289,8 +309,15 @@ export class EscrowService {
       // provider's lockFunds() return has no `vout`, so this stays null
       // for them — exactly the "no outpoint concept" case
       // txLockVout's own schema comment documents.
+      //
+      // Missão 11 Fase 4 §C — result.fundedAmount is only populated by a
+      // provider that observed a real external funding value for a
+      // policy-aware escrow (MULTISIG). Purely observational, per
+      // Escrow.fundedAmount's own schema comment — never persisted for a
+      // legacy escrow or a provider that doesn't report it.
       const updated = await this.repo.updateLockResult(escrowId, {
         txLockId: result.txId, txLockVout: result.vout ?? null, multisigAddr: result.address, lockedAt: now, expiresAt,
+        ...(result.fundedAmount !== undefined ? { fundedAmount: result.fundedAmount } : {}),
       })
 
       // NOTE: previously this method also called prisma.trade.update(...) to set
@@ -430,6 +457,15 @@ export class EscrowService {
         txReleaseId: result.txId, releasedAt: new Date(), feeCharged,
       })
 
+      // Missão 11 Fase 3 — the new, policy-versioned FeeObligation
+      // accounting, entirely separate from chargeProtocolFee()/feeCharged
+      // above (RFC-021 Phase 0, unchanged). A no-op today for every real
+      // escrow (feePolicyVersionId is null until a future phase wires
+      // escrow-fee-snapshot.service.ts into createEscrow()) — see this
+      // service call's own Fase 3 coexistence analysis for why computing
+      // both here is safe rather than a double-charge risk.
+      await feeObligationService.recordObligationForEscrowSettlement(escrow, 'RELEASE')
+
       // NOTE: previously this method also updated Trade.status/completedAt AND
       // incremented User.totalTrades/totalVolumeBtc directly (reaching into
       // OpenP2P's and OpenReputation's domains). Both writes are now owned by
@@ -510,6 +546,11 @@ export class EscrowService {
 
       const updated = await this.repo.updateRefundResult(escrowId, result.txId)
 
+      // Missão 11 Fase 3 — FULL_REFUND is always NOT_APPLICABLE (Fase 1.2
+      // §1, unchanged) — recorded explicitly here rather than left as an
+      // absent row (Fase 2.1 §3's own auditability finding).
+      await feeObligationService.recordObligationForEscrowSettlement(escrow, 'FULL_REFUND')
+
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'REFUNDED', triggeredBy, 'settlement.escrow.refunded', {
         txId: result.txId,
       })
@@ -562,6 +603,11 @@ export class EscrowService {
       const updated = await this.repo.updateSplitResult(escrowId, {
         txReleaseId: result.txIds.join(','), releasedAt: new Date(),
       })
+
+      // Missão 11 Fase 3 — SPLIT is OWED, basis = seller's bps-derived
+      // portion only (buyerBps out of 10000; seller gets the remainder —
+      // escrow-providers.ts's own SettlementProvider.splitFunds() comment).
+      await feeObligationService.recordObligationForEscrowSettlement(escrow, 'SPLIT', buyerBps)
 
       // Joined into the shared txId?: string field (SettlementEscrowStatusChangedEvent)
       // rather than widening that event's payload for the one settlement

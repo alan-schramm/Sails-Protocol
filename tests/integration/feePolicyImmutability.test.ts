@@ -174,6 +174,57 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
     expect(finalRow.snapshotProtocolFeeRate?.toString()).toBe(policy.protocolFeeRate.toString())
   })
 
+  // Test F (Fase 4.1 §3/§9): the two collection-destination-freeze
+  // columns added in this pass are covered by the SAME immutability
+  // trigger as the four Fase 2.2 columns above — a live config change
+  // after an escrow is snapshotted must never be able to redirect it,
+  // and the database itself is the real guarantee, not just application
+  // code (multisig.provider.ts always reading the frozen field).
+  it('Test F: an Escrow\'s frozen collection destination cannot change once set, via raw SQL (Fase 4.1)', async () => {
+    if (skip('Test F')) return
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fee-dest-${suffix}` } })
+    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fee-dest-${suffix}` } })
+    const offer = await prisma.offer.create({
+      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
+    })
+    const trade = await prisma.trade.create({
+      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
+    })
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.01' } })
+
+    const policy = await prisma.feePolicyVersion.create({
+      data: { ...fixturePolicyData(), status: 'PUBLISHED', publishedAt: new Date() },
+    })
+
+    await prisma.escrow.update({
+      where: { id: escrow.id },
+      data: {
+        feePolicyVersionId: policy.id,
+        snapshotProtocolFeeRate: policy.protocolFeeRate,
+        snapshotPayerModel: policy.payerModel,
+        snapshotEconomicBasis: policy.economicBasis,
+        snapshotFeeCollectionAddress: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
+        snapshotFeeCollectionWaivedPreFunding: false,
+      },
+    })
+
+    const afterFirstWrite = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+    expect(afterFirstWrite.snapshotFeeCollectionAddress).toBe('tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx')
+
+    await expect(
+      prisma.$executeRawUnsafe(`UPDATE escrows SET "snapshotFeeCollectionAddress" = 'tb1qattacker-or-later-config-change' WHERE id = $1`, escrow.id)
+    ).rejects.toThrow(/fee policy snapshot is immutable/)
+
+    await expect(
+      prisma.$executeRawUnsafe(`UPDATE escrows SET "snapshotFeeCollectionWaivedPreFunding" = true WHERE id = $1`, escrow.id)
+    ).rejects.toThrow(/fee policy snapshot is immutable/)
+
+    const finalRow = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+    expect(finalRow.snapshotFeeCollectionAddress).toBe('tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx')
+    expect(finalRow.snapshotFeeCollectionWaivedPreFunding).toBe(false)
+  })
+
   // Test I (repository/FK level, complementing feePolicyService.test.ts's
   // service-level assertPublished proof): a FeeObligation's FK constraint
   // itself has no opinion on DRAFT vs PUBLISHED — that guard is deliberately

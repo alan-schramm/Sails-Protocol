@@ -141,6 +141,16 @@ export class WdkSettlementProvider implements SettlementProvider {
     return { txId: result.hash, address: escrowAddress }
   }
 
+  // Missão 11 Fase 4 — rail-parity audit: NOT extended with fee-aware
+  // construction, deliberately. This provider funds its own escrow from
+  // Sails' own treasury account (this file's own header comment) — there
+  // is no external, seller-controlled deposit for a "seller-funded
+  // reserve" to attach to, so this rail is explicitly non-authoritative
+  // as evidence for (or against) the non-custodial funding model designed
+  // for MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM. Its existing recordObligationForEscrowSettlement()
+  // call (via escrow.service.ts's direct-call path) still runs, using the
+  // generic, non-Bitcoin-specific fixture-only small-trade rule — never
+  // this rail's own (nonexistent) dust/collection-address logic.
   async releaseFunds(escrow: { id: string; tradeId: string; lockedAmount: string }, toAddress: string): Promise<{ txId: string }> {
     const escrowAcct = await this.escrowAccount(escrow.tradeId)
     const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)

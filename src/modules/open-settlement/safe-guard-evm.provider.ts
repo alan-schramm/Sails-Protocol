@@ -457,6 +457,17 @@ export class SafeGuardEvmProvider implements SettlementProvider {
   // Cooperative path: both buyer+seller required, arbiter never touched.
   // Disputed path: KMS arbiter pre-signs now (favoring the RELEASE
   // ruling), only the buyer is a real pending client signature.
+  //
+  // Missão 11 Fase 4 — rail-parity audit: fee-aware construction is
+  // implemented for MULTISIG only this phase (see multisig.provider.ts).
+  // Economic semantics remain identical (recordObligationForEscrowSettlement()
+  // still fires for a SAFE_GUARD_EVM escrow via escrow-pending-tx.ts), but
+  // this method's actual output construction is deliberately unchanged —
+  // a policy-aware SAFE_GUARD_EVM escrow would need its own funding-exactness
+  // and fee-output extension, not yet built. A smart-contract rail could
+  // in principle enforce exact funding synchronously at deposit (Fase 3.4
+  // §L) — a stronger mechanism than Bitcoin's after-the-fact check — but
+  // that is a real, separate implementation this phase does not attempt.
   async buildUnsignedRelease(escrow: SafeGuardEvmEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }> {
     return this.buildBundle(escrow, toAddress, 'DISPUTED_RELEASE')
   }

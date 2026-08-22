@@ -15,6 +15,7 @@ import {
 import { hasDualApproval } from './escrow-dual-approval'
 import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
+import { feeObligationService } from './fee-obligation.service'
 
 /**
  * Sails OpenSettlement — client-signature-collection pending-transaction
@@ -53,7 +54,7 @@ async function initiateSignatureCollectionCore(
   kind: 'release' | 'refund' | 'split',
   targetStatus: string,
   triggeredBy: string,
-  buildProvider: (provider: any, escrowRecord: any) => Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress?: string; toAddressSecondary?: string }>,
+  buildProvider: (provider: any, escrowRecord: any) => Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress?: string; toAddressSecondary?: string; feeCollection?: { feeSats: number; waived: boolean } | null }>,
   extraData?: Record<string, unknown>
 ) {
   const escrow = await escrowRepository.findById(escrowId)
@@ -105,6 +106,11 @@ async function initiateSignatureCollectionCore(
         unsignedPsbtBase64: result.psbtBase64,
         requiredSigners: result.requiredSigners,
         triggeredBy,
+        // Missão 11 Fase 4 §J — persist exactly what the provider built,
+        // so submitTransactionSignature() below records a FeeObligation
+        // guaranteed to match the real transaction, not a later
+        // independent recomputation.
+        ...(result.feeCollection ? { feeCollectionSats: result.feeCollection.feeSats, feeCollectionWaived: result.feeCollection.waived } : {}),
         ...extraData,
       },
     })
@@ -169,7 +175,14 @@ export async function initiateSplit(escrowId: string, buyerAddress: string | und
         )
       }
       return provider.buildUnsignedSplit(record, resolvedBuyerAddress, resolvedSellerAddress, buyerBps).then((r: any) => ({ ...r, toAddress: resolvedBuyerAddress, toAddressSecondary: resolvedSellerAddress }))
-    }
+    },
+    // Missão 11 Fase 3 — real gap found: buyerBps was validated and used to
+    // build the PSBT but never persisted, so submitTransactionSignature()
+    // (which can finalize much later, once every signature arrives) had no
+    // way to compute the seller's basisAmount for a SPLIT settled via this
+    // path. EscrowPendingTransaction.buyerBps (new, additive column) closes
+    // this gap.
+    { buyerBps }
   )
 }
 
@@ -243,6 +256,21 @@ export async function submitTransactionSignature(escrowId: string, participantId
       ? { txReleaseId: result.txId }
       : { txReleaseId: result.txId, releasedAt: new Date() }
     const updated = await escrowRepository.updateSignatureCollectionResult(escrowId, updateData)
+
+    // Missão 11 Fase 3 §7 — the SAME centralized function
+    // escrow.service.ts's direct-call releaseFunds()/refundFunds()/
+    // splitFunds() call, so MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM (which
+    // finalize exclusively through this signature-collection path) produce
+    // an identical economic determination to MOCK/WDK_USDT_EVM's direct
+    // path — one semantics, not two implementations that could diverge.
+    const feeOutcome = pending.kind === 'release' ? 'RELEASE' : pending.kind === 'refund' ? 'FULL_REFUND' : 'SPLIT'
+    // Missão 11 Fase 4 §J — pass through exactly what was built into the
+    // real transaction (persisted at initiate-time above), if any, so the
+    // recorded obligation cannot diverge from the actual on-chain output.
+    const actualCollection = pending.feeCollectionSats !== null && pending.feeCollectionSats !== undefined
+      ? { feeSats: pending.feeCollectionSats, waived: pending.feeCollectionWaived ?? false }
+      : undefined
+    await feeObligationService.recordObligationForEscrowSettlement(escrow, feeOutcome, pending.buyerBps ?? undefined, actualCollection)
 
     const eventName = pending.kind === 'release'
       ? 'settlement.escrow.released'

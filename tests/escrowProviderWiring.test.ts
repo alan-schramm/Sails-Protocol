@@ -93,6 +93,7 @@ const mockEscrowCreate = jest.fn()
 const mockEscrowEventCreate = jest.fn()
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
+const mockFeePolicyVersionFindMany = jest.fn().mockResolvedValue([])
 const mockParticipantKeyUpsert = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
 const mockPendingTxFindUnique = jest.fn()
@@ -133,6 +134,16 @@ jest.mock('../src/common/database', () => ({
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
     },
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
+    // Missão 11 Fase 4.1 — createEscrow() now UNGUARDEDLY calls
+    // escrowFeeSnapshotService.computeSnapshotFields() before creating the
+    // escrow row (fail-closed, see escrow.service.ts's own comment) —
+    // findMany() must resolve (not be undefined) so "no PUBLISHED policy
+    // for this rail" resolves to its normal, expected null/no-op outcome
+    // instead of throwing and failing every createEscrow() test in this
+    // file. No test here exercises a real fee policy — that's covered by
+    // tests/escrowFeeSnapshotService.test.ts and the real-Postgres
+    // integration suite.
+    feePolicyVersion: { findMany: (...args: unknown[]) => mockFeePolicyVersionFindMany(...args) },
     escrowParticipantKey: {
       upsert: (...args: unknown[]) => mockParticipantKeyUpsert(...args),
       findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
@@ -520,6 +531,11 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
       data: {
         escrowId: 'escrow-1', kind: 'split', toAddress: 'tb1qbuyer', toAddressSecondary: 'tb1qseller',
         unsignedPsbtBase64: 'unsigned-split-psbt', requiredSigners: ['buyer-1'], triggeredBy: 'seller-1',
+        // Missão 11 Fase 3 — buyerBps is now persisted on the pending
+        // transaction so submitTransactionSignature() can later compute
+        // the seller's FeeObligation basisAmount for a SPLIT settled via
+        // this path (it wasn't stored anywhere before this pass).
+        buyerBps: 6000,
       },
     })
     expect(result.id).toBe('ptx-3')

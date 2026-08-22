@@ -320,6 +320,19 @@ export const config = {
     // rate, e.g. PROTOCOL_FEE_RATE=0.004 for 0.40%. escrow.service.ts's
     // releaseFunds() is the only place this is read.
     protocolFeeRate: parseFloat(process.env.PROTOCOL_FEE_RATE ?? '0'),
+    // Missão 11 Fase 4 — a plain destination address for the NEW,
+    // policy-versioned Protocol Fee collection mechanism (FeePolicyVersion/
+    // FeeObligation) — completely unrelated to protocolFeeRate above (the
+    // OLD, still-untouched RFC-021 Phase 0 accounting-only mechanism).
+    // Deliberately just an address string, never a seed/private key —
+    // same "empty by default, surface a clear config error rather than
+    // refuse to boot" pattern MULTISIG_SEED/WDK_SEED_PHRASE already use.
+    // Undefined by default: no real Sails-controlled treasury address has
+    // ever been chosen or created by this project (every prior Missão 11
+    // phase explicitly deferred that decision) — a deployment that hasn't
+    // set this cannot construct a fee-collecting transaction at all,
+    // by construction, not by convention.
+    protocolFeeCollectionAddress: process.env.SAILS_PROTOCOL_FEE_COLLECTION_ADDRESS || undefined,
     // RFC-021 D2 — which ArbitrationProvider settlement.routes.ts's
     // getDisputeService() constructs. 'trusted-list' (default) preserves
     // RFC-007 D4's exact original behavior for every existing deployment;
