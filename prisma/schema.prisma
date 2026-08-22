@@ -238,6 +238,37 @@ model Escrow {
   // Protocol Fee only ever attaches to a completed Settlement") — never
   // on refund.
   feeCharged   Decimal?     @db.Decimal(24, 8)
+  // Missão 11 Fase 2.2 — Protocol Fee POLICY snapshot capability
+  // (economic-accounting foundation only; feeCharged/FeeDistribution above
+  // remain the sole LIVE fee mechanism, unchanged). Nullable: null means
+  // either (a) this escrow predates Fee Policy v1 entirely — legacy,
+  // including the real Missão 09 mainnet escrow, NEVER backfilled — or
+  // (b) no FeePolicyVersion is PUBLISHED for this escrow's rail. Both cases
+  // behave identically to today. This snapshot is deliberately NOT written
+  // by createEscrow() in this pass — see escrow-fee-snapshot.service.ts:
+  // the capability exists and is tested in isolation; no real settlement
+  // flow calls it yet, and no "default" policy is silently assumed.
+  // snapshotProtocolFeeRate/snapshotPayerModel/snapshotEconomicBasis are a
+  // deliberate, small, defense-in-depth duplication of the three
+  // most decision-relevant fields from feePolicyVersionId's own target row
+  // (Missão 11 Fase 2.1 §5) — the full policy (bucket splits, small-trade
+  // rule) stays reference-only. Once non-null, a migration-level trigger
+  // (see <timestamp>_add_fee_policy_versioning_foundation/migration.sql)
+  // makes these four columns as a group immutable, mirroring
+  // FeePolicyVersion's own economic-column immutability below.
+  // onDelete: Restrict is explicit and load-bearing here — Prisma's own
+  // default for an OPTIONAL scalar relation is SET NULL, which would let a
+  // FeePolicyVersion be deleted out from under an Escrow that has already
+  // snapshotted it (silently detaching a settled economic snapshot from its
+  // policy, exactly the kind of silent reinterpretation this design exists
+  // to prevent). Confirmed by generating the migration once without this
+  // and inspecting the real SQL Prisma produced (Missão 11 Fase 2.2) —
+  // caught before applying, not assumed correct by default.
+  feePolicyVersionId      String?
+  feePolicyVersion        FeePolicyVersion? @relation(fields: [feePolicyVersionId], references: [id], onDelete: Restrict)
+  snapshotProtocolFeeRate Decimal?          @db.Decimal(24, 8)
+  snapshotPayerModel      FeePayerModel?
+  snapshotEconomicBasis   FeeEconomicBasis?
   moduleId     String       @default("opensettlement")
   protocolVersion String    @default("0.1")
   lockedAt     DateTime?
@@ -249,6 +280,7 @@ model Escrow {
   events            EscrowEvent[]
   disputes          Dispute[]
   feeDistribution   FeeDistribution?
+  feeObligation     FeeObligation?
   // Missão 07.6.3 (R3) — back-relations for the three FKs that already
   // existed at the database level (first migration) but weren't
   // declared here. releaseApprovals/participantKeys are one-to-many
@@ -297,6 +329,261 @@ model FeeDistribution {
   createdAt             DateTime @default(now())
 
   @@map("fee_distributions")
+}
+
+// ─── Missão 11 — Protocol Fee Economic Accounting Foundation ───────────────
+// Fase 2.2 (2026-08-21), CTO-authorized STRUCTURAL FOUNDATION ONLY.
+//
+// This block adds the capability to represent and validate a versioned
+// Protocol Fee policy and a per-escrow economic snapshot/obligation. It does
+// NOT activate real fee collection, does NOT change any settlement amount,
+// does NOT add a Bitcoin/EVM/Lightning fee output or distribution transfer,
+// and does NOT choose any real economic parameter (rate, bucket split,
+// confirmation depth) — every FeePolicyVersion this pass's own tests create
+// is an explicitly-labeled fixture, never a production value.
+// config.settlement.protocolFeeRate and chargeProtocolFee() (RFC-021 Phase 0,
+// escrow-lifecycle.ts) are UNCHANGED and remain the ONLY live fee mechanism
+// until a future, separately-authorized phase wires this foundation into a
+// real settlement flow. See Missão 11 Fase 1/1.1/1.2/2/2.1 for the full
+// design rationale this implements.
+enum FeePolicyStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+// Only one payer model exists today (CTO decision, Fase 1.2 §1: seller pays /
+// deduction-from-settlement) — modeled as an enum, not a boolean, so a future
+// model doesn't require a breaking rename.
+enum FeePayerModel {
+  SELLER_PAYS
+}
+
+enum FeeEconomicBasis {
+  SELLER_DELIVERED_VALUE
+}
+
+// Fase 2.1 §4: a stable, essentially-permanent economic fact, deliberately
+// immune to anything that happens on-chain afterward (reorg/RBF/drop never
+// touch this — see FeeCollectionStatus below for that lifecycle).
+enum FeeEconomicDetermination {
+  OWED
+  NOT_APPLICABLE
+}
+
+// Fase 2.1 §5: the collection/evidence attempt lifecycle. Only meaningful
+// when FeeObligation.economicDetermination = OWED — a NOT_APPLICABLE
+// obligation has collectionStatus = null and deliberately no lifecycle at
+// all (Fase 2.2 §6's own instruction: "NOT_APPLICABLE não deve fingir ter
+// collection lifecycle"). UNCOLLECTIBLE_BYPASSED is reachable primarily on
+// client-held-key rails (MULTISIG, LIGHTNING_HODL) where buyer+seller hold
+// sufficient quorum to settle outside any Sails-constructed transaction
+// (Fase 1.1's proven enforcement ceiling) — not expected on server-custodial
+// rails (WDK_USDT_EVM) or contract-enforced rails (SAFE_GUARD_EVM).
+enum FeeCollectionStatus {
+  PENDING_COLLECTION
+  IN_PROGRESS
+  WAIVED
+  UNCOLLECTIBLE_BYPASSED
+  COLLECTED
+  DISTRIBUTED
+}
+
+enum FeeCollectionEvidenceKind {
+  BROADCAST
+  CONFIRMED
+  REPLACED
+  DROPPED
+  REORGED_OUT
+  ALTERNATE_SPEND
+}
+
+// One immutable-once-published policy per (railScope, label). Economic
+// columns below (protocolFeeRate through triggerSemantics) are protected by
+// TWO independent layers once status leaves DRAFT: (1) the narrow
+// fee-policy-repository.ts surface, which exposes no method capable of
+// touching them post-DRAFT; (2) a real PostgreSQL BEFORE UPDATE trigger
+// (raw SQL — see <timestamp>_add_fee_policy_versioning_foundation/
+// migration.sql) that REJECTS any UPDATE touching these columns once
+// OLD.status != 'DRAFT', including a raw SQL UPDATE issued outside this
+// application entirely. RETIRED stays exactly as immutable as PUBLISHED —
+// the trigger's condition is `OLD.status != 'DRAFT'`, not
+// `OLD.status = 'PUBLISHED'`, so retiring never reopens the economic fields.
+//
+// IMPORTANT, disclosed per Fase 2.2's own explicit instruction: `schema.prisma`
+// and this project's `db:completeness-check` (`prisma migrate diff
+// --from-config-datasource --to-schema prisma/schema.prisma`) do NOT model
+// database triggers at all — Prisma's diff engine only compares tables,
+// columns, indexes/constraints, and enums. This means db:completeness-check
+// will report clean identically whether or not this trigger exists in the
+// live database. This is a real, permanent blind spot of that tool for this
+// one piece of protection, not a bug in this migration — the trigger's own
+// existence must be verified directly against a real Postgres instance (see
+// Missão 11 Fase 2.2's own report for that proof), never inferred from
+// db:completeness-check passing.
+model FeePolicyVersion {
+  id        String          @id @default(uuid())
+  label     String          // human-readable, e.g. "v1-fixture" — unique only in combination with railScope, not globally
+  // Free-form string, not FK'd to the EscrowType enum: a policy's rail scope
+  // may legitimately outlive/predate the exact enum values Escrow.type
+  // offers today (Fase 1.2 §11 — same governance framework, different
+  // economics per rail).
+  railScope String
+  status    FeePolicyStatus @default(DRAFT)
+
+  // Structural validation only (Fase 2.1 §4 / Fase 2.2 §4): rate >= 0, each
+  // bucket percentage >= 0, and the four percentages must sum to exactly
+  // 100 at publish() time — enforced in fee-policy.service.ts, using Decimal
+  // arithmetic (never float, correcting the imprecision already flagged in
+  // config.settlement.protocolFeeRate's own live parseFloat typing). The
+  // ACTUAL rate/ceiling/split values are a governance decision explicitly
+  // NOT made in this phase — every value used by this pass's own tests is a
+  // clearly-labeled fixture.
+  protocolFeeRate      Decimal           @db.Decimal(24, 8)
+  payerModel           FeePayerModel
+  economicBasis        FeeEconomicBasis
+  nodeOperatorPct      Decimal           @db.Decimal(24, 8)
+  treasuryPct          Decimal           @db.Decimal(24, 8)
+  walletRebatePct      Decimal           @db.Decimal(24, 8)
+  arbitratorReservePct Decimal           @db.Decimal(24, 8)
+  // Rail-specific, deliberately still-evolving structured data (Fase 1.2
+  // §4/§5) — genuinely variable shape per rail, same "flexible JSON for
+  // still-evolving structured data" precedent this schema already uses for
+  // Dispute.evidence/Intent.payload. Field names inside are NOT
+  // schema-approved.
+  smallTradeRule   Json @default("{}")
+  triggerSemantics Json @default("{}")
+
+  createdBy   String    // caller-supplied identifier; no real admin/operator role model exists in this codebase yet (Fase 2 §15, open question)
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+  retiredAt   DateTime?
+
+  obligations FeeObligation[]
+  escrows     Escrow[]
+
+  @@index([railScope, status])
+  @@map("fee_policy_versions")
+}
+
+// One row per escrow that has BOTH a non-null Escrow.feePolicyVersionId AND
+// has reached a terminal settlement outcome (Fase 2.1 §3 — revising Fase 2's
+// original "absence = not applicable" design, which could not distinguish a
+// deliberate exemption from a bug). For any such escrow, absence of this row
+// is provably an error, never an ambiguous case. Legacy escrows
+// (feePolicyVersionId IS NULL) remain the one clean, permanent exception —
+// gated by that null check BEFORE ever asking "should an obligation exist,"
+// never processed through this model at all.
+model FeeObligation {
+  id                 String                    @id @default(uuid())
+  escrowId           String                    @unique
+  escrow             Escrow                    @relation(fields: [escrowId], references: [id])
+  feePolicyVersionId String
+  feePolicyVersion   FeePolicyVersion          @relation(fields: [feePolicyVersionId], references: [id])
+
+  economicDetermination FeeEconomicDetermination
+  // Null when economicDetermination = NOT_APPLICABLE — deliberately no
+  // collection lifecycle for a determination that was never owed (Fase 2.2
+  // §6's explicit instruction).
+  collectionStatus      FeeCollectionStatus?
+
+  basisAmount Decimal?   @db.Decimal(24, 8) // the seller-delivered value the fee was computed against; null for NOT_APPLICABLE
+  computedFee Decimal?   @db.Decimal(24, 8) // null for NOT_APPLICABLE
+  asset       AssetType?
+
+  recipientAddress String?
+
+  // Set exactly once, when included in a FeeDistributionBatchItem — the
+  // @@unique on FeeDistributionBatchItem.feeObligationId (below) is the real
+  // DB-level guarantee against double distribution; this column is a cheap,
+  // redundant, single-column "is this undistributed" check
+  // (collectionStatus = COLLECTED AND distributedInBatchId IS NULL).
+  // Same onDelete: Restrict reasoning as Escrow.feePolicyVersion above —
+  // Prisma's default for this optional relation would otherwise be SET
+  // NULL, letting a FeeDistributionBatch be deleted out from under an
+  // obligation it already claimed, silently making a distributed fee
+  // reappear as "undistributed."
+  distributedInBatchId String?
+  distributedInBatch   FeeDistributionBatch?    @relation(fields: [distributedInBatchId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  evidence          FeeCollectionEvidence[]
+  distributionItems FeeDistributionBatchItem[]
+
+  @@index([feePolicyVersionId])
+  @@index([collectionStatus])
+  @@map("fee_obligations")
+}
+
+// Append-only, mirroring EscrowEvent's own discipline (Fase 2.1 §8 /
+// Fase 2.2 §7) — no repository method in this codebase ever updates or
+// deletes a row here (fee-collection-evidence-repository.ts exposes create()
+// and reads only). A correction (RBF replacement, reorg) is always a NEW
+// row, never an edit to an old one, so the full forensic history of what was
+// believed true at each point in time is permanently preserved.
+model FeeCollectionEvidence {
+  id                String                    @id @default(uuid())
+  feeObligationId   String
+  feeObligation     FeeObligation             @relation(fields: [feeObligationId], references: [id])
+  kind              FeeCollectionEvidenceKind
+  txid              String?
+  vout              Int?
+  scriptPubKey      String?
+  amount            Decimal?                  @db.Decimal(24, 8)
+  confirmedAtHeight Int?
+  note              String?
+  recordedAt        DateTime                  @default(now())
+
+  @@index([feeObligationId, recordedAt])
+  @@map("fee_collection_evidence")
+}
+
+// Batch-level distribution run metadata. Accounting/provenance ONLY — no
+// real financial transfer is implemented anywhere in this pass (Fase 2.2 §8).
+model FeeDistributionBatch {
+  id          String    @id @default(uuid())
+  asset       AssetType
+  totalAmount Decimal   @db.Decimal(24, 8)
+  executedAt  DateTime  @default(now())
+
+  items       FeeDistributionBatchItem[]
+  obligations FeeObligation[]
+
+  @@map("fee_distribution_batches")
+}
+
+// One row per FeeObligation included in a batch. feePolicyVersionId is
+// deliberately denormalized (copied at inclusion time, Fase 1.2 §9 / Fase 2
+// §9) so a batch report can group/subtotal per policy version without
+// re-joining through every historical obligation, and so a settled batch's
+// own provenance record is self-contained. The bucket-share amounts here are
+// always computed from THIS obligation's OWN policy version — never the
+// policy version live at distribution time — which is what makes a batch
+// spanning multiple policy versions provenance-safe.
+//
+// @@unique([feeObligationId]) is the real DB-level guarantee that a
+// FeeObligation can never be distributed twice (Fase 2.2 mandate item 8) —
+// independent of, and in addition to, the application-level
+// collectionStatus/distributedInBatchId checks.
+model FeeDistributionBatchItem {
+  id                     String               @id @default(uuid())
+  batchId                String
+  batch                  FeeDistributionBatch @relation(fields: [batchId], references: [id])
+  feeObligationId        String               @unique
+  feeObligation          FeeObligation        @relation(fields: [feeObligationId], references: [id])
+  feePolicyVersionId     String
+  amount                 Decimal              @db.Decimal(24, 8)
+  nodeOperatorShare      Decimal              @db.Decimal(24, 8)
+  treasuryShare          Decimal              @db.Decimal(24, 8)
+  walletRebateShare      Decimal              @db.Decimal(24, 8)
+  arbitratorReserveShare Decimal              @db.Decimal(24, 8)
+  createdAt              DateTime             @default(now())
+
+  @@index([batchId])
+  @@index([feePolicyVersionId])
+  @@map("fee_distribution_batch_items")
 }
 
 // Dispute primitive — PROTOCOL_SPECIFICATION.md §1.9. First real
