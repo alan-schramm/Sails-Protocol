@@ -559,6 +559,11 @@ model FeeObligation {
 
   evidence          FeeCollectionEvidence[]
   distributionItems FeeDistributionBatchItem[]
+  // Missão 11 Fase 6.3A — the new entitlement-ledger foundation's own
+  // back-relation, additive alongside (never replacing) distributionItems
+  // above (the legacy, pre-Fase-6.3A mechanism — see BACKLOG.md's own
+  // classification of it).
+  entitlementLedgerEntries EntitlementLedgerEntry[]
 
   @@index([feePolicyVersionId])
   @@index([collectionStatus])
@@ -583,6 +588,11 @@ model FeeCollectionEvidence {
   confirmedAtHeight Int?
   note              String?
   recordedAt        DateTime                  @default(now())
+
+  // Missão 11 Fase 6.3A — a CONFIRMED-kind row here is itself the
+  // "collection generation" identity an entitlement-allocation generation
+  // references (Phase 6.2.1's own CTO-frozen decision — no new concept).
+  entitlementLedgerEntries EntitlementLedgerEntry[]
 
   @@index([feeObligationId, recordedAt])
   @@map("fee_collection_evidence")
@@ -632,6 +642,217 @@ model FeeDistributionBatchItem {
   @@index([batchId])
   @@index([feePolicyVersionId])
   @@map("fee_distribution_batch_items")
+}
+
+// ─── Missão 11 Fase 6.3A — Distribution & Entitlement Accounting Foundation ─
+//
+// CTO-authorized ACCOUNTING FOUNDATION ONLY (Phase 6/6.1/6.2/6.2.1's own
+// read-only economic design, now implemented). Does NOT activate any real
+// payout, does NOT select production Node/Wallet percentages, does NOT
+// activate the 0.40% Protocol Fee, and does NOT publish any
+// DistributionPolicyVersion — every row these four models can hold in this
+// pass's own tests is an explicitly-labeled fixture, mirroring the exact
+// "structural foundation only" discipline FeePolicyVersion/FeeObligation
+// (Fase 2.2) already established for fee assessment. See:
+//   - PROTOCOL_ECONOMY.md — the historical 35/30/25/10 design proposal this
+//     foundation deliberately does NOT carry forward as a production default;
+//   - Missão 11 Phase 6/6.1/6.2/6.2.1 chat reports — the full economic
+//     design/audit trail behind every decision encoded structurally below.
+//
+// DistributionPolicyVersion is INDEPENDENT from FeePolicyVersion (Phase 6.2
+// D9's own explicit decision): FeePolicyVersion answers "how much fee is
+// assessed/collected"; DistributionPolicyVersion answers "once collected,
+// who is economically entitled to it." Deliberately protocol-level (no
+// railScope) — distribution percentages are not rail-specific economics,
+// unlike fee-collection mechanics.
+enum DistributionPolicyStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+// A stable, permanent economic IDENTITY — WHO owns entitlement. Explicitly
+// NOT a payout address (Phase 6.2 §8's own proof: recipient identity and
+// payout destination are separate concepts; this model holds no address at
+// all, by design, not by omission — a future payout mechanism would add its
+// own, separately-versioned destination-assignment concept referencing this
+// same stable identity, never the other way around).
+//
+// `class` is a free string (mirrors FeePolicyVersion.railScope's own
+// precedent) — 'SAILS_PROTOCOL' is the only class this pass ever creates a
+// real row for; 'NODE'/'WALLET'/'ARBITER' are NOT implemented here (Phase
+// 6.1 §7/§8: no Sybil-resistant proof-of-contribution mechanism exists yet
+// for any of them) but require zero schema change to add later — a future
+// phase would simply create new DistributionRecipient rows of a new class.
+//
+// `identityKey` distinguishes multiple identities within the SAME class
+// (e.g., a future world with many distinct NODE operators) — always NULL
+// for the single SAILS_PROTOCOL Treasury identity. A hand-written partial
+// unique index (this migration's own raw SQL, Prisma has no schema-level
+// partial-unique syntax) enforces "at most one NULL-identityKey row per
+// class" — i.e., at most one Treasury, ever — while leaving room for many
+// non-null-identityKey rows of a future class with zero migration.
+model DistributionRecipient {
+  id          String   @id @default(uuid())
+  class       String   // e.g. 'SAILS_PROTOCOL' — the only class populated by this pass
+  identityKey String?  // NULL for a singleton class (SAILS_PROTOCOL); a stable external identity string for a future multi-instance class
+  label       String   // human-readable, e.g. "Sails Protocol Treasury"
+  createdAt   DateTime @default(now())
+
+  policyRecipients DistributionPolicyRecipient[]
+  ledgerEntries    EntitlementLedgerEntry[]
+
+  @@index([class])
+  @@map("distribution_recipients")
+}
+
+// Immutable-once-published policy, same two-layer immutability discipline
+// as FeePolicyVersion (Fase 2.1 §1 decision D): (1) this repository's own
+// narrow surface, (2) a real PostgreSQL trigger on the CHILD
+// DistributionPolicyRecipient rows (this economic content lives one level
+// down, not inline on this row — see that model's own comment) rejecting
+// any INSERT/UPDATE/DELETE of a recipient once the parent's status != DRAFT.
+model DistributionPolicyVersion {
+  id          String                   @id @default(uuid())
+  label       String                   // human-readable, e.g. "test-fixture-90-10" or "v1-bootstrap-treasury-only"
+  status      DistributionPolicyStatus @default(DRAFT)
+  createdBy   String
+  createdAt   DateTime                 @default(now())
+  publishedAt DateTime?
+  retiredAt   DateTime?
+
+  recipients    DistributionPolicyRecipient[]
+  ledgerEntries EntitlementLedgerEntry[]
+
+  @@index([status])
+  @@map("distribution_policy_versions")
+}
+
+// One (recipient, weight) row per policy version — a VARIABLE-LENGTH set
+// (1 row today, N later) is exactly what lets a future policy add a
+// recipient class without a schema migration (Phase 6.2 §J/§20's own
+// extensibility proof) — unlike the legacy FeeDistribution/
+// FeeDistributionBatchItem's four hardcoded named share columns.
+//
+// weightPct mirrors FeePolicyVersion.*Pct's own convention exactly
+// (0-100, Decimal(24,8)) — the SAME precision requirement (a percentage-
+// like value), for the same reason, deliberately reusing a genuinely
+// identical use case rather than inventing a new convention. Validated at
+// publish() time (fee-policy.service.ts's own discipline, mirrored):
+// every row for one policyVersionId must sum to EXACTLY 100 — no
+// tolerance, no silent normalization, no remainder added to another
+// recipient. A DRAFT policy's rows may be freely added/removed/edited;
+// once the parent policy is not DRAFT, this migration's own trigger
+// rejects any further mutation of this table for that policyVersionId.
+model DistributionPolicyRecipient {
+  id              String                    @id @default(uuid())
+  policyVersionId String
+  policyVersion   DistributionPolicyVersion @relation(fields: [policyVersionId], references: [id])
+  recipientId     String
+  recipient       DistributionRecipient     @relation(fields: [recipientId], references: [id], onDelete: Restrict)
+  weightPct       Decimal                   @db.Decimal(24, 8)
+  createdAt       DateTime                  @default(now())
+
+  @@unique([policyVersionId, recipientId])
+  @@map("distribution_policy_recipients")
+}
+
+enum EntitlementLedgerEntryKind {
+  ALLOCATION
+  REVERSAL
+}
+
+// Append-only economic ledger — Phase 6.2 §G/§20's chosen source of truth.
+// No mutable balance table exists anywhere in this foundation; a
+// recipient's balance for (asset, rail) is ALWAYS
+// `SUM(amount) WHERE recipientId=x AND asset=y AND rail=z` over this table,
+// deterministically reconstructible from first principles at any time
+// (Phase 6.2 E13). This migration's own trigger rejects every UPDATE and
+// DELETE on this table unconditionally — a correction is always a NEW,
+// compensating `REVERSAL`-kind row (negative amount, referencing the
+// `ALLOCATION` row it offsets via `reversalOfId`), never an edit.
+//
+// `confirmationEvidenceId` — Phase 6.2.1's own CTO-frozen decision #3/#4:
+// the pre-existing, already-append-only `FeeCollectionEvidence` row of
+// kind CONFIRMED IS the identity of one "collection generation" — no new
+// CollectionGeneration concept exists (deliberately: it would duplicate an
+// identity that already exists). Every entry in one allocation generation
+// references the SAME evidence row; a reorg-then-reconfirm cycle produces
+// a NEW CONFIRMED evidence row (Fase 5's own append-only design), and
+// therefore a NEW, independent set of ledger entries referencing it —
+// this is what lets `FeeObligation.id` remain the one permanent revenue-
+// event identity while still preserving full per-episode history (Phase
+// 6.2.1 §B, the T1-T6 proof).
+//
+// `distributionPolicyVersionId` is frozen HERE, on the entry itself, at
+// the exact moment of that entry's own creation (Phase 6.2.1 CTO decision
+// #5) — never on FeeObligation (which would have to be destructively
+// overwritten on a second allocation generation) and never inherited from
+// a separate concept.
+//
+// amount uses Decimal(48, 8) — NOT a blind reuse of the schema's own
+// pervasive Decimal(24,8) convention (see this migration's own report for
+// the full precision proof): scale 8 is independently justified because
+// it exactly matches weightPct's own precision (an entitlement amount
+// e_i = C × w_i, where C is always a whole native-unit integer, can never
+// need more fractional digits than w_i itself contributes — proven, not
+// assumed); precision 48 (40 integer digits) is deliberately wider than
+// the existing convention's 16 integer digits specifically to safely hold
+// a native-smallest-unit amount for a future high-decimal asset (e.g. an
+// 18-decimal EVM token's own wei-equivalent count) without truncation or
+// overflow, with large headroom for cumulative-balance growth over time.
+model EntitlementLedgerEntry {
+  id String @id @default(uuid())
+
+  feeObligationId String
+  feeObligation   FeeObligation @relation(fields: [feeObligationId], references: [id], onDelete: Restrict)
+
+  confirmationEvidenceId String
+  confirmationEvidence   FeeCollectionEvidence @relation(fields: [confirmationEvidenceId], references: [id], onDelete: Restrict)
+
+  distributionPolicyVersionId String
+  distributionPolicyVersion   DistributionPolicyVersion @relation(fields: [distributionPolicyVersionId], references: [id], onDelete: Restrict)
+
+  recipientId String
+  recipient   DistributionRecipient @relation(fields: [recipientId], references: [id], onDelete: Restrict)
+
+  asset AssetType
+  // Free string, mirrors FeePolicyVersion.railScope's own convention —
+  // NOT an FK to EscrowType (a rail may legitimately outlive/predate that
+  // enum's exact values, same reasoning already established there).
+  rail  String
+
+  kind   EntitlementLedgerEntryKind
+  // Positive for ALLOCATION, negative for REVERSAL — enforced by this
+  // migration's own CHECK constraint (defense-in-depth; the service layer
+  // never accepts a caller-supplied sign either).
+  amount Decimal @db.Decimal(48, 8)
+
+  // Set only for kind=REVERSAL — the exact ALLOCATION entry this offsets.
+  // The service layer always DERIVES a reversal's feeObligationId/asset/
+  // rail/recipientId/distributionPolicyVersionId/amount-magnitude from
+  // this referenced row directly (never accepts them as independent
+  // caller input), structurally eliminating any wrong-pairing or
+  // wrong-magnitude reversal by construction, not merely by a check.
+  reversalOfId String?
+  reversalOf   EntitlementLedgerEntry?  @relation("Reversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy   EntitlementLedgerEntry[] @relation("Reversal")
+
+  createdAt DateTime @default(now())
+
+  // Missão 11 Fase 6.3A §G9/§G10/§H7/§H8 — the real DB-level double-
+  // allocation AND double-reversal guard: for one confirmation generation
+  // (confirmationEvidenceId) and one recipient, at most one ALLOCATION row
+  // and at most one REVERSAL row may ever exist. A retried/concurrent
+  // worker's second insert attempt fails on this constraint (P2002),
+  // exactly the same idempotency idiom FeeDistributionBatchItem's own
+  // @@unique([feeObligationId]) already established — never blocks a
+  // legitimate NEW generation under a DIFFERENT confirmationEvidenceId
+  // (the reorg-then-reconfirm case, Phase 6.2.1 §B7's E6).
+  @@unique([confirmationEvidenceId, recipientId, kind])
+  @@index([feeObligationId])
+  @@index([recipientId, asset, rail])
+  @@map("entitlement_ledger_entries")
 }
 
 // Dispute primitive — PROTOCOL_SPECIFICATION.md §1.9. First real
