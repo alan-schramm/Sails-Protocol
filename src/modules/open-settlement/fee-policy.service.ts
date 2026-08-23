@@ -5,10 +5,12 @@
  * be read as recommending, any real economic parameter — every rate,
  * ceiling, and bucket split passed to createDraft()/publish() in this
  * codebase's own tests is an explicitly-labeled fixture. It does not wire
- * into any real settlement flow, does not activate fee collection, and does
- * not change PROTOCOL_FEE_RATE/chargeProtocolFee() (RFC-021 Phase 0,
- * escrow-lifecycle.ts), which remain the only LIVE fee mechanism until a
- * future, separately-authorized phase.
+ * into any real settlement flow and does not activate fee collection.
+ * RFC-021 Phase 0's chargeProtocolFee()/PROTOCOL_FEE_RATE mechanism was
+ * retired in Missão 11 Fase 6.5.2 — this policy's own downstream
+ * (FeeObligation -> a frozen DistributionPolicyVersion ->
+ * EntitlementLedgerEntry) is now the sole future economic authority,
+ * still not activated by this file either.
  *
  * Validation split (Fase 2.1 §4 / Fase 2.2 §4), enforced here:
  *   STRUCTURAL (this file):    rate >= 0; each bucket percentage >= 0; the

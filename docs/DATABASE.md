@@ -291,7 +291,7 @@ and `ArbiterProfile`/`PaymentAccount`, closed further down this file):
 `feeCharged` above was missing from this listing since Phase 0 shipped —
 now matches `prisma/schema.prisma` exactly.
 
-### `FeeDistribution` — owned by `opensettlement`, RFC-021 Phase 0's real Protocol Fee split
+### `FeeDistribution` — HISTORICAL / SUPERSEDED / WRITE-FROZEN (RFC-021 Phase 0's retired Protocol Fee split)
 
 ```prisma
 model FeeDistribution {
@@ -312,20 +312,46 @@ model FeeDistribution {
 }
 ```
 
-One row per fee-charging release, created by `escrow.service.ts`'s
-`chargeProtocolFee()` (`releaseFunds()` only — refunds never charge a
-fee) whenever `config.settlement.protocolFeeRate` is non-zero. The
-35/30/25/10 split (Wallet Rebate/Node Operator/Treasury/Arbitrator
-Reserve — revised 2026-08-11 from the original 40/30/20/10) is
-`PROTOCOL_ECONOMY.md` §6.2's already-decided economics, not re-derived
-here — this table just persists the real computed shares. Same "computed and persisted, not actually routed
-on-chain" realness as `DisputeAppealFee` below: no `SettlementProvider`
-in this codebase has a real configured treasury/node-operator/
-wallet-rebate/arbitrator-reserve address to send any share to yet.
-`Escrow.feeCharged` (above) is the same `totalFee` value, denormalized
-onto the escrow itself so `User.cumulativeFeesObserved`/
-`ArbiterProfile.cumulativeFeesObserved` (RFC-021 D4) can read it without
-a join.
+**Missão 11 Fase 6.5.2 — single-economic-authority cutover.** This table
+is **not a normative source of any future economic entitlement.**
+`FeeCollectionEvidence(CONFIRMED) → FeeObligation → a frozen
+DistributionPolicyVersion → EntitlementLedgerEntry`
+(`src/modules/open-settlement/entitlement-allocation.service.ts`, Missão
+11 Fase 6.3A — not yet given its own full entry in this document, a
+known documentation gap, not an omission of this correction) is the sole
+future economic allocation authority. This table is retained purely for
+historical/audit purposes: every row that
+exists was written before the cutover by `escrow.service.ts`'s (now
+removed) `chargeProtocolFee()`, called from `releaseFunds()` only,
+whenever `config.settlement.protocolFeeRate` was non-zero — which it
+never was in any environment this repository evidences (the config
+default has always been `0`). The 35/30/25/10 split (Wallet Rebate/Node
+Operator/Treasury/Arbitrator Reserve — revised 2026-08-11 from the
+original 40/30/20/10) was `PROTOCOL_ECONOMY.md` §6.2's proposed, never
+formally activated, economics — see that document's own historical
+marking. A DB-native trigger (`fee_distributions_write_freeze_guard`,
+`prisma/migrations/20260823020000_legacy_fee_distribution_write_freeze`)
+now rejects every `INSERT`/`UPDATE`/`DELETE` against this table
+unconditionally, including raw SQL bypassing the application entirely —
+existing rows remain fully readable and are never modified by that
+guard. `Escrow.feeCharged` (above) is the same `totalFee` value,
+denormalized onto the escrow itself; it is never set again by any live
+code path and stays `null` for every future release.
+
+### `FeeDistributionBatch` / `FeeDistributionBatchItem` — HISTORICAL / SUPERSEDED / WRITE-FROZEN (Missão 11 Fase 2.2's accounting foundation)
+
+Introduced (commit `af8de81`, "add protocol fee accounting foundation")
+as a policy-versioned, multi-recipient-aware evolution of `FeeDistribution`
+above — but, per that commit's own message, "structural foundation only,"
+never wired into any real settlement flow. Fase 6.5.1's audit confirmed
+zero production call sites for `addObligationToBatch()` anywhere in this
+repository; only its own test ever called it. Same disposition as
+`FeeDistribution`: **not a normative source of any future economic
+entitlement**, retained for historical/audit purposes only, and
+DB-natively write-frozen (`fee_distribution_batches_write_freeze_guard`,
+`fee_distribution_batch_items_write_freeze_guard`, same migration as
+above) — every `INSERT`/`UPDATE`/`DELETE` is rejected unconditionally,
+including raw SQL, while existing rows (if any) remain fully readable.
 
 **Escrow state machine — valid transitions (enforced in application code,
 not the database):**

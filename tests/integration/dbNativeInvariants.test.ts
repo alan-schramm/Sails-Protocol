@@ -53,6 +53,16 @@ interface RequiredTrigger {
 const REQUIRED_DB_NATIVE_TRIGGERS: RequiredTrigger[] = [
   { trigger: 'fee_policy_versions_immutability_guard', table: 'fee_policy_versions', function: 'fee_policy_versions_enforce_immutability' },
   { trigger: 'escrows_fee_snapshot_immutability_guard', table: 'escrows', function: 'escrows_enforce_fee_snapshot_immutability' },
+  // Missão 11 Fase 6.5.2 — single-economic-authority cutover: Mechanism 1
+  // (chargeProtocolFee()/FeeDistribution) and Mechanism 2
+  // (FeeDistributionBatch/Item) are HISTORICAL / SUPERSEDED / WRITE-FROZEN.
+  // Behavioral (INSERT/UPDATE/DELETE actually rejected) proof lives in
+  // tests/integration/legacyFeeDistributionWriteFreeze.test.ts — this gate
+  // only proves the guard trigger itself exists, is attached to the right
+  // table, and is enabled, same division of labor as the two rows above.
+  { trigger: 'fee_distributions_write_freeze_guard', table: 'fee_distributions', function: 'legacy_fee_distribution_enforce_write_freeze' },
+  { trigger: 'fee_distribution_batches_write_freeze_guard', table: 'fee_distribution_batches', function: 'legacy_fee_distribution_enforce_write_freeze' },
+  { trigger: 'fee_distribution_batch_items_write_freeze_guard', table: 'fee_distribution_batch_items', function: 'legacy_fee_distribution_enforce_write_freeze' },
 ]
 
 interface TriggerCatalogRow {

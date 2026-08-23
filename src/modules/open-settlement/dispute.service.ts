@@ -42,9 +42,8 @@ import type { DisputeStatus } from '@prisma/client'
 // persists this as a real DisputeAppealFee row, and resolveDispute()
 // settles its outcome (FORFEITED on a denied/frivolous appeal, REFUNDED
 // on an overturn). Same "computed and persisted, not actually routed
-// on-chain" realness as the Protocol Fee itself already has
-// (escrow.service.ts's chargeProtocolFee() doesn't move funds anywhere
-// either — no SettlementProvider here has a real configured treasury/
+// on-chain" realness as the Protocol Fee accounting foundation already
+// has (no SettlementProvider here has a real configured treasury/
 // arbitrator-reserve address to send anything to). A real on-chain
 // appeal-fee lock (the appellant actually posting collateral before the
 // panel convenes) is a separate, larger undertaking blocked on the same
@@ -339,9 +338,9 @@ export class DisputeService {
     // exists to impose; a different ruling means the appellant was right
     // to appeal — REFUNDED. Real bookkeeping, not a simulated one — same
     // "computed and persisted, not actually routed on-chain" precedent
-    // chargeProtocolFee() (escrow.service.ts) already established for
-    // the Protocol Fee itself: no SettlementProvider here has a real
-    // configured treasury/arbitrator-reserve address to move anything to.
+    // the Protocol Fee accounting foundation already established: no
+    // SettlementProvider here has a real configured treasury/arbitrator-
+    // reserve address to move anything to.
     if (dispute.appealRound > 0) {
       const outcome = dispute.previousRuling && dispute.previousRuling !== ruling ? 'REFUNDED' : 'FORFEITED'
       await prisma.disputeAppealFee.updateMany({

@@ -566,13 +566,50 @@ competition for the wallet businesses themselves.
 
 ### 6.1 Who pays
 
+**HISTORICAL / SUPERSEDED — never implemented this way (noted Missão 11
+Fase 6.5.2).** The paragraph below describes the original design
+proposal. What was actually built (`FeePayerModel`/`FeeEconomicBasis` in
+`prisma/schema.prisma`) has exactly one payer model —
+`SELLER_PAYS`/`SELLER_DELIVERED_VALUE` — with no split-between-parties
+option ever added to the schema. This is the normative text going
+forward: **the Protocol Fee is charged to the seller, computed on the
+value the seller delivered.** The split-proportionally description below
+is kept for historical record, not corrected in place, per this
+project's own discipline of never silently rewriting past design intent.
+
+<details>
+<summary>Original proposal (superseded, kept for historical record)</summary>
+
 The Protocol Fee is charged at **Settlement** (see the `Settlement`
 primitive in `PROTOCOL_SPECIFICATION.md` section 1.5), split proportionally
 between the two counterparties of the completed trade (buyer and seller,
 or borrower and lender for future OpenFinance intents) — not charged to
 either party alone. This mirrors how HodlHodl splits its escrow fee.
 
+</details>
+
 ### 6.2 Who receives
+
+**HISTORICAL / SUPERSEDED as of Missão 11 Fase 6.5.2 — the mechanism
+below (`chargeProtocolFee()`/`FeeDistribution`, RFC-021 Phase 0) and the
+Fase 2.2 evolution of it that followed
+(`FeeDistributionBatch`/`FeeDistributionBatchItem`) have been retired and
+are now write-frozen at the database level; neither is capable of
+producing a new economic entitlement.** The single normative economic
+authority going forward is `FeeCollectionEvidence(CONFIRMED) →
+FeeObligation → a frozen DistributionPolicyVersion →
+EntitlementLedgerEntry` (Missão 11 Fase 6.3A,
+`src/modules/open-settlement/entitlement-allocation.service.ts`) — an
+exact, policy-versioned, N-recipient ledger, not a fixed four-bucket
+split. **No production distribution policy has been published under that
+new architecture as of this writing** — the 35/30/25/10 split below
+remains a documented, dated, never-formally-activated *proposal*, not a
+frozen decision; it is preserved here as the historical rationale a
+future distribution policy may or may not adopt, not as something
+already in force.
+
+The description below is kept for historical record, describing a
+mechanism that no longer accepts new writes:
 
 The fee is never collected into a single company's account. It splits into
 four buckets at the moment of settlement:
@@ -605,6 +642,14 @@ the split is per-originating-side, so a trade between two different
 wallets pays both, never just one.
 
 ### 6.3 How distributed
+
+**HISTORICAL / SUPERSEDED — see §6.2's own note.** The real, built
+architecture (Fase 6.3A) separates *entitlement* (an exact ledger record
+of what a recipient is owed) from *payout* (moving real value to that
+recipient) — entitlement accrual is real and implemented; payout
+execution is a distinct, not-yet-built future phase. The "paid directly
+at settlement time, no claim process" description below reflects the
+original, pre-Fase-6.3A proposal, not the current architecture.
 
 Distribution happens **at settlement time**, computed by the
 `SettlementProvider` implementation as part of the release transaction —

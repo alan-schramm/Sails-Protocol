@@ -248,25 +248,21 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
   it('checkRailActivationReadiness("MULTISIG") reports concrete blockers when misconfigured', async () => {
     requirePostgres('readiness blocked')
     config.settlement.protocolFeeCollectionAddress = undefined
-    config.settlement.protocolFeeRate = 0.01 // nonzero Phase-0 rate — a real blocker
 
     const readiness = await checkRailActivationReadiness('MULTISIG')
     expect(readiness.ready).toBe(false)
     expect(readiness.blockers.some((b: string) => b.includes('SAILS_PROTOCOL_FEE_COLLECTION_ADDRESS'))).toBe(true)
-    expect(readiness.blockers.some((b: string) => b.includes('PROTOCOL_FEE_RATE'))).toBe(true)
   })
 
   it('checkRailActivationReadiness("MULTISIG") is unblocked on config once misconfiguration is fixed (DB triggers/keys permitting)', async () => {
     requirePostgres('readiness ready')
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
-    config.settlement.protocolFeeRate = 0
 
     const readiness = await checkRailActivationReadiness('MULTISIG')
     // Never asserts unconditional readiness (MULTISIG_SEED/TRUSTED_ARBITRATORS
     // depend on this environment's own .env, not this test) — only that the
-    // two blockers this test controls are gone.
+    // one blocker this test controls is gone.
     expect(readiness.blockers.some((b: string) => b.includes('SAILS_PROTOCOL_FEE_COLLECTION_ADDRESS'))).toBe(false)
-    expect(readiness.blockers.some((b: string) => b.includes('PROTOCOL_FEE_RATE'))).toBe(false)
   })
 
   it('checkRailActivationReadiness("LIGHTNING_HODL") reports the single, definitive rail-capability blocker', async () => {

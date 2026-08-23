@@ -296,57 +296,24 @@ export async function verifyEscrowEventChain(escrowId: string): Promise<EscrowCh
   return { valid: true }
 }
 
-// RFC-021 Phase 0 — real Protocol Fee computation + PROTOCOL_ECONOMY.md
-// §6.2's already-decided 35/30/25/10 split (Wallet Rebate/Node Operator/
-// Treasury/Arbitrator Reserve — revised 2026-08-11 from the original
-// 40/30/20/10; wallets moved to the largest bucket since a partner
-// wallet integrating the SDK is the actual acquisition channel), persisted
-// as a real FeeDistribution row. Returns null (not 0) when
-// protocolFeeRate is 0 (the documented bootstrap default) — see
-// Escrow.feeCharged's own schema comment for why that distinction
-// matters. Called from releaseFunds() only; PROTOCOL_ECONOMY.md §3 is
-// explicit the Protocol Fee "only ever attaches to a completed
-// Settlement," never a refund.
-//
-// Missão 11 Fase 5 §11 — Phase-0/new-mechanism mutual exclusion (Fase 4.2
-// Activation Blocker C). An escrow that has opted into the new
-// FeePolicyVersion/FeeObligation mechanism (feePolicyVersionId set) never
-// gets a Phase-0 FeeDistribution row, regardless of what PROTOCOL_FEE_RATE
-// is configured to — this makes coexistence structurally impossible per
-// escrow, not merely a runbook rule an operator has to remember. Historical
-// FeeDistribution rows (written before this guard existed, or for a
-// legacy escrow that never adopted a policy) remain fully readable — this
-// is a forward-only guard on NEW writes, never a migration, never a
-// deletion. A legacy escrow (feePolicyVersionId === null/undefined) is
-// completely unaffected: PROTOCOL_FEE_RATE continues to behave exactly as
-// it always has for it.
-export async function chargeProtocolFee(escrow: { id: string; lockedAmount: Prisma.Decimal | string; asset: string; feePolicyVersionId?: string | null }): Promise<Prisma.Decimal | null> {
-  if (escrow.feePolicyVersionId) return null
-
-  const rate = config.settlement.protocolFeeRate
-  if (!rate || rate <= 0) return null
-
-  // Normalize: production always hands this a real Prisma.Decimal (the
-  // raw prisma.escrow.findUnique() result), but tests mock the DB layer
-  // with plain decimal strings (RFC-009 convention) — this must work
-  // for both without asserting the type away.
-  const lockedAmount = new Prisma.Decimal(escrow.lockedAmount)
-  const totalFee = lockedAmount.times(rate)
-
-  await prisma.feeDistribution.create({
-    data: {
-      escrowId: escrow.id,
-      totalFee,
-      asset: escrow.asset as AssetType,
-      nodeOperatorShare: totalFee.times(0.3),
-      treasuryShare: totalFee.times(0.25),
-      walletRebateShare: totalFee.times(0.35),
-      arbitratorReserveShare: totalFee.times(0.1),
-    },
-  })
-
-  return totalFee
-}
+// RFC-021 Phase 0's chargeProtocolFee() (the original 35/30/25/10-shaped
+// real-fee computation, persisted as a FeeDistribution row) lived here
+// from PROTOCOL_ECONOMY.md §6.2's first draft until Missão 11 Fase 6.5.2,
+// which removed it as part of the CTO-authorized single-economic-authority
+// cutover: FeeCollectionEvidence(CONFIRMED) -> FeeObligation -> a frozen
+// DistributionPolicyVersion -> EntitlementLedgerEntry is now the only
+// normative source of a future economic entitlement (see
+// entitlement-allocation.service.ts). It had exactly one caller
+// (escrow.service.ts's releaseFunds()) and was already permanently inert
+// in every environment this repository evidences — PROTOCOL_FEE_RATE has
+// never been set above 0. Removed rather than left as unreachable dead
+// code (CODE_STYLE.md's "no commented-out/dead code" discipline) once
+// Fase 6.5.1's audit confirmed zero other production call sites existed
+// anywhere in the repository. Historical `fee_distributions` rows are
+// untouched and remain readable; the table itself is now write-frozen at
+// the database level (prisma/migrations/20260823020000_legacy_fee_distribution_write_freeze) —
+// see docs/DATABASE.md's own entry for that table for the full historical
+// account.
 
 // BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04
 // — see payout-address.service.ts's own header comment for the full

@@ -22,7 +22,6 @@ import {
   revertEscrowStatus,
   assertEscrowTransition,
   emitEscrowTransition,
-  chargeProtocolFee,
   resolvePayoutAddress,
   checkFundMovementCapability,
 } from './escrow-lifecycle'
@@ -462,26 +461,26 @@ export class EscrowService {
         resolvedToAddress
       )
 
-      // RFC-021 Phase 0 — real Protocol Fee (PROTOCOL_ECONOMY.md §3/§6.2).
-      // "Only ever attaches to a completed Settlement" — computed here,
-      // not in refundFunds() below, deliberately. config.settlement.
-      // protocolFeeRate defaults to 0 (the documented bootstrap-phase
-      // default), in which case feeCharged stays null and no
-      // FeeDistribution row is created — a deployment that hasn't opted
-      // into fees yet persists nothing extra.
-      const feeCharged = await chargeProtocolFee(escrow)
+      // RFC-021 Phase 0's chargeProtocolFee() lived here until Missão 11
+      // Fase 6.5.2's single-economic-authority cutover removed it —
+      // FeeCollectionEvidence(CONFIRMED) -> FeeObligation -> a frozen
+      // DistributionPolicyVersion -> EntitlementLedgerEntry (below) is now
+      // the only normative source of a future economic entitlement.
+      // Escrow.feeCharged is retained as a schema column (historical rows
+      // remain readable) but is never set again by this path — always
+      // null going forward, exactly as it already was in every real
+      // environment (PROTOCOL_FEE_RATE has never been set above 0).
+      const feeCharged = null
 
       const updated = await this.repo.updateReleaseResult(escrowId, {
         txReleaseId: result.txId, releasedAt: new Date(), feeCharged,
       })
 
-      // Missão 11 Fase 3 — the new, policy-versioned FeeObligation
-      // accounting, entirely separate from chargeProtocolFee()/feeCharged
-      // above (RFC-021 Phase 0, unchanged). A no-op today for every real
-      // escrow (feePolicyVersionId is null until a future phase wires
-      // escrow-fee-snapshot.service.ts into createEscrow()) — see this
-      // service call's own Fase 3 coexistence analysis for why computing
-      // both here is safe rather than a double-charge risk.
+      // Missão 11 Fase 3 — the policy-versioned FeeObligation accounting,
+      // the real upstream of the sole future economic authority (Fase
+      // 6.5.2). A no-op today for every real escrow (feePolicyVersionId
+      // is null until a future phase wires escrow-fee-snapshot.service.ts
+      // into createEscrow()).
       await feeObligationService.recordObligationForEscrowSettlement(escrow, 'RELEASE')
 
       // NOTE: previously this method also updated Trade.status/completedAt AND

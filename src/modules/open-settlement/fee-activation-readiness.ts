@@ -86,10 +86,6 @@ async function checkMultisigReadiness(): Promise<RailActivationReadiness> {
     }
   }
 
-  if (config.settlement.protocolFeeRate > 0) {
-    blockers.push(`PROTOCOL_FEE_RATE (Phase-0) is currently ${config.settlement.protocolFeeRate}, not 0 — chargeProtocolFee() is structurally excluded once an escrow adopts a FeePolicyVersion (Fase 5 §11), but a nonzero rate still means non-policy-aware escrows on OTHER rails (MOCK/WDK_USDT_EVM) would keep creating Phase-0 FeeDistribution rows alongside any new activation — retire or zero it first for a clean cutover.`)
-  }
-
   if (!config.multisig.seed) {
     blockers.push('MULTISIG_SEED is not configured — the arbiter key (and this whole provider) cannot function at all.')
   }

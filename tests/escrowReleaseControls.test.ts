@@ -203,7 +203,18 @@ describe('escrowService.releaseFunds — RFC-014 capability check (relocated fro
   })
 })
 
-describe('escrowService.releaseFunds — RFC-021 Phase 0 real Protocol Fee', () => {
+describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Mechanism 1) retired', () => {
+  // Missão 11 Fase 6.5.2 — chargeProtocolFee() (RFC-021 Phase 0) and its
+  // FeeDistribution row are retired: FeeCollectionEvidence(CONFIRMED) ->
+  // FeeObligation -> a frozen DistributionPolicyVersion ->
+  // EntitlementLedgerEntry is now the sole future economic authority.
+  // These tests replace the old "35/30/25/10 split math" suite (which
+  // exercised a function that no longer exists) with a regression proof
+  // that release/refund/split behave exactly as before the retirement —
+  // Escrow.feeCharged is always null now, and the legacy FeeDistribution
+  // write path is never reached, regardless of config.settlement.
+  // protocolFeeRate (which itself is untouched, still defaults to 0, and
+  // is simply no longer read by this path).
   beforeEach(() => {
     jest.clearAllMocks()
     enforceCapabilities = false
@@ -215,7 +226,7 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 real Protocol Fee', () 
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
   })
 
-  it('charges no fee and persists no FeeDistribution when protocolFeeRate is 0 (the documented bootstrap default)', async () => {
+  it('releaseFunds() never invokes the legacy FeeDistribution write path, regardless of protocolFeeRate', async () => {
     await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
     expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).toHaveBeenCalledWith(
@@ -223,60 +234,33 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 real Protocol Fee', () 
     )
   })
 
-  it('computes the real fee and the exact 35/30/25/10 PROTOCOL_ECONOMY.md §6.2 split when a rate is configured', async () => {
-    protocolFeeRate = 0.004 // 0.40%, PROTOCOL_ECONOMY.md §3's documented default (revised 2026-08-11 from the earlier 0.05%-0.15% range, active from launch rather than after a 12-month grace period)
-    // baseEscrow.lockedAmount = '20.5' -> fee = 20.5 * 0.004 = 0.082
+  it('a nonzero protocolFeeRate no longer has any effect on release — the legacy reader of that config value is gone', async () => {
+    protocolFeeRate = 0.004 // would have triggered the old 35/30/25/10 split before Fase 6.5.2
     await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
 
-    expect(mockFeeDistributionCreate).toHaveBeenCalledTimes(1)
-    const { data } = mockFeeDistributionCreate.mock.calls[0][0]
-    expect(data.escrowId).toBe('escrow-1')
-    expect(data.totalFee.toString()).toBe('0.082')
-    expect(data.nodeOperatorShare.toString()).toBe('0.0246')    // 30%
-    expect(data.treasuryShare.toString()).toBe('0.0205')        // 25%
-    expect(data.walletRebateShare.toString()).toBe('0.0287')    // 35%
-    expect(data.arbitratorReserveShare.toString()).toBe('0.0082') // 10%
-    // The four shares sum back to the total — no rounding leak.
-    const sum = data.nodeOperatorShare.plus(data.treasuryShare).plus(data.walletRebateShare).plus(data.arbitratorReserveShare)
-    expect(sum.toString()).toBe(data.totalFee.toString())
-
+    expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ feeCharged: expect.anything() }) })
+      expect.objectContaining({ data: expect.objectContaining({ feeCharged: null }) })
     )
-    const { feeCharged } = mockEscrowUpdate.mock.calls[0][0].data
-    expect(feeCharged.toString()).toBe('0.082')
   })
 
-  it('never charges a fee on refund — PROTOCOL_ECONOMY.md §3: "only ever attaches to a completed Settlement"', async () => {
+  it('a policy-aware escrow (feePolicyVersionId set) behaves identically — still no legacy FeeDistribution row, ever', async () => {
+    protocolFeeRate = 0.004
+    mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, feePolicyVersionId: 'policy-1', snapshotProtocolFeeRate: '0.004' })
+    await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
+
+    expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ feeCharged: null }) })
+    )
+  })
+
+  it('refundFunds() never touches the legacy FeeDistribution write path — unchanged from before the retirement', async () => {
     protocolFeeRate = 0.001
     mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
     await escrowService.refundFunds('escrow-1', 'seller-1')
     expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
-  })
-
-  // Missão 11 Fase 5 §11 (Fase 4.2 Activation Blocker C, closed): an escrow
-  // that has opted into the new FeePolicyVersion mechanism must never also
-  // get a Phase-0 FeeDistribution row, regardless of PROTOCOL_FEE_RATE.
-  it('charges no Phase-0 fee for a policy-aware escrow, even with a nonzero PROTOCOL_FEE_RATE — mutual exclusion', async () => {
-    protocolFeeRate = 0.004
-    mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, feePolicyVersionId: 'policy-1', snapshotProtocolFeeRate: '0.004' })
-    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
-    await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
-
-    expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
-    expect(mockEscrowUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ feeCharged: null }) })
-    )
-  })
-
-  it('a legacy escrow (no feePolicyVersionId) is completely unaffected — PROTOCOL_FEE_RATE behaves exactly as before', async () => {
-    protocolFeeRate = 0.004
-    mockEscrowFindUnique.mockResolvedValue(baseEscrow) // no feePolicyVersionId
-    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
-    await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
-
-    expect(mockFeeDistributionCreate).toHaveBeenCalledTimes(1)
   })
 })
 

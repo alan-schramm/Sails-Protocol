@@ -13,10 +13,10 @@
  * deducts anything from a payout, never touches a transaction output, never
  * moves funds, and never sets collectionStatus past PENDING_COLLECTION (or
  * WAIVED, for a fixture-only test rule — see evaluateSmallTradeRuleFixtureOnly
- * below). config.settlement.protocolFeeRate and chargeProtocolFee()
- * (RFC-021 Phase 0) are completely unrelated and untouched — see this
- * module's own Fase 3 report for the full old/new-mechanism coexistence
- * analysis.
+ * below). RFC-021 Phase 0's chargeProtocolFee()/PROTOCOL_FEE_RATE mechanism
+ * was retired in Missão 11 Fase 6.5.2 — FeeCollectionEvidence(CONFIRMED) ->
+ * this module's FeeObligation -> a frozen DistributionPolicyVersion ->
+ * EntitlementLedgerEntry is now the sole future economic authority.
  *
  * Legacy rule (Fase 3 §2): an escrow with Escrow.feePolicyVersionId === null
  * gets no FeeObligation at all — recordObligationForEscrowSettlement() is a
