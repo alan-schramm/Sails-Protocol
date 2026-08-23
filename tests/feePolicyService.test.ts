@@ -55,24 +55,38 @@ describe('FeePolicyService.publish — structural validation (G/H/F)', () => {
     expect(repo.publish).not.toHaveBeenCalled()
   })
 
-  // Test G: negative bucket percentage rejected
-  it('rejects a negative bucket percentage', async () => {
-    const draft = fixtureDraft({ arbitratorReservePct: '-5', walletRebatePct: '40' })
-    const repo = fakeRepo({ findById: jest.fn().mockResolvedValue(draft) })
+  // Missão 11 Fase 7.2 (CTO Decision, §I) — Tests G and F (bucket-percentage
+  // negativity/sum-to-100 rejection) used to live here. Removed, not
+  // converted: those four columns (nodeOperatorPct/treasuryPct/
+  // walletRebatePct/arbitratorReservePct) are remnants of the retired
+  // Mechanism 2 distribution architecture (Fase 6.5.2) and are no longer
+  // normative inputs for fee-policy publication — DistributionPolicyVersion
+  // alone determines revenue allocation now. publish() no longer validates
+  // them at all. The replacement tests below prove the new behavior
+  // (publication succeeds without them, and their historical presence on
+  // an existing draft is simply ignored) rather than testing a removed
+  // validation path.
+  it('publishes a draft with no legacy distribution-bucket percentages set at all — they are no longer normative inputs (Fase 7.2)', async () => {
+    const draft = fixtureDraft({ nodeOperatorPct: null, treasuryPct: null, walletRebatePct: null, arbitratorReservePct: null })
+    const repo = fakeRepo({
+      findById: jest.fn().mockResolvedValue(draft),
+      publish: jest.fn().mockResolvedValue({ ...draft, status: 'PUBLISHED', publishedAt: new Date() }),
+    })
     const service = new FeePolicyService(repo)
 
-    await expect(service.publish(draft.id)).rejects.toThrow(/arbitratorReservePct must be >= 0/)
-    expect(repo.publish).not.toHaveBeenCalled()
+    await expect(service.publish(draft.id)).resolves.toMatchObject({ status: 'PUBLISHED' })
+    expect(repo.publish).toHaveBeenCalledWith(draft.id)
   })
 
-  // Test F: bucket percentages not summing to exactly 100 rejected
-  it('rejects bucket percentages that do not sum to exactly 100', async () => {
-    const draft = fixtureDraft({ nodeOperatorPct: '30', treasuryPct: '25', walletRebatePct: '35', arbitratorReservePct: '5' }) // sums to 95
-    const repo = fakeRepo({ findById: jest.fn().mockResolvedValue(draft) })
+  it('publishes a draft even when the (now-vestigial) legacy bucket percentages present on it are negative or do not sum to 100 — no longer validated', async () => {
+    const draft = fixtureDraft({ nodeOperatorPct: '-999', treasuryPct: '1', walletRebatePct: '1', arbitratorReservePct: '1' })
+    const repo = fakeRepo({
+      findById: jest.fn().mockResolvedValue(draft),
+      publish: jest.fn().mockResolvedValue({ ...draft, status: 'PUBLISHED', publishedAt: new Date() }),
+    })
     const service = new FeePolicyService(repo)
 
-    await expect(service.publish(draft.id)).rejects.toThrow(/must sum to exactly 100/)
-    expect(repo.publish).not.toHaveBeenCalled()
+    await expect(service.publish(draft.id)).resolves.toMatchObject({ status: 'PUBLISHED' })
   })
 
   it('accepts a structurally valid draft (fixture values, not a real economic decision) and publishes it', async () => {

@@ -71,7 +71,25 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     return { trade, buyer, seller }
   }
 
+  // Missão 11 Fase 7.2 — fee_policy_versions_single_published_per_rail_key
+  // (migration 20260823182951) allows at most one PUBLISHED row per
+  // railScope. Several tests below reuse the literal 'MULTISIG' rail
+  // across separate test cases, and Test 6 ("publishing a later policy
+  // for the same rail does not retroactively change an already-snapshotted
+  // escrow") deliberately publishes twice for the SAME rail within itself
+  // — retiring whatever is currently live before publishing keeps every
+  // call site here working unchanged, without weakening what any test
+  // verifies (no test depends on a PREVIOUS test's policy still being
+  // live for a rail).
+  async function retireAnyLivePolicyForRail(railScope: string) {
+    const live = await prisma.feePolicyVersion.findFirst({ where: { railScope, status: 'PUBLISHED' } })
+    if (live) {
+      await prisma.feePolicyVersion.update({ where: { id: live.id }, data: { status: 'RETIRED', retiredAt: new Date() } })
+    }
+  }
+
   async function createPublishedPolicy(railScope: string, overrides: Record<string, any> = {}) {
+    await retireAnyLivePolicyForRail(railScope)
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     return prisma.feePolicyVersion.create({
       data: {

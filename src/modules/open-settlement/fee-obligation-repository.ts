@@ -81,8 +81,17 @@ export interface FeeObligationRepository {
    *  VALID_COLLECTION_TRANSITIONS — the caller, fee-obligation.service.ts,
    *  is responsible for checking the transition graph BEFORE calling this;
    *  this method enforces the fromStatus precondition atomically, it does
-   *  not re-validate the graph itself. */
-  claimCollectionStatusTransition(id: string, fromStatus: FeeCollectionStatus, toStatus: FeeCollectionStatus): Promise<number>
+   *  not re-validate the graph itself.
+   *
+   *  Missão 11 Fase 7.2.1 — optional `tx`: when the caller already holds
+   *  an open `prisma.$transaction` client (fee-collection-recognition.
+   *  service.ts's recognizeConfirmation(), which must commit this claim
+   *  atomically with its own CONFIRMED-evidence insert — see that
+   *  method's own header comment for the adversarial proof of why),
+   *  passing it here runs the claim inside that same transaction instead
+   *  of a new top-level one. Additive: every existing caller omits it and
+   *  gets the exact previous behavior. */
+  claimCollectionStatusTransition(id: string, fromStatus: FeeCollectionStatus, toStatus: FeeCollectionStatus, tx?: Prisma.TransactionClient): Promise<number>
 }
 
 class PrismaFeeObligationRepository implements FeeObligationRepository {
@@ -133,8 +142,9 @@ class PrismaFeeObligationRepository implements FeeObligationRepository {
     return prisma.feeObligation.findUnique({ where: { id } })
   }
 
-  async claimCollectionStatusTransition(id: string, fromStatus: FeeCollectionStatus, toStatus: FeeCollectionStatus): Promise<number> {
-    const claim = await prisma.feeObligation.updateMany({
+  async claimCollectionStatusTransition(id: string, fromStatus: FeeCollectionStatus, toStatus: FeeCollectionStatus, tx?: Prisma.TransactionClient): Promise<number> {
+    const client = tx ?? prisma
+    const claim = await client.feeObligation.updateMany({
       where: { id, collectionStatus: fromStatus },
       data: { collectionStatus: toStatus },
     })

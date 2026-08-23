@@ -9,6 +9,7 @@
  */
 import { DistributionPolicyService } from '../src/modules/open-settlement/distribution-policy.service'
 import type { DistributionPolicyRepository } from '../src/modules/open-settlement/distribution-policy-repository'
+import { EconomicAuthorityAmbiguityError } from '../src/common/errors'
 
 function fixturePolicy(overrides: Record<string, any> = {}) {
   return {
@@ -143,11 +144,24 @@ describe('DistributionPolicyService.findLivePolicy()', () => {
     expect(await service.findLivePolicy()).toBeNull()
   })
 
-  it('returns the most-recently-published policy when multiple exist', async () => {
+  // Missão 11 Fase 7.1A/7.2 (CTO Decision B) — "order by publishedAt desc
+  // and silently take the first row" used to be this method's behavior.
+  // That is no longer acceptable: policy ambiguity must fail closed, never
+  // resolve itself by picking a winner. Replaces the old "returns the
+  // most-recently-published policy when multiple exist" test, which
+  // asserted exactly the behavior this decision forbids.
+  it('throws EconomicAuthorityAmbiguityError when more than one policy is simultaneously PUBLISHED, rather than silently picking one', async () => {
     const repo = fakeRepo({ findPublished: jest.fn().mockResolvedValue([fixturePolicy({ id: 'newest' }), fixturePolicy({ id: 'older' })]) })
     const service = new DistributionPolicyService(repo)
 
+    await expect(service.findLivePolicy()).rejects.toThrow(EconomicAuthorityAmbiguityError)
+  })
+
+  it('returns the single policy when exactly one is PUBLISHED', async () => {
+    const repo = fakeRepo({ findPublished: jest.fn().mockResolvedValue([fixturePolicy({ id: 'the-one' })]) })
+    const service = new DistributionPolicyService(repo)
+
     const live = await service.findLivePolicy()
-    expect(live?.id).toBe('newest')
+    expect(live?.id).toBe('the-one')
   })
 })

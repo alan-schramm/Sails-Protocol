@@ -67,6 +67,21 @@ export class ForbiddenError extends AppError {
   }
 }
 
+// Missão 11 Fase 7.1A/7.2 — thrown when a fail-closed policy lookup
+// (FeePolicyService.findLivePolicyForRail() / DistributionPolicyService.
+// findLivePolicy()) finds more than one simultaneously-PUBLISHED row for
+// the same economic authority. Should be structurally impossible under
+// the DB-native exclusivity indexes (fee_policy_versions_single_published_
+// per_rail_key / distribution_policy_versions_single_published_key) —
+// this is defense-in-depth for a legacy/corrupt/raw-SQL-bypass state, not
+// an expected runtime path. 500, not 409/403: this is never the caller's
+// fault, it signals a real reconciliation-worthy anomaly in the data.
+export class EconomicAuthorityAmbiguityError extends AppError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, 500, 'ECONOMIC_AUTHORITY_AMBIGUITY', details)
+  }
+}
+
 // escrow-circuit-breaker.ts, 2026-08-15 — 503 (not 409 like EscrowError):
 // this isn't "your specific request conflicted," it's "this escrow is
 // temporarily paused because of a recent burst of conflicts on it" —

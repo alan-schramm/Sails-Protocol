@@ -698,6 +698,103 @@ Four concrete mechanisms:
    protocol itself from becoming a mandatory rent-extraction layer that
    integrators have no way to opt out of.
 
+### 6.5 Economic Authority Model — Terminology (Missão 11 Fase 7.1/7.2)
+
+Three distinct real, implemented entities govern economics today — easy to
+conflate by name alone, so spelled out explicitly:
+
+- **`FeePolicyVersion`** (`src/modules/open-settlement/fee-policy.service.ts`)
+  — governs fee **charging**: the rate, `payerModel`/`economicBasis`
+  (today exactly `SELLER_PAYS`/`SELLER_DELIVERED_VALUE`, no other value
+  implemented), and `requiredConfirmations`. **Rail-scoped** — a real
+  Postgres partial unique index
+  (`fee_policy_versions_single_published_per_rail_key`, migration
+  20260823182951) enforces at most one PUBLISHED row per `railScope`.
+  Its four legacy bucket-percentage columns (`nodeOperatorPct`/
+  `treasuryPct`/`walletRebatePct`/`arbitratorReservePct`, section 6.2's
+  original four-bucket description) are no longer normative inputs for a
+  new publication — nullable, no longer validated. Existing historical
+  rows keep their original values, unchanged and fully readable.
+- **`DistributionPolicyVersion`** (`src/modules/open-settlement/distribution-policy.service.ts`)
+  — governs fee **allocation**: which `DistributionRecipient`s exist and
+  their `weightPct` split, summing to exactly 100. **Global, not
+  rail-scoped** (Phase 6.2 D4 — distribution economics are protocol-level,
+  not per-rail) — a real Postgres partial unique index
+  (`distribution_policy_versions_single_published_key`, migration
+  20260823182951) enforces at most one PUBLISHED row, period.
+- **`FeeCollectionEvidence`(CONFIRMED)** — the **collection-generation
+  identity**. **Missão 11 Fase 7.2's central decision:** the
+  `DistributionPolicyVersion` governing a generation's future allocation
+  is selected exactly once, at the moment this CONFIRMED row is recorded
+  (`FeeObligation` transitioning to `COLLECTED`) — never at whenever an
+  allocation worker happens to run later. The selected policy's id is
+  persisted directly on this row (`distributionPolicyVersionId`,
+  nullable — `null` is a real, permanent outcome when zero policy was
+  PUBLISHED at that moment, never backfilled) and is immutable once set
+  (a real Postgres trigger,
+  `fee_collection_evidence_distribution_policy_immutability_guard,`
+  rejects any later change, including raw SQL). **Operational latency
+  never changes economic ownership**: if a different policy is published
+  later, or an allocation worker runs seconds, minutes, or a process
+  restart afterward, the frozen reference is unaffected. A reorg followed
+  by a genuine reconfirmation creates a brand-new CONFIRMED row — a new
+  generation, independently frozen to whatever policy is live at THAT
+  moment — the original generation's own frozen reference is never
+  rewritten.
+- **`EntitlementLedgerEntry`** (Phase 6.2 §G/§20) — the historical
+  **entitlement truth**: an append-only, `ALLOCATION`/`REVERSAL`-kind
+  ledger, one row per (recipient, collection generation), always
+  referencing the frozen policy the generation itself already decided —
+  `EntitlementAllocationService.allocate()` never re-derives the policy
+  from live state; it only materializes what recognition-time already
+  fixed. A recipient's balance is always `SUM(amount)` over this table —
+  never a cached/mutable balance column. Internal accounting; not exposed
+  by any public route unless a concrete participant-facing use case
+  requires it later.
+
+Both policy tables fail closed on ambiguity: a lookup that finds more
+than one simultaneously-PUBLISHED row throws `EconomicAuthorityAmbiguityError`
+rather than silently picking "the newest" — structurally prevented from
+arising at all by the two unique indexes above, this is defense-in-depth
+for a legacy/corrupt/raw-SQL-bypass state, not an expected runtime path.
+
+**Bootstrap distribution model status:** 100% of collected fee revenue to
+a single `PROTOCOL_TREASURY`-class recipient is the **intended bootstrap
+shape** for the first controlled Satsails production flow — proven,
+exactly, by an isolated real-Postgres test
+(`tests/integration/collectedTimeDistributionFreeze.test.ts`'s own R18
+case, test-only, never published outside a test). **This is not activated
+anywhere.** No `DistributionPolicyVersion` matching this (or any) shape
+has been published in any real environment as of this writing. This does
+not mean Wallet/Node/Arbiter economics (section 6.2's original
+four-bucket proposal) are abandoned — they require their own design,
+implementation, tests, and documentation as additional
+`DistributionRecipient` classes, each independently designed/
+implemented/tested/documented/auditable, before any external economic
+offer is made on them. Future `DistributionPolicyVersion`s activate those
+models prospectively; already-created entitlements are immutable and
+never reinterpreted.
+
+**Bootstrap operator control plane:** publishing a `FeePolicyVersion`/
+`DistributionPolicyVersion` (moving it from DRAFT to PUBLISHED) is done
+via a server-side-only operator CLI (`scripts/publish-economic-policy.ts`,
+`npm run economics:publish-policy`), not an HTTP admin endpoint and not
+any reuse of `CapabilityRegistry` — see that script's own header comment
+for the full reasoning. This is bootstrap operational governance, not
+final protocol governance; when "Governance Layer v1" (section 7,
+`ROADMAP.md` Months 10-12) exists, only the caller of the same
+service-layer `publish()` methods changes.
+
+**Partner-facing documentation principle:** any document describing this
+economic model to an external partner must distinguish, explicitly,
+between *architecture that is implemented* (the entities above, the
+exclusivity/fail-closed/COLLECTED-time-freeze guarantees, the bootstrap
+proof) and *economic parameters that are actually activated in
+production* (as of this writing: none — `PROTOCOL_FEE_RATE` remains at
+its bootstrap default, no `FeePolicyVersion` or `DistributionPolicyVersion`
+has been published outside a test). Never present an unpublished/
+unauthorized parameter as if it were already live.
+
 ---
 
 ## 7. Governance of Economic Parameters (cross-reference to `ROADMAP.md`)

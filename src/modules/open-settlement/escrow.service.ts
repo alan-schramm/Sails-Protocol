@@ -97,6 +97,42 @@ function mapParticipantKeysShape(escrow: any): any {
   }
 }
 
+// Missão 11 Fase 7.2 §L — narrow, curated projection of this escrow's
+// frozen distribution-policy history. Replaces the raw `feeObligation`
+// relation (which carries internal accounting fields this route must not
+// expose — distributedInBatchId, recipientAddress, createdBy, a
+// recipient's identityKey) with exactly the historical-verification
+// surface required: one entry per CONFIRMED collection generation this
+// escrow's FeeObligation has ever had (normally one; more than one only
+// after a reorg + reconfirmation), each carrying the policy that was
+// independently frozen for THAT generation — never "the current live
+// policy," which cannot prove what governed a specific past generation
+// after a policy rotation (the exact gap this phase's CTO correction
+// identified). No general EntitlementLedgerEntry data (Decision D).
+function mapDistributionPolicyFreezesShape(escrow: any): any {
+  const { feeObligation, ...rest } = escrow
+  if (!feeObligation) return rest
+  const distributionPolicyFreezes = (feeObligation.evidence ?? []).map((ev: any) => ({
+    confirmationEvidenceId: ev.id,
+    confirmedAt: ev.recordedAt,
+    distributionPolicyVersionId: ev.distributionPolicyVersionId,
+    distributionPolicy: ev.distributionPolicyVersion
+      ? {
+          id: ev.distributionPolicyVersion.id,
+          label: ev.distributionPolicyVersion.label,
+          publishedAt: ev.distributionPolicyVersion.publishedAt,
+          recipients: ev.distributionPolicyVersion.recipients.map((r: any) => ({
+            recipientId: r.recipientId,
+            class: r.recipient.class,
+            label: r.recipient.label,
+            weightPct: r.weightPct,
+          })),
+        }
+      : null, // a real, permanent outcome (Fase 7.2 §C) — no DistributionPolicyVersion was PUBLISHED when this generation was confirmed
+  }))
+  return { ...rest, distributionPolicyFreezes }
+}
+
 export interface CreateEscrowInput {
   tradeId: string
   type?: EscrowType
@@ -687,13 +723,13 @@ export class EscrowService {
   async getEscrow(escrowId: string) {
     const escrow = await this.repo.findByIdWithDetails(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
-    return mapParticipantKeysShape(escrow)
+    return mapParticipantKeysShape(mapDistributionPolicyFreezesShape(escrow))
   }
 
   async getEscrowByTrade(tradeId: string) {
     const escrow = await this.repo.findByTradeIdWithDetails(tradeId)
     if (!escrow) throw new NotFoundError('Escrow for this trade', tradeId)
-    return mapParticipantKeysShape(escrow)
+    return mapParticipantKeysShape(mapDistributionPolicyFreezesShape(escrow))
   }
 
   // Real gap found (BACKLOG.md P0, "Escrow timelock proactive sweeper"):

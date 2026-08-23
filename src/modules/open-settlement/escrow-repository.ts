@@ -37,7 +37,24 @@ import type { EscrowType } from '../../common/types/trade'
 import { EscrowError } from '../../common/errors'
 
 type EscrowRow = NonNullable<Awaited<ReturnType<typeof prisma.escrow.findUnique>>>
-type EscrowWithDetailsRow = Prisma.EscrowGetPayload<{ include: { events: true; disputes: true } }>
+// Missão 11 Fase 7.2 §L — the query this type describes already includes
+// participantKeys/feeObligation (added below); this type previously only
+// listed events/disputes, a stale mismatch predating this phase, fixed
+// here since this exact area was already being touched.
+type EscrowWithDetailsRow = Prisma.EscrowGetPayload<{
+  include: {
+    events: true
+    disputes: true
+    participantKeys: true
+    feeObligation: {
+      include: {
+        evidence: {
+          include: { distributionPolicyVersion: { include: { recipients: { include: { recipient: true } } } } }
+        }
+      }
+    }
+  }
+}>
 type DisputeRow = NonNullable<Awaited<ReturnType<typeof prisma.dispute.findFirst>>>
 
 export interface CreateEscrowData {
@@ -147,14 +164,52 @@ class PrismaEscrowRepository implements EscrowRepository {
       // events/disputes above — no new query, no new auth logic). The
       // relation itself already existed on Escrow (schema.prisma), unused
       // by any query until now — zero migration.
-      include: { events: { orderBy: { createdAt: 'asc' } }, disputes: true, participantKeys: true },
+      //
+      // Missão 11 Fase 7.2 §L — feeObligation.evidence(CONFIRMED)'s own
+      // frozen distributionPolicyVersion + recipients, so this escrow's
+      // own authorized readers can independently verify which
+      // DistributionPolicyVersion actually governed each of its collected
+      // generations, without needing general EntitlementLedgerEntry
+      // access (Decision D). Every CONFIRMED row is returned (normally
+      // one; more than one only after a reorg + reconfirmation), each
+      // with its own independently-frozen policy reference — never
+      // collapsed to "the latest," since that is exactly the
+      // binding-time bug this phase exists to prevent from leaking into
+      // a read surface too.
+      include: {
+        events: { orderBy: { createdAt: 'asc' } },
+        disputes: true,
+        participantKeys: true,
+        feeObligation: {
+          include: {
+            evidence: {
+              where: { kind: 'CONFIRMED' },
+              orderBy: { recordedAt: 'asc' },
+              include: { distributionPolicyVersion: { include: { recipients: { include: { recipient: true } } } } },
+            },
+          },
+        },
+      },
     })
   }
 
   async findByTradeIdWithDetails(tradeId: string) {
     return prisma.escrow.findUnique({
       where: { tradeId },
-      include: { events: { orderBy: { createdAt: 'asc' } }, disputes: true, participantKeys: true },
+      include: {
+        events: { orderBy: { createdAt: 'asc' } },
+        disputes: true,
+        participantKeys: true,
+        feeObligation: {
+          include: {
+            evidence: {
+              where: { kind: 'CONFIRMED' },
+              orderBy: { recordedAt: 'asc' },
+              include: { distributionPolicyVersion: { include: { recipients: { include: { recipient: true } } } } },
+            },
+          },
+        },
+      },
     })
   }
 

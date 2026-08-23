@@ -62,7 +62,12 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
     return prisma.feePolicyVersion.create({
       data: {
         label: `fixture-${suffix}`,
-        railScope: 'FIXTURE_RAIL_ACCOUNTING_TEST',
+        // Missão 11 Fase 7.2 — fee_policy_versions_single_published_per_rail_key
+        // (migration 20260823182951) allows at most one PUBLISHED row per
+        // railScope. Unique per call (no downstream lookup in this file
+        // depends on the literal string — confirmed by grep) avoids
+        // colliding with a PUBLISHED row a previous test run may have left.
+        railScope: `FIXTURE_RAIL_ACCOUNTING_TEST-${suffix}`,
         status: 'PUBLISHED',
         protocolFeeRate: '0.004',
         payerModel: 'SELLER_PAYS',

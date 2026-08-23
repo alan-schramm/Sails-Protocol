@@ -60,7 +60,11 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     return {
       label: `test-fixture-${suffix}`,
-      railScope: 'FIXTURE_RAIL_IMMUTABILITY_TEST',
+      // Missão 11 Fase 7.2 — fee_policy_versions_single_published_per_rail_key
+      // (migration 20260823182951) allows at most one PUBLISHED row per
+      // railScope. Unique per call — all callers here reference policy.id
+      // directly, never a rail lookup (confirmed by grep).
+      railScope: `FIXTURE_RAIL_IMMUTABILITY_TEST-${suffix}`,
       protocolFeeRate: '0.004',
       payerModel: 'SELLER_PAYS' as const,
       economicBasis: 'SELLER_DELIVERED_VALUE' as const,

@@ -37,10 +37,13 @@ export interface CreateDraftFeePolicyVersionData {
   protocolFeeRate: Prisma.Decimal | string
   payerModel: 'SELLER_PAYS'
   economicBasis: 'SELLER_DELIVERED_VALUE'
-  nodeOperatorPct: Prisma.Decimal | string
-  treasuryPct: Prisma.Decimal | string
-  walletRebatePct: Prisma.Decimal | string
-  arbitratorReservePct: Prisma.Decimal | string
+  // Missão 11 Fase 7.2 (CTO decision, §I) — no longer normative inputs for
+  // a NEW policy's economics (DistributionPolicyVersion alone determines
+  // allocation now); optional, matching the schema's own nullable columns.
+  nodeOperatorPct?: Prisma.Decimal | string
+  treasuryPct?: Prisma.Decimal | string
+  walletRebatePct?: Prisma.Decimal | string
+  arbitratorReservePct?: Prisma.Decimal | string
   smallTradeRule?: Prisma.InputJsonValue
   triggerSemantics?: Prisma.InputJsonValue
   createdBy: string
@@ -52,10 +55,17 @@ export interface FeePolicyVersionRepository {
 
   findById(id: string): Promise<FeePolicyVersionRow | null>
 
-  /** fee-policy.service.ts's publishFeePolicyVersion()'s own shape — the currently PUBLISHED
-   *  version(s) for a given rail, most-recent first. Callers needing "the one
-   *  live version" take index 0; more than one PUBLISHED row per rail is not
-   *  prevented at this layer (a governance/process decision, not a schema one). */
+  /** fee-policy.service.ts's publishFeePolicyVersion()'s own shape — the
+   *  currently PUBLISHED version(s) for a given rail, most-recent first.
+   *  **Corrected 2026-08-23 (Missão 11 Fase 7.2)** — this comment
+   *  previously said more than one PUBLISHED row per rail "is not
+   *  prevented at this layer." That's stale: the real Postgres partial
+   *  unique index `fee_policy_versions_single_published_per_rail_key`
+   *  (migration 20260823182951) now makes it structurally impossible at
+   *  the database level. This method may still, in principle, return more
+   *  than one row for a legacy/corrupt/raw-SQL-bypass state — callers must
+   *  not blindly take index 0 (see FeePolicyService.findLivePolicyForRail()'s
+   *  own fail-closed handling). */
   findPublishedForRail(railScope: string): Promise<FeePolicyVersionRow[]>
 
   /** DRAFT -> PUBLISHED. Touches status + publishedAt only — never an economic column.

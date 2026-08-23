@@ -32,6 +32,7 @@ import { prisma } from '../../common/database'
 import { EscrowError, NotFoundError } from '../../common/errors'
 import { childLogger } from '../../common/logger'
 
+
 const log = childLogger('entitlement-allocation')
 const HUNDRED = new Prisma.Decimal(100)
 
@@ -94,8 +95,9 @@ export class EntitlementAllocationService {
    *
    * G11: fails closed unless collectionStatus === 'COLLECTED' (read inside
    *      the transaction, not cached from an earlier call).
-   * G12: fails closed unless a real PUBLISHED DistributionPolicyVersion
-   *      exists — no implicit Treasury fallback (Phase 6.2 §D6/D7/D8).
+   * G12: fails closed unless a real frozen DistributionPolicyVersion
+   *      exists for this generation — no implicit Treasury fallback
+   *      (Phase 6.2 §D6/D7/D8).
    * G13: the confirmationEvidenceId used is the most recent CONFIRMED
    *      FeeCollectionEvidence row for this obligation — the DB trigger
    *      (entitlement_ledger_entries_confirmed_evidence_guard) independently
@@ -112,6 +114,21 @@ export class EntitlementAllocationService {
    *      concurrent second attempt for the SAME generation fail at the
    *      database (P2002) — this method surfaces that as a clear,
    *      idempotent-safe EscrowError, never a silent double-write.
+   *
+   * Missão 11 Fase 7.2 (CTO-frozen decision) — this method NEVER chooses a
+   * DistributionPolicyVersion from live PUBLISHED state (no findLivePolicy(),
+   * no orderBy publishedAt, no take:1, no latest-wins). Distribution-policy
+   * SELECTION belongs exclusively to recognition/COLLECTED time
+   * (fee-collection-recognition.service.ts's recognizeConfirmation(),
+   * which already froze it onto the CONFIRMED FeeCollectionEvidence row
+   * this method reads). allocate() only MATERIALIZES the already-decided
+   * economic ownership — reading the frozen reference is the entire
+   * "selection" this method performs. Generation identity: the existing
+   * "most recent CONFIRMED row for this obligation" query below already
+   * disambiguates G1 vs. G2 correctly after a reorg/reconfirmation — a
+   * fresh CONFIRMED row IS a new generation with its own independently
+   * frozen policy reference, so no separate CollectionGeneration concept
+   * is needed (Fase 7.2 §G).
    */
   async allocate(feeObligationId: string): Promise<AllocatedEntry[]> {
     return prisma.$transaction(async (tx) => {
@@ -146,19 +163,28 @@ export class EntitlementAllocationService {
         )
       }
 
-      const [distributionPolicy] = await tx.distributionPolicyVersion.findMany({
-        where: { status: 'PUBLISHED' },
+      // Missão 11 Fase 7.2 §C — a null frozen reference is a real,
+      // permanent outcome (zero DistributionPolicyVersion was PUBLISHED
+      // at COLLECTED time, today's actual state) — never adopted from
+      // whatever happens to be live now. A policy published after
+      // confirmation can never retroactively claim this generation's
+      // revenue.
+      if (confirmation.distributionPolicyVersionId === null) {
+        throw new EscrowError(
+          `allocate: confirmed generation ${confirmation.id} has no frozen distribution policy (no DistributionPolicyVersion was PUBLISHED at COLLECTED time) — refusing to allocate under a policy chosen after the fact. A policy published later can never retroactively claim this generation's revenue (Fase 7.2 §C).`
+        )
+      }
+      const distributionPolicy = await tx.distributionPolicyVersion.findUnique({
+        where: { id: confirmation.distributionPolicyVersionId },
         include: { recipients: true },
-        orderBy: { publishedAt: 'desc' },
-        take: 1,
       })
       if (!distributionPolicy) {
         throw new EscrowError(
-          `allocate: no PUBLISHED DistributionPolicyVersion exists — no allocation without an explicit distribution policy (G12; no implicit Treasury fallback, Phase 6.2 §D6/D7/D8).`
+          `allocate: confirmation ${confirmation.id} references a nonexistent DistributionPolicyVersion ${confirmation.distributionPolicyVersionId} — structurally impossible per the real FK constraint.`
         )
       }
       if (distributionPolicy.recipients.length === 0) {
-        throw new EscrowError(`allocate: PUBLISHED DistributionPolicyVersion ${distributionPolicy.id} has no recipients — structurally impossible if publish() validation ran correctly, refusing to guess.`)
+        throw new EscrowError(`allocate: frozen DistributionPolicyVersion ${distributionPolicy.id} has no recipients — structurally impossible if publish() validation ran correctly, refusing to guess.`)
       }
 
       const decimals = nativeUnitDecimalsFor(obligation.asset)

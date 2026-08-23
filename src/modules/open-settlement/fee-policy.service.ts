@@ -13,16 +13,24 @@
  * still not activated by this file either.
  *
  * Validation split (Fase 2.1 §4 / Fase 2.2 §4), enforced here:
- *   STRUCTURAL (this file):    rate >= 0; each bucket percentage >= 0; the
- *                              four percentages sum to exactly 100; a
- *                              FeeObligation may only ever snapshot a
- *                              PUBLISHED policy, never a DRAFT one.
+ *   STRUCTURAL (this file):    rate >= 0; a FeeObligation may only ever
+ *                              snapshot a PUBLISHED policy, never a DRAFT
+ *                              one.
  *   GOVERNANCE (NOT this file, NOT this phase): the actual rate value, any
- *                              commercial rate ceiling, the actual bucket
- *                              split values, small-trade threshold numbers,
- *                              confirmation-depth N. None of these are
- *                              chosen or bounded here — a caller may pass
- *                              any structurally-valid value.
+ *                              commercial rate ceiling, small-trade
+ *                              threshold numbers, confirmation-depth N.
+ *                              None of these are chosen or bounded here —
+ *                              a caller may pass any structurally-valid
+ *                              value.
+ *
+ * Missão 11 Fase 7.2 (CTO decision, §I) — the four legacy bucket-percentage
+ * columns (nodeOperatorPct/treasuryPct/walletRebatePct/arbitratorReservePct)
+ * are remnants of the retired Mechanism 2 distribution architecture (Fase
+ * 6.5.2) and are no longer normative inputs for fee-policy publication —
+ * publish() no longer validates them at all. DistributionPolicyVersion
+ * alone determines revenue allocation now (FeePolicyVersion = charging
+ * economics; DistributionPolicyVersion = allocation economics). Historical
+ * rows retain their original values, unchanged and fully readable.
  *
  * publish() is the ONLY place that performs structural validation — a
  * DRAFT's economic fields can be anything (including nonsensical values)
@@ -32,16 +40,13 @@
  * header and the migration file).
  */
 import { Prisma } from '@prisma/client'
-import { ValidationError } from '../../common/errors'
+import { ValidationError, EconomicAuthorityAmbiguityError } from '../../common/errors'
 import {
   feePolicyVersionRepository,
   type FeePolicyVersionRepository,
   type CreateDraftFeePolicyVersionData,
 } from './fee-policy-repository'
 import { assertRailCanActivateFeeCollection } from './escrow-providers'
-
-const HUNDRED = new Prisma.Decimal(100)
-const ZERO = new Prisma.Decimal(0)
 
 export class FeePolicyService {
   constructor(private readonly repo: FeePolicyVersionRepository = feePolicyVersionRepository) {}
@@ -71,29 +76,6 @@ export class FeePolicyService {
     const rate = new Prisma.Decimal(policy.protocolFeeRate)
     if (rate.isNegative()) {
       throw new ValidationError('protocolFeeRate must be >= 0', { protocolFeeRate: rate.toString() })
-    }
-
-    const shares = {
-      nodeOperatorPct: new Prisma.Decimal(policy.nodeOperatorPct),
-      treasuryPct: new Prisma.Decimal(policy.treasuryPct),
-      walletRebatePct: new Prisma.Decimal(policy.walletRebatePct),
-      arbitratorReservePct: new Prisma.Decimal(policy.arbitratorReservePct),
-    }
-    for (const [name, value] of Object.entries(shares)) {
-      if (value.isNegative()) {
-        throw new ValidationError(`${name} must be >= 0`, { [name]: value.toString() })
-      }
-    }
-
-    const total = shares.nodeOperatorPct
-      .plus(shares.treasuryPct)
-      .plus(shares.walletRebatePct)
-      .plus(shares.arbitratorReservePct)
-    if (!total.equals(HUNDRED)) {
-      throw new ValidationError(
-        'nodeOperatorPct + treasuryPct + walletRebatePct + arbitratorReservePct must sum to exactly 100',
-        { total: total.toString() }
-      )
     }
 
     // Missão 11 Fase 5 §3 — structural validation only, same discipline as
@@ -133,10 +115,23 @@ export class FeePolicyService {
 
   /** The one currently-live policy for a rail, or null if none is
    *  published — callers must treat null exactly like "no policy exists"
-   *  (Fase 2.2 §5: no hidden default policy, ever). */
+   *  (Fase 2.2 §5: no hidden default policy, ever).
+   *
+   *  Missão 11 Fase 7.1A/7.2 (CTO Decision B) — "order by publishedAt desc
+   *  and silently take the first row" is not acceptable: policy ambiguity
+   *  must fail closed, never resolve itself by picking a winner. This
+   *  should be structurally impossible post-exclusivity-migration
+   *  (fee_policy_versions_single_published_per_rail_key) — the >1 branch
+   *  here is defense-in-depth for a legacy/corrupt/raw-SQL-bypass state,
+   *  not an expected runtime path. */
   async findLivePolicyForRail(railScope: string) {
-    const [latest] = await this.repo.findPublishedForRail(railScope)
-    return latest ?? null
+    const published = await this.repo.findPublishedForRail(railScope)
+    if (published.length === 0) return null
+    if (published.length === 1) return published[0]
+    throw new EconomicAuthorityAmbiguityError(
+      `${published.length} FeePolicyVersion rows are simultaneously PUBLISHED for railScope '${railScope}' — refusing to silently pick one. This should be structurally impossible under the DB-native exclusivity guard; treat as a reconciliation-worthy anomaly.`,
+      { railScope, publishedIds: published.map((p) => p.id) }
+    )
   }
 
   /** Structural guard used by escrow-fee-snapshot.service.ts (Fase 2.2 §4's

@@ -82,7 +82,13 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
     return prisma.feePolicyVersion.create({
       data: {
         label: `fase3-${suffix}`,
-        railScope: 'FIXTURE_RAIL_FASE3',
+        // Missão 11 Fase 7.2 — fee_policy_versions_single_published_per_rail_key
+        // (migration 20260823182951) allows at most one PUBLISHED row per
+        // railScope. Unique per call — the two callers below that
+        // separately invoke snapshotEscrowFeePolicy() use policy.railScope
+        // directly rather than a hardcoded literal, so the create and
+        // lookup rails stay matched.
+        railScope: `FIXTURE_RAIL_FASE3-${suffix}`,
         status: 'PUBLISHED',
         protocolFeeRate: '0.004',
         payerModel: 'SELLER_PAYS',
@@ -101,7 +107,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
   async function createPolicyAwareEscrow(suffix: string, lockedAmount = '100000', policyOverrides: Record<string, any> = {}) {
     const policy = await createPublishedPolicy(policyOverrides)
     const { escrow, trade } = await createFixtureEscrow(suffix, lockedAmount)
-    await escrowFeeSnapshotService.snapshotEscrowFeePolicy(escrow.id, 'FIXTURE_RAIL_FASE3', lockedAmount)
+    await escrowFeeSnapshotService.snapshotEscrowFeePolicy(escrow.id, policy.railScope, lockedAmount)
     return { escrow, trade, policy }
   }
 
@@ -284,7 +290,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
     // Simulate the gap directly: snapshot the policy and mark the escrow
     // terminal WITHOUT ever calling recordObligationForEscrowSettlement —
     // exactly the bug class this reconciliation exists to catch.
-    await escrowFeeSnapshotService.snapshotEscrowFeePolicy(escrow.id, 'FIXTURE_RAIL_FASE3', '100000')
+    await escrowFeeSnapshotService.snapshotEscrowFeePolicy(escrow.id, policy.railScope, '100000')
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'COMPLETED', releasedAt: new Date(), txReleaseId: 'manual-test-gap' } })
 
     const gapsBefore = await findTerminalPolicyAwareEscrowsMissingObligation()

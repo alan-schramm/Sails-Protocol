@@ -63,10 +63,15 @@ describe('Legacy fee-distribution write freeze — Mechanism 1/2 (Missão 11 Fas
   }
 
   async function createPublishedPolicy() {
+    const s = suffix()
     return prisma.feePolicyVersion.create({
       data: {
-        label: `frz-policy-${suffix()}`,
-        railScope: 'FIXTURE_RAIL_WRITE_FREEZE_TEST',
+        label: `frz-policy-${s}`,
+        // Missão 11 Fase 7.2 — fee_policy_versions_single_published_per_rail_key
+        // (migration 20260823182951) allows at most one PUBLISHED row per
+        // railScope. Unique per call — no downstream lookup in this file
+        // depends on the literal string (confirmed by grep).
+        railScope: `FIXTURE_RAIL_WRITE_FREEZE_TEST-${s}`,
         status: 'PUBLISHED',
         protocolFeeRate: '0.004',
         payerModel: 'SELLER_PAYS',

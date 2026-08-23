@@ -34,7 +34,7 @@
  * BEFORE INSERT/UPDATE/DELETE trigger.
  */
 import { Prisma } from '@prisma/client'
-import { ValidationError } from '../../common/errors'
+import { ValidationError, EconomicAuthorityAmbiguityError } from '../../common/errors'
 import {
   distributionPolicyRepository,
   type DistributionPolicyRepository,
@@ -113,10 +113,28 @@ export class DistributionPolicyService {
   /** The one currently-live policy, or null if none is published — callers
    *  must treat null exactly like "no policy exists" (no implicit Treasury
    *  fallback, Missão 11 Fase 6.3A §D7/D8 — fail closed on allocation, never
-   *  fabricate a default). */
+   *  fabricate a default).
+   *
+   *  Missão 11 Fase 7.1A/7.2 (CTO Decision B) — same fail-closed discipline
+   *  as FeePolicyService.findLivePolicyForRail(): "order by publishedAt
+   *  desc and silently take the first row" is not acceptable. The >1
+   *  branch should be structurally impossible under
+   *  distribution_policy_versions_single_published_key — defense-in-depth,
+   *  not an expected runtime path.
+   *
+   *  Fase 7.2 note: this method is now used ONLY by the recognition-time
+   *  freeze resolver (fee-collection-recognition.service.ts) and by the
+   *  operator CLI's own read paths — EntitlementAllocationService.allocate()
+   *  must NEVER call this; it reads the already-frozen reference off the
+   *  CONFIRMED FeeCollectionEvidence row instead (Fase 7.2 §F). */
   async findLivePolicy() {
-    const [latest] = await this.repo.findPublished()
-    return latest ?? null
+    const published = await this.repo.findPublished()
+    if (published.length === 0) return null
+    if (published.length === 1) return published[0]
+    throw new EconomicAuthorityAmbiguityError(
+      `${published.length} DistributionPolicyVersion rows are simultaneously PUBLISHED — refusing to silently pick one. This should be structurally impossible under the DB-native exclusivity guard; treat as a reconciliation-worthy anomaly.`,
+      { publishedIds: published.map((p) => p.id) }
+    )
   }
 }
 

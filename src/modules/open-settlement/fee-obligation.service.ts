@@ -136,13 +136,26 @@ export class FeeObligationService {
    * attempting the atomic repository-level claim — a transition not present
    * in the graph fails fast with a clear error rather than silently
    * returning "0 rows affected" indistinguishable from a lost race.
+   *
+   * Missão 11 Fase 7.2.1 — optional `tx`: passed straight through to the
+   * repository so this transition can commit atomically alongside another
+   * write in the same caller-held transaction (fee-collection-recognition.
+   * service.ts's recognizeConfirmation()). Additive — every existing
+   * caller omits it and gets the exact previous (own top-level write)
+   * behavior.
    */
-  async transitionCollectionStatus(id: string, fromStatus: FeeCollectionStatus, toStatus: FeeCollectionStatus): Promise<void> {
+  async transitionCollectionStatus(id: string, fromStatus: FeeCollectionStatus, toStatus: FeeCollectionStatus, tx?: Prisma.TransactionClient): Promise<void> {
     const allowed = VALID_COLLECTION_TRANSITIONS[fromStatus] ?? []
     if (!allowed.includes(toStatus)) {
       throw new EscrowError(`Invalid FeeObligation collectionStatus transition: ${fromStatus} -> ${toStatus}`)
     }
-    const affected = await this.repo.claimCollectionStatusTransition(id, fromStatus, toStatus)
+    // Only forward a 4th argument when a real tx was actually supplied —
+    // every pre-existing call site (which never passes tx) keeps calling
+    // claimCollectionStatusTransition() with the exact same 3-arg shape
+    // as before this phase, not a 4th explicit `undefined`.
+    const affected = tx
+      ? await this.repo.claimCollectionStatusTransition(id, fromStatus, toStatus, tx)
+      : await this.repo.claimCollectionStatusTransition(id, fromStatus, toStatus)
     if (affected === 0) {
       throw new EscrowError(`FeeObligation ${id} was not in status ${fromStatus} — a concurrent transition already moved it.`)
     }

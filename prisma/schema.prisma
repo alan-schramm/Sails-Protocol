@@ -463,21 +463,31 @@ model FeePolicyVersion {
   railScope String
   status    FeePolicyStatus @default(DRAFT)
 
-  // Structural validation only (Fase 2.1 §4 / Fase 2.2 §4): rate >= 0, each
-  // bucket percentage >= 0, and the four percentages must sum to exactly
-  // 100 at publish() time — enforced in fee-policy.service.ts, using Decimal
-  // arithmetic (never float, correcting the imprecision already flagged in
+  // Structural validation only (Fase 2.1 §4 / Fase 2.2 §4): rate >= 0 —
+  // enforced in fee-policy.service.ts, using Decimal arithmetic (never
+  // float, correcting the imprecision already flagged in
   // config.settlement.protocolFeeRate's own live parseFloat typing). The
-  // ACTUAL rate/ceiling/split values are a governance decision explicitly
-  // NOT made in this phase — every value used by this pass's own tests is a
-  // clearly-labeled fixture.
+  // ACTUAL rate is a governance decision explicitly NOT made in this
+  // phase — every value used by this pass's own tests is a clearly-labeled
+  // fixture.
   protocolFeeRate      Decimal           @db.Decimal(24, 8)
   payerModel           FeePayerModel
   economicBasis        FeeEconomicBasis
-  nodeOperatorPct      Decimal           @db.Decimal(24, 8)
-  treasuryPct          Decimal           @db.Decimal(24, 8)
-  walletRebatePct      Decimal           @db.Decimal(24, 8)
-  arbitratorReservePct Decimal           @db.Decimal(24, 8)
+  // Missão 11 Fase 7.2 (CTO decision, §I) — remnants of the retired
+  // Mechanism 2 distribution architecture (Fase 6.5.2,
+  // fee_distribution_batches/fee_distribution_batch_items, permanently
+  // write-frozen). DistributionPolicyVersion alone determines revenue
+  // allocation going forward — these four columns are no longer
+  // normative/required inputs for a NEW FeePolicyVersion's economics,
+  // hence nullable (migration 20260824000000, additive — existing
+  // historical rows keep their existing values unchanged and remain
+  // fully readable; no historical row is rewritten or reinterpreted).
+  // FeePolicyVersion = charging economics (rate/payer/basis);
+  // DistributionPolicyVersion = allocation economics (who/how much).
+  nodeOperatorPct      Decimal?          @db.Decimal(24, 8)
+  treasuryPct          Decimal?          @db.Decimal(24, 8)
+  walletRebatePct      Decimal?          @db.Decimal(24, 8)
+  arbitratorReservePct Decimal?          @db.Decimal(24, 8)
   // Missão 11 Fase 5 §3 — the confirmation-depth rule a rail's collection-
   // recognition job uses to decide when a broadcast fee output becomes
   // COLLECTED, not a global constant. Nullable, no default: a DRAFT policy
@@ -588,6 +598,23 @@ model FeeCollectionEvidence {
   confirmedAtHeight Int?
   note              String?
   recordedAt        DateTime                  @default(now())
+
+  // Missão 11 Fase 7.2 — CTO-frozen decision: DistributionPolicyVersion
+  // becomes economically binding at COLLECTED time, not at whenever an
+  // allocation worker happens to run. Meaningful ONLY for kind=CONFIRMED
+  // (null for BROADCAST/REPLACED rows) — resolved once, by
+  // fee-collection-recognition.service.ts's recognizeConfirmation(), in
+  // the SAME insert that creates this row, and never touched again
+  // (fee_collection_evidence_distribution_policy_immutability_guard,
+  // migration 20260824000000, rejects any UPDATE of this column
+  // unconditionally — including null -> non-null, i.e. no backfill).
+  // Null is a real, permanent, legitimate outcome when zero
+  // DistributionPolicyVersion was PUBLISHED at confirmation time (today's
+  // actual state) — EntitlementAllocationService.allocate() must treat a
+  // null value here as "no frozen policy," never as license to adopt
+  // whatever is live when allocation eventually runs.
+  distributionPolicyVersionId String?
+  distributionPolicyVersion   DistributionPolicyVersion? @relation(fields: [distributionPolicyVersionId], references: [id], onDelete: Restrict)
 
   // Missão 11 Fase 6.3A — a CONFIRMED-kind row here is itself the
   // "collection generation" identity an entitlement-allocation generation
@@ -723,6 +750,10 @@ model DistributionPolicyVersion {
 
   recipients    DistributionPolicyRecipient[]
   ledgerEntries EntitlementLedgerEntry[]
+  // Missão 11 Fase 7.2 — the FeeCollectionEvidence(CONFIRMED) rows that
+  // froze this policy version as their governing economic authority at
+  // COLLECTED time. See that model's own comment for the full reasoning.
+  frozenForCollectionGenerations FeeCollectionEvidence[]
 
   @@index([status])
   @@map("distribution_policy_versions")

@@ -72,6 +72,20 @@ class PrismaFeeDistributionRepository implements FeeDistributionRepository {
       }
 
       const policy = obligation.feePolicyVersion
+      // Missão 11 Fase 7.2 (CTO decision, §I) — these four columns are now
+      // nullable (no longer normative for a NEW FeePolicyVersion's
+      // economics). This method is permanently write-frozen regardless
+      // (fee_distribution_batch_items_write_freeze_guard, Fase 6.5.2) —
+      // this check exists purely to satisfy TypeScript for now-dead code,
+      // not a functional concern.
+      if (
+        policy.nodeOperatorPct === null || policy.treasuryPct === null ||
+        policy.walletRebatePct === null || policy.arbitratorReservePct === null
+      ) {
+        throw new EscrowError(
+          `FeePolicyVersion ${policy.id} has no legacy distribution-bucket percentages set — addObligationToBatch() cannot compute Mechanism 2 shares for it. This method is write-frozen and retired regardless (Missão 11 Fase 6.5.2); this is expected for any policy published under Fase 7.2's model.`
+        )
+      }
       const amount = new Prisma.Decimal(obligation.computedFee)
       const hundred = new Prisma.Decimal(100)
       const nodeOperatorShare = amount.times(policy.nodeOperatorPct).div(hundred)

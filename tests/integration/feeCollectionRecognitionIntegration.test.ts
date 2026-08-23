@@ -85,7 +85,15 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
     if (opts.withPolicy) {
       policy = await prisma.feePolicyVersion.create({
         data: {
-          label: `fase5-${suffix}`, railScope: 'MULTISIG', status: 'PUBLISHED', publishedAt: new Date(),
+          // Missão 11 Fase 7.2 — fee_policy_versions_single_published_per_rail_key
+          // (migration 20260823182951) allows at most one PUBLISHED row per
+          // railScope. Unique per call — this is a separate field from
+          // Escrow.type ('MULTISIG' below, a real enum value this rail
+          // genuinely uses), and no lookup in this file resolves a
+          // FeePolicyVersion BY railScope (checkRailActivationReadiness()
+          // further down takes the literal 'MULTISIG' directly, unrelated
+          // to this policy row) — confirmed by direct read before this fix.
+          label: `fase5-${suffix}`, railScope: `MULTISIG-${suffix}`, status: 'PUBLISHED', publishedAt: new Date(),
           protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE',
           nodeOperatorPct: '30', treasuryPct: '25', walletRebatePct: '35', arbitratorReservePct: '10',
           requiredConfirmations: 2, createdBy: 'fase5-integration-test',

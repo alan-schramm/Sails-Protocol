@@ -7,10 +7,37 @@
 // guard) lives in tests/integration/feeCollectionRecognitionIntegration.test.ts.
 
 import { Prisma } from '@prisma/client'
-import { FeeCollectionRecognitionService } from '../src/modules/open-settlement/fee-collection-recognition.service'
+import { FeeCollectionRecognitionService, type TransactionRunner } from '../src/modules/open-settlement/fee-collection-recognition.service'
 import { FeeObligationService } from '../src/modules/open-settlement/fee-obligation.service'
+import type { DistributionPolicyService } from '../src/modules/open-settlement/distribution-policy.service'
 import type { FeeObligationRepository } from '../src/modules/open-settlement/fee-obligation-repository'
 import type { FeeCollectionEvidenceRepository, FeeCollectionEvidenceKind } from '../src/modules/open-settlement/fee-collection-evidence-repository'
+
+// Missão 11 Fase 7.2.1 — recognizeConfirmation() now commits its two
+// writes inside an injected transaction runner (atomicity fix — see that
+// method's own header comment). The real default reaches a real Postgres
+// transaction; this fake just invokes the callback directly with no real
+// transaction, keeping this file's own "no real database" unit-test
+// contract intact — the fake evidenceRepo/obligationRepo below already
+// ignore the `tx` argument entirely, so this changes nothing about what
+// these tests verify (confirmed via a real hanging run against the
+// unmocked default before this fake existed, not assumed).
+const fakeRunInTransaction: TransactionRunner = (fn) => fn(undefined as any)
+
+// Missão 11 Fase 7.2 — recognizeConfirmation() now resolves the live
+// DistributionPolicyVersion to freeze onto the CONFIRMED row it creates.
+// A fake here keeps this file a genuine unit test (no real database) —
+// without it, the constructor's default parameter would reach the REAL
+// singleton and make a real Postgres call, which happened to "work" only
+// because a local dev Postgres was running (found and fixed while wiring
+// this in — confirmed via a real failing/hanging run before this fake
+// existed, not assumed).
+function fakeDistributionPolicyService(overrides: Partial<jest.Mocked<DistributionPolicyService>> = {}): jest.Mocked<DistributionPolicyService> {
+  return {
+    findLivePolicy: jest.fn().mockResolvedValue(null),
+    ...overrides,
+  } as unknown as jest.Mocked<DistributionPolicyService>
+}
 
 function fakeObligationRepo(overrides: Partial<jest.Mocked<FeeObligationRepository>> = {}): jest.Mocked<FeeObligationRepository> {
   return {
@@ -69,18 +96,58 @@ describe('FeeCollectionRecognitionService.recognizeConfirmation() — §7', () =
     const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([broadcastEvidence]) })
     const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
     const obligationService = new FeeObligationService(obligationRepo)
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService)
+    const distributionPolicyService = fakeDistributionPolicyService()
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, distributionPolicyService, fakeRunInTransaction)
 
     await service.recognizeConfirmation('obligation-1', 'b'.repeat(64), 800_000)
 
-    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'CONFIRMED', txid: 'b'.repeat(64), confirmedAtHeight: 800_000, vout: 2, scriptPubKey: 'cafe' }))
+    // Missão 11 Fase 7.2.1 — recognizeConfirmation() now always passes a
+    // (possibly-fake) transaction client as evidenceRepo.record()'s 2nd
+    // arg — fakeRunInTransaction supplies `undefined` here, so the real
+    // call shape is 2 args, not 1.
+    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'CONFIRMED', txid: 'b'.repeat(64), confirmedAtHeight: 800_000, vout: 2, scriptPubKey: 'cafe' }), undefined)
     expect(obligationRepo.claimCollectionStatusTransition).toHaveBeenCalledWith('obligation-1', 'IN_PROGRESS', 'COLLECTED')
+  })
+
+  // Missão 11 Fase 7.2 (CTO-frozen decision) — the whole point of this
+  // phase: the live DistributionPolicyVersion is resolved HERE, once, and
+  // persisted onto the CONFIRMED row in the same insert. Real-Postgres
+  // proof of the frozen value surviving worker delay/reorg lives in
+  // tests/integration/collectedTimeDistributionFreeze.test.ts — this is
+  // the unit-level proof of the wiring itself.
+  it('freezes the live DistributionPolicyVersion onto the CONFIRMED evidence row', async () => {
+    const broadcastEvidence = evidenceRow('BROADCAST', { txid: 'b'.repeat(64), vout: 2, scriptPubKey: 'cafe', amount: new Prisma.Decimal('0.00004') })
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([broadcastEvidence]) })
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
+    const obligationService = new FeeObligationService(obligationRepo)
+    const distributionPolicyService = fakeDistributionPolicyService({
+      findLivePolicy: jest.fn().mockResolvedValue({ id: 'dpv-live-1' }),
+    })
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, distributionPolicyService, fakeRunInTransaction)
+
+    await service.recognizeConfirmation('obligation-1', 'b'.repeat(64), 800_000)
+
+    expect(distributionPolicyService.findLivePolicy).toHaveBeenCalledTimes(1)
+    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ distributionPolicyVersionId: 'dpv-live-1' }), undefined)
+  })
+
+  it('freezes null when zero DistributionPolicyVersion is currently PUBLISHED — a real, permanent outcome, never a placeholder', async () => {
+    const broadcastEvidence = evidenceRow('BROADCAST', { txid: 'b'.repeat(64), vout: 2, scriptPubKey: 'cafe', amount: new Prisma.Decimal('0.00004') })
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([broadcastEvidence]) })
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
+    const obligationService = new FeeObligationService(obligationRepo)
+    const distributionPolicyService = fakeDistributionPolicyService({ findLivePolicy: jest.fn().mockResolvedValue(null) })
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, distributionPolicyService, fakeRunInTransaction)
+
+    await service.recognizeConfirmation('obligation-1', 'b'.repeat(64), 800_000)
+
+    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ distributionPolicyVersionId: null }), undefined)
   })
 
   it('refuses to recognize a confirmation for an obligation that is not IN_PROGRESS', async () => {
     const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'PENDING_COLLECTION' }) })
     const evidenceRepo = fakeEvidenceRepo()
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo))
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo), fakeDistributionPolicyService(), fakeRunInTransaction)
 
     await expect(service.recognizeConfirmation('obligation-1', 'c'.repeat(64), 1)).rejects.toThrow(/is not IN_PROGRESS/)
     expect(evidenceRepo.record).not.toHaveBeenCalled()
@@ -90,7 +157,7 @@ describe('FeeCollectionRecognitionService.recognizeConfirmation() — §7', () =
     const broadcastEvidence = evidenceRow('BROADCAST', { txid: 'd'.repeat(64) })
     const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
     const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([broadcastEvidence]) })
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo))
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo), fakeDistributionPolicyService(), fakeRunInTransaction)
 
     await expect(service.recognizeConfirmation('obligation-1', 'e'.repeat(64), 1)).rejects.toThrow(/does not match this obligation's own recorded BROADCAST evidence/)
     expect(obligationRepo.claimCollectionStatusTransition).not.toHaveBeenCalled()
@@ -99,7 +166,7 @@ describe('FeeCollectionRecognitionService.recognizeConfirmation() — §7', () =
   it('refuses when no obligation is found', async () => {
     const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue(null) })
     const evidenceRepo = fakeEvidenceRepo()
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo))
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo), fakeDistributionPolicyService(), fakeRunInTransaction)
 
     await expect(service.recognizeConfirmation('does-not-exist', 'f'.repeat(64), 1)).rejects.toThrow(/not found/)
   })

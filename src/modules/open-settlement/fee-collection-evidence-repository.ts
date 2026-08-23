@@ -29,16 +29,39 @@ export interface RecordEvidenceInput {
   amount?: Prisma.Decimal | string
   confirmedAtHeight?: number
   note?: string
+  // Missão 11 Fase 7.2 — meaningful ONLY for kind='CONFIRMED'; resolved
+  // once by fee-collection-recognition.service.ts's recognizeConfirmation()
+  // and passed here as part of the SAME insert that creates the CONFIRMED
+  // row (never set via a later, separate call) — see the schema's own
+  // comment on FeeCollectionEvidence.distributionPolicyVersionId for the
+  // full immutability/binding-time reasoning. `null` is a real, permanent,
+  // legitimate value (zero DistributionPolicyVersion was PUBLISHED at
+  // confirmation time) — explicitly distinct from `undefined` (this field
+  // simply wasn't relevant, e.g. for a BROADCAST row).
+  distributionPolicyVersionId?: string | null
 }
 
 export interface FeeCollectionEvidenceRepository {
-  record(input: RecordEvidenceInput): Promise<FeeCollectionEvidenceRow>
+  // Missão 11 Fase 7.2.1 — optional `tx`: when the caller already holds an
+  // open `prisma.$transaction` client, passing it here inserts this row
+  // inside that same transaction instead of a new top-level one.
+  // fee-collection-recognition.service.ts's recognizeConfirmation() uses
+  // this to commit the CONFIRMED-evidence insert atomically with the
+  // IN_PROGRESS -> COLLECTED transition — proven necessary by direct
+  // adversarial reproduction (a crash between two separate top-level
+  // writes, followed by the real periodic sweep job's automatic retry,
+  // could produce two CONFIRMED rows for one on-chain confirmation, each
+  // frozen to a different DistributionPolicyVersion if a policy rotation
+  // happened in between). Additive — every existing caller omits it and
+  // gets the exact previous behavior.
+  record(input: RecordEvidenceInput, tx?: Prisma.TransactionClient): Promise<FeeCollectionEvidenceRow>
   listForObligation(feeObligationId: string): Promise<FeeCollectionEvidenceRow[]>
 }
 
 class PrismaFeeCollectionEvidenceRepository implements FeeCollectionEvidenceRepository {
-  async record(input: RecordEvidenceInput) {
-    return prisma.feeCollectionEvidence.create({
+  async record(input: RecordEvidenceInput, tx?: Prisma.TransactionClient) {
+    const client = tx ?? prisma
+    return client.feeCollectionEvidence.create({
       data: {
         feeObligationId: input.feeObligationId,
         kind: input.kind,
@@ -48,6 +71,7 @@ class PrismaFeeCollectionEvidenceRepository implements FeeCollectionEvidenceRepo
         amount: input.amount,
         confirmedAtHeight: input.confirmedAtHeight,
         note: input.note,
+        distributionPolicyVersionId: input.distributionPolicyVersionId,
       },
     })
   }

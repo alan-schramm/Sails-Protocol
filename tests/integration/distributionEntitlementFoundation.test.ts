@@ -65,7 +65,24 @@ describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A
     return { buyer, seller, trade }
   }
 
+  // Missão 11 Fase 7.2 — fee_policy_versions_single_published_per_rail_key
+  // (migration 20260823182951) allows at most one PUBLISHED row per
+  // railScope. This file's own sumBalance(recipientId, asset, rail) calls
+  // filter by the literal 'MULTISIG' rail string (EntitlementLedgerEntry.rail
+  // is populated from the policy's own railScope at allocation time) — so
+  // railScope must stay the literal 'MULTISIG' here, unlike files where no
+  // downstream query depends on the exact string. Retiring whatever is
+  // currently live for MULTISIG before publishing a fresh fixture keeps
+  // every test isolated without weakening what any of them verify.
+  async function retireAnyLiveMultisigFeePolicy() {
+    const live = await prisma.feePolicyVersion.findFirst({ where: { railScope: 'MULTISIG', status: 'PUBLISHED' } })
+    if (live) {
+      await prisma.feePolicyVersion.update({ where: { id: live.id }, data: { status: 'RETIRED', retiredAt: new Date() } })
+    }
+  }
+
   async function fixtureFeePolicy() {
+    await retireAnyLiveMultisigFeePolicy()
     return prisma.feePolicyVersion.create({
       data: {
         label: `fase6-3a-feepolicy-${suffix()}`, railScope: 'MULTISIG', status: 'PUBLISHED', publishedAt: new Date(),
@@ -118,6 +135,17 @@ describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A
   }
 
   async function fixturePublishedPolicy(recipients: Array<{ recipientId: string; weightPct: string }>) {
+    // Missão 11 Fase 7.2 — distribution_policy_versions_single_published_key
+    // (migration 20260823182951) allows at most one PUBLISHED
+    // DistributionPolicyVersion globally (it carries no rail/scope column
+    // — confirmed a true global singleton by direct schema read).
+    // Retiring whatever is currently live before publishing a fresh
+    // fixture keeps every test in this file isolated without weakening
+    // what any of them verify — no test here depends on a PREVIOUS test's
+    // own policy still being live; each reads back its OWN policy/entries
+    // by id.
+    const live = await distributionPolicyService.findLivePolicy()
+    if (live) await distributionPolicyService.retire(live.id)
     const draft = await distributionPolicyService.createDraft({ label: `fixture-policy-${suffix()}`, createdBy: 'fase6-3a-integration-test' })
     for (const r of recipients) {
       await distributionPolicyService.addRecipient(draft.id, r.recipientId, r.weightPct)
@@ -236,8 +264,13 @@ describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A
       const live = await prisma.distributionPolicyVersion.findMany({ where: { status: 'PUBLISHED' } })
       for (const p of live) await distributionPolicyService.retire(p.id)
 
+      // Missão 11 Fase 7.2 — the "no policy" determination now happens at
+      // COLLECTED time (recognizeConfirmation() freezes a null reference
+      // when zero policy is PUBLISHED), not at allocate() time — the
+      // error message changed accordingly; the underlying fail-closed
+      // behavior (no implicit Treasury fallback) is unchanged.
       const { obligationId } = await fixtureCollectedObligation('0.00000040')
-      await expect(entitlementAllocationService.allocate(obligationId)).rejects.toThrow(/no PUBLISHED DistributionPolicyVersion/)
+      await expect(entitlementAllocationService.allocate(obligationId)).rejects.toThrow(/no frozen distribution policy/)
     })
   })
 

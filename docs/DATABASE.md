@@ -353,6 +353,66 @@ DB-natively write-frozen (`fee_distribution_batches_write_freeze_guard`,
 above) — every `INSERT`/`UPDATE`/`DELETE` is rejected unconditionally,
 including raw SQL, while existing rows (if any) remain fully readable.
 
+### `FeeCollectionEvidence.distributionPolicyVersionId` — COLLECTED-time economic freeze (Missão 11 Fase 7.2)
+
+**CTO-frozen decision:** `DistributionPolicyVersion` becomes economically
+binding at the moment a `FeeCollectionEvidence(CONFIRMED)` row is recorded
+(`FeeObligation` transitioning to `COLLECTED`) — never at whenever an
+allocation worker happens to run. `distributionPolicyVersionId` (nullable
+FK to `DistributionPolicyVersion`, `onDelete: Restrict`) is meaningful
+only for `kind = 'CONFIRMED'` rows; it is resolved once, by
+`fee-collection-recognition.service.ts`'s `recognizeConfirmation()`, in
+the SAME insert that creates the row (never a separate write step). `null`
+is a real, permanent, legitimate outcome when zero `DistributionPolicyVersion`
+was PUBLISHED at that moment — `EntitlementAllocationService.allocate()`
+treats this as a hard error, never adopting a policy published later.
+
+A real Postgres trigger
+(`fee_collection_evidence_distribution_policy_immutability_guard`,
+migration `20260823182951_collected_time_distribution_freeze_and_policy_exclusivity`)
+rejects ANY change to this column once a row exists — including
+`null` -> non-null (no backfill), a different policy id, or clearing it
+back to `null` — enforced independently of this application, including
+against raw SQL. A reorg followed by a genuine reconfirmation creates a
+brand-new CONFIRMED row (a new generation, its own id) that independently
+freezes whatever policy is live at THAT moment; the original generation's
+own frozen reference is never rewritten.
+
+`EntitlementAllocationService.allocate()` reads this frozen reference
+directly — it never queries live `PUBLISHED` `DistributionPolicyVersion`
+state itself (no `findLivePolicy()`, no `orderBy publishedAt`, no
+`take: 1`, no "latest wins"). Distribution-policy selection belongs
+exclusively to recognition/`COLLECTED` time; `allocate()` only
+materializes the already-decided economic ownership.
+
+### `FeePolicyVersion` / `DistributionPolicyVersion` — DB-native exclusivity (Missão 11 Fase 7.1/7.2)
+
+Two real Postgres unique indexes, neither representable in
+`schema.prisma`'s DSL (partial/expression indexes have no Prisma model
+syntax) and therefore invisible to `prisma migrate diff`/
+`db:completeness-check` — verified permanently by
+`tests/integration/dbNativeInvariants.test.ts`'s own index-catalog gate.
+
+- `fee_policy_versions_single_published_per_rail_key` — `UNIQUE
+  (railScope) WHERE status = 'PUBLISHED'`. At most one PUBLISHED
+  `FeePolicyVersion` per rail.
+- `distribution_policy_versions_single_published_key` — `UNIQUE ((true))
+  WHERE status = 'PUBLISHED'`. `DistributionPolicyVersion` has no
+  rail/scope column at all (Phase 6.2 D4 — allocation economics are
+  protocol-level, not per-rail), so this is a true global singleton: at
+  most one PUBLISHED row, period.
+
+Both `FeePolicyService.findLivePolicyForRail()` and
+`DistributionPolicyService.findLivePolicy()` fail closed
+(`EconomicAuthorityAmbiguityError`) if more than one PUBLISHED row is
+somehow found — structurally impossible under the indexes above; this is
+defense-in-depth for a legacy/corrupt/raw-SQL-bypass state, not an
+expected runtime path. The same migration also makes `FeePolicyVersion`'s
+four legacy bucket-percentage columns (`nodeOperatorPct`/`treasuryPct`/
+`walletRebatePct`/`arbitratorReservePct`) nullable — no longer normative
+inputs for a new publication; existing historical rows keep their
+original values unchanged.
+
 **Escrow state machine — valid transitions (enforced in application code,
 not the database):**
 

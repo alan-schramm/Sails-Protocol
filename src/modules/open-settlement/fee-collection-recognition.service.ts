@@ -21,11 +21,13 @@
  * refuses.
  */
 import { Prisma } from '@prisma/client'
+import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
 import { childLogger } from '../../common/logger'
 import { feeObligationRepository, type FeeObligationRepository } from './fee-obligation-repository'
 import { feeCollectionEvidenceRepository, type FeeCollectionEvidenceRepository } from './fee-collection-evidence-repository'
 import { feeObligationService, FeeObligationService } from './fee-obligation.service'
+import { distributionPolicyService as defaultDistributionPolicyService, DistributionPolicyService } from './distribution-policy.service'
 
 const log = childLogger('fee-collection-recognition')
 
@@ -36,11 +38,31 @@ export interface BroadcastEvidenceInput {
   amountSats: number
 }
 
+// Missão 11 Fase 7.2.1 — injectable, same reason every repository/service
+// dependency on this class already is: recognizeConfirmation() needs its
+// two writes to commit atomically (see that method's own header comment
+// for the adversarial proof of why), but this class's own established
+// contract is unit-testable via fake repositories with NO real database
+// (this file's own test suite's header comment). Hardcoding a call to the
+// real `prisma.$transaction` would silently force every test through this
+// method to open a genuine Postgres transaction — reproduced directly
+// while building this fix (the existing fake-repo unit tests hung
+// waiting on a real DB round trip). A single injectable function,
+// defaulting to the real `prisma.$transaction`, keeps production
+// behavior exactly atomic while letting a unit test supply a trivial
+// synchronous-passthrough fake (`(fn) => fn(undefined)`) — the fake
+// repositories underneath already ignore the `tx` argument entirely, so
+// this changes nothing about what those tests actually verify.
+export type TransactionRunner = <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>
+const defaultTransactionRunner: TransactionRunner = (fn) => prisma.$transaction(fn)
+
 export class FeeCollectionRecognitionService {
   constructor(
     private readonly obligationRepo: FeeObligationRepository = feeObligationRepository,
     private readonly evidenceRepo: FeeCollectionEvidenceRepository = feeCollectionEvidenceRepository,
-    private readonly obligationService: FeeObligationService = feeObligationService
+    private readonly obligationService: FeeObligationService = feeObligationService,
+    private readonly distributionPolicyService: DistributionPolicyService = defaultDistributionPolicyService,
+    private readonly runInTransaction: TransactionRunner = defaultTransactionRunner
   ) {}
 
   /**
@@ -80,6 +102,42 @@ export class FeeCollectionRecognitionService {
    * IN_PROGRESS -> COLLECTED. This is the ONLY place in the codebase that
    * may ever make that transition — the fee becomes Protocol Revenue
    * here, nowhere else.
+   *
+   * Missão 11 Fase 7.2 (CTO-frozen decision) — this is also the ONLY
+   * place a DistributionPolicyVersion is ever selected to govern a
+   * collection generation's future allocation. Resolved once, right here.
+   *
+   * Missão 11 Fase 7.2.1 — the CONFIRMED-evidence insert (carrying the
+   * resolved policy) and the IN_PROGRESS -> COLLECTED transition commit
+   * inside ONE prisma.$transaction — the same pattern entitlement-
+   * allocation.service.ts's own allocate() already established for this
+   * identical class of problem ("reading/writing economically
+   * authoritative state must not leave a crash-recoverable window where
+   * one half committed and the other didn't"). Proven necessary by direct
+   * adversarial reproduction against real Postgres: the previous shape
+   * (two separate top-level writes) let a crash between them, followed by
+   * the real periodic sweep job's automatic retry
+   * (multisig-fee-confirmation-job.ts re-selects any still-IN_PROGRESS
+   * obligation every tick — this is not a hypothetical race, it is that
+   * job's normal, expected recovery behavior), produce TWO CONFIRMED rows
+   * for the SAME on-chain confirmation event, independently frozen to
+   * DIFFERENT DistributionPolicyVersions if a policy rotation happened in
+   * that window. Wrapping both writes atomically closes this
+   * structurally: either both commit (one fully-formed COLLECTED
+   * generation with its one frozen policy) or neither does — a retry
+   * starts genuinely fresh, with zero orphaned evidence row ever
+   * persisted. The same atomic claim also closes the concurrent-caller
+   * case (two simultaneous recognizeConfirmation() calls): the SECOND to
+   * reach the transition claim inside its own transaction sees 0 rows
+   * affected (the row's collectionStatus is no longer 'IN_PROGRESS' once
+   * the first transaction commits) and throws, rolling back that
+   * transaction's own CONFIRMED insert too — never leaving a second,
+   * competing CONFIRMED row behind. Operational latency (a worker running
+   * allocate() seconds, minutes, or a process-restart later) still can
+   * never affect which policy this generation is bound to. A `null`
+   * result (zero DistributionPolicyVersion PUBLISHED right now) is a
+   * real, permanent outcome, not a placeholder — no backfill, no later
+   * adoption of whatever becomes live afterward (Fase 7.2 §C).
    */
   async recognizeConfirmation(feeObligationId: string, txid: string, confirmedAtHeight: number): Promise<void> {
     const obligation = await this.obligationRepo.findById(feeObligationId)
@@ -99,16 +157,21 @@ export class FeeCollectionRecognitionService {
       )
     }
 
-    await this.evidenceRepo.record({
-      feeObligationId,
-      kind: 'CONFIRMED',
-      txid,
-      vout: lastBroadcast.vout ?? undefined,
-      scriptPubKey: lastBroadcast.scriptPubKey ?? undefined,
-      amount: lastBroadcast.amount ?? undefined,
-      confirmedAtHeight,
+    const livePolicy = await this.distributionPolicyService.findLivePolicy()
+
+    await this.runInTransaction(async (tx) => {
+      await this.evidenceRepo.record({
+        feeObligationId,
+        kind: 'CONFIRMED',
+        txid,
+        vout: lastBroadcast.vout ?? undefined,
+        scriptPubKey: lastBroadcast.scriptPubKey ?? undefined,
+        amount: lastBroadcast.amount ?? undefined,
+        confirmedAtHeight,
+        distributionPolicyVersionId: livePolicy?.id ?? null,
+      }, tx)
+      await this.obligationService.transitionCollectionStatus(feeObligationId, 'IN_PROGRESS', 'COLLECTED', tx)
     })
-    await this.obligationService.transitionCollectionStatus(feeObligationId, 'IN_PROGRESS', 'COLLECTED')
   }
 
   /**
