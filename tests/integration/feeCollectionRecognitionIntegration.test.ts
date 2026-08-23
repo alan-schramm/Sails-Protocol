@@ -25,15 +25,15 @@
 // loudly (requirePostgres() throws) instead of silently returning.
 
 import { PrismaClient, Prisma } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 const COLLECTIBLE_ADDRESS = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
 
 describe('Fee collection recognition — real lifecycle + reconciliation (Missão 11 Fase 5, real Postgres)', () => {
   jest.setTimeout(60_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
-  let dbUrl = ''
   let prisma: PrismaClient
   let feeCollectionRecognitionService: typeof import('../../src/modules/open-settlement/fee-collection-recognition.service').feeCollectionRecognitionService
   let getProtocolRevenueSummary: typeof import('../../src/modules/open-settlement/fee-revenue-reporting').getProtocolRevenueSummary
@@ -44,17 +44,9 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
   let originalProtocolFeeRate: number
 
   beforeAll(async () => {
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
     ;({ config } = require('../../src/config'))
-    dbUrl = config.database.url
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: dbUrl }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
     ;({ feeCollectionRecognitionService } = require('../../src/modules/open-settlement/fee-collection-recognition.service'))
@@ -76,12 +68,10 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  // Missão 11 Fase 5.3 §B — replaces the old skip()-and-silently-return
-  // helper. Throws (fails the test loudly) rather than returning quietly.
+  // Missão 11 Fase 6.3B.1 — delegates to the centralized harness
+  // (tests/integration/postgresTestHarness.ts).
   function requirePostgres(name: string): void {
-    if (!dbAvailable) {
-      throw new Error(`"${name}" requires a real Postgres connection, unreachable at ${dbUrl} — start it (npm run db:local:start) before running this suite.`)
-    }
+    pg.requirePostgres(name)
   }
 
   async function createFixtureEscrowWithObligation(suffix: string, opts: { withPolicy?: boolean } = { withPolicy: true }) {

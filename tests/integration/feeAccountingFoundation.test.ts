@@ -5,17 +5,22 @@
 // constraint), multi-policy-version provenance through a real transaction
 // (fee-distribution-repository.ts's addObligationToBatch()), double-
 // distribution rejection, legacy-escrow behavior, and the CTO-mandated
-// revenue double-counting invariant. Same skip-gracefully pattern as
-// tests/integration/postgresProductionReadiness.test.ts.
+// revenue double-counting invariant.
+//
+// Missão 11 Fase 6.3B.1 — connectivity, authorization, and the fail-loud
+// requirePostgres() contract come from the shared
+// tests/integration/postgresTestHarness.ts (this file used to fall back
+// to a stale, permanently-unreachable ":5433" connection string and
+// silently report "passed" with zero assertions run — closed, not
+// merely relocated).
 
 import { PrismaClient, Prisma } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
-
-const DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5433/sails_protocol'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 describe('Fee accounting foundation — provenance, double-counting, legacy (Missão 11 Fase 2.2, real Postgres)', () => {
   jest.setTimeout(60_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
   let feeObligationRepository: typeof import('../../src/modules/open-settlement/fee-obligation-repository').feeObligationRepository
@@ -23,16 +28,8 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
   let getProtocolRevenueSummary: typeof import('../../src/modules/open-settlement/fee-revenue-reporting').getProtocolRevenueSummary
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = DATABASE_URL
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
     ;({ feeObligationRepository } = require('../../src/modules/open-settlement/fee-obligation-repository'))
@@ -44,12 +41,8 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  function skip(name: string): boolean {
-    if (!dbAvailable) {
-      console.warn(`Skipping "${name}" - no real Postgres reachable at ${DATABASE_URL}`)
-      return true
-    }
-    return false
+  function requirePostgres(name: string): void {
+    pg.requirePostgres(name)
   }
 
   async function createFixtureEscrow(suffix: string): Promise<{ escrowId: string }> {
@@ -90,7 +83,7 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
   // no FeeObligation is required or created for it, and no error results
   // from its mere existence alongside the new tables.
   it('Test J: an escrow with feePolicyVersionId = NULL (legacy) is unaffected and requires no FeeObligation', async () => {
-    if (skip('Test J')) return
+    requirePostgres('Test J')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const { escrowId } = await createFixtureEscrow(`legacy-${suffix}`)
 
@@ -106,7 +99,7 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
   // the real DB-level guarantee (escrowId @unique), not just an
   // application-level check.
   it('Test L: a second FeeObligation for the same escrow is rejected by the database', async () => {
-    if (skip('Test L')) return
+    requirePostgres('Test L')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const { escrowId } = await createFixtureEscrow(`dup-${suffix}`)
     const policy = await createPublishedPolicy()
@@ -128,7 +121,7 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
   // the obligations snapshotted against each — a later policy's rate must
   // never retroactively apply to an obligation created under an earlier one.
   it('Test O: two policy versions preserve independently correct economics for their own obligations', async () => {
-    if (skip('Test O')) return
+    requirePostgres('Test O')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const policyV1 = await createPublishedPolicy({ protocolFeeRate: '0.004', label: `v1-${suffix}` })
     const policyV2 = await createPublishedPolicy({ protocolFeeRate: '0.010', label: `v2-${suffix}` })
@@ -157,7 +150,7 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
   // correct per-obligation provenance — each item's bucket shares must be
   // computed from ITS OWN policy version, never the other one's.
   it('Test P: a mixed-version distribution batch computes each item\'s bucket shares from its own policy version', async () => {
-    if (skip('Test P')) return
+    requirePostgres('Test P')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     // v1: 30/25/35/10 split (the fixture default). v2: a deliberately
     // different split (50/20/20/10) so a provenance bug (applying v2's
@@ -208,7 +201,7 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
   // Test Q: the same obligation cannot be distributed twice — the real
   // DB-level guarantee (@@unique on FeeDistributionBatchItem.feeObligationId).
   it('Test Q: distributing the same FeeObligation twice is rejected', async () => {
-    if (skip('Test Q')) return
+    requirePostgres('Test Q')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const policy = await createPublishedPolicy({ label: `dup-dist-${suffix}` })
     const { escrowId } = await createFixtureEscrow(`qdist-${suffix}`)
@@ -254,7 +247,7 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
   // distributed" message, and the obligation must end up DISTRIBUTED into
   // exactly one batch, never both.
   it('Test Q (concurrency): two concurrent distribution attempts for the same obligation — exactly one wins', async () => {
-    if (skip('Test Q concurrency')) return
+    requirePostgres('Test Q concurrency')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const policy = await createPublishedPolicy({ label: `race-${suffix}` })
     const { escrowId } = await createFixtureEscrow(`race-${suffix}`)
@@ -292,7 +285,7 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
   // Test Q (continued): attempting to distribute an obligation that isn't
   // COLLECTED yet is also rejected.
   it('Test Q (precondition): distributing an obligation that is not COLLECTED is rejected', async () => {
-    if (skip('Test Q precondition')) return
+    requirePostgres('Test Q precondition')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const policy = await createPublishedPolicy({ label: `precond-${suffix}` })
     const { escrowId } = await createFixtureEscrow(`precond-${suffix}`)
@@ -311,7 +304,7 @@ describe('Fee accounting foundation — provenance, double-counting, legacy (Mis
   // never SUM(COLLECTED) + SUM(DISTRIBUTED) computed as if they were two
   // independent revenue pools.
   it('Test R: gross/undistributed/distributed never double-count the same obligation', async () => {
-    if (skip('Test R')) return
+    requirePostgres('Test R')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const policy = await createPublishedPolicy({ label: `revenue-${suffix}` })
 

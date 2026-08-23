@@ -39,9 +39,9 @@ import { PrismaClient, Prisma } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 const execAsync = promisify(exec)
-const DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5433/sails_protocol'
 
 // ─── The reusable gate surface ──────────────────────────────────────────────
 interface RequiredTrigger {
@@ -121,18 +121,15 @@ async function checkDbNativeInvariants(client: PrismaClient): Promise<string[]> 
 // ─── dev DB in normal use — the "upgraded from prior migrations" case) ─────
 describe('DB-native invariants — required triggers (Missão 11 Fase 2.3, real Postgres)', () => {
   jest.setTimeout(60_000)
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
 
   beforeAll(async () => {
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-      prisma = probe
-    } catch {
-      dbAvailable = false
-      await probe.$disconnect()
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
+    if (dbAvailable) {
+      prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: pg.getUrl() }) })
     }
   })
 
@@ -140,18 +137,17 @@ describe('DB-native invariants — required triggers (Missão 11 Fase 2.3, real 
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  function skip(name: string): boolean {
-    if (!dbAvailable) {
-      console.warn(`Skipping "${name}" - no real Postgres reachable at ${DATABASE_URL}`)
-      return true
-    }
-    return false
+  // Missão 11 Fase 6.3B.1 — delegates to the centralized harness
+  // (tests/integration/postgresTestHarness.ts); throws instead of
+  // silently skipping.
+  function requirePostgres(name: string): void {
+    pg.requirePostgres(name)
   }
 
   it.each(REQUIRED_DB_NATIVE_TRIGGERS)(
     'Test A/B/C/D/F: trigger "$trigger" exists on table "$table", invokes function "$function", and is enabled',
     async (spec) => {
-      if (skip(spec.trigger)) return
+      requirePostgres(spec.trigger)
       const row = await queryTriggerCatalog(prisma, spec.trigger)
       expect(row).not.toBeNull()
       expect(row!.table_name).toBe(spec.table)
@@ -161,7 +157,7 @@ describe('DB-native invariants — required triggers (Missão 11 Fase 2.3, real 
   )
 
   it('full gate reports zero failures against the real database catalog', async () => {
-    if (skip('full gate')) return
+    requirePostgres('full gate')
     const failures = await checkDbNativeInvariants(prisma)
     expect(failures).toEqual([])
   })

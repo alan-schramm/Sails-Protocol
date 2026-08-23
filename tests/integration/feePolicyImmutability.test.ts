@@ -29,27 +29,18 @@
 // without having actually run.
 
 import { PrismaClient } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2.2, real Postgres)', () => {
   jest.setTimeout(60_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
-  let dbUrl = ''
   let prisma: PrismaClient
 
   beforeAll(async () => {
-    const { config } = require('../../src/config')
-    dbUrl = config.database.url
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: dbUrl }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
   })
@@ -58,13 +49,11 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  // Missão 11 Fase 5.3 §B — replaces the old skip()-and-silently-return
-  // helper. Throws (fails the test loudly) rather than returning quietly,
-  // so an unreachable Postgres can never masquerade as a passing test.
+  // Missão 11 Fase 6.3B.1 — delegates to the centralized harness
+  // (tests/integration/postgresTestHarness.ts), same call-site shape
+  // every existing caller below already uses.
   function requirePostgres(name: string): void {
-    if (!dbAvailable) {
-      throw new Error(`"${name}" requires a real Postgres connection, unreachable at ${dbUrl} — start it (npm run db:local:start) before running this suite.`)
-    }
+    pg.requirePostgres(name)
   }
 
   function fixturePolicyData(overrides: Record<string, any> = {}) {

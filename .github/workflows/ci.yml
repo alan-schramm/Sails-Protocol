@@ -12,6 +12,25 @@ jobs:
     defaults:
       run:
         working-directory: ./sails-push-ready
+    # Missão 11 Fase 6.3B.1 — `npm test` now includes a real-Postgres
+    # integration lane (npm run test:integration:postgres); this
+    # ephemeral service container is what makes that lane run for real
+    # in CI instead of failing the fail-closed authorization/connectivity
+    # guard. Created fresh per run, discarded afterward.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -27,7 +46,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Apply database migrations
+        # Scoped to this step only — targets the ephemeral CI Postgres
+        # service above, never a shared or production database.
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+        run: npm run db:migrate
+
       - name: Run unit tests
+        # Both vars scoped to this step only (Missão 11 Fase 6.3B.1) —
+        # SAILS_INTEGRATION_TEST_DB_CONFIRMED is the explicit, deliberate
+        # opt-in tests/integration/postgresTestHarness.ts's fail-closed
+        # guard requires; DATABASE_URL points only at the ephemeral CI
+        # service above. Neither var is present for the Docker
+        # integration-test step below, which never needs them —
+        # docker-compose.yml hardcodes its own DATABASE_URL for the
+        # containers it starts and does not read this one.
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+          SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
         run: npm test
 
       - name: Run Docker integration test

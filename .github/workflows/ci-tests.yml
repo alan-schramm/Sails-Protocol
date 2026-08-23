@@ -8,9 +8,35 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Missão 11 Fase 6.3B.1 — the real-Postgres integration lane
+    # (npm run test:integration:postgres) needs an actual ephemeral test
+    # Postgres to run for real instead of failing the fail-closed
+    # authorization/connectivity guard. This service container is
+    # created fresh per CI run and discarded afterward — never a shared
+    # or persistent database.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       REDISMS_DISABLE_POSTINSTALL: true
       REDISMS_SYSTEM_BINARY: /usr/bin/redis-server
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+      # Explicit, deliberate opt-in required by
+      # tests/integration/postgresTestHarness.ts's fail-closed guard —
+      # this service container is a fresh, disposable, CI-only Postgres,
+      # never a shared or production database.
+      SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,10 +45,12 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Apply database migrations
+        run: npm run db:migrate
       - name: Run tests (capture output)
         run: |
           set -o pipefail
-          npx jest --runInBand --colors 2>&1 | tee jest-output.txt
+          npm test 2>&1 | tee jest-output.txt
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v4

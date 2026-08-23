@@ -16,22 +16,11 @@
 //      the arbiter row, while a buyer/seller row remains freely mutable —
 //      proven against a real database, not a mock (a mock has no trigger).
 //
-// Deliberately does NOT derive its Postgres connection string from a
-// hardcoded fallback port: earlier tests in this suite (feePolicyImmutability
-// .test.ts, feeCollectionRecognitionIntegration.test.ts) fall back to a
-// stale ":5433" default when DATABASE_URL isn't already exported in the
-// shell — found, while writing this file, to be silently skipping 100% of
-// their real-Postgres assertions in this environment (the actual local
-// Postgres runs on :5432, matching .env). That is a real, disclosed,
-// out-of-scope environment/test-infra gap (this mission's own report notes
-// it) — NOT fixed here, since fixing every other file's fallback is outside
-// Fase 5.2's narrow arbiter-commitment scope. This file avoids repeating
-// the same mistake by reading the connection string from config itself
-// (which already resolves .env correctly via its own `dotenv/config`
-// import), never a second, independently-guessed fallback.
-//
-// Same skip-gracefully pattern as every other real-Postgres integration
-// test in this suite, otherwise.
+// Missão 11 Fase 6.3B.1 — connectivity, authorization, and the fail-loud
+// requirePostgres() contract all come from the shared
+// tests/integration/postgresTestHarness.ts now (this file used to carry
+// its own local skip()-and-console.warn helper, a silent false-green when
+// Postgres was unreachable — replaced, not merely relocated).
 
 // MOCK_ESCROW=true is the repo's own .env default — this file needs the
 // REAL MultisigProvider derivation path (submitParticipantKey()'s
@@ -65,7 +54,7 @@ function loadEscrowServiceWithSeed(seed: string): typeof import('../../src/modul
 }
 
 import { PrismaClient } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
@@ -78,22 +67,14 @@ const network = bitcoin.networks.testnet
 describe('Escrow arbiter public-key commitment — real lifecycle + DB-native immutability (Missão 11 Fase 5.2, real Postgres)', () => {
   jest.setTimeout(60_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
   let escrowService: typeof import('../../src/modules/open-settlement/escrow.service').escrowService
 
   beforeAll(async () => {
-    const { config } = require('../../src/config')
-    const DATABASE_URL: string = config.database.url
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
@@ -103,12 +84,11 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  function skip(name: string): boolean {
-    if (!dbAvailable) {
-      console.warn(`Skipping "${name}" - no real Postgres reachable (config.database.url)`)
-      return true
-    }
-    return false
+  // Missão 11 Fase 6.3B.1 — was a soft skip()-and-console.warn helper
+  // (silent false green when Postgres was unreachable); now delegates to
+  // the centralized harness, which throws instead.
+  function requirePostgres(name: string): void {
+    pg.requirePostgres(name)
   }
 
   async function fixtureTrade() {
@@ -129,7 +109,7 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
   }
 
   it('submitParticipantKey() persists the arbiter commitment end-to-end, and it reconstructs the exact stored multisigAddr', async () => {
-    if (skip('persists + reconstructs')) return
+    requirePostgres('persists + reconstructs')
     const { buyer, seller, trade } = await fixtureTrade()
     const buyerKey = keypair(`buyer-${trade.id}`)
     const sellerKey = keypair(`seller-${trade.id}`)
@@ -168,7 +148,7 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
   })
 
   it('DB-native trigger rejects UPDATE and DELETE of an arbiter row, while a buyer row remains freely mutable', async () => {
-    if (skip('DB trigger')) return
+    requirePostgres('DB trigger')
     const { buyer, seller, trade } = await fixtureTrade()
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' } })
 
@@ -207,21 +187,14 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
 describe('Signature-collection path — real triggeredBy/arbiter-context defense-in-depth (Missão 11 Fase 5.3, real Postgres)', () => {
   jest.setTimeout(60_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
   let escrowService: typeof import('../../src/modules/open-settlement/escrow.service').escrowService
 
   beforeAll(async () => {
-    const { config } = require('../../src/config')
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: config.database.url }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
@@ -235,12 +208,11 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  function skip(name: string): boolean {
-    if (!dbAvailable) {
-      console.warn(`Skipping "${name}" - no real Postgres reachable (config.database.url)`)
-      return true
-    }
-    return false
+  // Missão 11 Fase 6.3B.1 — was a soft skip()-and-console.warn helper
+  // (silent false green when Postgres was unreachable); now delegates to
+  // the centralized harness, which throws instead.
+  function requirePostgres(name: string): void {
+    pg.requirePostgres(name)
   }
 
   const RELEASE_ADDR = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
@@ -294,7 +266,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
   }
 
   it('1. correct arbiter context (triggeredBy matches both the assigned dispute AND the persisted commitment) -> accepted', async () => {
-    if (skip('correct context accepted')) return
+    requirePostgres('correct context accepted')
     const { escrow, buyer, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
     mockExplorerFetch(txid)
 
@@ -303,7 +275,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
   })
 
   it('2. wrong triggeredBy arbiter (assigned to the dispute, but not the identity baked into the script) -> rejected', async () => {
-    if (skip('wrong triggeredBy rejected')) return
+    requirePostgres('wrong triggeredBy rejected')
     // A different arbiter is genuinely ASSIGNED to this dispute (passes
     // isSellerOrAssignedArbiter's own authorization check against the
     // real Dispute row) but is not TRUSTED_ARBITRATORS[0] — the single
@@ -320,7 +292,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
   })
 
   it('3/4. correct triggeredBy identity, but the persisted commitment no longer matches live config (MULTISIG_SEED drifted since creation) -> rejected', async () => {
-    if (skip('persisted pubkey mismatch rejected')) return
+    requirePostgres('persisted pubkey mismatch rejected')
     // Commitment established under the file's baseline seed.
     const { escrow, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
 
@@ -338,7 +310,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
   })
 
   it('5. legacy escrow (no persisted arbiter commitment) under a disputed release -> compatibility path preserved, identity check alone still governs', async () => {
-    if (skip('legacy compatibility preserved')) return
+    requirePostgres('legacy compatibility preserved')
     // Simulates a pre-Fase-5.2 escrow: buyer/seller keys persisted
     // directly (bypassing submitParticipantKey()'s auto-commitment write,
     // which does not exist for a genuinely historical row), no
@@ -366,7 +338,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
   })
 
   it('6. happy path: non-disputed release (ordinary buyer+seller signing) is unaffected by the triggeredBy threading fix', async () => {
-    if (skip('happy path unaffected')) return
+    requirePostgres('happy path unaffected')
     const { buyer, seller, trade } = await fixtureTrade()
     const buyerKey = keypair(`hp-buyer-${trade.id}`)
     const sellerKey = keypair(`hp-seller-${trade.id}`)

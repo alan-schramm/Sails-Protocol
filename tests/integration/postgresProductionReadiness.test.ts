@@ -12,22 +12,25 @@
 // prove).
 //
 // Requires this repo's own docker-compose Postgres, reachable via
-// DATABASE_URL passed to this specific Jest invocation (not the default
-// mocked suite) - see docker-compose.override.yml (local-only, gitignored)
-// for the host port mapping used to run this from outside Docker. Skips
-// gracefully, same pattern tests/integration/redisStreamsEventStore.test.ts
-// and tests/integration/docker.test.ts already use, rather than failing
-// the whole suite when no real Postgres is reachable (the default case
-// for `npm test`).
+// DATABASE_URL passed to this specific Jest invocation - see
+// docker-compose.override.yml (local-only, gitignored) for the host port
+// mapping used to run this from outside Docker.
+//
+// Missão 11 Fase 6.3B.1 — connectivity, authorization, and the fail-loud
+// requirePostgres() contract come from the shared
+// tests/integration/postgresTestHarness.ts (this file used to fall back
+// to a stale, permanently-unreachable ":5433" connection string and
+// silently report "passed" with zero assertions run — closed, not
+// merely relocated).
 
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-
-const DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5433/sails_protocol'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 describe('Postgres production readiness (Missao 06, real Postgres)', () => {
   jest.setTimeout(60_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
   let eventBus: import('../../src/common/events/event-bus').SailsEventBus
@@ -40,24 +43,13 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
   let computeEntryHash: typeof import('../../src/common/events/event-store').computeEntryHash
 
   beforeAll(async () => {
-    // Set BEFORE any app module is imported - src/common/database/index.ts
-    // constructs its PrismaClient singleton eagerly at import time, reading
-    // config.database.url (which reads DATABASE_URL) at that moment. This
-    // is the one env var every real-Postgres-backed module in this
-    // codebase (eventBus's default PostgresEventStore, escrow-lifecycle.ts,
-    // intent-engine.ts, ...) transitively depends on - exactly the
-    // production wiring this test wants to exercise, not a reimplementation.
-    process.env.DATABASE_URL = DATABASE_URL
-
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
+    // Missão 11 Fase 6.3B.1 — resolution/authorization/probe now come
+    // from the centralized harness (tests/integration/postgresTestHarness.ts),
+    // which itself resolves config.database.url canonically. No env-var
+    // mutation here anymore (Fase 6.3B §B5 — zero file-level mutation of
+    // DATABASE_URL).
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
 
     if (!dbAvailable) return
 
@@ -74,19 +66,15 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  function skip(name: string): boolean {
-    if (!dbAvailable) {
-      console.warn(`Skipping "${name}" - no real Postgres reachable at ${DATABASE_URL}`)
-      return true
-    }
-    return false
+  function requirePostgres(name: string): void {
+    pg.requirePostgres(name)
   }
 
   // ─── durable_events / PostgresEventStore, against real Postgres ───────
 
   describe('PostgresEventStore + durable_events (real Postgres)', () => {
     it('publish() writes a real row, getEvents()/verifyChain() read it back correctly', async () => {
-      if (skip('durable_events round-trip')) return
+      requirePostgres('durable_events round-trip')
       const correlationId = `real-pg-${Date.now()}-a`
 
       await eventBus.emit('openp2p.message.sent', {
@@ -110,10 +98,10 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     // talking to the REAL Postgres server - pg_advisory_xact_lock is
     // enforced by the server itself, not simulated in JS.
     it('real concurrent writers for the SAME correlationId, across independent connections, never fork - pg_advisory_xact_lock proven at the database level', async () => {
-      if (skip('real concurrent same-correlationId writers')) return
+      requirePostgres('real concurrent same-correlationId writers')
       const correlationId = `real-pg-concurrent-${Date.now()}`
 
-      const clients = Array.from({ length: 5 }, () => new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) }))
+      const clients = Array.from({ length: 5 }, () => new PrismaClient({ adapter: new PrismaPg({ connectionString: pg.getUrl() }) }))
       const stores = clients.map((c: PrismaClient) => new PostgresEventStore(c as any))
 
       try {
@@ -142,7 +130,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     // Postgres, not serialize against each other - proven by timing, not
     // just by inspecting the resulting rows.
     it('real concurrent writers for DIFFERENT correlationIds complete without waiting on each other', async () => {
-      if (skip('real concurrent different-correlationId writers')) return
+      requirePostgres('real concurrent different-correlationId writers')
       const ids = Array.from({ length: 5 }, (_, i) => `real-pg-iso-${Date.now()}-${i}`)
 
       const start = Date.now()
@@ -176,7 +164,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     // a subsequent real publish() for the same correlationId is neither
     // corrupted nor stuck.
     it('a transaction that acquires the advisory lock and then aborts leaves no row and does not leak the lock', async () => {
-      if (skip('abort/rollback leaves no row, no leaked lock')) return
+      requirePostgres('abort/rollback leaves no row, no leaked lock')
       const correlationId = `real-pg-abort-${Date.now()}`
 
       await expect(
@@ -206,7 +194,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     // but the real Postgres database itself - reads back the exact same
     // data with a valid chain.
     it('an independently-constructed PrismaClient/SailsEventBus reads back the same events with a valid chain (real restart proof)', async () => {
-      if (skip('real restart proof')) return
+      requirePostgres('real restart proof')
       const correlationId = `real-pg-restart-${Date.now()}`
 
       await eventBus.emit('openp2p.message.sent', {
@@ -217,7 +205,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
       }, correlationId)
       const beforeRestart = await eventBus.getEvents(correlationId)
 
-      const revivedClient = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
+      const revivedClient = new PrismaClient({ adapter: new PrismaPg({ connectionString: pg.getUrl() }) })
       const revivedBus = new SailsEventBus(new PostgresEventStore(revivedClient as any))
       try {
         const afterRestart = await revivedBus.getEvents(correlationId)
@@ -264,7 +252,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     }
 
     it('a real chain of transitions verifies valid against real Postgres', async () => {
-      if (skip('EscrowEvent real chain')) return
+      requirePostgres('EscrowEvent real chain')
       const { escrowId, tradeId } = await createFixtureEscrow()
 
       await emitEscrowTransition(escrowId, tradeId, 'CREATED', 'FUNDS_LOCKED', 'seller-1', 'settlement.escrow.locked')
@@ -282,7 +270,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     })
 
     it('a real tampered row (direct SQL UPDATE, simulating DB-level access) is caught by verifyEscrowEventChain()', async () => {
-      if (skip('EscrowEvent real tamper detection')) return
+      requirePostgres('EscrowEvent real tamper detection')
       const { escrowId, tradeId } = await createFixtureEscrow()
 
       await emitEscrowTransition(escrowId, tradeId, 'CREATED', 'FUNDS_LOCKED', 'seller-1', 'settlement.escrow.locked')
@@ -304,7 +292,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
   // only a database built solely from prisma/migrations/ can.
   describe('Claim.tradeId (real Postgres, real migration history)', () => {
     it('the claims table has a tradeId column with an index, exactly as prisma/migrations/20260817000000_add_claim_trade_id/migration.sql adds', async () => {
-      if (skip('claims.tradeId column presence')) return
+      requirePostgres('claims.tradeId column presence')
       const columns = await prisma.$queryRaw<Array<{ column_name: string; is_nullable: string }>>`
         SELECT column_name, is_nullable FROM information_schema.columns
         WHERE table_name = 'claims' AND column_name = 'tradeId'
@@ -319,7 +307,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     })
 
     it('prisma.claim.create() with a real tradeId persists and round-trips through an independent connection', async () => {
-      if (skip('Claim.tradeId create + round-trip')) return
+      requirePostgres('Claim.tradeId create + round-trip')
       const tradeId = `real-pg-claim-${Date.now()}`
 
       const created = await prisma.claim.create({
@@ -330,7 +318,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
       // Independent connection — the closest thing to "did this actually
       // persist" this harness can prove, same discipline the rest of this
       // file already uses for durable_events/escrow_events.
-      const independent = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
+      const independent = new PrismaClient({ adapter: new PrismaPg({ connectionString: pg.getUrl() }) })
       try {
         const reread = await independent.claim.findUnique({ where: { id: created.id } })
         expect(reread?.tradeId).toBe(tradeId)
@@ -346,7 +334,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
   // database built solely from prisma/migrations/.
   describe('Schema/migration reconciliation — PayoutAddress, EvidenceReference, Proof.evidenceHash idx (R2)', () => {
     it('payout_addresses exists with its unique index and FK to users, exactly as prisma/migrations/20260817010000_.../migration.sql adds', async () => {
-      if (skip('payout_addresses structure')) return
+      requirePostgres('payout_addresses structure')
       const columns = await prisma.$queryRaw<Array<{ column_name: string }>>`
         SELECT column_name FROM information_schema.columns WHERE table_name = 'payout_addresses'
       `
@@ -366,7 +354,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     })
 
     it('evidence_references exists with its index and FK to proofs, exactly as the migration adds', async () => {
-      if (skip('evidence_references structure')) return
+      requirePostgres('evidence_references structure')
       const columns = await prisma.$queryRaw<Array<{ column_name: string }>>`
         SELECT column_name FROM information_schema.columns WHERE table_name = 'evidence_references'
       `
@@ -386,7 +374,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     })
 
     it('proofs.evidenceHash has its index, exactly as the migration adds', async () => {
-      if (skip('proofs.evidenceHash index presence')) return
+      requirePostgres('proofs.evidenceHash index presence')
       const idx = await prisma.$queryRaw<Array<{ indexname: string }>>`
         SELECT indexname FROM pg_indexes WHERE tablename = 'proofs' AND indexname = 'proofs_evidenceHash_idx'
       `
@@ -394,14 +382,14 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     })
 
     it('PayoutAddress create() persists and round-trips through an independent connection', async () => {
-      if (skip('PayoutAddress create + round-trip')) return
+      requirePostgres('PayoutAddress create + round-trip')
       const user = await prisma.user.create({ data: { publicKey: `real-pg-user-${Date.now()}` } })
       const created = await prisma.payoutAddress.create({
         data: { participantId: user.id, asset: 'BTC', address: 'real-pg-payout-address' },
       })
       expect(created.address).toBe('real-pg-payout-address')
 
-      const independent = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
+      const independent = new PrismaClient({ adapter: new PrismaPg({ connectionString: pg.getUrl() }) })
       try {
         const reread = await independent.payoutAddress.findUnique({ where: { id: created.id } })
         expect(reread?.address).toBe('real-pg-payout-address')
@@ -412,7 +400,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     })
 
     it('EvidenceReference create() persists, the Proof FK relation resolves, and it round-trips through an independent connection', async () => {
-      if (skip('EvidenceReference create + FK + round-trip')) return
+      requirePostgres('EvidenceReference create + FK + round-trip')
       const claim = await prisma.claim.create({
         data: { claimedBy: 'real-pg-participant', claimType: 'PAYMENT_CONFIRMATION', assertion: { note: 'R2 proof' } },
       })
@@ -424,7 +412,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
       })
       expect(created.proofId).toBe(proof.id)
 
-      const independent = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
+      const independent = new PrismaClient({ adapter: new PrismaPg({ connectionString: pg.getUrl() }) })
       try {
         const reread = await independent.evidenceReference.findUnique({ where: { id: created.id }, include: { proof: true } })
         expect(reread?.sha256).toBe('real-pg-sha256')
@@ -465,7 +453,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     }
 
     it('EscrowReleaseApproval: valid escrowId persists; a real nonexistent escrowId is rejected by Postgres, not just Prisma', async () => {
-      if (skip('EscrowReleaseApproval FK')) return
+      requirePostgres('EscrowReleaseApproval FK')
       const { escrowId } = await createFixtureEscrow()
       const created = await prisma.escrowReleaseApproval.create({ data: { escrowId, approverId: 'real-pg-approver' } })
       expect(created.escrowId).toBe(escrowId)
@@ -476,7 +464,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     })
 
     it('EscrowParticipantKey: valid escrowId persists (one-to-many, up to one per role); a real nonexistent escrowId is rejected by Postgres', async () => {
-      if (skip('EscrowParticipantKey FK')) return
+      requirePostgres('EscrowParticipantKey FK')
       const { escrowId } = await createFixtureEscrow()
       const buyerKey = await prisma.escrowParticipantKey.create({ data: { escrowId, role: 'buyer', participantId: 'real-pg-buyer', pubkey: 'ab'.repeat(33) } })
       const sellerKey = await prisma.escrowParticipantKey.create({ data: { escrowId, role: 'seller', participantId: 'real-pg-seller', pubkey: 'cd'.repeat(33) } })
@@ -489,7 +477,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     })
 
     it('EscrowPendingTransaction: real one-to-one — a SECOND row for the same escrowId is rejected by Postgres (the @unique, not application code)', async () => {
-      if (skip('EscrowPendingTransaction FK + uniqueness')) return
+      requirePostgres('EscrowPendingTransaction FK + uniqueness')
       const { escrowId } = await createFixtureEscrow()
       const created = await prisma.escrowPendingTransaction.create({
         data: { escrowId, kind: 'release', toAddress: 'real-pg-address', unsignedPsbtBase64: 'cHNidP8=', requiredSigners: ['buyer-1'], triggeredBy: 'seller-1' },
@@ -510,7 +498,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     })
 
     it('real ON DELETE RESTRICT: deleting a referenced Escrow is blocked by Postgres while a child row exists', async () => {
-      if (skip('ON DELETE RESTRICT real behavior')) return
+      requirePostgres('ON DELETE RESTRICT real behavior')
       const { escrowId } = await createFixtureEscrow()
       await prisma.escrowReleaseApproval.create({ data: { escrowId, approverId: 'restrict-check' } })
 
@@ -523,7 +511,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
     })
 
     it('real ON UPDATE CASCADE: a raw update of the parent Escrow.id propagates to the child escrowId', async () => {
-      if (skip('ON UPDATE CASCADE real behavior')) return
+      requirePostgres('ON UPDATE CASCADE real behavior')
       const { escrowId } = await createFixtureEscrow()
       await prisma.escrowReleaseApproval.create({ data: { escrowId, approverId: 'cascade-check' } })
       const newId = `${escrowId}-cascaded`

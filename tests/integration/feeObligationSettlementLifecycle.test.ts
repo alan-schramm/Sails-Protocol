@@ -11,17 +11,21 @@
 // external crypto/SDK mocking, run through the REAL escrowService methods
 // (not fakes), against a real database.
 //
-// Same skip-gracefully pattern as every other real-Postgres integration
-// test in this suite.
+// Missão 11 Fase 6.3B.1 — connectivity, authorization, and the fail-loud
+// requirePostgres() contract come from the shared
+// tests/integration/postgresTestHarness.ts (this file used to fall back
+// to a stale, permanently-unreachable ":5433" connection string and
+// silently report "passed" with zero assertions run whenever Postgres
+// wasn't already exported in the shell — a genuine false green, closed
+// here, not merely relocated).
 
 import { PrismaClient, Prisma } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
-
-const DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5433/sails_protocol'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, real Postgres)', () => {
   jest.setTimeout(60_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
   let escrowService: typeof import('../../src/modules/open-settlement/escrow.service').escrowService
@@ -31,16 +35,8 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
   let findTerminalPolicyAwareEscrowsMissingObligation: typeof import('../../src/modules/open-settlement/fee-obligation-reconciliation').findTerminalPolicyAwareEscrowsMissingObligation
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = DATABASE_URL
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
@@ -54,12 +50,11 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  function skip(name: string): boolean {
-    if (!dbAvailable) {
-      console.warn(`Skipping "${name}" - no real Postgres reachable at ${DATABASE_URL}`)
-      return true
-    }
-    return false
+  // Missão 11 Fase 6.3B.1 — delegates to the centralized harness
+  // (tests/integration/postgresTestHarness.ts); throws instead of
+  // silently skipping.
+  function requirePostgres(name: string): void {
+    pg.requirePostgres(name)
   }
 
   async function createFixtureTrade(suffix: string) {
@@ -112,7 +107,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
 
   // Test 1: legacy release -> no FeeObligation
   it('Test 1: a release with no fee policy snapshot creates no FeeObligation', async () => {
-    if (skip('Test 1')) return
+    requirePostgres('Test 1')
     const { escrow, trade } = await createFixtureEscrow(`t1-${Date.now()}`)
     await escrowService.releaseFunds(escrow.id, trade.buyerId, trade.sellerId)
 
@@ -125,7 +120,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
 
   // Test 2 + 8: policy-aware release -> OWED, exact basisAmount
   it('Test 2/8: a policy-aware release creates an OWED FeeObligation with basisAmount = full lockedAmount', async () => {
-    if (skip('Test 2/8')) return
+    requirePostgres('Test 2/8')
     const suffix = `t2-${Date.now()}`
     const { escrow, trade } = await createPolicyAwareEscrow(suffix, '100000')
 
@@ -142,7 +137,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
 
   // Test 3: policy-aware refund -> NOT_APPLICABLE
   it('Test 3: a policy-aware refund creates a NOT_APPLICABLE FeeObligation', async () => {
-    if (skip('Test 3')) return
+    requirePostgres('Test 3')
     const suffix = `t3-${Date.now()}`
     const { escrow, trade } = await createPolicyAwareEscrow(suffix, '100000')
     // REFUNDED is only reachable from FUNDS_LOCKED/CREATED/DISPUTED
@@ -161,7 +156,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
 
   // Test 4: split -> OWED on seller portion only
   it('Test 4: a policy-aware split creates an OWED FeeObligation with basisAmount = seller\'s bps-derived portion only', async () => {
-    if (skip('Test 4')) return
+    requirePostgres('Test 4')
     const suffix = `t4-${Date.now()}`
     const { escrow, trade } = await createPolicyAwareEscrow(suffix, '100000')
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED' } }) // SPLIT only reachable from DISPUTED
@@ -179,7 +174,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
   // reuses refundFunds() directly (escrow.service.ts, confirmed by reading)
   // — no separate wiring needed, but worth proving end-to-end for real.
   it('Test 7: an expired escrow auto-refunded by sweepExpiredEscrows() creates a NOT_APPLICABLE FeeObligation', async () => {
-    if (skip('Test 7')) return
+    requirePostgres('Test 7')
     const suffix = `t7-${Date.now()}`
     const { escrow } = await createPolicyAwareEscrow(suffix, '100000')
     await prisma.escrow.update({
@@ -199,7 +194,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
   // (staying within {PENDING_COLLECTION, WAIVED} — never COLLECTED/
   // DISTRIBUTED/IN_PROGRESS) only for an explicitly fictional test fixture.
   it('Fase 4: the fixture-only small-trade rule waives a tiny computed fee, and never activates for a default policy', async () => {
-    if (skip('Fase 4 WAIVED')) return
+    requirePostgres('Fase 4 WAIVED')
     const suffixA = `t4w-normal-${Date.now()}`
     const { escrow: normalEscrow, trade: normalTrade } = await createPolicyAwareEscrow(suffixA, '1000') // computedFee = 1000*0.004 = 4, tiny but NOT waived — no rule configured
     await escrowService.releaseFunds(normalEscrow.id, normalTrade.buyerId, normalTrade.sellerId)
@@ -219,7 +214,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
 
   // Test 10: policy changed later -> old escrow's fee unchanged
   it('Test 10: publishing a new policy version does not affect an already-settled escrow\'s recorded fee', async () => {
-    if (skip('Test 10')) return
+    requirePostgres('Test 10')
     const suffix = `t10-${Date.now()}`
     const { escrow, trade } = await createPolicyAwareEscrow(suffix, '100000', { protocolFeeRate: '0.004' })
 
@@ -240,7 +235,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
 
   // Test 11: duplicate settlement retry -> one obligation (idempotent, via the repo's own unique constraint + the service's existence check)
   it('Test 11: retrying recordObligationForEscrowSettlement for an already-settled escrow does not create a second obligation', async () => {
-    if (skip('Test 11')) return
+    requirePostgres('Test 11')
     const suffix = `t11-${Date.now()}`
     const { escrow, trade } = await createPolicyAwareEscrow(suffix, '100000')
     await escrowService.releaseFunds(escrow.id, trade.buyerId, trade.sellerId)
@@ -258,7 +253,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
 
   // Test 12: concurrent finalization -> one obligation (real DB-level race, not just sequential retry)
   it('Test 12: two concurrent recordObligationForEscrowSettlement calls for the same escrow produce exactly one FeeObligation', async () => {
-    if (skip('Test 12')) return
+    requirePostgres('Test 12')
     const suffix = `t12-${Date.now()}`
     const { escrow, trade } = await createPolicyAwareEscrow(suffix, '100000')
     await escrowService.releaseFunds(escrow.id, trade.buyerId, trade.sellerId)
@@ -282,7 +277,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
 
   // Test 15: reconciliation detects a genuine gap, without auto-fixing it
   it('Test 15: reconciliation detects a terminal policy-aware escrow with no FeeObligation, and stops flagging it once created', async () => {
-    if (skip('Test 15')) return
+    requirePostgres('Test 15')
     const suffix = `t15-${Date.now()}`
     const policy = await createPublishedPolicy({ label: `t15-${suffix}` })
     const { escrow } = await createFixtureEscrow(suffix, '100000')
@@ -311,7 +306,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
 
   // Test 16: historical/legacy escrows are never flagged by reconciliation
   it('Test 16: legacy escrows (feePolicyVersionId NULL) are never flagged by reconciliation, even when terminal', async () => {
-    if (skip('Test 16')) return
+    requirePostgres('Test 16')
     const { escrow, trade } = await createFixtureEscrow(`t16-${Date.now()}`)
     await escrowService.releaseFunds(escrow.id, trade.buyerId, trade.sellerId) // legacy path — no policy snapshot
 
@@ -331,7 +326,7 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
   // Test 18: zero settlement-amount changes — a policy-aware release settles
   // with the exact identical provider result shape/amount as a legacy one.
   it('Test 18: attaching a fee policy snapshot does not alter the settlement\'s own amounts/outputs', async () => {
-    if (skip('Test 18')) return
+    requirePostgres('Test 18')
     const suffix = `t18-${Date.now()}`
     const { escrow: legacyEscrow, trade: legacyTrade } = await createFixtureEscrow(`${suffix}-legacy`, '250000')
     const { escrow: policyEscrow, trade: policyTrade } = await createPolicyAwareEscrow(`${suffix}-policy`, '250000')

@@ -13,18 +13,22 @@
 // into escrowRepository.create()'s single INSERT) actually behaves as
 // designed against a real database, not just against a fake repository.
 //
-// Same skip-gracefully pattern as every other real-Postgres integration
-// test in this suite.
+// Missão 11 Fase 6.3B.1 — connectivity, authorization, and the fail-loud
+// requirePostgres() contract come from the shared
+// tests/integration/postgresTestHarness.ts (this file used to fall back
+// to a stale, permanently-unreachable ":5433" connection string and
+// silently report "passed" with zero assertions run — closed, not
+// merely relocated).
 
 import { PrismaClient, Prisma } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
-const DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5433/sails_protocol'
 const COLLECTIBLE_ADDRESS = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
 
 describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, real Postgres)', () => {
   jest.setTimeout(60_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
   let escrowService: typeof import('../../src/modules/open-settlement/escrow.service').escrowService
@@ -33,16 +37,8 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   let originalCollectionAddress: string | undefined
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = DATABASE_URL
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
@@ -59,12 +55,8 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  function skip(name: string): boolean {
-    if (!dbAvailable) {
-      console.warn(`Skipping "${name}" - no real Postgres reachable at ${DATABASE_URL}`)
-      return true
-    }
-    return false
+  function requirePostgres(name: string): void {
+    pg.requirePostgres(name)
   }
 
   async function createFixtureTrade(suffix: string) {
@@ -102,7 +94,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
 
   // Test 1: no active policy — normal no-fee behavior, unchanged (Fase 4.1 §11.2)
   it('Test 1: createEscrow() with no PUBLISHED policy for the rail creates a legacy (unsnapshotted) escrow', async () => {
-    if (skip('Test 1')) return
+    requirePostgres('Test 1')
     const suffix = `t1-${Date.now()}`
     const { trade, buyer } = await createFixtureTrade(suffix)
 
@@ -117,7 +109,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   // (Fase 4.1 §11.4 — R = T + Fmax, distinguished here by the frozen
   // address being set and waivedPreFunding=false).
   it('Test 2: createEscrow() with a collectible policy freezes the collection address, waivedPreFunding=false', async () => {
-    if (skip('Test 2')) return
+    requirePostgres('Test 2')
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
     const suffix = `t2-${Date.now()}`
     await createPublishedPolicy('MULTISIG')
@@ -135,7 +127,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   // Test 3: pre-funding waived policy — no address configured at all
   // (Fase 4.1 §11.3 — R = T, no reserve ever asked of the seller).
   it('Test 3: createEscrow() with a policy but NO collection address configured is pre-funding-waived (R=T)', async () => {
-    if (skip('Test 3')) return
+    requirePostgres('Test 3')
     config.settlement.protocolFeeCollectionAddress = undefined
     const suffix = `t3-${Date.now()}`
     await createPublishedPolicy('MULTISIG')
@@ -156,7 +148,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   // feePolicyVersionId that does not exist hits a REAL Postgres foreign-
   // key rejection (Escrow.feePolicyVersionId's own FK), not a mock.
   it('Test 4: a failing snapshot write aborts the ENTIRE escrow insert — no partial/legacy row is ever left behind', async () => {
-    if (skip('Test 4')) return
+    requirePostgres('Test 4')
     const suffix = `t4-${Date.now()}`
     const { trade } = await createFixtureTrade(suffix)
 
@@ -193,7 +185,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   // pre-existing DB trigger (feePolicyImmutability.test.ts's own Test E)
   // rejecting any later write to the columns regardless.
   it('Test 5: a second createEscrow() attempt for the SAME trade can never produce a second snapshotted escrow row', async () => {
-    if (skip('Test 5')) return
+    requirePostgres('Test 5')
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
     const suffix = `t5-${Date.now()}`
     await createPublishedPolicy('MULTISIG')
@@ -224,7 +216,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   // publishing a NEW policy for the same rail after an escrow was already
   // snapshotted must never change that escrow's own frozen reference.
   it('Test 6: publishing a later policy for the same rail does not retroactively change an already-snapshotted escrow', async () => {
-    if (skip('Test 6')) return
+    requirePostgres('Test 6')
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
     const railScope = `FASE41_SUBSTITUTION_${Date.now()}`
     const policyA = await createPublishedPolicy(railScope, { protocolFeeRate: '0.004' })
@@ -252,7 +244,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   // affect escrow"): retiring the referenced policy must never touch the
   // already-snapshotted escrow.
   it('Test 7: retiring the referenced policy after snapshotting leaves the escrow\'s own snapshot untouched', async () => {
-    if (skip('Test 7')) return
+    requirePostgres('Test 7')
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
     const { feePolicyService } = require('../../src/modules/open-settlement/fee-policy.service')
     const railScope = `FASE41_RETIREMENT_${Date.now()}`

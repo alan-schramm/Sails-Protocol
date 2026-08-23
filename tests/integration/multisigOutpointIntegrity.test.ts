@@ -3,21 +3,22 @@
 // Missão 10, Fase 3, items 7 and 10 — real-Postgres proof that the
 // database itself (not an application-level check-then-write) prevents
 // two different escrows from ever claiming the identical Bitcoin
-// outpoint. Same skip-if-unreachable convention
-// tests/integration/postgresProductionReadiness.test.ts already
-// established.
+// outpoint.
 //
-// Requires this repo's own docker-compose Postgres (see that file's own
-// comment for the host-port/override-file context).
+// Missão 11 Fase 6.3B.1 — connectivity, authorization, and the fail-loud
+// requirePostgres() contract come from the shared
+// tests/integration/postgresTestHarness.ts (this file used to fall back
+// to a stale, permanently-unreachable ":5433" connection string and
+// silently report "passed" with zero assertions run — closed, not
+// merely relocated).
 
 import { PrismaClient } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
-
-const DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5433/sails_protocol'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
   jest.setTimeout(30_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
   let escrowService: import('../../src/modules/open-settlement/escrow.service').EscrowService
@@ -44,20 +45,12 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
   let realFetch: typeof fetch
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = DATABASE_URL
     process.env.MOCK_ESCROW = 'false'
     process.env.MULTISIG_SEED = process.env.MULTISIG_SEED || 'outpoint-integrity-test-seed'
     process.env.TRUSTED_ARBITRATORS = process.env.TRUSTED_ARBITRATORS || 'outpoint-test-arbiter'
 
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
 
     ;({ prisma } = require('../../src/common/database'))
@@ -74,12 +67,8 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  function skip(name: string): boolean {
-    if (!dbAvailable) {
-      console.warn(`Skipping "${name}" - no real Postgres reachable at ${DATABASE_URL}`)
-      return true
-    }
-    return false
+  function requirePostgres(name: string): void {
+    pg.requirePostgres(name)
   }
 
   beforeEach(() => {
@@ -109,7 +98,7 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
   // produce — proving the database itself, not request ordering, is
   // what decides the outcome.
   it('item 10: concurrent lockFunds() on two different escrows for the identical outpoint — exactly one wins', async () => {
-    if (skip('concurrent double-claim')) return
+    requirePostgres('concurrent double-claim')
 
     const a = await makeMultisigEscrow('race-a', BUYER_PUBKEY_A, SELLER_PUBKEY_A)
     const b = await makeMultisigEscrow('race-b', BUYER_PUBKEY_B, SELLER_PUBKEY_B)
@@ -156,7 +145,7 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
   // artifact — it holds even when the second attempt is fully
   // sequential and could see the first row already committed.
   it('item 7: a second escrow cannot claim an outpoint already locked by a completed first escrow', async () => {
-    if (skip('sequential double-claim')) return
+    requirePostgres('sequential double-claim')
 
     const a = await makeMultisigEscrow('seq-a', BUYER_PUBKEY_A, SELLER_PUBKEY_A)
     const sequentialTxid = `seq${RUN_ID}`.padEnd(64, 'b')

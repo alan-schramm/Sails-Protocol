@@ -10,17 +10,20 @@
 // initiateSplit()) actually stops before persisting anything, against a
 // real database, not just that buildUnsignedRelease() itself throws.
 //
-// Same skip-if-unreachable convention every other real-Postgres
-// integration test in this repo uses.
+// Missão 11 Fase 6.3B.1 — connectivity, authorization, and the fail-loud
+// requirePostgres() contract come from the shared
+// tests/integration/postgresTestHarness.ts (this file used to fall back
+// to a stale, permanently-unreachable ":5433" connection string and
+// silently report "passed" with zero assertions run — closed, not
+// merely relocated).
 
 import { PrismaClient } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
-
-const DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5433/sails_protocol'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 describe('MULTISIG dust policy — rejection happens before any pending transaction (real Postgres, Missão 10)', () => {
   jest.setTimeout(30_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
   let escrowService: import('../../src/modules/open-settlement/escrow.service').EscrowService
@@ -38,21 +41,13 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
   let realFetch: typeof fetch
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = DATABASE_URL
     process.env.MOCK_ESCROW = 'false'
     process.env.MULTISIG_SEED = process.env.MULTISIG_SEED || 'dust-integrity-test-seed'
     process.env.TRUSTED_ARBITRATORS = process.env.TRUSTED_ARBITRATORS || 'dust-test-arbiter'
     process.env.MULTISIG_NETWORK = 'bitcoin'
 
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
 
     ;({ prisma } = require('../../src/common/database'))
@@ -69,19 +64,15 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
     if (dbAvailable) await prisma.$disconnect()
   })
 
-  function skip(name: string): boolean {
-    if (!dbAvailable) {
-      console.warn(`Skipping "${name}" - no real Postgres reachable at ${DATABASE_URL}`)
-      return true
-    }
-    return false
+  function requirePostgres(name: string): void {
+    pg.requirePostgres(name)
   }
 
   beforeEach(() => { realFetch = global.fetch })
   afterEach(() => { global.fetch = realFetch })
 
   it('a dust-triggering initiateRelease() leaves zero EscrowPendingTransaction rows and the escrow status unchanged', async () => {
-    if (skip('dust-rejected release leaves no pending row')) return
+    requirePostgres('dust-rejected release leaves no pending row')
 
     const seller = await identityService.register({ publicKey: `dust-seller-${Date.now()}`, displayName: 'Seller' })
     const buyer = await identityService.register({ publicKey: `dust-buyer-${Date.now()}`, displayName: 'Buyer' })

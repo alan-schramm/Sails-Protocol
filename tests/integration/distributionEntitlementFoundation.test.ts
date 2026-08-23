@@ -14,13 +14,13 @@
 // policy/weight/fee value created below is an explicitly-labeled fixture.
 
 import { PrismaClient, Prisma } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A, real Postgres)', () => {
   jest.setTimeout(60_000)
 
+  const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
-  let dbUrl = ''
   let prisma: PrismaClient
   let distributionRecipientRepository: typeof import('../../src/modules/open-settlement/distribution-recipient-repository').distributionRecipientRepository
   let distributionPolicyService: typeof import('../../src/modules/open-settlement/distribution-policy.service').distributionPolicyService
@@ -31,17 +31,8 @@ describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A
   let reconciliation: typeof import('../../src/modules/open-settlement/distribution-reconciliation')
 
   beforeAll(async () => {
-    const { config } = require('../../src/config')
-    dbUrl = config.database.url
-    const probe = new PrismaClient({ adapter: new PrismaPg({ connectionString: dbUrl }) })
-    try {
-      await probe.$queryRaw`SELECT 1`
-      dbAvailable = true
-    } catch {
-      dbAvailable = false
-    } finally {
-      await probe.$disconnect()
-    }
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
     ;({ distributionRecipientRepository } = require('../../src/modules/open-settlement/distribution-recipient-repository'))
@@ -58,9 +49,7 @@ describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A
   })
 
   function requirePostgres(name: string): void {
-    if (!dbAvailable) {
-      throw new Error(`"${name}" requires a real Postgres connection, unreachable at ${dbUrl} — start it (npm run db:local:start) before running this suite.`)
-    }
+    pg.requirePostgres(name)
   }
 
   function suffix() {
