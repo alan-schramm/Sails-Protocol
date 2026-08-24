@@ -152,7 +152,11 @@ export type TradeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DISPUTED' | 'CAN
 // mirror, not an import, so it can silently drift if not rechecked.
 export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM' | 'SAFE_GUARD_EVM' | 'MOCK'
 
-export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED'
+// Missão 11 Fase 7.3 (cumulative audit) — EXPIRED added: a real Prisma
+// EscrowStatus value (schema.prisma) this mirror had drifted behind.
+// SPLIT (RFC-021 D9) is a separate, pre-existing gap in this same type,
+// unrelated to and predating this fix — disclosed, not fixed here.
+export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'EXPIRED'
 
 // RFC-021 D7 (real peer vouching) — packages/sails-sdk/src/modules/
 // reputation.ts's vouchFor(voucheeId), backed by a real Vouch Prisma

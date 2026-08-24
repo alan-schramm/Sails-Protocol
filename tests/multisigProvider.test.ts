@@ -196,7 +196,7 @@ describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift dete
         { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'bb'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' },
         REFUND_ADDRESS_UNUSED
       )
-    ).rejects.toThrow('no longer matches the arbiter public key committed')
+    ).rejects.toThrow('does not match the arbiter public key committed')
   })
 
   it('MULTISIG_SEED rotated after creation (same arbiter id): the persisted commitment no longer matches the new live key — fails closed', async () => {
@@ -210,7 +210,7 @@ describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift dete
       driftedProvider.buildUnsignedRefund(
         { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'cc'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-1' }
       )
-    ).rejects.toThrow('no longer matches the arbiter public key committed')
+    ).rejects.toThrow('does not match the arbiter public key committed')
   })
 
   it('legacy escrow (no persisted arbiterPubkey) is completely unaffected by the same config drift — compatibility path preserved byte-for-byte', async () => {
@@ -230,6 +230,55 @@ describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift dete
       REFUND_ADDRESS_UNUSED
     )
     expect(requiredSigners).toEqual(['buyer-1'])
+  })
+
+  // Missão 11 Fase 7.3.1 §B — real P0 fix proof: triggeredBy is now
+  // checked cryptographically against the PERSISTED commitment, never
+  // against live config's defaultArbiterId(). Before this fix, this exact
+  // scenario incorrectly THREW (triggeredBy 'arb-1' !== live scriptArbiter
+  // 'arb-2') even though 'arb-1' is the only identity that can ever
+  // validly sign this specific escrow's script — a real dispute stuck
+  // forever the moment an operator ever rotated TRUSTED_ARBITRATORS.
+  it('config rotation cannot rewrite historical authority: the ORIGINAL committed arbiter can still execute a ruling after TRUSTED_ARBITRATORS rotates away from them', async () => {
+    const { multisigProvider: creationTimeProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const { arbiterPubkeyHex: persistedCommitment } = await creationTimeProvider.getDepositAddress('trade-1', buyerPubkeyHex, sellerPubkeyHex)
+
+    // dispute.service.ts's raiseDispute()/appeal() (Fase 7.3.1 §B) always
+    // assign the escrow's own persisted committed identity as arbiterId —
+    // never assign()'s independent, live-config-driven pick — so
+    // triggeredBy here is still 'arb-1' even though the deployment's
+    // TRUSTED_ARBITRATORS has since rotated to a different arbiter.
+    const { multisigProvider: driftedProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-2' })
+
+    const fetchMock = jest.fn()
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid: 'ee'.repeat(32), vout: 0, value: 100_000, status: { confirmed: true } }] })
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ halfHourFee: 5 }) })
+    ;(global as any).fetch = fetchMock
+
+    const { requiredSigners } = await driftedProvider.buildUnsignedRelease(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'ee'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-1' },
+      REFUND_ADDRESS_UNUSED
+    )
+    expect(requiredSigners).toEqual(['buyer-1'])
+  })
+
+  // Missão 11 Fase 7.3.1 §B — defense in depth: even a genuinely
+  // configured, "authorized" trusted arbiter (present in
+  // TRUSTED_ARBITRATORS) is still rejected if it isn't the SPECIFIC
+  // identity actually baked into this escrow's script — proves a
+  // multi-arbiter trusted-list configuration can never produce an
+  // unexecutable ruling that reaches this far (dispute.service.ts's own
+  // Fase 7.3.1 §B fix should never let this be reached in practice; this
+  // is the structural backstop for a caller that bypasses it).
+  it('multi-arbiter configuration cannot create an unexecutable ruling: a real but non-committed trusted arbiter is still rejected', async () => {
+    const { multisigProvider: creationTimeProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1,arb-2' })
+    const { arbiterPubkeyHex: persistedCommitment } = await creationTimeProvider.getDepositAddress('trade-1', buyerPubkeyHex, sellerPubkeyHex)
+
+    await expect(
+      creationTimeProvider.buildUnsignedRefund(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'ff'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' }
+      )
+    ).rejects.toThrow('does not match the arbiter public key committed')
   })
 })
 

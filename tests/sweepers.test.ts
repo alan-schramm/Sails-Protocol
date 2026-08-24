@@ -189,7 +189,7 @@ describe('escrowService.sweepExpiredEscrows — RFC-007 timelock proactive sweep
   it('returns an empty result when no escrows match the expired-FUNDS_LOCKED filter', async () => {
     // No rows seeded — the sweeper should query and find nothing.
     const result = await escrowService.sweepExpiredEscrows()
-    expect(result).toEqual({ refunded: [], failed: [] })
+    expect(result).toEqual({ refunded: [], requiresManualRecovery: [], failed: [] })
   })
 
   it('refunds every escrow with status FUNDS_LOCKED and expiresAt < now, in one pass', async () => {
@@ -281,5 +281,85 @@ describe('escrowService.sweepExpiredEscrows — RFC-007 timelock proactive sweep
     expect(result.failed).toHaveLength(1)
     expect(typeof result.failed[0].error).toBe('string')
     expect(result.failed[0].error.length).toBeGreaterThan(0)
+  })
+
+  // Missão 11 Fase 7.3.1 §C — real P0 closed: refundFunds() throws
+  // unconditionally for a signature-collection type (client-held keys) —
+  // before this fix, the sweeper attempted it anyway every cycle and
+  // landed the escrow in `failed`, indistinguishable from a genuine bug.
+  describe('signature-collection escrow types (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM) — real, distinguishable outcome, never a doomed refundFunds() attempt', () => {
+    // Missão 11 Fase 7.3.3 §B — real durable status transition now backs
+    // this outcome (FUNDS_LOCKED -> EXPIRED, schema.prisma's own
+    // EscrowStatus.EXPIRED comment), not merely an event.
+    it('routes an expired MULTISIG escrow to requiresManualRecovery, transitions it to EXPIRED, and never calls refundFunds()', async () => {
+      seedEscrow('escrow-1', { type: 'MULTISIG' })
+
+      const result = await escrowService.sweepExpiredEscrows()
+
+      expect(result.requiresManualRecovery).toEqual(['escrow-1'])
+      expect(result.refunded).toEqual([])
+      expect(result.failed).toEqual([])
+      // A real, durable observation — never a doomed refundFunds() attempt.
+      expect(fakeDb.escrows.get('escrow-1')!.status).toBe('EXPIRED')
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'EXPIRED' } })
+    })
+
+    it('emits a real settlement.escrow.expired transition event, attributed to the system, never a participant', async () => {
+      seedEscrow('escrow-1', { type: 'MULTISIG' })
+      const { eventBus } = require('../src/common/events/event-bus')
+
+      await escrowService.sweepExpiredEscrows()
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'settlement.escrow.expired',
+        expect.objectContaining({
+          escrowId: 'escrow-1', tradeId: 'trade-escrow-1', from: 'FUNDS_LOCKED', to: 'EXPIRED',
+          // Fase 7.3.3 §B — honest, non-participant, structurally
+          // distinguishable from any real participant/agent id (never
+          // matches isPartyOrAgent()'s own regex) — the system OBSERVES
+          // and RECORDS, it never claims to be the seller.
+          triggeredBy: 'system:expiry-sweeper',
+          type: 'MULTISIG', sellerId: 'seller-escrow-1',
+        }),
+        'trade-escrow-1'
+      )
+    })
+
+    it('a repeated sweep tick never re-transitions an already-EXPIRED escrow (idempotent by query scope, not a separate flag)', async () => {
+      seedEscrow('escrow-1', { type: 'MULTISIG' })
+      await escrowService.sweepExpiredEscrows()
+      expect(fakeDb.escrows.get('escrow-1')!.status).toBe('EXPIRED')
+
+      // Second tick: findExpiredFundsLocked() only ever queries
+      // status='FUNDS_LOCKED' — the mock's own findMany filter enforces
+      // this exactly like the real repository does, so this escrow is
+      // structurally excluded, not merely skipped by a second check.
+      const second = await escrowService.sweepExpiredEscrows()
+      expect(second.requiresManualRecovery).toEqual([])
+      expect(second.refunded).toEqual([])
+      expect(second.failed).toEqual([])
+    })
+
+    it('a mix of MOCK and MULTISIG expired escrows resolves each to its own correct bucket in one pass', async () => {
+      seedEscrow('escrow-mock', { type: 'MOCK' })
+      seedEscrow('escrow-multisig', { type: 'MULTISIG' })
+
+      const result = await escrowService.sweepExpiredEscrows()
+
+      expect(result.refunded).toEqual(['escrow-mock'])
+      expect(result.requiresManualRecovery).toEqual(['escrow-multisig'])
+      expect(result.failed).toEqual([])
+    })
+
+    it('a MULTISIG escrow whose trade lookup fails still lands in failed, not requiresManualRecovery — a real error is not silently hidden as "expected"', async () => {
+      seedEscrow('escrow-1', { type: 'MULTISIG' })
+      fakeDb.tradeSeller.delete('trade-escrow-1')
+
+      const result = await escrowService.sweepExpiredEscrows()
+
+      expect(result.requiresManualRecovery).toEqual([])
+      expect(result.failed).toHaveLength(1)
+      expect(result.failed[0].escrowId).toBe('escrow-1')
+    })
   })
 })

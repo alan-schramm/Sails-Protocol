@@ -385,6 +385,21 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send(success(dispute))
   })
 
+  // Missão 11 Fase 7.3.3 §D — the explicit, guided seller-only recovery
+  // action for an escrow whose timelock genuinely expired (status
+  // EXPIRED). A thin, scenario-specific wrapper around
+  // dispute.service.ts's own raiseDispute() (see initiateExpiryRecovery()'s
+  // own doc comment for the full authority reasoning) — invents no new
+  // settlement mechanism, no new signature, no server-held key.
+  app.post('/v1/settlement/escrow/:id/initiate-expiry-recovery', {
+    preHandler: [criticalRateLimit, requireAuth],
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    const dispute = await getDisputeService().initiateExpiryRecovery(id, participantId(request))
+    return reply.code(200).send(success(dispute))
+  })
+
   app.post('/v1/settlement/escrow/:id/refund', {
     preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),

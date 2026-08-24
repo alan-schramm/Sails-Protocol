@@ -30,6 +30,7 @@ import { capabilityRoutes } from './modules/open-agents/capability.routes'
 import { agentRoutes } from './modules/open-agents/agent.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
+import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
 import { sweepMultisigFeeConfirmations } from './modules/open-settlement/multisig-fee-confirmation-job'
 import { metricsRegistry, httpRequestsTotal, httpRequestDurationSeconds } from './common/metrics'
@@ -44,6 +45,13 @@ import packageJson from '../package.json'
 const API_VERSION = packageJson.version
 
 export async function buildApp(): Promise<FastifyInstance> {
+  // Missão 11 Fase 7.3.2 §1 (CTO-approved) — rail-capability validation,
+  // evaluated once, unconditionally, before anything else boots. See
+  // escrow-providers.ts's own comment on this function for why it lives
+  // there (SCRIPT_COMMITTED_ARBITER_RAILS) rather than as a config/
+  // index.ts module-load-time throw alongside RT-001.
+  assertArbitrationModeCompatibleWithAvailableRails(config.settlement.arbitrationMode)
+
   const app = Fastify({
     logger: {
       level: config.app.logLevel,
@@ -435,9 +443,21 @@ export async function startServer() {
   if (config.features.escrowTimelockSweeper) {
     const sweepInterval = setInterval(() => {
       escrowService.sweepExpiredEscrows()
-        .then(({ refunded, failed }) => {
-          if (refunded.length || failed.length) {
-            app.log.info({ msg: 'Escrow sweep completed', module: 'escrow-sweeper', refunded: refunded.length, failed: failed.length })
+        .then(({ refunded, requiresManualRecovery, failed }) => {
+          if (refunded.length || requiresManualRecovery.length || failed.length) {
+            app.log.info({
+              msg: 'Escrow sweep completed',
+              module: 'escrow-sweeper',
+              refunded: refunded.length,
+              // Fase 7.3.1 §C — a real, distinguishable outcome, never
+              // merged into `failed`: this rail can never be
+              // auto-refunded (client-held keys), a dispute is the only
+              // real recovery path. Not itself an error condition to
+              // alert on the same way `failed` is, but worth its own
+              // visible count so an operator can see the backlog.
+              requiresManualRecovery: requiresManualRecovery.length,
+              failed: failed.length,
+            })
           }
         })
         .catch((err) => app.log.error({ msg: 'Escrow sweep failed', module: 'escrow-sweeper', err: err instanceof Error ? err.message : err }))

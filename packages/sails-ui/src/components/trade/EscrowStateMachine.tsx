@@ -16,11 +16,26 @@ const HAPPY_PATH: { status: EscrowStatus; label: string }[] = [
 ]
 
 export function EscrowStateMachine({ status }: { status: EscrowStatus }) {
-  if (status === 'DISPUTED' || status === 'REFUNDED') {
+  if (status === 'DISPUTED' || status === 'REFUNDED' || status === 'EXPIRED') {
+    // Missão 11 Fase 7.3 (cumulative audit) — EXPIRED added: without an
+    // explicit branch, HAPPY_PATH.findIndex() below returns -1 for this
+    // status, silently rendering every step as "pending" — misleading
+    // for an escrow that genuinely has real locked funds and needs
+    // seller action, not one that simply hasn't started yet.
+    const styles = status === 'DISPUTED'
+      ? 'bg-red-500/10 text-red-500 border-red-500/25'
+      : status === 'EXPIRED'
+        ? 'bg-orange-500/10 text-orange-500 border-orange-500/25'
+        : 'bg-brand-elevated text-brand-text-secondary border-brand-border'
+    const message = status === 'DISPUTED'
+      ? 'Este trade está em disputa — aguardando resolução do árbitro.'
+      : status === 'EXPIRED'
+        ? 'O prazo deste escrow expirou sem resolução cooperativa — o vendedor pode iniciar a recuperação abrindo uma disputa.'
+        : 'Fundos reembolsados ao vendedor.'
     return (
-      <div className={`rounded-lg p-4 text-sm border flex items-start gap-2 ${status === 'DISPUTED' ? 'bg-red-500/10 text-red-500 border-red-500/25' : 'bg-brand-elevated text-brand-text-secondary border-brand-border'}`}>
-        {status === 'DISPUTED' ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" /> : <Undo2 className="h-4 w-4 shrink-0 mt-0.5" />}
-        {status === 'DISPUTED' ? 'Este trade está em disputa — aguardando resolução do árbitro.' : 'Fundos reembolsados ao vendedor.'}
+      <div className={`rounded-lg p-4 text-sm border flex items-start gap-2 ${styles}`}>
+        {status === 'REFUNDED' ? <Undo2 className="h-4 w-4 shrink-0 mt-0.5" /> : <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />}
+        {message}
       </div>
     )
   }

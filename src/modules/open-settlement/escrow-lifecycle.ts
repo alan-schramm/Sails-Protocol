@@ -27,7 +27,16 @@ import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capab
 
 export const VALID_TRANSITIONS: Record<string, string[]> = {
   CREATED: ['FUNDS_LOCKED', 'REFUNDED'],
-  FUNDS_LOCKED: ['PAYMENT_PENDING', 'DISPUTED', 'REFUNDED'],
+  // Missão 11 Fase 7.3.3 §B — EXPIRED is reached ONLY from FUNDS_LOCKED,
+  // by the existing timelock sweeper, for a signature-collection type
+  // whose cooperative refund cannot succeed (see escrow.service.ts's
+  // sweepExpiredEscrows()). PAYMENT_PENDING is deliberately NOT given
+  // this same expiry path — a buyer who has already claimed payment is a
+  // genuine payment dispute, not a timelock-expiry scenario, and already
+  // has its own real resolution path (raiseDispute() from PAYMENT_PENDING,
+  // unchanged) — conflating the two would apply seller-only expiry-recovery
+  // authority to a state where the buyer may have the stronger claim.
+  FUNDS_LOCKED: ['PAYMENT_PENDING', 'DISPUTED', 'REFUNDED', 'EXPIRED'],
   PAYMENT_PENDING: ['COMPLETED', 'DISPUTED'],
   COMPLETED: [],
   // RFC-021 D9 — SPLIT only ever reaches an escrow via a dispute ruling
@@ -36,6 +45,15 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
   DISPUTED: ['COMPLETED', 'REFUNDED', 'SPLIT'],
   REFUNDED: [],
   SPLIT: [],
+  // Missão 11 Fase 7.3.3 §B/§C — from EXPIRED, either a real dispute is
+  // raised (the seller's own authorized recovery path,
+  // dispute.service.ts's initiateExpiryRecovery(), or the general
+  // raiseDispute() itself, unchanged) or — if the counterparty actually
+  // returns — a genuinely cooperative refund remains possible (§C's own
+  // "cooperative signatures still possible" answer: yes, nothing about
+  // entering EXPIRED forecloses this). Never COMPLETED/SPLIT directly —
+  // those still require a real dispute ruling first, same as today.
+  EXPIRED: ['DISPUTED', 'REFUNDED'],
 }
 
 // Found during a general gap audit (not tied to any single RFC): none of

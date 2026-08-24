@@ -28,10 +28,23 @@ export type TradeSide = 'BUY' | 'SELL'
 export type OfferStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'
 export type TradeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DISPUTED' | 'CANCELLED'
 export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WDK_USDT_EVM' | 'SAFE_GUARD_EVM' | 'MOCK'
-export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'SPLIT'
+// Missão 11 Fase 7.3.3 §B — EXPIRED added: a real, non-terminal status a
+// signature-collection escrow (MULTISIG) reaches from FUNDS_LOCKED once
+// its timelock passes with no cooperative resolution (server observes
+// and records only — never signs, never impersonates a participant).
+// See schema.prisma's own EscrowStatus.EXPIRED comment for the full
+// design rationale.
+export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'SPLIT' | 'EXPIRED'
 export type PaymentMethod = 'PIX' | 'TED' | 'BANK_TRANSFER' | 'CRYPTO_DIRECT' | 'LIGHTNING_DIRECT' | 'CASH' | 'OTHER'
 export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED'
 export type DisputeRuling = 'RELEASE' | 'REFUND' | 'SPLIT'
+// prisma/schema.prisma's FeePayerModel/FeeEconomicBasis enums — currently
+// single-value (only SELLER_PAYS / SELLER_DELIVERED_VALUE are defined),
+// typed as unions rather than string literals so a future enum addition
+// on the server is a non-breaking widening here too, same convention as
+// every other enum-mirroring type in this file.
+export type FeePayerModel = 'SELLER_PAYS'
+export type FeeEconomicBasis = 'SELLER_DELIVERED_VALUE'
 
 // RFC-012 (rfcs/RFC-012-intent-validation-and-coordination.md) — the
 // current, real IntentStatus vocabulary (common/types/intent.ts).
@@ -168,6 +181,40 @@ export interface Escrow {
   // backward compatible — existing `role === 'buyer'` narrowing is
   // unaffected.
   participantKeys?: Array<{ participantId: string; role: 'buyer' | 'seller' | 'arbiter'; publicKeyHex: string }>
+  // Missão 11 Fase 6.x — the fee-policy snapshot frozen onto this escrow at
+  // creation time (prisma/schema.prisma Escrow.feePolicyVersionId and its
+  // sibling snapshot* columns). Legacy escrows created before fee
+  // versioning existed carry null here, permanently — this is a real,
+  // permanent outcome, not a loading state. snapshotProtocolFeeRate is a
+  // decimal string (RFC-009), never a JS number.
+  feePolicyVersionId: string | null
+  snapshotProtocolFeeRate: string | null
+  snapshotPayerModel: FeePayerModel | null
+  snapshotEconomicBasis: FeeEconomicBasis | null
+  snapshotFeeCollectionAddress: string | null
+  snapshotFeeCollectionWaivedPreFunding: boolean | null
+  // Missão 11 Fase 7.2 §L (escrow.service.ts's mapDistributionPolicyFreezesShape())
+  // — one entry per CONFIRMED fee-collection generation this escrow's
+  // FeeObligation has ever had, each carrying the DistributionPolicyVersion
+  // that was independently frozen for THAT generation at COLLECTED time.
+  // Absent entirely when this escrow has no FeeObligation (e.g. MOCK
+  // escrows, or legacy pre-fee-versioning escrows) — never an empty array
+  // in that case, matching the server's own `if (!feeObligation) return rest`
+  // shape exactly.
+  distributionPolicyFreezes?: Array<{
+    confirmationEvidenceId: string
+    confirmedAt: string
+    distributionPolicyVersionId: string | null
+    // null is a real, permanent outcome (Fase 7.2 §C): no
+    // DistributionPolicyVersion was PUBLISHED at the moment this
+    // generation was confirmed, and that fact can never change later.
+    distributionPolicy: {
+      id: string
+      label: string
+      publishedAt: string | null
+      recipients: Array<{ recipientId: string; class: string; label: string; weightPct: string }>
+    } | null
+  }>
 }
 
 // Sails OpenProof (RFC-006, PROTOCOL_SPECIFICATION.md §1.8) — real as of

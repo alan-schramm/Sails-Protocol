@@ -117,11 +117,14 @@ export { type EscrowKeyIndexStore, type EscrowKeyIndexScope } from './modules/es
 export {
   verifySigningIntent,
   verifyAndSignEscrowPsbt,
+  deriveExpectedMultisigAddress,
+  buildExpectedFeeAwareReleaseOutputs,
   SigningIntentVerificationError,
   type EscrowOperation,
   type ExpectedSigningIntent,
   type SigningIntentMismatch,
   type SigningIntentVerification,
+  type FeeAwareReleaseParams,
 } from './modules/wallet-verification'
 export { signEscrowArkTx } from './modules/escrow-ark-signing'
 export { signEscrowSafeUserOp } from './modules/escrow-safe-signing'

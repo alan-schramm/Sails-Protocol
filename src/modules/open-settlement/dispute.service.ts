@@ -27,6 +27,7 @@ import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitrati
 import { marketArbitrationProvider } from './market-arbitration.provider'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
+import { isPartyOrAgent } from './escrow-lifecycle'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
 import type { EvidenceDescriptor, DisputeRuling } from '@satsails/p2p-schemas'
@@ -53,6 +54,27 @@ export const APPEAL_FEE_MULTIPLIER = 2
 
 export class DisputeService {
   constructor(private readonly arbitrationProvider: ArbitrationProvider, private readonly repo: EscrowRepository = escrowRepository) {}
+
+  // Missão 11 Fase 7.3.1 §B — real P0 closed (Fase 7.3 audit): for an
+  // escrow type whose settlement script immutably commits to a SPECIFIC
+  // arbiter identity at creation time (MULTISIG today —
+  // EscrowParticipantKey{role:'arbiter'}, write-once and DB-trigger-
+  // protected, see that model's own migration), no OTHER identity is ever
+  // cryptographically capable of executing a ruling on that script. Which
+  // arbiter mode is configured (trusted-list round-robin, or market's
+  // collateral-weighted draw) is irrelevant once a script commitment
+  // exists — respecting it is not a policy choice, it is the only
+  // outcome that can ever actually work. escrowParticipantKey is
+  // deliberately NOT wrapped by EscrowRepository (a satellite table,
+  // same deferred-scope decision documented in escrow-repository.ts's own
+  // header), so this reads it directly, matching how this file already
+  // reads Dispute/DisputeAppealFee via `prisma` rather than a repository.
+  private async findCommittedArbiterId(escrowId: string): Promise<string | null> {
+    const key = await prisma.escrowParticipantKey.findUnique({
+      where: { escrowId_role: { escrowId, role: 'arbiter' } },
+    })
+    return key?.participantId ?? null
+  }
 
   async raiseDispute(
     tradeId: string,
@@ -103,7 +125,12 @@ export class DisputeService {
       throw err
     }
 
-    const arbiterId = await this.arbitrationProvider.assign(dispute.id, tradeId)
+    // Fase 7.3.1 §B — a script-committed arbiter identity always wins
+    // over the configured ArbitrationProvider's own independent pick;
+    // assign() is only ever consulted for an escrow type with no such
+    // commitment (see findCommittedArbiterId()'s own comment above).
+    const committedArbiterId = await this.findCommittedArbiterId(trade.escrowId)
+    const arbiterId = committedArbiterId ?? (await this.arbitrationProvider.assign(dispute.id, tradeId))
     const updated = await prisma.dispute.update({
       where: { id: dispute.id },
       data: { arbiterId },
@@ -121,6 +148,59 @@ export class DisputeService {
     }, tradeId)
 
     return updated
+  }
+
+  /**
+   * Missão 11 Fase 7.3.3 §D (CTO-selected: Model C + Model A) — the
+   * explicit, guided participant recovery action for a MULTISIG escrow
+   * whose timelock has genuinely expired (EscrowStatus.EXPIRED — see
+   * schema.prisma's own comment and escrow.service.ts's
+   * sweepExpiredEscrows()). Deliberately a THIN wrapper around the
+   * already-existing raiseDispute() — invents no new authority, no new
+   * signature, no new settlement mechanism. Its only real job is the
+   * scenario-specific guard raiseDispute() itself doesn't have: requiring
+   * the escrow to actually BE expired, and narrowing WHO may invoke it
+   * for that specific reason.
+   *
+   * Authority (Fase 7.3.3 §C's own audit, not assumed): in the EXPIRED
+   * state, the SELLER is the only party with real locked collateral at
+   * stake — the buyer never paid on-chain and has no completed
+   * obligation to enforce yet, so they have no legitimate expiry-recovery
+   * claim (the general raiseDispute() endpoint remains available to
+   * either party for any OTHER reason, unchanged). This does not
+   * apply to a PAYMENT_PENDING escrow (a genuine payment dispute, where
+   * the buyer may have the stronger claim) — VALID_TRANSITIONS never
+   * lets a PAYMENT_PENDING escrow reach EXPIRED, so that state can never
+   * reach this method at all.
+   *
+   * NO SERVER IMPERSONATION: raisedBy is always the real, authenticated
+   * caller — never a fabricated or borrowed identity. NO SERVER CUSTODY
+   * OF KEYS: this call persists a Dispute row and assigns an arbiter,
+   * exactly like raiseDispute() always has — it never touches a
+   * signature or a private key.
+   */
+  async initiateExpiryRecovery(escrowId: string, raisedBy: string) {
+    const escrow = await this.repo.findById(escrowId)
+    if (!escrow) throw new NotFoundError('Escrow', escrowId)
+    if (escrow.status !== 'EXPIRED') {
+      throw new ValidationError(
+        `Escrow ${escrowId} is not in EXPIRED status (current: ${escrow.status}) — expiry recovery is only available once this escrow's own timelock has genuinely passed with no cooperative resolution.`
+      )
+    }
+
+    const trade = await tradeRepository.findById(escrow.tradeId)
+    if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+    if (!isPartyOrAgent(raisedBy, trade.sellerId)) {
+      throw new ForbiddenError(
+        `${raisedBy} is not the seller of trade ${trade.id} — expiry recovery for an EXPIRED escrow is a seller-only action, since the seller is the only party with locked collateral at stake in this state.`
+      )
+    }
+
+    return this.raiseDispute(
+      trade.id,
+      raisedBy,
+      'Escrow timelock expired with no cooperative resolution — seller-initiated expiry recovery (Missão 11 Fase 7.3.3).'
+    )
   }
 
   async getDispute(disputeId: string) {
@@ -373,6 +453,22 @@ export class DisputeService {
     if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
     if (requestedBy !== trade.buyerId && requestedBy !== trade.sellerId) {
       throw new ForbiddenError(`${requestedBy} is not a party to trade ${dispute.tradeId}`)
+    }
+
+    // Fase 7.3.1 §B — an escrow whose script committed one specific
+    // arbiter identity at creation time cannot ever be reassigned to a
+    // different one: no signature from any other identity will validate
+    // against that script, appeal panel or not. This is a cryptographic
+    // fact, not an arbitration-mode setting, so it is checked before (and
+    // independently of) the assignAppealPanel/market-mode check below.
+    const committedArbiterId = await this.findCommittedArbiterId(dispute.escrowId)
+    if (committedArbiterId) {
+      throw new ValidationError(
+        `Dispute ${disputeId}'s escrow has an immutable, script-committed arbiter identity (${committedArbiterId}) — ` +
+        'this settlement rail cannot reassign arbitration authority to a different identity after the fact, so no ' +
+        'appeal panel could ever produce a ruling capable of executing. Appeals are only supported for escrow types ' +
+        'with no pre-committed signing arbiter.'
+      )
     }
 
     if (!this.arbitrationProvider.assignAppealPanel) {

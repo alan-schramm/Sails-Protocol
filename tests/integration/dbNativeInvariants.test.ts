@@ -63,6 +63,11 @@ const REQUIRED_DB_NATIVE_TRIGGERS: RequiredTrigger[] = [
   { trigger: 'fee_distributions_write_freeze_guard', table: 'fee_distributions', function: 'legacy_fee_distribution_enforce_write_freeze' },
   { trigger: 'fee_distribution_batches_write_freeze_guard', table: 'fee_distribution_batches', function: 'legacy_fee_distribution_enforce_write_freeze' },
   { trigger: 'fee_distribution_batch_items_write_freeze_guard', table: 'fee_distribution_batch_items', function: 'legacy_fee_distribution_enforce_write_freeze' },
+  // Missão 11 Fase 7.3.2 §3 — append-only custody attestation. Behavioral
+  // proof (reject edit/delete/un-supersede/double-supersede) lives in
+  // tests/integration/custodyAttestationFoundation.test.ts — same
+  // division of labor as every other row here.
+  { trigger: 'custody_attestations_immutability_guard', table: 'custody_attestations', function: 'custody_attestations_enforce_immutability' },
 ]
 
 interface TriggerCatalogRow {

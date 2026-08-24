@@ -132,6 +132,15 @@ const intents = makeTable('intent', { expiresAt: null })
 // here), matching this file's own "every table round-trips for real"
 // discipline rather than a separately-mocked no-op.
 const vouches = makeTable('vouch', { burnedAt: null })
+// Fase 7.3.1 §B — DisputeService.findCommittedArbiterId() reads this for
+// every raiseDispute()/appeal() call. Empty here (this file's escrows are
+// all honestly MOCK-typed, per createEscrow()'s own mockEscrow-aware
+// default — no MULTISIG/LIGHTNING_HODL submitParticipantKey() flow ever
+// runs, so no arbiter commitment row ever exists), which correctly makes
+// findUnique() return null — the same "table round-trips for real, empty
+// is a real answer too" convention this file already applies to
+// feePolicyVersion/vouch above.
+const escrowParticipantKeys = makeTable('escrowParticipantKey')
 
 // intentEvent's hash-chain (writeIntentEvent(), core/intent-engine.ts) needs
 // findFirst ordered by createdAt desc, not just any match — the generic
@@ -191,6 +200,7 @@ jest.mock('../src/common/database', () => ({
     trade: trades,
     escrow: escrows,
     escrowEvent: escrowEvents,
+    escrowParticipantKey: escrowParticipantKeys,
     feePolicyVersion: feePolicyVersions,
     dispute: disputes,
     intent: intents,
@@ -298,7 +308,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks()
-  ;[users, offers, trades, escrows, escrowEvents, disputes, intents].forEach((t) => t.rows.clear())
+  ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents].forEach((t) => t.rows.clear())
   intentEventRows.length = 0
   seedUsers()
 })
@@ -488,7 +498,7 @@ describe('Event replay / idempotency stress test — not reachable today, a real
 
   beforeEach(() => {
     jest.clearAllMocks()
-    ;[users, offers, trades, escrows, escrowEvents, disputes, intents].forEach((t) => t.rows.clear())
+    ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents].forEach((t) => t.rows.clear())
     intentEventRows.length = 0
     seedUsers()
   })

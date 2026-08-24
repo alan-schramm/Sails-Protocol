@@ -190,6 +190,81 @@ an `app` service is reasonable follow-up work once there's a reason to
 containerize the server too (e.g. a real staging deployment), not
 required for local development.
 
+## 6.1 Migration Failure Recovery (Prisma P3009)
+
+Real incident, found and reproduced 2026-08-23 auditing this exact
+`docker compose` path (Missão 11 Fase 7.3/7.3.1): `docker compose run
+migrate` refused to run with:
+
+```
+Error: P3009
+migrate found failed migrations in the target database, new migrations
+will not be applied.
+```
+
+**What this means**: Prisma's own `_prisma_migrations` bookkeeping table
+inside the target database has a row recording a migration that started
+and never completed successfully. Prisma refuses to apply anything else
+until an operator explicitly resolves that row — it will never guess on
+your behalf, and neither should you.
+
+**How this happens in practice**: an earlier deploy (or a local/dev
+session) started applying a migration against this exact database, and
+the process was interrupted, the migration's SQL genuinely failed
+partway, or the migration file was later renamed/deleted before its
+bookkeeping row was ever resolved. The failed row can reference a
+migration name that no longer even exists in `prisma/migrations/` on
+disk — this is not a corrupted repository, it is a database that
+remembers an attempt the current codebase has moved past.
+
+**The unsafe thing to do**: run `prisma migrate resolve
+--rolled-back <name>` (or `--applied`) based on a guess, "it's probably
+fine," or because that's what unblocks the deploy fastest. Both commands
+only edit Prisma's bookkeeping — they do **not** touch the actual
+database schema. Marking a migration `--rolled-back` when its SQL
+actually *did* apply leaves the schema and Prisma's own belief about the
+schema permanently out of sync; marking one `--applied` when it did not
+actually run leaves referenced tables/columns/indexes missing until
+something in production trips over their absence.
+
+**The safe procedure — verify before touching bookkeeping, every time:**
+
+1. `npx prisma migrate status` — identifies exactly which migration is
+   marked failed, and lists everything else pending behind it.
+2. Read that migration's `.sql` file from `prisma/migrations/<name>/` if
+   it still exists on disk. If it doesn't exist in the current
+   checkout, check `git log --all --diff-filter=A -- 'prisma/migrations/<name>/*'`
+   to find the commit that introduced it, so you know exactly what it
+   was supposed to do.
+3. **Directly inspect the target database** for the specific
+   tables/columns/indexes/constraints that migration's SQL would have
+   created — `\d <table>` in `psql`, or the equivalent — to determine,
+   from real evidence, whether it fully applied, partially applied, or
+   never ran at all. Do not infer this from log output alone; logs can
+   be incomplete or already rotated away.
+4. Only once you know which of the three states above is true:
+   - **Never ran / has zero effect visible in the schema** →
+     `npx prisma migrate resolve --rolled-back <name>`, then re-run
+     `migrate deploy` normally.
+   - **Fully applied, schema matches exactly what the SQL describes** →
+     `npx prisma migrate resolve --applied <name>`, then re-run
+     `migrate deploy` normally.
+   - **Partially applied** (some but not all of its DDL took effect) →
+     do **not** use either resolve command yet. Manually apply or revert
+     the missing/extra pieces via `prisma db execute` first (see
+     `scripts/migrate-deploy-safe.sh`'s own header comment for a real,
+     narrower precedent of this exact "apply outside the normal
+     `migrate deploy` invocation, then resolve the bookkeeping" pattern),
+     so the database and the migration's SQL agree completely, and only
+     then mark it `--applied`.
+5. Re-run `npx prisma migrate status` again after resolving — it must
+   report a clean state (no failed migrations, only whatever is
+   genuinely still pending) before proceeding to `migrate deploy`.
+
+This same procedure applies identically whether the affected database is
+a throwaway local Docker volume or a real production instance — the
+stakes differ, the verification discipline should not.
+
 ## 7. Production Considerations
 
 - [ ] Reverse proxy/TLS — closed differently than originally planned:

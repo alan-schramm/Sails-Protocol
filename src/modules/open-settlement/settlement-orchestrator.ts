@@ -49,6 +49,7 @@ import { NotFoundError } from '../../common/errors'
 import type { AssetType } from '../../common/types'
 import type { EscrowType } from '../../common/types/trade'
 import { escrowService } from './escrow.service'
+import { config } from '../../config'
 
 export interface ExecuteSettlementInput {
   tradeId: string
@@ -106,9 +107,18 @@ export async function executeSettlement(input: ExecuteSettlementInput): Promise<
   // Seller locks USDT collateral — a real, signed WDK transfer
   // (WdkSettlementProvider.lockFunds -> WalletManagerEvm's treasury
   // account transferring to a per-trade escrow sub-account) when
-  // escrowType is WDK_USDT_EVM and MOCK_ESCROW=false; MockSettlementProvider
-  // otherwise (escrow.service.ts's own provider-selection logic, unchanged
-  // here).
+  // MOCK_ESCROW=false; a genuinely, honestly MOCK-typed escrow otherwise.
+  //
+  // Missão 11 Fase 7.3.1 §A — real P0 closed (Fase 7.3 audit): this used
+  // to hardcode `type: input.escrowType ?? 'WDK_USDT_EVM'` unconditionally
+  // — a REAL type, persisted honestly, that then relied on
+  // getSettlementProvider()'s own (now-removed) mockEscrow short-circuit
+  // to silently substitute MockSettlementProvider whenever MOCK_ESCROW
+  // wasn't explicitly false. That short-circuit no longer exists
+  // (escrow-providers.ts), so this default now matches
+  // escrow.service.ts's own createEscrow() convention exactly: honestly
+  // persist `type: 'MOCK'` when mockEscrow is on, rather than persisting
+  // a real type the provider layer would have quietly not honored.
   // createEscrow()'s new membership check (SECURITY_AUDIT_REPORT.md §9)
   // wants a real trade party, the same raw-id convention
   // submitParticipantKey() already uses — not `sellerTriggeredBy`, which
@@ -117,7 +127,7 @@ export async function executeSettlement(input: ExecuteSettlementInput): Promise<
   // directly.
   const escrow = await escrowService.createEscrow({
     tradeId: trade.id,
-    type: input.escrowType ?? 'WDK_USDT_EVM',
+    type: input.escrowType ?? (config.features.mockEscrow ? 'MOCK' : 'WDK_USDT_EVM'),
     lockedAmount: trade.amount.toString(),
     asset: trade.asset as AssetType,
   }, trade.sellerId)

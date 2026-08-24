@@ -305,6 +305,64 @@ export function assertRailCanActivateFeeCollection(railScope: string): void {
   }
 }
 
+// Missão 11 Fase 7.3.2 §1 (CTO-approved) — the rail-capability layer for
+// arbitration, same shape as FEE_COLLECTION_CAPABLE_RAILS above: an
+// explicit, narrow, extensible set rather than a single global boolean,
+// so a future rail with its OWN different arbitration capability never
+// needs a new kind of check invented, just a membership change here.
+//
+// A rail belongs in this set when its settlement script commits exactly
+// ONE specific, executable arbiter identity at escrow-creation time — no
+// other identity is ever cryptographically capable of executing a ruling
+// on that script (multisig.provider.ts's own header comment has the full
+// single-arbiter-limitation disclosure). Only MULTISIG actually persists
+// such a commitment today (EscrowParticipantKey{role:'arbiter'},
+// escrow.service.ts's submitParticipantKey()) — LIGHTNING_HODL/
+// SAFE_GUARD_EVM have their own analogous, disclosed-but-not-yet-fixed
+// arbiter-commitment gap (NON_CUSTODIAL_PROVIDERS's own comment above),
+// so they are deliberately NOT included here until they actually persist
+// one; adding them prematurely would make this guard fire for a rail
+// that doesn't yet have the underlying commitment to protect.
+export const SCRIPT_COMMITTED_ARBITER_RAILS: ReadonlySet<string> = new Set(['MULTISIG'])
+
+// Missão 11 Fase 7.3.2 §1 (CTO decision) — real P0 follow-up from Fase
+// 7.3.1 §B: that fix made a script-committed rail's dispute resolution
+// structurally SAFE under ARBITRATION_MODE=market (the committed
+// identity always wins over market's own draw), but "safe" there means
+// market's entire selection mechanism is silently never actually
+// exercised for that rail — a real semantics mismatch an operator
+// deploying market mode deserves to be told about loudly at boot, not
+// left to discover by reading dispute-resolution logs later. Unlike
+// config/index.ts's own RT-001/ENFORCE_CAPABILITIES guards (evaluated as
+// a module-load-time side effect, since they only ever need
+// process.env), this is a plain, directly-callable function — it needs
+// SCRIPT_COMMITTED_ARBITER_RAILS, which lives here, and config/index.ts
+// cannot import this file without a real circular import (this file
+// already imports config). app.ts's buildApp() calls this once,
+// unconditionally, at boot — deliberately NOT deferred to
+// getDisputeService()'s own lazy-construction pattern, since the whole
+// point is to fail before any traffic is served, matching the mandate's
+// "loud startup validation failure, not silently ignored semantics."
+//
+// Every rail in this set is ALWAYS creatable today (MULTISIG is
+// registered unconditionally in PROVIDERS above, no feature flag gates
+// it) — so this check is currently equivalent to "market mode is never
+// compatible with this deployment," which is the honest, current truth,
+// expressed in a form that stops being true automatically the day a real
+// feature flag to disable a specific rail's availability is ever added,
+// with zero change needed here.
+export function assertArbitrationModeCompatibleWithAvailableRails(arbitrationMode: string): void {
+  if (arbitrationMode === 'market' && SCRIPT_COMMITTED_ARBITER_RAILS.size > 0) {
+    throw new Error(
+      `FATAL: ARBITRATION_MODE=market is configured, but this deployment can create escrows on a rail whose settlement script commits a ` +
+      `single, fixed arbiter identity at creation time (${[...SCRIPT_COMMITTED_ARBITER_RAILS].join(', ')}) — market mode's dynamic, collateral/` +
+      `reputation-weighted arbiter selection can never actually be exercised for a dispute on that rail (dispute.service.ts's own script-commitment ` +
+      `precedence rule silently overrides it instead of failing). Refusing to boot with a configuration whose semantics cannot be honored. ` +
+      `Set ARBITRATION_MODE=trusted-list, or wait for a future per-rail arbitration capability model.`
+    )
+  }
+}
+
 export function recommendedEscrowType(asset: AssetType): EscrowType {
   const type = RECOMMENDED_ESCROW_TYPE[asset]
   if (!type) {
@@ -317,7 +375,29 @@ export function recommendedEscrowType(asset: AssetType): EscrowType {
 }
 
 export function getSettlementProvider(type: string): SettlementProvider {
-  if (config.features.mockEscrow || type === 'MOCK') return PROVIDERS['MOCK']
+  // Missão 11 Fase 7.3.1 §A — real P0 closed here (Fase 7.3 audit):
+  // `config.features.mockEscrow` used to short-circuit THIS function
+  // before `type` was even consulted, so a persisted, real MULTISIG
+  // escrow silently resolved to MockSettlementProvider whenever
+  // MOCK_ESCROW was unset/true (its own default) and NODE_ENV wasn't the
+  // exact literal string 'production' (config/index.ts's RT-001 boot
+  // guard only fires on that one literal value — 'staging', a typo, or
+  // simply leaving NODE_ENV unset all sailed straight past it).
+  //
+  // Fix is structural, not another environment-name check (the CTO
+  // mandate's own instruction: prefer fail-closed selection over
+  // convention): `mockEscrow` is a CREATION-time convenience default for
+  // what type an escrow gets ASSIGNED when a caller omits `type`
+  // entirely (see escrow.service.ts's createEscrow(), which still reads
+  // it for exactly that, unchanged) — it has no business also overriding
+  // PROVIDER RESOLUTION for an escrow that already has a real, persisted
+  // type. Once `type` is anything other than the literal string 'MOCK',
+  // this function now always returns that type's real, registered
+  // provider — full stop, regardless of NODE_ENV, MOCK_ESCROW, or any
+  // other global flag. A caller that genuinely wants a fake escrow must
+  // say so explicitly, at creation time, via `type: 'MOCK'` — never
+  // implicitly, later, at settlement time.
+  if (type === 'MOCK') return PROVIDERS['MOCK']
   const provider = PROVIDERS[type]
   if (!provider) {
     // Correctness fix (found during the MULTISIG provider build): this
@@ -330,7 +410,7 @@ export function getSettlementProvider(type: string): SettlementProvider {
     // has, instead of quietly faking it.
     throw new EscrowError(
       `No SettlementProvider registered for escrow type '${type}' — refusing to silently fall back to MOCK for a type that claims to be real. ` +
-      "Set MOCK_ESCROW=true (or type: 'MOCK') if a fake escrow is actually intended."
+      "Create the escrow with type: 'MOCK' explicitly if a fake escrow is actually intended."
     )
   }
   return provider

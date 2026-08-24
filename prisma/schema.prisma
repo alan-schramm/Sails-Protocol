@@ -66,6 +66,24 @@ enum EscrowStatus {
   // WDK_USDT_EVM, MULTISIG). Only reachable from DISPUTED — see
   // escrow.service.ts's VALID_TRANSITIONS.
   SPLIT
+  // Missão 11 Fase 7.3.3 §B — a real, durable, non-terminal state: this
+  // escrow's timelock genuinely expired while still FUNDS_LOCKED, and its
+  // settlement rail cannot be auto-refunded cooperatively (client-held
+  // buyer/seller keys — see escrow.service.ts's sweepExpiredEscrows()).
+  // Reached ONLY from FUNDS_LOCKED, by the existing timelock sweeper —
+  // system OBSERVES and RECORDS the expiry fact, never signs anything,
+  // never impersonates a participant, never moves funds. From here, the
+  // authorized seller (the only party with actual locked collateral at
+  // stake in this state — see this phase's own authority-matrix report)
+  // may initiate the existing dispute mechanism
+  // (dispute.service.ts's initiateExpiryRecovery(), a thin, guided call
+  // into the pre-existing raiseDispute()), or either party may still
+  // cooperatively refund if the counterparty returns — see
+  // escrow-lifecycle.ts's VALID_TRANSITIONS for exactly which onward
+  // transitions this permits. Purely additive: no existing escrow's
+  // status/meaning changes, and nothing retroactively reinterprets a
+  // historical FUNDS_LOCKED/REFUNDED escrow's own history.
+  EXPIRED
 }
 
 enum PaymentMethod {
@@ -728,9 +746,79 @@ model DistributionRecipient {
 
   policyRecipients DistributionPolicyRecipient[]
   ledgerEntries    EntitlementLedgerEntry[]
+  custodyAttestations CustodyAttestation[]
 
   @@index([class])
   @@map("distribution_recipients")
+}
+
+// Missão 11 Fase 7.3.2 §3 (CTO-approved design: Option 2, append-only
+// custody attestation) — records an ATTESTED ASSOCIATION between a
+// DistributionRecipient (an economic identity — "who is owed") and a
+// rail-specific custody descriptor (where that recipient's collected
+// funds are operationally understood to be held). Deliberately NOT
+// cryptographic proof of control: see attestationAuthority below.
+// Deliberately separate from Escrow.snapshotFeeCollectionAddress (the
+// real, frozen destination a SPECIFIC settlement's fee was actually sent
+// to) — this table answers "who does the operator say owns what's at
+// that kind of destination," never "prove it," and never redirects,
+// authorizes, or moves any fund. No private key is ever stored here.
+//
+// Append-only by design, enforced by a real Postgres trigger (this
+// model's own migration) exactly like FeePolicyVersion/the arbiter
+// pubkey commitment: once written, a row may only ever have its
+// supersededAt column move from NULL to a real timestamp, exactly once —
+// every other column, and every other kind of update, is rejected. A
+// superseded row is NEVER deleted or rewritten, so "what did we attest
+// for recipient X at time T" is always a real, deterministic historical
+// query, immune to a later rotation silently rewriting the past.
+model CustodyAttestation {
+  id          String                @id @default(uuid())
+  recipientId String
+  recipient   DistributionRecipient @relation(fields: [recipientId], references: [id], onDelete: Restrict)
+
+  // Rail-agnostic on purpose — a free string (same precedent as
+  // FeePolicyVersion.railScope/Escrow.asset), so a future rail (RSK,
+  // Stacks, etc.) never needs a schema change here.
+  asset String
+
+  // Free-form, rail-specific shape (e.g. {address, custodian, note} for
+  // BTC; a different shape entirely for an EVM/other rail) — never
+  // interpreted structurally by this table or its own code, only by
+  // whoever reads it for a specific rail. This is exactly what keeps
+  // every recipient from being forced into Bitcoin-address semantics.
+  descriptor Json
+
+  // Explicit, honest label for what KIND of claim this row represents,
+  // so the schema never has to be replaced to add a stronger guarantee
+  // later. Today only BOOTSTRAP_OPERATOR_ATTESTED is ever written (a
+  // human operator's own asserted claim via scripts/draft-economic-policy.ts,
+  // the same trust boundary as every other bootstrap-operator action in
+  // this codebase — no signature, no on-chain proof). CRYPTOGRAPHIC_PROOF
+  // is reserved and structurally representable, but nothing in this
+  // codebase produces one yet.
+  attestationAuthority CustodyAttestationAuthority @default(BOOTSTRAP_OPERATOR_ATTESTED)
+
+  attestedBy String   // operator attribution — same "no fabricated identity" convention as every other bootstrap-operator action
+  attestedAt DateTime @default(now())
+
+  // NULL = this is the CURRENTLY ACTIVE attestation for (recipientId,
+  // asset) — enforced by a real partial unique index (this model's own
+  // migration), never merely a convention. Set exactly once, by the
+  // repository's own create() (inside the same transaction as the new
+  // row's insert), the moment a newer attestation for the same
+  // (recipientId, asset) is created.
+  supersededAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([recipientId, asset, attestedAt])
+  @@map("custody_attestations")
+}
+
+enum CustodyAttestationAuthority {
+  BOOTSTRAP_OPERATOR_ATTESTED
+  CRYPTOGRAPHIC_PROOF
 }
 
 // Immutable-once-published policy, same two-layer immutability discipline

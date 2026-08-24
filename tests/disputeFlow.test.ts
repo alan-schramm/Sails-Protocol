@@ -27,6 +27,12 @@ const mockEscrowFindUnique = jest.fn().mockResolvedValue({ id: 'escrow-1', type:
 // one of these per appeal round, resolveDispute() settles its outcome.
 const mockDisputeAppealFeeCreate = jest.fn().mockResolvedValue({ id: 'appeal-fee-1' })
 const mockDisputeAppealFeeUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
+// Fase 7.3.1 §B — findCommittedArbiterId() reads this for every
+// raiseDispute()/appeal() call. Defaults to "no committed arbiter" (null),
+// preserving this file's existing MOCK-escrow-fixture tests' assign()-based
+// expectations unchanged; tests exercising the new script-commitment
+// behavior override this per-test.
+const mockEscrowParticipantKeyFindUnique = jest.fn().mockResolvedValue(null)
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -44,6 +50,7 @@ jest.mock('../src/common/database', () => ({
       updateMany: (...args: unknown[]) => mockDisputeAppealFeeUpdateMany(...args),
     },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
+    escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },
   },
 }))
 

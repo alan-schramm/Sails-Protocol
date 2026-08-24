@@ -287,7 +287,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
     await expect(
       escrowService.initiateRelease(escrow.id, RELEASE_ADDR, 'a-different-assigned-arbiter')
-    ).rejects.toThrow(/does not match/)
+    ).rejects.toThrow(/does not match the arbiter public key committed/)
     void txid // fetch is never reached — confirms the rejection happens before any network call
   })
 
@@ -306,7 +306,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
     await expect(
       driftedEscrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
-    ).rejects.toThrow(/no longer matches the arbiter public key committed/)
+    ).rejects.toThrow(/does not match the arbiter public key committed/)
   })
 
   it('5. legacy escrow (no persisted arbiter commitment) under a disputed release -> compatibility path preserved, identity check alone still governs', async () => {

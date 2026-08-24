@@ -54,9 +54,16 @@ export function TradeStatusBadge({ status }: { status: TradeStatus }) {
   return <Pill className={TRADE_STATUS_COLOR[status]}>{TRADE_STATUS_LABEL[status]}</Pill>
 }
 
+// Missão 11 Fase 7.3 (cumulative audit) — EXPIRED added: a real
+// EscrowStatus value (../../types.ts, mirroring prisma/schema.prisma)
+// this Record was missing — TypeScript's own Record<EscrowStatus, ...>
+// exhaustiveness check would otherwise fail this package's build the
+// moment the type gained the value. SPLIT (RFC-021 D9) is a separate,
+// pre-existing gap in this same Record, unrelated to and predating this
+// fix — disclosed, not fixed here.
 const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
   CREATED: 'Criado', FUNDS_LOCKED: 'Fundos travados', PAYMENT_PENDING: 'Aguardando pagamento',
-  COMPLETED: 'Concluído', DISPUTED: 'Em disputa', REFUNDED: 'Reembolsado',
+  COMPLETED: 'Concluído', DISPUTED: 'Em disputa', REFUNDED: 'Reembolsado', EXPIRED: 'Expirado',
 }
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
   CREATED: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
@@ -65,6 +72,7 @@ const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
   COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-500',
   DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-500',
   REFUNDED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
+  EXPIRED: 'border-orange-500/25 bg-orange-500/10 text-orange-500',
 }
 export function EscrowStatusBadge({ status }: { status: EscrowStatus }) {
   return <Pill className={ESCROW_STATUS_COLOR[status]}>{ESCROW_STATUS_LABEL[status]}</Pill>

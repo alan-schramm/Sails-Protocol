@@ -753,14 +753,84 @@ export class EscrowService {
   // shape as getAggregatedOffers() (liquidity.service.ts) — a single
   // stuck/already-transitioning escrow must not block every other
   // legitimately expired one in the same sweep.
-  async sweepExpiredEscrows(): Promise<{ refunded: string[]; failed: Array<{ escrowId: string; error: string }> }> {
+  // Missão 11 Fase 7.3.1 §C — real P0 closed (Fase 7.3 audit): for a
+  // signature-collection escrow type (MULTISIG/LIGHTNING_HODL/
+  // SAFE_GUARD_EVM — buyer/seller keys are client-held), this.refundFunds()
+  // unconditionally throws ("not directly callable — buyer/seller keys
+  // are client-held") — the sweep used to attempt it anyway, every cycle,
+  // forever, landing in `failed` alongside genuine errors with no way for
+  // an operator to distinguish "this will never succeed by design" from
+  // "something is actually broken." Worse, it silently gave no signal
+  // that this escrow needs any attention at all beyond a generic error.
+  //
+  // Root-cause protocol semantics (derived from what already exists, not
+  // invented here): a non-disputed cooperative refund still needs BOTH
+  // buyer and seller signatures (buildUnsignedRefund()'s own comment) —
+  // exactly the case the buyer being unresponsive rules out. The ONLY
+  // cryptographically possible unilateral path is the arbiter's
+  // co-signature, which requires the escrow to actually be DISPUTED
+  // first (buildUnsignedRefund()'s disputed branch pre-signs with the
+  // arbiter key, needing only the seller's signature). Raising a dispute
+  // is ALREADY something the seller can do unilaterally today —
+  // dispute.service.ts's raiseDispute() only requires the caller be a
+  // real trade party, not both parties' cooperation — so no new
+  // authority, no new caller category, and no server custody of any key
+  // is introduced here. What was actually missing is real signal: this
+  // sweep now recognizes "expired, but this rail can never be
+  // auto-refunded" as its own real outcome, with a real emitted event
+  // (for an operator/UI to act on: raise a dispute on the seller's
+  // behalf, through the seller's own authenticated session) instead of a
+  // silent, indistinguishable failure.
+  //
+  // Missão 11 Fase 7.3.3 §B (CTO-selected: Model C + Model A) — the
+  // event-only signal above is now backed by a real, durable, queryable
+  // state transition: FUNDS_LOCKED -> EXPIRED (schema.prisma's own
+  // EscrowStatus.EXPIRED comment has the full design rationale). This is
+  // purely an OBSERVATION of a real fact — the timelock genuinely
+  // expired with no cooperative resolution — never a fund-moving action,
+  // never a signature, never a party-authorized transition. `triggeredBy`
+  // is the honest, structurally-non-participant string 'system:expiry-sweeper'
+  // (same "clearly-labeled non-human identity" convention as the
+  // existing `agent:{label}:{participantId}` shape — deliberately never
+  // matching isPartyOrAgent()'s own regex, since no participant
+  // authorization check applies to observing a real timestamp having
+  // passed). Idempotent by construction: findExpiredFundsLocked() only
+  // ever queries status='FUNDS_LOCKED', so an escrow already transitioned
+  // to EXPIRED is structurally excluded from every later sweep tick —
+  // the same idempotency mechanism (query-scoped, not a separate flag)
+  // already used everywhere else in this codebase for this exact class
+  // of problem. The actual, authorized recovery action (raising a
+  // dispute) is the seller's own — see dispute.service.ts's
+  // initiateExpiryRecovery() and this phase's own authority-matrix
+  // report for why seller-only is correct here, not assumed.
+  async sweepExpiredEscrows(): Promise<{
+    refunded: string[]
+    requiresManualRecovery: string[]
+    failed: Array<{ escrowId: string; error: string }>
+  }> {
     const expired = await this.repo.findExpiredFundsLocked(new Date())
 
     const refunded: string[] = []
+    const requiresManualRecovery: string[] = []
     const failed: Array<{ escrowId: string; error: string }> = []
+    const SYSTEM_SWEEPER_ID = 'system:expiry-sweeper'
 
     for (const escrow of expired) {
       try {
+        if (this.isSignatureCollectionType(escrow.type)) {
+          const trade = await tradeRepository.findById(escrow.tradeId)
+          if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+
+          await claimEscrowTransition(escrow.id, 'FUNDS_LOCKED', 'EXPIRED')
+          await emitEscrowTransition(
+            escrow.id, escrow.tradeId, 'FUNDS_LOCKED', 'EXPIRED', SYSTEM_SWEEPER_ID,
+            'settlement.escrow.expired',
+            { type: escrow.type, sellerId: trade.sellerId },
+            'Timelock expired with no cooperative resolution — cooperative refund needs both signatures; only a dispute (arbiter co-signature) can unilaterally recover this rail.'
+          )
+          requiresManualRecovery.push(escrow.id)
+          continue
+        }
         const trade = await tradeRepository.findById(escrow.tradeId)
         if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
         await this.refundFunds(escrow.id, trade.sellerId)
@@ -770,7 +840,7 @@ export class EscrowService {
       }
     }
 
-    return { refunded, failed }
+    return { refunded, requiresManualRecovery, failed }
   }
 }
 

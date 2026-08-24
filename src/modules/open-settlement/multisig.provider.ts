@@ -348,6 +348,27 @@ export class MultisigProvider implements SettlementProvider {
     return arbiter
   }
 
+  // Missão 11 Fase 7.3.1 §B — real P0 fix: a disputed release/refund/split
+  // must SIGN with the arbiter identity actually committed into THIS
+  // escrow's script (escrow.triggeredBy, verified by
+  // assertArbiterMatchesScript() above each of these call sites), never
+  // unconditionally today's live-config defaultArbiterId(). Before this
+  // fix, every signing call site derived the signing key via
+  // `defaultArbiterId()` directly, silently assuming it always equals
+  // whichever identity assertArbiterMatchesScript() had just verified —
+  // true before Fase 7.3.1 (that check also always used
+  // defaultArbiterId()), but no longer true once that check correctly
+  // started accepting a historically-committed arbiter even after
+  // TRUSTED_ARBITRATORS rotates away from them at index 0: signing would
+  // then derive the WRONG (current-default) key and fail with a real
+  // bitcoinjs-lib "Can not sign for this input with the key ..." error.
+  // Falls back to defaultArbiterId() only when triggeredBy is genuinely
+  // absent (defensive; every real dispute-resolution call site always
+  // supplies it).
+  private resolveArbiterSigningId(escrow: MultisigEscrowInput): string {
+    return escrow.triggeredBy ?? this.defaultArbiterId()
+  }
+
   // Arbiter is the only role this provider still derives itself — buyer
   // and seller keys are client-submitted (see partiesFor()).
   private deriveArbiterKey(id: string): BIP32Interface {
@@ -432,27 +453,60 @@ export class MultisigProvider implements SettlementProvider {
     if (escrow.status !== 'DISPUTED') return
     const scriptArbiter = this.defaultArbiterId()
 
-    // Missão 11 Fase 5.2 §6 — additive, escrow-specific check. For a NEW
-    // escrow carrying a persisted arbiterPubkey commitment, prefer that
-    // persisted cryptographic truth over live config: does the CURRENTLY
-    // live-derivable arbiter key still equal the exact key actually
-    // committed into THIS escrow's script at creation time? A future
+    // Missão 11 Fase 5.2 §6, revised Fase 7.3.1 §B — additive,
+    // escrow-specific check. For a NEW escrow carrying a persisted
+    // arbiterPubkey commitment, prefer that persisted cryptographic truth
+    // over live config: does the identity actually ATTEMPTING this
+    // operation (`escrow.triggeredBy`, when known) still derive the exact
+    // key committed into THIS escrow's script at creation time? A future
     // TRUSTED_ARBITRATORS/MULTISIG_SEED change can never silently redefine
     // what a historical escrow's script means — if the live-derivable key
     // no longer matches the persisted commitment, this fails closed here,
     // before ever building a script or signing, rather than silently
     // trusting "the identity matches today's config" as a stand-in for
     // "the key matches what was actually committed."
+    //
+    // Fase 7.3.1 §B real fix: this used to always re-derive
+    // `scriptArbiter` (live config's defaultArbiterId(), i.e. whatever
+    // TRUSTED_ARBITRATORS[0] happens to be RIGHT NOW) regardless of who
+    // was actually attempting the operation — so a TRUSTED_ARBITRATORS
+    // list rotation/reorder after this escrow was created would falsely
+    // reject the ORIGINAL, still-cryptographically-valid arbiter's own
+    // ruling, permanently stuck, even though nothing about THEIR key
+    // actually changed. Checking `escrow.triggeredBy`'s own derived key
+    // (when known) instead of `scriptArbiter` fixes this while still
+    // correctly catching a real MULTISIG_SEED rotation: if the seed
+    // itself changed, `triggeredBy`'s live-derived key no longer
+    // reproduces the persisted commitment either, so this still fails
+    // closed for that case — it just no longer fails closed for the
+    // harmless case (list order changed, same seed, same identity's key
+    // is still exactly reproducible).
     if (escrow.arbiterPubkey) {
-      const liveArbiterPubkeyHex = this.getArbiterPubkeyHex(scriptArbiter)
+      const checkedIdentity = escrow.triggeredBy ?? scriptArbiter
+      const liveArbiterPubkeyHex = this.getArbiterPubkeyHex(checkedIdentity)
       if (liveArbiterPubkeyHex !== escrow.arbiterPubkey) {
+        // Fase 7.3.1 §B — one honest message covering both real root
+        // causes this single cryptographic check cannot itself
+        // distinguish (both produce the exact same observable symptom,
+        // "this identity's derived key isn't the one baked into the
+        // script"): either `checkedIdentity` was simply never the right
+        // identity for this escrow (a different, wrong arbiter attempted
+        // this), or it IS the right identity but TRUSTED_ARBITRATORS/
+        // MULTISIG_SEED changed since creation so it no longer derives
+        // the same key. Deliberately does not guess which — guessing
+        // wrong would be actively misleading to whoever reads this error.
         throw new EscrowError(
-          `MULTISIG provider: the currently-configured arbiter key no longer matches the arbiter public key committed into trade ${escrow.tradeId}'s escrow at creation time ` +
-          '(TRUSTED_ARBITRATORS/MULTISIG_SEED changed since). Refusing to sign against a script whose committed arbiter cannot be reproduced from live configuration.'
+          `MULTISIG provider: identity '${checkedIdentity}' does not match the arbiter public key committed into trade ${escrow.tradeId}'s escrow at creation time ` +
+          '— either this is not the identity whose key was actually baked into the script, or TRUSTED_ARBITRATORS/MULTISIG_SEED changed since creation. ' +
+          'Refusing to sign against a script whose committed arbiter cannot be reproduced from the identity attempting this operation.'
         )
       }
+      return
     }
 
+    // Legacy escrow (no persisted arbiterPubkey commitment, predates Fase
+    // 5.2) — no cryptographic commitment exists to check against, so live
+    // config is the best available truth, unchanged from before.
     if (escrow.triggeredBy && escrow.triggeredBy !== scriptArbiter) {
       throw new EscrowError(
         `MULTISIG provider: dispute arbiter '${escrow.triggeredBy}' does not match the arbiter key ('${scriptArbiter}') baked into this escrow's script at creation time. ` +
@@ -842,7 +896,7 @@ export class MultisigProvider implements SettlementProvider {
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: fmax, waived: fmax === 0 } : null
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(this.defaultArbiterId()) // Fase 5.2 — signing key still comes from live config, gated by assertArbiterMatchesScript() above having already confirmed it matches this escrow's persisted commitment
+      const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
       psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
       if (!escrow.buyerId) {
         throw new EscrowError(`MULTISIG provider: missing buyerId for disputed release of trade ${escrow.tradeId}`)
@@ -882,7 +936,7 @@ export class MultisigProvider implements SettlementProvider {
     const psbt = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(this.defaultArbiterId()) // Fase 5.2 — signing key still comes from live config, gated by assertArbiterMatchesScript() above having already confirmed it matches this escrow's persisted commitment
+      const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
       psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
       if (!escrow.sellerId) {
         throw new EscrowError(`MULTISIG provider: missing sellerId for disputed refund of trade ${escrow.tradeId}`)
@@ -984,7 +1038,7 @@ export class MultisigProvider implements SettlementProvider {
 
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: collectedFee, waived: feeDecision.waived } : null
 
-    const arbiterKey = this.deriveArbiterKey(this.defaultArbiterId()) // Fase 5.2 — signing key still comes from live config, gated by assertArbiterMatchesScript() above having already confirmed it matches this escrow's persisted commitment
+    const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
     psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
     if (!escrow.buyerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId for disputed split of trade ${escrow.tradeId}`)

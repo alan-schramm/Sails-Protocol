@@ -38,8 +38,15 @@ export interface TradeStatusInput {
   status: 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'DISPUTED' | 'CANCELLED'
 }
 
+// Missão 11 Fase 7.3 (cumulative audit) — EXPIRED added: a real Prisma
+// EscrowStatus value (schema.prisma) this input type had drifted behind.
+// SPLIT (RFC-021 D9) is a separate, PRE-EXISTING gap in this same type,
+// already silently falling through to deriveTradeState()'s generic
+// `default: return 'open'` below before this pass — disclosed here, not
+// fixed, since it predates and is unrelated to adding EXPIRED (out of
+// this audit's "fix only omissions caused directly by EXPIRED" scope).
 export interface EscrowStatusInput {
-  status: 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED'
+  status: 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'EXPIRED'
 }
 
 export interface DisputeStatusInput {
@@ -87,6 +94,16 @@ export function deriveTradeState(
       return 'cancelled'
     case 'DISPUTED':
       return 'dispute_opened' // reached only if the Dispute row lookup above missed it
+    case 'EXPIRED':
+      // Missão 11 Fase 7.3.3 — a real, permanent, disclosed limitation of
+      // today's TradeState vocabulary: there is no dedicated "expired,
+      // pending recovery" state, and inventing one is a real, separate,
+      // bigger decision (a new public TradeState value + every consumer
+      // handling it) out of scope for this fix. 'open' is the honest
+      // closest fit — the trade has not completed, cancelled, or reached
+      // a dispute — but this is an EXPLICIT decision, not a value
+      // silently caught by the generic default below.
+      return 'open'
     default:
       return 'open'
   }

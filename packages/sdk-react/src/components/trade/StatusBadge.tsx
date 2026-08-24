@@ -36,6 +36,11 @@ const TRADE_STATUS_COLOR: Record<TradeStatus, { bg: string; fg: string }> = {
   CANCELLED: { bg: '#f5f5f4', fg: '#78716c' },
 }
 
+// Missão 11 Fase 7.3 (cumulative audit) — EXPIRED added: a real
+// EscrowStatus value (@satsails/p2p-trading-sdk, mirroring
+// prisma/schema.prisma) this Record was missing — TypeScript's own
+// Record<EscrowStatus, ...> exhaustiveness check would otherwise fail
+// this package's build the moment the SDK's own type gained the value.
 const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
   CREATED: 'Created',
   FUNDS_LOCKED: 'Funds locked',
@@ -44,6 +49,7 @@ const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
   DISPUTED: 'Disputed',
   REFUNDED: 'Refunded',
   SPLIT: 'Split',
+  EXPIRED: 'Expired',
 }
 
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, { bg: string; fg: string }> = {
@@ -54,6 +60,10 @@ const ESCROW_STATUS_COLOR: Record<EscrowStatus, { bg: string; fg: string }> = {
   DISPUTED: { bg: '#fee2e2', fg: '#b91c1c' },
   REFUNDED: { bg: '#f5f5f4', fg: '#78716c' },
   SPLIT: { bg: '#f3e8ff', fg: '#7c3aed' },
+  // Same warm-alert family as DISPUTED (this state also means "needs
+  // human attention"), kept visually distinct from it — expiry is not
+  // itself a dispute yet, so it doesn't share DISPUTED's exact color.
+  EXPIRED: { bg: '#ffedd5', fg: '#c2410c' },
 }
 
 const badgeBaseStyle: React.CSSProperties = {

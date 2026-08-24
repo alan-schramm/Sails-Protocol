@@ -63,9 +63,13 @@ describe('executeSettlement (open-settlement)', () => {
   it('runs the full sequence in order: createEscrow -> lockFunds -> markPaymentSent -> releaseFunds', async () => {
     const result = await executeSettlement({ tradeId: 'trade-1', buyerReceivingAddress: '0xbuyer' })
 
+    // Missão 11 Fase 7.3.1 §A — this environment's real config resolves
+    // MOCK_ESCROW=true (.env), so the honest default is now 'MOCK', never
+    // a real type silently mock-processed underneath (the P0 this phase
+    // closed — see settlement-orchestrator.ts's own updated comment).
     expect(mockCreateEscrow).toHaveBeenCalledWith({
       tradeId: 'trade-1',
-      type: 'WDK_USDT_EVM',
+      type: 'MOCK',
       lockedAmount: '20.5',
       asset: 'USDT_ERC20',
     }, 'seller-1')

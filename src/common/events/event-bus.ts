@@ -60,6 +60,7 @@ export interface SettlementEscrowStatusChangedEvent {
   note?: string
 }
 
+
 // ─── Sails OpenReputation events ───────────────────────────────────────────────
 export interface ReputationUpdatedEvent {
   userId: string
@@ -371,6 +372,10 @@ export interface SailsEventMap {
   'settlement.escrow.disputed': SettlementEscrowStatusChangedEvent
   'settlement.escrow.refunded': SettlementEscrowStatusChangedEvent
   'settlement.escrow.split': SettlementEscrowStatusChangedEvent // RFC-021 D9
+  // Fase 7.3.1 §C, made a real status transition by Fase 7.3.3 §B —
+  // FUNDS_LOCKED -> EXPIRED, a real, durable, observed-not-acted-upon
+  // fact (system never signs, never impersonates a participant).
+  'settlement.escrow.expired': SettlementEscrowStatusChangedEvent
 
   // Sails OpenReputation
   'reputation.score.updated': ReputationUpdatedEvent

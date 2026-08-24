@@ -45,6 +45,17 @@ export function mockEscrow(overrides: Partial<Escrow> = {}): Escrow {
     releasedAt: null,
     createdAt: '2026-07-01T12:00:00.000Z',
     updatedAt: '2026-07-01T12:01:00.000Z',
+    // Missão 11 Fase 7.3 (cumulative audit) — required, non-optional
+    // fields added to the real Escrow type by Fase 7.3's own §Z SDK fix;
+    // this fixture predates that change. null throughout, matching a
+    // legacy (pre-fee-versioning) escrow — the real, permanent meaning
+    // for a MOCK-type fixture like this one, not a placeholder.
+    feePolicyVersionId: null,
+    snapshotProtocolFeeRate: null,
+    snapshotPayerModel: null,
+    snapshotEconomicBasis: null,
+    snapshotFeeCollectionAddress: null,
+    snapshotFeeCollectionWaivedPreFunding: null,
     ...overrides,
   }
 }

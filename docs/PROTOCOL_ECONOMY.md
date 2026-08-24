@@ -785,6 +785,42 @@ final protocol governance; when "Governance Layer v1" (section 7,
 `ROADMAP.md` Months 10-12) exists, only the caller of the same
 service-layer `publish()` methods changes.
 
+**`CustodyAttestation`** (Missão 11 Fase 7.3.2/7.3.3 §F,
+`src/modules/open-settlement/custody-attestation-repository.ts`) — a
+fifth entity, deliberately kept separate from the four above: it never
+governs charging, allocation, collection-generation identity, or
+entitlement truth. It answers a narrower, previously-undocumented
+question — *"where does the operator say a given recipient's funds
+physically live"* — as an append-only, rail-agnostic historical record,
+linked to a `DistributionRecipient` but never to a specific
+`EntitlementLedgerEntry` or collection generation directly (a read-time
+cross-reference, `CustodyAttestationService.findAttestationsForEscrow()`,
+joins the two for audit purposes; the underlying tables remain
+independent).
+
+**Critical distinction, stated explicitly and not to be blurred in any
+partner-facing material:** a `CustodyAttestation` row's
+`attestationAuthority` field is `BOOTSTRAP_OPERATOR_ATTESTED` for every
+row this codebase can currently produce — meaning **a human operator
+declared this historically, through the same trust boundary as every
+other bootstrap-operator action** (`scripts/draft-economic-policy.ts`,
+no HTTP surface, no admin token). **This proves what was declared, not
+who actually controls the underlying custody key.** It is not a
+signature from the custody key itself, not an on-chain proof, and not
+independently verifiable by a third party beyond trusting the operator's
+own attestation. The schema reserves a second value,
+`CRYPTOGRAPHIC_PROOF`, for a future mechanism (e.g. a signed message from
+the actual custody key, or an on-chain covenant) that would independently
+prove control rather than merely record a declaration — **nothing in
+this codebase produces a `CRYPTOGRAPHIC_PROOF` row today**, and no such
+mechanism is implemented, scheduled, or claimed by this document. Never
+present a `BOOTSTRAP_OPERATOR_ATTESTED` row as if it were cryptographic
+proof of custody control in any external-facing material.
+
+No payout or claim mechanism reads or acts on a `CustodyAttestation` row
+— recording one activates nothing, moves nothing, and generates no key
+or address.
+
 **Partner-facing documentation principle:** any document describing this
 economic model to an external partner must distinguish, explicitly,
 between *architecture that is implemented* (the entities above, the

@@ -37,6 +37,16 @@ export interface CreateDraftFeePolicyVersionData {
   protocolFeeRate: Prisma.Decimal | string
   payerModel: 'SELLER_PAYS'
   economicBasis: 'SELLER_DELIVERED_VALUE'
+  // Missão 11 Fase 7.3.1 §F — real gap closed: publish()'s own validation
+  // (fee-policy.service.ts) has always required this to be a positive
+  // integer before a policy can go live, but this create() input never
+  // had a field for it at all — every draft created through this
+  // repository's own real method was structurally unpublishable, with no
+  // update() to fix it afterward either (this file's own header comment
+  // on why no update() exists). Required, no default — same "never
+  // chosen here" discipline as protocolFeeRate above; every caller must
+  // supply a real decision.
+  requiredConfirmations: number
   // Missão 11 Fase 7.2 (CTO decision, §I) — no longer normative inputs for
   // a NEW policy's economics (DistributionPolicyVersion alone determines
   // allocation now); optional, matching the schema's own nullable columns.
@@ -89,6 +99,7 @@ class PrismaFeePolicyVersionRepository implements FeePolicyVersionRepository {
         protocolFeeRate: input.protocolFeeRate,
         payerModel: input.payerModel,
         economicBasis: input.economicBasis,
+        requiredConfirmations: input.requiredConfirmations,
         nodeOperatorPct: input.nodeOperatorPct,
         treasuryPct: input.treasuryPct,
         walletRebatePct: input.walletRebatePct,
