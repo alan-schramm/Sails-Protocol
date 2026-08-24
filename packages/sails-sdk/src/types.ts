@@ -149,6 +149,23 @@ export interface Escrow {
   // Additive only — every existing caller ignoring this field is unaffected.
   multisigAddr: string | null
   txLockId: string | null
+  // Missão 11 Fase 9.1.1 §3 — real typing gap found closing sails-ui's own
+  // blind-signing gap: this column (and fundedAmount below) already flows
+  // through the real GET /v1/settlement/escrow/:id response today (the
+  // server query includes every scalar Escrow column, never a narrowing
+  // select) — only the SDK's own TypeScript declaration was missing them,
+  // forcing an unsafe cast on any caller needing to independently
+  // reconstruct a MULTISIG escrow's funding outpoint (multisig.provider.ts's
+  // own txLockVout comment: identifies a UTXO by txid:vout, not txid
+  // alone). Null for a provider with no Bitcoin-style outpoint, or an
+  // escrow locked before this column existed.
+  txLockVout: number | null
+  // The real amount the funding provider observed on-chain — only
+  // populated for a policy-aware MULTISIG escrow (multisig.provider.ts's
+  // lockFunds()); undefined/null otherwise, in which case an independent
+  // verifier falls back to lockedAmount (+ the escrow's own frozen fee
+  // snapshot, if policy-aware) as the expected funded total.
+  fundedAmount: string | null
   txReleaseId: string | null
   timelockHours: number
   lockedAt: string | null
@@ -215,6 +232,18 @@ export interface Escrow {
       recipients: Array<{ recipientId: string; class: string; label: string; weightPct: string }>
     } | null
   }>
+  // Missão 11 Fase 9.1 §10 — this escrow type's own disclosed custody
+  // model (escrow-providers.ts's getCustodyModelForType()'s own header
+  // comment has the full reasoning: never a secret, never a
+  // marketing-only label, always this exact provider's real stated
+  // trust assumption). Same optional-field precedent as `disputes`/
+  // `participantKeys` above: only getEscrow()/getEscrowByTrade() populate
+  // this (mapCustodyModelShape()); every other method's response
+  // (create/lock/release/refund/split) doesn't carry it. `null` for MOCK
+  // and any provider that hasn't stated one — a caller must treat `null`
+  // as "no disclosed custody model," never assume either full-custody or
+  // non-custody from its absence.
+  custodyModel?: string | null
 }
 
 // Sails OpenProof (RFC-006, PROTOCOL_SPECIFICATION.md §1.8) — real as of
@@ -263,6 +292,18 @@ export interface EscrowPendingTransaction {
   // Only set for kind: 'split' — the seller's payout address, alongside
   // toAddress (buyer's) above.
   toAddressSecondary?: string
+  // Missão 11 Fase 9.1.1 §3 — real typing gap, same story as Escrow's own
+  // txLockVout/fundedAmount above: these already flow through the real
+  // GET .../pending-tx response, only the SDK type was missing them.
+  // feeCollectionSats/feeCollectionWaived/minerFeeSats are exactly what a
+  // caller needs (alongside Escrow.lockedAmount/fundedAmount/
+  // snapshotFeeCollectionAddress) to reconstruct this PSBT's real
+  // ExpectedSigningIntent independently — see wallet-verification.ts's
+  // buildExpectedFeeAwareReleaseOutputs()/verifyAndSignEscrowPsbt().
+  feeCollectionSats?: number | null
+  feeCollectionWaived?: boolean | null
+  buyerBps?: number | null
+  minerFeeSats?: number | null
   unsignedPsbtBase64: string
   requiredSigners: string[]
   triggeredBy: string

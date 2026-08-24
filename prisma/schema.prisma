@@ -340,6 +340,9 @@ model Escrow {
   releaseApprovals   EscrowReleaseApproval[]
   participantKeys    EscrowParticipantKey[]
   pendingTransaction EscrowPendingTransaction?
+  // Missão 11 Fase 9.1 §1 — the durable funding-evidence trail (see that
+  // model's own header comment).
+  fundingEvidence    EscrowFundingEvidence[]
 
   // DB_AUDIT_REPORT.md / RELATORIO_PERFORMANCE.md, closed 2026-08-08 —
   // sweepExpiredEscrows() (escrow.service.ts) filters by exactly this
@@ -446,6 +449,45 @@ enum FeeCollectionEvidenceKind {
   DROPPED
   REORGED_OUT
   ALTERNATE_SPEND
+}
+
+// Missão 11 Fase 9.1 §1 — the durable, append-only evidence trail Phase
+// 9.0's own audit found missing for escrow FUNDING (as opposed to fee
+// COLLECTION, which already had FeeCollectionEvidence). Deliberately
+// mirrors that table's own shape and discipline exactly — same
+// "smallest existing pattern" reasoning the audit itself asked for, not
+// a novel design. No DB-native immutability trigger (unlike
+// CustodyAttestation, or FeeCollectionEvidence's own narrower
+// distributionPolicyVersionId guard): there is no single
+// economically-binding column here that needs hard DB-level protection
+// the way a frozen policy reference does — append-only discipline is
+// enforced at the repository layer (record()/listForEscrow() only, no
+// update/delete method), the same precedent FeeCollectionEvidence itself
+// already relies on for every column except that one.
+enum EscrowFundingEvidenceKind {
+  // The original funding observation that satisfied lockFunds()'s own
+  // confirmation-depth requirement — recorded once, at FUNDS_LOCKED time,
+  // so later rows have something concrete to invalidate/reconfirm against.
+  OBSERVED_CONFIRMED
+  // A previously-OBSERVED_CONFIRMED txid is no longer confirmed on the
+  // best chain. Never overwrites or deletes the original OBSERVED_CONFIRMED
+  // row — this is a NEW fact ("this txid was later found reorged out"),
+  // not a correction of the old one.
+  REORGED_INVALIDATED
+  // The SAME txid that was REORGED_INVALIDATED has reappeared and been
+  // independently re-verified (same confirmation-depth rigor as the
+  // original lockFunds() check) to meet the required depth again.
+  RECONFIRMED
+  // A DIFFERENT txid now funds the same committed script/address at the
+  // expected amount — recorded as its own fact, but deliberately does
+  // NOT itself clear uncertainty (see isFundingUncertain()) until a
+  // RECONFIRMED row is separately recorded for it via the same
+  // confirmation-depth rigor lockFunds() itself requires.
+  REPLACEMENT_OBSERVED
+  // The sweep found a genuinely ambiguous/conflicting state (e.g.
+  // multiple candidate UTXOs) it cannot safely auto-classify. Recorded,
+  // logged loudly, never auto-resolved.
+  AMBIGUOUS
 }
 
 // One immutable-once-published policy per (railScope, label). Economic
@@ -641,6 +683,32 @@ model FeeCollectionEvidence {
 
   @@index([feeObligationId, recordedAt])
   @@map("fee_collection_evidence")
+}
+
+// Missão 11 Fase 9.1 §1 — the durable funding-side counterpart to
+// FeeCollectionEvidence above, closing the Phase 9.0 audit's own INV-07F
+// finding. Append-only by the same repository-layer discipline (no
+// update/delete method anywhere in escrow-funding-evidence-repository.ts).
+// Deliberately a NEW CHILD TABLE, not a field on Escrow itself — no
+// existing historical fact on Escrow (status, txLockId, txLockVout) is
+// ever touched by anything that writes here; a reorg observation is
+// always a new row referencing the same escrowId, never a correction of
+// an old one.
+model EscrowFundingEvidence {
+  id                     String                    @id @default(uuid())
+  escrowId               String
+  escrow                 Escrow                    @relation(fields: [escrowId], references: [id])
+  kind                   EscrowFundingEvidenceKind
+  txid                   String?
+  vout                   Int?
+  amountSats             BigInt?
+  observedAtHeight       Int?
+  tipHeightAtObservation Int?
+  note                   String?
+  recordedAt             DateTime                  @default(now())
+
+  @@index([escrowId, recordedAt])
+  @@map("escrow_funding_evidence")
 }
 
 // Batch-level distribution run metadata. Accounting/provenance ONLY — no
@@ -1488,6 +1556,15 @@ model EscrowParticipantKey {
   // model was written, see multisig.provider.ts/lightning-hodl.provider.ts's
   // own header comments for the full disclosure).
   pubkey        String
+  // Missão 11 Fase 9.1 §4/§5 — self-declared client capability profile
+  // (see capability-profile.ts's own header comment for the full design).
+  // NULL means "not declared" (grandfathered, see that file's disclosed
+  // backward-compatibility decision), never "declared empty" — a client
+  // either states a real, recognized profile string or says nothing.
+  // Only meaningful for buyer/seller rows; the server-written 'arbiter'
+  // row below never sets this (the arbiter key is server-derived, not a
+  // client wallet whose implementation completeness is in question).
+  capabilityProfile String?
   createdAt     DateTime @default(now())
 
   @@unique([escrowId, role])
@@ -1541,6 +1618,21 @@ model EscrowPendingTransaction {
   // provider that doesn't yet implement fee-aware construction.
   feeCollectionSats   Int?
   feeCollectionWaived Boolean?
+  // Missão 11 Fase 9.1.1 §3 — the exact miner-fee amount (satoshis) this
+  // PSBT was actually built against (multisig.provider.ts's own
+  // estimateFeeSats(), computed once at construction time from a
+  // fee-rate query no client can retroactively reproduce). Persisted for
+  // the same reason feeCollectionSats is: without it, an independent
+  // verifier (sails-ui, or any external wallet) has no reliable way to
+  // know what miner fee to EXPECT when reconstructing this PSBT's
+  // ExpectedSigningIntent — re-estimating live at verification time would
+  // almost always disagree with the real, historical value baked into
+  // the already-built PSBT, causing legitimate transactions to spuriously
+  // fail independent verification. Null only for a provider/kind that
+  // doesn't populate it (kept nullable rather than defaulted, matching
+  // feeCollectionSats' own convention, so "not recorded" stays
+  // distinguishable from "recorded as zero").
+  minerFeeSats       Int?
   unsignedPsbtBase64 String
   // Participant ids who must each submit their own signed copy. On a
   // DISPUTED release/refund this list has only ONE entry (buyer or

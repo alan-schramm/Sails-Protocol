@@ -19,6 +19,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 describe('MULTISIG dust policy — rejection happens before any pending transaction (real Postgres, Missão 10)', () => {
   jest.setTimeout(30_000)
@@ -92,8 +93,9 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
     // output (293 sats) is deliberately 1 sat under the 294-sat P2WPKH
     // dust threshold.
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.00000457', asset: 'BTC' }, seller.id)
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY)
+    // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
 
     // Real lockFunds() against a mocked explorer — a real UTXO exists,
     // just small enough that the release output (after the real fee)

@@ -648,3 +648,37 @@ if (config.multisig.network === 'mainnet' && config.multisig.explorerApiUrl.toLo
     'configuration — see Missão 11 Fase 8.1 LB-01. Set MULTISIG_EXPLORER_API_URL to a real mainnet explorer.'
   )
 }
+
+// Missão 11 Fase 9.1.1 §4 — CTO decision, frozen: WDK_USDT_EVM
+// (wdk-settlement.provider.ts) is a SERVER-CUSTODIAL REFERENCE
+// IMPLEMENTATION / PRODUCTION-INELIGIBLE — one server-held seed can move
+// every escrow it funds (that provider's own header comment, RFC-019).
+// It must never become the active settlement authority for real
+// production value through configuration alone. This is the smallest
+// fail-closed protection for that: in production, a real (non-empty)
+// WDK_SEED_PHRASE combined with MOCK_ESCROW=false (the two conditions
+// that together make this provider actually reachable and capable of
+// moving funds — see wdk-settlement.provider.ts's own getWallet()) is a
+// FATAL boot-time refusal, same "refuse to boot, don't silently allow
+// it and fail unpredictably later" pattern every other production gate
+// in this file already uses (RT-001, LB-01, LB-04). Deliberately does
+// NOT try to distinguish a testnet-pointed WDK_RPC_URL from a
+// mainnet-pointed one — wdk-settlement.provider.ts's own header comment
+// already discloses that boundary "is enforced by config... and by
+// convention, not by code, since the provider has no way to distinguish
+// 'testnet with worthless tokens' from 'mainnet with real USDT'"; rather
+// than build an unreliable RPC-URL heuristic, this gate refuses the
+// entire provider in production outright, regardless of which network
+// its RPC happens to point at — the CTO's own frozen decision is that
+// WDK_USDT_EVM is production-ineligible categorically, not "ineligible
+// only on mainnet." Local dev/test/staging (NODE_ENV != production) is
+// completely unaffected — `npm run demo:pix-to-usdt`'s real testnet
+// rehearsal keeps working exactly as before.
+if (config.isProduction && !config.features.mockEscrow && config.wdk.seedPhrase !== '') {
+  throw new Error(
+    'FATAL: NODE_ENV=production, MOCK_ESCROW=false, and WDK_SEED_PHRASE is configured. ' +
+    'WDK_USDT_EVM is a server-custodial reference implementation and is production-ineligible ' +
+    '— see docs/rfcs/RFC-019-settlement-custody-reference-vs-normative.md and Missão 11 Fase 9.1.1 §4. ' +
+    'Refusing to boot. Unset WDK_SEED_PHRASE in production, or use it only in a non-production environment.'
+  )
+}

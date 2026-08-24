@@ -14,6 +14,7 @@ import {
   verifyAndSignEscrowPsbt,
   deriveExpectedMultisigAddress,
   buildExpectedFeeAwareReleaseOutputs,
+  combineAndFinalizeEscrowPsbt,
   SigningIntentVerificationError,
 } from '../src/modules/wallet-verification'
 import type { ExpectedSigningIntent } from '../src/modules/wallet-verification'
@@ -98,6 +99,45 @@ describe('verifySigningIntent — golden path', () => {
     const signed = verifyAndSignEscrowPsbt(psbtBase64, baseExpected(), ['buyer-id', 'seller-id'], buyer.privateKey)
     expect(typeof signed).toBe('string')
     expect(signed.length).toBeGreaterThan(0)
+  })
+})
+
+describe('combineAndFinalizeEscrowPsbt — Missão 11 Fase 9.1 §8: cooperative spend without the server', () => {
+  it('buyer and seller each independently verify+sign their own copy, then combine to a valid, broadcastable transaction — no server involved at any step', () => {
+    const psbtBase64 = buildPsbt()
+    const expected = baseExpected()
+
+    // Each party runs the full verify-then-sign flow independently, using
+    // only their own private key — exactly what a genuinely remote wallet
+    // would do, with zero server round-trip beyond having received the
+    // unsigned PSBT in the first place.
+    const buyerSigned = verifyAndSignEscrowPsbt(psbtBase64, expected, ['buyer-id', 'seller-id'], buyer.privateKey)
+    const sellerSigned = verifyAndSignEscrowPsbt(psbtBase64, expected, ['buyer-id', 'seller-id'], seller.privateKey)
+
+    const { txId, rawTxHex } = combineAndFinalizeEscrowPsbt(psbtBase64, [buyerSigned, sellerSigned], 'testnet')
+
+    expect(txId).toMatch(/^[0-9a-f]{64}$/)
+    expect(rawTxHex.length).toBeGreaterThan(0)
+
+    // The finalized transaction really does spend the expected input and
+    // pay the expected output — not just "some" successfully-parsed tx.
+    const tx = bitcoin.Transaction.fromHex(rawTxHex)
+    expect(tx.ins).toHaveLength(1)
+    expect(Buffer.from(tx.ins[0].hash).reverse().toString('hex')).toBe(REAL_TXID)
+    expect(tx.outs).toHaveLength(1)
+    expect(tx.outs[0].value).toBe(OUTPUT_VALUE)
+  })
+
+  it('throws a clear error rather than silently producing garbage when the signed copies do not satisfy the 2-of-3 threshold', () => {
+    const psbtBase64 = buildPsbt()
+    const expected = baseExpected()
+    const buyerSigned = verifyAndSignEscrowPsbt(psbtBase64, expected, ['buyer-id', 'seller-id'], buyer.privateKey)
+
+    // Only ONE of the required two signatures — finalizeAllInputs() must
+    // fail closed, never extract a transaction with an unsatisfied witness.
+    expect(() => combineAndFinalizeEscrowPsbt(psbtBase64, [buyerSigned], 'testnet')).toThrow(
+      'combineAndFinalizeEscrowPsbt: failed to combine/finalize'
+    )
   })
 })
 
@@ -323,9 +363,9 @@ describe('Fase 5.1 — full remote-wallet walkthrough: address reconstruction + 
   const sails = keypair()
   const sailsCollectionAddress = bitcoin.payments.p2wpkh({ pubkey: sails.publicKey, network }).address!
   const T = 100_000n // lockedAmount, sats
-  const rate = 0.004
+  const rate = '0.004' // Missão 11 Fase 9.1 §13 — exact decimal string, not a JS number
   const minerFee = 300n
-  const fmax = BigInt(Math.floor(Number(T) * rate)) // 400 sats
+  const fmax = BigInt(Math.floor(Number(T) * Number(rate))) // 400 sats — independent fixture-construction arithmetic, not the code under test
 
   function buildFeeAwarePsbt(outputs: Array<{ address: string; value: bigint }>): string {
     const psbt = new bitcoin.Psbt({ network })

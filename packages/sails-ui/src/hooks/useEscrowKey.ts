@@ -24,10 +24,11 @@
  * integration could derive per-trade keys instead without changing
  * anything on the server side (it only ever sees a pubkey).
  */
-import { generateEscrowKeypair, signEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp } from '@satsails/p2p-trading-sdk'
+import { generateEscrowKeypair, verifyAndSignEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from '../lib/sailsClient'
 import { encryptBytes, decryptBytes } from '../lib/keyEncryption'
 import { WrongPassphraseError } from '../context/AuthContext'
+import { buildMultisigSigningIntent } from '../lib/multisigSigningIntent'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
 
@@ -144,15 +145,26 @@ export function useEscrowKey(encryptionKey: CryptoKey | null) {
   // SIGNATURE_COLLECTION_PROVIDERS). If a release/refund round is in
   // flight for this escrow and the current participant is one of its
   // required signers, signs the unsigned bundle with this browser's
-  // stored escrow key and submits it — MULTISIG via `signEscrowPsbt()`
-  // (bitcoinjs-lib PSBT), LIGHTNING_HODL via `signEscrowArkTx()`
-  // (`@arkade-os/sdk`'s `SingleKey`, a JSON bundle of Ark tx + checkpoint
-  // PSBTs — see `lightning-hodl.provider.ts`'s own header comment for
-  // why). Both use the SAME client-held private key (one raw secp256k1
-  // key genuinely serves both formats). Idempotent (server upserts by
+  // stored escrow key and submits it — LIGHTNING_HODL via
+  // `signEscrowArkTx()` (`@arkade-os/sdk`'s `SingleKey`, a JSON bundle of
+  // Ark tx + checkpoint PSBTs — see `lightning-hodl.provider.ts`'s own
+  // header comment for why), SAFE_GUARD_EVM via `signEscrowSafeUserOp()`.
+  // All three use the SAME client-held private key (one raw secp256k1 key
+  // genuinely serves all formats). Idempotent (server upserts by
   // participantId) and a safe no-op when no round is in flight or this
   // participant isn't a required signer — same "call speculatively"
   // pattern as submitEscrowKeyIfNeeded above.
+  //
+  // Missão 11 Fase 9.1.1 §3 — CTO decision: this reference UI must not
+  // blind-sign a settlement-critical PSBT. MULTISIG now routes through
+  // `verifyAndSignEscrowPsbt()` — signing is structurally unreachable
+  // until the PSBT is independently verified against an
+  // ExpectedSigningIntent assembled ONLY from public SDK data
+  // (`multisigSigningIntent.ts`'s own header comment has the full
+  // reasoning, including why SPLIT is deliberately refused rather than
+  // guessed). LIGHTNING_HODL/SAFE_GUARD_EVM keep their existing raw-sign
+  // calls — no verify-then-sign SDK primitive exists for either rail yet
+  // (a real, disclosed, out-of-scope gap — BACKLOG.md's own §11 entry).
   const signAndSubmitPendingTransactionIfNeeded = async (escrowType: string, escrowId: string, participantId: string) => {
     if (!CLIENT_SIGNING_ESCROW_TYPES.has(escrowType)) return null
     let pending
@@ -166,11 +178,17 @@ export function useEscrowKey(encryptionKey: CryptoKey | null) {
 
     const { privateKeyHex } = await loadOrCreateEscrowKeypair(encryptionKey)
     const privateKey = hexToBytes(privateKeyHex)
-    const signedPsbtBase64 = escrowType === 'LIGHTNING_HODL'
-      ? await signEscrowArkTx(pending.unsignedPsbtBase64, privateKey)
-      : escrowType === 'SAFE_GUARD_EVM'
-        ? signEscrowSafeUserOp(pending.unsignedPsbtBase64, privateKey)
-        : signEscrowPsbt(pending.unsignedPsbtBase64, privateKey)
+
+    let signedPsbtBase64: string
+    if (escrowType === 'LIGHTNING_HODL') {
+      signedPsbtBase64 = await signEscrowArkTx(pending.unsignedPsbtBase64, privateKey)
+    } else if (escrowType === 'SAFE_GUARD_EVM') {
+      signedPsbtBase64 = signEscrowSafeUserOp(pending.unsignedPsbtBase64, privateKey)
+    } else {
+      const escrow = await sailsClient.settlement.get(escrowId)
+      const expected = buildMultisigSigningIntent(escrow, pending)
+      signedPsbtBase64 = verifyAndSignEscrowPsbt(pending.unsignedPsbtBase64, expected, pending.requiredSigners, privateKey)
+    }
     return sailsClient.settlement.submitTransactionSignature(escrowId, signedPsbtBase64)
   }
 

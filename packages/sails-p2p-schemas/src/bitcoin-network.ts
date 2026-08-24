@@ -55,3 +55,28 @@ export function normalizeBitcoinNetwork(raw: string | undefined): BitcoinNetwork
   }
   return normalized
 }
+
+/**
+ * Missão 11 Fase 9.1.1 §3 — closes a real gap found building sails-ui's
+ * own independent PSBT verification: `Escrow.network` (the field) is just
+ * whatever string a caller happened to pass at `createEscrow()` time —
+ * NOT a reliable source for which Bitcoin network a MULTISIG escrow's
+ * deposit address is actually on (confirmed by reading
+ * `escrow.service.ts`'s `createEscrow()`: `network: input.network`,
+ * verbatim passthrough, often left unset entirely). The one thing a
+ * verifier can always trust is the address itself: a P2WSH bech32
+ * address's own human-readable prefix (bc1/tb1/bcrt1) is defined by
+ * BIP-173/350 to encode exactly this, and bitcoinjs-lib enforces it on
+ * every address it produces — no separate network-config exposure is
+ * needed at all once the address is already public (which it must be,
+ * to verify the funding input against in the first place).
+ */
+export function networkFromMultisigAddress(address: string): BitcoinNetwork {
+  if (address.startsWith('bcrt1')) return 'regtest'
+  if (address.startsWith('tb1')) return 'testnet'
+  if (address.startsWith('bc1')) return 'mainnet'
+  throw new Error(
+    `Cannot determine Bitcoin network from address '${address}' — expected a bech32 P2WSH address ` +
+    "(bc1.../tb1.../bcrt1... prefix). Refusing to silently guess a network."
+  )
+}

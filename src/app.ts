@@ -522,9 +522,12 @@ export async function startServer() {
   if (config.features.multisigFundingReorgSweeper) {
     const fundingReorgInterval = setInterval(() => {
       sweepMultisigFundingReorgs()
-        .then(({ flagged, failed }) => {
-          if (flagged.length || failed.length) {
-            app.log.info({ msg: 'MULTISIG funding reorg sweep completed', module: 'multisig-funding-reorg-sweeper', flagged: flagged.length, failed: failed.length })
+        .then(({ reverted, reconfirmed, replacementObserved, failed }) => {
+          if (reverted.length || reconfirmed.length || replacementObserved.length || failed.length) {
+            app.log.info({
+              msg: 'MULTISIG funding reorg sweep completed', module: 'multisig-funding-reorg-sweeper',
+              reverted: reverted.length, reconfirmed: reconfirmed.length, replacementObserved: replacementObserved.length, failed: failed.length,
+            })
           }
         })
         .catch((err) => app.log.error({ msg: 'MULTISIG funding reorg sweep failed', module: 'multisig-funding-reorg-sweeper', err: err instanceof Error ? err.message : err }))

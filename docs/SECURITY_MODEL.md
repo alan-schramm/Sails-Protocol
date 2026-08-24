@@ -161,25 +161,45 @@ bad faith.
 
 ### Scenario B: Asset locked, payment not received
 
-Seller provides no evidence of non-payment beyond the timeout. Timelock
-expires → escrow refunds the seller automatically. The buyer's suspicious
-non-payment pattern is logged to the reputation system.
+Seller provides no evidence of non-payment beyond the timeout. The
+escrow's protocol expiry deadline passes → escrow refunds the seller
+automatically. The buyer's suspicious non-payment pattern is logged to
+the reputation system.
 
-**Real gap found 2026-07-19 (security-validation round, "trade abandonado"
-scenario) — the automatic part of this scenario is not implemented.**
-`escrow.service.ts`'s `lockFunds()` computes and stores a real
-`Escrow.expiresAt` (`lockedAt + timelockHours`, `DEFAULT_TIMELOCK_HOURS=24`
-per `.env.example`) — but nothing in this codebase ever reads that field
-again. No proactive sweeper exists, and `refundFunds()`/`openDispute()` are
-only reachable through an explicit participant/arbiter action; a genuinely
-abandoned trade (counterparty never returns) sits in `FUNDS_LOCKED`
-indefinitely with no automatic refund, no reputation update. This is a
-narrower, escrow-level instance of the same "lazy, not proactive" pattern
-`core/state-machine.ts`'s own doc comment already discloses for Intent
-expiry (`BACKLOG.md`'s Intent Engine row) — that disclosure only covered
-the Intent layer, not this Escrow-level timelock claim. Building the
-sweeper is real, separate future work (tracked in `BACKLOG.md`); this note
-exists so this document stops asserting protection that doesn't exist yet.
+**Terminology note, Missão 11 Fase 9.1 §9 (2026-08-24):** "Timelock" in
+this document (and this codebase's `timelockHours`/`DEFAULT_TIMELOCK_HOURS`
+naming) means an **administrative protocol deadline** —
+`Escrow.expiresAt`, a plain server wall-clock value
+(`lockedAt + timelockHours`) checked by application logic. It has no
+Bitcoin-native (CLTV/CSV) counterpart in `MultisigProvider`'s actual
+P2WSH script for Gen-1 — the script itself enforces nothing about time at
+all. Expiry never grants the server, or anyone, unilateral spending
+authority: the automatic refund below still routes through
+`sweepExpiredEscrows()` → the same `refundFunds()` path a manual refund
+uses, `triggeredBy` always the trade's own seller (never a fabricated
+"system" actor), and for MULTISIG specifically still requires the normal
+cooperative buyer+seller signature pair — an expired timelock with no
+cooperative resolution can *only* be recovered via a dispute (arbiter
+co-signature), never unilaterally by the server. Retrofitting a real
+on-chain CLTV/CSV timelock into Gen-1 is explicitly out of scope for this
+phase (see RFC-024 for the documented Gen-2 target architecture where
+that changes); this note exists so no reader mistakes "timelock" here for
+cryptographic, on-chain enforcement.
+
+**Corrected/Implemented 2026-08-24 — the paragraph below was stale.**
+This section previously said "the automatic part of this scenario is not
+implemented... no proactive sweeper exists," which was accurate when
+written (2026-07-19) but has since been closed: `escrow.service.ts`'s
+`sweepExpiredEscrows()` is real, queries every `Escrow` still
+`FUNDS_LOCKED` past its own `expiresAt`, and calls the existing
+`refundFunds()` for each (per-escrow try/catch, one failure doesn't block
+the rest) — wired into `app.ts`'s `startServer()` as a `setInterval`
+(`config.trade.timelockSweepIntervalMs`, default 5 min), gated behind
+`config.features.escrowTimelockSweeper`
+(`ESCROW_TIMELOCK_SWEEPER`, default `false`). See `BACKLOG.md`'s "Escrow
+timelock proactive sweeper" row (closed 2026-08-01) for the full detail
+and test coverage. The scenario described above is now real when that
+flag is enabled, not aspirational.
 
 ### Scenario C: Disputed payment proof
 
@@ -230,10 +250,12 @@ correction.
 - Reputation penalties apply to bad-faith disputes
 - A Trusted Arbitrator's own reputation is the incentive for a fair
   ruling — a bad ruling is visible and permanent, not just a lost fee
-- Timelock fallbacks are meant to handle no-response scenarios
-  automatically — **not yet implemented as of 2026-07-19** (see Scenario
-  B's own correction above); `Escrow.expiresAt` is computed and stored but
-  never enforced by any proactive process today
+- Protocol-expiry fallbacks handle no-response scenarios automatically —
+  **real since 2026-08-01** (`sweepExpiredEscrows()`, gated behind
+  `ESCROW_TIMELOCK_SWEEPER`; see Scenario B's own correction above and
+  `BACKLOG.md`'s "Escrow timelock proactive sweeper" row). An
+  administrative deadline, not a Bitcoin-native on-chain timelock — see
+  Scenario B for the full terminology note
 - Dispute history is public on the reputation layer — repeat bad actors
   become visible to the whole network, not just one counterparty
 

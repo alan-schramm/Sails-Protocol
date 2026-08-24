@@ -1,5 +1,10 @@
 # RFC-019: Settlement Custody — Reference Implementation vs. Normative Protocol
 
+**Frozen status labels (Missão 11 Fase 9.1.1 §4, CTO decision, 2026-08-24):**
+
+- **`WDK_USDT_EVM`: SERVER-CUSTODIAL REFERENCE IMPLEMENTATION / PRODUCTION-INELIGIBLE.** Never the protocol's normative EVM settlement authority. Enforced structurally, not just by convention — `src/config/index.ts` refuses to boot in production if `MOCK_ESCROW=false` and a real `WDK_SEED_PHRASE` is configured (see that gate's own comment for the full reasoning and `tests/configProductionGates.test.ts` for the adversarial proof). Not deleted — remains real, useful reference/testnet-demo infrastructure (`npm run demo:pix-to-usdt`).
+- **`SAFE_GUARD_EVM`: CURRENT EVM AUTHORITY CANDIDATE / NOT PRODUCTION-ACTIVATED.** The real, substantially-built non-custodial path (RFC-020) — client-held buyer/seller keys, KMS-backed arbiter co-signer, audited Safe `checkSignatures()`. "Candidate," not "production-ready": never exercised against live-funded infrastructure, no live AWS KMS call, no live ERC-4337 bundler submission, no deployed/verified contract (RFC-020's own Summary). Not activated by this closure phase — no economic activation, no BTC, no live-infrastructure exercise attempted here.
+
 ## Summary
 
 `WdkSettlementProvider` — the one real, tested `SettlementProvider`
@@ -219,8 +224,120 @@ disclosure on `WDK_SEED_PHRASE`, and an `API_REFERENCE.md` pointer to
 `CRYPTOGRAPHIC_MODEL.md` §5 — all landed together, purely additive, no
 behavior change (verified: `npm run build` clean, `npm test` 207/207).
 
-**Phase 2 — the real non-custodial settlement path** — is separately
-scoped, unstarted, and not committed to a timeline — consistent with
-`GOVERNANCE.md` §5 step 4: accepting this RFC is not a commitment that
-Satsails will build Phase 2 by any date, only that the destination is
-now the recorded, binding target rather than an implicit assumption.
+**Phase 2 — the real non-custodial settlement path.** **Corrected/
+Implemented 2026-08-24** — this section previously read "separately
+scoped, unstarted, and not committed to a timeline," which is now
+factually stale: RFC-020 (accepted, dated 2026-08-01) specified Phase 2
+in full (a Safe Transaction Guard, 2-of-3 buyer/seller/KMS-arbiter) and
+`SAFE_GUARD_EVM`/`safe-guard-evm.provider.ts` substantially implements
+it — real CREATE2 Safe/Guard address prediction, real `PackedUserOperation`/
+`userOpHash` construction, real Safe `checkNSignatures()`-format signature
+combination, client-held buyer/seller keys via the same
+`EscrowParticipantKey`/`submitParticipantKey()` infrastructure MULTISIG
+uses. Still never exercised against live-funded infrastructure or
+economically activated — this mission's own hard safety gate (no BTC, no
+economic activation) applies here exactly as it does everywhere else, so
+"implemented" means "real, structurally-verified code," not "in
+production." See RFC-020 for the full specification and this file's own
+new §7 section below for how this bears on `WDK_USDT_EVM` specifically
+(a distinct, still-genuinely-open question this Phase 2 work does not
+itself resolve).
+
+## Missão 11 Fase 9.1 §7 — WDK Primitive-Level Authority Analysis (added 2026-08-24)
+
+Analysis only, per explicit CTO instruction — no redesign implemented,
+`WdkSettlementProvider` left completely inert and unchanged by this
+section. This answers a narrower, still-open question RFC-020 doesn't
+itself resolve: RFC-020 built the real non-custodial EVM path via
+`SAFE_GUARD_EVM`, a *separate* `EscrowType`/`SettlementProvider` — it did
+not change `WDK_USDT_EVM`/`WdkSettlementProvider` itself, which remains
+exactly the single-server-seed reference implementation RFC-019
+diagnosed. The question this section answers: could/should
+`WDK_USDT_EVM`'s own gap be closed using WDK's own primitives directly,
+independent of `SAFE_GUARD_EVM`?
+
+**What `@tetherto/wdk-wallet-evm` actually provides (read directly from
+the installed package's own README/AGENTS.md, not assumed):**
+
+- `WalletAccountEvm` is a single-EOA-signer abstraction. Every
+  transaction/transfer/message-sign it performs is authorized by exactly
+  one key, held by whichever `ISignerEvm` backs that account —
+  `SeedSignerEvm` (BIP-44 child of one seed) or `PrivateKeySignerEvm`
+  (wraps one raw private key). There is no multi-party or threshold
+  signing primitive anywhere in this package — no "collect N signatures,
+  combine, submit" API of any kind.
+- Critically, the package itself does **not** require the signer's seed
+  to live on the server — `PrivateKeySignerEvm`/`SeedSignerEvm` can be
+  constructed from a caller-supplied key exactly as easily client-side as
+  server-side (`README.md`'s own "Single Account (no manager)" examples
+  construct a `WalletAccountEvm` straight from a raw private key, with no
+  wallet-manager/server involvement at all). This confirms `WDK_USDT_EVM`'s
+  current custody gap is Sails' own architecture choice — one
+  `WDK_SEED_PHRASE` deriving every escrow sub-account server-side — not a
+  limitation `@tetherto/wdk-wallet-evm` itself imposes. This directly
+  answers the CTO's question 1 and 2: yes, the primitives can preserve
+  user-held signing material, and no different WDK abstraction is needed
+  to do it — the same package used differently (client-side, per-participant
+  keys) would do it.
+- The one genuinely novel primitive this package adds is **EIP-7702
+  delegation** ("Delegate EOAs to smart contracts, sign authorizations,
+  and send type 4 transactions") — but this is still a single-EOA
+  authorization signature, not a multisig contract. It's the mechanism a
+  participant's own EOA would use to temporarily adopt smart-contract
+  logic (e.g., a Safe-like authorization check) for one transaction, not
+  a threshold scheme in itself.
+
+**Answering question 3 (is a smart-account/multi-party approach
+required):** yes. Nothing in `@tetherto/wdk-wallet-evm` performs
+multi-signer threshold verification; achieving `INV-01` for an EVM rail
+genuinely requires *some* on-chain (or relayer-mediated) authorization
+layer above raw single-EOA signing, because a plain Ethereum transaction
+has exactly one signer slot — there is no EVM equivalent of Bitcoin's
+PSBT that lets two independent parties cooperatively assemble one
+transaction off-chain before either broadcasts. Any genuinely
+non-custodial EVM design converges on needing a contract (or a trusted
+relayer, a strictly weaker model not recommended here) that can verify
+multiple authorizations before it will move funds.
+
+**Answering question 4/5 (what model satisfies INV-01, what's
+reusable):** that smart-account layer already exists in this codebase,
+real and substantially built — `SAFE_GUARD_EVM` (RFC-020): an
+unmodified, audited Safe with a purpose-built Transaction Guard
+(`SailsEscrowSafe.sol`), 2-of-3 threshold (buyer, seller,
+`SailsSignerService`'s AWS-KMS-held co-signer key), client-held
+buyer/seller keys via the exact same submission path (`EscrowParticipantKey`/
+`submitParticipantKey()`, now also carrying Missão 11 Fase 9.1 §4/§5's
+capability-profile declaration) MULTISIG already uses. Building a
+*second*, independently-engineered participant-authority scheme directly
+on raw WDK signer primitives for `WDK_USDT_EVM` specifically would mean
+either (a) hand-rolling threshold-signature verification logic — exactly
+the class of custom cryptography RFC-020's own Alternatives Considered
+already rejected in favor of Safe's audited `checkSignatures()`/
+`checkNSignatures()` — or (b) accepting a relayer-trust model strictly
+weaker than what `SAFE_GUARD_EVM` already provides. Neither is a genuine
+improvement over reusing what RFC-020 already specified and substantially
+built.
+
+**Recommendation (decision memo for the CTO, not decided here):** do not
+invest further engineering in redesigning `WdkSettlementProvider`'s own
+custody model using WDK-native primitives. Two real forward options
+exist, presented for a future CTO decision:
+
+- **(A)** Keep `WDK_USDT_EVM` permanently as the disclosed
+  reference/local-dev/testnet-demo rail RFC-019 already labels it
+  (`npm run demo:pix-to-usdt` remains useful for that purpose), with
+  `SAFE_GUARD_EVM` as the only rail intended to ever reach real
+  production EVM value-at-risk use. No further WDK_USDT_EVM custody work
+  needed.
+- **(B)** If a WDK-branded end-to-end signing story is specifically
+  wanted for partner/positioning reasons (independent of the pure
+  security argument above), the only credible non-custodial shape is:
+  each participant holds their own `PrivateKeySignerEvm`/`SeedSignerEvm`-backed
+  key client-side (never server-derived), and every release still routes
+  through a genuine on-chain/relayer authorization gate — which in
+  practice means reusing `SAFE_GUARD_EVM`'s existing Safe Guard rather
+  than building a parallel one, since WDK itself supplies no threshold
+  primitive of its own to build that gate from.
+
+Both options leave `WdkSettlementProvider` exactly as it is today. No
+code in this section changes it.

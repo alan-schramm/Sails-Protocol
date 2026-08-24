@@ -14,6 +14,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
   jest.setTimeout(30_000)
@@ -100,8 +101,9 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
     })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, buyerPubkey)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, sellerPubkey)
+    // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, buyerPubkey, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, sellerPubkey, MULTISIG_CAPABILITY_PROFILE_V1)
     return { escrowId: escrow.id, sellerId: seller.id }
   }
 

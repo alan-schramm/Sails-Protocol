@@ -220,6 +220,53 @@ what makes `Timeline`/`getEvents(correlationId)`
 conversational context possible at all — an event with no correlation
 id would be structurally invisible to both.
 
+### INV-OP-9. Settlement-Transaction Construction Has Exactly One Normative Algorithm Per Rail
+
+**Recorded as an architectural requirement — Missão 11, Fase 9.1 §8 /
+Fase 9.1.1 §5, 2026-08-24. Decision record, not yet fully implemented —
+see status below.** For any rail where both the server and an external
+participant (an SDK-based wallet, or this repo's own `sails-ui`
+reference client) might independently construct or verify a
+settlement-critical transaction, there must be exactly one normative,
+deterministic construction algorithm — never two independently-written
+implementations that happen to agree today and could silently drift
+tomorrow. Verification is exempt from this rule (independent, adversarial
+re-derivation is the whole point of `verifySigningIntent()`/
+`verifyAndSignEscrowPsbt()`); *construction* of the actual unsigned
+transaction is not.
+
+**Current status for MULTISIG (the only rail with a working
+independent-verification story today):** partially conforming, by
+scope choice rather than oversight. Server-side construction
+(`multisig.provider.ts`'s `buildUnsignedRelease/Refund/Split()`) is the
+sole real implementation — no second, SDK-side construction algorithm
+exists, so there is no live drift risk today. `packages/sails-ui`'s own
+independent verification (`multisigSigningIntent.ts`, Fase 9.1.1 §3)
+deliberately does NOT duplicate the server's construction logic for the
+RELEASE/REFUND cases it supports — it reuses the server-shared primitive
+(`buildExpectedFeeAwareReleaseOutputs()`) for the one piece of
+non-trivial arithmetic (fee-aware output splitting) rather than
+reimplementing it, and it explicitly REFUSES to attempt independent
+verification of SPLIT (whose construction — proportional `buyerBps`
+division plus a three-way fee leg — is complex enough that an
+independent reimplementation would itself risk becoming the second,
+drifting algorithm this invariant exists to prevent).
+
+**What remains genuinely open, not solved by the above:** full
+independent *construction* of an unsigned MULTISIG PSBT from raw
+inputs (UTXO selection, live fee-rate estimation, dust policy,
+arbiter-key handling) — as opposed to verification of a server-proposed
+one — has no shared primitive yet; today only the server can build one.
+A future pass extending genuine wallet-side construction (not just
+verification) MUST factor the deterministic, network-I/O-free parts of
+`buildUnsignedRelease/Refund/Split()` into a shared primitive both the
+server and `@satsails/p2p-trading-sdk` call — never two independently
+maintained implementations of the same construction rules. No such
+primitive is built by this pass; this invariant exists so a future
+Gen-1 extension or Gen-2 design cannot accidentally reintroduce a second
+algorithm without at least having to consciously violate a named,
+numbered invariant to do it.
+
 ---
 
 ## How Invariants Are Enforced

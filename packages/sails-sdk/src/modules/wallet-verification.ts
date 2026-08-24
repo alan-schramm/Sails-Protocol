@@ -16,9 +16,17 @@
  */
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
-import { normalizeBitcoinNetwork } from '@satsails/p2p-schemas'
+import { normalizeBitcoinNetwork, networkFromMultisigAddress } from '@satsails/p2p-schemas'
 import { signEscrowPsbt } from './escrow-key'
 import type { EscrowKeyNetwork } from './escrow-key-derivation'
+
+// Missão 11 Fase 9.1.1 §3 — re-exported so a caller building an
+// ExpectedSigningIntent (sails-ui, or any external wallet) can determine
+// which Bitcoin network a MULTISIG escrow's deposit address is really on
+// without needing its own separate @satsails/p2p-schemas dependency —
+// same re-export precedent MULTISIG_CAPABILITY_PROFILE_V1 (settlement.ts)
+// already established.
+export { networkFromMultisigAddress }
 
 bitcoin.initEccLib(ecc)
 
@@ -314,6 +322,59 @@ export function verifySigningIntent(
   return { ok: mismatches.length === 0, mismatches }
 }
 
+// Missão 11 Fase 9.1 §13 — parses a decimal string like "0.004" into an
+// exact numerator/scale pair (value == numerator / 10^scale) without ever
+// passing through a JS `number` at any intermediate step — the float
+// round-trip is exactly what created the divergence from the server's own
+// Prisma.Decimal-based computation this function replaces. Throws on a
+// malformed string rather than silently producing a wrong exact value.
+function parseDecimalRateExact(rateStr: string): { numerator: bigint; scale: bigint } {
+  const trimmed = rateStr.trim()
+  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error(`parseDecimalRateExact: '${rateStr}' is not a valid decimal string`)
+  }
+  const negative = trimmed.startsWith('-')
+  const unsigned = negative ? trimmed.slice(1) : trimmed
+  const [intPart, fracPart = ''] = unsigned.split('.')
+  const numerator = BigInt(intPart + fracPart)
+  const scale = BigInt(fracPart.length)
+  return { numerator: negative ? -numerator : numerator, scale }
+}
+
+// Missão 11 Fase 9.1 §13 — exact BigInt equivalent of the server's own
+// Prisma.Decimal(basisAmount).times(rate).toDecimalPlaces(8, ROUND_DOWN)
+// computation (fee-reserve-math.ts's computeProtocolFee()), at satoshi
+// (integer) precision. floor(amountSats * rate) computed entirely in
+// BigInt — BigInt division truncates toward zero, which for the
+// non-negative inputs this protocol always uses is exactly ROUND_DOWN,
+// bit-for-bit matching the server's own result, not merely "close enough
+// and fails safe" the way the prior float implementation did. Exported
+// so both this file's own use and shared cross-implementation test
+// vectors (packages/sails-sdk/tests/wallet-verification.test.ts) can
+// call the identical function the server-equivalence proof depends on.
+export function computeProtocolFeeSatsExact(amountSats: bigint, protocolFeeRateDecimalString: string): bigint {
+  const { numerator, scale } = parseDecimalRateExact(protocolFeeRateDecimalString)
+  const denominator = 10n ** scale
+  return (amountSats * numerator) / denominator
+}
+
+// Missão 11 Fase 9.1.1 §3 — exact BTC-decimal-string -> satoshi BigInt
+// conversion, reusing parseDecimalRateExact()'s own exact parser rather
+// than the float-based `Math.round(parseFloat(x) * 1e8)` pattern used
+// elsewhere in this codebase's demo/rehearsal scripts (the same class of
+// imprecision §13 already closed for fee-rate math, now closed here too
+// for principal-amount conversion — needed by sails-ui's own independent
+// ExpectedSigningIntent construction, closing its blind-signing gap).
+// Throws rather than silently truncating if the input carries more than
+// 8 decimal places (more precision than a satoshi can represent).
+export function btcToSats(decimalBtcString: string): bigint {
+  const { numerator, scale } = parseDecimalRateExact(decimalBtcString)
+  if (scale > 8n) {
+    throw new Error(`btcToSats: '${decimalBtcString}' has more than 8 decimal places — not representable in whole satoshis`)
+  }
+  return numerator * 10n ** (8n - scale)
+}
+
 // Missão 11 Fase 4 §I — the wallet-side mirror of multisig.provider.ts's
 // own fee-reserve arithmetic (fee-reserve-math.ts), so a wallet can build
 // its OWN expected fee-aware outputs and pass them into
@@ -321,20 +382,21 @@ export function verifySigningIntent(
 // claims — never trusting a server-supplied fee amount without
 // recomputing it from the escrow's own frozen policy snapshot.
 //
-// Precision note, disclosed rather than hidden: this SDK has no Decimal.js
-// dependency, so this computes directly in integer satoshis using a plain
-// floating-point multiply-then-floor, unlike the server's own
-// Prisma.Decimal-based computation (fee-reserve-math.ts). At the trade
-// sizes and rates this protocol targets, this cannot silently UNDER-verify
-// (float error, if any, can only ever make this helper's number disagree
-// with the server's exact one, which fails the comparison CLOSED — the
-// safe direction — never causes a bad output to be silently accepted).
-// A wallet author needing bit-for-bit parity with the server's exact
-// rounding should implement this with their own fixed-point arithmetic
-// instead of relying on this convenience helper.
+// Missão 11 Fase 9.1 §13 — protocolFeeRate is now the exact decimal
+// STRING the escrow's own frozen snapshot (Escrow.snapshotProtocolFeeRate)
+// already carries, not a lossy `Number(...)` conversion the caller used
+// to have to perform themselves one step earlier (which introduced the
+// exact same float imprecision this fix closes, just outside this
+// function's own control). This closes the previously-disclosed
+// float/Decimal divergence from the server's computation — the two are
+// now bit-for-bit identical for the same input, not merely
+// "safe-direction-only" as before. Breaking change to this function's
+// own signature, deliberately: this SDK has never been npm-published
+// (version 0.1.3, workspace-internal use only throughout this project),
+// so there are no external callers to preserve compatibility for.
 export interface FeeAwareReleaseParams {
   lockedAmountSats: bigint
-  protocolFeeRate: number
+  protocolFeeRate: string
   minerFee: bigint
   buyerAddress: string
   /** Sails' configured collection address, OR the seller's own refund
@@ -352,7 +414,7 @@ export interface FeeAwareReleaseParams {
  *  normal (Sails) and waived (seller-refund) destination cases; the caller
  *  decides which address the second output should be. */
 export function buildExpectedFeeAwareReleaseOutputs(params: FeeAwareReleaseParams): Array<{ address: string; value: bigint }> {
-  const fmax = BigInt(Math.floor(Number(params.lockedAmountSats) * params.protocolFeeRate))
+  const fmax = computeProtocolFeeSatsExact(params.lockedAmountSats, params.protocolFeeRate)
   // buyerPool = T - M. Algebraically this is the server's own
   // (spendableValue - Fmax) with spendableValue = (T+Fmax) - M — the +Fmax
   // and -Fmax cancel, so this is written directly rather than through the
@@ -389,4 +451,52 @@ export function verifyAndSignEscrowPsbt(
     throw new SigningIntentVerificationError(result.mismatches)
   }
   return signEscrowPsbt(psbtBase64, privateKey)
+}
+
+// Missão 11 Fase 9.1 §8 — audited the gap between "a wallet can verify
+// and sign its own copy of a MULTISIG PSBT" (above, already real) and
+// "buyer+seller can complete a cooperative spend without the server."
+// What was still missing: COMBINING two independently-signed copies of
+// the same unsigned PSBT into one finalized, broadcastable transaction —
+// previously only ever done server-side (multisig.provider.ts's own
+// finalizeSpend(), whose header comment states the exact same
+// experimentally-verified premise this function relies on: bitcoinjs-lib's
+// Psbt.combine() correctly merges independent copies of the SAME unsigned
+// PSBT). This is a genuinely SMALL, safe addition — a thin wrapper around
+// bitcoinjs-lib's own combine/finalize/extract, zero new cryptographic
+// logic, mirroring the server's real implementation exactly rather than
+// inventing a second one — not a re-derivation of PSBT CONSTRUCTION
+// itself (building the unsigned PSBT from raw UTXO/fee/script inputs),
+// which remains genuinely substantial provider logic (UTXO selection,
+// fee-rate estimation, dust policy, arbiter-key handling) this phase
+// deliberately does NOT duplicate into the SDK — see this Missão's own
+// §8 report for the full disclosed reasoning and the proposed shared-
+// construction-primitive alternative for that separate, larger gap.
+//
+// Broadcasting is deliberately NOT included here: pushing a finalized
+// raw transaction to the Bitcoin network is not Sails-specific domain
+// logic (any Bitcoin explorer/node client already does this), and this
+// SDK does not yet own a broadcast dependency — a caller extracts the
+// hex from this function's return value and broadcasts it through
+// whatever infrastructure they already trust.
+export function combineAndFinalizeEscrowPsbt(
+  unsignedPsbtBase64: string,
+  signedPsbtBase64List: string[],
+  network: EscrowKeyNetwork
+): { txId: string; rawTxHex: string } {
+  const btcNetwork = networkFor(network)
+  let merged: bitcoin.Psbt
+  try {
+    merged = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network: btcNetwork })
+    for (const signed of signedPsbtBase64List) {
+      merged.combine(bitcoin.Psbt.fromBase64(signed, { network: btcNetwork }))
+    }
+    merged.finalizeAllInputs()
+  } catch (err) {
+    throw new Error(
+      `combineAndFinalizeEscrowPsbt: failed to combine/finalize the provided signed copies: ${err instanceof Error ? err.message : String(err)}`
+    )
+  }
+  const tx = merged.extractTransaction()
+  return { txId: tx.getId(), rawTxHex: tx.toHex() }
 }

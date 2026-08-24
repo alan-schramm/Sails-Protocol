@@ -59,6 +59,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createHash } from 'crypto'
+import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -119,8 +120,9 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, buyer.id)
     expect(escrow.multisigAddr).toBeNull() // client-held-keys pass — no address until both pubkeys arrive
 
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, buyerPubkeyHex)
-    const { escrow: fundedEscrow } = await escrowService.submitParticipantKey(escrow.id, seller.id, sellerPubkeyHex)
+    // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, buyerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
+    const { escrow: fundedEscrow } = await escrowService.submitParticipantKey(escrow.id, seller.id, sellerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
 
     expect(fundedEscrow.multisigAddr).toMatch(/^tb1/)
 
@@ -254,8 +256,9 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     const sellerPubkeyHex = Buffer.from(sellerKey.publicKey).toString('hex')
 
     const escrow = await svc.createEscrow({ tradeId: trade.id, type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, buyer.id)
-    await svc.submitParticipantKey(escrow.id, buyer.id, buyerPubkeyHex)
-    await svc.submitParticipantKey(escrow.id, seller.id, sellerPubkeyHex)
+    // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
+    await svc.submitParticipantKey(escrow.id, buyer.id, buyerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
+    await svc.submitParticipantKey(escrow.id, seller.id, sellerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const txid = createHash('sha256').update(escrow.id).digest('hex')
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED', txLockId: txid, txLockVout: 0 } })
@@ -346,8 +349,9 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     const sellerPubkeyHex = Buffer.from(sellerKey.publicKey).toString('hex')
 
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, buyer.id)
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, buyerPubkeyHex)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, sellerPubkeyHex)
+    // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, buyerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, sellerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const txid = createHash('sha256').update(`hp-${escrow.id}`).digest('hex')
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'PAYMENT_PENDING', txLockId: txid, txLockVout: 0 } })

@@ -14,6 +14,12 @@
  */
 import type { SailsTransport } from "../transport";
 import { SailsValidationError } from "../errors";
+// Missão 11 Fase 9.1 §4/§5 — re-exported (not just imported) so a caller
+// depending only on @satsails/p2p-trading-sdk can declare the real
+// capability profile this SDK's own escrow-key-derivation.ts/
+// wallet-verification.ts modules implement, without also needing a direct
+// @satsails/p2p-schemas dependency of their own.
+export { MULTISIG_CAPABILITY_PROFILE_V1 } from "@satsails/p2p-schemas";
 import type {
   AssetType,
   Dispute,
@@ -229,10 +235,24 @@ export class SailsSettlementModule {
    * and seller have each called this once, the server derives and
    * persists the real deposit address (`Escrow.multisigAddr`) — see
    * `escrow.service.ts`'s `submitParticipantKey()`.
+   *
+   * `capabilityProfile` (Missão 11 Fase 9.1 §4/§5, fail-closed since Fase
+   * 9.1.1) is a self-declared statement of which capability bundle this
+   * caller's own client implements — pass `MULTISIG_CAPABILITY_PROFILE_V1`
+   * (re-exported from this module) if the caller is this SDK's own
+   * reference flow. **For a MULTISIG escrow specifically, this is not
+   * optional in practice**: the server rejects the commit (deposit-address
+   * derivation) once both parties' keys exist unless BOTH declared a
+   * known, compatible profile — an omitted declaration blocks exactly
+   * like an unrecognized one (`capability-profile.ts`'s own header
+   * comment on the server side has the full CTO decision). Escrow types
+   * with no wired requirement (LIGHTNING_HODL/SAFE_GUARD_EVM today)
+   * still accept an omitted value with no effect.
    */
   async submitKey(
     escrowId: string,
     pubkeyHex: string,
+    capabilityProfile?: string,
   ): Promise<{
     escrow: Escrow;
     buyerKeySubmitted: boolean;
@@ -240,7 +260,7 @@ export class SailsSettlementModule {
   }> {
     return this.transport.post(
       `/v1/settlement/escrow/${escrowId}/submit-key`,
-      { pubkey: pubkeyHex },
+      { pubkey: pubkeyHex, ...(capabilityProfile ? { capabilityProfile } : {}) },
       true,
     );
   }

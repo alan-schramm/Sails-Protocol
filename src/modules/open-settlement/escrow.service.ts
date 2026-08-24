@@ -12,6 +12,7 @@ import {
   PUBKEY_HEX_PATTERN,
   recommendedEscrowType,
   getSettlementProvider,
+  getCustodyModelForType,
 } from './escrow-providers'
 import {
   isPartyOrAgent,
@@ -24,6 +25,7 @@ import {
   emitEscrowTransition,
   resolvePayoutAddress,
   checkFundMovementCapability,
+  assertFundingNotUncertain,
 } from './escrow-lifecycle'
 import * as dualApproval from './escrow-dual-approval'
 import * as pendingTx from './escrow-pending-tx'
@@ -31,6 +33,8 @@ import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { escrowFeeSnapshotService } from './escrow-fee-snapshot.service'
+import { escrowFundingEvidenceRepository } from './escrow-funding-evidence-repository'
+import { assertKnownCapabilityProfile, findCapabilityCommitBlocker } from './capability-profile'
 
 /**
  * Sails OpenSettlement — Reference Implementation
@@ -85,6 +89,15 @@ export { recommendedEscrowType }
 // authorization logic, no new route, no reverse pubkey->escrow lookup
 // (that capability remains explicitly out of scope, deferred to a future
 // "Seed-only Recovery Discovery" mission).
+// Missão 11 Fase 9.1 §10 — attaches this escrow type's own disclosed
+// custodyModel (getCustodyModelForType()'s own header comment has the
+// full reasoning). Same gating as mapParticipantKeysShape() above: no new
+// authorization, no new route, just one more curated field on the
+// existing authenticated GET response.
+function mapCustodyModelShape(escrow: any): any {
+  return { ...escrow, custodyModel: getCustodyModelForType(escrow.type) }
+}
+
 function mapParticipantKeysShape(escrow: any): any {
   if (!escrow.participantKeys) return escrow
   return {
@@ -254,7 +267,7 @@ export class EscrowService {
   // above. Once both buyer and seller rows exist, derives and persists
   // the real deposit address — this is the only place that now happens,
   // replacing createEscrow()'s old immediate-population branch.
-  async submitParticipantKey(escrowId: string, participantId: string, pubkey: string) {
+  async submitParticipantKey(escrowId: string, participantId: string, pubkey: string, capabilityProfile?: string) {
     const escrow = await this.repo.findById(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
 
@@ -275,10 +288,16 @@ export class EscrowService {
       throw new EscrowError('pubkey must be a 33-byte compressed secp256k1 public key, hex-encoded (66 hex characters, starting with 02 or 03)')
     }
 
+    // Missão 11 Fase 9.1 §4/§5 — a garbage/unrecognized declaration is
+    // rejected immediately, independent of escrow type (see
+    // capability-profile.ts's own header comment for the full design and
+    // the backward-compatibility decision an omitted declaration gets).
+    assertKnownCapabilityProfile(capabilityProfile)
+
     await prisma.escrowParticipantKey.upsert({
       where: { escrowId_role: { escrowId, role } },
-      update: { participantId, pubkey },
-      create: { escrowId, role, participantId, pubkey },
+      update: { participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
+      create: { escrowId, role, participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
     })
 
     const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
@@ -287,6 +306,27 @@ export class EscrowService {
 
     let updatedEscrow = escrow
     if (buyerKey && sellerKey && !escrow.multisigAddr && !config.features.mockEscrow) {
+      // Missão 11 Fase 9.1 §4, fail-closed per Fase 9.1.1 CTO decision —
+      // "a trade must not commit to [this escrow type] unless every
+      // required participant has a compatible profile," checked right
+      // here, immediately before the deposit address (the actual commit
+      // point) is derived and persisted. An OMITTED declaration now
+      // blocks exactly like an incompatible one — "unknown capability =
+      // unsupported" applies to silence too, no exception for either
+      // role or for who `participantId` happens to be.
+      const blocker = findCapabilityCommitBlocker(
+        escrow.type as EscrowType, buyerKey.capabilityProfile, sellerKey.capabilityProfile
+      )
+      if (blocker) {
+        const detail = blocker.reason === 'missing'
+          ? 'declared no capability profile at all'
+          : `declared an incompatible capability profile ('${blocker.declared}')`
+        throw new EscrowError(
+          `Cannot commit escrow ${escrowId} to type '${escrow.type}': the ${blocker.role} ${detail} — ` +
+          `every participant must declare a compatible capability profile before this escrow type can commit.`
+        )
+      }
+
       const { address, arbiterPubkeyHex, arbiterId } = await provider.getDepositAddress(trade.id, buyerKey.pubkey, sellerKey.pubkey)
       updatedEscrow = await this.repo.updateMultisigAddr(escrowId, address)
 
@@ -373,6 +413,23 @@ export class EscrowService {
         ...(result.fundedAmount !== undefined ? { fundedAmount: result.fundedAmount } : {}),
       })
 
+      // Missão 11 Fase 9.1 §1 — the durable historical record of "funding
+      // was accepted under evidence X at time T," so a later reorg
+      // sweep (multisig-funding-reorg-sweep.ts) has something concrete to
+      // invalidate/reconfirm against, and so this fact is never lost even
+      // though Escrow.status/txLockId themselves are never retroactively
+      // rewritten. Only meaningful for a provider with a real Bitcoin-style
+      // outpoint (result.vout !== undefined — MULTISIG today); every other
+      // provider has no funding-reorg concept to record.
+      if (result.vout !== undefined) {
+        await escrowFundingEvidenceRepository.record({
+          escrowId, kind: 'OBSERVED_CONFIRMED', txid: result.txId, vout: result.vout,
+          ...(result.fundedAmount !== undefined ? { amountSats: BigInt(Math.round(result.fundedAmount)) } : {}),
+          ...(result.confirmedAtHeight !== undefined ? { observedAtHeight: result.confirmedAtHeight } : {}),
+          ...(result.tipHeightAtObservation !== undefined ? { tipHeightAtObservation: result.tipHeightAtObservation } : {}),
+        })
+      }
+
       // NOTE: previously this method also called prisma.trade.update(...) to set
       // Trade.status = 'ACTIVE'. That write belonged to OpenP2P, not here. The
       // OpenP2P trade handler now does this in reaction to the event below.
@@ -396,6 +453,11 @@ export class EscrowService {
     const escrow = await this.repo.findById(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     assertEscrowTransition(escrow.status, 'PAYMENT_PENDING')
+
+    // Missão 11 Fase 9.1 §2 — the single most direct case this closure
+    // exists for: a buyer claiming they've sent real-world fiat based on
+    // funding evidence a background reorg sweep has already invalidated.
+    await assertFundingNotUncertain(escrowId, escrow.type)
 
     // Claiming fiat was sent is the buyer's own claim — see isPartyOrAgent()'s doc comment.
     const trade = await tradeRepository.findById(escrow.tradeId)
@@ -723,13 +785,13 @@ export class EscrowService {
   async getEscrow(escrowId: string) {
     const escrow = await this.repo.findByIdWithDetails(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
-    return mapParticipantKeysShape(mapDistributionPolicyFreezesShape(escrow))
+    return mapCustodyModelShape(mapParticipantKeysShape(mapDistributionPolicyFreezesShape(escrow)))
   }
 
   async getEscrowByTrade(tradeId: string) {
     const escrow = await this.repo.findByTradeIdWithDetails(tradeId)
     if (!escrow) throw new NotFoundError('Escrow for this trade', tradeId)
-    return mapParticipantKeysShape(mapDistributionPolicyFreezesShape(escrow))
+    return mapCustodyModelShape(mapParticipantKeysShape(mapDistributionPolicyFreezesShape(escrow)))
   }
 
   // Real gap found (BACKLOG.md P0, "Escrow timelock proactive sweeper"):

@@ -68,8 +68,19 @@ const releaseSchema = z.object({
 
 // 33-byte compressed secp256k1 pubkey, hex — same pattern
 // escrow.service.ts's submitParticipantKey() validates against.
+// Missão 11 Fase 9.1 §4/§5 — capabilityProfile is OPTIONAL on THIS
+// request schema (a key submission without it is a well-formed request,
+// not a 400) — but omitting it is NOT the same as it being accepted:
+// fail-closed since Fase 9.1.1, escrowService.submitParticipantKey()'s
+// own commit-gate (capability-profile.ts's findCapabilityCommitBlocker())
+// rejects a MULTISIG commit once both keys exist unless BOTH declared a
+// known, compatible profile. Unrecognized (but present) values are
+// rejected earlier, at submission time (assertKnownCapabilityProfile()).
+// "Known profile"/"required for this escrow type" are protocol-vocabulary
+// questions, not request-shape ones, hence neither lives in this schema.
 const submitKeySchema = z.object({
   pubkey: z.string().regex(/^0[23][0-9a-fA-F]{64}$/, 'must be a 33-byte compressed secp256k1 public key, hex-encoded'),
+  capabilityProfile: z.string().min(1).optional(),
 })
 
 const initiateReleaseSchema = z.object({
@@ -244,7 +255,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = submitKeySchema.parse(request.body)
-    const result = await escrowService.submitParticipantKey(id, participantId(request), body.pubkey)
+    const result = await escrowService.submitParticipantKey(id, participantId(request), body.pubkey, body.capabilityProfile)
     return reply.code(200).send(success(result))
   })
 

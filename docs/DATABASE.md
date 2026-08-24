@@ -291,6 +291,44 @@ and `ArbiterProfile`/`PaymentAccount`, closed further down this file):
 `feeCharged` above was missing from this listing since Phase 0 shipped —
 now matches `prisma/schema.prisma` exactly.
 
+**`status` — audited for a DB-native transition-graph trigger, deliberately NOT added (Missão 11 Fase 9.1 §12, 2026-08-24).**
+This model's own `EscrowStatus` transitions are already gated in-app by
+`escrow-lifecycle.ts`'s `VALID_TRANSITIONS` map plus an atomic
+compare-and-swap (`claimTransition()`: `UPDATE ... WHERE id=? AND
+status=<expectedFrom> SET status=<to>`) — the same "Postgres itself is
+the arbiter of the race" pattern this repo uses everywhere a concurrent
+double-claim must be prevented. This audit considered mirroring that
+same graph as a DB-native `BEFORE UPDATE` trigger (the same real pattern
+already used for `escrow_participant_keys`' arbiter-immutability guard
+and `fee_distributions`' write-freeze guard, both in this same file) —
+**and found it is NOT safe to add as a strict forward-only graph
+check.** `escrow-lifecycle.ts`'s `revertEscrowStatus()` is a real,
+currently-shipped compensating write (5 call sites across
+`escrow.service.ts`/`escrow-pending-tx.ts`) that intentionally moves
+`status` *backward* — e.g. `FUNDS_LOCKED → CREATED` — to undo a claimed
+transition when the real provider call that was supposed to follow it
+then fails (a stuck escrow otherwise permanently blocks every future
+attempt via `assertEscrowTransition`). A trigger enforcing only
+`VALID_TRANSITIONS`'s forward edges would reject every one of those
+legitimate reverts. Widening the trigger to also allow the matching
+reverse edge for every existing forward edge was considered and
+rejected too: since every forward edge in this graph is already used by
+some `revert*` call site, a bidirectional trigger would end up allowing
+essentially the same movement the graph already permits in either
+direction — materially weaker protection than it appears to offer, not
+a genuine independent safety net. A session-variable escape hatch (the
+app sets a GUC before calling `revertStatus()` to bypass the check) was
+also considered and rejected: it would make the guarantee depend on the
+application layer correctly flagging its own exception, which is
+exactly the trust assumption DB-native enforcement exists to remove.
+**Conclusion: the existing atomic-claim + in-app graph check remains
+the correct enforcement layer for this specific state machine** — unlike
+the arbiter-key/fee-distribution guards above (which protect fields with
+no legitimate "undo" path), `Escrow.status` genuinely needs bidirectional
+movement for real recovery, which a deterministic DB trigger cannot
+safely distinguish from an illegitimate one using only the row's own
+before/after values.
+
 ### `FeeDistribution` — HISTORICAL / SUPERSEDED / WRITE-FROZEN (RFC-021 Phase 0's retired Protocol Fee split)
 
 ```prisma

@@ -82,6 +82,15 @@ const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockFeeDistributionCreate = jest.fn().mockResolvedValue({})
 const mockPendingTxFindUnique = jest.fn().mockResolvedValue(null)
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
+// Missão 11 Fase 9.1 §1/§2 — assertFundingNotUncertain() (wired into
+// initiateSignatureCollectionCore() for release/split, scenarios 7-8
+// below) now queries this table before the capability check runs; an
+// empty history is the trustworthy/no-op case (see
+// EscrowFundingEvidenceService's own "last row decides" state machine),
+// which is what every scenario in this file needs — none of them are
+// testing funding-uncertainty behavior, that's escrowFundingEvidenceService.test.ts's
+// and multisigFundingReorgSweep.test.ts's job.
+const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
 
 // Real CapabilityGrant rows for whichever scenario is under test — reset in
 // beforeEach. The `where` clause is genuinely respected (not a blanket
@@ -112,6 +121,7 @@ jest.mock('../src/common/database', () => ({
     escrowPendingTransaction: { findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args) },
     escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
     capabilityGrant: { findMany: (...args: [{ where: { grantedTo: string; capabilityName: string } }]) => mockCapabilityGrantFindMany(...args) },
+    escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
   },
 }))
 
@@ -152,6 +162,7 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
     mockEscrowEventFindFirst.mockResolvedValue(null)
     mockPendingTxFindUnique.mockResolvedValue(null)
     mockParticipantKeyFindMany.mockResolvedValue([])
+    mockEscrowFundingEvidenceFindMany.mockResolvedValue([])
   })
 
   it('1. release without capability — DENY', async () => {

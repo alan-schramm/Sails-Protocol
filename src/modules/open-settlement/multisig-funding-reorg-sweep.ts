@@ -1,53 +1,72 @@
 /**
- * MultisigFundingReorgSweep — Missão 11 Fase 8.1 LB-08(A).
+ * MultisigFundingReorgSweep — Missão 11 Fase 9.1 §1/§3 (supersedes the
+ * Fase 8.1 LB-08(A) log-only version).
  *
- * DELIBERATELY SMALLER than the fee-collection reorg sweep
- * (multisig-fee-reorg-sweep.ts) — detection + structured log only, no
- * status mutation, no new persisted evidence row.
+ * Phase 8.1 deliberately implemented detection + structured logging only,
+ * per the CTO's own explicit stop condition ("if correct semantics require
+ * a schema migration or a new economic state, STOP and report the
+ * proposed invariant to the CTO — do not unilaterally redesign economic
+ * history"). Phase 9.0's own audit named this gap explicitly (INV-07F,
+ * DP-03, DP-05, DP-07), and Phase 9.1 authorizes closing it with the
+ * smallest existing pattern: EscrowFundingEvidence, an append-only
+ * ledger mirroring FeeCollectionEvidence's own proven shape exactly.
  *
- * Why: FeeCollectionEvidence is an append-only ledger purpose-built for
- * exactly this ("record a REORGED_OUT fact without deleting/rewriting
- * history"), and FeeObligation.collectionStatus already has a legal
- * COLLECTED -> IN_PROGRESS backward edge to auto-revert into. Escrow has
- * neither: EscrowEvent is strictly transition-typed (fromStatus/toStatus
- * are real enum values written into a hash chain — there is no
- * FUNDS_LOCKED -> FUNDS_LOCKED "no-op, just flagging an anomaly" shape
- * that wouldn't distort what that chain is supposed to mean), and no
- * "EscrowFundingEvidence"-equivalent append-only table exists.
+ * Still does NOT mutate Escrow.status — the historical fact "FUNDS_LOCKED
+ * was reached under evidence X at time T" is never rewritten. What
+ * changed since Fase 8.1: a later reorg (or reconfirmation, or
+ * replacement) is now a durable, queryable, append-only fact instead of
+ * a log line that vanishes with log rotation.
  *
- * Per Missão 11 Fase 8.1's own instruction ("if correct semantics require
- * a schema migration or a new economic state, STOP BEFORE IMPLEMENTING
- * THAT PORTION and report the proposed invariant to the CTO — do not
- * unilaterally redesign economic history"), this sweep implements only
- * the part that needs no new schema and no status decision: detect a
- * FUNDS_LOCKED MULTISIG escrow whose confirming funding transaction is no
- * longer confirmed, and log it loudly (structured, queryable by
- * escrowId/txLockId) as an exceptional condition requiring manual
- * review — the same posture recordReorgAndRevert() already takes for an
- * already-DISTRIBUTED fee obligation. It does NOT change Escrow.status,
- * does NOT write an EscrowEvent, and does NOT attempt any automatic
- * recovery action. See this Fase's own final report for the open
- * question this leaves for the CTO: what (if anything) the system should
- * do automatically once a FUNDS_LOCKED escrow's funding disappears —
- * revert to a different status, wait, or require pure operator action —
- * is a real state-machine decision, not implemented here.
+ * State machine (one evidence row per real change, never a duplicate for
+ * an unchanged observation — see the inline comments below for exactly
+ * which comparison decides each branch):
+ *
+ *   trustworthy (OBSERVED_CONFIRMED/RECONFIRMED, same txid, still deep enough)
+ *     -> no write (nothing changed)
+ *   uncertain, same txid now deep enough again
+ *     -> RECONFIRMED
+ *   any state, a DIFFERENT txid now satisfies the exact funding-matching
+ *   rule at sufficient depth
+ *     -> REPLACEMENT_OBSERVED (deliberately NOT auto-promoted to
+ *        trustworthy on first sight — requires being seen again, deep
+ *        enough, on a LATER tick before RECONFIRMED is recorded; see
+ *        escrow-funding-evidence.service.ts's own header comment for why
+ *        "do not manufacture certainty" applies here too)
+ *   a confirmed-but-not-yet-deep-enough candidate exists, previous state
+ *   was trustworthy
+ *     -> REORGED_INVALIDATED (a real regression from trusted to uncertain)
+ *   nothing at all found, previous state was not already REORGED_INVALIDATED
+ *     -> REORGED_INVALIDATED
+ *   nothing at all found, previous state already REORGED_INVALIDATED
+ *     -> no write (avoid duplicate spam for an unresolved, unchanged loss)
+ *   an escrow with NO recorded evidence at all (pre-Fase-9.1, or never
+ *   swept before)
+ *     -> skipped entirely; this sweep never invents a retroactive
+ *        baseline for history it didn't itself observe
  */
 import { prisma } from '../../common/database'
 import { config } from '../../config'
 import { childLogger } from '../../common/logger'
-import { fetchTransactionConfirmationStatus, fetchChainTipHeight } from './multisig.provider'
+import { escrowFundingEvidenceRepository } from './escrow-funding-evidence-repository'
+import { multisigProvider, type MultisigEscrowInput } from './multisig.provider'
+import { loadParticipantPubkeys } from './escrow-lifecycle'
 
 const log = childLogger('multisig-funding-reorg-sweep')
 
 export interface FundingReorgSweepResult {
-  flagged: string[]
+  reconfirmed: string[]
+  replacementObserved: string[]
+  reverted: string[]
   stillGood: string[]
-  buriedEnough: string[]
+  stillPending: string[]
+  skippedNoBaseline: string[]
   failed: Array<{ escrowId: string; error: string }>
 }
 
 export async function sweepMultisigFundingReorgs(): Promise<FundingReorgSweepResult> {
-  const result: FundingReorgSweepResult = { flagged: [], stillGood: [], buriedEnough: [], failed: [] }
+  const result: FundingReorgSweepResult = {
+    reconfirmed: [], replacementObserved: [], reverted: [], stillGood: [], stillPending: [], skippedNoBaseline: [], failed: [],
+  }
 
   const escrows = await prisma.escrow.findMany({
     where: { type: 'MULTISIG', status: 'FUNDS_LOCKED', txLockId: { not: null } },
@@ -55,40 +74,102 @@ export async function sweepMultisigFundingReorgs(): Promise<FundingReorgSweepRes
 
   if (escrows.length === 0) return result
 
-  const tipHeight = await fetchChainTipHeight()
+  const required = config.multisig.requiredConfirmations
 
   for (const escrow of escrows) {
     try {
-      if (!escrow.txLockId || !escrow.lockedAt) continue // structurally shouldn't happen given the WHERE clause above
+      const history = await escrowFundingEvidenceRepository.listForEscrow(escrow.id)
+      const last = history[history.length - 1]
+      if (!last) {
+        // No baseline this sweep itself ever recorded (a pre-Fase-9.1
+        // escrow, or a MULTISIG escrow whose lockFunds() ran before this
+        // repository existed). Never invent a retroactive OBSERVED_CONFIRMED
+        // row for history this sweep didn't witness — skip, disclosed.
+        result.skippedNoBaseline.push(escrow.id)
+        continue
+      }
 
-      const status = await fetchTransactionConfirmationStatus(escrow.txLockId)
-      if (!status.confirmed || status.blockHeight === null) {
-        log.error({
-          msg: 'Reorg detected on a FUNDS_LOCKED escrow\'s funding transaction — NOT changing escrow status (no designed recovery semantics exist for this case yet). Flagging as an exceptional reconciliation condition requiring manual review.',
-          escrowId: escrow.id, txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
+      const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrow.id)
+      const input: MultisigEscrowInput = {
+        tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString(),
+        buyerPubkey, sellerPubkey, arbiterPubkey,
+        feePolicyVersionId: escrow.feePolicyVersionId,
+        snapshotProtocolFeeRate: escrow.snapshotProtocolFeeRate?.toString() ?? null,
+        snapshotFeeCollectionAddress: escrow.snapshotFeeCollectionAddress,
+        snapshotFeeCollectionWaivedPreFunding: escrow.snapshotFeeCollectionWaivedPreFunding,
+      }
+
+      const scan = await multisigProvider.rescanFunding(input)
+      const trustworthy = last.kind === 'OBSERVED_CONFIRMED' || last.kind === 'RECONFIRMED'
+
+      if (scan && scan.depth >= required) {
+        if (last.txid === scan.txId) {
+          if (trustworthy) {
+            result.stillGood.push(escrow.id)
+          } else {
+            await escrowFundingEvidenceRepository.record({
+              escrowId: escrow.id, kind: 'RECONFIRMED', txid: scan.txId, vout: scan.vout,
+              ...(scan.confirmedAtHeight !== null ? { observedAtHeight: scan.confirmedAtHeight } : {}),
+              ...(scan.tipHeightAtObservation !== null ? { tipHeightAtObservation: scan.tipHeightAtObservation } : {}),
+            })
+            result.reconfirmed.push(escrow.id)
+          }
+        } else {
+          // A different txid than whatever we last knew about — record
+          // once per distinct new candidate, never re-record the same one.
+          if (!(last.kind === 'REPLACEMENT_OBSERVED' && last.txid === scan.txId)) {
+            await escrowFundingEvidenceRepository.record({
+              escrowId: escrow.id, kind: 'REPLACEMENT_OBSERVED', txid: scan.txId, vout: scan.vout,
+              ...(scan.confirmedAtHeight !== null ? { observedAtHeight: scan.confirmedAtHeight } : {}),
+              ...(scan.tipHeightAtObservation !== null ? { tipHeightAtObservation: scan.tipHeightAtObservation } : {}),
+              note: `Replaces previously observed ${last.txid ?? 'unknown'}`,
+            })
+            result.replacementObserved.push(escrow.id)
+          } else {
+            result.stillPending.push(escrow.id)
+          }
+        }
+        continue
+      }
+
+      if (scan && scan.depth < required) {
+        // A confirmed-but-shallow candidate exists — not yet trustworthy.
+        if (trustworthy) {
+          await escrowFundingEvidenceRepository.record({
+            escrowId: escrow.id, kind: 'REORGED_INVALIDATED', txid: last.txid ?? undefined,
+            note: `Confirmation depth dropped: only ${scan.depth} of ${required} required at this observation`,
+          })
+          result.reverted.push(escrow.id)
+        } else {
+          result.stillPending.push(escrow.id)
+        }
+        continue
+      }
+
+      // Nothing found at all.
+      if (last.kind !== 'REORGED_INVALIDATED') {
+        await escrowFundingEvidenceRepository.record({
+          escrowId: escrow.id, kind: 'REORGED_INVALIDATED', txid: last.txid ?? undefined,
+          note: 'No confirmed UTXO matching the required funding criteria found at this observation',
         })
-        result.flagged.push(escrow.id)
-        continue
+        result.reverted.push(escrow.id)
+      } else {
+        result.stillPending.push(escrow.id)
       }
-
-      const depthNow = tipHeight - status.blockHeight + 1
-      if (depthNow > config.trade.multisigReorgSafetyWindowBlocks) {
-        result.buriedEnough.push(escrow.id)
-        continue
-      }
-
-      result.stillGood.push(escrow.id)
     } catch (err) {
       result.failed.push({ escrowId: escrow.id, error: err instanceof Error ? err.message : String(err) })
     }
   }
 
-  if (result.flagged.length || result.failed.length) {
+  if (result.reverted.length || result.reconfirmed.length || result.replacementObserved.length || result.failed.length) {
     log.info({
       msg: 'MULTISIG funding reorg sweep completed',
-      flagged: result.flagged.length,
+      reverted: result.reverted.length,
+      reconfirmed: result.reconfirmed.length,
+      replacementObserved: result.replacementObserved.length,
       stillGood: result.stillGood.length,
-      buriedEnough: result.buriedEnough.length,
+      stillPending: result.stillPending.length,
+      skippedNoBaseline: result.skippedNoBaseline.length,
       failed: result.failed.length,
     })
   }

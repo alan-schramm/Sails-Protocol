@@ -682,11 +682,55 @@ export class MultisigProvider implements SettlementProvider {
   // Returns the confirmation count (0 if genuinely unconfirmed) rather
   // than a boolean so lockFunds()'s error message can report real
   // progress ("2 of 3 confirmations") instead of a bare yes/no.
-  private async confirmationDepth(txid: string): Promise<number> {
+  //
+  // Missão 11 Fase 9.1 §1 — also returns the raw blockHeight/tipHeight
+  // (not just the derived depth count) so lockFunds() can record them
+  // verbatim onto the initial EscrowFundingEvidence.OBSERVED_CONFIRMED
+  // row — the same real numbers this check itself used to decide the
+  // escrow was safe to lock, not re-derived or approximated later.
+  private async confirmationDepth(txid: string): Promise<{ depth: number; blockHeight: number | null; tipHeight: number | null }> {
     const status = await fetchTransactionConfirmationStatus(txid)
-    if (!status.confirmed || status.blockHeight === null) return 0
+    if (!status.confirmed || status.blockHeight === null) return { depth: 0, blockHeight: null, tipHeight: null }
     const tipHeight = await fetchChainTipHeight()
-    return tipHeight - status.blockHeight + 1
+    return { depth: tipHeight - status.blockHeight + 1, blockHeight: status.blockHeight, tipHeight }
+  }
+
+  // Missão 11 Fase 9.1 §3/§8 — the exact UTXO-matching predicate lockFunds()
+  // always used, extracted so multisig-funding-reorg-sweep.ts can re-scan
+  // for a REPLACEMENT candidate at this escrow's own address using the
+  // IDENTICAL matching rule, rather than a second, independently-written
+  // heuristic that could subtly drift from this one (the CTO's own
+  // "server must not maintain subtly different construction/matching
+  // rules" principle, applied internally here too). Never throws — returns
+  // null when nothing matches, since "not found" is a normal, expected
+  // outcome for a re-scan (unlike lockFunds()'s own first-time call, where
+  // it's a real error to surface to the caller).
+  private async findFundingCandidate(escrow: MultisigEscrowInput): Promise<{ address: string; utxo: ExplorerUtxo } | null> {
+    const parties = this.partiesFor(escrow)
+    const { p2wsh } = this.buildScript(parties)
+    const address = p2wsh.address!
+    const utxos = await this.fetchUtxos(address)
+
+    const utxo = this.isPolicyAware(escrow)
+      ? utxos.find((u) => u.value === this.requiredFundingSats(escrow) && u.status.confirmed)
+      : utxos.find((u) => u.value >= this.expectedSats(escrow.lockedAmount) && u.status.confirmed)
+    return utxo ? { address, utxo } : null
+  }
+
+  private noFundingCandidateError(escrow: MultisigEscrowInput, address: string): EscrowError {
+    if (this.isPolicyAware(escrow)) {
+      const requiredSats = this.requiredFundingSats(escrow)
+      return new EscrowError(
+        `No funding UTXO of EXACTLY ${requiredSats} sats (trade amount + maximum Protocol Fee reserve) found at ${address}. ` +
+        'This escrow is under a Protocol Fee policy and requires exact, single-outpoint funding — a value below, above, or split across ' +
+        'multiple UTXOs is rejected, not silently accepted. This is a non-custodial provider — it verifies external funding, it does not move funds itself.'
+      )
+    }
+    const expected = this.expectedSats(escrow.lockedAmount)
+    return new EscrowError(
+      `No funding UTXO of at least ${expected} sats found at ${address} yet. This is a non-custodial provider — ` +
+      `it verifies external funding, it does not move funds itself. Send the trade's collateral to ${address} first, then retry lockFunds.`
+    )
   }
 
   // Missão 10 — now returns vout alongside txId. This is still the ONE
@@ -695,60 +739,30 @@ export class MultisigProvider implements SettlementProvider {
   // this call is establishing) — everything downstream of this
   // (buildUnsignedSpend()) must use the vout this returns exactly, never
   // re-discover it.
-  async lockFunds(escrow: MultisigEscrowInput): Promise<{ txId: string; vout: number; address: string; fundedAmount?: number }> {
-    const parties = this.partiesFor(escrow)
-    const { p2wsh } = this.buildScript(parties)
-    const address = p2wsh.address!
-    const utxos = await this.fetchUtxos(address)
+  async lockFunds(escrow: MultisigEscrowInput): Promise<{
+    txId: string; vout: number; address: string; fundedAmount?: number
+    confirmedAtHeight?: number; tipHeightAtObservation?: number
+  }> {
     const required = config.multisig.requiredConfirmations
+    const candidate = await this.findFundingCandidate(escrow)
 
     // Missão 11 Fase 3.4/4 — policy-aware escrows require EXACT,
     // single-outpoint funding (A = R = T + Fmax). This single strict-equality
-    // predicate is what rejects underfunding, overfunding, AND multi-UTXO
-    // funding uniformly (Fase 3.4 §A/§F) — no separate cases needed. A
-    // mismatch throws BEFORE any txLockId/txLockVout is ever persisted and
-    // BEFORE the escrow transitions past its current status (escrow.service.ts's
-    // own claimEscrowTransition()/revertEscrowStatus() flow, unchanged) —
+    // predicate (inside findFundingCandidate() above) is what rejects
+    // underfunding, overfunding, AND multi-UTXO funding uniformly (Fase
+    // 3.4 §A/§F) — no separate cases needed. A mismatch throws BEFORE any
+    // txLockId/txLockVout is ever persisted and BEFORE the escrow
+    // transitions past its current status (escrow.service.ts's own
+    // claimEscrowTransition()/revertEscrowStatus() flow, unchanged) —
     // confirmed structurally, not assumed (Fase 3.4 §4's own audit).
-    if (this.isPolicyAware(escrow)) {
-      const requiredSats = this.requiredFundingSats(escrow)
-      // Missão 11 Fase 8.1 LB-02 — status.confirmed is kept as a cheap
-      // first-pass filter (avoids two extra explorer round-trips for a
-      // UTXO that's obviously still in mempool); confirmationDepth()
-      // below re-verifies confirmation status independently and
-      // authoritatively — this filter is an optimization, not the real
-      // safety check.
-      const funding = utxos.find((u) => u.value === requiredSats && u.status.confirmed)
-      if (!funding) {
-        throw new EscrowError(
-          `No funding UTXO of EXACTLY ${requiredSats} sats (trade amount + maximum Protocol Fee reserve) found at ${address}. ` +
-          'This escrow is under a Protocol Fee policy and requires exact, single-outpoint funding — a value below, above, or split across ' +
-          'multiple UTXOs is rejected, not silently accepted. This is a non-custodial provider — it verifies external funding, it does not move funds itself.'
-        )
-      }
-      const depth = await this.confirmationDepth(funding.txid)
-      if (depth < required) {
-        throw new EscrowError(
-          `Funding UTXO ${funding.txid}:${funding.vout} at ${address} has ${depth} of the required ${required} confirmation(s). ` +
-          'Refusing to lock funds on insufficient confirmation depth — a shallow reorg could invalidate this funding before Sails ' +
-          'ever transitions the escrow to FUNDS_LOCKED. Retry once the required depth is reached.'
-        )
-      }
-      return { txId: funding.txid, vout: funding.vout, address, fundedAmount: funding.value }
+    if (!candidate) {
+      const parties = this.partiesFor(escrow)
+      const { p2wsh } = this.buildScript(parties)
+      throw this.noFundingCandidateError(escrow, p2wsh.address!)
     }
 
-    // Legacy — value-matching logic unchanged, byte-for-byte, from before
-    // this phase; the confirmation-depth requirement below is new and
-    // applies uniformly (LB-02 was never a policy-aware-only gap).
-    const expected = this.expectedSats(escrow.lockedAmount)
-    const funding = utxos.find((u) => u.value >= expected && u.status.confirmed)
-    if (!funding) {
-      throw new EscrowError(
-        `No funding UTXO of at least ${expected} sats found at ${address} yet. This is a non-custodial provider — ` +
-        `it verifies external funding, it does not move funds itself. Send the trade's collateral to ${address} first, then retry lockFunds.`
-      )
-    }
-    const depth = await this.confirmationDepth(funding.txid)
+    const { address, utxo: funding } = candidate
+    const { depth, blockHeight, tipHeight } = await this.confirmationDepth(funding.txid)
     if (depth < required) {
       throw new EscrowError(
         `Funding UTXO ${funding.txid}:${funding.vout} at ${address} has ${depth} of the required ${required} confirmation(s). ` +
@@ -756,7 +770,28 @@ export class MultisigProvider implements SettlementProvider {
         'ever transitions the escrow to FUNDS_LOCKED. Retry once the required depth is reached.'
       )
     }
-    return { txId: funding.txid, vout: funding.vout, address }
+    return {
+      txId: funding.txid, vout: funding.vout, address,
+      ...(this.isPolicyAware(escrow) ? { fundedAmount: funding.value } : {}),
+      ...(blockHeight !== null ? { confirmedAtHeight: blockHeight } : {}),
+      ...(tipHeight !== null ? { tipHeightAtObservation: tipHeight } : {}),
+    }
+  }
+
+  // Missão 11 Fase 9.1 §3 — used by multisig-funding-reorg-sweep.ts to
+  // check whether a REPLACEMENT transaction now funds this escrow's own
+  // committed address/script correctly, using the exact same matching
+  // rule and confirmation-depth rigor lockFunds() itself required — never
+  // a lighter-weight or best-effort re-check. Returns null (never throws)
+  // when nothing currently matches — a normal, expected outcome for a
+  // re-scan of an escrow whose original funding disappeared.
+  async rescanFunding(escrow: MultisigEscrowInput): Promise<{
+    txId: string; vout: number; depth: number; confirmedAtHeight: number | null; tipHeightAtObservation: number | null
+  } | null> {
+    const candidate = await this.findFundingCandidate(escrow)
+    if (!candidate) return null
+    const { depth, blockHeight, tipHeight } = await this.confirmationDepth(candidate.utxo.txid)
+    return { txId: candidate.utxo.txid, vout: candidate.utxo.vout, depth, confirmedAtHeight: blockHeight, tipHeightAtObservation: tipHeight }
   }
 
   // Missão 11 Fase 8.1 LB-02 — not currently called anywhere in
@@ -777,7 +812,7 @@ export class MultisigProvider implements SettlementProvider {
       : utxos.find((u) => u.value >= this.expectedSats(escrow.lockedAmount) && u.status.confirmed)
     if (!funding) return false
 
-    const depth = await this.confirmationDepth(funding.txid)
+    const { depth } = await this.confirmationDepth(funding.txid)
     return depth >= required
   }
 
@@ -849,7 +884,7 @@ export class MultisigProvider implements SettlementProvider {
     parties: MultisigParties,
     outputCount: number,
     computeOutputs: (spendableValue: bigint) => Array<{ address: string; value: bigint }>
-  ): Promise<bitcoin.Psbt> {
+  ): Promise<{ psbt: bitcoin.Psbt; feeSats: bigint }> {
     this.assertArbiterMatchesScript(escrow)
     const { p2ms, p2wsh, network } = this.buildScript(parties)
 
@@ -915,7 +950,7 @@ export class MultisigProvider implements SettlementProvider {
     for (const output of computedOutputs) {
       psbt.addOutput({ address: output.address, value: output.value })
     }
-    return psbt
+    return { psbt, feeSats }
   }
 
   // Real Phase 2 (2026-07-27) — see this file's header comment for the
@@ -948,13 +983,13 @@ export class MultisigProvider implements SettlementProvider {
   // either the Sails leg or the seller-refund leg), closed by moving the
   // collectibility check before funding instead of discovering it at
   // settlement time.
-  async buildUnsignedRelease(escrow: MultisigEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null }> {
+  async buildUnsignedRelease(escrow: MultisigEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null; minerFeeSats: number }> {
     const parties = this.partiesFor(escrow)
     const policyAware = this.isPolicyAware(escrow)
     const fmax = this.maxFeeSats(escrow)
 
     const outputCount = policyAware && fmax > 0 ? 2 : 1
-    const psbt = await this.buildUnsignedSpend(escrow, parties, outputCount, (spendableValue) => {
+    const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, outputCount, (spendableValue) => {
       if (!policyAware || fmax === 0) {
         return [{ address: toAddress, value: spendableValue }]
       }
@@ -973,13 +1008,13 @@ export class MultisigProvider implements SettlementProvider {
       if (!escrow.buyerId) {
         throw new EscrowError(`MULTISIG provider: missing buyerId for disputed release of trade ${escrow.tradeId}`)
       }
-      return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId], feeCollection: feeCollectionResult }
+      return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId], feeCollection: feeCollectionResult, minerFeeSats: Number(feeSats) }
     }
 
     if (!escrow.buyerId || !escrow.sellerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId/sellerId for release of trade ${escrow.tradeId}`)
     }
-    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId, escrow.sellerId], feeCollection: feeCollectionResult }
+    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId, escrow.sellerId], feeCollection: feeCollectionResult, minerFeeSats: Number(feeSats) }
   }
 
   // Missão 11 Fase 4 — deliberately UNCHANGED. Per this mission's own
@@ -1000,12 +1035,12 @@ export class MultisigProvider implements SettlementProvider {
   // for WDK's releaseToAddress), and only needs the seller's PUBLIC key
   // (p2wpkh() takes a pubkey, not a private key) so it stays derivable
   // even though this provider never holds the seller's private key.
-  async buildUnsignedRefund(escrow: MultisigEscrowInput): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string }> {
+  async buildUnsignedRefund(escrow: MultisigEscrowInput): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string; minerFeeSats: number }> {
     const parties = this.partiesFor(escrow)
     const network = networkFor(config.multisig.network)
     const sellerRefundAddress = bitcoin.payments.p2wpkh({ pubkey: parties.sellerPubkey, network }).address!
 
-    const psbt = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
+    const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
 
     if (escrow.status === 'DISPUTED') {
       const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
@@ -1013,13 +1048,13 @@ export class MultisigProvider implements SettlementProvider {
       if (!escrow.sellerId) {
         throw new EscrowError(`MULTISIG provider: missing sellerId for disputed refund of trade ${escrow.tradeId}`)
       }
-      return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.sellerId], toAddress: sellerRefundAddress }
+      return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.sellerId], toAddress: sellerRefundAddress, minerFeeSats: Number(feeSats) }
     }
 
     if (!escrow.buyerId || !escrow.sellerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId/sellerId for refund of trade ${escrow.tradeId}`)
     }
-    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.sellerId, escrow.buyerId], toAddress: sellerRefundAddress }
+    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.sellerId, escrow.buyerId], toAddress: sellerRefundAddress, minerFeeSats: Number(feeSats) }
   }
 
   // RFC-021 D9 (2026-08-02) — real, unlike SAFE_GUARD_EVM/LIGHTNING_HODL's
@@ -1062,7 +1097,7 @@ export class MultisigProvider implements SettlementProvider {
   // specific buyerBps ruling. 3 outputs when the fee is collectible, 2
   // when either kind of waiver applies (never fewer for the buyer/seller
   // legs regardless).
-  async buildUnsignedSplit(escrow: MultisigEscrowInput, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null }> {
+  async buildUnsignedSplit(escrow: MultisigEscrowInput, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null; minerFeeSats: number }> {
     const parties = this.partiesFor(escrow)
     const network = networkFor(config.multisig.network)
     const policyAware = this.isPolicyAware(escrow)
@@ -1087,7 +1122,7 @@ export class MultisigProvider implements SettlementProvider {
     const collectedFee = feeDecision.waived ? 0 : feeDecision.feeSats
     const outputCount = policyAware && fmax > 0 ? (feeDecision.waived ? 2 : 3) : 2
 
-    const psbt = await this.buildUnsignedSpend(escrow, parties, outputCount, (spendableValue) => {
+    const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, outputCount, (spendableValue) => {
       const buyerPool = policyAware ? spendableValue - BigInt(fmax) : spendableValue
       const buyerValue = (buyerPool * BigInt(buyerBps)) / 10000n
       const sellerBase = buyerPool - buyerValue
@@ -1115,7 +1150,7 @@ export class MultisigProvider implements SettlementProvider {
     if (!escrow.buyerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId for disputed split of trade ${escrow.tradeId}`)
     }
-    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId], feeCollection: feeCollectionResult }
+    return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId], feeCollection: feeCollectionResult, minerFeeSats: Number(feeSats) }
   }
 
   // Shared finalize: combines the unsigned PSBT with every independently-

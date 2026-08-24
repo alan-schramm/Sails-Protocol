@@ -11,6 +11,7 @@ import {
   emitEscrowTransition,
   resolvePayoutAddress,
   checkFundMovementCapability,
+  assertFundingNotUncertain,
 } from './escrow-lifecycle'
 import { hasDualApproval } from './escrow-dual-approval'
 import { escrowRepository } from './escrow-repository'
@@ -59,7 +60,7 @@ async function initiateSignatureCollectionCore(
   kind: 'release' | 'refund' | 'split',
   targetStatus: string,
   triggeredBy: string,
-  buildProvider: (provider: any, escrowRecord: any) => Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress?: string; toAddressSecondary?: string; feeCollection?: { feeSats: number; waived: boolean } | null }>,
+  buildProvider: (provider: any, escrowRecord: any) => Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress?: string; toAddressSecondary?: string; feeCollection?: { feeSats: number; waived: boolean } | null; minerFeeSats?: number }>,
   extraData?: Record<string, unknown>
 ) {
   const escrow = await escrowRepository.findById(escrowId)
@@ -72,6 +73,16 @@ async function initiateSignatureCollectionCore(
     )
   }
   assertEscrowTransition(escrow.status, targetStatus as any)
+
+  // Missão 11 Fase 9.1 §2 — release and split both credit the BUYER (and,
+  // for split, collect a protocol fee) from what's believed to be the
+  // escrow's own locked funds; refund is deliberately exempt (see
+  // assertFundingNotUncertain()'s own comment — it's a recovery path,
+  // returning collateral to the party who originally funded it, not a
+  // new false-positive risk).
+  if (kind === 'release' || kind === 'split') {
+    await assertFundingNotUncertain(escrowId, escrow.type)
+  }
 
   const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
@@ -129,6 +140,14 @@ async function initiateSignatureCollectionCore(
         // guaranteed to match the real transaction, not a later
         // independent recomputation.
         ...(result.feeCollection ? { feeCollectionSats: result.feeCollection.feeSats, feeCollectionWaived: result.feeCollection.waived } : {}),
+        // Missão 11 Fase 9.1.1 §3 — persist the exact miner fee this PSBT
+        // was actually built against, so an independent verifier
+        // (sails-ui, or any external wallet) can reconstruct the correct
+        // ExpectedSigningIntent without re-estimating a live fee rate
+        // that would almost never match the historical value baked into
+        // this already-built PSBT. Undefined for a provider that doesn't
+        // report one (LIGHTNING_HODL/SAFE_GUARD_EVM today).
+        ...(result.minerFeeSats !== undefined ? { minerFeeSats: result.minerFeeSats } : {}),
         ...extraData,
       },
     })

@@ -19,7 +19,7 @@
  *
  * Run: npm run start:bitcoin -w @sails/example-wallet-integration
  */
-import { SailsClient } from '@satsails/p2p-trading-sdk'
+import { SailsClient, MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-trading-sdk'
 import { RealBitcoinWalletAdapter } from './bitcoin-wallet-adapter'
 
 const BASE_URL = process.env.SAILS_BASE_URL ?? 'http://localhost:3000'
@@ -101,8 +101,11 @@ async function main() {
   console.log(`    escrow ${escrow.id} created`)
 
   step('Both sides submit their real public key (settlement.submitKey) — private keys never leave this process')
-  await sellerClient.settlement.submitKey(escrow.id, sellerBitcoinWallet.publicKeyHex)
-  const { escrow: withAddress } = await buyerClient.settlement.submitKey(escrow.id, buyerBitcoinWallet.publicKeyHex)
+  // Missão 11 Fase 9.1.1 — fail-closed capability declaration: a real
+  // MULTISIG commit now requires both sides to declare the profile they
+  // actually implement, no exception for either party.
+  await sellerClient.settlement.submitKey(escrow.id, sellerBitcoinWallet.publicKeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
+  const { escrow: withAddress } = await buyerClient.settlement.submitKey(escrow.id, buyerBitcoinWallet.publicKeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
   if (!withAddress.multisigAddr) throw new Error('Expected multisigAddr to be derived once both keys are submitted')
   const depositAddress = withAddress.multisigAddr
   console.log(`    real 2-of-3 P2WSH deposit address (server-derived — neither wallet's own address): ${depositAddress}`)

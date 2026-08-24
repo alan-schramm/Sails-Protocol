@@ -10,6 +10,7 @@ import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
+import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 
 /**
  * Sails OpenSettlement — Escrow lifecycle shared helpers
@@ -125,6 +126,38 @@ export async function checkFundMovementCapability(
   if (!allowed) {
     throw new ForbiddenError(
       `${triggeredBy} has no active '${capabilityName}' capability grant covering '${scope}'`
+    )
+  }
+}
+
+// Missão 11 Fase 9.1 §2 — closes the Phase 9.0 audit's own DP-05/DP-07
+// finding: nothing previously stopped a trade from advancing past
+// funding evidence a reorg sweep had already determined was false.
+//
+// Deliberately narrow: called ONLY from markPaymentSent(), initiateRelease(),
+// and initiateSplit() (see each call site's own comment for why) — never
+// from refund initiation, dispute raising, the EXPIRED transition, or
+// expiry-recovery. Those four are recovery/observation paths, and
+// blocking a legitimate recovery path is exactly the "permanent fund
+// denial" this phase was explicitly told not to create — refund returns
+// collateral to the party who originally funded it (not a new
+// false-positive risk the way crediting the buyer or collecting a fee
+// would be), and a dispute/recovery action is precisely how a party
+// should be able to respond to a funding problem, not something that
+// problem should block.
+//
+// Only meaningful for MULTISIG (the only rail with a real funding-reorg
+// concept today) — a no-op for every other escrow type, matching the
+// same "MULTISIG today" scoping multisig-funding-reorg-sweep.ts itself
+// already uses.
+export async function assertFundingNotUncertain(escrowId: string, escrowType: string): Promise<void> {
+  if (escrowType !== 'MULTISIG') return
+  const uncertain = await escrowFundingEvidenceService.isFundingUncertain(escrowId)
+  if (uncertain) {
+    throw new EscrowError(
+      `Escrow ${escrowId}'s funding evidence is currently uncertain — a background reorg check found the previously-accepted funding transaction ` +
+      'no longer confirmed on the best chain, and it has not yet been reconfirmed or replaced by a re-verified transaction. Refusing to proceed ' +
+      'rather than manufacture certainty the chain does not currently support. Refunding, raising a dispute, or waiting for reconfirmation remain available.'
     )
   }
 }

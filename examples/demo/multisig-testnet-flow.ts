@@ -69,6 +69,7 @@ import { escrowService } from '../../src/modules/open-settlement/escrow.service'
 import { keyIndexFor, multisigProvider } from '../../src/modules/open-settlement/multisig.provider'
 import { intentEngine } from '../../src/core/intent-engine'
 import { OpenP2PTradeIntentHandler } from '../../src/modules/open-p2p/intent-handler'
+import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 // Lazy require() (CODE_STYLE.md §8) — @satsails/p2p-trading-sdk is a heavy ESM-adjacent
 // package; no other demo script imports it, so it stays out of every path
 // that doesn't need it.
@@ -361,8 +362,11 @@ export async function main() {
     console.log(`   Seller pubkey: ${sellerKeys.publicKeyHex} (fingerprint ${fingerprint(sellerKeys.publicKey)})`)
 
     step(5, TOTAL, 'Submetendo chaves públicas (deriva o endereço P2WSH real)...')
-    await escrowService.submitParticipantKey(escrowId, buyerId, buyerKeys.publicKeyHex)
-    const { escrow: withAddress } = await escrowService.submitParticipantKey(escrowId, sellerId, sellerKeys.publicKeyHex)
+    // Missão 11 Fase 9.1.1 — fail-closed capability declaration required
+    // for a real MULTISIG commit; this rehearsal declares the real
+    // profile it actually implements.
+    await escrowService.submitParticipantKey(escrowId, buyerId, buyerKeys.publicKeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
+    const { escrow: withAddress } = await escrowService.submitParticipantKey(escrowId, sellerId, sellerKeys.publicKeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
     if (!withAddress.multisigAddr) throw new Error('multisigAddr não foi derivado — ver MULTISIG_SEED/TRUSTED_ARBITRATORS')
     depositAddress = withAddress.multisigAddr
   }
@@ -482,7 +486,7 @@ export async function main() {
   const expectedOutputs = feeCollectible
     ? buildExpectedFeeAwareReleaseOutputs({
         lockedAmountSats,
-        protocolFeeRate: Number(escrowDetails.snapshotProtocolFeeRate),
+        protocolFeeRate: escrowDetails.snapshotProtocolFeeRate!, // Missão 11 Fase 9.1 §13 — exact decimal string, no lossy Number() conversion
         minerFee: expectedMinerFee,
         buyerAddress: buyerPayoutAddress,
         secondOutputAddress: escrowDetails.snapshotFeeCollectionAddress!,

@@ -96,7 +96,17 @@ export interface SettlementProvider {
   // Purely observational (escrow.service.ts persists it to Escrow.fundedAmount
   // for policy-aware escrows only) — never the source of truth for
   // construction, which always re-reads the real chain/provider state.
-  lockFunds(escrow: EscrowRecord): Promise<{ txId: string; address: string; vout?: number; fundedAmount?: number }>
+  // Missão 11 Fase 9.1 §1 — confirmedAtHeight/tipHeightAtObservation are
+  // optional, same "MULTISIG today" shape as vout/fundedAmount above:
+  // only a provider with a real Bitcoin-style confirmation-depth concept
+  // populates them, so escrow.service.ts can record the initial
+  // EscrowFundingEvidence.OBSERVED_CONFIRMED row with real height data
+  // when available, and simply omit it (still valid — see that model's
+  // nullable columns) for every other provider.
+  lockFunds(escrow: EscrowRecord): Promise<{
+    txId: string; address: string; vout?: number; fundedAmount?: number
+    confirmedAtHeight?: number; tipHeightAtObservation?: number
+  }>
   releaseFunds(escrow: EscrowRecord, toAddress: string): Promise<{ txId: string }>
   refundFunds(escrow: EscrowRecord): Promise<{ txId: string }>
   verifyLock(escrow: EscrowRecord): Promise<boolean>
@@ -189,6 +199,25 @@ export const NON_CUSTODIAL_PROVIDERS: Record<string, { getDepositAddress(tradeId
   SAFE_GUARD_EVM: safeGuardEvmProvider,
 }
 
+// Missão 11 Fase 9.1 §10 — Phase 9.0's audit found every real provider
+// already states its own honest, distinctly-worded `custodyModel` field
+// (each provider's own header comment has the full disclosure), but it
+// was never serialized into any HTTP/SDK response — only knowable from
+// reading source code. Not part of the `SettlementProvider` interface
+// itself (deliberately: MOCK has no real custody claim to make, so
+// requiring every implementation to set one would force a meaningless
+// placeholder onto the one provider where "custody" doesn't apply at
+// all). `null` for MOCK and any unregistered type — never a fabricated
+// or marketing label; a client that gets `null` should treat that as
+// "no disclosed custody model," not "fully custodial" or "fully
+// non-custodial." Read via a live index signature access (not the
+// PROVIDERS map's own static type) since custodyModel isn't declared on
+// SettlementProvider itself.
+export function getCustodyModelForType(type: string): string | null {
+  const provider = PROVIDERS[type] as { custodyModel?: string } | undefined
+  return provider?.custodyModel ?? null
+}
+
 // Phase 2 (2026-07-27) — providers whose release/refund now goes through
 // client-signature collection instead of a single synchronous provider
 // call. Both MULTISIG and LIGHTNING_HODL as of the same day's follow-up
@@ -215,8 +244,13 @@ export interface FeeCollectionResult {
 }
 
 export interface SignatureCollectionProvider {
-  buildUnsignedRelease(escrow: unknown, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null }>
-  buildUnsignedRefund(escrow: unknown): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string }>
+  // Missão 11 Fase 9.1.1 §3 — minerFeeSats is optional/additive: only
+  // MULTISIG has a real, precomputed miner-fee concept worth persisting
+  // for an independent verifier to read back (see EscrowPendingTransaction.minerFeeSats's
+  // own schema comment) — LIGHTNING_HODL/SAFE_GUARD_EVM's existing return
+  // shapes stay valid unchanged.
+  buildUnsignedRelease(escrow: unknown, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null; minerFeeSats?: number }>
+  buildUnsignedRefund(escrow: unknown): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string; minerFeeSats?: number }>
   finalizeRelease(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
   finalizeRefund(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
   // RFC-021 D9 — optional, same reasoning as SettlementProvider.splitFunds
@@ -226,7 +260,7 @@ export interface SignatureCollectionProvider {
   // how many outputs it spends to. Only MULTISIG implements this pass;
   // LIGHTNING_HODL/SAFE_GUARD_EVM each have a real, provider-specific
   // reason they can't (see each one's own buildUnsignedSplit() override).
-  buildUnsignedSplit?(escrow: unknown, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null }>
+  buildUnsignedSplit?(escrow: unknown, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null; minerFeeSats?: number }>
   finalizeSplit?(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
 }
 export const SIGNATURE_COLLECTION_PROVIDERS: Record<string, SignatureCollectionProvider> = {

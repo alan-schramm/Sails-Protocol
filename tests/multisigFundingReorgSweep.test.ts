@@ -1,85 +1,176 @@
 // tests/multisigFundingReorgSweep.test.ts
 //
-// Missão 11 Fase 8.1 LB-08(A) — sweepMultisigFundingReorgs() unit-level
-// proof: detection + logging only, never a status mutation. Mocked
-// Prisma + mocked explorer fetch, no real database or network.
+// Missão 11 Fase 9.1 §1/§3 — sweepMultisigFundingReorgs() unit-level
+// proof of the full evidence-writing state machine (supersedes the
+// Fase 8.1 LB-08(A) log-only version). Mocked Prisma + mocked
+// multisigProvider.rescanFunding(), no real database or network.
 
 jest.mock('../src/config', () => ({
-  config: {
-    trade: { multisigReorgSafetyWindowBlocks: 100 },
-    multisig: { explorerApiUrl: 'https://mempool.space/testnet/api' },
-  },
+  config: { multisig: { requiredConfirmations: 2 } },
 }))
 
 const mockEscrowFindMany = jest.fn()
-const mockEscrowUpdate = jest.fn()
+const mockParticipantKeyFindMany = jest.fn()
 jest.mock('../src/common/database', () => ({
   prisma: {
-    escrow: {
-      findMany: (...args: unknown[]) => mockEscrowFindMany(...args),
-      update: (...args: unknown[]) => mockEscrowUpdate(...args),
-    },
+    escrow: { findMany: (...args: unknown[]) => mockEscrowFindMany(...args) },
+    escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
   },
 }))
 
-const fetchMock = jest.fn()
+const mockListForEscrow = jest.fn()
+const mockRecord = jest.fn()
+jest.mock('../src/modules/open-settlement/escrow-funding-evidence-repository', () => ({
+  escrowFundingEvidenceRepository: {
+    listForEscrow: (...args: unknown[]) => mockListForEscrow(...args),
+    record: (...args: unknown[]) => mockRecord(...args),
+  },
+}))
+
+const mockRescanFunding = jest.fn()
+jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
+  multisigProvider: { rescanFunding: (...args: unknown[]) => mockRescanFunding(...args) },
+}))
 
 import { sweepMultisigFundingReorgs } from '../src/modules/open-settlement/multisig-funding-reorg-sweep'
 
 function escrowFixture(overrides: Record<string, any> = {}) {
-  return { id: 'escrow-1', type: 'MULTISIG', status: 'FUNDS_LOCKED', txLockId: 'a'.repeat(64), txLockVout: 0, lockedAt: new Date(), ...overrides }
+  return {
+    id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'FUNDS_LOCKED',
+    txLockId: 'a'.repeat(64), lockedAmount: { toString: () => '0.001' },
+    feePolicyVersionId: null, snapshotProtocolFeeRate: null,
+    snapshotFeeCollectionAddress: null, snapshotFeeCollectionWaivedPreFunding: null,
+    ...overrides,
+  }
+}
+
+function evidenceRow(kind: string, txid = 'a'.repeat(64)) {
+  return { id: 'ev', escrowId: 'escrow-1', kind, txid, vout: 0, recordedAt: new Date() }
 }
 
 beforeEach(() => {
   jest.clearAllMocks()
-  ;(global as any).fetch = fetchMock
+  mockParticipantKeyFindMany.mockResolvedValue([])
 })
 
-function mockChain({ tipHeight, confirmed, blockHeight }: { tipHeight: number; confirmed: boolean; blockHeight?: number }) {
-  fetchMock.mockImplementation((url: string) => {
-    if (url.includes('/blocks/tip/height')) return Promise.resolve({ ok: true, text: async () => String(tipHeight) })
-    if (url.includes('/status')) return Promise.resolve({ ok: true, json: async () => ({ confirmed, block_height: confirmed ? blockHeight : undefined }) })
-    return Promise.resolve({ ok: true, json: async () => [] })
-  })
-}
-
-describe('sweepMultisigFundingReorgs() — Missão 11 Fase 8.1 LB-08(A)', () => {
-  it('a still-confirmed FUNDS_LOCKED escrow within the safety window is left alone', async () => {
+describe('sweepMultisigFundingReorgs() — Missão 11 Fase 9.1 §1/§3', () => {
+  it('skips an escrow with no recorded evidence at all — never invents a retroactive baseline', async () => {
     mockEscrowFindMany.mockResolvedValue([escrowFixture()])
-    mockChain({ tipHeight: 800_010, confirmed: true, blockHeight: 800_000 })
+    mockListForEscrow.mockResolvedValue([])
+
+    const result = await sweepMultisigFundingReorgs()
+
+    expect(result.skippedNoBaseline).toEqual(['escrow-1'])
+    expect(mockRescanFunding).not.toHaveBeenCalled()
+    expect(mockRecord).not.toHaveBeenCalled()
+  })
+
+  it('same txid, still deep enough — no write, stillGood', async () => {
+    mockEscrowFindMany.mockResolvedValue([escrowFixture()])
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED')])
+    mockRescanFunding.mockResolvedValue({ txId: 'a'.repeat(64), vout: 0, depth: 3, confirmedAtHeight: 100, tipHeightAtObservation: 102 })
 
     const result = await sweepMultisigFundingReorgs()
 
     expect(result.stillGood).toEqual(['escrow-1'])
-    expect(result.flagged).toEqual([])
-    expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    expect(mockRecord).not.toHaveBeenCalled()
   })
 
-  it('a FUNDS_LOCKED escrow whose funding txid is no longer confirmed is flagged — status is NEVER mutated', async () => {
+  it('nothing found at all, previous state trustworthy — records REORGED_INVALIDATED', async () => {
     mockEscrowFindMany.mockResolvedValue([escrowFixture()])
-    mockChain({ tipHeight: 800_010, confirmed: false })
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED')])
+    mockRescanFunding.mockResolvedValue(null)
 
     const result = await sweepMultisigFundingReorgs()
 
-    expect(result.flagged).toEqual(['escrow-1'])
-    expect(mockEscrowUpdate).not.toHaveBeenCalled() // the core invariant this file exists to prove
+    expect(result.reverted).toEqual(['escrow-1'])
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ escrowId: 'escrow-1', kind: 'REORGED_INVALIDATED' }))
   })
 
-  it('a deeply-buried FUNDS_LOCKED escrow is skipped — no per-escrow status call made', async () => {
+  it('nothing found at all, previous state ALREADY REORGED_INVALIDATED — no duplicate write (idempotent across duplicate sweeps)', async () => {
     mockEscrowFindMany.mockResolvedValue([escrowFixture()])
-    fetchMock.mockImplementation((url: string) => {
-      if (url.includes('/blocks/tip/height')) return Promise.resolve({ ok: true, text: async () => '900010' })
-      return Promise.resolve({ ok: true, json: async () => ({ confirmed: true, block_height: 700_000 }) })
-    })
-    // tipHeight=900010, blockHeight=700000 -> depth 200011, > 100 safety window
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED'), evidenceRow('REORGED_INVALIDATED')])
+    mockRescanFunding.mockResolvedValue(null)
+
     const result = await sweepMultisigFundingReorgs()
-    expect(result.buriedEnough).toEqual(['escrow-1'])
+
+    expect(result.stillPending).toEqual(['escrow-1'])
+    expect(mockRecord).not.toHaveBeenCalled()
   })
 
-  it('does not fetch the chain tip at all when there are no FUNDS_LOCKED MULTISIG escrows', async () => {
+  it('same txid reappears deep enough after being invalidated — records RECONFIRMED (never deletes the REORGED_INVALIDATED row)', async () => {
+    mockEscrowFindMany.mockResolvedValue([escrowFixture()])
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED'), evidenceRow('REORGED_INVALIDATED')])
+    mockRescanFunding.mockResolvedValue({ txId: 'a'.repeat(64), vout: 0, depth: 2, confirmedAtHeight: 100, tipHeightAtObservation: 101 })
+
+    const result = await sweepMultisigFundingReorgs()
+
+    expect(result.reconfirmed).toEqual(['escrow-1'])
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'RECONFIRMED', txid: 'a'.repeat(64) }))
+  })
+
+  it('a DIFFERENT txid now satisfies the funding criteria — records REPLACEMENT_OBSERVED, not auto-trusted', async () => {
+    mockEscrowFindMany.mockResolvedValue([escrowFixture()])
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED', 'a'.repeat(64)), evidenceRow('REORGED_INVALIDATED', 'a'.repeat(64))])
+    mockRescanFunding.mockResolvedValue({ txId: 'b'.repeat(64), vout: 0, depth: 3, confirmedAtHeight: 200, tipHeightAtObservation: 203 })
+
+    const result = await sweepMultisigFundingReorgs()
+
+    expect(result.replacementObserved).toEqual(['escrow-1'])
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REPLACEMENT_OBSERVED', txid: 'b'.repeat(64) }))
+  })
+
+  it('duplicate sweep after a reconfirmation is idempotent — the second run sees RECONFIRMED as the last row and writes nothing new', async () => {
+    mockEscrowFindMany.mockResolvedValue([escrowFixture()])
+    // Simulates the state immediately after the RECONFIRMED write from the
+    // prior tick (see the next test below) — a second sweep run observing
+    // the identical, already-reconfirmed candidate must not write again.
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED', 'a'.repeat(64)), evidenceRow('REORGED_INVALIDATED', 'a'.repeat(64)), evidenceRow('REPLACEMENT_OBSERVED', 'b'.repeat(64)), evidenceRow('RECONFIRMED', 'b'.repeat(64))])
+    mockRescanFunding.mockResolvedValue({ txId: 'b'.repeat(64), vout: 0, depth: 3, confirmedAtHeight: 200, tipHeightAtObservation: 203 })
+
+    const result = await sweepMultisigFundingReorgs()
+
+    expect(result.stillGood).toEqual(['escrow-1'])
+    expect(mockRecord).not.toHaveBeenCalled()
+  })
+
+  it('the same replacement candidate seen a second time, both times deep enough — records RECONFIRMED on the second observation', async () => {
+    mockEscrowFindMany.mockResolvedValue([escrowFixture()])
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED', 'a'.repeat(64)), evidenceRow('REORGED_INVALIDATED', 'a'.repeat(64)), evidenceRow('REPLACEMENT_OBSERVED', 'b'.repeat(64))])
+    mockRescanFunding.mockResolvedValue({ txId: 'b'.repeat(64), vout: 0, depth: 3, confirmedAtHeight: 200, tipHeightAtObservation: 203 })
+
+    const result = await sweepMultisigFundingReorgs()
+
+    expect(result.reconfirmed).toEqual(['escrow-1'])
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'RECONFIRMED', txid: 'b'.repeat(64) }))
+  })
+
+  it('a confirmed-but-shallow candidate exists, previous state trustworthy — records REORGED_INVALIDATED (regression from trusted)', async () => {
+    mockEscrowFindMany.mockResolvedValue([escrowFixture()])
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED')])
+    mockRescanFunding.mockResolvedValue({ txId: 'a'.repeat(64), vout: 0, depth: 1, confirmedAtHeight: 100, tipHeightAtObservation: 100 })
+
+    const result = await sweepMultisigFundingReorgs()
+
+    expect(result.reverted).toEqual(['escrow-1'])
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_INVALIDATED' }))
+  })
+
+  it('a confirmed-but-shallow candidate exists, previous state already uncertain — no new write, stillPending', async () => {
+    mockEscrowFindMany.mockResolvedValue([escrowFixture()])
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED'), evidenceRow('REORGED_INVALIDATED')])
+    mockRescanFunding.mockResolvedValue({ txId: 'a'.repeat(64), vout: 0, depth: 1, confirmedAtHeight: 100, tipHeightAtObservation: 100 })
+
+    const result = await sweepMultisigFundingReorgs()
+
+    expect(result.stillPending).toEqual(['escrow-1'])
+    expect(mockRecord).not.toHaveBeenCalled()
+  })
+
+  it('does not query anything when there are no FUNDS_LOCKED MULTISIG escrows', async () => {
     mockEscrowFindMany.mockResolvedValue([])
     const result = await sweepMultisigFundingReorgs()
     expect(result.stillGood).toEqual([])
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mockListForEscrow).not.toHaveBeenCalled()
   })
 })

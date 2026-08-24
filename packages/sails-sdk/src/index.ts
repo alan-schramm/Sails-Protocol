@@ -60,6 +60,7 @@ export {
   type ArbiterProfile,
   type ReleaseApproval,
   type ReleaseApprovalsResult,
+  MULTISIG_CAPABILITY_PROFILE_V1,
 } from './modules/settlement'
 export { SailsProofModule, type EvidenceBundle, type AssertClaimInput, type SubmitProofInput, type VerifyProofInput } from './modules/proof'
 export {
@@ -119,6 +120,10 @@ export {
   verifyAndSignEscrowPsbt,
   deriveExpectedMultisigAddress,
   buildExpectedFeeAwareReleaseOutputs,
+  computeProtocolFeeSatsExact,
+  combineAndFinalizeEscrowPsbt,
+  networkFromMultisigAddress,
+  btcToSats,
   SigningIntentVerificationError,
   type EscrowOperation,
   type ExpectedSigningIntent,

@@ -327,6 +327,29 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('WDK_SEED_PHRASE production-ineligibility gate (Missão 11 Fase 9.1.1 §4, CTO decision)', () => {
+    it('refuses to boot in production when MOCK_ESCROW=false and a real WDK_SEED_PHRASE is configured', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, WDK_SEED_PHRASE: 'test only example nut use this real life secret phrase must random' })
+      expect(load).toThrow(/WDK_SEED_PHRASE/)
+      expect(load).toThrow(/production-ineligible/)
+    })
+
+    it('boots in production when MOCK_ESCROW=false and WDK_SEED_PHRASE is unset (empty by default)', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, WDK_SEED_PHRASE: undefined })
+      expect(load).not.toThrow()
+    })
+
+    it('boots in production when WDK_SEED_PHRASE is set but MOCK_ESCROW=true — the provider is not reachable either way', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MOCK_ESCROW: 'true', MOCK_SETTLEMENT: 'true', WDK_SEED_PHRASE: 'some seed phrase' })
+      expect(load).toThrow(/MOCK_ESCROW/) // RT-001 fires first — confirms this gate doesn't mask it, not that this gate itself fired
+    })
+
+    it('boots in development with MOCK_ESCROW=false and a real WDK_SEED_PHRASE — the real testnet rehearsal path (npm run demo:pix-to-usdt) is unaffected', () => {
+      const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: 'false', MOCK_SETTLEMENT: 'false', MULTISIG_NETWORK: undefined, WDK_SEED_PHRASE: 'test only example nut use this real life secret phrase must random' })
+      expect(load).not.toThrow()
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)

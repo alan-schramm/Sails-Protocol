@@ -72,6 +72,23 @@ export function generateEscrowKeypair(): EscrowKeypair {
  * `witnessScript` for input 0 — this function only ever signs that one
  * input, matching every unsigned PSBT this flow produces).
  *
+ * ⚠️ RAW PRIMITIVE — signs BLIND, with zero verification that the PSBT
+ * actually pays what the caller expects (Missão 11 Fase 9.1 §11's own
+ * audit). `wallet-verification.ts`'s own header comment states the rule
+ * this function does NOT enforce on its own: "a wallet must never sign a
+ * PSBT it hasn't independently checked against what it actually expects
+ * to be signing." Prefer `verifyAndSignEscrowPsbt()` (`wallet-verification.ts`)
+ * — the recommended entry point, where signing is STRUCTURALLY
+ * unreachable until independent verification against your own expected
+ * outputs/fee/threshold/participants passes. Call this function directly
+ * only if you are implementing your own equivalent verification before
+ * calling it — never as a shortcut to skip that step. (Missão 11 Fase
+ * 9.1 §11 found this repo's own reference UI, `packages/sails-ui`'s
+ * `useEscrowKey.ts`, calling this function directly without that
+ * verification — closed by Fase 9.1.1 §3: it now routes through
+ * `verifyAndSignEscrowPsbt()` instead, via `packages/sails-ui/src/lib/multisigSigningIntent.ts`.
+ * See `BACKLOG.md`'s own entry for the full detail.)
+ *
  * `@bitcoinerlab/secp256k1` — pure JS, no WASM, built specifically to
  * integrate into the BitcoinJS ecosystem without WASM (same tradeoff
  * `escrow-key.ts`'s own header comment already made for `@noble/curves`

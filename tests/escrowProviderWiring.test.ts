@@ -72,6 +72,11 @@ const mockFinalizeSplit = jest.fn()
 jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
   multisigProvider: {
     name: 'MULTISIG',
+    // Missão 11 Fase 9.1 §10 — matches the real provider's own real,
+    // distinct custodyModel value exactly, so
+    // getCustodyModelForType()'s wiring is genuinely proven, not just
+    // "returns whatever the mock has."
+    custodyModel: 'client-held-buyer-seller-keys-server-held-arbiter',
     getDepositAddress: (...args: unknown[]) => mockGetDepositAddress(...args),
     lockFunds: jest.fn(),
     releaseFunds: jest.fn(),
@@ -98,6 +103,12 @@ const mockParticipantKeyUpsert = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
 const mockParticipantKeyCreate = jest.fn()
 const mockPendingTxFindUnique = jest.fn()
+// Missão 11 Fase 9.1 §1/§2 — assertFundingNotUncertain() (wired into
+// initiateSignatureCollectionCore() for release/split) now queries this
+// table before the provider is ever invoked; empty history is the
+// trustworthy/no-op case every test in this file needs (none of them
+// are testing funding-uncertainty behavior itself).
+const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
 const mockPendingTxCreate = jest.fn()
 const mockPendingTxDelete = jest.fn()
 const mockTxSignatureUpsert = jest.fn()
@@ -160,6 +171,7 @@ jest.mock('../src/common/database', () => ({
       findMany: (...args: unknown[]) => mockTxSignatureFindMany(...args),
     },
     dispute: { findFirst: jest.fn().mockResolvedValue(null) },
+    escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
     durableEventRecord: {
       create: (...args: unknown[]) => mockDurableEventCreate(...args),
       findFirst: (...args: unknown[]) => mockDurableEventFindFirst(...args),
@@ -169,6 +181,7 @@ jest.mock('../src/common/database', () => ({
 }))
 
 import { escrowService, recommendedEscrowType } from '../src/modules/open-settlement/escrow.service'
+import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
 const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
@@ -292,8 +305,8 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
 
     expect(mockParticipantKeyUpsert).toHaveBeenCalledWith({
       where: { escrowId_role: { escrowId: 'escrow-1', role: 'buyer' } },
-      update: { participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
-      create: { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
+      update: { participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: null },
+      create: { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: null },
     })
     expect(mockGetDepositAddress).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).not.toHaveBeenCalled()
@@ -304,9 +317,12 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
   it('derives and persists the real address once both buyer and seller keys have arrived', async () => {
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    // Missão 11 Fase 9.1.1 — fail-closed: both keys must carry a
+    // compatible capabilityProfile or the commit gate below rejects
+    // before ever reaching getDepositAddress().
     mockParticipantKeyFindMany.mockResolvedValue([
-      { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
-      { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
+      { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
+      { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
     ])
     // Missão 11 Fase 5.2 — getDepositAddress() now returns
     // { address, arbiterPubkeyHex, arbiterId }, not a bare string.
@@ -337,8 +353,8 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockParticipantKeyFindMany.mockResolvedValue([
-      { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
-      { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
+      { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
+      { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
     ])
     mockGetDepositAddress.mockResolvedValue({ address: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' })
     mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', multisigAddr: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' })
@@ -389,6 +405,118 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
       'does not use client-submitted keys'
     )
     expect(mockTradeFindUnique).not.toHaveBeenCalled()
+  })
+
+  // Missão 11 Fase 9.1 §4/§5 — capability-profile declaration.
+  it('persists a declared, recognized capability profile', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockParticipantKeyFindMany.mockResolvedValue([{ escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 }])
+
+    await escrowService.submitParticipantKey('escrow-1', 'buyer-1', BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+
+    expect(mockParticipantKeyUpsert).toHaveBeenCalledWith({
+      where: { escrowId_role: { escrowId: 'escrow-1', role: 'buyer' } },
+      update: { participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
+      create: { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
+    })
+  })
+
+  it('rejects an unrecognized capability profile before ever touching the database', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+
+    await expect(escrowService.submitParticipantKey('escrow-1', 'buyer-1', BUYER_PUBKEY, 'not-a-real-profile')).rejects.toThrow(
+      "Unrecognized capability profile 'not-a-real-profile'"
+    )
+    expect(mockParticipantKeyUpsert).not.toHaveBeenCalled()
+  })
+
+  it('two participants both declaring the correct, matching profile still derives the address normally', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockParticipantKeyFindMany.mockResolvedValue([
+      { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
+      { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
+    ])
+    mockGetDepositAddress.mockResolvedValue({ address: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' })
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', multisigAddr: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' })
+
+    const result = await escrowService.submitParticipantKey('escrow-1', 'seller-1', SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+
+    expect(mockGetDepositAddress).toHaveBeenCalled()
+    expect(result.escrow.multisigAddr).toBe('tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+  })
+
+  // Missão 11 Fase 9.1.1 — CTO decision: fail-closed, no grandfathering.
+  // The four adversarial cases the CTO's own closure mandate names
+  // explicitly (omitted buyer, omitted seller, unknown, both valid — the
+  // "unknown" and "both valid" cases are covered by the two tests above)
+  // plus the required brand-neutrality proof.
+  describe('fail-closed commit gate (Missão 11 Fase 9.1.1 — no grandfathering)', () => {
+    it('blocks the commit when the buyer omitted their capability profile, even though the seller declared one', async () => {
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      mockParticipantKeyFindMany.mockResolvedValue([
+        { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: null },
+        { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
+      ])
+
+      await expect(escrowService.submitParticipantKey('escrow-1', 'seller-1', SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)).rejects.toThrow(
+        'the buyer declared no capability profile at all'
+      )
+      expect(mockGetDepositAddress).not.toHaveBeenCalled()
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    })
+
+    it('blocks the commit when the seller omitted their capability profile, even though the buyer declared one', async () => {
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      mockParticipantKeyFindMany.mockResolvedValue([
+        { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
+        { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY, capabilityProfile: null },
+      ])
+
+      await expect(escrowService.submitParticipantKey('escrow-1', 'buyer-1', BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)).rejects.toThrow(
+        'the seller declared no capability profile at all'
+      )
+      expect(mockGetDepositAddress).not.toHaveBeenCalled()
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    })
+
+    it('blocks the commit when BOTH omitted a capability profile — the pre-Fase-9.1.1 grandfathered case is no longer accepted', async () => {
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      mockParticipantKeyFindMany.mockResolvedValue([
+        { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY, capabilityProfile: null },
+        { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY, capabilityProfile: null },
+      ])
+
+      await expect(escrowService.submitParticipantKey('escrow-1', 'seller-1', SELLER_PUBKEY)).rejects.toThrow(
+        'the buyer declared no capability profile at all'
+      )
+      expect(mockGetDepositAddress).not.toHaveBeenCalled()
+    })
+
+    // Required brand-neutrality proof: a participantId that looks like an
+    // official Sails/Satsails identity gets exactly the same rejection as
+    // any other — the commit-gate function itself takes no identity
+    // input (capabilityProfile.test.ts's own unit proof), and this test
+    // proves that holds true all the way through the real service call,
+    // not just in isolation.
+    it('a Satsails-branded participantId receives NO bypass — identical rejection as any other caller', async () => {
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'satsails-official-wallet', sellerId: 'seller-1' })
+      mockParticipantKeyFindMany.mockResolvedValue([
+        { escrowId: 'escrow-1', role: 'buyer', participantId: 'satsails-official-wallet', pubkey: BUYER_PUBKEY, capabilityProfile: null },
+        { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY, capabilityProfile: MULTISIG_CAPABILITY_PROFILE_V1 },
+      ])
+
+      await expect(
+        escrowService.submitParticipantKey('escrow-1', 'seller-1', SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+      ).rejects.toThrow('the buyer declared no capability profile at all')
+      expect(mockGetDepositAddress).not.toHaveBeenCalled()
+    })
   })
 
   it('skips address derivation when MOCK_ESCROW is on, even once both keys arrive', async () => {
@@ -460,6 +588,7 @@ describe('initiateRelease()/initiateRefund() — Phase 2 signature-collection ro
       { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
     ])
     mockPendingTxFindUnique.mockResolvedValue(null)
+    mockEscrowFundingEvidenceFindMany.mockResolvedValue([])
   })
 
   it('initiateRelease builds an unsigned PSBT via the provider and persists it, without transitioning the escrow', async () => {
@@ -537,6 +666,7 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
       { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
     ])
     mockPendingTxFindUnique.mockResolvedValue(null)
+    mockEscrowFundingEvidenceFindMany.mockResolvedValue([])
   })
 
   it('builds an unsigned split PSBT via the provider and persists both payout addresses', async () => {
@@ -764,5 +894,35 @@ describe('getEscrow() / getEscrowByTrade() — includes disputes (UI-audit gap, 
     expect(mockEscrowFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { tradeId: 'trade-1' }, include: expect.objectContaining({ disputes: true }) })
     )
+  })
+})
+
+// Missão 11 Fase 9.1 §10 — same GET responses now also carry this
+// escrow's own disclosed custody model.
+describe('getEscrow() / getEscrowByTrade() — includes custodyModel (Missão 11 Fase 9.1 §10)', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('getEscrow includes the real, distinct custodyModel for a MULTISIG escrow', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', disputes: [] })
+    const result = await escrowService.getEscrow('escrow-1')
+    expect(result.custodyModel).toBe('client-held-buyer-seller-keys-server-held-arbiter')
+  })
+
+  it('getEscrow includes the distinct custodyModel for a SAFE_GUARD_EVM escrow, not conflated with MULTISIG\'s', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'SAFE_GUARD_EVM', disputes: [] })
+    const result = await escrowService.getEscrow('escrow-1')
+    expect(result.custodyModel).toBe('client-held-buyer-seller-keys-server-held-kms-arbiter')
+  })
+
+  it('returns null (never a fabricated label) for MOCK, which makes no real custody claim', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MOCK', disputes: [] })
+    const result = await escrowService.getEscrow('escrow-1')
+    expect(result.custodyModel).toBeNull()
+  })
+
+  it('getEscrowByTrade also includes custodyModel', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'WDK_USDT_EVM', disputes: [] })
+    const result = await escrowService.getEscrowByTrade('trade-1')
+    expect(result.custodyModel).toBe('server-custodial-reference-implementation')
   })
 })
