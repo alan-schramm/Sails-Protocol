@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-24T00:00:00Z",
+  "title": "Design System: Sails P2P Trading SDK — Reference UI",
+  "extensions": {
+    "colorMeta": {
+      "orange": {
+        "role": "primary",
+        "displayName": "Burnt Orange",
+        "canonical": "oklch(45% 0.14 39)",
+        "tonalRamp": [
+          "oklch(20% 0.09 39)", "oklch(28% 0.11 39)", "oklch(36% 0.13 39)",
+          "oklch(45% 0.14 39)", "oklch(55% 0.15 39)", "oklch(65% 0.14 39)",
+          "oklch(78% 0.10 39)", "oklch(90% 0.05 39)"
+        ]
+      },
+      "orange-accent-dark": {
+        "role": "primary",
+        "displayName": "Vivid Orange (dark-only accent)",
+        "canonical": "oklch(68% 0.19 41)"
+      },
+      "bg-light": { "role": "neutral", "displayName": "Paper White", "canonical": "oklch(98.5% 0 0)" },
+      "surface-light": { "role": "neutral", "displayName": "Surface", "canonical": "oklch(100% 0 0)" },
+      "elevated-light": { "role": "neutral", "displayName": "Elevated", "canonical": "oklch(97% 0 0)" },
+      "bg-dark": { "role": "neutral", "displayName": "Void", "canonical": "oklch(3% 0 0)" },
+      "surface-dark": { "role": "neutral", "displayName": "Surface", "canonical": "oklch(8% 0 0)" },
+      "elevated-dark": { "role": "neutral", "displayName": "Elevated", "canonical": "oklch(12% 0 0)" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Wordmark and page headlines only — the one place carrying brand personality." },
+      "body": { "displayName": "Body", "purpose": "Everything else — dense, platform-native, optimized for legibility over character." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "color-transition", "value": "transition-colors 0.15s ease", "purpose": "Default state-change easing for backgrounds, borders, and text color across the system." }
+    ],
+    "breakpoints": [
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Default call-to-action button — orange fill, white text.",
+      "html": "<button class=\"ds-btn-primary\">Confirmar</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 8px 16px; border-radius: 6px; background: #c2410c; color: #ffffff; font-size: 14px; font-weight: 500; border: none; cursor: pointer; transition: background-color 0.15s ease; } .ds-btn-primary:hover { background: rgba(194, 65, 12, 0.9); } .ds-btn-primary:focus-visible { outline: 2px solid #c2410c; outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action — transparent fill, hairline border.",
+      "html": "<button class=\"ds-btn-outline\">Cancelar</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 8px 16px; border-radius: 6px; background: transparent; color: #0a0a0a; font-size: 14px; font-weight: 500; border: 1px solid #878787; cursor: pointer; transition: background-color 0.15s ease; } .ds-btn-outline:hover { background: #f5f5f5; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Standard container — flat, one surface step above the page, hairline border, no shadow.",
+      "html": "<div class=\"ds-card\">Conteúdo do card</div>",
+      "css": ".ds-card { background: #ffffff; border: 1px solid #878787; border-radius: 8px; padding: 16px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Standard text field — filled (Elevated step), hairline border, orange border on focus.",
+      "html": "<input class=\"ds-input\" placeholder=\"0.00\" />",
+      "css": ".ds-input { background: #f5f5f5; border: 1px solid #878787; border-radius: 8px; padding: 8px 12px; font-size: 14px; color: #0a0a0a; } .ds-input::placeholder { color: #646464; } .ds-input:focus { outline: none; border-color: #c2410c; }"
+    },
+    {
+      "name": "Status Badge — Buy/Sell",
+      "kind": "chip",
+      "refersTo": "status-badge",
+      "description": "Semantic status pill — low-opacity tint fill, matching-color hairline border, -500-weight text (the -700 weight this used before failed WCAG AA in dark mode).",
+      "html": "<span class=\"ds-badge ds-badge--buy\">COMPRAR</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; } .ds-badge--buy { background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.25); color: #22c55e; } .ds-badge--sell { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #ef4444; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Familiar Ledger",
+    "overview": "sails-ui is meant to feel like a wallet app people already know how to use — Binance P2P, Airtm, El Dorado — not like a novel design experiment. That familiarity is the point: an integrator plugs the SDK in and inherits an interface their own users won't have to learn. Density reads as competence, not clutter — this is a trading surface first, a brand showcase second. Branding is quiet and consistent (black + orange, orange used sparingly) rather than loud. The system explicitly rejects two things already ruled out in this project's own build history: the generic, overly-rounded 'AI-generated app' look, and decoration that competes with the data it sits next to.",
+    "keyCharacteristics": [
+      "Restrained and confident, not tactile/playful — trading-floor density, not consumer-wallet warmth",
+      "One accent color (burnt orange), used rarely and with intent",
+      "Flat by default — depth from a three-step neutral surface ladder and hairline borders, never shadows",
+      "Sharper corners than the generic AI-app default — a deliberate, already-made decision",
+      "Fully symmetric light/dark themes"
+    ],
+    "rules": [
+      { "name": "The Rare Accent Rule", "body": "Orange is a signal, not a background. It marks the one primary action or the one thing currently true — never a large fill, never a page background, never used twice in the same view for two different meanings.", "section": "colors" },
+      { "name": "The Two-Orange Rule", "body": "There are two oranges: the darker, contrast-locked #c2410c for anything with white text on top of it, and the brighter #f97316 only for text/icon-on-surface in dark mode. Never swap them.", "section": "colors" },
+      { "name": "The Flat-By-Default Rule", "body": "No shadows, ever. Depth is a background step and a border, not a blur.", "section": "elevation" },
+      { "name": "The Sharper-Than-Default Rule", "body": "When in doubt, use less radius, not more. A bubbly, uniformly-rounded interface is the specific look this system was built to avoid.", "section": "typography" }
+    ],
+    "dos": [
+      "Do keep orange rare — one primary action or one true state per view",
+      "Do use rounded-lg/rounded-md consistently; never introduce a larger radius",
+      "Do convey depth with the bg → surface → elevated ladder and a hairline border, never a shadow",
+      "Do keep both themes fully specified and symmetric",
+      "Do use the -500 weight for semantic status colors in this dark-mode-default app"
+    ],
+    "donts": [
+      "Don't add a shadow anywhere",
+      "Don't use the bright dark-mode-only orange as a button fill or as text on a light surface",
+      "Don't round corners past rounded-lg (0.5rem)",
+      "Don't reach for a card-grid layout for list-like data — follow the hairline-divided list precedent"
+    ]
+  }
+}

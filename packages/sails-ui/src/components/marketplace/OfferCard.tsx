@@ -35,7 +35,15 @@ export function OfferCard({ offer }: { offer: Offer }) {
           <UserAvatar user={offer.user} size="sm" />
           <div className="min-w-0">
             <div className="flex items-center gap-1">
-              <span className="text-sm font-medium text-brand-text truncate">{offer.user.displayName}</span>
+              {/* Impeccable critique P0 (2026-08-24): GET /v1/liquidity/offers
+                  doesn't return the owning User row — realOffers.ts's own
+                  summaryToOffer() comment discloses this — so displayName is
+                  always null and userId is the literal sentinel 'unknown' for
+                  every real offer today. A blank name and a real-looking
+                  "0 trades" both read as actual data on a marketplace whose
+                  whole trust model is evaluating the trader before sending
+                  money; this is the honest placeholder instead. */}
+              <span className="text-sm font-medium text-brand-text truncate">{offer.user.displayName ?? 'Anunciante'}</span>
               {offer.user.verified && (
                 <span title="Verificado" className="shrink-0">
                   <Check className="h-3.5 w-3.5 text-brand-orange-accent" />
@@ -43,7 +51,7 @@ export function OfferCard({ offer }: { offer: Offer }) {
               )}
             </div>
             <div className="text-xs text-brand-text-muted flex items-center gap-1">
-              <Star className="h-3 w-3" fill="currentColor" strokeWidth={0} /> {offer.user.reputationScore.toFixed(0)} · {offer.user.totalTrades} trades
+              <Star className="h-3 w-3" fill="currentColor" strokeWidth={0} /> {offer.user.reputationScore.toFixed(0)} · {offer.user.id === 'unknown' ? '—' : `${offer.user.totalTrades} trades`}
             </div>
           </div>
         </div>
