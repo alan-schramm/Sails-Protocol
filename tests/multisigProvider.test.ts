@@ -296,9 +296,30 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
       ok: true,
       json: async () => [{ txid: 'a'.repeat(64), vout: 0, value: 100_000, status: { confirmed: true } }],
     })
+    // Missão 11 Fase 8.1 LB-02 — lockFunds() now re-verifies confirmation
+    // DEPTH (not just the listing's own confirmed boolean) via two more
+    // real explorer calls: fetchTransactionConfirmationStatus (this
+    // UTXO's own block height) then fetchChainTipHeight. required
+    // defaults to 1 here (MULTISIG_NETWORK unset -> testnet), so a single
+    // confirmation (tip == block height) is exactly sufficient.
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 100 }) })
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '100' })
     const result = await multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
     expect(result.txId).toBe('a'.repeat(64))
     expect(result.address).toMatch(/^tb1/)
+  })
+
+  it('lockFunds throws when the funding UTXO exists but has not yet reached the required confirmation depth', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1', MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '3' })
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [{ txid: 'a'.repeat(64), vout: 0, value: 100_000, status: { confirmed: true } }],
+    })
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 100 }) })
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '101' }) // only 2 confirmations, 3 required
+    await expect(
+      multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
+    ).rejects.toThrow(/has 2 of the required 3 confirmation/)
   })
 
   it('lockFunds throws (non-custodial — never fakes a lock) when no sufficient UTXO exists yet', async () => {
@@ -330,6 +351,11 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
       ok: true,
       json: async () => [{ txid: 'b'.repeat(64), vout: 0, value: 100_000, status: { confirmed: true } }],
     })
+    // Missão 11 Fase 8.1 LB-02 — verifyLock() now also re-verifies real
+    // confirmation depth once the listing itself reports confirmed:true
+    // (same two extra explorer calls as lockFunds() above).
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 200 }) })
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '200' })
     const confirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
     expect(confirmed).toBe(true)
   })

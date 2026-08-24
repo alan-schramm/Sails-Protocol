@@ -71,6 +71,7 @@ import { BIP32Factory, type BIP32Interface } from 'bip32'
 import * as bitcoin from 'bitcoinjs-lib'
 import { createHash } from 'crypto'
 import { Prisma } from '@prisma/client'
+import type { BitcoinNetwork } from '@satsails/p2p-schemas'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
@@ -88,10 +89,29 @@ type ExplorerUtxo = { txid: string; vout: number; value: number; status: { confi
 // Missão 11 Fase 5 — exported so escrow-pending-tx.ts's collection-
 // recognition wiring can resolve the same network identifyFeeOutput()
 // needs, without duplicating this mapping a second time.
-export function networkFor(name: string): (typeof bitcoin.networks)[keyof typeof bitcoin.networks] {
-  if (name === 'bitcoin' || name === 'mainnet') return bitcoin.networks.bitcoin
-  if (name === 'regtest') return bitcoin.networks.regtest
-  return bitcoin.networks.testnet
+//
+// Missão 11 Fase 8.1 LB-01 — takes the canonical, already-validated
+// BitcoinNetwork (config.multisig.network is normalized once at config
+// load via normalizeBitcoinNetwork(), which throws on anything
+// unrecognized) instead of a raw string. This function itself no longer
+// has a silent "anything else means testnet" branch — the exhaustive
+// switch below is total over BitcoinNetwork's 3 literals, and the
+// `default` case is unreachable except via a type-system bypass (e.g. a
+// future caller passing a raw string again), in which case it throws
+// rather than silently choosing a network.
+export function networkFor(name: BitcoinNetwork): (typeof bitcoin.networks)[keyof typeof bitcoin.networks] {
+  switch (name) {
+    case 'mainnet':
+      return bitcoin.networks.bitcoin
+    case 'testnet':
+      return bitcoin.networks.testnet
+    case 'regtest':
+      return bitcoin.networks.regtest
+    default: {
+      const exhaustiveCheck: never = name
+      throw new EscrowError(`MULTISIG provider: unrecognized Bitcoin network '${exhaustiveCheck}' — refusing to silently fall back to any network.`)
+    }
+  }
 }
 
 // Missão 11 Fase 4.1 §1/§3 — the pre-funding waiver decision
@@ -649,6 +669,26 @@ export class MultisigProvider implements SettlementProvider {
     return { feeSats, waived: false, collectionAddress }
   }
 
+  // Missão 11 Fase 8.1 LB-02 — the real, load-bearing gate for
+  // FUNDS_LOCKED (escrow.service.ts's lockFunds() calls this method, not
+  // the never-invoked verifyLock() below) previously accepted a
+  // value-matching UTXO regardless of `status.confirmed` at all — not
+  // even the one confirmation verifyLock() itself checked, since nothing
+  // ever calls verifyLock(). This helper is the one place a candidate
+  // funding UTXO is checked for real economic finality: confirmed AND at
+  // or beyond config.multisig.requiredConfirmations deep, computed from
+  // the actual chain tip the same way multisig-fee-confirmation-job.ts
+  // already computes fee-collection depth (tipHeight - blockHeight + 1).
+  // Returns the confirmation count (0 if genuinely unconfirmed) rather
+  // than a boolean so lockFunds()'s error message can report real
+  // progress ("2 of 3 confirmations") instead of a bare yes/no.
+  private async confirmationDepth(txid: string): Promise<number> {
+    const status = await fetchTransactionConfirmationStatus(txid)
+    if (!status.confirmed || status.blockHeight === null) return 0
+    const tipHeight = await fetchChainTipHeight()
+    return tipHeight - status.blockHeight + 1
+  }
+
   // Missão 10 — now returns vout alongside txId. This is still the ONE
   // place an outpoint is discovered by value/address heuristic (there is
   // no persisted outpoint yet to check against — that's exactly what
@@ -660,6 +700,7 @@ export class MultisigProvider implements SettlementProvider {
     const { p2wsh } = this.buildScript(parties)
     const address = p2wsh.address!
     const utxos = await this.fetchUtxos(address)
+    const required = config.multisig.requiredConfirmations
 
     // Missão 11 Fase 3.4/4 — policy-aware escrows require EXACT,
     // single-outpoint funding (A = R = T + Fmax). This single strict-equality
@@ -670,43 +711,74 @@ export class MultisigProvider implements SettlementProvider {
     // own claimEscrowTransition()/revertEscrowStatus() flow, unchanged) —
     // confirmed structurally, not assumed (Fase 3.4 §4's own audit).
     if (this.isPolicyAware(escrow)) {
-      const required = this.requiredFundingSats(escrow)
-      const funding = utxos.find((u) => u.value === required)
+      const requiredSats = this.requiredFundingSats(escrow)
+      // Missão 11 Fase 8.1 LB-02 — status.confirmed is kept as a cheap
+      // first-pass filter (avoids two extra explorer round-trips for a
+      // UTXO that's obviously still in mempool); confirmationDepth()
+      // below re-verifies confirmation status independently and
+      // authoritatively — this filter is an optimization, not the real
+      // safety check.
+      const funding = utxos.find((u) => u.value === requiredSats && u.status.confirmed)
       if (!funding) {
         throw new EscrowError(
-          `No funding UTXO of EXACTLY ${required} sats (trade amount + maximum Protocol Fee reserve) found at ${address}. ` +
+          `No funding UTXO of EXACTLY ${requiredSats} sats (trade amount + maximum Protocol Fee reserve) found at ${address}. ` +
           'This escrow is under a Protocol Fee policy and requires exact, single-outpoint funding — a value below, above, or split across ' +
           'multiple UTXOs is rejected, not silently accepted. This is a non-custodial provider — it verifies external funding, it does not move funds itself.'
+        )
+      }
+      const depth = await this.confirmationDepth(funding.txid)
+      if (depth < required) {
+        throw new EscrowError(
+          `Funding UTXO ${funding.txid}:${funding.vout} at ${address} has ${depth} of the required ${required} confirmation(s). ` +
+          'Refusing to lock funds on insufficient confirmation depth — a shallow reorg could invalidate this funding before Sails ' +
+          'ever transitions the escrow to FUNDS_LOCKED. Retry once the required depth is reached.'
         )
       }
       return { txId: funding.txid, vout: funding.vout, address, fundedAmount: funding.value }
     }
 
-    // Legacy — unchanged, byte-for-byte, from before this phase.
+    // Legacy — value-matching logic unchanged, byte-for-byte, from before
+    // this phase; the confirmation-depth requirement below is new and
+    // applies uniformly (LB-02 was never a policy-aware-only gap).
     const expected = this.expectedSats(escrow.lockedAmount)
-    const funding = utxos.find((u) => u.value >= expected)
+    const funding = utxos.find((u) => u.value >= expected && u.status.confirmed)
     if (!funding) {
       throw new EscrowError(
         `No funding UTXO of at least ${expected} sats found at ${address} yet. This is a non-custodial provider — ` +
         `it verifies external funding, it does not move funds itself. Send the trade's collateral to ${address} first, then retry lockFunds.`
       )
     }
+    const depth = await this.confirmationDepth(funding.txid)
+    if (depth < required) {
+      throw new EscrowError(
+        `Funding UTXO ${funding.txid}:${funding.vout} at ${address} has ${depth} of the required ${required} confirmation(s). ` +
+        'Refusing to lock funds on insufficient confirmation depth — a shallow reorg could invalidate this funding before Sails ' +
+        'ever transitions the escrow to FUNDS_LOCKED. Retry once the required depth is reached.'
+      )
+    }
     return { txId: funding.txid, vout: funding.vout, address }
   }
 
+  // Missão 11 Fase 8.1 LB-02 — not currently called anywhere in
+  // src/ (confirmed by exhaustive grep before this fix) — lockFunds()
+  // above is the real, load-bearing gate for FUNDS_LOCKED. Brought up to
+  // the same confirmation-depth standard as lockFunds() anyway: a
+  // SettlementProvider interface method with a WEAKER guarantee than the
+  // method that actually gates real money is its own latent trap for
+  // whatever calls this in the future.
   async verifyLock(escrow: MultisigEscrowInput): Promise<boolean> {
     const parties = this.partiesFor(escrow)
     const { p2wsh } = this.buildScript(parties)
     const utxos = await this.fetchUtxos(p2wsh.address!)
+    const required = config.multisig.requiredConfirmations
 
-    if (this.isPolicyAware(escrow)) {
-      const required = this.requiredFundingSats(escrow)
-      return utxos.some((u) => u.value === required && u.status.confirmed)
-    }
+    const funding = this.isPolicyAware(escrow)
+      ? utxos.find((u) => u.value === this.requiredFundingSats(escrow) && u.status.confirmed)
+      : utxos.find((u) => u.value >= this.expectedSats(escrow.lockedAmount) && u.status.confirmed)
+    if (!funding) return false
 
-    // Legacy — unchanged.
-    const expected = this.expectedSats(escrow.lockedAmount)
-    return utxos.some((u) => u.value >= expected && u.status.confirmed)
+    const depth = await this.confirmationDepth(funding.txid)
+    return depth >= required
   }
 
   private async broadcast(txHex: string): Promise<string> {

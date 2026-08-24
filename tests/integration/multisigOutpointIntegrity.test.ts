@@ -44,6 +44,20 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
 
   let realFetch: typeof fetch
 
+  // Missão 11 Fase 8.1 LB-02 — lockFunds() now makes two more explorer
+  // calls beyond the UTXO listing (fetchTransactionConfirmationStatus,
+  // fetchChainTipHeight) to verify real confirmation depth. This test's
+  // fetch mock must route by URL shape (not a single blanket response)
+  // so all three calls resolve correctly regardless of which escrow's
+  // concurrent lockFunds() call is making them.
+  function mockExplorerForUtxo(txid: string, vout: number, valueSats: number): void {
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' } as any
+      if (url.includes(`/tx/${txid}/status`)) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) } as any
+      return { ok: true, json: async () => [{ txid, vout, value: valueSats, status: { confirmed: true } }] } as any
+    }) as any
+  }
+
   beforeAll(async () => {
     process.env.MOCK_ESCROW = 'false'
     process.env.MULTISIG_SEED = process.env.MULTISIG_SEED || 'outpoint-integrity-test-seed'
@@ -107,10 +121,7 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
     // THEIR OWN derived address, but both mocked responses report the
     // same outpoint — modeling the case a persisted-outpoint check exists
     // specifically to guard against.
-    global.fetch = jest.fn(async () => ({
-      ok: true,
-      json: async () => [{ txid: RACE_TXID, vout: 7, value: 100_000, status: { confirmed: true } }],
-    })) as any
+    mockExplorerForUtxo(RACE_TXID, 7, 100_000)
 
     const results = await Promise.allSettled([
       escrowService.lockFunds(a.escrowId, a.sellerId),
@@ -149,10 +160,7 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
 
     const a = await makeMultisigEscrow('seq-a', BUYER_PUBKEY_A, SELLER_PUBKEY_A)
     const sequentialTxid = `seq${RUN_ID}`.padEnd(64, 'b')
-    global.fetch = jest.fn(async () => ({
-      ok: true,
-      json: async () => [{ txid: sequentialTxid, vout: 1, value: 100_000, status: { confirmed: true } }],
-    })) as any
+    mockExplorerForUtxo(sequentialTxid, 1, 100_000)
     await escrowService.lockFunds(a.escrowId, a.sellerId)
 
     const b = await makeMultisigEscrow('seq-b', BUYER_PUBKEY_B, SELLER_PUBKEY_B)

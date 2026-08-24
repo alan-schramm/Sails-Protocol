@@ -45,6 +45,13 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
     process.env.MULTISIG_SEED = process.env.MULTISIG_SEED || 'dust-integrity-test-seed'
     process.env.TRUSTED_ARBITRATORS = process.env.TRUSTED_ARBITRATORS || 'dust-test-arbiter'
     process.env.MULTISIG_NETWORK = 'bitcoin'
+    // Missão 11 Fase 8.1 LB-01 — config/index.ts now refuses to boot with
+    // MULTISIG_NETWORK=mainnet while the explorer URL still looks
+    // testnet-pointed. This test's own explorer calls are separately
+    // mocked (see below), so the URL's real reachability doesn't matter.
+    process.env.MULTISIG_EXPLORER_API_URL = process.env.MULTISIG_EXPLORER_API_URL || 'https://mempool.space/api'
+    // Missão 11 Fase 8.1 LB-02 — required alongside MULTISIG_NETWORK=mainnet.
+    process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS = process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS || '1'
 
     await pg.probe()
     dbAvailable = pg.isAvailable()
@@ -96,8 +103,15 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
     // dev Postgres, so a fixed literal txid would collide with a
     // previous run's own claimed outpoint on any second consecutive run.
     const dustTxid = `dust${Date.now().toString(36)}`.padEnd(64, 'e')
+    // Missão 11 Fase 8.1 LB-02 — lockFunds() now makes two more explorer
+    // calls beyond the UTXO listing to verify real confirmation depth
+    // (fetchTransactionConfirmationStatus, fetchChainTipHeight); routed
+    // here the same way /fees/recommended already was.
     global.fetch = jest.fn(async (url: any) => {
-      if (String(url).includes('/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 1 }) } as any
+      const u = String(url)
+      if (u.includes('/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 1 }) } as any
+      if (u.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' } as any
+      if (u.includes(`/tx/${dustTxid}/status`)) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) } as any
       return { ok: true, json: async () => [{ txid: dustTxid, vout: 0, value: 293 + RELEASE_FEE_1SAT, status: { confirmed: true } }] } as any
     }) as any
     await escrowService.lockFunds(escrow.id, seller.id)

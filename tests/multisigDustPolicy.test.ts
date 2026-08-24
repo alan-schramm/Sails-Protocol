@@ -46,7 +46,20 @@ function mockExplorerThenFee(utxoValue: number, feeRateSatsPerVByte = 1, txid = 
 // otherwise.
 function loadMainnetProvider() {
   jest.resetModules()
-  process.env = { ...ORIGINAL_ENV, MOCK_ESCROW: 'false', MULTISIG_SEED: 'seed-dust', TRUSTED_ARBITRATORS: 'arb-dust', MULTISIG_NETWORK: 'bitcoin' }
+  // Missão 11 Fase 8.1 LB-01 — MULTISIG_EXPLORER_API_URL must be set
+  // explicitly here now: config/index.ts refuses to boot with
+  // MULTISIG_NETWORK=mainnet while the explorer URL still looks
+  // testnet-pointed (the exact contradiction the new guard exists to
+  // catch). This test never queries a real explorer (mockExplorerThenFee
+  // stubs fetch), so the URL's actual reachability doesn't matter — only
+  // that it doesn't contain "testnet".
+  // Missão 11 Fase 8.1 LB-02 — MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS is
+  // now required alongside MULTISIG_NETWORK=mainnet, same reasoning as
+  // MULTISIG_EXPLORER_API_URL above. This file's own tests build unsigned
+  // PSBTs (buildUnsignedRelease/Split), never lockFunds()/verifyLock()
+  // (the two methods that actually read this value), so the number
+  // itself is inert here — set for boot-time validity only.
+  process.env = { ...ORIGINAL_ENV, MOCK_ESCROW: 'false', MULTISIG_SEED: 'seed-dust', TRUSTED_ARBITRATORS: 'arb-dust', MULTISIG_NETWORK: 'bitcoin', MULTISIG_EXPLORER_API_URL: 'https://mempool.space/api', MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '1' }
   return require('../src/modules/open-settlement/multisig.provider')
 }
 

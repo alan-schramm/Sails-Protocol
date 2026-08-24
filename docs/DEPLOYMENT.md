@@ -265,6 +265,114 @@ This same procedure applies identically whether the affected database is
 a throwaway local Docker volume or a real production instance — the
 stakes differ, the verification discipline should not.
 
+## 6.2 Backup / Restore Procedure (Missão 11 Fase 8.1 LB-06)
+
+Operator-driven for the first controlled launch — no automated backup
+scheduler is wired into this codebase yet. A backup that has never been
+restored is not a proven backup: the exact commands below were run for
+real (2026-08-24) — a genuine `pg_dump` from a live database holding
+representative rows across every economically-relevant table (escrows,
+disputes, arbiter/participant key commitments, fee policies, distribution
+policies, collection evidence, fee obligations, entitlement ledger,
+custody attestations, migration state), restored into a brand-new, empty
+Postgres instance, with `prisma migrate status` confirming a clean schema
+match and exact row-counts confirmed identical across every table
+afterward — not assumed to work from reading `pg_dump`'s own manual.
+
+### Required PostgreSQL compatibility
+
+**`pg_dump`/`pg_restore` must be the same major version as the target
+server, or newer — never older.** Found for real running this rehearsal:
+this project's local dev Postgres runs 18.4; a `postgres:16-alpine`
+image's `pg_dump` refused outright (`pg_dump: error: aborting because of
+server version mismatch`) against it. `docker-compose.yml`'s own
+`postgres` service is pinned to `postgres:16-alpine` — if the real
+production Postgres version differs from that (AWS RDS provisioning
+determines this independently), the operator must use a `pg_dump`/
+`pg_restore` binary matching *that* version, not necessarily this repo's
+compose file. Confirm the live server's version first with `SELECT
+version();` before choosing the dump tool's own image tag.
+
+### Backup command
+
+```bash
+# Custom format (-Fc): supports pg_restore's own selective/parallel
+# restore and is compressed by default — plain SQL (-Fp) also works but
+# produces a much larger file for no real benefit here.
+pg_dump -h <host> -p <port> -U <user> -d sails_protocol -Fc \
+  -f sails_protocol_$(date +%Y%m%d_%H%M%S).dump
+```
+
+Run this against the real production connection string when the time
+comes; rehearsed above against a local instance via a throwaway
+`postgres:18-alpine` Docker container reaching the host database over
+`host.docker.internal`.
+
+### Restoration order
+
+1. Provision a genuinely fresh, empty Postgres instance/database — never
+   restore on top of an existing one (a partial restore into a
+   non-empty database is a real corruption risk, not a shortcut).
+2. `pg_restore -h <host> -p <port> -U <user> -d sails_protocol \
+   --no-owner --no-privileges sails_protocol_<timestamp>.dump` —
+   `--no-owner`/`--no-privileges` matter whenever the restore target's
+   own role names differ from the source's (true by construction for a
+   disaster-recovery restore onto new infrastructure).
+3. `npx prisma migrate status` against the restored database — must
+   report "Database schema is up to date!" with zero drift before
+   anything else touches it.
+4. Spot-check row counts against whatever monitoring/last-known-good
+   numbers exist for the source (exact match is the expected outcome —
+   `pg_dump`/`pg_restore` do not silently drop rows).
+5. Only then repoint the application's own `DATABASE_URL` at the
+   restored instance.
+
+### Verification procedure (what "restore succeeded" actually means)
+
+Confirmed for real during this rehearsal, not merely documented:
+
+- `_prisma_migrations` row count and contents match the source exactly.
+- Every hand-written database-native invariant survives the dump/restore
+  byte-for-byte — confirmed directly: `custody_attestations_immutability_guard`
+  (the append-only trigger) and `custody_attestations_single_active_per_recipient_asset_key`
+  (the partial unique index) were both still present and named identically
+  in the restored database. `pg_dump`'s default schema dump includes
+  triggers/functions/indexes automatically; this is expected behavior,
+  confirmed rather than assumed.
+- Representative historical rows read back with identical content (not
+  just count) — confirmed for a real `escrows` row.
+
+### Encryption / storage expectations
+
+Not yet decided operationally — recorded here as an open item, not
+silently assumed either way. At minimum before a real production backup
+is taken and stored: the dump file must be encrypted at rest (AWS S3
+server-side encryption, or an explicit `gpg`/`age` step before upload,
+either is acceptable — no preference recorded here) and access-controlled
+separately from the application's own runtime credentials (a backup
+containing every historical CustodyAttestation/FeePolicyVersion/escrow
+row is at least as sensitive as the live database itself). Retention
+period and off-host storage location are operator decisions for the real
+launch runbook, not fixed by this document.
+
+### Operator STOP conditions
+
+Do not proceed with a restore, and escalate instead, if:
+
+- The source dump's `pg_dump`/`pg_restore` tool version is older than the
+  target server's major version (silently proceeding risks a subtly
+  incomplete or failed restore, not just the loud refusal seen in this
+  rehearsal — never force past a version-mismatch warning).
+- The restore target is not genuinely empty (restoring on top of any
+  existing rows is not a supported or rehearsed path).
+- `prisma migrate status` reports drift or a failed migration after
+  restore — treat this identically to the Migration Failure Recovery
+  runbook (§6.1 above), on the restored copy, never on the only backup
+  available.
+- Row counts for any economically-relevant table (the list at the top of
+  this section) do not match the last known source counts — investigate
+  before repointing any application traffic at the restored database.
+
 ## 7. Production Considerations
 
 - [ ] Reverse proxy/TLS — closed differently than originally planned:
@@ -489,3 +597,55 @@ None of the above requires sticky sessions at the load balancer — any
 instance can serve any HTTP request or accept any new WebSocket
 connection; a client's own SDK-side reconnect-with-backoff handles
 picking up wherever it lands next.
+
+### 9.1 Background sweepers — SINGLE-ACTIVE-WORKER constraint (Missão 11 Fase 8.1, not yet lifted)
+
+The HTTP/WebSocket multi-instance safety proven above does **not** extend
+to the background sweepers (`app.ts`'s `setInterval`-based jobs:
+escrow-timelock, dispute-auto-resolution, MULTISIG fee-confirmation, and
+the two Fase 8.1 reorg sweepers). Each is a plain per-process timer with
+no cross-instance coordination — running two or more instances with any
+of these sweepers enabled means **every** instance independently runs
+its own copy on its own schedule.
+
+This was deliberately **not** re-architected into a distributed
+coordination system for the first controlled launch, per this Fase's own
+"do not expand architecture merely to claim multi-instance readiness"
+instruction. What is and isn't actually at risk, reasoned from the code
+that exists today:
+
+- **State corruption: not expected.** Every sweeper's actual state
+  transition goes through the same atomic Postgres primitives the
+  multi-instance HTTP proof above already relies on
+  (`claimEscrowTransition()`'s conditional `updateMany`,
+  `transitionCollectionStatus()`, `recordReorgAndRevert()`'s own status
+  check) — a second instance's concurrent attempt on the same row loses
+  the race and no-ops or is rejected, the same way two concurrent HTTP
+  requests already are proven to behave.
+- **Real, present cost: duplicate work.** Two instances both sweeping on
+  the same interval means duplicate explorer API calls (MULTISIG
+  confirmation/reorg sweepers), duplicate query load, and duplicate log
+  noise for the same underlying event — wasteful, not corrupting.
+- **Not independently verified under two real concurrent instances** —
+  unlike the HTTP/WS proof above (genuinely tested with separate Node
+  processes), this reasoning has not been exercised the same way for the
+  sweepers specifically. Treated as unverified, not assumed safe.
+
+**Operational constraint for the first controlled launch:** enable sweeper
+feature flags (`ESCROW_TIMELOCK_SWEEPER`, `DISPUTE_AUTO_RESOLUTION_SWEEPER`,
+`MULTISIG_FEE_CONFIRMATION_SWEEPER`, `MULTISIG_FEE_REORG_SWEEPER`,
+`MULTISIG_FUNDING_REORG_SWEEPER`) on **exactly one** designated instance;
+leave them unset (the default) on every other instance. This requires no
+code change — every sweeper is already off by default and independently
+flag-gated per instance's own environment.
+
+**If/when a genuine need for sweepers-on-every-instance arises:** the
+smallest deterministic fix, proposed here rather than built (per this
+Fase's own instruction to propose before introducing new distributed
+coordination), is a short-TTL Redis lease acquired at the top of each
+sweeper tick (`SET sweeper:<name>:lease <instanceId> NX PX <intervalMs>`)
+— only the instance holding the lease for that tick actually runs the
+sweep body; every other instance's tick is a fast no-op. Redis is already
+a hard dependency for this codebase (sessions, rate limiting, cross-
+instance pub/sub), so this adds no new infrastructure, only a small,
+well-understood locking primitive — not implemented in this phase.

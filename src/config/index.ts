@@ -4,6 +4,7 @@
  * Every other file that imports 'config' depends on this existing.
  */
 import 'dotenv/config'
+import { normalizeBitcoinNetwork, type BitcoinNetwork } from '@satsails/p2p-schemas'
 
 function required(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback
@@ -23,14 +24,109 @@ function requiredInt(name: string, fallback: number): number {
   return parsed
 }
 
+// Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
+// string comparison with no validation of anything else. Every fail-closed
+// guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
+// no-fallback, MULTISIG_NETWORK/MOCK_SETTLEMENT above) pivots on this one
+// comparison — a typo ('Production', 'prod') or an unexpected value would
+// silently evaluate to `false` and boot the permissive dev/test posture
+// with zero error. Validated against the exact set this codebase actually
+// uses (development is the implicit default; test is Jest's own default,
+// see package.json's jest config; production is the deployed value —
+// docker's own Dockerfile sets exactly this). Any other value throws
+// immediately, in every environment — an unrecognized NODE_ENV is a
+// config bug regardless of what was intended.
+const RECOGNIZED_NODE_ENVS = ['development', 'test', 'production'] as const
+type RecognizedNodeEnv = (typeof RECOGNIZED_NODE_ENVS)[number]
+
+function resolveNodeEnv(): RecognizedNodeEnv {
+  const raw = process.env.NODE_ENV
+  if (raw === undefined) return 'development'
+  if (!(RECOGNIZED_NODE_ENVS as readonly string[]).includes(raw)) {
+    throw new Error(
+      `FATAL: NODE_ENV is set to an unrecognized value '${raw}'. Expected one of: ${RECOGNIZED_NODE_ENVS.join(', ')}. ` +
+      'Refusing to boot — see Missão 11 Fase 8.1 LB-03. Every fail-closed guard in this file depends on NODE_ENV ' +
+      'meaning exactly what it says; an unrecognized value must never silently fall through to the permissive posture.'
+    )
+  }
+  return raw as RecognizedNodeEnv
+}
+
+const resolvedNodeEnv = resolveNodeEnv()
+
 // Missão 06.5 — computed once, before the object literal, so the
 // database/redis fallback logic below can read it (a field can't
 // reference `config.isProduction` from inside `config`'s own literal —
 // it doesn't exist yet during its own construction).
-const isProductionEnv = process.env.NODE_ENV === 'production'
+const isProductionEnv = resolvedNodeEnv === 'production'
+
+// Missão 11 Fase 8.1 LB-01 — MULTISIG_NETWORK used to be a bare string
+// that multisig.provider.ts's own networkFor() silently mapped to
+// testnet for anything unrecognized (typo, wrong case, unset). Same
+// required-in-production/defaulted-in-dev shape DATABASE_URL/REDIS_URL
+// already use below: an explicitly WRONG value throws in every
+// environment (a typo is a typo regardless of NODE_ENV — see
+// normalizeBitcoinNetwork()), but an entirely UNSET value only throws in
+// production; dev/CI environments that have never set this var keep
+// defaulting to testnet exactly as before.
+function resolveMultisigNetwork(): BitcoinNetwork {
+  const raw = process.env.MULTISIG_NETWORK
+  if (raw === undefined) {
+    if (isProductionEnv) {
+      throw new Error(
+        'FATAL: NODE_ENV=production but MULTISIG_NETWORK is not set. Refusing to boot — ' +
+        'see Missão 11 Fase 8.1 LB-01. Set MULTISIG_NETWORK explicitly (mainnet, testnet, or regtest; ' +
+        "'bitcoin' accepted as an alias for mainnet)."
+      )
+    }
+    return 'testnet'
+  }
+  return normalizeBitcoinNetwork(raw)
+}
+
+const resolvedMultisigNetwork = resolveMultisigNetwork()
+
+// Missão 11 Fase 8.1 LB-02 — the confirmation-depth requirement for
+// recognizing an escrow's own FUNDING (the trade collateral itself) as
+// safely locked. Deliberately a SEPARATE setting from
+// FeePolicyVersion.requiredConfirmations (that field's own schema comment
+// is explicit: it governs when a broadcast FEE output becomes COLLECTED
+// revenue — a different economic fact, only meaningful for policy-aware
+// escrows, and entirely absent for a legacy escrow). Escrow funding-lock
+// safety is a protocol-level Bitcoin-safety parameter that applies to
+// EVERY MULTISIG escrow regardless of fee-policy status, so it lives here
+// as a config value, not a per-policy DB column — reusing the fee field
+// would have left every legacy escrow with no depth requirement at all.
+//
+// Gated on the resolved Bitcoin NETWORK (mainnet), not NODE_ENV: a
+// controlled mainnet rehearsal (docs/MAINNET_MULTISIG_PROOF.md) is the
+// actual real-money signal, and might not run with NODE_ENV=production
+// set. Default of 1 (testnet/regtest) preserves today's actual dev/CI
+// ergonomics and behavior — this was already the effective confirmation
+// requirement before this fix (a bare `status.confirmed` boolean is "at
+// least 1"), so nothing about non-mainnet behavior silently gets slower.
+function resolveMultisigRequiredConfirmations(): number {
+  const raw = process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS
+  if (raw === undefined) {
+    if (resolvedMultisigNetwork === 'mainnet') {
+      throw new Error(
+        'FATAL: MULTISIG_NETWORK=mainnet but MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS is not set. ' +
+        'Refusing to boot — see Missão 11 Fase 8.1 LB-02. A bare single (or zero) confirmation is not ' +
+        'sufficient economic finality for real BTC; set this explicitly (e.g. ' +
+        'MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS=3).'
+      )
+    }
+    return 1
+  }
+  const parsed = parseInt(raw, 10)
+  if (isNaN(parsed) || parsed < 1) {
+    throw new Error(`Environment variable MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS must be a positive integer, got: ${raw}`)
+  }
+  return parsed
+}
 
 export const config = {
-  env: process.env.NODE_ENV ?? 'development',
+  env: resolvedNodeEnv,
   isProduction: isProductionEnv,
 
   // Matches what app.ts (the pre-existing Fastify bootstrap) actually
@@ -38,7 +134,7 @@ export const config = {
   app: {
     port: requiredInt('PORT', 3000),
     host: process.env.HOST ?? '0.0.0.0',
-    env: process.env.NODE_ENV ?? 'development',
+    env: resolvedNodeEnv,
     logLevel: process.env.LOG_LEVEL ?? 'info',
   },
 
@@ -279,6 +375,18 @@ export const config = {
     // ever produce an IN_PROGRESS obligation) — safe to enable ahead of
     // that with zero effect, but left off by default regardless.
     multisigFeeConfirmationSweeper: process.env.MULTISIG_FEE_CONFIRMATION_SWEEPER === 'true',
+    // Missão 11 Fase 8.1 LB-08 — off by default, same reasoning as the
+    // three sweepers above. Re-checks already-COLLECTED/DISTRIBUTED fee
+    // obligations for a reorg that invalidated their confirming block —
+    // detection only; the actual revert/flag logic
+    // (recordReorgAndRevert()) already existed in
+    // fee-collection-recognition.service.ts before this fix, just with
+    // nothing calling it.
+    multisigFeeReorgSweeper: process.env.MULTISIG_FEE_REORG_SWEEPER === 'true',
+    // Missão 11 Fase 8.1 LB-08(A) — off by default, same reasoning.
+    // Detection + logging only (see that sweep's own header comment for
+    // why no status mutation happens here).
+    multisigFundingReorgSweeper: process.env.MULTISIG_FUNDING_REORG_SWEEPER === 'true',
   },
 
   trade: {
@@ -298,6 +406,20 @@ export const config = {
     // itself is a per-policy decision (FeePolicyVersion.requiredConfirmations),
     // this is only how often the job bothers to look.
     multisigFeeConfirmationSweepIntervalMs: requiredInt('MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 300000),
+    // How often the Fase 8.1 reorg sweeper (when enabled) re-checks
+    // recently-collected MULTISIG fee obligations. Same 5-minute default.
+    multisigFeeReorgSweepIntervalMs: requiredInt('MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 300000),
+    // Missão 11 Fase 8.1 LB-08 — once a COLLECTED/DISTRIBUTED obligation's
+    // confirming block is this many blocks deep, the reorg sweeper stops
+    // re-checking it — a reorg past this depth is not a real operational
+    // concern worth an unbounded, ever-growing query. 100 blocks matches
+    // Bitcoin Core's own coinbase-maturity constant — a widely-recognized,
+    // independently-justified reference point for "practically
+    // immutable" in the Bitcoin ecosystem, not an arbitrary pick.
+    multisigReorgSafetyWindowBlocks: requiredInt('MULTISIG_REORG_SAFETY_WINDOW_BLOCKS', 100),
+    // How often the Fase 8.1(A) funding-reorg sweeper (when enabled)
+    // re-checks FUNDS_LOCKED MULTISIG escrows. Same 5-minute default.
+    multisigFundingReorgSweepIntervalMs: requiredInt('MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 300000),
   },
 
   // Sails OpenProof (proof.service.ts) — Fase 1 Task 3(c). Evidence
@@ -392,8 +514,9 @@ export const config = {
   // keys, single-arbiter limitation).
   multisig: {
     seed: process.env.MULTISIG_SEED ?? '',
-    network: process.env.MULTISIG_NETWORK ?? 'testnet',
+    network: resolvedMultisigNetwork,
     explorerApiUrl: process.env.MULTISIG_EXPLORER_API_URL ?? 'https://mempool.space/testnet/api',
+    requiredConfirmations: resolveMultisigRequiredConfirmations(),
   },
 
   // LIGHTNING_HODL SettlementProvider (lightning-hodl.provider.ts) — real
@@ -492,15 +615,36 @@ if (config.isProduction && process.env.ENFORCE_CAPABILITIES === undefined) {
   )
 }
 
-// Warn if mockEscrow is disabled but mockSettlement is enabled — this
-// combination means real funds are locked but settlement never releases them.
-// Stays console.warn on purpose, not childLogger('config') — common/logger.ts
-// reads config.app at module-load time, so importing it here would be a real
-// circular import (config -> logger -> config), not just a style choice.
+// Missão 11 Fase 8.1 LB-04 — promoted from a console.warn to the same
+// hard-stop RT-001 above already gives MOCK_ESCROW. Warning-only was a
+// real, dangerous asymmetry: MOCK_ESCROW=false + MOCK_SETTLEMENT left at
+// its default-true means real funds get locked into a real escrow while
+// release/refund/split is a silent no-op — an operator who only checked
+// for RT-001's own fatal error (and never saw a mere warning line in a
+// noisy startup log) could boot exactly this configuration in
+// production. No warning-only path remains for this combination.
 if (config.isProduction && !config.features.mockEscrow && config.features.mockSettlement) {
-  console.warn(
-    'WARNING: MOCK_ESCROW=false but MOCK_SETTLEMENT=true. ' +
-    'This combination will lock real funds but settlement will be a no-op. ' +
-    'Set MOCK_SETTLEMENT=false for production.'
+  throw new Error(
+    'FATAL: NODE_ENV=production, MOCK_ESCROW=false, but MOCK_SETTLEMENT is not explicitly false. ' +
+    'This combination would lock real funds into escrow while settlement (release/refund/split) is a ' +
+    'no-op. Refusing to boot — see Missão 11 Fase 8.1 LB-04. Set MOCK_SETTLEMENT=false.'
+  )
+}
+
+// Missão 11 Fase 8.1 LB-01 — the concrete, evidenced misconfiguration
+// this catches: an operator flips MULTISIG_NETWORK to mainnet but never
+// updates MULTISIG_EXPLORER_API_URL away from its testnet-pointed
+// default, so every funding/confirmation query would silently ask the
+// wrong chain's explorer about a real mainnet address (funds would
+// simply never be recognized as locked — a "stuck," not stolen, failure,
+// but a real one). A substring heuristic on the explorer URL, not
+// exhaustive network detection — it exists specifically to catch
+// "left the default unedited," the exact scenario found during the
+// Fase 8.0 audit, not to validate arbitrary custom explorer URLs.
+if (config.multisig.network === 'mainnet' && config.multisig.explorerApiUrl.toLowerCase().includes('testnet')) {
+  throw new Error(
+    `FATAL: MULTISIG_NETWORK=mainnet but MULTISIG_EXPLORER_API_URL ('${config.multisig.explorerApiUrl}') ` +
+    'still looks like a testnet explorer endpoint. Refusing to boot with a contradictory Bitcoin network ' +
+    'configuration — see Missão 11 Fase 8.1 LB-01. Set MULTISIG_EXPLORER_API_URL to a real mainnet explorer.'
   )
 }

@@ -285,6 +285,40 @@ export class SailsSettlementModule {
     );
   }
 
+  /**
+   * Missão 11 Fase 8.1 LB-05 — the public SDK wrapper for the seller-only
+   * expiry-recovery route (`POST /v1/settlement/escrow/:id/initiate-
+   * expiry-recovery`), previously reachable only via a raw, undocumented
+   * HTTP call. No privileged bypass: this hits the exact same route any
+   * compatible wallet can call through the public protocol contract.
+   *
+   * Eligibility (server-enforced, not re-validated client-side — this
+   * method exists to make the call reachable, not to duplicate the
+   * server's own authorization logic): the escrow's status must be
+   * `EXPIRED` (only reached from `FUNDS_LOCKED` once its own timelock has
+   * genuinely passed with no cooperative resolution), and the
+   * authenticated caller must be this trade's seller — the only party
+   * with locked collateral at stake in this specific state. A caller who
+   * doesn't meet either condition receives the server's own rejection
+   * (a `ValidationError`/`ForbiddenError`-mapped response), not a
+   * generic failure.
+   *
+   * Reuses the existing dispute machinery server-side — the returned
+   * `Dispute` is a real dispute row (`status: 'OPENED'`), resolved
+   * through the same arbiter/ruling flow (`resolveDispute()`,
+   * `getDisputeService()`) every other dispute already is. There is no
+   * separate "recovery" resolution path to poll; check the returned
+   * dispute's own status/ruling the same way `dispute()`'s result would
+   * be checked.
+   */
+  async initiateExpiryRecovery(escrowId: string): Promise<Dispute> {
+    return this.transport.post<Dispute>(
+      `/v1/settlement/escrow/${escrowId}/initiate-expiry-recovery`,
+      undefined,
+      true,
+    );
+  }
+
   /** Requires an active session. -> REFUNDED. */
   async refund(escrowId: string): Promise<Escrow> {
     return this.transport.post<Escrow>(

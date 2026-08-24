@@ -188,8 +188,20 @@ is. The earlier version of this section had the Protocol Fee OFF for
 the first 12 months, activating only after a grant-funded period ended
 — that plan is superseded below.
 
+**Corrected 2026-08-24** — the diagram below describes the DESIGNED
+activation plan for Day 0, not a claim that it is active today. As of
+this writing, `PROTOCOL_FEE_RATE` remains at its inactive default, no
+`FeePolicyVersion`/`DistributionPolicyVersion` has been published outside
+a test, and no production 0.40% fee has ever been charged (see section
+6.5 below for the full, authoritative activation-state disclosure — this
+correction exists specifically because an earlier version of this
+section's present-tense wording contradicted that section). The intended
+design itself is unchanged and not weakened by this correction: the
+mechanism is IMPLEMENTED and code-tested, real activation is a deliberate
+operator action described in section 6.5, not automatic on launch day.
+
 ```
-Day 0 (launch)
+Day 0 (launch, once activated — see the correction immediately above)
   → Protocol Fee is ON at 0.40% (section 6.2's 35/30/25/10 split),
     independent of whether grant funding is secured — real, sustainable
     revenue from real usage, not a promise contingent on a third party's

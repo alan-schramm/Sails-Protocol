@@ -63,6 +63,7 @@
  * seed. See tests/escrow-key-derivation.test.ts.
  */
 import { HDKey } from '@scure/bip32'
+import type { BitcoinNetwork } from '@satsails/p2p-schemas'
 import { bytesToHex } from '../encoding'
 import type { EscrowKeypair } from './escrow-key'
 
@@ -70,7 +71,16 @@ export const SAILS_ESCROW_PURPOSE = 1888146842
 export const ESCROW_KEY_DERIVATION_VERSION = 'sails-escrow-v1'
 export const ESCROW_KEY_METADATA_FORMAT_VERSION = 1
 
-export type EscrowKeyNetwork = 'mainnet' | 'testnet'
+// Missão 11 Fase 8.1 LB-01/LB-07 — was its own local 'mainnet' | 'testnet'
+// union, independent of the server's own network vocabulary
+// (config.multisig.network, multisig.provider.ts's networkFor()) — the
+// exact split that let a wallet using the server's own documented
+// MULTISIG_NETWORK=bitcoin value silently mean something different
+// (or nothing) client-side. Now a re-export of the one canonical
+// BitcoinNetwork type both packages import from @satsails/p2p-schemas.
+// Kept as a named export (not just BitcoinNetwork directly) so existing
+// SDK consumers importing EscrowKeyNetwork are unaffected.
+export type EscrowKeyNetwork = BitcoinNetwork
 export type EscrowKeyRole = 'buyer' | 'seller'
 // Union, not enum — deliberately: adding 'TAPROOT_MUSIG2' later (once
 // script_type'=1' is actually designed) is an additive change to this
@@ -78,7 +88,10 @@ export type EscrowKeyRole = 'buyer' | 'seller'
 // switching on it.
 export type EscrowScriptType = 'P2WSH'
 
-const COIN_TYPE: Record<EscrowKeyNetwork, number> = { mainnet: 0, testnet: 1 }
+// regtest shares testnet's registered BIP-44 coin type (1) — standard
+// convention (regtest has no coin type of its own in SLIP-44), matching
+// what most wallet software already does for regtest key derivation.
+const COIN_TYPE: Record<EscrowKeyNetwork, number> = { mainnet: 0, testnet: 1, regtest: 1 }
 // P2WSH is the only implemented branch. TAPROOT_MUSIG2 intentionally has
 // no entry here — deriveEscrowKey() must fail closed for any scriptType
 // this table doesn't recognize, not silently default to something.

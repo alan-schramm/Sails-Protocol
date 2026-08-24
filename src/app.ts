@@ -33,6 +33,8 @@ import { escrowService } from './modules/open-settlement/escrow.service'
 import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
 import { sweepMultisigFeeConfirmations } from './modules/open-settlement/multisig-fee-confirmation-job'
+import { sweepMultisigFeeReorgs } from './modules/open-settlement/multisig-fee-reorg-sweep'
+import { sweepMultisigFundingReorgs } from './modules/open-settlement/multisig-funding-reorg-sweep'
 import { metricsRegistry, httpRequestsTotal, httpRequestDurationSeconds } from './common/metrics'
 import { recordSuspiciousActivity } from './common/security/suspicious-activity'
 import type { AuthenticatedRequest } from './common/middleware/auth'
@@ -496,6 +498,38 @@ export async function startServer() {
         .catch((err) => app.log.error({ msg: 'MULTISIG fee confirmation sweep failed', module: 'multisig-fee-confirmation-sweeper', err: err instanceof Error ? err.message : err }))
     }, config.trade.multisigFeeConfirmationSweepIntervalMs)
     feeConfirmationInterval.unref()
+  }
+
+  // Missão 11 Fase 8.1 LB-08 — off by default, same reasoning as the
+  // sweepers above. Structurally inert until a real COLLECTED/DISTRIBUTED
+  // MULTISIG obligation exists — safe to enable ahead of that.
+  if (config.features.multisigFeeReorgSweeper) {
+    const feeReorgInterval = setInterval(() => {
+      sweepMultisigFeeReorgs()
+        .then(({ reverted, flaggedDistributed, failed }) => {
+          if (reverted.length || flaggedDistributed.length || failed.length) {
+            app.log.info({ msg: 'MULTISIG fee reorg sweep completed', module: 'multisig-fee-reorg-sweeper', reverted: reverted.length, flaggedDistributed: flaggedDistributed.length, failed: failed.length })
+          }
+        })
+        .catch((err) => app.log.error({ msg: 'MULTISIG fee reorg sweep failed', module: 'multisig-fee-reorg-sweeper', err: err instanceof Error ? err.message : err }))
+    }, config.trade.multisigFeeReorgSweepIntervalMs)
+    feeReorgInterval.unref()
+  }
+
+  // Missão 11 Fase 8.1 LB-08(A) — off by default, same reasoning. Detects
+  // only; see multisig-funding-reorg-sweep.ts's own header comment for
+  // why it does not change Escrow.status.
+  if (config.features.multisigFundingReorgSweeper) {
+    const fundingReorgInterval = setInterval(() => {
+      sweepMultisigFundingReorgs()
+        .then(({ flagged, failed }) => {
+          if (flagged.length || failed.length) {
+            app.log.info({ msg: 'MULTISIG funding reorg sweep completed', module: 'multisig-funding-reorg-sweeper', flagged: flagged.length, failed: failed.length })
+          }
+        })
+        .catch((err) => app.log.error({ msg: 'MULTISIG funding reorg sweep failed', module: 'multisig-funding-reorg-sweeper', err: err instanceof Error ? err.message : err }))
+    }, config.trade.multisigFundingReorgSweepIntervalMs)
+    fundingReorgInterval.unref()
   }
 
   return app

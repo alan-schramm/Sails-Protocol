@@ -239,7 +239,8 @@ export async function main() {
   // real-money mainnet flow must not print "(testnet3)" next to a real
   // mainnet address — that is exactly the kind of mislabel an operator
   // could act on incorrectly.
-  const networkLabel = config.multisig.network === 'bitcoin' || config.multisig.network === 'mainnet' ? 'mainnet' : config.multisig.network
+  // Missão 11 Fase 8.1 LB-01 — 'bitcoin' is now normalized to 'mainnet' at config load (normalizeBitcoinNetwork()), so this is just a direct check.
+  const networkLabel = config.multisig.network === 'mainnet' ? 'mainnet' : config.multisig.network
 
   // Missão 09 (2026-08-17) — CTO STOP GATE: buyer/seller keys must survive
   // a process restart without ever touching the server. Deterministic
@@ -373,7 +374,7 @@ export async function main() {
       : `   >>> Envie ao menos ${lockedAmountBtc} tBTC para este endereço via um faucet público de Bitcoin ${networkLabel}.`
   )
 
-  const network = config.multisig.network === 'bitcoin' || config.multisig.network === 'mainnet' ? bitcoin.networks.bitcoin : bitcoin.networks.testnet
+  const network = config.multisig.network === 'mainnet' ? bitcoin.networks.bitcoin : bitcoin.networks.testnet
   const buyerPayoutAddress = bitcoin.payments.p2wpkh({ pubkey: Buffer.from(buyerKeys.publicKey), network }).address!
 
   // Missão 09 (2026-08-18, CTO STOP GATE #3) — a prior run may already have
@@ -469,7 +470,7 @@ export async function main() {
   // today; that gap is real and tracked separately (Fase 5's own final
   // report), not solved by this demo.
   const { verifyAndSignEscrowPsbt, buildExpectedFeeAwareReleaseOutputs } = loadWalletVerificationModule()
-  const escrowKeyNetwork = config.multisig.network === 'bitcoin' || config.multisig.network === 'mainnet' ? 'mainnet' : 'testnet'
+  const escrowKeyNetwork = config.multisig.network === 'mainnet' ? 'mainnet' : 'testnet'
   const lockedAmountSats = BigInt(Math.round(parseFloat(lockedAmountBtc) * 1e8))
   const isPolicyAware = !!escrowDetails.feePolicyVersionId && escrowDetails.snapshotProtocolFeeRate !== null && escrowDetails.snapshotProtocolFeeRate !== undefined
   const feeCollectible = isPolicyAware && !escrowDetails.snapshotFeeCollectionWaivedPreFunding

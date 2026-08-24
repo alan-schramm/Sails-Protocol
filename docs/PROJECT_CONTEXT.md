@@ -362,6 +362,11 @@ strategic/grant/partnership context, not developer onboarding)
    Bitcoin · Liquid · Lightning · USDT
 ```
 
+*(Architectural breadth, not equal build status — Bitcoin/USDT are
+implemented and real-path validated, Lightning is real-path validated on
+testnet only, Liquid is designed only with zero implementation. See
+README.md's "Rail readiness" section for the full per-rail disclosure.)*
+
 Read bottom-to-top for "what does this run on" (settlement assets → Tether
 infrastructure → protocol → modules → SDK → your wallet), or top-to-bottom
 for "what do I integrate" (your wallet → one SDK call → the protocol
@@ -419,8 +424,11 @@ the Satsails Wallet reference implementation. Everything else is specified
 routes and a real service layer today (OpenP2P, OpenIdentity,
 OpenSettlement, OpenLiquidity, OpenReputation — see `BACKLOG.md`'s P0-P2
 tables for exactly what's real in each), and OpenAgents has its first
-real capability (below). Only OpenFinance and the SDK remain genuinely
-unbuilt.
+real capability (below). **Corrected 2026-08-24** — this sentence
+previously said "the SDK remain[s] genuinely unbuilt" alongside
+OpenFinance; that stopped being true well before this date (see the
+table's own SDK row below for the current, corrected status). Only
+OpenFinance remains genuinely unbuilt.
 
 Use this status legend everywhere — it is mandatory, not optional:
 
@@ -437,7 +445,7 @@ Use this status legend everywhere — it is mandatory, not optional:
 | Sails OpenLiquidity | 🏗️ Specified — `LiquidityProvider` interface + Internal order book implemented |
 | Sails OpenAgents | 🏗️ Specified — real capabilities: `QvacAgentProvider` (real `@qvac/sdk` local LLM inference, live-verified) plus `BuyerAgent`/`SellerAgent` (two local agents simulating Satsails Wallet instances, autonomously generating a real `TradeIntentPayload`/offer via QVAC). **Corrected 2026-08-09** — RFC-007 D7's Social Engineering Agent is real as of RFC-017 (`social-engineering-agent.ts`, 2 of 3 patterns detected, off by default); this row was stale. `POST /v1/agents/*` (2026-08-09) exposes `generateTradeIntent`/`generateOfferIntent`/`assessIntentRisk` over HTTP for the first time. Genuinely remaining: the `unexpected_flow_deviation` social-engineering pattern (needs real trade-state-machine awareness) and the `learn()` step |
 | Sails OpenFinance | 📋 Aspirational |
-| Sails SDK (MVP release: Sails P2P Trading SDK) | 📋 Aspirational — interface fully specified, zero implementation |
+| Sails SDK (MVP release: Sails P2P Trading SDK) | ✅ Proven — **Corrected 2026-08-24** (previously read "Aspirational — interface fully specified, zero implementation"; stale). `packages/sails-sdk/src/index.ts` is a real, ~220-line barrel export — `SailsClient` plus 10+ real modules (identity, reputation, liquidity, openp2p, settlement, proof, agents, peers, capabilities, arbitration, payout addresses), real PSBT-verification cryptography (`wallet-verification.ts`), and real EVM/Bitcoin custody primitives — verified directly against the file, not assumed from an older status |
 
 ### What actually exists in the codebase right now
 

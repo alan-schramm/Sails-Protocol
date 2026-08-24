@@ -62,6 +62,12 @@ describe('MultisigProvider.lockFunds — now returns vout alongside txid', () =>
       ok: true,
       json: async () => [{ txid: 'a'.repeat(64), vout: 3, value: 100_000, status: { confirmed: true } }],
     })
+    // Missão 11 Fase 8.1 LB-02 — lockFunds() now re-verifies confirmation
+    // depth via two more explorer calls (fetchTransactionConfirmationStatus,
+    // fetchChainTipHeight); required defaults to 1 (MULTISIG_NETWORK
+    // unset -> testnet), so a single confirmation is exactly sufficient.
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 100 }) })
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '100' })
     const result = await multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
     expect(result.txId).toBe('a'.repeat(64))
     expect(result.vout).toBe(3)

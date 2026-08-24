@@ -128,6 +128,19 @@ describe('SailsSettlementModule', () => {
     expect(JSON.parse(init.body)).toEqual({ reason: 'no payment received', evidence: ['screenshot.png'] })
   })
 
+  it('initiateExpiryRecovery() (Missão 11 Fase 8.1 LB-05) posts to /v1/settlement/escrow/:id/initiate-expiry-recovery with auth, no body — the exact public route, no privileged bypass', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'dispute-1', status: 'OPENED' } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    const result = await settlement.initiateExpiryRecovery('escrow-1')
+
+    expect(result.id).toBe('dispute-1')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/escrow/escrow-1/initiate-expiry-recovery')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+  })
+
   it('resolveDispute() posts ruling+releaseToAddress to /v1/settlement/disputes/:id/resolve', async () => {
     const fetchImpl = fakeFetch(200, { success: true, data: { id: 'dispute-1', ruling: 'RELEASE' } })
     const settlement = new SailsSettlementModule(authedTransport(fetchImpl))

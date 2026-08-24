@@ -55,6 +55,11 @@ jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 // this test's outcome must not depend on a local, gitignored .env file.
 const ENV_BASE = {
   MOCK_ESCROW: 'false',
+  // Missão 11 Fase 8.1 LB-04/LB-01 — same reasoning as tests/cors.test.ts's
+  // identical ENV_BASE addition: config/index.ts now hard-stops on these
+  // two if left unset alongside MOCK_ESCROW=false/NODE_ENV=production.
+  MOCK_SETTLEMENT: 'false',
+  MULTISIG_NETWORK: 'testnet',
   ENFORCE_CAPABILITIES: 'false',
   DATABASE_URL: 'postgresql://postgres:password@localhost:5432/sails_protocol',
   REDIS_URL: 'redis://localhost:6379',

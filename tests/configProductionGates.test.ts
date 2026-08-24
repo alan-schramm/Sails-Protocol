@@ -26,9 +26,19 @@ jest.mock('dotenv/config', () => ({}))
 const REQUIRED_PROD_ENV = {
   NODE_ENV: 'production',
   MOCK_ESCROW: 'false',
+  // Missão 11 Fase 8.1 LB-04 — MOCK_SETTLEMENT now has the same hard-stop
+  // MOCK_ESCROW already had; every production-boot test in this file must
+  // satisfy it explicitly or it would trip the new gate below.
+  MOCK_SETTLEMENT: 'false',
   ENFORCE_CAPABILITIES: 'false',
   DATABASE_URL: 'postgresql://real-host/sails_protocol',
   REDIS_URL: 'redis://real-host:6379',
+  // Missão 11 Fase 8.1 LB-01 — MULTISIG_NETWORK now required in
+  // production (same required-in-prod/defaulted-in-dev shape as
+  // DATABASE_URL/REDIS_URL above); 'testnet' keeps the default
+  // MULTISIG_EXPLORER_API_URL non-contradictory for every test in this
+  // file that doesn't specifically exercise the network gate below.
+  MULTISIG_NETWORK: 'testnet',
 }
 
 describe('config/index.ts — production boot gates (Missão 06.5)', () => {
@@ -143,6 +153,177 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
       const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined })
       expect(load).not.toThrow()
       expect(load().redis.url).toBe('redis://localhost:6379')
+    })
+  })
+
+  describe('NODE_ENV (Missão 11 Fase 8.1 LB-03) — unrecognized values must throw, never silently fall through to the permissive posture', () => {
+    it('boots in development when NODE_ENV is unset — preserves the implicit default', () => {
+      const load = loadConfig({ NODE_ENV: undefined, DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined })
+      expect(load).not.toThrow()
+      expect(load().env).toBe('development')
+      expect(load().isProduction).toBe(false)
+    })
+
+    it("boots on NODE_ENV='test' (Jest's own default)", () => {
+      const load = loadConfig({ NODE_ENV: 'test', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined })
+      expect(load).not.toThrow()
+      expect(load().env).toBe('test')
+      expect(load().isProduction).toBe(false)
+    })
+
+    it('boots on NODE_ENV=production with every other gate satisfied', () => {
+      const load = loadConfig(REQUIRED_PROD_ENV)
+      expect(load).not.toThrow()
+      expect(load().env).toBe('production')
+      expect(load().isProduction).toBe(true)
+    })
+
+    it("refuses to boot on a capitalization typo ('Production') — this is the exact failure mode LB-03 exists to close: it must NOT silently boot as non-production", () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, NODE_ENV: 'Production' })
+      expect(load).toThrow(/NODE_ENV/)
+    })
+
+    it("refuses to boot on a shortened/common typo ('prod')", () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, NODE_ENV: 'prod' })
+      expect(load).toThrow(/NODE_ENV/)
+    })
+
+    it('refuses to boot on an entirely unrecognized environment name (e.g. staging) — not part of this codebase\'s accepted set', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, NODE_ENV: 'staging' })
+      expect(load).toThrow(/NODE_ENV/)
+    })
+
+    it('refuses to boot on a trailing-whitespace value — not silently trimmed and accepted', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, NODE_ENV: 'production ' })
+      expect(load).toThrow(/NODE_ENV/)
+    })
+  })
+
+  describe('MULTISIG_NETWORK (Missão 11 Fase 8.1 LB-01/LB-07) — unknown values must throw, never fall back to any network', () => {
+    it('refuses to boot in production when MULTISIG_NETWORK is unset', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: undefined })
+      expect(load).toThrow(/MULTISIG_NETWORK/)
+    })
+
+    it('refuses to boot (any environment) on an unset-but-explicit empty string', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: '' })
+      expect(load).toThrow(/Bitcoin network is not configured/)
+    })
+
+    it('refuses to boot on a typo — never silently falls back to testnet', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'main' })
+      expect(load).toThrow(/Unrecognized Bitcoin network/)
+    })
+
+    it('refuses to boot on wrong casing — case-sensitive by design', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'MAINNET' })
+      expect(load).toThrow(/Unrecognized Bitcoin network/)
+    })
+
+    it('refuses to boot on "livenet" or any other unrecognized synonym', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'livenet' })
+      expect(load).toThrow(/Unrecognized Bitcoin network/)
+    })
+
+    it("accepts 'bitcoin' as a documented alias for mainnet — requires a matching (non-testnet-looking) explorer URL and an explicit confirmation depth (LB-02)", () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'bitcoin', MULTISIG_EXPLORER_API_URL: 'https://mempool.space/api', MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '3' })
+      expect(load).not.toThrow()
+      expect(load().multisig.network).toBe('mainnet')
+    })
+
+    it("accepts 'mainnet' literally — requires a matching explorer URL and an explicit confirmation depth (LB-02)", () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'mainnet', MULTISIG_EXPLORER_API_URL: 'https://mempool.space/api', MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '3' })
+      expect(load).not.toThrow()
+      expect(load().multisig.network).toBe('mainnet')
+    })
+
+    it("accepts 'testnet' explicitly in production — a deliberate operator choice to stage on testnet is not itself unsafe", () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'testnet' })
+      expect(load).not.toThrow()
+      expect(load().multisig.network).toBe('testnet')
+    })
+
+    it("accepts 'regtest' explicitly", () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'regtest' })
+      expect(load).not.toThrow()
+      expect(load().multisig.network).toBe('regtest')
+    })
+
+    it('boots in development with MULTISIG_NETWORK unset — defaults to testnet, preserving existing dev/CI ergonomics', () => {
+      const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined })
+      expect(load).not.toThrow()
+      expect(load().multisig.network).toBe('testnet')
+    })
+
+    it('refuses to boot on a typo even in development — a wrong value is a bug regardless of environment', () => {
+      const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: 'Mainnet' })
+      expect(load).toThrow(/Unrecognized Bitcoin network/)
+    })
+
+    it('refuses to boot when MULTISIG_NETWORK=mainnet but MULTISIG_EXPLORER_API_URL still looks testnet-pointed — the concrete Fase 8.0 misconfiguration', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'mainnet', MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '3' /* MULTISIG_EXPLORER_API_URL left at its testnet default */ })
+      expect(load).toThrow(/MULTISIG_EXPLORER_API_URL.*testnet explorer endpoint/)
+    })
+
+    it('boots when MULTISIG_NETWORK=mainnet and MULTISIG_EXPLORER_API_URL is correctly pointed at a real mainnet explorer', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'mainnet', MULTISIG_EXPLORER_API_URL: 'https://mempool.space/api', MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '3' })
+      expect(load).not.toThrow()
+    })
+  })
+
+  describe('MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS (Missão 11 Fase 8.1 LB-02)', () => {
+    it('refuses to boot when MULTISIG_NETWORK=mainnet and MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS is unset', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'mainnet', MULTISIG_EXPLORER_API_URL: 'https://mempool.space/api' })
+      expect(load).toThrow(/MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS/)
+    })
+
+    it('refuses to boot on a non-integer value', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: 'three' })
+      expect(load).toThrow(/must be a positive integer/)
+    })
+
+    it('refuses to boot on zero — zero confirmations is exactly the unsafe default this closes', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '0' })
+      expect(load).toThrow(/must be a positive integer/)
+    })
+
+    it('boots on testnet with the value unset — defaults to 1, preserving today\'s existing dev/CI behavior', () => {
+      const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined, MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: undefined })
+      expect(load).not.toThrow()
+      expect(load().multisig.requiredConfirmations).toBe(1)
+    })
+
+    it('boots in production with an explicit value on mainnet', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_NETWORK: 'mainnet', MULTISIG_EXPLORER_API_URL: 'https://mempool.space/api', MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '6' })
+      expect(load).not.toThrow()
+      expect(load().multisig.requiredConfirmations).toBe(6)
+    })
+  })
+
+  describe('MOCK_SETTLEMENT (Missão 11 Fase 8.1 LB-04) — same hard-stop seriousness as MOCK_ESCROW, no warning-only path', () => {
+    it('refuses to boot in production when MOCK_ESCROW=false and MOCK_SETTLEMENT is unset (defaults true) — real funds would lock with settlement a no-op', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MOCK_SETTLEMENT: undefined })
+      expect(load).toThrow(/MOCK_SETTLEMENT/)
+    })
+
+    it('refuses to boot in production when MOCK_ESCROW=false and MOCK_SETTLEMENT=true explicitly', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MOCK_SETTLEMENT: 'true' })
+      expect(load).toThrow(/MOCK_SETTLEMENT/)
+    })
+
+    it('boots in production when MOCK_ESCROW=false and MOCK_SETTLEMENT=false — a real, consistent settlement configuration', () => {
+      const load = loadConfig(REQUIRED_PROD_ENV)
+      expect(load).not.toThrow()
+    })
+
+    it('boots in production when both MOCK_ESCROW=true and MOCK_SETTLEMENT=true — fully mock, internally consistent (blocked by RT-001 anyway, but not by this gate)', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, MOCK_ESCROW: 'true', MOCK_SETTLEMENT: 'true' })
+      expect(load).toThrow(/MOCK_ESCROW/) // RT-001 fires first — confirms this gate doesn't mask it, not that this gate itself fired
+    })
+
+    it('boots in development regardless of MOCK_SETTLEMENT', () => {
+      const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: 'false', MOCK_SETTLEMENT: 'true', MULTISIG_NETWORK: undefined })
+      expect(load).not.toThrow()
     })
   })
 

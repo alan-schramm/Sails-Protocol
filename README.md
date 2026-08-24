@@ -9,13 +9,32 @@
 Today, every wallet has to rebuild marketplace, reputation, identity,
 escrow, settlement, mediation, and antifraud from scratch. Sails Protocol
 standardizes that infrastructure through a single SDK and interoperable
-modules — non-custodial, intent-driven, built for Bitcoin, USDT, Lightning,
-Liquid, and multi-chain wallets.
+modules — non-custodial, intent-driven, built for Bitcoin and USDT today,
+with Lightning (testnet) and Liquid (designed, not yet implemented) on
+the same architecture — see "Rail readiness" below for exactly which
+claim applies to which rail.
 
 This repository is the **Reference Wallet implementation** — Satsails'
-own integration, the first concrete proof that the protocol works in
-production. It is one implementation of the spec, not the spec itself
-(the same relationship Bitcoin Core has to the Bitcoin protocol).
+own integration. Its Bitcoin (MULTISIG) settlement path has a real,
+disclosed mainnet rehearsal behind it (`docs/MAINNET_MULTISIG_PROOF.md`
+— a single small-value transaction, explicitly not a production-scale
+proof); the protocol as a whole is IMPLEMENTED and REAL-PATH VALIDATED
+against real infrastructure in this repo's own test suite, not yet
+PRODUCTION-ACTIVATED at scale. It is one implementation of the spec, not
+the spec itself (the same relationship Bitcoin Core has to the Bitcoin
+protocol).
+
+**Rail readiness** (see `docs/rfcs/` and each provider's own file header
+for the full disclosure behind each claim):
+- **Bitcoin (MULTISIG)** — IMPLEMENTED, REAL-PATH VALIDATED, and
+  MAINNET-PROVEN for one small, explicitly non-production-scale rehearsal.
+- **USDT (WDK_USDT_EVM)** — IMPLEMENTED, REAL-PATH VALIDATED on testnet;
+  a disclosed server-custodial reference implementation, not the
+  protocol's normative custody model.
+- **Lightning (LIGHTNING_HODL / Arkade)** — IMPLEMENTED, REAL-PATH
+  VALIDATED, but testnet (Mutinynet) only — not mainnet-proven.
+- **Liquid** — DESIGNED only; `LiquidCovenantProvider` has zero
+  implementation.
 
 **New here? `docs/GETTING_STARTED.md`** — copy-paste commands, the
 trade flow in 8 steps with no file names, and a "which endpoint for
@@ -48,6 +67,12 @@ frozen — trust it.
    ════════════════════════════════════
    Bitcoin · Liquid · Lightning · USDT
 ```
+
+*(This row lists every settlement rail Core's architecture is designed
+to support — it is not a claim that all four are equally built. See
+"Rail readiness" above: Bitcoin and USDT are implemented and real-path
+validated, Lightning is real-path validated on testnet only, and Liquid
+is designed only, with zero implementation.)*
 
 **Sails P2P Trading SDK** is the MVP's product name — the concrete,
 installable release of the Sails SDK package (`@satsails/p2p-trading-sdk`), scoped to
@@ -260,8 +285,13 @@ open-p2p trade/chat, settlement, reputation, the Intent API, capability
 grants — RFC-013 — and Proof — claims/proofs/verification/evidence
 bundles). **Corrected 2026-08-09**, this paragraph previously understated
 what's real: `MultisigProvider` (Bitcoin) and `LightningHodlProvider`
-(Arkade/VTXO) both settle for real today alongside `MOCK`/`WDK_USDT_EVM`;
-only `LiquidCovenantProvider` remains genuinely unbuilt. The Capability
+(Arkade/VTXO) are both IMPLEMENTED and REAL-PATH VALIDATED today
+alongside `MOCK`/`WDK_USDT_EVM` — not equally proven, though: MULTISIG
+has one small, disclosed MAINNET-PROVEN rehearsal
+(`docs/MAINNET_MULTISIG_PROOF.md`) behind it, while `LightningHodlProvider`
+is confined to Arkade's public testnet deployment (Mutinynet) only —
+see `lightning-hodl.provider.ts`'s own header for that scope. Only
+`LiquidCovenantProvider` remains genuinely unbuilt (DESIGNED only). The Capability
 Registry is also already *consulted*, not just persisted —
 `intent-engine.ts` and `escrow.service.ts` both call `check()` (gated
 behind `config.features.enforceCapabilities`, off by default until a real

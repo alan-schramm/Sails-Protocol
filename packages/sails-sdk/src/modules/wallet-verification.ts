@@ -16,6 +16,7 @@
  */
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
+import { normalizeBitcoinNetwork } from '@satsails/p2p-schemas'
 import { signEscrowPsbt } from './escrow-key'
 import type { EscrowKeyNetwork } from './escrow-key-derivation'
 
@@ -66,8 +67,22 @@ export interface SigningIntentVerification {
   mismatches: SigningIntentMismatch[]
 }
 
+// Missão 11 Fase 8.1 LB-07 — was a bare binary check (anything not
+// exactly 'mainnet' silently became testnet), independent of and
+// narrower than the server's own networkFor() (multisig.provider.ts),
+// which separately accepted 'bitcoin' as a mainnet alias. A wallet
+// integrator who copied the server's own documented
+// MULTISIG_NETWORK=bitcoin value into ExpectedSigningIntent.network
+// (an untyped JS caller isn't stopped by EscrowKeyNetwork's TS type)
+// would have silently verified against testnet. Now routes through the
+// same normalizeBitcoinNetwork() the server uses — accepts the same
+// 'bitcoin' alias, throws on anything else unrecognized, and handles
+// regtest, closing all three gaps at once.
 function networkFor(network: EscrowKeyNetwork): bitcoin.Network {
-  return network === 'mainnet' ? bitcoin.networks.bitcoin : bitcoin.networks.testnet
+  const normalized = normalizeBitcoinNetwork(network)
+  if (normalized === 'mainnet') return bitcoin.networks.bitcoin
+  if (normalized === 'regtest') return bitcoin.networks.regtest
+  return bitcoin.networks.testnet
 }
 
 function sortedJoin(values: string[]): string {
@@ -116,7 +131,30 @@ export function verifySigningIntent(
   requiredSignersActual: string[]
 ): SigningIntentVerification {
   const mismatches: SigningIntentMismatch[] = []
-  const network = networkFor(expected.network)
+
+  // Missão 11 Fase 8.1 LB-07 — networkFor() now throws on an
+  // unrecognized network (see its own comment) instead of silently
+  // defaulting to testnet. This function's own contract ("a pure,
+  // side-effect-free decode+compare function — safe to call ... before
+  // deciding anything") must hold even for a caller-supplied garbage
+  // network value, so that throw is caught here and turned into the same
+  // clean { ok: false, mismatches } shape a PSBT decode failure already
+  // produces below — never an uncaught exception out of this function.
+  let network: bitcoin.Network
+  try {
+    network = networkFor(expected.network)
+  } catch (err) {
+    return {
+      ok: false,
+      mismatches: [
+        {
+          field: 'network',
+          expected: 'mainnet, testnet, or regtest',
+          actual: `${JSON.stringify(expected.network)} — ${err instanceof Error ? err.message : String(err)}`,
+        },
+      ],
+    }
+  }
 
   let psbt: bitcoin.Psbt
   try {

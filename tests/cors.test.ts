@@ -59,6 +59,11 @@ jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 
 const ENV_BASE = {
   MOCK_ESCROW: 'false', // required alongside NODE_ENV=production — RT-001 refuses to boot otherwise
+  // Missão 11 Fase 8.1 LB-04 — required alongside MOCK_ESCROW=false in
+  // production for the same reason RT-001 exists: config/index.ts now
+  // hard-stops (not just warns) if MOCK_SETTLEMENT is left at its
+  // default-true while MOCK_ESCROW=false.
+  MOCK_SETTLEMENT: 'false',
   // Missão 06.5 — required alongside NODE_ENV=production for the same
   // reason: config/index.ts now refuses to boot in production with
   // ENFORCE_CAPABILITIES unset, and no fallback for DATABASE_URL/REDIS_URL.
@@ -69,6 +74,11 @@ const ENV_BASE = {
   DATABASE_URL: 'postgresql://postgres:password@localhost:5432/sails_protocol',
   REDIS_URL: 'redis://localhost:6379',
   TRUSTED_ARBITRATORS: 'arbiter-1',
+  // Missão 11 Fase 8.1 LB-01 — required alongside NODE_ENV=production:
+  // config/index.ts now refuses to boot in production with
+  // MULTISIG_NETWORK unset (same no-silent-fallback posture as the vars
+  // above).
+  MULTISIG_NETWORK: 'testnet',
 }
 
 async function buildAppWithEnv(envOverrides: Record<string, string>): Promise<FastifyInstance> {

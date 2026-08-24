@@ -16,19 +16,82 @@
 import pino from 'pino'
 import { config } from '../config'
 
+// Missão 11 Fase 8.1 LB-09 — app.ts's own Fastify request logger has had
+// a `redact` config since PRODUCTION_READINESS_FIXES.md P1 item 9
+// (req.headers.authorization/cookie); this shared instance — used by
+// every background service/event handler/connection-setup file that
+// runs outside a request lifecycle — never had one. A real, evidenced
+// latent risk (Fase 8.0 audit): nothing currently logs a raw secret
+// value here, but a future call site logging a caught Postgres/Redis
+// connection error (whose own .message sometimes echoes the DSN,
+// credentials included, on an auth failure) would print it unredacted.
+//
+// Two-part fix, chosen deliberately over one blanket rule:
+// 1. `redact.paths` — standard pino field-name redaction, for any call
+//    site that logs a credential-shaped field directly (by any of these
+//    names, at any single nesting level pino's `*` wildcard reaches).
+//    Covers the structured-field case (e.g. `log.info({ token })`).
+// 2. A custom `err` serializer — the case redact.paths CAN'T reach: a
+//    real Error whose own `.message`/`.stack` happens to CONTAIN a
+//    connection-string-shaped substring (`user:pass@host`), not a
+//    separate field. Blanket-redacting `err.message` would gut every
+//    legitimate error's diagnostic value (this codebase logs real
+//    caught errors constantly, per every `.catch((err) => log.error(...))`
+//    site already in this repo) — scrubbing only the credential-shaped
+//    substring, in place, keeps the rest of the message intact. This is
+//    additive to pino's own default error serializer (still gets
+//    type/message/stack), not a replacement of it.
+const CONNECTION_STRING_CREDENTIALS_PATTERN = /:\/\/[^:@/\s]+:[^@/\s]+@/g
+
+function scrubConnectionStringCredentials(value: string): string {
+  return value.replace(CONNECTION_STRING_CREDENTIALS_PATTERN, '://[REDACTED]@')
+}
+
+// Exported separately (not inlined into the `pino()` call below) so
+// tests/logger.test.ts can construct its own pino instance from these
+// EXACT options against a synchronous, directly-readable destination —
+// proving the real redaction config works without fighting the
+// production instance's own async stdout write timing (pino writes via
+// sonic-boom by default, not a plain synchronous `stream.write()`).
+export const loggerOptions: pino.LoggerOptions = {
+  level: config.app?.logLevel ?? 'info',
+  transport:
+    config.app?.env === 'development'
+      ? { target: 'pino-pretty', options: { colorize: true } }
+      : undefined,
+  redact: {
+    paths: [
+      'token', '*.token',
+      'password', '*.password',
+      'authorization', '*.authorization',
+      'secret', '*.secret',
+      'databaseUrl', '*.databaseUrl',
+      'redisUrl', '*.redisUrl',
+      'seed', '*.seed',
+      'privateKey', '*.privateKey',
+      'mnemonic', '*.mnemonic',
+      'wif', '*.wif',
+      'xprv', '*.xprv',
+    ],
+    censor: '[REDACTED]',
+  },
+  serializers: {
+    err: (err: unknown) => {
+      const base = pino.stdSerializers.err(err as Error)
+      if (typeof base.message === 'string') base.message = scrubConnectionStringCredentials(base.message)
+      if (typeof base.stack === 'string') base.stack = scrubConnectionStringCredentials(base.stack)
+      return base
+    },
+  },
+}
+
 // `config.app?.` — several existing test files mock '../config' with a
 // partial shape covering only the fields their own module under test
 // reads. Those mocks predate this file and never had a reason to include
 // `app`, since nothing they imported used to read it. Falling back here
 // keeps this shared, low-level module from hard-crashing at import time
 // over a test double's shape rather than a real production config gap.
-export const logger = pino({
-  level: config.app?.logLevel ?? 'info',
-  transport:
-    config.app?.env === 'development'
-      ? { target: 'pino-pretty', options: { colorize: true } }
-      : undefined,
-})
+export const logger = pino(loggerOptions)
 
 export function childLogger(module: string): pino.Logger {
   return logger.child({ module })
