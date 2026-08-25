@@ -362,18 +362,38 @@ export interface PaginatedMessages {
   nextOffset: number | null
 }
 
+// Missão 11 Fase 9.3.6 — CONTRACT INTEGRITY FIX. This interface has
+// declared `id`/`publicKey`/`displayName`/`reputationScore`/
+// `disputeCount` since the SDK's very first commit
+// (1473e4069/e42d474e, 2026-07-17) — before `reputation.service.ts`'s
+// real `getScore()` existed to check it against. It never matched
+// reality: the real wire response
+// (`reputation.service.ts`'s `getScore()`, unchanged since it was
+// written) has always been exactly the 8 fields below — no identity
+// fields at all (a reputation lookup takes `participantId` as its own
+// input; a caller wanting displayName/publicKey calls
+// `identity.get()`, INV-OP-10's own correctly-scoped surface — adding
+// them here would be the same cross-endpoint duplication INV-OP-10
+// exists to prevent, just in the opposite direction), `total` not
+// `reputationScore` (matching `SDK_GUIDE.md`'s original canonical
+// `ReputationScore` spec verbatim — `reputation.service.ts`'s own
+// header comment already cited that spec as ground truth), and no
+// `disputeCount` (only the derived `disputeRate` — `disputeCount` is
+// recoverable exactly as `Math.round(disputeRate * totalTrades)` if a
+// caller wants it, not new information). `packages/sdk-react`'s
+// `ReputationBadge` was built directly against the wrong shape and,
+// undiscovered until this phase, would have thrown at runtime the
+// first time it rendered a real (non-mock) score — `score.publicKey`
+// was never actually present. Fixed alongside this type in the same
+// phase; see that component's own updated header comment.
 export interface ReputationScore {
-  id: string
-  publicKey: string
-  displayName: string | null
-  reputationScore: number
+  participantId: string
   total: number
   tradeScore: number
   volumeScore: number
   settlementScore: number
   disputeRate: number
   totalTrades: number
-  disputeCount: number
   cumulativeFeesObserved: string
 }
 

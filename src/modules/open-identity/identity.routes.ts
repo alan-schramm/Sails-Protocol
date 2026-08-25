@@ -52,12 +52,21 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send({ success: true, data: participant })
   })
 
+  // Missão 11 Fase 9.3.5 — INV-OP-10: response narrowed from the raw
+  // User row to getPublicView()'s projection (id/publicKey/displayName/
+  // peerId/verified only — no reputation stats, which have their own
+  // canonical home at GET /v1/reputation/:participantId, and no
+  // moduleId/protocolVersion/createdAt/updatedAt). This route stays
+  // deliberately unauthenticated (a real protocol lookup — a
+  // counterparty needs another participant's publicKey/peerId to
+  // verify signatures/connect over P2P); /v1/identity/me below stays
+  // full-row (authenticated, self-referential).
   app.get('/v1/identity/participants/:id', {
     ...docsOnlySchema({ tags: ['open-identity'], params: participantIdParamsSchema }),
   }, async (request, reply) => {
     const { id } = participantIdParamsSchema.parse(request.params)
-    const participant = await identityService.getParticipant(id)
-    return reply.code(200).send({ success: true, data: participant })
+    const view = await identityService.getPublicView(id)
+    return reply.code(200).send({ success: true, data: view })
   })
 
   // Tighter, dedicated limit than the global default (app.ts) — these two

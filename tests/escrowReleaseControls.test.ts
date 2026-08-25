@@ -108,6 +108,23 @@ const mockDisputeFindFirst = jest.fn()
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
 // RFC-021 Phase 0 — real Protocol Fee split, persisted per release.
 const mockFeeDistributionCreate = jest.fn()
+// Missão 11 Fase 9.1 §1/§2 — assertFundingNotUncertain()'s check queries
+// this table; empty history is the trustworthy/no-op default every test
+// here needs (none of them test funding-uncertainty itself).
+const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
+// Missão 11 Fase 9.3 — markPaymentSent()'s authoritative funding-check +
+// claim now run inside withEscrowFundingLock()'s prisma.$transaction();
+// the tx object handed to the callback delegates to the SAME mocks the
+// top-level prisma mock below uses, so existing assertions on
+// mockEscrowUpdateMany etc. see the call regardless of which path it
+// went through, exactly like a real Prisma transaction would.
+const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
+  callback({
+    escrow: { updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args) },
+    escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
+    $executeRaw: jest.fn().mockResolvedValue(0),
+  })
+)
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -136,6 +153,8 @@ jest.mock('../src/common/database', () => ({
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
     feeDistribution: { create: (...args: unknown[]) => mockFeeDistributionCreate(...args) },
+    escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
+    $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
 

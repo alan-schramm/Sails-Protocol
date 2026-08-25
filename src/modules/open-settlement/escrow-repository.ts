@@ -109,8 +109,12 @@ export interface EscrowRepository {
    *  the column NULL exactly as it already is for every existing row. */
   updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date; fundedAmount?: number }): Promise<EscrowRow>
 
-  /** Atomic conditional update — returns the affected-row count (0 = a concurrent caller already transitioned this Escrow). */
-  claimTransition(escrowId: string, fromStatus: string, toStatus: string): Promise<number>
+  /** Atomic conditional update — returns the affected-row count (0 = a concurrent caller already transitioned this Escrow).
+   *  Optional tx (Missão 11 Fase 9.3) — lets markPaymentSent() run this
+   *  update through the same locked transaction as its authoritative
+   *  funding-uncertainty re-check (escrow-funding-lock.ts). Omitted by
+   *  every other existing caller, unchanged behavior. */
+  claimTransition(escrowId: string, fromStatus: string, toStatus: string, tx?: Prisma.TransactionClient): Promise<number>
 
   /** releaseFunds()'s own write. */
   updateReleaseResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date; feeCharged: Prisma.Decimal | null }): Promise<EscrowRow>
@@ -245,8 +249,9 @@ class PrismaEscrowRepository implements EscrowRepository {
     }
   }
 
-  async claimTransition(escrowId: string, fromStatus: string, toStatus: string): Promise<number> {
-    const claim = await prisma.escrow.updateMany({
+  async claimTransition(escrowId: string, fromStatus: string, toStatus: string, tx?: Prisma.TransactionClient): Promise<number> {
+    const client = tx ?? prisma
+    const claim = await client.escrow.updateMany({
       where: { id: escrowId, status: fromStatus as any },
       data: { status: toStatus as any },
     })

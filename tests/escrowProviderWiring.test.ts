@@ -123,11 +123,29 @@ const mockDurableEventFindFirst = jest.fn().mockResolvedValue(null)
 // correlationId) — a trivial passthrough is enough here since this file
 // doesn't test EventStore concurrency (tests/postgresEventStore.test.ts
 // does).
+// Missão 11 Fase 9.3 — withEscrowFundingLock() (escrow-lifecycle.ts) now
+// also runs markPaymentSent()/initiateRelease()/initiateRefund()/
+// initiateSplit()'s final state-changing write through this same
+// $transaction mock, so the tx object handed to the callback needs the
+// same model methods the top-level prisma mock above already provides
+// (delegating to the identical jest.fn()s — a test asserting on
+// mockEscrowUpdateMany/mockPendingTxCreate/mockEscrowFundingEvidenceFindMany
+// sees the call whether it went through the mocked prisma singleton or
+// through this tx passthrough, exactly like a real Prisma transaction).
 const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
   callback({
     durableEventRecord: {
       create: (...args: unknown[]) => mockDurableEventCreate(...args),
       findFirst: (...args: unknown[]) => mockDurableEventFindFirst(...args),
+    },
+    escrow: {
+      updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
+    },
+    escrowPendingTransaction: {
+      create: (...args: unknown[]) => mockPendingTxCreate(...args),
+    },
+    escrowFundingEvidence: {
+      findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args),
     },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })

@@ -803,13 +803,23 @@ describe('SailsOpenP2PModule — reconcileTrade()', () => {
 })
 
 describe('SailsReputationModule — getScoreByPeerId()', () => {
+  // Missão 11 Fase 9.3.6 — PUBLIC CONTRACT INTEGRITY. This mock
+  // previously used `id`/`publicKey`/`reputationScore`/`disputeCount`,
+  // none of which reputation.service.ts's getScore() has ever actually
+  // returned (traced directly — it returns participantId/total/
+  // tradeScore/volumeScore/settlementScore/disputeRate/totalTrades/
+  // cumulativeFeesObserved). The old mock passed only because it was
+  // self-consistent with the SDK type's own (also wrong) declaration,
+  // never cross-checked against the real server — the same blind spot
+  // that let packages/sdk-react's ReputationBadge go unnoticed.
   it('getScoreByPeerId() hits GET /v1/reputation/peer/:peerId', async () => {
-    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'rep-1', publicKey: 'pubkey-1', reputationScore: 85, totalTrades: 10, disputeCount: 0 } })
+    const fetchImpl = fakeFetch(200, { success: true, data: { participantId: 'rep-1', total: 85, tradeScore: 0, volumeScore: 0, settlementScore: 0, disputeRate: 0, totalTrades: 10, cumulativeFeesObserved: '0' } })
     const reputation = new SailsReputationModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
 
     const result = await reputation.getScoreByPeerId('peer-abc123')
 
-    expect(result.reputationScore).toBe(85)
+    expect(result.total).toBe(85)
+    expect(result.participantId).toBe('rep-1')
     const [url] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/reputation/peer/peer-abc123')
   })

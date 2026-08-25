@@ -26,6 +26,30 @@ import type { SailsTransport } from '../transport'
 import type { Participant } from '../types'
 import { bytesToHex, hexToBytes, utf8ToBytes } from '../encoding'
 
+/**
+ * Missão 11 Fase 9.3.5 — the shape `get()` actually returns. Deliberately
+ * NOT `Participant` — that full row (including `reputationScore`/
+ * `totalTrades`/`disputeCount`/`totalVolumeBtc`/`createdAt`/`updatedAt`)
+ * is only ever returned to an AUTHENTICATED, self-referential caller
+ * (`create()`/`createWithPublicKey()`, registering the caller's own
+ * identity; `me()`, reading it back). `get(participantId)` is a public
+ * lookup of ANY participant, so it returns only what another participant
+ * needs to verify/connect: `id` (the participant id itself), `publicKey`
+ * (their real cryptographic identity), `peerId` (P2P transport identity),
+ * `displayName`, and `verified`. Reputation facts have their own
+ * canonical, already-public home — `reputation.get(participantId)` — not
+ * duplicated here. See
+ * `src/modules/open-identity/identity.service.ts`'s
+ * `PublicParticipantIdentity` (the server-side source of this shape).
+ */
+export interface PublicParticipant {
+  id: string
+  publicKey: string
+  displayName: string | null
+  peerId: string | null
+  verified: boolean
+}
+
 export interface Ed25519Keypair {
   publicKey: Uint8Array
   secretKey: Uint8Array
@@ -75,8 +99,19 @@ export class SailsIdentityModule {
     return this.transport.post<Participant>('/v1/identity/participants', { publicKey: publicKeyHex, displayName })
   }
 
-  async get(participantId: string): Promise<Participant> {
-    return this.transport.get<Participant>(`/v1/identity/participants/${participantId}`)
+  /**
+   * Public lookup, no session required — any participant may look up
+   * another's identity facts (publicKey/peerId/displayName/verified) to
+   * verify a signature or establish a P2P connection.
+   *
+   * Missão 11 Fase 9.3.5 — narrowed from `Participant` to
+   * `PublicParticipant`: the server no longer returns reputation stats
+   * or bookkeeping fields here at all (a privacy-minimization fix, not
+   * a client-side filter). Use `reputation.get(participantId)` for
+   * reputation facts — that's their canonical source.
+   */
+  async get(participantId: string): Promise<PublicParticipant> {
+    return this.transport.get<PublicParticipant>(`/v1/identity/participants/${participantId}`)
   }
 
   /** Requires an active session (see authenticate()). */

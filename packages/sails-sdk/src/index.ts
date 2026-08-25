@@ -33,6 +33,7 @@ export {
   hexToBytes,
   type Ed25519Keypair,
   type AuthenticateResult,
+  type PublicParticipant,
 } from './modules/identity'
 export { SailsReputationModule, type RateInput } from './modules/reputation'
 export {
@@ -136,7 +137,7 @@ export { signEscrowSafeUserOp } from './modules/escrow-safe-signing'
 export { SailsPeersModule, type StaticTopic } from './modules/peers'
 export { SailsCapabilitiesModule, type RegisterCapabilityInput } from './modules/capabilities'
 export { SailsArbitrationModule, type ArbiterCandidate } from './modules/arbitration'
-export { SailsPaymentAccountModule, type PaymentAccount } from './modules/payment-account'
+export { SailsPaymentAccountModule, type PaymentAccount, type PublicPaymentAccount } from './modules/payment-account'
 export { hashPaymentAccount } from './payment-account'
 export { encryptChatMessage, decryptChatMessage, type EncryptedChatMessage } from './chat-encryption'
 

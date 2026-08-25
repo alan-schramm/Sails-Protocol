@@ -24,13 +24,77 @@ Negotiation before RFC-004 fixed it."
 
 ---
 
-## The Constitutional Invariants
+## Canonical Hierarchy (Reconciled — Missão 11 Fase 9.3.3, 2026-08-25)
+
+> **Why this section exists.** Since at least an earlier architecture
+> review ("Fase 9.0"), the CTO's own working process has referenced an
+> eleven-item invariant framework ("INV-01" through "INV-11") plus
+> derived properties ("DP-01" through "DP-09") when evaluating this
+> protocol — but that framework was never itself committed to this
+> document. Its only trace in the repository was fragmentary: a few
+> code comments citing "INV-07F," "DP-03," "DP-05," "DP-07" for one
+> specific finding (`escrow-lifecycle.ts`, `multisig-funding-reorg-
+> sweep.ts`), and one RFC citing "INV-01" by number with no definition
+> alongside it (`RFC-019`). Reconciled here into ONE canonical
+> hierarchy — this document remains the single constitution; there is
+> no separate "CTO constitution" a reader has to choose between.
+
+This document's invariants now form three explicit levels:
+
+- **Level 1 — Core Protocol Invariants.** Small, semantic,
+  technology-independent laws. A Core Invariant is stated once, does
+  not reference specific code, and cannot be satisfied "80%." Two
+  families exist side by side, both genuinely Level 1, kept in
+  separate subsections purely for readability: the original six
+  **Structural** invariants (protocol *shape* — custody, fiat,
+  module boundaries, infrastructure neutrality; unchanged below,
+  just explicitly re-anchored into this hierarchy) and eleven
+  **Behavioral** invariants (participant authority, verification
+  discipline, economic exactness, recoverability, verifiability —
+  the framework referenced above, formally defined for the first time
+  in §"Level 1 — Behavioral Core Invariants" below).
+- **Level 2 — Derived Properties.** Concrete consequences a Core
+  Invariant *requires*, one level more specific than the Core law
+  itself but still technology-general (not yet "here is the exact
+  function that checks this"). See §"Level 2 — Derived Properties."
+  **The historical "DP-01" through "DP-09" numbering could not be
+  reconstructed** — no commit, doc, or RFC anywhere in this repository
+  defines what DP-01, DP-02, DP-04, DP-06, DP-08, or DP-09 actually
+  *say*, and even DP-03/DP-05/DP-07 (the only three ever cited) were
+  cited together, undifferentiated, for a single finding — not as
+  three individually distinct definitions. Rather than invent
+  plausible-sounding text to fill nine numbers that were never
+  actually written down, this document defines a **fresh, honest**
+  Derived Property catalog from currently-proven architecture. Every
+  prior "DP-*" citation anywhere in this codebase is non-canonical
+  going forward; see the per-item notes in §"Level 2" for where each
+  old citation's underlying *substance* now lives.
+- **Level 3 — Operational Invariants.** Code-traceable implementation
+  obligations — the existing "Operational Invariants" section below,
+  unchanged in content, now with an explicit **Derives from** line on
+  each item pointing at the Level 1 law(s) and Level 2 propert(y/ies)
+  it exists to satisfy.
+
+**Governance rule this hierarchy exists to enable** (see also
+§"Conformance Is Not "Tests Pass"" near the end of this document): a
+citation to any invariant — `INV-01` through `INV-11`, any
+`INV-OP-*`, any `DP-*` — must resolve to a real, findable definition
+in this document. A citation that doesn't is a documentation bug, to
+be fixed the same way a broken code reference would be — not left as
+an unresolvable pointer into a review process's private notes.
+
+---
+
+## Level 1 — Structural Core Invariants
 
 > Retitled from "The Invariants" *(2026-07-19, same consolidation pass
 > that added the "Operational Invariants" section below)* — not a
 > content change, just a label distinguishing these six protocol-shape
 > rules from the code-traceable ones added below. Both are equally
-> "never broken"; they differ in what they're rules *about*.
+> "never broken"; they differ in what they're rules *about*. Re-
+> anchored as "Level 1" *(2026-08-25, Missão 11 Fase 9.3.3)* — same
+> non-change: these six were already Core-Invariant-shaped (small,
+> semantic, technology-independent), just not yet using that label.
 
 ### 1. The Core Never Knows Concrete Implementations
 
@@ -124,7 +188,414 @@ layer have.
 
 ---
 
-## Operational Invariants
+## Level 1 — Behavioral Core Invariants
+
+> Formally defined *(2026-08-25, Missão 11 Fase 9.3.3)*. These eleven
+> laws were the CTO's own working framework across several
+> architecture-review sessions ("Fase 9.0" onward), used in practice
+> before ever being written down here in full. Each entry below states
+> the rule, why it exists, which other invariant(s) it derives from or
+> gets derived by, and — where one exists — the code/test evidence that
+> it's real today, not aspirational. None of the eleven were found to
+> be redundant with each other or with the six Structural invariants
+> above: several have obvious overlap with an existing Operational
+> Invariant (that overlap is the hierarchy working as intended — a
+> Behavioral law with a real, already-shipped Operational child — not
+> duplication), but no two of these eleven say the same thing about the
+> same axis. Where enforcement is conditional on a feature flag, that
+> is stated plainly, matching this document's own established
+> convention (see the Operational Invariants section's own note on
+> this).
+
+### INV-01. Participant-Bound Authority
+
+**RULE.** Every action that mutates protocol state on a participant's
+behalf must trace to that specific participant's own verified
+authorization — never to a bare claimed id, a coordinator's own
+assumption, or a different participant's credential.
+
+**WHY.** Without this, "non-custodial" is cosmetic: a coordinator that
+can move state on a participant's behalf without their verified say-so
+has effectively appointed itself a privileged party, the exact
+custodial failure mode Structural Invariant 2 exists to rule out one
+layer up (asset custody) — INV-01 is the same discipline applied to
+*state*, not just assets.
+
+**DERIVES / DERIVED BY.** Sibling of Structural Invariant 2 (assets)
+and Structural Invariant 5 (an implementation that lets an Agent act
+without a delegating Participant's authority is not a partial
+implementation of Sails Protocol). Derived Operational Invariants:
+`INV-OP-1` (no escrow mutation without a verified party), `INV-OP-6`
+(every authenticated write requires a verified signature).
+
+**EVIDENCE.** `common/middleware/auth.ts`'s `requireAuth()`;
+`tests/escrowReleaseControls.test.ts`'s ownership/IDOR block (11 tests).
+
+### INV-02. Propose, Don't Impersonate
+
+**RULE.** A coordinator, agent, or automated process may *propose* an
+action for a participant to authorize — it may never itself produce a
+signed/authorized action *as* that participant, nor fabricate the
+appearance that a participant authorized something they did not.
+
+**WHY.** This is the boundary between coordination (what Sails Protocol
+is) and custody-by-another-name (what it explicitly refuses to be,
+Structural Invariant 2/`PHILOSOPHY.md`'s "Why Coordination, Not
+Custody"): a system that can *act as if* a participant approved
+something, even for their own convenience, has reintroduced the exact
+trust assumption non-custodial design exists to remove.
+
+**DERIVES / DERIVED BY.** Distinct from INV-01: INV-01 asks "is the
+actor who they claim to be," INV-02 asks "did the coordinator only ever
+propose to them, never act as them" — a system can satisfy one and
+violate the other (e.g., a correctly-identified coordinator that still
+signs on a participant's behalf violates INV-02 while never touching
+INV-01 at all). No Operational Invariant currently names this
+explicitly, though `INV-OP-4` (fraud/risk detection never acts
+unilaterally) is a specific instance of the same discipline applied to
+automated risk signals specifically.
+
+**EVIDENCE.** `escrow-lifecycle.ts`'s `isPartyOrAgent()` — the
+`agent:{label}:{participantId}` shape is documented as originating only
+from trusted internal callers proposing *for* a participant, never from
+an HTTP body; `WalletAgent` (the one class that constructs such
+strings) is not instantiated anywhere in `src/` today (independently
+confirmed during the Kimi K3 R1 AUTH-01/CAP-02 reproduction).
+
+### INV-03. No Privileged Wallet
+
+**RULE.** No client implementation — including any Sails-authored
+reference wallet, `sails-ui`, or the SDK's own examples — may receive
+protocol data, a capability, or a construction shortcut that an
+independently-written, conformant external wallet could not also
+obtain through the same public interfaces.
+
+**WHY.** A protocol whose own reference client has a private door is a
+protocol that has quietly privileged one implementation, precisely what
+Structural Invariant 6 (infrastructure-neutral) forbids — one level
+more concrete: Structural Invariant 6 is about the Core never
+privileging a *technology* (chain, transport, identity scheme); INV-03
+is about the *server/API surface* never privileging a *client*.
+
+**DERIVES / DERIVED BY.** Sibling of Structural Invariant 6, distinct
+axis (technology-neutrality vs. client-neutrality). Feeds directly into
+`INV-10` (verifiability is a product property is meaningless if only
+one client can actually verify).
+
+**EVIDENCE.** Missão 11 Fase 9.1.1: `sails-ui` uses
+`verifyAndSignEscrowPsbt()` exactly as an external wallet would —
+constructing its own expected-intent from public SDK/protocol data
+only, never importing server internals; the same phase's own explicit
+instruction to STOP rather than reach into server internals if the
+public API doesn't expose enough (which is what led to the additive
+`fundedAmount`/`txLockVout`/`minerFeeSats` SDK exposures, not a
+back-door). Missão 11 Fase 9.3.1 independently re-confirmed zero
+Satsails-only shortcut on the payment-account verification surface.
+
+### INV-04. Verify Before State Transition
+
+**RULE.** A state transition whose correctness depends on an external,
+independently-observable fact (a UTXO's confirmation depth, a signed
+attestation, a capability grant) must re-verify that fact — atomically,
+against its own latest state, not a value read earlier in the same
+request — immediately before committing the transition, not merely
+before starting to process the request.
+
+**WHY.** A check performed early and a mutation committed later are two
+different points in time; anything can change state in between under
+real concurrency. "We checked" is not the same claim as "we checked
+atomically with the write" — the entire Missão 11 Fase 9.3 remediation
+exists because this distinction was real, not academic (an escrow
+transition could previously observe funding as trustworthy and commit
+after a concurrent reorg-sweep had already invalidated it).
+
+**DERIVES / DERIVED BY.** Closely related to `INV-05` (a transition
+verified against stale historical meaning is really a violation of
+both at once) and `INV-07` (the verification failing must lead to an
+explicit, recoverable state, never a silent wrong answer). No
+Operational Invariant names this directly yet — `INV-OP-1`/`INV-OP-2`
+verify *who*; this is the sibling rule for verifying *what*.
+
+**EVIDENCE.** `withEscrowFundingLock()` (`escrow-lifecycle.ts`,
+Missão 11 Fase 9.3) — `pg_advisory_xact_lock`-serialized re-check
+immediately before `markPaymentSent()`/`initiateRelease()`/
+`initiateSplit()`'s actual write; `tests/integration/
+escrowFundingConcurrency.test.ts` (9 adversarial tests, real Postgres).
+
+### INV-05. Historical Meaning Is Immutable
+
+**RULE.** A fact this protocol has recorded as having happened at a
+given time — an event, an evidence observation, a ledger entry — is
+never edited or deleted to reflect a later understanding. A change in
+understanding is recorded as a *new* entry referencing the old one;
+the old entry stands, permanently, as what was believed true at that
+time.
+
+**WHY.** Dispute resolution, audit, and independent verification all
+depend on being able to reconstruct "what did the system know, and
+when" — a system that can quietly rewrite its own past cannot be
+trusted to arbitrate a disagreement about that past, which is most of
+what a dispute *is*.
+
+**DERIVES / DERIVED BY.** Foundational to `INV-07` (recovery from a
+bad state requires a truthful record of how it got bad) and `INV-11`
+(a reproducible decision requires a stable historical input to
+reproduce it from). `INV-OP-8` (every durable event carries a
+correlationId) is a precondition for this — an event with no
+correlationId is not meaningfully part of any traceable history at
+all.
+
+**EVIDENCE.** `EscrowFundingEvidence`/`EscrowEvent`/`DurableEventRecord`
+— all insert-only, no `update()`/`delete()` anywhere in their
+repositories; `PostgresEventStore.publish()`'s hash-chained
+`prevHash`/`entryHash`; `Timeline.verifyChain()`'s tamper-detection
+tests (`tests/postgresEventStore.test.ts`,
+`tests/escrowEventHashChain.test.ts`).
+
+### INV-06. Exact Economic Conservation
+
+**RULE.** For any settlement transaction, `sum(outputs) + fee ===
+input`, exactly — no rounding tolerance, no floating-point
+approximation, no unaccounted sat/wei. Every party's contractual
+entitlement (buyer's share, seller's share, the protocol's fee) must
+independently reconcile to its own precisely-computed value, never a
+residual "whatever's left after the others."
+
+**WHY.** "Approximately correct" is not a real property for money —
+either the arithmetic is provably exact for every input, including
+adversarially-chosen boundary values, or a real accounting bug is
+merely unobserved yet, not absent.
+
+**DERIVES / DERIVED BY.** `INV-OP-7` (Decimal, never Float) is
+necessary but not sufficient for this — eliminating floating-point
+drift removes one failure mode, it doesn't by itself prove the
+allocation formula sums correctly at every boundary.
+
+**EVIDENCE.** `tests/multisigFeeConservation.test.ts` (23 tests, a
+"MANDATORY satoshi-conservation gate" per its own header) — proves the
+identity holds exactly across a deliberately adversarial
+precision/rounding/dust boundary matrix, for release, refund, and
+split alike.
+
+### INV-07. Explicit Failure & Recovery
+
+**RULE.** When a protocol process cannot proceed with certainty, it
+must fail into a named, well-defined state with an available recovery
+path — never silently proceed on an assumption, and never leave a
+party with no path forward at all. A recovery path may not itself be
+blocked by the very uncertainty it exists to resolve.
+
+**WHY.** The alternative to "explicit failure" is not "no failure," it
+is "silent failure discovered later, usually by the party it harmed" —
+and a recovery path that's gated on the same condition it's meant to
+recover from is not a recovery path, it's a permanent-denial bug
+wearing a recovery path's name.
+
+**DERIVES / DERIVED BY.** The load-bearing precondition of `INV-04`:
+a system that verifies before transitioning but has no honest failure
+state for "verification failed" has only relocated the silent-failure
+problem, not removed it. `INV-OP-1`/`INV-OP-2` (ownership/dual-approval
+gates) and the reorg-sweep's own `REORGED_INVALIDATED`/`RECONFIRMED`
+state machine are concrete instances.
+
+**EVIDENCE.** `assertFundingNotUncertain()`'s own explicit exemption
+list (refund, dispute-raising, `EXPIRED`, expiry-recovery are
+deliberately NEVER gated by funding uncertainty — "blocking a
+legitimate recovery path is exactly the permanent fund denial this
+phase was explicitly told not to create"); independently reproduced
+during Kimi K3 R1 (REORG-01/MULTI-03: the claimed "permanent fund
+denial" did not survive reproduction precisely because this invariant
+already held).
+
+### INV-08. Capability-Bound Settlement
+
+**RULE.** *When capability enforcement is active* (`ENFORCE_
+CAPABILITIES=true` — production deployments must set this variable
+explicitly, one way or the other, per RFC-014's own boot-time guard;
+it is not silently on by default anywhere), a fund-movement action
+(release, refund, split) requires the triggering actor to hold an
+active `CapabilityGrant` covering that exact action's scope.
+
+**WHY.** Stated conditionally on purpose, not weakened by the
+condition: RFC-014's own capability-onboarding prerequisite genuinely
+isn't ready for every deployment on day one (Missão 02.5's own
+finding), so *mandating* `true` everywhere would invent a policy this
+document has no standing to invent. What the invariant actually
+guarantees is that the choice is never accidental — a production boot
+with the variable unset fails closed (refuses to start), matching this
+document's own established "conditional enforcement is stated, not
+hidden" convention (see the Operational Invariants section's intro).
+
+**DERIVES / DERIVED BY.** Sibling of `INV-01` (both gate *who* may
+move funds) at a different granularity — INV-01 asks "are you a real,
+verified party to this trade," INV-08 asks "does your role additionally
+carry an explicit capability grant for this specific action."
+
+**EVIDENCE.** `checkFundMovementCapability()` (`escrow-lifecycle.ts`);
+`config/index.ts`'s production boot guard (`FATAL: NODE_ENV=production
+but ENFORCE_CAPABILITIES is not set`); `tests/
+fundMovementCapabilityCoverage.test.ts` (10 scenarios, both the
+enforced and explicitly-unenforced paths).
+
+### INV-09. Native Rail Semantics Must Be Preserved
+
+**RULE.** A settlement rail's own cryptographic/economic meaning — what
+a Bitcoin SIGHASH type actually commits to, what a Safe Transaction
+Guard actually authorizes — must never be flattened into a
+rail-agnostic abstraction that loses that meaning. Two independently
+constructed representations of "the same" rail-native transaction must
+be provably identical in every commitment-relevant respect, or the
+abstraction has already silently lied about at least one of them.
+
+**WHY.** A generic "signature" or "transaction" concept that hides
+which sighash type was used, or whether a threshold check is real or
+simulated, is exactly the kind of abstraction that looks correct in
+every test until the one adversarial case the abstraction quietly
+couldn't represent.
+
+**DERIVES / DERIVED BY.** Distinct from `INV-11` (determinism):
+a system can be perfectly deterministic while still flattening native
+semantics (the same wrong abstraction, applied consistently, is still
+wrong), and could in principle preserve native semantics without being
+byte-reproducible. Both are required together; neither implies the
+other.
+
+**EVIDENCE.** Kimi K3 R1 MULTI-05 reproduction: `bitcoinjs-lib`'s own
+`checkSighashTypeAllowed()` enforces the `[SIGHASH_ALL]` allowlist this
+codebase's every `signInput()` call relies on (no call site passes an
+override); asserted directly in `tests/multisigProvider.test.ts`
+(the arbiter pre-signature's DER-encoded sighash byte, Missão 11 Fase
+9.3 §7).
+
+### INV-10. Verifiability Is a Product Property
+
+**RULE.** Every normative fact this protocol asks a participant or
+counterparty to rely on must be independently verifiable by them —
+through public data, a published algorithm, and (for settlement-
+critical facts) cryptographic evidence — never "true because the
+coordinator's API said so."
+
+**WHY.** A coordination protocol that cannot be independently verified
+is a trust-the-operator protocol with extra steps; verifiability is
+what makes "coordination, not custody" a real architectural property
+instead of a marketing description of the same custodial trust model.
+
+**DERIVES / DERIVED BY.** Requires `INV-03` (a verification path only
+one privileged client can exercise is not a real verification path)
+and `INV-09` (verifying a flattened, meaning-losing abstraction proves
+nothing about the real rail-native transaction). Derived Operational
+Invariant: `INV-OP-10`.
+
+**EVIDENCE.** `multisigSigningIntent.ts`'s independent PSBT-intent
+reconstruction (`sails-ui`); `Timeline.verifyChain()`; Missão 11 Fase
+9.3.1's `PublicPaymentAccountView` (verify a trust property without
+needing to trust an unverifiable claim about who attested it).
+
+### INV-11. Deterministic Conformance
+
+**RULE.** For a given, fully-specified input, a normative computation
+(fee allocation, PSBT construction, capability evaluation) must always
+produce the same output, from any conformant implementation — never a
+result that depends on which server happened to run it, in what order,
+or on non-normative incidental state.
+
+**WHY.** Independent verification (`INV-10`) is only meaningful if the
+thing being verified is actually reproducible — a "verify" step that
+can legitimately disagree with the original computation for
+non-adversarial reasons (implementation-specific rounding, hidden
+mutable state) cannot distinguish a real discrepancy from noise.
+
+**DERIVES / DERIVED BY.** Enables `INV-10` (verifiability presupposes
+reproducibility) and, jointly with `INV-09`, motivates `INV-OP-9`
+(exactly one normative construction algorithm per rail) — a second,
+independently-written construction algorithm is the concrete failure
+mode this invariant exists to prevent.
+
+**EVIDENCE.** `INV-OP-9`'s own status section (below) documents exactly
+how far this is currently real for MULTISIG (construction: single
+implementation, no drift risk yet; verification: independent, proven);
+`tests/multisigFeeConservation.test.ts`'s exact-conservation proof is
+itself a determinism proof (the same formula, run against the same
+input, always reconciles).
+
+---
+
+## Level 2 — Derived Properties
+
+> **Fresh catalog, 2026-08-25 (Missão 11 Fase 9.3.3) — not a
+> reconstruction of "DP-01" through "DP-09."** As explained in
+> "Canonical Hierarchy" above, those nine labels were cited in exactly
+> three places in this codebase, three of them (DP-03/05/07) together,
+> undifferentiated, for a single finding — never as nine individually
+> defined properties. Rather than guess at definitions that were never
+> written down, every property below is new, numbered fresh (`DP-1`
+> onward, deliberately not continuing the old, unrecoverable sequence),
+> and traceable to a real Core Invariant plus real shipped evidence. Not
+> claimed to be exhaustive — new properties get the next free number,
+> they don't get squeezed into a gap left by a number nobody can define.
+
+**DP-1 — Escrow Funding Certainty Gates Value-Crediting Transitions
+Only.** *(Derives from INV-04, INV-07.)* A transition that credits
+value to a party (`markPaymentSent`, `initiateRelease`,
+`initiateSplit`) must not commit while the escrow's funding evidence is
+uncertain; a transition that merely *returns* value to whoever already
+funded it (refund) or *investigates* a problem (dispute-raising) is
+never gated by that same uncertainty. This is the specific property
+that closes the substance previously cited, undifferentiated, as
+"INV-07F, DP-03, DP-05, DP-07" — see `escrow-lifecycle.ts`'s
+`assertFundingNotUncertain()` and Missão 11 Fase 9.3's
+`withEscrowFundingLock()`.
+
+**DP-2 — Evidence Is Append-Only.** *(Derives from INV-05.)* No
+repository backing a historical fact (`EscrowFundingEvidence`,
+`EscrowEvent`, `DurableEventRecord`) exposes an `update()` or
+`delete()` method for an existing row. A later observation is always a
+new row.
+
+**DP-3 — Recovery Paths Are Never Gated By The Failure They Recover
+From.** *(Derives from INV-07.)* Refund and dispute-raising remain
+reachable regardless of any other subsystem's uncertainty or open
+circuit-breaker state for that escrow (`escrow-circuit-breaker.ts`
+scopes per-escrowId and auto-heals; funding uncertainty explicitly
+exempts these two paths).
+
+**DP-4 — Fund Movement Checks Capability Before Provider Invocation.**
+*(Derives from INV-08.)* `checkFundMovementCapability()` runs before
+any `SettlementProvider` call for release/refund/split, when
+enforcement is active — never as an afterthought once funds have
+already moved.
+
+**DP-5 — One Server-Side Construction Path Per Settlement Rail.**
+*(Derives from INV-09, INV-11.)* Formalized directly as `INV-OP-9`
+below — included here as the Level-2 bridge between "native semantics
+must survive" / "computation must be reproducible" (Level 1) and "here
+is the one function that must be the only one" (Level 3).
+
+**DP-6 — Minimum Necessary Disclosure On Public Verification
+Surfaces.** *(Derives from INV-10, INV-01.)* A public read that exists
+to verify a *property* discloses only what's needed to verify that
+property — never participant identity, internal relational
+identifiers, or unrelated historical metadata merely because they were
+already in hand. Formalized directly as `INV-OP-10` below. This is the
+property the Missão 11 Fase 9.3.1/9.3.2 payment-account privacy
+finding closed.
+
+**DP-7 — Coordinators Never Fabricate A Signed Action.** *(Derives
+from INV-02.)* No code path constructs an `agent:`-shaped identity (or
+equivalent) from client-supplied HTTP input; every such string
+originates only from a trusted, internal, already-authorized caller
+acting *for* a participant it has independently verified is delegating
+to it.
+
+**DP-8 — Every Conformant Client Reaches The Same Public Surface.**
+*(Derives from INV-03, INV-10.)* No route, SDK method, or data field
+exists that only a Sails-authored client can reach or interpret — the
+same public interface (`docs/API_STABLE.md`) is what both `sails-ui`
+and an independent third-party wallet integration call.
+
+---
+
+## Level 3 — Operational Invariants
 
 > Added *(2026-07-19)*, relaying a CTO-role architectural review
 > requesting invariants concrete enough for tests to check directly —
@@ -149,6 +620,8 @@ a general gap audit (`TODO.md` §14), verified in
 `tests/escrowReleaseControls.test.ts`'s ownership/IDOR block (11 tests).
 Enforced in `open-settlement/escrow.service.ts`.
 
+**Derives from:** `INV-01` (Participant-Bound Authority).
+
 ### INV-OP-2. Escrow Release Requires Two Independent Approvals, When Enabled
 
 When `REQUIRE_DUAL_APPROVAL_RELEASE=true` (off by default —
@@ -159,6 +632,10 @@ ruling is itself the second, independent authorization. RFC-015.
 Enforced in `open-settlement/escrow.service.ts`; see
 `tests/escrowReleaseControls.test.ts`.
 
+**Derives from:** `INV-01` (Participant-Bound Authority), `INV-08`
+(Capability-Bound Settlement — a second independent approval is itself
+an authorization gate on the fund-movement action).
+
 ### INV-OP-3. A Crypto-Native Agent Never Touches Fiat Rails
 
 No QVAC Agent code path (`BuyerAgent`, `SellerAgent`,
@@ -168,6 +645,9 @@ feature-flagged — no fiat integration exists anywhere in the Agent's
 reachable code, by construction. Fiat settles directly between
 participants, outside the protocol entirely (Constitutional Invariant
 3). RFC-016.
+
+**Derives from:** Level 1 — Structural Invariant 3 (Fiat Always
+Settles Outside the Protocol).
 
 ### INV-OP-4. Fraud/Risk Detection Never Acts Unilaterally
 
@@ -182,6 +662,10 @@ return type (`RiskSignal | null`, never a mutation) and
 `chat.routes.ts`'s handler, which only ever calls
 `broadcastToTrade(..., { type: 'RISK_WARNING', ... })`.
 
+**Derives from:** `INV-02` (Propose, Don't Impersonate — detection
+proposing a signal to a human is fine, detection unilaterally acting is
+the same overreach INV-02 forbids in a coordinator generally).
+
 ### INV-OP-5. Reputation Score Changes Through Exactly One Entrypoint
 
 `User.reputationScore` is mutated only by `recordOutcome()`
@@ -189,6 +673,11 @@ return type (`RiskSignal | null`, never a mutation) and
 `settlement.escrow.released`/`refunded` events. A chat message, an
 Agent action, a QVAC risk signal, or `rate()` (informational only, by
 its own header comment) can never move the score. RFC-007 D8.
+
+**Derives from:** `INV-04` (Verify Before State Transition — a single,
+event-gated entrypoint is what makes the mutation itself checkable
+against exactly one precondition, rather than N independently-trusted
+call sites).
 
 ### INV-OP-6. Every Authenticated Write Requires a Verified Signature
 
@@ -200,6 +689,8 @@ from a bare claimed id. Originally the RT-002 fix for one route family;
 generalized and re-verified across the codebase in the same gap audit
 as INV-OP-1 (`TODO.md` §14). Enforced by `common/middleware/auth.ts`.
 
+**Derives from:** `INV-01` (Participant-Bound Authority).
+
 ### INV-OP-7. Financial Amounts Are Always `Decimal`, Never `Float`
 
 Every schema field representing money or on-chain value
@@ -210,6 +701,9 @@ converts a `Decimal` to a JS `number` before a value comparison or
 persistence write. RFC-009 (floating-point rounding is a real-money
 correctness bug class, not a style preference).
 
+**Derives from:** `INV-06` (Exact Economic Conservation — necessary,
+not sufficient, precondition).
+
 ### INV-OP-8. Every Durable Event Carries a `correlationId`
 
 `EventStore.publish()` (RFC-010) refuses an event with no
@@ -219,6 +713,10 @@ what makes `Timeline`/`getEvents(correlationId)`
 (`CRYPTOGRAPHIC_MODEL.md` §4.2) and `SocialEngineeringAgent`'s
 conversational context possible at all — an event with no correlation
 id would be structurally invisible to both.
+
+**Derives from:** `INV-05` (Historical Meaning Is Immutable — an event
+untraceable to what it belongs to is not meaningfully part of any
+verifiable history at all).
 
 ### INV-OP-9. Settlement-Transaction Construction Has Exactly One Normative Algorithm Per Rail
 
@@ -267,6 +765,142 @@ Gen-1 extension or Gen-2 design cannot accidentally reintroduce a second
 algorithm without at least having to consciously violate a named,
 numbered invariant to do it.
 
+**Derives from:** `INV-09` (Native Rail Semantics Must Be Preserved),
+`INV-11` (Deterministic Conformance). Level 2: `DP-5`.
+
+### INV-OP-10. Public Verification Surfaces Disclose the Minimum Necessary Fact, Never the Underlying Row
+
+**Recorded — Missão 11, Fase 9.3.2, 2026-08-25.** A protocol surface (an
+HTTP response, an SDK return type, an event payload) MUST disclose only
+the information the *receiving actor* needs to independently verify the
+normative fact in question or to carry out an authorized protocol
+action — never the full internal persistence record merely because that
+record was already in hand. Concretely: participant identity, internal
+relational identifiers, and historical/administrative metadata MUST NOT
+appear on a surface whose stated purpose is verifying a *property*
+(has this been seen before, is it signed, what tier does it carry) —
+"I have the row" is not a reason to return the row. This does not
+prohibit disclosure that is *itself* the normative fact (e.g., that an
+`accountHash` exists at all is the entire point of an age-witness
+check — see below), nor does it prohibit an authenticated, self-
+referential response (a caller reading back data about themselves,
+e.g. `register()`/`sign()`'s own response to the party who just acted).
+Compliance/legal disclosure remains possible where a *separate*,
+explicitly authorized channel defines it — this invariant constrains
+the *default*, unauthorized-by-default public surface, not a
+deliberately provisioned regulatory hook.
+
+**Closes a real gap, not a hypothetical one.** `GET /v1/settlement/
+payment-accounts/:accountHash` (RFC-021 D5) returned the raw
+`PaymentAccount` row — including `ownerId`/`signedBy` (platform User
+ids) — to any caller who could compute or guess the hash, deanonymizing
+which identity owns a real-world payment rail. No invariant in this
+document, before this one, actually prohibited that: INV-OP-1/6 govern
+*mutation* authorization, not *read*-side field minimization. Fixed by
+introducing `PublicPaymentAccountView`
+(`payment-account.service.ts`) — a real projection type, not the
+Prisma row — returning only `accountHash`/`paymentMethod`/`signed`/
+`signedAt`/`firstUsedAt`/`completedTrades`/`chargebacks`/`tradeLimit`.
+See `SECURITY_MODEL.md` §4.7 for the full worked example and
+`tests/paymentAccountService.test.ts`/`tests/routes.test.ts` for the
+mechanical proof (field-presence assertions at both the service and
+HTTP layers).
+
+**Existing-surface conformance sweep — Missão 11 Fase 9.3.4, 2026-08-25.**
+Two other current public reads were checked against this invariant,
+by tracing the actual service code (not inferring from the Prisma
+schema alone — Fase 9.3.2's own guess that `GET /v1/settlement/
+arbitration/profile/:participantId` had a gap was wrong for exactly
+this reason, corrected here):
+
+- `GET /v1/settlement/arbitration/profile/:participantId` —
+  **already conformant, no change needed.**
+  `MarketArbitrationProvider.getProfile()` has, since before this
+  invariant existed, returned `toCandidate(profile)` — a real,
+  purpose-built projection (`participantId`, `monetaryCollateral`,
+  `collateralAsset`, `arbiterReputation`, `effectiveStake`,
+  `cumulativeFeesObserved`) — never the raw `ArbiterProfile` row. No
+  `id`/`moduleId`/`protocolVersion`/`updatedAt`/`registeredAt`/
+  `slashedAt`/`rulingsTotal`/`rulingsOverturned` has ever been exposed
+  here.
+- `GET /v1/settlement/payout-addresses/:participantId/:asset` —
+  **real gap, fixed.** `PayoutAddressService.getPayoutAddress()`
+  returned the raw `PayoutAddress` row. Fixed by introducing
+  `getPublicView()`/`PublicPayoutAddressView`
+  (`payout-address.service.ts`) — `participantId`/`asset`/`address`
+  only; `id`/`moduleId`/`protocolVersion`/`createdAt`/`updatedAt`
+  excluded. `address` is the normative settlement fact itself (the
+  committed payout destination `escrow.service.ts`'s
+  `resolvePayoutAddress()` falls back to) and is preserved in full —
+  this is a minimization fix, not an obfuscation of what the route
+  exists to disclose. See `tests/payoutAddress.test.ts`/
+  `tests/routes.test.ts` for the mechanical proof.
+
+A third surface, `GET /v1/identity/participants/:id`
+(`identityService.getParticipant()` → raw `User` row), was found
+during the same sweep to also return operator-internal bookkeeping
+(`moduleId`/`protocolVersion`) it doesn't need. **Not fixed in Fase
+9.3.4** — flagged as a separate, larger item requiring more careful
+field-by-field analysis than that bounded sweep's scope.
+
+**Closed — Missão 11 Fase 9.3.5, 2026-08-25.** The CTO declined to
+freeze the constitution with a known, locally-remediable violation
+still open. Full analysis performed: `publicKey`/`peerId`/`displayName`
+are Category A (the route's literal stated purpose — confirming which
+cryptographic/transport identity corresponds to a participant id, so a
+counterparty can verify a signature or open a P2P connection);
+`verified` is a distinct identity-verification-status fact, also kept.
+`reputationScore`/`totalTrades`/`disputeCount`/`totalVolumeBtc` are
+excluded — not because they're private (they're legitimately public),
+but because three of the four already have their own canonical,
+dedicated public surface (`GET /v1/reputation/:participantId` →
+`reputationService.getScore()`) and duplicating them here would be
+scope creep for an identity-lookup endpoint, not a disclosure decision.
+`totalVolumeBtc` does **not** currently have an equivalent public
+surface — `ReputationScore` carries `cumulativeFeesObserved` (a fee
+total), not a BTC-volume figure — so this field is now simply not
+exposed publicly anywhere; disclosed here rather than silently assumed
+covered elsewhere (a mistake this document has already made once for
+the arbitration-profile surface — see the sweep note above). Fixed by
+introducing `getPublicView()`/`PublicParticipantIdentity`
+(`identity.service.ts`) — `id`/`publicKey`/`displayName`/`peerId`/
+`verified` only; `moduleId`/`protocolVersion`/`createdAt`/`updatedAt`
+and all four reputation-adjacent fields excluded. `GET /v1/identity/me`
+(authenticated, self-referential) is unaffected — it correctly stays
+the full raw row, the same self-referential exception this invariant's
+own text already carves out for `register()`/`sign()`. The SDK's
+`identity.get()` return type narrowed from `Participant` to a new
+`PublicParticipant` accordingly (a PRE-LAUNCH BREAKING API CORRECTION —
+SDK stays `0.1.3`, unpublished); the one real internal consumer
+(`packages/sails-ui/src/pages/Trade.tsx`'s buyer/seller card) was
+updated to source reputation stats from `reputation.get()` instead,
+its actual canonical home. See `SECURITY_MODEL.md` §4.7 for the worked
+example and `tests/identityService.test.ts`/`tests/routes.test.ts` for
+the mechanical proof (field-absence assertions at both the service and
+HTTP layers). This closes the last known INV-OP-10 violation identified
+across the Fase 9.3.2/9.3.4 conformance sweeps of this document's
+existing public surfaces.
+
+**Executable conformance principle this invariant establishes:**
+*public verification surface != internal persistence model.* Wherever a
+route or SDK method exists to let an external party verify a claim
+about protocol state, its response type should be an explicit,
+named projection — never `{ ...prismaRow }` — and a test should assert
+the negative (the private fields are ABSENT), not just the positive
+(the public fields are present). A positive-only test cannot catch a
+future column added to the underlying model leaking through
+unnoticed; asserting the exact key set does.
+
+> **Corrigido/Implementado 2026-08-25 (Missão 11 Fase 9.3.3).** This
+> note originally (Fase 9.3.2) flagged an open reconciliation question
+> and guessed a tentative "DP-10" label. The reconciliation is now
+> done — see "Canonical Hierarchy" near the top of this document.
+> **Derives from:** `INV-10` (Verifiability Is a Product Property),
+> `INV-01` (Participant-Bound Authority). Level 2: `DP-6` (not DP-10 —
+> the guess in the superseded version of this note was wrong; the fresh
+> Level 2 catalog numbers from `DP-1`, it does not continue any old
+> sequence).
+
 ---
 
 ## How Invariants Are Enforced
@@ -289,3 +923,39 @@ reasoning), Invariants should be checked mechanically wherever possible:
   exception."** Per the definition above, a violation means the resulting
   system is not Sails Protocol — the fix is to remove the violation, not
   to add a caveat to this document.
+
+---
+
+## Conformance Is Not "Tests Pass"
+
+**Added 2026-08-25, Missão 11 Fase 9.3.3.** A feature is not
+protocol-conformant merely because its own test suite is green. Tests
+prove the feature does what its author intended; they don't by
+themselves prove that intention was the right one under this
+constitution. A feature earns "conformant" only once it satisfies, in
+order:
+
+1. **Every applicable Level 1 Core Invariant** (Structural and
+   Behavioral alike) — does the feature's *design* violate a law that
+   can never be broken, regardless of how well the code implementing
+   that design is tested?
+2. **Every Level 2 Derived Property those invariants require** — does
+   the feature actually deliver the concrete consequence the Core law
+   demands, not just something that sounds compatible with it?
+3. **Every applicable Level 3 Operational Invariant** — does the
+   feature's *code* match the specific, already-agreed implementation
+   obligation (which route requires auth, which field a public
+   projection may carry, which algorithm is the one normative
+   construction path)?
+4. **Executable evidence, wherever the property is mechanically
+   testable** — a claim of conformance for anything Level 3 (and most
+   of Level 2) that isn't backed by a real, checked-in test is a claim,
+   not a proof. Where a property genuinely can't be mechanically tested
+   (most Level 1 laws are architectural, not runtime-checkable), review
+   against this document's own text is the enforcement mechanism (see
+   "How Invariants Are Enforced" above) — that's a deliberate exception
+   for the untestable tier, not a loophole for the testable one.
+
+This governance rule does not itself add a new numbered invariant — it
+states how the existing three levels are meant to be used together
+when someone (human or AI reviewer) is asked "is this conformant."

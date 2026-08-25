@@ -34,6 +34,34 @@ export const ESTABLISHED_TRADE_LIMIT = '0.05'
 export const ESTABLISHED_TRADE_COUNT = 5
 export const TRUSTED_TRADE_COUNT = 20 // + zero chargebacks -> unlimited
 
+// Missão 11 Fase 9.3.1 — the ONLY shape ever returned to an unauthenticated
+// caller (GET /v1/settlement/payment-accounts/:accountHash, no requireAuth
+// — deliberately public by design, RFC-021 D5's own "verify a payment
+// account has been used before... without revealing the account's real
+// details"). Deliberately excludes `id` (internal relational identifier,
+// no verification value), `ownerId` and `signedBy` (platform User ids —
+// exposing either turns "verify this payment rail's trust history" into
+// "deanonymize which platform identity owns/attested a real-world payment
+// identifier," a privacy leak the RFC's own age-witness design was
+// explicitly built to avoid), and `moduleId`/`protocolVersion`/`updatedAt`
+// (operator-internal bookkeeping, zero verification value). Every field
+// kept here is either the literal subject of verification (accountHash,
+// paymentMethod, signed, firstUsedAt — the "age" in "age witness") or lets
+// an independent client-side implementation of the SAME public trade-limit
+// formula (UNSIGNED_TRADE_LIMIT/SIGNED_TRADE_LIMIT/etc. above are exported
+// SDK constants) verify the server's own tradeLimit computation is
+// correct — genuine verifiability, not identity disclosure.
+export interface PublicPaymentAccountView {
+  accountHash: string
+  paymentMethod: PaymentMethod
+  signed: boolean
+  signedAt: Date | null
+  firstUsedAt: Date
+  completedTrades: number
+  chargebacks: number
+  tradeLimit: string
+}
+
 export class PaymentAccountService {
   /**
    * Privacy-preserving hash — the raw account identifier (PIX key, bank
@@ -134,11 +162,37 @@ export class PaymentAccountService {
    */
   async getTradeLimit(accountHash: string): Promise<string> {
     const account = await this.getByHash(accountHash)
+    return this.computeTradeLimit(account)
+  }
+
+  /** Shared by getTradeLimit()/getPublicView() — same ramp, one implementation. */
+  private computeTradeLimit(account: { signed: boolean; chargebacks: number; completedTrades: number }): string {
     if (!account.signed) return UNSIGNED_TRADE_LIMIT
     if (account.chargebacks > 0) return SIGNED_TRADE_LIMIT
     if (account.completedTrades >= TRUSTED_TRADE_COUNT) return 'unlimited'
     if (account.completedTrades >= ESTABLISHED_TRADE_COUNT) return ESTABLISHED_TRADE_LIMIT
     return SIGNED_TRADE_LIMIT
+  }
+
+  /**
+   * Missão 11 Fase 9.3.1 — the ONLY method the unauthenticated GET route
+   * may call. See PublicPaymentAccountView's own comment for exactly why
+   * each field is/isn't here. One getByHash() fetch (the route previously
+   * made two — getByHash() then getTradeLimit(), which itself called
+   * getByHash() again for the same row).
+   */
+  async getPublicView(accountHash: string): Promise<PublicPaymentAccountView> {
+    const account = await this.getByHash(accountHash)
+    return {
+      accountHash: account.accountHash,
+      paymentMethod: account.paymentMethod as PaymentMethod,
+      signed: account.signed,
+      signedAt: account.signedAt,
+      firstUsedAt: account.firstUsedAt,
+      completedTrades: account.completedTrades,
+      chargebacks: account.chargebacks,
+      tradeLimit: this.computeTradeLimit(account),
+    }
   }
 }
 

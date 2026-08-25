@@ -38,6 +38,16 @@ export function mockEscrow(overrides: Partial<Escrow> = {}): Escrow {
     network: null,
     multisigAddr: null,
     txLockId: 'tx-lock-1',
+    // Missão 11 Fase 9.3.6 — stale-fixture fix, not a contract
+    // disagreement: this field was added to the real Escrow type by
+    // Fase 9.1.1 §3 (see that type's own comment) but this fixture
+    // predates the change and was never updated. null matches this
+    // MOCK-type fixture's own existing convention for every other
+    // Bitcoin-outpoint-specific field it doesn't otherwise populate.
+    txLockVout: null,
+    // Same stale-fixture story as txLockVout above — added by the same
+    // Fase 9.1.1 §3 typing-gap fix, never backfilled here.
+    fundedAmount: null,
     txReleaseId: null,
     timelockHours: 24,
     lockedAt: '2026-07-01T12:01:00.000Z',
@@ -60,19 +70,21 @@ export function mockEscrow(overrides: Partial<Escrow> = {}): Escrow {
   }
 }
 
+// Missão 11 Fase 9.3.6 — CONTRACT INTEGRITY FIX. Matches
+// reputation.service.ts's real getScore() response exactly (traced
+// directly, not assumed) — no identity fields (participantId is the
+// lookup key, not a returned identity fact; a real display name/
+// publicKey come from a separate identity.get() call, composed by the
+// caller — see ReputationBadge's own updated props).
 export function mockReputationScore(overrides: Partial<ReputationScore> = {}): ReputationScore {
   return {
-    id: 'user-1',
-    publicKey: 'ed25519-abcdef0123456789',
-    displayName: 'alice.sats',
-    reputationScore: 42,
+    participantId: 'user-1',
     total: 42,
     tradeScore: 45,
     volumeScore: 40,
     settlementScore: 42,
     disputeRate: 0.1,
     totalTrades: 18,
-    disputeCount: 1,
     cumulativeFeesObserved: '0.001',
     ...overrides,
   }

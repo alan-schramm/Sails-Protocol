@@ -11,10 +11,21 @@ jest.mock('../src/config', () => ({
 
 const mockEscrowFindMany = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
+// Missão 11 Fase 9.3 — sweepMultisigFundingReorgs()'s per-escrow body now
+// runs inside withEscrowFundingLock() (escrow-lifecycle.ts), a real
+// prisma.$transaction() acquiring a pg_advisory_xact_lock before calling
+// back into the (mocked, module-level) escrowFundingEvidenceRepository —
+// this suite mocks the repository directly, not through tx, so a trivial
+// passthrough (no real transactional semantics needed) is enough here.
+// tests/integration/escrowFundingUncertainty.test.ts and the new
+// tests/integration/escrowFundingConcurrency.test.ts prove the real
+// locked behavior against real Postgres.
+const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback({ $executeRaw: jest.fn().mockResolvedValue(0) }))
 jest.mock('../src/common/database', () => ({
   prisma: {
     escrow: { findMany: (...args: unknown[]) => mockEscrowFindMany(...args) },
     escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
+    $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
 
@@ -84,7 +95,7 @@ describe('sweepMultisigFundingReorgs() — Missão 11 Fase 9.1 §1/§3', () => {
     const result = await sweepMultisigFundingReorgs()
 
     expect(result.reverted).toEqual(['escrow-1'])
-    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ escrowId: 'escrow-1', kind: 'REORGED_INVALIDATED' }))
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ escrowId: 'escrow-1', kind: 'REORGED_INVALIDATED' }), expect.anything())
   })
 
   it('nothing found at all, previous state ALREADY REORGED_INVALIDATED — no duplicate write (idempotent across duplicate sweeps)', async () => {
@@ -106,7 +117,7 @@ describe('sweepMultisigFundingReorgs() — Missão 11 Fase 9.1 §1/§3', () => {
     const result = await sweepMultisigFundingReorgs()
 
     expect(result.reconfirmed).toEqual(['escrow-1'])
-    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'RECONFIRMED', txid: 'a'.repeat(64) }))
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'RECONFIRMED', txid: 'a'.repeat(64) }), expect.anything())
   })
 
   it('a DIFFERENT txid now satisfies the funding criteria — records REPLACEMENT_OBSERVED, not auto-trusted', async () => {
@@ -117,7 +128,7 @@ describe('sweepMultisigFundingReorgs() — Missão 11 Fase 9.1 §1/§3', () => {
     const result = await sweepMultisigFundingReorgs()
 
     expect(result.replacementObserved).toEqual(['escrow-1'])
-    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REPLACEMENT_OBSERVED', txid: 'b'.repeat(64) }))
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REPLACEMENT_OBSERVED', txid: 'b'.repeat(64) }), expect.anything())
   })
 
   it('duplicate sweep after a reconfirmation is idempotent — the second run sees RECONFIRMED as the last row and writes nothing new', async () => {
@@ -142,7 +153,7 @@ describe('sweepMultisigFundingReorgs() — Missão 11 Fase 9.1 §1/§3', () => {
     const result = await sweepMultisigFundingReorgs()
 
     expect(result.reconfirmed).toEqual(['escrow-1'])
-    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'RECONFIRMED', txid: 'b'.repeat(64) }))
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'RECONFIRMED', txid: 'b'.repeat(64) }), expect.anything())
   })
 
   it('a confirmed-but-shallow candidate exists, previous state trustworthy — records REORGED_INVALIDATED (regression from trusted)', async () => {
@@ -153,7 +164,7 @@ describe('sweepMultisigFundingReorgs() — Missão 11 Fase 9.1 §1/§3', () => {
     const result = await sweepMultisigFundingReorgs()
 
     expect(result.reverted).toEqual(['escrow-1'])
-    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_INVALIDATED' }))
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_INVALIDATED' }), expect.anything())
   })
 
   it('a confirmed-but-shallow candidate exists, previous state already uncertain — no new write, stillPending', async () => {

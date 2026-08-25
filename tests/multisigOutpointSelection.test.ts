@@ -55,9 +55,14 @@ function mockExplorerThenFee(utxos: Array<{ txid: string; vout: number; value: n
   fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ halfHourFee: feeRateSatsPerVByte }) })
 }
 
+// Missão 11 Fase 9.3 §4 — partiesFor() now rejects an escrow with no
+// persisted arbiter commitment.
+const ARBITER_PUBKEY_HEX: string = loadProvider().multisigProvider.getArbiterPubkeyHex('arb-1')
+
 describe('MultisigProvider.lockFunds — now returns vout alongside txid', () => {
   it('returns the exact vout of the matched UTXO', async () => {
     const { multisigProvider } = loadProvider()
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => [{ txid: 'a'.repeat(64), vout: 3, value: 100_000, status: { confirmed: true } }],
@@ -68,14 +73,14 @@ describe('MultisigProvider.lockFunds — now returns vout alongside txid', () =>
     // unset -> testnet), so a single confirmation is exactly sufficient.
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 100 }) })
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '100' })
-    const result = await multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
+    const result = await multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
     expect(result.txId).toBe('a'.repeat(64))
     expect(result.vout).toBe(3)
   })
 })
 
 describe('MultisigProvider — outpoint-exact spend selection (buildUnsignedRelease)', () => {
-  const baseEscrow = { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.001', status: 'PAYMENT_PENDING' as const }
+  const baseEscrow = { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey: ARBITER_PUBKEY_HEX, lockedAmount: '0.001', status: 'PAYMENT_PENDING' as const }
 
   it('1. txid correto + vout correto → PASS (spends the exact persisted outpoint)', async () => {
     const { multisigProvider } = loadProvider()
@@ -171,7 +176,7 @@ describe('MultisigProvider — outpoint-exact spend selection (buildUnsignedRele
 })
 
 describe('Missão 10 items 12-14 — release/refund/split all use the exact persisted outpoint', () => {
-  const baseEscrow = { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.001' }
+  const baseEscrow = { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey: ARBITER_PUBKEY_HEX, lockedAmount: '0.001' }
   const utxos = [
     { txid: 'd'.repeat(64), vout: 0, value: 100_000 },
     { txid: 'd'.repeat(64), vout: 1, value: 200_000 }, // decoy — must never be picked

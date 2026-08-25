@@ -102,6 +102,8 @@ const mockArbiterProfileUpdate = jest.fn()
 const mockPaymentAccountFindUnique = jest.fn()
 const mockPaymentAccountCreate = jest.fn()
 const mockPaymentAccountUpdate = jest.fn()
+// Missão 11 Fase 9.3.4 — payout-address privacy-boundary route tests.
+const mockPayoutAddressFindUnique = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -169,6 +171,9 @@ jest.mock('../src/common/database', () => ({
       create: (...args: unknown[]) => mockPaymentAccountCreate(...args),
       update: (...args: unknown[]) => mockPaymentAccountUpdate(...args),
       count: jest.fn().mockResolvedValue(0), // RFC-021 D7 — getOrCreate()'s "genuine first account" check
+    },
+    payoutAddress: {
+      findUnique: (...args: unknown[]) => mockPayoutAddressFindUnique(...args),
     },
     message: {
       findMany: (...args: unknown[]) => mockMessageFindMany(...args),
@@ -442,6 +447,77 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body).data.id).toBe('user-1')
+    })
+
+    // Missão 11 Fase 9.3.5 — INV-OP-10: GET /v1/identity/participants/:id
+    // is a public, unauthenticated lookup of ANY participant. It must
+    // never leak reputation stats (their own canonical home is
+    // GET /v1/reputation/:participantId) or operator-internal bookkeeping
+    // (moduleId/protocolVersion/createdAt/updatedAt) — see
+    // tests/identityService.test.ts for the service-level field-boundary
+    // proof; these are the wire-level (HTTP response body) proof.
+    describe('GET /v1/identity/participants/:id — privacy/verifiability boundary (Missão 11 Fase 9.3.5)', () => {
+      const fullRow = {
+        id: 'user-1',
+        publicKey: TEST_PUBLIC_KEY,
+        displayName: 'Alice',
+        peerId: 'peer-abc123',
+        verified: true,
+        reputationScore: 87,
+        totalTrades: 42,
+        disputeCount: 1,
+        totalVolumeBtc: '3.5',
+        moduleId: 'openidentity',
+        protocolVersion: '0.1',
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+      }
+
+      it('returns only the public projection — no reputation stats, no bookkeeping fields — for an unauthenticated caller', async () => {
+        mockUserFindUnique.mockResolvedValueOnce(fullRow)
+
+        const res = await app.inject({ method: 'GET', url: '/v1/identity/participants/user-1' })
+
+        expect(res.statusCode).toBe(200)
+        const body = JSON.parse(res.body)
+        expect(body.data).toEqual({
+          id: 'user-1',
+          publicKey: TEST_PUBLIC_KEY,
+          displayName: 'Alice',
+          peerId: 'peer-abc123',
+          verified: true,
+        })
+        expect(body.data).not.toHaveProperty('reputationScore')
+        expect(body.data).not.toHaveProperty('totalTrades')
+        expect(body.data).not.toHaveProperty('disputeCount')
+        expect(body.data).not.toHaveProperty('totalVolumeBtc')
+        expect(body.data).not.toHaveProperty('moduleId')
+        expect(body.data).not.toHaveProperty('protocolVersion')
+        expect(body.data).not.toHaveProperty('createdAt')
+        expect(body.data).not.toHaveProperty('updatedAt')
+      })
+
+      it('returns the exact same projection shape for an authenticated caller — being logged in unlocks nothing extra on this route', async () => {
+        const token = await authedSession('user-2')
+        mockUserFindUnique.mockResolvedValueOnce(fullRow)
+
+        const res = await app.inject({
+          method: 'GET',
+          url: '/v1/identity/participants/user-1',
+          headers: { authorization: `Bearer ${token}` },
+        })
+
+        expect(res.statusCode).toBe(200)
+        expect(Object.keys(JSON.parse(res.body).data).sort()).toEqual(['displayName', 'id', 'peerId', 'publicKey', 'verified'])
+      })
+
+      it('a lookup for an unknown participant 404s — existence is disclosed by design, nothing beyond it leaks', async () => {
+        mockUserFindUnique.mockResolvedValueOnce(null)
+
+        const res = await app.inject({ method: 'GET', url: '/v1/identity/participants/never-registered-id' })
+
+        expect(res.statusCode).toBe(404)
+      })
     })
 
     // Security review, 2026-08-15 (P1) — POST /v1/identity/ws-ticket
@@ -1278,11 +1354,11 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     })
 
     it('returns the computed trade limit alongside the account on GET', async () => {
-      // The route calls getByHash() then getTradeLimit() — each does its
-      // own prisma.paymentAccount.findUnique(), so both calls need a
-      // queued value.
-      const account = { accountHash: 'hash-1', ownerId: 'buyer-1', paymentMethod: 'PIX', signed: true, completedTrades: 1, chargebacks: 0 }
-      mockPaymentAccountFindUnique.mockResolvedValueOnce(account).mockResolvedValueOnce(account)
+      // Missão 11 Fase 9.3.1 — the route now calls getPublicView() alone
+      // (a single getByHash() fetch, not the previous getByHash()+
+      // getTradeLimit() pair), so only one queued value is needed.
+      const account = { accountHash: 'hash-1', ownerId: 'buyer-1', paymentMethod: 'PIX', signed: true, signedAt: null, firstUsedAt: new Date('2026-01-01'), completedTrades: 1, chargebacks: 0 }
+      mockPaymentAccountFindUnique.mockResolvedValueOnce(account)
 
       const res = await app.inject({ method: 'GET', url: '/v1/settlement/payment-accounts/hash-1' })
 
@@ -1290,6 +1366,99 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const body = JSON.parse(res.body)
       expect(body.data.accountHash).toBe('hash-1')
       expect(body.data.tradeLimit).toBe('0.01')
+    })
+
+    // Missão 11 Fase 9.3.1 — CTO-mandated privacy/verifiability boundary
+    // review. This route stays deliberately unauthenticated (RFC-021 D5's
+    // own age-witness design, docs/API_STABLE.md's documented "no session
+    // required" contract) — what changed is the response shape, narrowed
+    // from the raw PaymentAccount row to getPublicView()'s privacy-
+    // preserving projection. See payment-account.service.ts's
+    // PublicPaymentAccountView and docs/SECURITY_MODEL.md §4.7 for the
+    // full field-by-field rationale. tests/paymentAccountService.test.ts
+    // proves the same boundary directly against the service; these prove
+    // it survives the real HTTP/JSON wire path end to end.
+    describe('GET .../:accountHash — privacy/verifiability boundary (Missão 11 Fase 9.3.1)', () => {
+      const fullRow = {
+        id: 'internal-row-id-should-never-leak',
+        ownerId: 'user-owner-should-never-leak',
+        accountHash: 'hash-privacy-1',
+        paymentMethod: 'PIX',
+        signed: true,
+        signedBy: 'user-signer-should-never-leak',
+        signedAt: new Date('2026-01-01T00:00:00.000Z'),
+        firstUsedAt: new Date('2025-06-01T00:00:00.000Z'),
+        completedTrades: 2,
+        chargebacks: 0,
+        moduleId: 'opensettlement',
+        protocolVersion: '0.1',
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+      }
+
+      it('an unauthenticated (public) caller receives none of the participant-private fields — ownerId does not leak', async () => {
+        mockPaymentAccountFindUnique.mockResolvedValueOnce(fullRow)
+        const res = await app.inject({ method: 'GET', url: '/v1/settlement/payment-accounts/hash-privacy-1' })
+        expect(res.statusCode).toBe(200)
+        const body = JSON.parse(res.body)
+        expect(body.data).not.toHaveProperty('ownerId')
+        expect(res.body).not.toContain('user-owner-should-never-leak')
+      })
+
+      it('signedBy (the attester\'s platform identity) does not leak through the public surface', async () => {
+        mockPaymentAccountFindUnique.mockResolvedValueOnce(fullRow)
+        const res = await app.inject({ method: 'GET', url: '/v1/settlement/payment-accounts/hash-privacy-1' })
+        const body = JSON.parse(res.body)
+        expect(body.data).not.toHaveProperty('signedBy')
+        expect(res.body).not.toContain('user-signer-should-never-leak')
+      })
+
+      it('internal row id and operator bookkeeping (moduleId/protocolVersion/updatedAt) do not leak', async () => {
+        mockPaymentAccountFindUnique.mockResolvedValueOnce(fullRow)
+        const res = await app.inject({ method: 'GET', url: '/v1/settlement/payment-accounts/hash-privacy-1' })
+        const body = JSON.parse(res.body)
+        expect(body.data).not.toHaveProperty('id')
+        expect(body.data).not.toHaveProperty('moduleId')
+        expect(body.data).not.toHaveProperty('protocolVersion')
+        expect(body.data).not.toHaveProperty('updatedAt')
+        expect(res.body).not.toContain('internal-row-id-should-never-leak')
+      })
+
+      it('every field required for real counterparty verification is present on the wire', async () => {
+        mockPaymentAccountFindUnique.mockResolvedValueOnce(fullRow)
+        const res = await app.inject({ method: 'GET', url: '/v1/settlement/payment-accounts/hash-privacy-1' })
+        const body = JSON.parse(res.body)
+        expect(Object.keys(body.data).sort()).toEqual([
+          'accountHash', 'chargebacks', 'completedTrades', 'firstUsedAt', 'paymentMethod', 'signed', 'signedAt', 'tradeLimit',
+        ])
+        expect(body.data.signed).toBe(true)
+        expect(body.data.tradeLimit).toBe('0.01')
+      })
+
+      it('a caller who supplies an authenticated session (even the account\'s real owner) still gets the identical narrow projection — auth grants nothing extra on this route', async () => {
+        const token = await authedSession('user-owner-should-never-leak')
+        mockPaymentAccountFindUnique.mockResolvedValueOnce(fullRow)
+        const res = await app.inject({
+          method: 'GET',
+          url: '/v1/settlement/payment-accounts/hash-privacy-1',
+          headers: { authorization: `Bearer ${token}` },
+        })
+        const body = JSON.parse(res.body)
+        expect(body.data).not.toHaveProperty('ownerId')
+        expect(body.data).not.toHaveProperty('signedBy')
+        expect(Object.keys(body.data).sort()).toEqual([
+          'accountHash', 'chargebacks', 'completedTrades', 'firstUsedAt', 'paymentMethod', 'signed', 'signedAt', 'tradeLimit',
+        ])
+      })
+
+      it('an unknown accountHash returns a plain 404 — no stack trace, no internal field names, no hint beyond not-found', async () => {
+        mockPaymentAccountFindUnique.mockResolvedValueOnce(null)
+        const res = await app.inject({ method: 'GET', url: '/v1/settlement/payment-accounts/never-registered-anywhere' })
+        expect(res.statusCode).toBe(404)
+        const body = JSON.parse(res.body)
+        expect(body).not.toHaveProperty('stack')
+        expect(res.body).not.toContain('ownerId')
+        expect(res.body).not.toContain('signedBy')
+      })
     })
 
     it('returns 404 for an unregistered accountHash', async () => {
@@ -1313,6 +1482,60 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const body = JSON.parse(res.body)
       expect(body.data.signed).toBe(true)
       expect(body.data.signedBy).toBe('arbiter-1')
+    })
+
+    // Missão 11 Fase 9.3.4 — CTO-mandated INV-OP-10 existing-surface
+    // conformance closure. This route stays deliberately unauthenticated
+    // (a counterparty legitimately needs to look up who they're paying)
+    // — what changed is the response shape, narrowed from the raw
+    // PayoutAddress row to getPublicView()'s privacy-preserving
+    // projection. See payout-address.service.ts's PublicPayoutAddressView
+    // and docs/PROTOCOL_INVARIANTS.md's INV-OP-10 for the full rationale.
+    // tests/payoutAddress.test.ts proves the same boundary directly
+    // against the service; these prove it survives the real HTTP/JSON
+    // wire path end to end.
+    describe('GET /v1/settlement/payout-addresses/:participantId/:asset — privacy/verifiability boundary (Missão 11 Fase 9.3.4)', () => {
+      const fullRow = {
+        id: 'internal-row-id-should-never-leak',
+        participantId: 'buyer-1',
+        asset: 'BTC',
+        address: 'tb1qxyz',
+        moduleId: 'opensettlement',
+        protocolVersion: '0.1',
+        createdAt: new Date('2025-06-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      }
+
+      it('an unauthenticated (public) caller receives only participantId/asset/address — id/moduleId/protocolVersion/createdAt/updatedAt never leak', async () => {
+        mockPayoutAddressFindUnique.mockResolvedValueOnce(fullRow)
+        const res = await app.inject({ method: 'GET', url: '/v1/settlement/payout-addresses/buyer-1/BTC' })
+        expect(res.statusCode).toBe(200)
+        const body = JSON.parse(res.body)
+        expect(Object.keys(body.data).sort()).toEqual(['address', 'asset', 'participantId'])
+        expect(body.data.address).toBe('tb1qxyz')
+        expect(res.body).not.toContain('internal-row-id-should-never-leak')
+      })
+
+      it('a caller who supplies an authenticated session still gets the identical narrow projection — auth grants nothing extra on this route', async () => {
+        const token = await authedSession('buyer-1')
+        mockPayoutAddressFindUnique.mockResolvedValueOnce(fullRow)
+        const res = await app.inject({
+          method: 'GET',
+          url: '/v1/settlement/payout-addresses/buyer-1/BTC',
+          headers: { authorization: `Bearer ${token}` },
+        })
+        const body = JSON.parse(res.body)
+        expect(Object.keys(body.data).sort()).toEqual(['address', 'asset', 'participantId'])
+      })
+
+      it('an unregistered (participantId, asset) pair returns the route\'s own existing 404 — no stack trace, no internal field names', async () => {
+        mockPayoutAddressFindUnique.mockResolvedValueOnce(null)
+        const res = await app.inject({ method: 'GET', url: '/v1/settlement/payout-addresses/never-registered/BTC' })
+        expect(res.statusCode).toBe(404)
+        const body = JSON.parse(res.body)
+        expect(body).not.toHaveProperty('stack')
+        expect(res.body).not.toContain('moduleId')
+      })
     })
 
     it('surfaces a clear config error when disputing with no TRUSTED_ARBITRATORS configured (not a crash)', async () => {
@@ -1426,6 +1649,34 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       mockUserFindUnique.mockResolvedValueOnce(null)
       const res = await app.inject({ method: 'GET', url: '/v1/reputation/nobody' })
       expect(res.statusCode).toBe(404)
+    })
+
+    // Missão 11 Fase 9.3.6 — PUBLIC CONTRACT INTEGRITY. The SDK's
+    // ReputationScore type declared reputationScore/disputeCount/id/
+    // publicKey/displayName since its very first commit — none of
+    // which this route has ever actually returned (it returns
+    // exactly the 8 fields below; total/disputeRate, not
+    // reputationScore/disputeCount). This test pins the REAL wire
+    // shape exactly (key set, not just a subset via objectContaining)
+    // so a future drift on either the server or the SDK type is
+    // caught here, not discovered by a client crashing in production
+    // the way packages/sdk-react's ReputationBadge would have.
+    it('the real wire response is exactly the ReputationScore contract — no identity fields, no reputationScore/disputeCount aliases, nothing fabricated', async () => {
+      mockUserFindUnique.mockResolvedValueOnce({
+        id: 'user-1', reputationScore: 7, totalTrades: 4, disputeCount: 1, cumulativeFeesObserved: '0.0205',
+      })
+
+      const res = await app.inject({ method: 'GET', url: '/v1/reputation/user-1' })
+
+      const body = JSON.parse(res.body).data
+      expect(Object.keys(body).sort()).toEqual([
+        'cumulativeFeesObserved', 'disputeRate', 'participantId', 'settlementScore', 'total', 'totalTrades', 'tradeScore', 'volumeScore',
+      ])
+      expect(body).not.toHaveProperty('id')
+      expect(body).not.toHaveProperty('publicKey')
+      expect(body).not.toHaveProperty('displayName')
+      expect(body).not.toHaveProperty('reputationScore')
+      expect(body).not.toHaveProperty('disputeCount')
     })
 
     it('resolves a score by peerId (RFC-013 — Pears identity is the portable substrate, not a reputation source itself)', async () => {

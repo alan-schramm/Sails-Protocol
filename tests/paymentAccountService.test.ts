@@ -229,3 +229,103 @@ describe('PaymentAccountService — getTradeLimit() (RFC-021 D5, the real ramp)'
     expect(await service.getTradeLimit('hash-1')).toBe(SIGNED_TRADE_LIMIT)
   })
 })
+
+// Missão 11 Fase 9.3.1 — CTO-mandated privacy/verifiability boundary
+// review of GET /v1/settlement/payment-accounts/:accountHash. This
+// endpoint stays deliberately public (no requireAuth — matches RFC-021
+// D5's own age-witness design and the SDK's documented "no session
+// required" contract), but the ROW previously returned verbatim
+// (`{ ...account, tradeLimit }`) included `ownerId`/`signedBy` (platform
+// User ids) and internal bookkeeping (`id`/`moduleId`/`protocolVersion`/
+// `updatedAt`) — none of which RFC-021 D5's stated purpose ("verify a
+// payment account has been used before... without revealing the
+// account's real details") ever required. getPublicView() is now the
+// ONLY method the public route may call; these tests prove its exact
+// field boundary directly against the service, independent of HTTP
+// wiring (tests/routes.test.ts covers the wire-level proof).
+describe('PaymentAccountService — getPublicView() (Missão 11 Fase 9.3.1 privacy boundary)', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  const fullRow = {
+    id: 'internal-row-id-should-never-leak',
+    ownerId: 'user-owner-should-never-leak',
+    accountHash: 'hash-1',
+    paymentMethod: 'PIX',
+    signed: true,
+    signedBy: 'user-signer-should-never-leak',
+    signedAt: new Date('2026-01-01T00:00:00.000Z'),
+    firstUsedAt: new Date('2025-06-01T00:00:00.000Z'),
+    completedTrades: 7,
+    chargebacks: 0,
+    moduleId: 'opensettlement',
+    protocolVersion: '0.1',
+    updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+  }
+
+  it('never includes ownerId — the platform identity of the account owner does not leak through the public verification surface', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(fullRow)
+    const service = new PaymentAccountService()
+    const view = await service.getPublicView('hash-1')
+    expect(view).not.toHaveProperty('ownerId')
+    expect(JSON.stringify(view)).not.toContain('user-owner-should-never-leak')
+  })
+
+  it('never includes signedBy — the platform identity of whoever attested the account does not leak', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(fullRow)
+    const service = new PaymentAccountService()
+    const view = await service.getPublicView('hash-1')
+    expect(view).not.toHaveProperty('signedBy')
+    expect(JSON.stringify(view)).not.toContain('user-signer-should-never-leak')
+  })
+
+  it('never includes the internal row id or operator-internal bookkeeping (moduleId/protocolVersion/updatedAt)', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(fullRow)
+    const service = new PaymentAccountService()
+    const view = await service.getPublicView('hash-1')
+    expect(view).not.toHaveProperty('id')
+    expect(view).not.toHaveProperty('moduleId')
+    expect(view).not.toHaveProperty('protocolVersion')
+    expect(view).not.toHaveProperty('updatedAt')
+    expect(JSON.stringify(view)).not.toContain('internal-row-id-should-never-leak')
+  })
+
+  it('every field required for real counterparty verification remains present and correct', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(fullRow)
+    const service = new PaymentAccountService()
+    const view = await service.getPublicView('hash-1')
+    expect(view).toEqual({
+      accountHash: 'hash-1',
+      paymentMethod: 'PIX',
+      signed: true,
+      signedAt: fullRow.signedAt,
+      firstUsedAt: fullRow.firstUsedAt,
+      completedTrades: 7,
+      chargebacks: 0,
+      tradeLimit: ESTABLISHED_TRADE_LIMIT, // completedTrades=7 >= ESTABLISHED_TRADE_COUNT(5), < TRUSTED_TRADE_COUNT(20)
+    })
+  })
+
+  it('the exact same projection shape is returned regardless of how much history the caller already knows — no hidden extra fields unlocked by "being in the know"', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(fullRow)
+    const service = new PaymentAccountService()
+    const viewA = await service.getPublicView('hash-1')
+    const viewB = await service.getPublicView('hash-1') // a second, independent caller
+    expect(viewA).toEqual(viewB)
+    expect(Object.keys(viewA).sort()).toEqual([
+      'accountHash', 'chargebacks', 'completedTrades', 'firstUsedAt', 'paymentMethod', 'signed', 'signedAt', 'tradeLimit',
+    ])
+  })
+
+  it('an unknown accountHash throws NotFoundError — existence is disclosed by design (that IS the age-witness verification), but nothing beyond exists/does-not-exist leaks', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(null)
+    const service = new PaymentAccountService()
+    await expect(service.getPublicView('never-registered-hash')).rejects.toThrow('PaymentAccount')
+  })
+
+  it('the computed tradeLimit matches getTradeLimit() exactly — one shared ramp implementation, not a second one that could silently drift', async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue(fullRow)
+    const service = new PaymentAccountService()
+    const [view, limit] = await Promise.all([service.getPublicView('hash-1'), service.getTradeLimit('hash-1')])
+    expect(view.tradeLimit).toBe(limit)
+  })
+})

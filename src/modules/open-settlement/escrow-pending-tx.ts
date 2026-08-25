@@ -12,9 +12,11 @@ import {
   resolvePayoutAddress,
   checkFundMovementCapability,
   assertFundingNotUncertain,
+  withEscrowFundingLock,
 } from './escrow-lifecycle'
 import { hasDualApproval } from './escrow-dual-approval'
 import { escrowRepository } from './escrow-repository'
+import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
@@ -126,30 +128,49 @@ async function initiateSignatureCollectionCore(
   const result = await buildProvider(provider, escrowRecord)
 
   try {
-    return await prisma.escrowPendingTransaction.create({
-      data: {
-        escrowId,
-        kind,
-        toAddress: result.toAddress!,
-        ...(result.toAddressSecondary ? { toAddressSecondary: result.toAddressSecondary } : {}),
-        unsignedPsbtBase64: result.psbtBase64,
-        requiredSigners: result.requiredSigners,
-        triggeredBy,
-        // Missão 11 Fase 4 §J — persist exactly what the provider built,
-        // so submitTransactionSignature() below records a FeeObligation
-        // guaranteed to match the real transaction, not a later
-        // independent recomputation.
-        ...(result.feeCollection ? { feeCollectionSats: result.feeCollection.feeSats, feeCollectionWaived: result.feeCollection.waived } : {}),
-        // Missão 11 Fase 9.1.1 §3 — persist the exact miner fee this PSBT
-        // was actually built against, so an independent verifier
-        // (sails-ui, or any external wallet) can reconstruct the correct
-        // ExpectedSigningIntent without re-estimating a live fee rate
-        // that would almost never match the historical value baked into
-        // this already-built PSBT. Undefined for a provider that doesn't
-        // report one (LIGHTNING_HODL/SAFE_GUARD_EVM today).
-        ...(result.minerFeeSats !== undefined ? { minerFeeSats: result.minerFeeSats } : {}),
-        ...extraData,
-      },
+    // Missão 11 Fase 9.3 — the AUTHORITATIVE funding-uncertainty re-check
+    // (the earlier assertFundingNotUncertain() call above is only a cheap
+    // fail-fast, run before the trade lookup / authorization / capability
+    // / provider PSBT-building work) and the pending-transaction write now
+    // run inside the same withEscrowFundingLock() transaction, closing
+    // the window where a concurrent reorg-sweep tick could invalidate the
+    // evidence between the earlier check and this write. See
+    // escrow-lifecycle.ts's own header comment on withEscrowFundingLock()
+    // for why this specific mechanism closes the race.
+    return await withEscrowFundingLock(escrowId, async (tx) => {
+      if (kind === 'release' || kind === 'split') {
+        const uncertain = await escrowFundingEvidenceService.isFundingUncertain(escrowId, tx)
+        if (uncertain) {
+          throw new EscrowError(
+            `Escrow ${escrowId}'s funding evidence became uncertain (reorg or replacement detected) while this request was in flight — refusing to build a pending ${kind} transaction. Refunding, raising a dispute, or waiting for reconfirmation remain available.`
+          )
+        }
+      }
+      return tx.escrowPendingTransaction.create({
+        data: {
+          escrowId,
+          kind,
+          toAddress: result.toAddress!,
+          ...(result.toAddressSecondary ? { toAddressSecondary: result.toAddressSecondary } : {}),
+          unsignedPsbtBase64: result.psbtBase64,
+          requiredSigners: result.requiredSigners,
+          triggeredBy,
+          // Missão 11 Fase 4 §J — persist exactly what the provider built,
+          // so submitTransactionSignature() below records a FeeObligation
+          // guaranteed to match the real transaction, not a later
+          // independent recomputation.
+          ...(result.feeCollection ? { feeCollectionSats: result.feeCollection.feeSats, feeCollectionWaived: result.feeCollection.waived } : {}),
+          // Missão 11 Fase 9.1.1 §3 — persist the exact miner fee this PSBT
+          // was actually built against, so an independent verifier
+          // (sails-ui, or any external wallet) can reconstruct the correct
+          // ExpectedSigningIntent without re-estimating a live fee rate
+          // that would almost never match the historical value baked into
+          // this already-built PSBT. Undefined for a provider that doesn't
+          // report one (LIGHTNING_HODL/SAFE_GUARD_EVM today).
+          ...(result.minerFeeSats !== undefined ? { minerFeeSats: result.minerFeeSats } : {}),
+          ...extraData,
+        },
+      })
     })
   } catch (err: any) {
     if (err?.code === 'P2002') {

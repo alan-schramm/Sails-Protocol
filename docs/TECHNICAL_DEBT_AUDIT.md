@@ -426,6 +426,54 @@ Interface não suporta cleanup. Quando `SailsClient` é destruído, a wallet con
 
 ---
 
+### 31. SDK: `SailsSettlementModule.getArbiterProfile()`/`ArbiterProfile` duplicam `SailsArbitrationModule` com tipos errados
+
+Achado durante a Missão 11 Fase 9.3.4, registrado na Fase 9.3.5 e
+**corrigido nesta entrada na Fase 9.3.6** — o nome do método e o status
+de "morto" declarados na versão original desta entrada estavam ambos
+errados, e essa correção só apareceu por acidente: investigando o
+contrato público de `ReputationScore` (item de dívida separado, ver
+`docs/PROTOCOL_INVARIANTS.md`'s `INV-OP-10`/`SECURITY_MODEL.md` §4.7),
+`tests/modules.test.ts` (SDK) apareceu com um teste real, passando,
+chamando exatamente este método contra uma URL real — provando
+diretamente que a alegação original ("zero chamadas, confirmado via
+grep") estava errada. Mesma lição desta fase inteira: nunca confiar em
+"confirmado via grep" de uma sessão anterior sem re-verificar.
+
+`packages/sails-sdk/src/modules/settlement.ts` tem um método real,
+testado e alcançável — `getArbiterProfile()` (não
+`getArbitrationProfile()`, nome que nunca existiu no código; erro de
+digitação/memória da Fase 9.3.4, propagado sem verificação até aqui) —
+e um tipo `ArbiterProfile`, que duplicam `SailsArbitrationModule.
+getProfile()`/`ArbiterCandidate` (`packages/sails-sdk/src/modules/
+arbitration.ts`): **ambos batem exatamente nas mesmas duas rotas reais**
+(`POST /v1/settlement/arbitration/register`,
+`GET /v1/settlement/arbitration/profile/:participantId`) — mas
+`ArbiterProfile` usa nomes de campo errados: `reputationScore`/
+`activeDisputes`/`registeredAt` em vez dos campos reais que
+`market-arbitration.provider.ts`'s `toCandidate()` de fato retorna
+(`arbiterReputation`/`effectiveStake`/`cumulativeFeesObserved`) — a
+mesma classe de bug que `ReputationScore` tinha (nomes de campo que nunca
+corresponderam à resposta real do servidor). `tests/modules.test.ts`
+exercita ambos os caminhos (`registerArbiter()`/`getArbiterProfile()`
+com o tipo errado, `SailsArbitrationModule.register()`/`getProfile()`
+com o tipo certo) contra o mesmo par de rotas — os testes passam porque
+são autoconsistentes com o mock, não porque a forma está certa. Não é
+referência circular nem risco de segurança — é uma superfície pública
+duplicada e alcançável, com um dos dois lados usando nomes de campo que
+nunca corresponderam à resposta real do servidor.
+
+**Fix:** consolidar em `SailsArbitrationModule`/`ArbiterCandidate` (a
+forma correta) e remover `getArbiterProfile()`/`registerArbiter()`/
+`ArbiterProfile` de `settlement.ts`, ou corrigir os nomes de campo de
+`ArbiterProfile` para bater com a resposta real — numa passada de
+limpeza de release/API separada, não sob um mandato de contract-
+integrity pontual (fora do escopo da Missão 11 Fase 9.3.6, cujo mandato
+era exclusivamente `reputation.service.ts`/`ReputationScore`). Deixado
+intocado nesta fase por instrução explícita do CTO.
+
+---
+
 ## Ações Recomendadas por Prioridade
 
 ### P0 — Antes de qualquer apresentação (1-2 dias)

@@ -107,7 +107,7 @@ would just be a synonym, not a real accessibility gain.
 ### `identity` / `auth`
 - `create(keypair?, displayName?)` → `{ participant, keypair }`
 - `createWithPublicKey(publicKeyHex, displayName?)` → `Participant` *(wallet-backed registration — no keypair object, no secretKey; closes `PRODUCTION_READINESS_REVIEW.md`'s finding #3, 2026-08-02)*
-- `get(participantId)` → `Participant`
+- `get(participantId)` → `PublicParticipant` *(public lookup of another participant — narrowed from `Participant` Missão 11 Fase 9.3.5, INV-OP-10: no reputation stats, no bookkeeping fields; use `reputation.get(participantId)` for reputation facts. `me()` below is unaffected — authenticated, self-referential, stays full `Participant`)*
 - `me()` → `Participant` *(requires session)*
 - `challenge(publicKeyHex)` → `{ challenge, expiresIn }`
 - `authenticate(keypair)` → `{ participantId, sessionToken }` — also stores the session on the client
@@ -157,7 +157,7 @@ would just be a synonym, not a real accessibility gain.
 - `parseSafeGuardBundle(unsignedPsbtBase64)` → `SafeGuardBundle` *(pure parsing helper, no transport call; SAFE_GUARD_EVM only — decodes the Safe Guard deployment info a `create()`/`initiateRelease()` response carries for that escrow type)*
 - `signEscrowSafeUserOp(unsignedPsbtBase64, privateKey)` → `string` *(top-level SDK export, not a `settlement` method — same client-held-key pattern as `signEscrowPsbt()`/`signEscrowArkTx()`; produces a `0x`-prefixed 65-byte ECDSA signature over the bundle's `userOpHash`, ready for `submitTransactionSignature()`; UI-audit gap closed 2026-08-03 — SAFE_GUARD_EVM disputes were previously stuck forever with no way to actually produce this signature client-side)*
 - `setPayoutAddress({ asset, address })` → `PayoutAddress` *(requires session; missing from this line until Missão 07.4 — real since the "Participant payout address" gap closed)*
-- `getPayoutAddress(participantId, asset)` → `PayoutAddress` *(no session required; same gap as above)*
+- `getPayoutAddress(participantId, asset)` → `PublicPayoutAddress` *(no session required — deliberately public-by-lookup, same "read by id needs no auth" precedent as `GET /v1/settlement/escrow/:id`. Missão 11 Fase 9.3.4: narrowed from `PayoutAddress` — no `id`/`createdAt`/`updatedAt` here, ever; only `participantId`/`asset`/`address`, the committed payout destination itself)*
 
 ### `arbitration`
 - `register(monetaryCollateral, collateralAsset?)` → `ArbiterCandidate` *(requires session; registers or tops up the caller's own ArbiterProfile — permissionless, no approval step)*
@@ -165,7 +165,7 @@ would just be a synonym, not a real accessibility gain.
 
 ### `paymentAccounts`
 - `register(accountHash, paymentMethod)` → `PaymentAccount` *(requires session; idempotent for an already-registered hash — hash the raw account identifier client-side first via the top-level `hashPaymentAccount()` export, never send the raw value)*
-- `get(accountHash)` → `PaymentAccount & { tradeLimit: string }` *(no session required)*
+- `get(accountHash)` → `PublicPaymentAccount` *(no session required — deliberately public-by-hash, RFC-021 D5's own age-witness design. Missão 11 Fase 9.3.1: narrowed from `PaymentAccount & { tradeLimit }` — no `ownerId`/`signedBy`/`id` here, ever. Verifying a payment rail's trust history never requires knowing which platform identity owns or attested it — see `docs/SECURITY_MODEL.md`'s privacy-boundary section)*
 - `sign(accountHash)` → `PaymentAccount` *(requires session; RFC-021 D1 — attests a specific completed trade, not a general vouch for the account owner)*
 
 ### `proof`
@@ -189,7 +189,7 @@ converse with a counterparty, or hold state across calls.
 - `assessIntentRisk(intent)` → `IntentRiskAssessment` *(requires session; real QVAC call)*
 
 ### `reputation` / `trustScore`
-- `get(participantId)` → `ReputationScore`
+- `get(participantId)` → `ReputationScore` *(exception per this doc's own freeze-commitment clause, Missão 11 Fase 9.3.6: `ReputationScore` has declared `id`/`publicKey`/`displayName`/`reputationScore`/`disputeCount` since the SDK's first commit — none of which `reputation.service.ts`'s real `getScore()` has ever actually returned. Corrected to the real, always-been-true wire shape — `participantId`/`total`/`tradeScore`/`volumeScore`/`settlementScore`/`disputeRate`/`totalTrades`/`cumulativeFeesObserved` — a PRE-LAUNCH BREAKING API CORRECTION, no version bump, not published. A caller wanting displayName/publicKey calls `identity.get()` separately, same composition pattern `sails-ui`'s Trade page and `sdk-react`'s `ReputationBadge` now both use)*
 - `leaderboard(pagination?: { limit?, offset? })` → `LeaderboardResult` (`{ items, total, hasMore, nextOffset }`, each `items[]` entry a `LeaderboardEntry`, not the full `ReputationScore` shape — stale signature/return type fixed here Missão 07.4, no code change)
 - `rate(input)` → informational only, does not affect the score `get()` returns *(requires session)*
 - `vouchFor(voucheeId)` → `Vouch` *(requires session; RFC-021 D7 peer vouching — caller must have real trade history, own reputation is slashed if the vouchee's first payment account is later abused)*

@@ -284,3 +284,72 @@ the protocol collects, not a promise about how collected data is handled.
 6. **Permissionless Participation** — no account creation, email, or KYC
    required at the protocol level. Applications built on the protocol may
    add their own requirements, but the protocol itself stays open.
+7. **Verifiability Does Not Require Identity Disclosure** — a public,
+   hash-gated read exists to let a counterparty verify a *property* (has
+   this payment rail been used before, is it signed, what trade limit does
+   it carry), never to let anyone resolve *which platform identity* stands
+   behind that property. Public-by-hash is a deliberate design choice
+   (Bisq's own account-age-witness precedent — a hash both sides can check
+   without either seeing the other's real account data) and is not itself
+   a privacy leak; treating "someone knows the hash" as authorization to
+   see participant identities *is* a leak. Every public projection in this
+   protocol is scoped to exactly the fields a caller needs to verify the
+   claim, never the raw underlying row. Case study, closed Missão 11 Fase
+   9.3.1: `GET /v1/settlement/payment-accounts/:accountHash` (RFC-021 D5)
+   stayed intentionally unauthenticated — matching its own documented
+   contract (`docs/API_STABLE.md`, "no session required") — but its
+   response was narrowed from the raw `PaymentAccount` row to
+   `PublicPaymentAccountView` (`payment-account.service.ts`), removing
+   `ownerId`/`signedBy` (platform User ids), the internal `id`, and
+   operator bookkeeping (`moduleId`/`protocolVersion`/`updatedAt`).
+   `accountHash`/`paymentMethod`/`signed`/`signedAt`/`firstUsedAt`/
+   `completedTrades`/`chargebacks`/`tradeLimit` all remained — each is
+   either the literal subject of the age-witness verification or lets an
+   independent client recompute the server's own trade-limit formula
+   (its constants are public SDK exports) without ever learning who owns
+   or attested the account. The corresponding SDK type is
+   `PublicPaymentAccount`, distinct from the full `PaymentAccount` row
+   `register()`/`sign()` return to their own authenticated, self-
+   referential caller (the owner registering their own account; the
+   signer attesting one) — a full row is never a privacy leak when the
+   only recipient is the person it's already about.
+
+   Second case study, closed Missão 11 Fase 9.3.4, same sweep: `GET
+   /v1/settlement/payout-addresses/:participantId/:asset` had the
+   identical bug (raw `PayoutAddress` row, including `id`/
+   `moduleId`/`protocolVersion`/`createdAt`/`updatedAt`) — fixed the
+   same way (`PublicPayoutAddressView`/`PublicPayoutAddress`, keeping
+   only `participantId`/`asset`/`address`, the committed payout
+   destination itself). The SAME sweep independently re-checked `GET
+   /v1/settlement/arbitration/profile/:participantId` and found it
+   already conformant — it has returned a real, purpose-built
+   projection (`ArbiterCandidate`) since before this rule was written,
+   never the raw row.
+
+   Third case study, closed Missão 11 Fase 9.3.5: `GET /v1/identity/
+   participants/:id` (a public, unauthenticated lookup of ANY
+   participant — needed so a counterparty can verify a signature or
+   open a P2P connection) had the same bug, plus a distinct one:
+   reputation stats (`reputationScore`/`totalTrades`/`disputeCount`/
+   `totalVolumeBtc`) were also returned, even though three of the four
+   already have their own dedicated, canonical, already-public surface
+   (`GET /v1/reputation/:participantId`) — duplicating them on an
+   identity-lookup route is scope creep, not a privacy decision.
+   `totalVolumeBtc` turned out to have no equivalent public surface at
+   all (`ReputationScore` carries `cumulativeFeesObserved`, a fee
+   total, not a BTC-volume figure) — disclosed rather than assumed
+   covered, the same discipline this section's own prior case study
+   established. Fixed via `getPublicView()`/`PublicParticipantIdentity`
+   (`identity.service.ts`), keeping only `id`/`publicKey`/`displayName`/
+   `peerId`/`verified` — each is either the literal subject of the
+   lookup or required to verify a signature/open a connection.
+   `GET /v1/identity/me` (authenticated, self-referential) is
+   unaffected — it correctly stays the full row, same exception this
+   section's opening paragraph already carves out. The SDK's
+   `identity.get()` narrowed from `Participant` to `PublicParticipant`
+   accordingly; the one real internal consumer
+   (`packages/sails-ui`'s Trade page) now sources reputation stats from
+   `reputation.get()` — its actual canonical home — instead.
+
+   See `docs/PROTOCOL_INVARIANTS.md`'s `INV-OP-10` entry for the
+   complete field-by-field accounting of all three surfaces.

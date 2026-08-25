@@ -56,12 +56,44 @@ const DEMO_RELEASE_ADDRESS_EVM = '0x000000000000000000000000000000000000dead'
 // AUTO_RULING_LABEL and the dispute-rendering block moved into
 // components/trade/TradeDisputePanel.tsx the same day.
 
-function toParticipantUser(p: Awaited<ReturnType<typeof sailsClient.identity.get>>): User {
+// Missão 11 Fase 9.3.5 — identity.get() was narrowed to PublicParticipant
+// (INV-OP-10: no reputation stats/bookkeeping on a public identity
+// lookup — docs/PROTOCOL_INVARIANTS.md). reputationScore/totalTrades/
+// disputeCount now come from their own canonical, already-public source,
+// reputation.get(), fetched alongside. totalVolumeBtc/createdAt have no
+// public source anymore (identity.get() never re-adds them, and
+// ReputationScore doesn't carry a BTC-volume figure — cumulativeFeesObserved
+// is a fee total, not a volume one); placeholders below are safe because
+// TradeParties.tsx's PartyRow never actually renders either field for a
+// trade's buyer/seller — only displayName, positiveFeedbackPct()'s
+// totalTrades/disputeCount, and verified matter there.
+function toParticipantUser(
+  p: Awaited<ReturnType<typeof sailsClient.identity.get>>,
+  rep: Awaited<ReturnType<typeof sailsClient.reputation.get>>,
+): User {
   return {
     id: p.id, publicKey: p.publicKey, displayName: p.displayName, peerId: p.peerId,
-    reputationScore: p.reputationScore, totalTrades: p.totalTrades, disputeCount: p.disputeCount,
-    totalVolumeBtc: Number(p.totalVolumeBtc), verified: p.verified, createdAt: p.createdAt,
+    // ReputationScore's real fields are `total`/`disputeRate`, not
+    // `reputationScore`/`disputeCount` — the SDK type was wrong about
+    // this since its first commit (fixed Missão 11 Fase 9.3.6, contract
+    // integrity pass: packages/sails-sdk/src/types.ts now matches
+    // reputation.service.ts's real getScore() response exactly). This
+    // page's own local `User` type still wants a `disputeCount` count,
+    // not a rate — recovered exactly from disputeRate * totalTrades,
+    // the same arithmetic the server used to produce disputeRate in the
+    // first place, not a compensation for a broken contract.
+    reputationScore: rep.total, totalTrades: rep.totalTrades,
+    disputeCount: Math.round(rep.disputeRate * rep.totalTrades),
+    totalVolumeBtc: 0, verified: p.verified, createdAt: '',
   }
+}
+
+async function fetchParticipantUser(participantId: string): Promise<User> {
+  const [p, rep] = await Promise.all([
+    sailsClient.identity.get(participantId),
+    sailsClient.reputation.get(participantId),
+  ])
+  return toParticipantUser(p, rep)
 }
 
 export function Trade() {
@@ -127,8 +159,8 @@ export function Trade() {
       setTrade(t)
 
       const [b, s] = await Promise.all([
-        sailsClient.identity.get(t.buyerId).then(toParticipantUser),
-        sailsClient.identity.get(t.sellerId).then(toParticipantUser),
+        fetchParticipantUser(t.buyerId),
+        fetchParticipantUser(t.sellerId),
       ])
       if (cancelled) return
       setBuyer(b)

@@ -49,6 +49,67 @@ describe('PayoutAddressService — RFC-009/BACKLOG.md payout-address gap', () =>
   })
 })
 
+// Missão 11 Fase 9.3.4 — CTO-mandated INV-OP-10 existing-surface
+// conformance closure. GET /v1/settlement/payout-addresses/:participantId/:asset
+// stays deliberately public (no requireAuth — a counterparty legitimately
+// needs to look up who they're paying), but the ROW previously returned
+// verbatim (`prisma.payoutAddress.findUnique(...)`) included `id`/
+// `moduleId`/`protocolVersion`/`createdAt`/`updatedAt` — none of which
+// this endpoint's own stated purpose (routing a settlement to the
+// committed payout destination) ever required. getPublicView() is now
+// the ONLY method the public route may call; these tests prove its
+// exact field boundary directly against the service (tests/routes.test.ts
+// covers the wire-level proof).
+describe('PayoutAddressService — getPublicView() (Missão 11 Fase 9.3.4 privacy boundary)', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  const fullRow = {
+    id: 'internal-row-id-should-never-leak',
+    participantId: 'user-1',
+    asset: 'BTC',
+    address: 'tb1qxyz',
+    moduleId: 'opensettlement',
+    protocolVersion: '0.1',
+    createdAt: new Date('2025-06-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+  }
+
+  it('never includes the internal row id or operator-internal bookkeeping (moduleId/protocolVersion/createdAt/updatedAt)', async () => {
+    mockPayoutAddressFindUnique.mockResolvedValue(fullRow)
+    const service = new PayoutAddressService()
+    const view = await service.getPublicView('user-1', 'BTC' as any)
+    expect(view).not.toHaveProperty('id')
+    expect(view).not.toHaveProperty('moduleId')
+    expect(view).not.toHaveProperty('protocolVersion')
+    expect(view).not.toHaveProperty('createdAt')
+    expect(view).not.toHaveProperty('updatedAt')
+    expect(JSON.stringify(view)).not.toContain('internal-row-id-should-never-leak')
+  })
+
+  it('every field required to route a settlement remains present and correct', async () => {
+    mockPayoutAddressFindUnique.mockResolvedValue(fullRow)
+    const service = new PayoutAddressService()
+    const view = await service.getPublicView('user-1', 'BTC' as any)
+    expect(view).toEqual({ participantId: 'user-1', asset: 'BTC', address: 'tb1qxyz' })
+  })
+
+  it('an unregistered (participantId, asset) pair returns null — never fabricated, matches the route\'s own existing 404 handling', async () => {
+    mockPayoutAddressFindUnique.mockResolvedValue(null)
+    const service = new PayoutAddressService()
+    const view = await service.getPublicView('user-1', 'BTC' as any)
+    expect(view).toBeNull()
+  })
+
+  it('the exact same projection shape is returned regardless of caller — no hidden extra fields unlocked by "being in the know"', async () => {
+    mockPayoutAddressFindUnique.mockResolvedValue(fullRow)
+    const service = new PayoutAddressService()
+    const viewA = await service.getPublicView('user-1', 'BTC' as any)
+    const viewB = await service.getPublicView('user-1', 'BTC' as any)
+    expect(viewA).toEqual(viewB)
+    expect(Object.keys(viewA!).sort()).toEqual(['address', 'asset', 'participantId'])
+  })
+})
+
 // escrow.service.ts's own resolvePayoutAddress() — the actual fallback
 // consumer. Mocked at the payout-address.service.ts module boundary
 // (not the database) since escrow.service.ts imports the singleton

@@ -26,7 +26,9 @@ import {
   resolvePayoutAddress,
   checkFundMovementCapability,
   assertFundingNotUncertain,
+  withEscrowFundingLock,
 } from './escrow-lifecycle'
+import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import * as dualApproval from './escrow-dual-approval'
 import * as pendingTx from './escrow-pending-tx'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
@@ -475,7 +477,24 @@ export class EscrowService {
     // helper because that one also gates on VALID_TRANSITIONS, a check
     // this call site has never had; preserved as-is, not merged, to avoid
     // a silent behavior change in fund-adjacent code.
-    const claimedCount = await this.repo.claimTransition(escrowId, escrow.status, 'PAYMENT_PENDING')
+    //
+    // Missão 11 Fase 9.3 — the AUTHORITATIVE funding-uncertainty re-check
+    // (the early assertFundingNotUncertain() above is only a cheap
+    // fail-fast) and the transition claim now run inside the same
+    // withEscrowFundingLock() transaction, closing the window where a
+    // concurrent reorg-sweep tick could invalidate the evidence between
+    // the earlier check and this write. See escrow-lifecycle.ts's own
+    // header comment on withEscrowFundingLock() for why this specific
+    // mechanism closes the race.
+    const claimedCount = await withEscrowFundingLock(escrowId, async (tx) => {
+      const uncertain = await escrowFundingEvidenceService.isFundingUncertain(escrowId, tx)
+      if (uncertain) {
+        throw new EscrowError(
+          `Escrow ${escrowId}'s funding evidence became uncertain (reorg or replacement detected) while this request was in flight — refusing to record payment confirmation. Refunding, raising a dispute, or waiting for reconfirmation remain available.`
+        )
+      }
+      return this.repo.claimTransition(escrowId, escrow.status, 'PAYMENT_PENDING', tx)
+    })
     if (claimedCount === 0) {
       throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
     }

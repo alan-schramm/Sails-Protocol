@@ -289,8 +289,10 @@ the installed package's own README/AGENTS.md, not assumed):**
 
 **Answering question 3 (is a smart-account/multi-party approach
 required):** yes. Nothing in `@tetherto/wdk-wallet-evm` performs
-multi-signer threshold verification; achieving `INV-01` for an EVM rail
-genuinely requires *some* on-chain (or relayer-mediated) authorization
+multi-signer threshold verification; achieving Structural Invariant 2
+(The Protocol Never Custodies Assets — corrected reference, Missão 11
+Fase 9.3.4, see the note below) for an EVM rail genuinely requires
+*some* on-chain (or relayer-mediated) authorization
 layer above raw single-EOA signing, because a plain Ethereum transaction
 has exactly one signer slot — there is no EVM equivalent of Bitcoin's
 PSBT that lets two independent parties cooperatively assemble one
@@ -299,8 +301,24 @@ non-custodial EVM design converges on needing a contract (or a trusted
 relayer, a strictly weaker model not recommended here) that can verify
 multiple authorizations before it will move funds.
 
-**Answering question 4/5 (what model satisfies INV-01, what's
-reusable):** that smart-account layer already exists in this codebase,
+> *Reference resolved, Missão 11 Fase 9.3.4 — a git-history investigation
+> (`git log -p`) found this exact citation was introduced in commit
+> `9cf385e4` (2026-08-24, "feat(protocol): harden core settlement
+> invariants," Missão 11 Fase 9.1/9.1.1) — the SAME baseline commit this
+> whole Phase 9.3.x reconciliation works from, not an older, separately
+> lost "Phase 9.0" document as Fase 9.3.3's prior version of this note
+> speculated. Read in its own original context (the paragraph
+> immediately above and below this citation, same commit): the actual
+> concern is "no single signer, including a Sails-operated one, may
+> unilaterally authorize a fund movement" — a genuine multi-party
+> threshold requirement for EVM settlement. That is Structural
+> Invariant 2 (The Protocol Never Custodies Assets), not `INV-01`
+> (Participant-Bound Authority, formally defined later, Fase 9.3.3 —
+> about verifying WHO is acting, not about requiring multiple
+> independent authorizers).*
+
+**Answering question 4/5 (what model satisfies Structural Invariant 2
+for an EVM rail, what's reusable):** that smart-account layer already exists in this codebase,
 real and substantially built — `SAFE_GUARD_EVM` (RFC-020): an
 unmodified, audited Safe with a purpose-built Transaction Guard
 (`SailsEscrowSafe.sol`), 2-of-3 threshold (buyer, seller,

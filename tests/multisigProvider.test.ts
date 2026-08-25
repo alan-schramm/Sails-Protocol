@@ -213,23 +213,31 @@ describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift dete
     ).rejects.toThrow('does not match the arbiter public key committed')
   })
 
-  it('legacy escrow (no persisted arbiterPubkey) is completely unaffected by the same config drift — compatibility path preserved byte-for-byte', async () => {
-    // Same drift as the TRUSTED_ARBITRATORS test above, but this escrow
-    // fixture has no arbiterPubkey field at all (exactly what every
-    // pre-Fase-5.2 escrow looks like) — the new check never fires, and the
-    // pre-existing identity-string check (triggeredBy === defaultArbiterId())
-    // is satisfied since triggeredBy correctly names TODAY's single arbiter.
+  it('legacy escrow (no persisted arbiterPubkey) is rejected outright, not silently derived from live config (Missão 11 Fase 9.3 §4)', async () => {
+    // Missão 11 Fase 9.3 §4 (independently-reproduced red-team finding,
+    // Kimi K3 R1 MULTI-01) — this used to fall back to live-config
+    // derivation ("compatibility path preserved byte-for-byte"); that
+    // fallback was removed since production never launched (no real
+    // escrow anywhere is legacy-shaped) and it let a future
+    // TRUSTED_ARBITRATORS/MULTISIG_SEED change silently redefine what an
+    // uncommitted escrow's script means. partiesFor() now rejects an
+    // escrow with no persisted arbiterPubkey before ever building a
+    // script, so buildUnsignedRelease() never reaches the network or
+    // assertArbiterMatchesScript() at all — the fetch mock below is set
+    // up but never consumed, proving the rejection happens first.
     const { multisigProvider: driftedProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-2' })
     const fetchMock = jest.fn()
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid: 'dd'.repeat(32), vout: 0, value: 100_000, status: { confirmed: true } }] })
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ halfHourFee: 5 }) })
     ;(global as any).fetch = fetchMock
 
-    const { requiredSigners } = await driftedProvider.buildUnsignedRelease(
-      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: 'dd'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' },
-      REFUND_ADDRESS_UNUSED
-    )
-    expect(requiredSigners).toEqual(['buyer-1'])
+    await expect(
+      driftedProvider.buildUnsignedRelease(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: 'dd'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' },
+        REFUND_ADDRESS_UNUSED
+      )
+    ).rejects.toThrow(/no persisted arbiter public-key commitment/)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   // Missão 11 Fase 7.3.1 §B — real P0 fix proof: triggeredBy is now
@@ -292,6 +300,7 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
 
   it('lockFunds finds a sufficient confirmed UTXO and returns its txid', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => [{ txid: 'a'.repeat(64), vout: 0, value: 100_000, status: { confirmed: true } }],
@@ -304,13 +313,14 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
     // confirmation (tip == block height) is exactly sufficient.
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 100 }) })
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '100' })
-    const result = await multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
+    const result = await multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
     expect(result.txId).toBe('a'.repeat(64))
     expect(result.address).toMatch(/^tb1/)
   })
 
   it('lockFunds throws when the funding UTXO exists but has not yet reached the required confirmation depth', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1', MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '3' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => [{ txid: 'a'.repeat(64), vout: 0, value: 100_000, status: { confirmed: true } }],
@@ -318,15 +328,16 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 100 }) })
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '101' }) // only 2 confirmations, 3 required
     await expect(
-      multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
+      multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
     ).rejects.toThrow(/has 2 of the required 3 confirmation/)
   })
 
   it('lockFunds throws (non-custodial — never fakes a lock) when no sufficient UTXO exists yet', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [] })
     await expect(
-      multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
+      multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
     ).rejects.toThrow('No funding UTXO')
   })
 
@@ -340,11 +351,12 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
 
   it('verifyLock is true only for a confirmed UTXO meeting the expected amount', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => [{ txid: 'b'.repeat(64), vout: 0, value: 100_000, status: { confirmed: false } }],
     })
-    const unconfirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
+    const unconfirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
     expect(unconfirmed).toBe(false)
 
     fetchMock.mockResolvedValueOnce({
@@ -356,15 +368,16 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
     // (same two extra explorer calls as lockFunds() above).
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 200 }) })
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '200' })
-    const confirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
+    const confirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
     expect(confirmed).toBe(true)
   })
 
   it('propagates a clear error when the explorer API itself fails', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
     await expect(
-      multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.0005' })
+      multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
     ).rejects.toThrow('503')
   })
 })
@@ -441,17 +454,18 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
   describe('real fee estimation (mempool.space /v1/fees/recommended)', () => {
     it('uses the real fee rate to compute a non-flat fee — a higher rate produces a smaller spendable value from the same UTXO', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
 
       const txidLow = 'b1'.repeat(32)
       mockUtxoFetch(txidLow, 100_000, 2)
       const lowRate = await multisigProvider.buildUnsignedRelease(
-        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txidLow, status: 'PAYMENT_PENDING' },
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txidLow, status: 'PAYMENT_PENDING' },
         REFUND_ADDRESS_UNUSED
       )
       const txidHigh = 'b2'.repeat(32)
       mockUtxoFetch(txidHigh, 100_000, 50)
       const highRate = await multisigProvider.buildUnsignedRelease(
-        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txidHigh, status: 'PAYMENT_PENDING' },
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txidHigh, status: 'PAYMENT_PENDING' },
         REFUND_ADDRESS_UNUSED
       )
 
@@ -461,13 +475,14 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
     it('throws a clear error rather than guessing a fee when the fee-estimate endpoint is unreachable', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
       const txid = 'c1'.repeat(32)
       fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] })
       fetchMock.mockRejectedValueOnce(new Error('ECONNRESET'))
 
       await expect(
         multisigProvider.buildUnsignedRelease(
-          { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+          { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
           REFUND_ADDRESS_UNUSED
         )
       ).rejects.toThrow(/refusing to guess a fee/)
@@ -475,13 +490,14 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
     it('throws a clear error rather than guessing a fee when the endpoint returns no usable rate', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
       const txid = 'c2'.repeat(32)
       fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] })
       fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) })
 
       await expect(
         multisigProvider.buildUnsignedRelease(
-          { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+          { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
           REFUND_ADDRESS_UNUSED
         )
       ).rejects.toThrow(/no usable rate/)
@@ -490,10 +506,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
   it('buildUnsignedRelease returns a fully unsigned PSBT requiring both buyer and seller on the normal path', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = 'd'.repeat(64)
     mockUtxoFetch(txid, 100_000)
     const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRelease(
-      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
       REFUND_ADDRESS_UNUSED
     )
     expect(requiredSigners).toEqual(['buyer-1', 'seller-1'])
@@ -505,10 +522,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
   it('end-to-end: two independently-signed copies combine and finalize to a real broadcast txid', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = 'e'.repeat(64)
     mockUtxoFetch(txid, 100_000)
     const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRelease(
-      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
       REFUND_ADDRESS_UNUSED
     )
     expect(requiredSigners).toEqual(['buyer-1', 'seller-1'])
@@ -527,10 +545,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
   it('finalizeRelease fails to combine/finalize with only one of two required signatures', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '1'.repeat(64)
     mockUtxoFetch(txid, 100_000)
     const { psbtBase64 } = await multisigProvider.buildUnsignedRelease(
-      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
       REFUND_ADDRESS_UNUSED
     )
     const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
@@ -543,13 +562,30 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
   it('disputed release: arbiter pre-signs immediately, only the buyer remains a required client signer', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '2'.repeat(64)
     mockUtxoFetch(txid, 100_000)
     const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRelease(
-      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
       REFUND_ADDRESS_UNUSED
     )
     expect(requiredSigners).toEqual(['buyer-1'])
+
+    // Missão 11 Fase 9.3 §7 — minimal false-positive regression assertion
+    // for Kimi K3 R1 MULTI-05 ("PSBT verification bypass via witness
+    // script malleability"). Reproduced as a false positive by direct
+    // inspection of bitcoinjs-lib's own installed source: psbt.signInput()
+    // enforces an allowlist defaulting to [SIGHASH_ALL] and throws for
+    // anything else (checkSighashTypeAllowed(), node_modules/bitcoinjs-lib/
+    // src/cjs/psbt.cjs) — combined with the fact this codebase's every
+    // signInput() call (grep-verified, 3 call sites in this file) passes
+    // no explicit sighashTypes override, every signature this provider
+    // produces is bound to SIGHASH_ALL (commits the entire transaction,
+    // not just this input) by construction. Asserted directly here rather
+    // than only inferred: the arbiter's own pre-signature's DER-encoded
+    // signature bytes must end in the SIGHASH_ALL byte (0x01).
+    const arbiterSig = bitcoin.Psbt.fromBase64(psbtBase64, { network }).data.inputs[0].partialSig![0].signature
+    expect(arbiterSig[arbiterSig.length - 1]).toBe(bitcoin.Transaction.SIGHASH_ALL)
 
     // The returned "unsigned" PSBT already carries the arbiter's own
     // signature — only the buyer needs to add theirs.
@@ -563,9 +599,10 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
   it('disputed release rejects a mismatched dispute arbiter before ever building a PSBT', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     await expect(
       multisigProvider.buildUnsignedRelease(
-        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: 'x'.repeat(64), status: 'DISPUTED', triggeredBy: 'not-the-arbiter' },
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: 'x'.repeat(64), status: 'DISPUTED', triggeredBy: 'not-the-arbiter' },
         REFUND_ADDRESS_UNUSED
       )
     ).rejects.toThrow('does not match')
@@ -574,9 +611,10 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
   it('buildUnsignedRelease throws when the escrow has no recorded funding txid yet', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     await expect(
       multisigProvider.buildUnsignedRelease(
-        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', status: 'PAYMENT_PENDING' },
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', status: 'PAYMENT_PENDING' },
         REFUND_ADDRESS_UNUSED
       )
     ).rejects.toThrow('no recorded funding txid')
@@ -584,10 +622,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
   it('buildUnsignedRefund derives a real P2WPKH refund address from the seller pubkey and requires seller+buyer on the normal path', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '4'.repeat(64)
     mockUtxoFetch(txid, 100_000)
     const { psbtBase64, requiredSigners, toAddress } = await multisigProvider.buildUnsignedRefund({
-      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'FUNDS_LOCKED',
+      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'FUNDS_LOCKED',
     })
     expect(toAddress).toMatch(/^tb1/)
     expect(requiredSigners).toEqual(['seller-1', 'buyer-1'])
@@ -596,10 +635,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
   it('end-to-end refund: two independently-signed copies combine and finalize', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '5'.repeat(64)
     mockUtxoFetch(txid, 100_000)
     const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRefund({
-      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'FUNDS_LOCKED',
+      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'FUNDS_LOCKED',
     })
     expect(requiredSigners).toEqual(['seller-1', 'buyer-1'])
 
@@ -615,10 +655,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
   it('disputed refund: arbiter pre-signs immediately, only the seller remains a required client signer', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '7'.repeat(64)
     mockUtxoFetch(txid, 100_000)
     const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRefund({
-      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1',
+      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1',
     })
     expect(requiredSigners).toEqual(['seller-1'])
 
@@ -642,13 +683,14 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
   describe('buildUnsignedSplit/finalizeSplit', () => {
     it('builds a 2-output PSBT — buyer/seller shares sum exactly to the fee-adjusted UTXO value, split per buyerBps', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
       const txid = '9'.repeat(64)
       // 1 sat/vB keeps the expected fee a clean, exact number: 11 + 110 +
       // 43*2 (2 outputs) = 207 vBytes * 1 = 207 sats — matches multisig.
       // provider.ts's own estimateFeeSats() formula exactly.
       mockUtxoFetch(txid, 100_000, 1)
       const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedSplit(
-        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
         'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
         bitcoin.payments.p2wpkh({ pubkey: sellerKey.publicKey, network }).address,
         6000
@@ -671,10 +713,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
     it('end-to-end: the buyer signature combines with the arbiter pre-signature and broadcasts to a real txid', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
       const txid = 'aa'.repeat(32)
       mockUtxoFetch(txid, 100_000)
       const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedSplit(
-        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
         'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
         bitcoin.payments.p2wpkh({ pubkey: sellerKey.publicKey, network }).address,
         3000
@@ -691,10 +734,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
     it('finalizeSplit fails to combine/finalize with only the arbiter pre-signature and no client signature at all', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+      const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
       const txid = 'cc'.repeat(32)
       mockUtxoFetch(txid, 100_000)
       const { psbtBase64 } = await multisigProvider.buildUnsignedSplit(
-        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
         'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
         bitcoin.payments.p2wpkh({ pubkey: sellerKey.publicKey, network }).address,
         5000

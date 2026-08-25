@@ -312,12 +312,22 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     ).rejects.toThrow(/does not match the arbiter public key committed/)
   })
 
-  it('5. legacy escrow (no persisted arbiter commitment) under a disputed release -> compatibility path preserved, identity check alone still governs', async () => {
-    requirePostgres('legacy compatibility preserved')
+  it('5. legacy escrow (no persisted arbiter commitment) under a disputed release -> rejected outright (Missão 11 Fase 9.3 §4 — no persisted commitment = not eligible for real MULTISIG settlement)', async () => {
+    requirePostgres('legacy escrow rejected, not silently accepted')
     // Simulates a pre-Fase-5.2 escrow: buyer/seller keys persisted
     // directly (bypassing submitParticipantKey()'s auto-commitment write,
     // which does not exist for a genuinely historical row), no
     // role='arbiter' row created at all.
+    //
+    // Missão 11 Fase 9.3 §4 (independently-reproduced red-team finding,
+    // Kimi K3 R1 MULTI-01) — this used to fall back to a plain
+    // identity-string check against live config ("compatibility path
+    // preserved"); that fallback was removed since production never
+    // launched (no real escrow anywhere is legacy-shaped) and it let a
+    // future TRUSTED_ARBITRATORS/MULTISIG_SEED change silently redefine
+    // what an uncommitted escrow's script means. This test now proves the
+    // opposite of its original name: the legacy shape is REJECTED, not
+    // preserved.
     const { buyer, seller, trade } = await fixtureTrade()
     const buyerKey = keypair(`legacy-buyer-${trade.id}`)
     const sellerKey = keypair(`legacy-seller-${trade.id}`)
@@ -336,8 +346,12 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     expect(arbiterRow).toBeNull() // confirms this fixture is genuinely legacy-shaped
 
     mockExplorerFetch(txid)
-    const pending = await escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
-    expect(pending.requiredSigners).toEqual([buyer.id])
+    await expect(
+      escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
+    ).rejects.toThrow(/no persisted arbiter public-key commitment/)
+
+    const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } })
+    expect(pending).toBeNull()
   })
 
   it('6. happy path: non-disputed release (ordinary buyer+seller signing) is unaffected by the triggeredBy threading fix', async () => {

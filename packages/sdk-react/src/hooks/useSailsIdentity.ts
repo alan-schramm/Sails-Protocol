@@ -1,9 +1,14 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from '@tanstack/react-query'
-import type { Participant, Ed25519Keypair, AuthenticateResult } from '@satsails/p2p-trading-sdk'
+import type { Participant, PublicParticipant, Ed25519Keypair, AuthenticateResult } from '@satsails/p2p-trading-sdk'
 import { useSailsClient } from './useSailsClient'
 
 export interface UseSailsIdentityResult {
-  query: UseQueryResult<Participant>
+  // Missão 11 Fase 9.3.5 narrowed identity.get() to PublicParticipant
+  // (INV-OP-10) — this hook's query type was never updated to match,
+  // caught here in Fase 9.3.6's contract-integrity pass. create()/
+  // createWithPublicKey() are self-referential registration responses
+  // and correctly stay the full Participant.
+  query: UseQueryResult<PublicParticipant>
   create: UseMutationResult<{ participant: Participant; keypair: Ed25519Keypair }, Error, { keypair?: Ed25519Keypair; displayName?: string }>
   createWithPublicKey: UseMutationResult<Participant, Error, { publicKeyHex: string; displayName?: string }>
   challenge: UseMutationResult<{ challenge: string; expiresIn: number }, Error, string>

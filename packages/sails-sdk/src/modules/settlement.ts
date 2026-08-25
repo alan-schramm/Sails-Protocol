@@ -54,6 +54,25 @@ export interface PayoutAddress {
   updatedAt: string;
 }
 
+/**
+ * Missão 11 Fase 9.3.4 — the shape `getPayoutAddress()` actually
+ * returns. Deliberately NOT `PayoutAddress` — that full row (including
+ * `id`/`createdAt`/`updatedAt`) is only ever returned to an
+ * AUTHENTICATED, self-referential caller (`setPayoutAddress()`, where
+ * the caller IS the participant registering their own address).
+ * `getPayoutAddress()` is public-by-lookup (no session), so it returns
+ * only what a counterparty needs to route a settlement: participantId/
+ * asset (the lookup keys) and address (the committed payout
+ * destination) — never internal bookkeeping. See
+ * `src/modules/open-settlement/payout-address.service.ts`'s
+ * `PublicPayoutAddressView` (the server-side source of this shape).
+ */
+export interface PublicPayoutAddress {
+  participantId: string;
+  asset: AssetType;
+  address: string;
+}
+
 export interface ReleaseApproval {
   id: string;
   escrowId: string;
@@ -581,13 +600,21 @@ export class SailsSettlementModule {
     );
   }
 
-  /** Public read, no session required — a counterparty legitimately
-   *  needs to look up who they're paying. */
+  /**
+   * Public read, no session required — a counterparty legitimately
+   * needs to look up who they're paying.
+   *
+   * Missão 11 Fase 9.3.4 — narrowed from `PayoutAddress` to
+   * `PublicPayoutAddress`: the server no longer returns `id`/
+   * `createdAt`/`updatedAt` here at all (a privacy-minimization fix,
+   * not a client-side filter). No known caller of this SDK read those
+   * fields from this method's result.
+   */
   async getPayoutAddress(
     participantId: string,
     asset: AssetType,
-  ): Promise<PayoutAddress> {
-    return this.transport.get<PayoutAddress>(
+  ): Promise<PublicPayoutAddress> {
+    return this.transport.get<PublicPayoutAddress>(
       `/v1/settlement/payout-addresses/${participantId}/${asset}`,
     );
   }

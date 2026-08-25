@@ -553,13 +553,22 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send(success(account))
   })
 
+  // Missão 11 Fase 9.3.1 — deliberately public (no requireAuth), matching
+  // RFC-021 D5's own design intent and the SDK's own documented contract
+  // (docs/API_STABLE.md: "no session required") — Bisq's real account-age-
+  // witness precedent is explicitly a public commitment scheme, not an
+  // authorization boundary. What changed: the response is now
+  // getPublicView()'s privacy-preserving projection, not the raw
+  // PaymentAccount row — see that method's own comment for exactly which
+  // fields were removed (ownerId, signedBy, id, moduleId, protocolVersion,
+  // updatedAt) and why: verifying a payment rail's trust history never
+  // required knowing which platform identity owns or attested it.
   app.get('/v1/settlement/payment-accounts/:accountHash', {
     ...docsOnlySchema({ tags: ['open-settlement'], params: accountHashParamsSchema }),
   }, async (request, reply) => {
     const { accountHash } = accountHashParamsSchema.parse(request.params)
-    const account = await paymentAccountService.getByHash(accountHash)
-    const tradeLimit = await paymentAccountService.getTradeLimit(accountHash)
-    return reply.code(200).send(success({ ...account, tradeLimit }))
+    const view = await paymentAccountService.getPublicView(accountHash)
+    return reply.code(200).send(success(view))
   })
 
   // RFC-021 D1's narrow-attestation framing: the caller attests a
@@ -593,14 +602,20 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // the path rather than the caller's own identity, since a counterparty
   // legitimately needs to look up who they're paying (e.g. a seller
   // building a manual release outside escrowService's own fallback).
+  //
+  // Missão 11 Fase 9.3.4 — INV-OP-10: response narrowed from the raw
+  // PayoutAddress row to getPublicView()'s projection (participantId/
+  // asset/address only — no id/moduleId/protocolVersion/createdAt/
+  // updatedAt). See that method's own comment for the full rationale;
+  // 404 shape is unchanged from before this phase.
   app.get('/v1/settlement/payout-addresses/:participantId/:asset', {
     ...docsOnlySchema({ tags: ['open-settlement'], params: payoutAddressParamsSchema }),
   }, async (request, reply) => {
     const { participantId: targetId, asset } = payoutAddressParamsSchema.parse(request.params)
-    const record = await payoutAddressService.getPayoutAddress(targetId, asset as any)
-    if (!record) {
+    const view = await payoutAddressService.getPublicView(targetId, asset as any)
+    if (!view) {
       return reply.code(404).send({ success: false, error: 'NOT_FOUND', message: `No PayoutAddress for ${targetId}/${asset}`, details: [] })
     }
-    return reply.code(200).send(success(record))
+    return reply.code(200).send(success(view))
   })
 }

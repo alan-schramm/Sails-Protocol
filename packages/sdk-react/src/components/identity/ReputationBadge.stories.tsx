@@ -8,6 +8,7 @@ const meta: Meta<typeof ReputationBadge> = {
   tags: ['autodocs'],
   args: {
     score: mockReputationScore(),
+    displayName: 'alice.sats',
   },
 }
 export default meta
@@ -17,17 +18,17 @@ type Story = StoryObj<typeof ReputationBadge>
 export const Default: Story = {}
 
 export const NoDisputes: Story = {
-  args: { score: mockReputationScore({ disputeCount: 0 }) },
+  args: { score: mockReputationScore({ disputeRate: 0 }) },
 }
 
 export const HighDisputeRate: Story = {
-  args: { score: mockReputationScore({ totalTrades: 10, disputeCount: 4 }) },
+  args: { score: mockReputationScore({ totalTrades: 10, disputeRate: 0.4 }) },
 }
 
 export const NewTrader: Story = {
-  args: { score: mockReputationScore({ reputationScore: 0, totalTrades: 0, disputeCount: 0 }) },
+  args: { score: mockReputationScore({ total: 0, totalTrades: 0, disputeRate: 0 }) },
 }
 
 export const NoDisplayName: Story = {
-  args: { score: mockReputationScore({ displayName: null as unknown as string }) },
+  args: { displayName: undefined, publicKey: 'ed25519-0123456789abcdef' },
 }

@@ -117,6 +117,14 @@ function hexId(seed: string): string {
   return crypto.createHash('sha256').update(seed).digest('hex')
 }
 
+// Missão 11 Fase 9.3 §4 — every fixture below now needs a persisted
+// arbiter commitment (partiesFor() rejects one that doesn't — see
+// multisig.provider.ts's own comment). loadProvider() always uses the
+// same fixed MULTISIG_SEED/TRUSTED_ARBITRATORS for this whole file, so
+// this derivation is stable across every test regardless of which
+// freshly-`require()`'d provider instance computes it.
+const ARBITER_PUBKEY_HEX: string = loadProvider().multisigProvider.getArbiterPubkeyHex('arb-1')
+
 /** A policy-aware escrow fixture carrying the FROZEN Fase 4.1 snapshot
  *  fields by default (collectible against COLLECTION_ADDRESS) — override
  *  snapshotFeeCollectionAddress/snapshotFeeCollectionWaivedPreFunding
@@ -125,7 +133,7 @@ function hexId(seed: string): string {
 function policyAwareEscrow(overrides: Record<string, any> = {}): Record<string, any> {
   return {
     tradeId: 't-fase4', buyerId: 'buyer-1', sellerId: 'seller-1',
-    buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex,
+    buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: ARBITER_PUBKEY_HEX,
     status: 'PAYMENT_PENDING',
     feePolicyVersionId: 'policy-fixture-fase4',
     snapshotProtocolFeeRate: '1', // 100% — deliberately absurd, fixture-only, see file header
@@ -260,7 +268,7 @@ describe('Fase 4.1 — legacy escrow (no fee policy) — byte-for-byte unchanged
   it('produces a single-output release, no Sails/seller-refund leg at all', async () => {
     const { multisigProvider } = loadProvider()
     const T = 100_000
-    const escrow = { tradeId: 't-legacy', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, status: 'PAYMENT_PENDING', lockedAmount: btcOf(T), txLockId: hexId('release-legacy') }
+    const escrow = { tradeId: 't-legacy', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: ARBITER_PUBKEY_HEX, status: 'PAYMENT_PENDING', lockedAmount: btcOf(T), txLockId: hexId('release-legacy') }
     mockExactFunding(escrow.txLockId, T) // legacy funding is still >= T, here exactly T
 
     const { psbtBase64, feeCollection } = await multisigProvider.buildUnsignedRelease(escrow, BUYER_ADDRESS)

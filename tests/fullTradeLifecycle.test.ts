@@ -132,6 +132,11 @@ const intents = makeTable('intent', { expiresAt: null })
 // here), matching this file's own "every table round-trips for real"
 // discipline rather than a separately-mocked no-op.
 const vouches = makeTable('vouch', { burnedAt: null })
+// Missão 11 Fase 9.3 — markPaymentSent()/initiateRelease()/initiateSplit()
+// now re-check funding uncertainty (empty here is correct: no test in
+// this file ever records reorg-sweep evidence, same "table round-trips
+// for real, empty is a real answer too" convention already used above).
+const escrowFundingEvidence = makeTable('escrowFundingEvidence')
 // Fase 7.3.1 §B — DisputeService.findCommittedArbiterId() reads this for
 // every raiseDispute()/appeal() call. Empty here (this file's escrows are
 // all honestly MOCK-typed, per createEscrow()'s own mockEscrow-aware
@@ -188,9 +193,19 @@ const durableEventRecords = {
 // Postgres transaction (pg_advisory_xact_lock-serialized per
 // correlationId) — a trivial passthrough is enough here since this file
 // doesn't test EventStore concurrency (tests/postgresEventStore.test.ts
-// does).
+// does). Missão 11 Fase 9.3 — withEscrowFundingLock() (escrow-lifecycle.ts)
+// also runs markPaymentSent()/initiateRelease()/initiateSplit()'s final
+// write through this same $transaction mock; escrow/escrowFundingEvidence
+// delegate to the SAME real in-memory tables the top-level prisma mock
+// below uses, so a transactional write is visible to a later unlocked
+// read exactly like a real Prisma transaction would be.
 const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
-  callback({ durableEventRecord: durableEventRecords, $executeRaw: jest.fn().mockResolvedValue(0) })
+  callback({
+    durableEventRecord: durableEventRecords,
+    escrow: escrows,
+    escrowFundingEvidence: escrowFundingEvidence,
+    $executeRaw: jest.fn().mockResolvedValue(0),
+  })
 )
 
 jest.mock('../src/common/database', () => ({
@@ -201,6 +216,7 @@ jest.mock('../src/common/database', () => ({
     escrow: escrows,
     escrowEvent: escrowEvents,
     escrowParticipantKey: escrowParticipantKeys,
+    escrowFundingEvidence: escrowFundingEvidence,
     feePolicyVersion: feePolicyVersions,
     dispute: disputes,
     intent: intents,

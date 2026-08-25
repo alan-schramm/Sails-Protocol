@@ -3,9 +3,14 @@
  *
  * The durable, append-only funding-side counterpart to
  * FeeCollectionEvidenceRepository (fee-collection-evidence-repository.ts),
- * closing the Phase 9.0 audit's own INV-07F finding: escrow FUNDING reorg
- * detection previously produced only a log line, with no queryable,
- * durable evidence trail.
+ * closing the Phase 9.0 audit's own "INV-07F" finding: escrow FUNDING
+ * reorg detection previously produced only a log line, with no
+ * queryable, durable evidence trail. Canonically reconciled (Missão 11
+ * Fase 9.3.3, docs/PROTOCOL_INVARIANTS.md's "Canonical Hierarchy") —
+ * this closes INV-05 (Historical Meaning Is Immutable) / INV-07
+ * (Explicit Failure & Recovery), Level 2 DP-1/DP-2. The old
+ * "INV-07F"/"DP-03"/"DP-05"/"DP-07" labels are non-canonical; see that
+ * document for why they could not be reconstructed.
  *
  * Append-only, mirroring FeeCollectionEvidenceRepository's own discipline
  * exactly: this interface exposes create() and reads only — there is no
@@ -31,7 +36,13 @@ export interface RecordFundingEvidenceInput {
 
 export interface EscrowFundingEvidenceRepository {
   record(input: RecordFundingEvidenceInput, tx?: Prisma.TransactionClient): Promise<EscrowFundingEvidenceRow>
-  listForEscrow(escrowId: string): Promise<EscrowFundingEvidenceRow[]>
+  // Missão 11 Fase 9.3 — optional tx, same shape as record() above, so a
+  // caller holding escrow-funding-lock.ts's per-escrow advisory lock can
+  // read the LATEST evidence through the same locked transaction instead
+  // of a separate, unlocked connection (which is exactly the TOCTOU gap
+  // that let a lifecycle transition act on stale "funding is fine"
+  // evidence a concurrent reorg-sweep write had already superseded).
+  listForEscrow(escrowId: string, tx?: Prisma.TransactionClient): Promise<EscrowFundingEvidenceRow[]>
 }
 
 class PrismaEscrowFundingEvidenceRepository implements EscrowFundingEvidenceRepository {
@@ -51,8 +62,9 @@ class PrismaEscrowFundingEvidenceRepository implements EscrowFundingEvidenceRepo
     })
   }
 
-  async listForEscrow(escrowId: string) {
-    return prisma.escrowFundingEvidence.findMany({
+  async listForEscrow(escrowId: string, tx?: Prisma.TransactionClient) {
+    const client = tx ?? prisma
+    return client.escrowFundingEvidence.findMany({
       where: { escrowId },
       orderBy: { recordedAt: 'asc' },
     })

@@ -59,6 +59,34 @@ describe('escrow-circuit-breaker (unit)', () => {
 
     expect(() => assertCircuitClosed('escrow-1')).not.toThrow()
   })
+
+  // Missão 11 Fase 9.3.2 — the exact mechanism behind the "real wiring"
+  // describe block's own flake (see that test's own comment for the full
+  // root-cause writeup): FixedWindowCounter.increment() intentionally
+  // starts a fresh window (count reset to 1) once Date.now() passes the
+  // previous window's resetAt — conflicts genuinely spread wider than
+  // windowMs apart are NOT a burst and correctly never accumulate. This
+  // is fixed-window-counter.ts's real, by-design behavior (the same
+  // trade-off every fixed-window rate limiter makes), made explicit here
+  // with fake timers so it's proven deterministically, not just inferred
+  // from why a flaky test failed.
+  it('conflicts spread wider than windowMs apart never accumulate — a fixed window starts fresh, by design, once its resetAt has passed', () => {
+    jest.useFakeTimers()
+    try {
+      jest.setSystemTime(0)
+      recordEscrowConflict('escrow-3')
+      jest.setSystemTime(60) // > windowMs=50 since the previous conflict
+      recordEscrowConflict('escrow-3')
+      jest.setSystemTime(120) // > windowMs=50 since the previous conflict
+      recordEscrowConflict('escrow-3')
+
+      // All 3 calls above happened for real, but none within the SAME
+      // 50ms window as another — the circuit correctly never opens.
+      expect(() => assertCircuitClosed('escrow-3')).not.toThrow()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
 })
 
 describe('escrow-circuit-breaker (real wiring — claimEscrowTransition)', () => {
@@ -77,19 +105,48 @@ describe('escrow-circuit-breaker (real wiring — claimEscrowTransition)', () =>
   })
 
   it('trips after a real burst of concurrent-conflict results (updateMany count: 0), then fails fast without touching the DB', async () => {
-    mockEscrowUpdateMany.mockResolvedValue({ count: 0 }) // every attempt loses the race
+    // Missão 11 Fase 9.3.2 — root cause of a real, intermittent flake
+    // under parallel-worker CPU contention (observed: passes 6/6 in
+    // isolation, occasionally fails inside the full non-Postgres lane).
+    // FixedWindowCounter.increment() (fixed-window-counter.ts) starts a
+    // FRESH window (resetting count to 1) whenever Date.now() has already
+    // passed the previous window's resetAt. This test's mocked config
+    // uses windowMs=50; the 3 iterations below each perform a real,
+    // sequentially-awaited round trip through claimEscrowTransition()
+    // (module resolution + a mocked-but-real Promise chain) — under a
+    // sufficiently loaded parallel worker, the AGGREGATE wall-clock time
+    // for even 3 such round trips can exceed 50ms, causing the 2nd or 3rd
+    // recordEscrowConflict() call to silently reset the window instead of
+    // accumulating — failureThreshold(3) is then never reached, and the
+    // circuit never opens (the exact "resolved instead of rejected"
+    // failure observed).
+    //
+    // This is NOT a production defect: config/index.ts's own real default
+    // windowMs is 30_000ms, where a few milliseconds of scheduling jitter
+    // is negligible — this is this TEST's own artificially tight 50ms
+    // window colliding with real async timing, nothing more. Freezing
+    // Date.now() via fake timers removes the dependency on real elapsed
+    // wall-clock time entirely, making the test deterministic regardless
+    // of CPU contention — a real fix, not a timeout increase and not
+    // suite-wide serialization to paper over shared state.
+    jest.useFakeTimers()
+    try {
+      mockEscrowUpdateMany.mockResolvedValue({ count: 0 }) // every attempt loses the race
 
-    for (let i = 0; i < 3; i++) {
-      await expect(claimEscrowTransition('escrow-1', 'FUNDS_LOCKED', 'PAYMENT_PENDING')).rejects.toThrow(EscrowError)
+      for (let i = 0; i < 3; i++) {
+        await expect(claimEscrowTransition('escrow-1', 'FUNDS_LOCKED', 'PAYMENT_PENDING')).rejects.toThrow(EscrowError)
+      }
+      expect(mockEscrowUpdateMany).toHaveBeenCalledTimes(3)
+
+      // Threshold (3) now crossed — next attempt must fail fast as
+      // CircuitBreakerOpenError, and never even reach updateMany, even
+      // though this call would otherwise have won the race.
+      mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+      await expect(claimEscrowTransition('escrow-1', 'FUNDS_LOCKED', 'PAYMENT_PENDING')).rejects.toThrow(CircuitBreakerOpenError)
+      expect(mockEscrowUpdateMany).toHaveBeenCalledTimes(3) // unchanged — short-circuited before the DB call
+    } finally {
+      jest.useRealTimers()
     }
-    expect(mockEscrowUpdateMany).toHaveBeenCalledTimes(3)
-
-    // Threshold (3) now crossed — next attempt must fail fast as
-    // CircuitBreakerOpenError, and never even reach updateMany, even
-    // though this call would otherwise have won the race.
-    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
-    await expect(claimEscrowTransition('escrow-1', 'FUNDS_LOCKED', 'PAYMENT_PENDING')).rejects.toThrow(CircuitBreakerOpenError)
-    expect(mockEscrowUpdateMany).toHaveBeenCalledTimes(3) // unchanged — short-circuited before the DB call
   })
 
   it('does not open for an escrow with only occasional, non-clustered conflicts', async () => {

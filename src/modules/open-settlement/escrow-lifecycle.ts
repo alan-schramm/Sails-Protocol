@@ -130,8 +130,10 @@ export async function checkFundMovementCapability(
   }
 }
 
-// Missão 11 Fase 9.1 §2 — closes the Phase 9.0 audit's own DP-05/DP-07
-// finding: nothing previously stopped a trade from advancing past
+// Missão 11 Fase 9.1 §2 — closes the Phase 9.0 audit's own "DP-05/DP-07"
+// finding (those labels are non-canonical/unrecoverable — see Missão 11
+// Fase 9.3.3, docs/PROTOCOL_INVARIANTS.md's Level 2 DP-1, derived from
+// INV-04/INV-07): nothing previously stopped a trade from advancing past
 // funding evidence a reorg sweep had already determined was false.
 //
 // Deliberately narrow: called ONLY from markPaymentSent(), initiateRelease(),
@@ -160,6 +162,65 @@ export async function assertFundingNotUncertain(escrowId: string, escrowType: st
       'rather than manufacture certainty the chain does not currently support. Refunding, raising a dispute, or waiting for reconfirmation remain available.'
     )
   }
+}
+
+// Missão 11 Fase 9.3 — closes the reorg/lifecycle TOCTOU race an
+// independently-reproduced red-team finding surfaced (Kimi K3 R1
+// MULTI-03/REORG-01/REORG-02/FAIL-04, corrected P0→P2 after reproduction:
+// the sweep's own recovery path already prevents permanent fund denial —
+// but the race itself, a lifecycle transition succeeding on
+// assertFundingNotUncertain()'s now-stale result because a concurrent
+// sweep tick invalidated the same evidence a moment later, was real).
+//
+// assertFundingNotUncertain() above is a cheap, unlocked, EARLY fail-fast
+// only — it saves wasted work (trade lookups, authorization checks,
+// PSBT construction) when the escrow is already known-bad, but a
+// separate read followed later by a separate write is exactly a TOCTOU
+// window: the sweep (multisig-funding-reorg-sweep.ts) can invalidate the
+// evidence in between. This helper closes that window by making the
+// AUTHORITATIVE re-check and the state-changing write atomic with
+// respect to any concurrent evidence write, using the exact same
+// pg_advisory_xact_lock pattern already shipped and tested for
+// correlationId-scoped event-append serialization
+// (src/common/events/event-store.ts's PostgresEventStore.publish()) —
+// applied here with escrowId as the lock key instead.
+//
+// Why this closes the race: whichever writer (a lifecycle transition via
+// this helper, or the sweep via its own use of this same helper) acquires
+// the advisory lock first for a given escrowId completes its ENTIRE
+// read-then-write sequence — inside one Postgres transaction — before the
+// other side can even acquire the lock. There is no window in which one
+// side's write can land between the other side's read and write, because
+// both sides' read-then-write is now one atomic unit under the same key.
+//
+// Why pg_advisory_xact_lock specifically (mirrors event-store.ts's own
+// documented reasoning exactly): (a) it lives in Postgres itself, so it
+// serializes every writer across every app instance/process, not just
+// within one process's memory — a plain in-process Map<id, Promise> mutex
+// would NOT serialize two separate server instances, which this system
+// must support; (b) the `_xact_` variant auto-releases at transaction end
+// (commit OR rollback), so a crashed request or thrown error can never
+// leak a held lock — no explicit unlock call needed, restart-safe by
+// construction; (c) hashtext() converts escrowId (a string) into the
+// bigint Postgres advisory locks require, with the same disclosed,
+// accepted, harmless caveat event-store.ts's own comment already
+// documents: two different escrowIds could theoretically hash-collide
+// and briefly contend for the lock (extra serialization, never a
+// wrong-key collision — the WHERE/read predicates inside fn() are always
+// scoped by the real escrowId, never by the hash).
+//
+// Different escrowIds never contend with each other (proven by the
+// adversarial "two workers, different escrows" test) — this is
+// deliberately NOT a global lock, matching the CTO's explicit
+// requirement that the mechanism stay scoped to the affected escrow.
+export async function withEscrowFundingLock<T>(
+  escrowId: string,
+  fn: (tx: Prisma.TransactionClient) => Promise<T>
+): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+    return fn(tx)
+  })
 }
 
 /** Loads an escrow + its trade + verifies the seller-or-arbiter authorization

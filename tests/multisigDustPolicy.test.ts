@@ -67,7 +67,14 @@ const P2WPKH_ADDR = 'bc1q7mrvhs3xxzg9jyesd60nvda26ueukn9nc404xk' // real Missão
 const RELEASE_FEE_1SAT = 164 // estimateFeeSats(1, 1)
 const SPLIT_FEE_1SAT = 207 // estimateFeeSats(1, 2)
 
-const baseEscrow = { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, lockedAmount: '0.001', txLockId: 'd'.repeat(64), txLockVout: 0 }
+// Missão 11 Fase 9.3 §4 — partiesFor() now rejects an escrow with no
+// persisted arbiter commitment. Both loadProvider()/loadMainnetProvider()
+// above use the same MULTISIG_SEED/TRUSTED_ARBITRATORS, so one derivation
+// (network only affects address/WIF encoding, never the raw pubkey bytes)
+// covers every test in this file.
+const ARBITER_PUBKEY_HEX: string = loadProvider().multisigProvider.getArbiterPubkeyHex('arb-dust')
+
+const baseEscrow = { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey: ARBITER_PUBKEY_HEX, lockedAmount: '0.001', txLockId: 'd'.repeat(64), txLockVout: 0 }
 
 describe('A. Release — dust matrix', () => {
   it('A1. output clearly above dust (spendable = 10,000) → PASS', async () => {

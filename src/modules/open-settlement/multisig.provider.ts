@@ -277,14 +277,16 @@ export function keyIndexFor(role: 'buyer' | 'seller' | 'arbiter', id: string): n
 export interface MultisigParties {
   buyerPubkey: Buffer   // 33-byte compressed secp256k1, client-submitted
   sellerPubkey: Buffer  // 33-byte compressed secp256k1, client-submitted
-  // Missão 11 Fase 5.2 — the RESOLVED arbiter public key bytes, not an id
-  // to re-derive from. For a NEW escrow (one carrying a persisted
-  // arbiterPubkey commitment) this is that exact persisted value, parsed
-  // once; for a legacy escrow it is derived from live config, same as
-  // before. buildScript() below never derives an arbiter key itself
-  // anymore — it only ever consumes what partiesFor()/getDepositAddress()
-  // already resolved, so there is exactly one place per call path where a
-  // live derivation can happen, not two.
+  // Missão 11 Fase 5.2, tightened Fase 9.3 §4 — the RESOLVED arbiter
+  // public key bytes, not an id to re-derive from: always the escrow's own
+  // persisted arbiterPubkey commitment, parsed once by partiesFor().
+  // buildScript() below never derives an arbiter key itself — it only
+  // ever consumes what partiesFor()/getDepositAddress() already resolved,
+  // so there is exactly one place per call path where a live derivation
+  // can ever happen (getDepositAddress(), before any commitment exists
+  // yet to persist). See partiesFor()'s own comment for why an escrow with
+  // no persisted commitment is now rejected outright rather than silently
+  // falling back to live config.
   arbiterPubkey: Buffer
 }
 
@@ -328,14 +330,21 @@ export type MultisigEscrowInput = {
   snapshotFeeCollectionWaivedPreFunding?: boolean | null
   // Missão 11 Fase 5.2 §2/§4 — the escrow-specific, immutable arbiter
   // public-key commitment (hex, 33-byte compressed), from
-  // EscrowParticipantKey's role='arbiter' row. Undefined/null for a
-  // LEGACY escrow (one created before this phase, or one whose
-  // getDepositAddress() call never persisted a commitment for any other
-  // reason) — partiesFor() below falls back to live derivation in that
-  // case, byte-for-byte the pre-Fase-5.2 behavior. Never re-derived for a
-  // NEW escrow that has one: this is the one field that makes a future
+  // EscrowParticipantKey's role='arbiter' row. Never re-derived for an
+  // escrow that has one: this is the one field that makes a future
   // TRUSTED_ARBITRATORS/MULTISIG_SEED change unable to silently redefine
   // what this specific escrow's script means.
+  //
+  // Missão 11 Fase 9.3 §4 — stays optional at the TYPE level (no schema
+  // change, no destructive migration — see partiesFor()'s own comment for
+  // why removing the RUNTIME fallback needed neither), but every real
+  // call path (getDepositAddress(), used unconditionally by
+  // submitParticipantKey()) has always populated this field: no NEW
+  // MULTISIG escrow can reach FUNDS_LOCKED without one, and the DB-native
+  // arbiter-immutability trigger (Fase 5.2) means an existing commitment
+  // can never be deleted either. Since production never launched, no real
+  // escrow anywhere lacks this field — undefined/null here now means
+  // "reject," not "fall back to live config" (partiesFor() below).
   arbiterPubkey?: string | null
 }
 
@@ -447,20 +456,39 @@ export class MultisigProvider implements SettlementProvider {
     return buf
   }
 
-  // Missão 11 Fase 5.2 §2 — branches on whether this escrow carries a
-  // persisted arbiter commitment. A NEW escrow's script is ALWAYS built
-  // from that persisted value, never re-derived from live config — the
-  // only way a future TRUSTED_ARBITRATORS/MULTISIG_SEED change can never
-  // silently redefine what this escrow's script means. A legacy escrow
-  // (arbiterPubkey undefined) falls back to the exact pre-Fase-5.2
-  // derivation, unchanged.
+  // Missão 11 Fase 5.2 §2, tightened Fase 9.3 §4 — an escrow's script is
+  // ALWAYS built from its own PERSISTED arbiter commitment, never
+  // re-derived from live config: the only way a future
+  // TRUSTED_ARBITRATORS/MULTISIG_SEED change can never silently redefine
+  // what this escrow's script means. No live-config fallback for a
+  // missing commitment (removed Fase 9.3 §4, an independently-reproduced
+  // red-team finding — Kimi K3 R1 MULTI-01): "no persisted arbiter
+  // commitment = not eligible for real MULTISIG settlement," fail closed
+  // here rather than silently deriving a key from whatever
+  // TRUSTED_ARBITRATORS/MULTISIG_SEED happen to be RIGHT NOW. Safe to
+  // remove without a migration or synthesized history — production never
+  // launched, and every real call path (getDepositAddress(), see
+  // MultisigEscrowInput.arbiterPubkey's own comment) has always persisted
+  // this field, so no genuine escrow anywhere is affected; only a
+  // hand-crafted fixture bypassing submitParticipantKey() could ever
+  // trigger this.
   private partiesFor(escrow: MultisigEscrowInput): MultisigParties {
+    // Buyer/seller pubkey presence/shape checked first, unchanged priority
+    // from before this method's arbiter check existed — a genuinely
+    // pre-submission escrow (no client pubkeys at all yet) should still
+    // surface ITS OWN, more specific problem ("submit your pubkey first")
+    // rather than being masked by the arbiter-commitment check below.
+    const buyerPubkey = this.parsePubkey(escrow.buyerPubkey, 'buyer', escrow.tradeId)
+    const sellerPubkey = this.parsePubkey(escrow.sellerPubkey, 'seller', escrow.tradeId)
+    if (!escrow.arbiterPubkey) {
+      throw new EscrowError(
+        `MULTISIG escrow for trade ${escrow.tradeId} has no persisted arbiter public-key commitment — this reference implementation refuses to derive an arbiter key from live config for an escrow that never recorded one. Call submitParticipantKey() for both parties first (it always persists this commitment via getDepositAddress()).`
+      )
+    }
     return {
-      buyerPubkey: this.parsePubkey(escrow.buyerPubkey, 'buyer', escrow.tradeId),
-      sellerPubkey: this.parsePubkey(escrow.sellerPubkey, 'seller', escrow.tradeId),
-      arbiterPubkey: escrow.arbiterPubkey
-        ? this.parsePubkey(escrow.arbiterPubkey, 'arbiter', escrow.tradeId)
-        : Buffer.from(this.deriveArbiterKey(this.defaultArbiterId()).publicKey),
+      buyerPubkey,
+      sellerPubkey,
+      arbiterPubkey: this.parsePubkey(escrow.arbiterPubkey, 'arbiter', escrow.tradeId),
     }
   }
 
@@ -469,6 +497,16 @@ export class MultisigProvider implements SettlementProvider {
   // actually assigned to this dispute (dispute.service.ts's
   // resolveDispute()), which may not be the one baked into this escrow's
   // script if more than one TRUSTED_ARBITRATORS entry is configured.
+  //
+  // Missão 11 Fase 9.3 §4 — every caller of this method reaches it only
+  // after buildUnsignedSpend()'s own caller has already called
+  // partiesFor(escrow) first (buildUnsignedRelease/Refund/Split, each
+  // line 987/1039/1101-ish), which now throws outright for an escrow with
+  // no persisted arbiterPubkey commitment. The "legacy escrow, fall back
+  // to a plain identity-string check against live config" branch this
+  // method used to have below is therefore unreachable and was removed —
+  // not because the check was wrong, but because the escrow shape it
+  // existed for (arbiterPubkey undefined) can no longer reach this far.
   private assertArbiterMatchesScript(escrow: MultisigEscrowInput) {
     if (escrow.status !== 'DISPUTED') return
     const scriptArbiter = this.defaultArbiterId()
@@ -501,36 +539,29 @@ export class MultisigProvider implements SettlementProvider {
     // closed for that case — it just no longer fails closed for the
     // harmless case (list order changed, same seed, same identity's key
     // is still exactly reproducible).
-    if (escrow.arbiterPubkey) {
-      const checkedIdentity = escrow.triggeredBy ?? scriptArbiter
-      const liveArbiterPubkeyHex = this.getArbiterPubkeyHex(checkedIdentity)
-      if (liveArbiterPubkeyHex !== escrow.arbiterPubkey) {
-        // Fase 7.3.1 §B — one honest message covering both real root
-        // causes this single cryptographic check cannot itself
-        // distinguish (both produce the exact same observable symptom,
-        // "this identity's derived key isn't the one baked into the
-        // script"): either `checkedIdentity` was simply never the right
-        // identity for this escrow (a different, wrong arbiter attempted
-        // this), or it IS the right identity but TRUSTED_ARBITRATORS/
-        // MULTISIG_SEED changed since creation so it no longer derives
-        // the same key. Deliberately does not guess which — guessing
-        // wrong would be actively misleading to whoever reads this error.
-        throw new EscrowError(
-          `MULTISIG provider: identity '${checkedIdentity}' does not match the arbiter public key committed into trade ${escrow.tradeId}'s escrow at creation time ` +
-          '— either this is not the identity whose key was actually baked into the script, or TRUSTED_ARBITRATORS/MULTISIG_SEED changed since creation. ' +
-          'Refusing to sign against a script whose committed arbiter cannot be reproduced from the identity attempting this operation.'
-        )
-      }
-      return
-    }
-
-    // Legacy escrow (no persisted arbiterPubkey commitment, predates Fase
-    // 5.2) — no cryptographic commitment exists to check against, so live
-    // config is the best available truth, unchanged from before.
-    if (escrow.triggeredBy && escrow.triggeredBy !== scriptArbiter) {
+    // partiesFor() (called by every caller of buildUnsignedSpend(), always
+    // before this method runs — see this method's own header comment)
+    // already guarantees escrow.arbiterPubkey is present here; the
+    // pre-Fase-9.3 branch for a missing commitment (falling back to a
+    // plain identity-string check against live config) was removed since
+    // it could no longer be reached.
+    const checkedIdentity = escrow.triggeredBy ?? scriptArbiter
+    const liveArbiterPubkeyHex = this.getArbiterPubkeyHex(checkedIdentity)
+    if (liveArbiterPubkeyHex !== escrow.arbiterPubkey) {
+      // Fase 7.3.1 §B — one honest message covering both real root
+      // causes this single cryptographic check cannot itself
+      // distinguish (both produce the exact same observable symptom,
+      // "this identity's derived key isn't the one baked into the
+      // script"): either `checkedIdentity` was simply never the right
+      // identity for this escrow (a different, wrong arbiter attempted
+      // this), or it IS the right identity but TRUSTED_ARBITRATORS/
+      // MULTISIG_SEED changed since creation so it no longer derives
+      // the same key. Deliberately does not guess which — guessing
+      // wrong would be actively misleading to whoever reads this error.
       throw new EscrowError(
-        `MULTISIG provider: dispute arbiter '${escrow.triggeredBy}' does not match the arbiter key ('${scriptArbiter}') baked into this escrow's script at creation time. ` +
-        'This reference implementation only supports a single-arbiter TRUSTED_ARBITRATORS configuration for MULTISIG escrows.'
+        `MULTISIG provider: identity '${checkedIdentity}' does not match the arbiter public key committed into trade ${escrow.tradeId}'s escrow at creation time ` +
+        '— either this is not the identity whose key was actually baked into the script, or TRUSTED_ARBITRATORS/MULTISIG_SEED changed since creation. ' +
+        'Refusing to sign against a script whose committed arbiter cannot be reproduced from the identity attempting this operation.'
       )
     }
   }

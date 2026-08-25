@@ -19,12 +19,15 @@
  * is currently trustworthy"; REORGED_INVALIDATED, REPLACEMENT_OBSERVED
  * (a new candidate that hasn't itself been re-verified yet), and
  * AMBIGUOUS all represent "not currently trustworthy — do not manufacture
- * certainty" (DP-07). An escrow with NO recorded evidence at all is
+ * certainty" (formerly cited as "DP-07," non-canonical — see Missão 11
+ * Fase 9.3.3, docs/PROTOCOL_INVARIANTS.md's Level 2 DP-1/DP-2, derived
+ * from INV-05/INV-07). An escrow with NO recorded evidence at all is
  * treated as trustworthy — this preserves today's existing behavior for
  * the common case (no reorg ever observed), rather than requiring every
  * historical escrow to be backfilled with a synthetic OBSERVED_CONFIRMED
  * row.
  */
+import type { Prisma } from '@prisma/client'
 import { escrowFundingEvidenceRepository, type EscrowFundingEvidenceRepository } from './escrow-funding-evidence-repository'
 
 const TRUSTWORTHY_KINDS = new Set(['OBSERVED_CONFIRMED', 'RECONFIRMED'])
@@ -42,8 +45,15 @@ export class EscrowFundingEvidenceService {
    * despite it (blocking a legitimate recovery path is exactly the
    * "permanent fund denial" this phase was told to avoid creating).
    */
-  async isFundingUncertain(escrowId: string): Promise<boolean> {
-    const evidence = await this.repo.listForEscrow(escrowId)
+  // Missão 11 Fase 9.3 — optional tx (passed straight to the repository),
+  // so an authoritative, lock-protected re-check
+  // (escrow-funding-lock.ts's withEscrowFundingLock()) can read through
+  // the SAME transaction that holds the per-escrow advisory lock, instead
+  // of a separate connection that could observe a stale pre-lock state.
+  // Every existing caller omits tx and keeps today's unlocked behavior
+  // unchanged — this is additive only.
+  async isFundingUncertain(escrowId: string, tx?: Prisma.TransactionClient): Promise<boolean> {
+    const evidence = await this.repo.listForEscrow(escrowId, tx)
     if (evidence.length === 0) return false
     const last = evidence[evidence.length - 1]
     return !TRUSTWORTHY_KINDS.has(last.kind)
