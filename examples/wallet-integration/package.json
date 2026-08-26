@@ -10,7 +10,7 @@
   "dependencies": {
     "@satsails/p2p-trading-sdk": "^0.1.0",
     "bitcoinjs-lib": "^7.0.1",
-    "@bitcoinerlab/secp256k1": "^1.2.0",
+    "@bitcoinerlab/secp256k1": "^2.0.0",
     "ethers": "^6.17.0"
   }
 }
