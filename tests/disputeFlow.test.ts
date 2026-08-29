@@ -9,6 +9,46 @@
 import { deriveTradeState } from '@satsails/p2p-schemas'
 import { toOfferSchema } from '@satsails/p2p-schemas'
 import { TrustedArbitratorProvider } from '../src/modules/open-settlement/arbitration-provider'
+import nacl from 'tweetnacl'
+import { signAuthorityDecision, type AuthorityDecisionPayload } from '../src/modules/open-settlement/arbitration-authority'
+
+// Missão 13 Fase 2 — resolveDispute() now verifies a signed authority
+// decision against the arbiter's registered User.publicKey (INV-12) before
+// executing any settlement. One real Ed25519 keypair stands in for every
+// arbiter this file exercises ('arbiter-1', 'new-arbiter') — the mocked
+// prisma.user.findUnique below returns this same public key regardless of
+// which arbiterId is looked up, since these tests are about DisputeService's
+// own orchestration, not about distinguishing multiple real identities.
+const testKeypair = nacl.sign.keyPair()
+const testPublicKeyHex = Buffer.from(testKeypair.publicKey).toString('hex')
+const mockUserFindUnique = jest.fn().mockImplementation(async ({ where }: { where: { id: string } }) => ({
+  id: where.id,
+  publicKey: testPublicKeyHex,
+}))
+
+// Signs an authority decision exactly the way dispute.service.ts's own
+// resolveDispute() builds its verification payload — mirroring
+// `dispute.appealRound` verbatim (including undefined, for fixtures that
+// don't set it) so the signature verifies against whatever the mocked
+// prisma.dispute.findUnique() row actually contains.
+function signResolution(
+  dispute: { id: string; escrowId: string; appealRound?: number },
+  authorityId: string,
+  outcome: 'RELEASE' | 'REFUND' | 'SPLIT',
+  buyerBps: number | null = null,
+  issuedAt = '2026-08-29T00:00:00.000Z'
+): [string, string] {
+  const payload = {
+    disputeId: dispute.id,
+    escrowId: dispute.escrowId,
+    appealRound: dispute.appealRound,
+    authorityId,
+    outcome,
+    buyerBps,
+    issuedAt,
+  } as AuthorityDecisionPayload
+  return [signAuthorityDecision(payload, testKeypair.secretKey), issuedAt]
+}
 
 const mockTradeFindUnique = jest.fn()
 const mockDisputeCreate = jest.fn()
@@ -51,6 +91,7 @@ jest.mock('../src/common/database', () => ({
     },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
     escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },
+    user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
   },
 }))
 
@@ -190,7 +231,8 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
 
-    await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyeraddress')
+    const [sig1, issuedAt1] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
+    await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyeraddress', undefined, undefined, sig1, issuedAt1)
 
     expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', 'bc1qbuyeraddress', 'arbiter-1')
     expect(mockEmit).toHaveBeenCalledWith(
@@ -204,13 +246,53 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
 
-    await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND')
+    const [sig2, issuedAt2] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'REFUND')
+    await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig2, issuedAt2)
     expect(mockRefundFunds).toHaveBeenCalledWith('escrow-1', 'arbiter-1')
   })
 
   it('rejects a resolution from anyone but the assigned arbiter', async () => {
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
     await expect(service.resolveDispute('dispute-1', 'impostor', 'REFUND')).rejects.toThrow(/not the arbiter/)
+    expect(mockRefundFunds).not.toHaveBeenCalled()
+  })
+
+  // Missão 13 Fase 2, INV-12 — the fail-closed gate itself: a request
+  // claiming to be the assigned arbiter (arbiterId matches) but carrying
+  // no valid signature over that exact decision must still be refused,
+  // never falling back to trusting the bare (disputeId, arbiterId, ruling)
+  // request body. This is the loophole the whole mission closes — the
+  // server's own database (dispute.arbiterId) is exactly what an attacker
+  // controlling the arbiter's session token (but not their signing key)
+  // would already satisfy under the pre-Missão-13 code.
+  it('INV-12 — a garbage/forged authoritySignature is rejected even though arbiterId matches, never falling back to the DB-only claim', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+    await expect(
+      service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, 'deadbeef'.repeat(16), '2026-08-29T00:00:00.000Z')
+    ).rejects.toThrow(/does not verify against arbiter-1's registered public key/)
+    expect(mockRefundFunds).not.toHaveBeenCalled()
+  })
+
+  // Same gate, different forgery: a signature that is cryptographically
+  // real but was produced by a DIFFERENT keypair than the one registered
+  // for this arbiterId (e.g. QVAC or any other actor signing with its own
+  // key and merely claiming to be the human arbiter) must also fail —
+  // proves the check binds to the SPECIFIC registered public key, not
+  // "any well-formed Ed25519 signature".
+  it('INV-12 — a well-formed signature from a DIFFERENT keypair than the registered arbiter is rejected (QVAC/anyone-else impersonation)', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+    const impostorKeypair = nacl.sign.keyPair()
+    const [forgedSig, issuedAt] = (() => {
+      const payload = {
+        disputeId: 'dispute-1', escrowId: 'escrow-1', appealRound: undefined,
+        authorityId: 'arbiter-1', outcome: 'REFUND', buyerBps: null,
+        issuedAt: '2026-08-29T00:00:00.000Z',
+      } as unknown as AuthorityDecisionPayload
+      return [signAuthorityDecision(payload, impostorKeypair.secretKey), payload.issuedAt]
+    })()
+    await expect(
+      service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, forgedSig, issuedAt)
+    ).rejects.toThrow(/does not verify against arbiter-1's registered public key/)
     expect(mockRefundFunds).not.toHaveBeenCalled()
   })
 
@@ -223,7 +305,8 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
   it('forwards an omitted releaseToAddress through to escrowService.releaseFunds() rather than rejecting upfront', async () => {
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
-    await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE')
+    const [sig3, issuedAt3] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
+    await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', undefined, undefined, undefined, sig3, issuedAt3)
     expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1')
   })
 
@@ -240,7 +323,8 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
       mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'SPLIT' })
 
-      await service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 6000)
+      const [sig4, issuedAt4] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'SPLIT', 6000)
+      await service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 6000, sig4, issuedAt4)
 
       expect(mockSplitFunds).toHaveBeenCalledWith('escrow-1', 'bc1qbuyer', 'bc1qseller', 6000, 'arbiter-1')
       expect(mockInitiateSplit).not.toHaveBeenCalled()
@@ -256,7 +340,8 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'SPLIT' })
       mockIsSignatureCollectionType.mockReturnValueOnce(true)
 
-      await service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 4000)
+      const [sig5, issuedAt5] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'SPLIT', 4000)
+      await service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 4000, sig5, issuedAt5)
 
       expect(mockInitiateSplit).toHaveBeenCalledWith('escrow-1', 'bc1qbuyer', 'bc1qseller', 4000, 'arbiter-1')
       expect(mockSplitFunds).not.toHaveBeenCalled()
@@ -268,13 +353,18 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       mockIsSignatureCollectionType.mockReturnValueOnce(true)
       mockInitiateSplit.mockRejectedValueOnce(new Error('SPLIT is not supported for this escrow type'))
 
-      await expect(service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 4000)).rejects.toThrow(
-        /SPLIT is not supported/
-      )
-      // Reverted back to the dispute's own pre-resolution status, ruling cleared.
+      const [sig6, issuedAt6] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'SPLIT', 4000)
+      await expect(
+        service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 4000, sig6, issuedAt6)
+      ).rejects.toThrow(/SPLIT is not supported/)
+      // Reverted back to the dispute's own pre-resolution status, ruling
+      // cleared — and, since this call carried a verified authority
+      // decision, the three authority columns are cleared too (Missão 13
+      // Fase 2: a reverted ruling never leaves a verified decision attached
+      // to a dispute that never actually settled).
       expect(mockDisputeUpdate).toHaveBeenLastCalledWith({
         where: { id: 'dispute-1' },
-        data: { status: 'OPENED', ruling: null, resolvedAt: null },
+        data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
       })
     })
   })
@@ -291,7 +381,8 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
       mockIsSignatureCollectionType.mockReturnValueOnce(true)
 
-      await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyeraddress')
+      const [sig7, issuedAt7] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
+      await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyeraddress', undefined, undefined, sig7, issuedAt7)
 
       expect(mockInitiateRelease).toHaveBeenCalledWith('escrow-1', 'bc1qbuyeraddress', 'arbiter-1')
       expect(mockReleaseFunds).not.toHaveBeenCalled()
@@ -302,7 +393,8 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
       mockIsSignatureCollectionType.mockReturnValueOnce(true)
 
-      await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND')
+      const [sig8, issuedAt8] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'REFUND')
+      await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig8, issuedAt8)
 
       expect(mockInitiateRefund).toHaveBeenCalledWith('escrow-1', 'arbiter-1')
       expect(mockRefundFunds).not.toHaveBeenCalled()
@@ -419,7 +511,8 @@ describe('DisputeService — resolveDispute() appeal-fee settlement (RFC-021 D6)
     })
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
 
-    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'RELEASE', 'bc1qbuyer')
+    const [sig9, issuedAt9] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1', appealRound: 1 }, 'new-arbiter', 'RELEASE')
+    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'RELEASE', 'bc1qbuyer', undefined, undefined, sig9, issuedAt9)
 
     expect(mockDisputeAppealFeeUpdateMany).toHaveBeenCalledWith({
       where: { disputeId: 'dispute-1', appealRound: 1, outcome: null },
@@ -434,7 +527,8 @@ describe('DisputeService — resolveDispute() appeal-fee settlement (RFC-021 D6)
     })
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
 
-    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'REFUND')
+    const [sig10, issuedAt10] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1', appealRound: 1 }, 'new-arbiter', 'REFUND')
+    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'REFUND', undefined, undefined, undefined, sig10, issuedAt10)
 
     expect(mockDisputeAppealFeeUpdateMany).toHaveBeenCalledWith({
       where: { disputeId: 'dispute-1', appealRound: 1, outcome: null },
@@ -449,7 +543,8 @@ describe('DisputeService — resolveDispute() appeal-fee settlement (RFC-021 D6)
     })
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
 
-    await marketService.resolveDispute('dispute-1', 'arbiter-1', 'REFUND')
+    const [sig11, issuedAt11] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1', appealRound: 0 }, 'arbiter-1', 'REFUND')
+    await marketService.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig11, issuedAt11)
 
     expect(mockDisputeAppealFeeUpdateMany).not.toHaveBeenCalled()
   })
@@ -475,7 +570,8 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     })
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
 
-    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'REFUND')
+    const [sig12, issuedAt12] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'new-arbiter', 'REFUND')
+    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'REFUND', undefined, undefined, undefined, sig12, issuedAt12)
 
     expect(mockSlash).toHaveBeenCalledWith('original-arbiter')
     expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined)
@@ -488,7 +584,8 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     })
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
 
-    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'RELEASE', 'bc1qbuyer')
+    const [sig13, issuedAt13] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'new-arbiter', 'RELEASE')
+    await marketService.resolveDispute('dispute-1', 'new-arbiter', 'RELEASE', 'bc1qbuyer', undefined, undefined, sig13, issuedAt13)
 
     expect(mockSlash).not.toHaveBeenCalled()
     expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined)
@@ -501,7 +598,8 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     })
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
 
-    await marketService.resolveDispute('dispute-1', 'arbiter-1', 'REFUND')
+    const [sig14, issuedAt14] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'REFUND')
+    await marketService.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig14, issuedAt14)
 
     expect(mockSlash).not.toHaveBeenCalled()
     expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', undefined)
@@ -516,7 +614,8 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: '0.5' })
 
-    await marketService.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyer')
+    const [sig15, issuedAt15] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
+    await marketService.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyer', undefined, undefined, sig15, issuedAt15)
 
     expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', '0.5')
   })
@@ -674,48 +773,78 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
   })
 })
 
-describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8)', () => {
+// Missão 13 Fase 2 — QVAC downgraded to advisory-only (mandate's own
+// explicit permission: "It is acceptable for Phase 2 to downgrade QVAC to
+// ADVISORY until scoped delegation is properly implemented. Correct
+// attribution is more important than preserving automation"). An expired,
+// uncontested AUTO_PROPOSED recommendation no longer executes settlement
+// on its own — dispute.service.ts has no signed authority decision for it
+// (nothing signs on QVAC's or the arbiter's behalf), so it can only revert
+// the dispute back to EVIDENCE_SUBMITTED and let the real human arbiter
+// produce a genuine resolveDispute() call. These tests replace the old
+// auto-execute assertions (`resolved`/mockRefundFunds-was-called) with
+// this new advisory-only contract (`revertedToHuman`, no settlement call).
+describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory-only per Missão 13 Fase 2)', () => {
   const service = new DisputeService(new TrustedArbitratorProvider(['arbiter-1']))
 
   beforeEach(() => jest.clearAllMocks())
 
-  it('applies an uncontested REFUND recommendation via the already-assigned arbiter\'s identity — escrow.service.ts\'s authorization is untouched', async () => {
+  it('reverts an expired, uncontested AUTO_PROPOSED dispute to EVIDENCE_SUBMITTED without calling any settlement function', async () => {
     mockDisputeFindMany.mockResolvedValue([
       { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
     ])
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED' })
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
 
     const result = await service.sweepExpiredAutoResolutions()
 
-    expect(mockRefundFunds).toHaveBeenCalledWith('escrow-1', 'arbiter-1')
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({ where: { id: 'dispute-1' }, data: { autoResolved: true } })
-    expect(result.resolved).toEqual(['dispute-1'])
+    expect(mockRefundFunds).not.toHaveBeenCalled()
+    expect(mockReleaseFunds).not.toHaveBeenCalled()
+    expect(mockInitiateRefund).not.toHaveBeenCalled()
+    expect(mockInitiateRelease).not.toHaveBeenCalled()
+    expect(mockDisputeUpdate).toHaveBeenCalledWith({
+      where: { id: 'dispute-1' },
+      data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
+    })
+    expect(mockEmit).toHaveBeenCalledWith(
+      'dispute.auto_resolution_contested',
+      expect.objectContaining({
+        disputeId: 'dispute-1',
+        tradeId: 'trade-1',
+        contestedBy: 'window-expired-advisory-only',
+        triggeredBy: 'window-expired-advisory-only',
+      }),
+      'trade-1'
+    )
+    expect(result.revertedToHuman).toEqual(['dispute-1'])
     expect(result.failed).toEqual([])
   })
 
-  it('refuses to auto-apply a RELEASE recommendation — no real payout address exists to use, a real disclosed gap, not fabricated from a participant id', async () => {
+  it('reverts a RELEASE recommendation identically — the ruling itself is irrelevant once execution is advisory-only, not automated', async () => {
     mockDisputeFindMany.mockResolvedValue([
       { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'RELEASE' },
     ])
+    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
 
     const result = await service.sweepExpiredAutoResolutions()
 
     expect(mockReleaseFunds).not.toHaveBeenCalled()
-    expect(result.resolved).toEqual([])
-    expect(result.failed).toEqual([{ disputeId: 'dispute-1', error: expect.stringContaining('needs a real payout address') }])
+    expect(result.revertedToHuman).toEqual(['dispute-1'])
+    expect(result.failed).toEqual([])
   })
 
-  it('collects failures per-dispute without letting one bad row stop the rest of the sweep', async () => {
+  it('collects failures per-dispute without letting one bad row\'s revert failure stop the rest of the sweep', async () => {
     mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: null, autoResolutionRecommendation: 'REFUND' },
+      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
       { id: 'dispute-2', tradeId: 'trade-2', escrowId: 'escrow-2', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
     ])
-    mockDisputeUpdate.mockResolvedValue({})
+    mockDisputeUpdate
+      .mockRejectedValueOnce(new Error('row-1 update failed'))
+      .mockResolvedValueOnce({ id: 'dispute-2', status: 'EVIDENCE_SUBMITTED' })
 
     const result = await service.sweepExpiredAutoResolutions()
 
-    expect(result.failed).toEqual([{ disputeId: 'dispute-1', error: expect.stringContaining('no assigned arbiterId') }])
-    expect(result.resolved).toEqual(['dispute-2'])
+    expect(result.failed).toEqual([{ disputeId: 'dispute-1', error: expect.stringContaining('row-1 update failed') }])
+    expect(result.revertedToHuman).toEqual(['dispute-2'])
   })
 })
 

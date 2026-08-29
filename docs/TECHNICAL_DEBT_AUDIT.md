@@ -516,6 +516,46 @@ era MULTISIG-only para a Pergunta 1, per instrução explícita do CTO —
 
 ### 33. `INV-12` (Attributed Authority Integrity, Missão 12) — execução de ruling de árbitro/QVAC não é verificável independentemente da própria assinatura do servidor
 
+**Corrigido/Implementado 2026-08-29 (Missão 13 Fase 2), rail MULTISIG.**
+Ambos os POSSIBLE VIOLATION abaixo foram fechados: `dispute.service.ts`'s
+`resolveDispute()` agora EXIGE uma decisão de autoridade assinada
+(`arbitration-authority.ts`'s `AuthorityDecisionPayload`, Ed25519,
+reutilizando a identidade já registrada do árbitro em `User.publicKey` —
+nenhum tipo de chave novo) e verifica essa assinatura, independentemente
+do servidor, antes de invocar qualquer ação de settlement — um chamador
+que apenas afirma ser o árbitro (`arbiterId` batendo no banco) sem uma
+assinatura válida é recusado (`ForbiddenError`), nunca cai de volta para
+confiar no corpo da requisição. `sweepExpiredAutoResolutions()` (a
+automação QVAC) foi rebaixada para apenas advisory: uma recomendação
+expirada e não contestada agora reverte a disputa para
+`EVIDENCE_SUBMITTED` (exigindo uma decisão humana real assinada), em vez
+de executar sozinha usando a chave server-derived do árbitro — fecha o
+segundo POSSIBLE VIOLATION pela mesma causa raiz, sem exigir nenhuma
+mudança de threshold/contest-window/policy-gating. Alvo de segurança
+explicitamente perseguido foi TARGET 1 (Atribuição Verificável), não
+TARGET 2 (Impossibilidade Criptográfica) — `INV-12`'s próprio texto e
+NON-REQUIREMENTS não exigem mais que isso (Missão 13 Fase 1/1B
+confirmaram essa leitura antes da implementação, incluindo uma pesquisa
+real sobre Bisq/Hodl Hodl/DLC/Taproot/MuSig2/adaptor signatures que
+concluiu por manter o desenho atual em vez de adotar qualquer um deles
+por inteiro). Testado: `tests/arbitrationAuthority.test.ts` (26 testes,
+incluindo substituição de outcome/SPLIT, replay cross-dispute/escrow/
+appeal-round, forja de assinatura), `tests/arbitrationAuthoritySdkParity.test.ts`
+(paridade byte-a-byte servidor↔SDK + interoperabilidade criptográfica
+real), mais os testes de integração em `dispute.service.ts` já
+existentes atualizados. SDK: `resolveDisputeWithWallet()` (novo,
+`packages/sails-sdk/src/modules/settlement.ts`) constrói e assina a
+decisão automaticamente via `wallet.signMessage()` — a chave privada do
+chamador nunca sai da própria wallet. **Gap residual, disclosed, não
+escondido:** o console de árbitro do `sails-ui` (`Disputes.tsx`) ainda
+não tem infraestrutura de wallet/assinatura nenhuma — as ações de
+resolver disputa falham com um erro claro em vez de silenciosamente,
+mas não funcionam de fato até uma sessão dedicada de UI decidir onde a
+chave de assinatura do árbitro deve viver nesse console de referência
+(tarefa já sinalizada separadamente). Rails além de MULTISIG
+(LIGHTNING_HODL/SAFE_GUARD_EVM) não foram tocados nesta passada — fora
+de escopo explícito do mandato da Fase 2.
+
 Achado pela Missão 12 (Testes de Constituição/Red Team, Fases 6.1–7T),
 fechado normativamente com a adição de `INV-12` em
 `docs/PROTOCOL_INVARIANTS.md` — este item registra o **débito de

@@ -301,6 +301,40 @@ const { eventBus } = require('../src/common/events/event-bus')
 const { intentEngine } = require('../src/core/intent-engine')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { OpenP2PTradeIntentHandler } = require('../src/modules/open-p2p/intent-handler')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const nacl = require('tweetnacl')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { signAuthorityDecision } = require('../src/modules/open-settlement/arbitration-authority')
+
+// Missão 13 Fase 2 — resolveDispute() now verifies a signed authority
+// decision against the arbiter's registered User.publicKey (INV-12) before
+// executing any settlement. This file's arbiter ('arbiter-1') needs a real
+// Ed25519 identity for that check to have anything real to verify, same as
+// every other participant in this file's in-memory `users` table.
+const arbiterKeypair = nacl.sign.keyPair()
+const arbiterPublicKeyHex = Buffer.from(arbiterKeypair.publicKey).toString('hex')
+
+function signArbiterDecision(
+  dispute: { id: string; escrowId: string; appealRound?: number },
+  authorityId: string,
+  outcome: 'RELEASE' | 'REFUND' | 'SPLIT',
+  buyerBps: number | null = null,
+  issuedAt = '2026-08-29T00:00:00.000Z'
+): [string, string] {
+  const signature = signAuthorityDecision(
+    {
+      disputeId: dispute.id,
+      escrowId: dispute.escrowId,
+      appealRound: dispute.appealRound,
+      authorityId,
+      outcome,
+      buyerBps,
+      issuedAt,
+    },
+    arbiterKeypair.secretKey
+  )
+  return [signature, issuedAt]
+}
 
 // The real eventBus (InMemoryEventStore, RFC-010's always-available
 // default) — genuinely dispatches to registerEventHandlers()'s real
@@ -317,6 +351,7 @@ function seedUsers() {
   users.rows.clear()
   users.rows.set('buyer-1', { id: 'buyer-1', reputationScore: 0, totalTrades: 0, totalVolumeBtc: '0' })
   users.rows.set('seller-1', { id: 'seller-1', reputationScore: 0, totalTrades: 0, totalVolumeBtc: '0' })
+  users.rows.set('arbiter-1', { id: 'arbiter-1', reputationScore: 0, totalTrades: 0, totalVolumeBtc: '0', publicKey: arbiterPublicKeyHex })
 }
 
 beforeAll(() => {
@@ -436,7 +471,8 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     expect(dispute.arbiterId).toBe('arbiter-1')
     expect(escrows.rows.get(escrow.id)?.status).toBe('DISPUTED')
 
-    const resolved = await disputeService.resolveDispute(dispute.id, 'arbiter-1', 'REFUND')
+    const [refundSig, refundIssuedAt] = signArbiterDecision(dispute, 'arbiter-1', 'REFUND')
+    const resolved = await disputeService.resolveDispute(dispute.id, 'arbiter-1', 'REFUND', undefined, undefined, undefined, refundSig, refundIssuedAt)
     await flush()
 
     expect(resolved.status).toBe('RESOLVED')
@@ -481,7 +517,8 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     const dispute = await disputeService.raiseDispute(trade.id, 'buyer-1', 'PIX payment only partially confirmed')
     expect(escrows.rows.get(escrow.id)?.status).toBe('DISPUTED')
 
-    const resolved = await disputeService.resolveDispute(dispute.id, 'arbiter-1', 'SPLIT', '0xBuyerAddress', '0xSellerAddress', 6000)
+    const [splitSig, splitIssuedAt] = signArbiterDecision(dispute, 'arbiter-1', 'SPLIT', 6000)
+    const resolved = await disputeService.resolveDispute(dispute.id, 'arbiter-1', 'SPLIT', '0xBuyerAddress', '0xSellerAddress', 6000, splitSig, splitIssuedAt)
     await flush()
 
     expect(resolved.status).toBe('RESOLVED')

@@ -62,6 +62,10 @@ export {
   type ReleaseApproval,
   type ReleaseApprovalsResult,
   MULTISIG_CAPABILITY_PROFILE_V1,
+  type AuthorityDecisionOutcome,
+  type AuthorityDecisionInput,
+  canonicalizeAuthorityDecision,
+  hashAuthorityDecision,
 } from './modules/settlement'
 export { SailsProofModule, type EvidenceBundle, type AssertClaimInput, type SubmitProofInput, type VerifyProofInput } from './modules/proof'
 export {

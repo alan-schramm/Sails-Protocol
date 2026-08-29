@@ -110,6 +110,19 @@ export function Disputes() {
 
   const selected = rows.find((r) => r.dispute.id === selectedId) ?? null
 
+  // KNOWN GAP, disclosed 2026-08-29 (Missão 13 Fase 2, INV-12) — the server
+  // now requires a signed authority decision before it will execute any
+  // ruling (settlement.ts's resolveDispute()/resolveDisputeWithWallet()
+  // own header comments have the full rationale). This reference UI has
+  // no wallet/key-management infrastructure anywhere yet (no
+  // WalletAdapter is wired into sails-ui at all — confirmed, not
+  // assumed) to actually produce that signature, so the calls below now
+  // fail fast with a clear SailsValidationError (surfaced via the
+  // existing toast.error() below) instead of silently doing nothing or
+  // fabricating a signature that would just fail server-side anyway.
+  // Wiring real arbiter key custody into this console is a genuine,
+  // separate UI/product decision (where does the key live? browser
+  // storage? a hardware wallet?) — not invented here.
   const resolve = async (row: Row, ruling: DisputeRuling) => {
     if (!row.escrow) {
       toast.error('O escrow desta disputa não pôde ser carregado — tente novamente')

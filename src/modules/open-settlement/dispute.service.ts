@@ -32,6 +32,11 @@ import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
 import type { EvidenceDescriptor, DisputeRuling } from '@satsails/p2p-schemas'
 import type { DisputeStatus } from '@prisma/client'
+import {
+  verifyAuthorityDecisionSignature,
+  assertExecutionMatchesAuthorization,
+  type AuthorityDecisionPayload,
+} from './arbitration-authority'
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
 // baseline (1-2% of the disputed amount, charged as Escrow.feeCharged by
@@ -256,7 +261,13 @@ export class DisputeService {
     releaseToAddress: string | undefined,
     triggeredBy: string,
     refundToAddress?: string,
-    splitBuyerBps?: number
+    splitBuyerBps?: number,
+    // Missão 13 Fase 2 — present only for a caller that has already
+    // independently verified an authority decision (resolveDispute()).
+    // Never populated by anything else — in particular,
+    // sweepExpiredAutoResolutions() (below) no longer calls this method
+    // at all, exactly because it has no verified authority to attach.
+    authority?: { authoritySignature: string; authorityIssuedAt: Date; authorityBuyerBps: number | null }
   ) {
     // Real bug found by tests/fullTradeLifecycle.test.ts (end-to-end
     // chain, added investigating the CTO-role "validate the full flow"
@@ -275,7 +286,18 @@ export class DisputeService {
     // actually moved funds.
     const updated = await prisma.dispute.update({
       where: { id: dispute.id },
-      data: { status: 'RESOLVED', ruling, resolvedAt: new Date() },
+      data: {
+        status: 'RESOLVED',
+        ruling,
+        resolvedAt: new Date(),
+        ...(authority
+          ? {
+              authoritySignature: authority.authoritySignature,
+              authorityIssuedAt: authority.authorityIssuedAt,
+              authorityBuyerBps: authority.authorityBuyerBps,
+            }
+          : {}),
+      },
     })
 
     try {
@@ -328,7 +350,16 @@ export class DisputeService {
     } catch (err) {
       await prisma.dispute.update({
         where: { id: dispute.id },
-        data: { status: dispute.status as DisputeStatus, ruling: null, resolvedAt: null },
+        data: {
+          status: dispute.status as DisputeStatus,
+          ruling: null,
+          resolvedAt: null,
+          // Missão 13 Fase 2 — a reverted ruling never leaves a verified
+          // authority decision attached to a dispute that in fact never
+          // settled; the arbiter must re-submit (their real decision may
+          // legitimately change once the underlying failure is understood).
+          ...(authority ? { authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } : {}),
+        },
       })
       throw err
     }
@@ -355,13 +386,28 @@ export class DisputeService {
     // PayoutAddress for the escrow's asset, throwing its own clear error
     // only if neither exists — this method no longer pre-validates
     // presence, since "missing" is no longer necessarily an error.
-    releaseToAddress?: string,
+    releaseToAddress: string | undefined,
     // RFC-021 D9 (2026-08-02) — seller's payout address for SPLIT only
     // (mirrors releaseToAddress's buyer role), same fallback as above.
     // splitBuyerBps has no such fallback — it's a ruling decision, not an
     // address, so it's still required up front for SPLIT.
-    refundToAddress?: string,
-    splitBuyerBps?: number
+    refundToAddress: string | undefined,
+    splitBuyerBps: number | undefined,
+    // Missão 13 Fase 2 — INV-12 closure. Required, never optional: the
+    // caller-supplied `arbiterId` above is only an identity CLAIM,
+    // authenticated no more strongly than the session token that made
+    // this HTTP request — exactly the gap Missão 12/13 found (the
+    // "record of decision" lived only in this server's own database,
+    // never independently checkable). `authoritySignature` must verify
+    // against `arbiterId`'s own already-registered `User.publicKey`
+    // (arbitration-authority.ts, the same Ed25519 identity every
+    // participant already has — no new key type) over the EXACT economic
+    // disposition being requested here. `authorityIssuedAt` is the
+    // client-signed timestamp bound into that same signature — passed
+    // separately because it must be supplied verbatim to reconstruct the
+    // canonical string that was actually signed.
+    authoritySignature: string,
+    authorityIssuedAt: string
   ) {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
@@ -376,7 +422,47 @@ export class DisputeService {
       throw new ValidationError('splitBuyerBps is required when ruling is SPLIT')
     }
 
-    const updated = await this.applyRuling(dispute, ruling, releaseToAddress, arbiterId, refundToAddress, splitBuyerBps)
+    // FAIL CLOSED — no path below this point ever falls back to trusting
+    // the bare `ruling`/`arbiterId` request body on its own. Missão 13
+    // Fase 2 Task 12's own explicit prohibition: "no fallback to DB
+    // assertion... if signature missing, trust stored outcome" is exactly
+    // the violation this closes.
+    const authority = await prisma.user.findUnique({ where: { id: arbiterId } })
+    if (!authority) throw new NotFoundError('User', arbiterId)
+
+    const payload: AuthorityDecisionPayload = {
+      disputeId,
+      escrowId: dispute.escrowId,
+      appealRound: dispute.appealRound,
+      authorityId: arbiterId,
+      outcome: ruling,
+      buyerBps: ruling === 'SPLIT' ? splitBuyerBps! : null,
+      issuedAt: authorityIssuedAt,
+    }
+    const sigValid = verifyAuthorityDecisionSignature(payload, authoritySignature, authority.publicKey)
+    if (!sigValid) {
+      throw new ForbiddenError(
+        `Authority decision signature does not verify against ${arbiterId}'s registered public key for dispute ${disputeId} — ` +
+        'refusing to execute a discretionary settlement attributed to an authorization that cannot be independently verified (INV-12).'
+      )
+    }
+    // Execution-correspondence boundary (Missão 13 Fase 2 Task 13) — the
+    // single place every path that attributes a disposition to a
+    // discretionary authority checks it, before any settlement call.
+    // Here `payload` IS `requested` (they were built from the same
+    // values) — the check still runs so this remains the one function
+    // every caller goes through, not a special-cased inline comparison.
+    assertExecutionMatchesAuthorization(payload, payload)
+
+    const updated = await this.applyRuling(
+      dispute,
+      ruling,
+      releaseToAddress,
+      arbiterId,
+      refundToAddress,
+      splitBuyerBps,
+      { authoritySignature, authorityIssuedAt: new Date(authorityIssuedAt), authorityBuyerBps: payload.buyerBps }
+    )
 
     // RFC-021 D6/D4 — feeds the arbiter's track record on every real
     // resolution, correct or not (optional: only market mode has an
@@ -668,63 +754,65 @@ export class DisputeService {
   }
 
   /**
-   * RFC-021 D8 — the background sweep (app.ts, DISPUTE_AUTO_RESOLUTION_SWEEPER,
-   * same pattern escrow.service.ts's sweepExpiredEscrows() established):
-   * applies every AUTO_PROPOSED dispute's recommendation once its contest
-   * window has closed uncontested. `triggeredBy` for the resulting
-   * releaseFunds()/refundFunds() call is the dispute's own already-assigned
-   * `arbiterId` — the SAME identity raiseDispute() assigned at open time —
-   * so escrow.service.ts's isSellerOrAssignedArbiter() check is completely
-   * untouched by this feature: no new kind of caller ever gains authority
-   * to move funds, an already-authorized arbiter's slot is just exercised
-   * automatically when they don't need to personally act. `autoResolved`
-   * flags the row so the audit trail always shows whether the assigned
-   * arbiter ruled personally or their slot auto-resolved. Deliberately does
-   * NOT call recordRuling()/slash() (RFC-021 D3/D4) — those track a human
-   * arbiter's own decision-making track record, which is not what happened
-   * here.
+   * RFC-021 D8, DOWNGRADED TO ADVISORY-ONLY — Missão 13 Fase 2, INV-12.
+   *
+   * Before this phase, an uncontested QVAC recommendation was applied
+   * automatically via `applyRuling()`, using the already-assigned human
+   * arbiter's own slot/execution key — with no cryptographic record that
+   * the arbiter personally authorized THIS specific automated outcome.
+   * Missão 12/13 found this to be exactly the failure `INV-12` (Attributed
+   * Authority Integrity) exists to close: the settlement it produced was
+   * indistinguishable on-chain from a real human ruling, attributed to an
+   * arbiter who never actually signed anything for that instance.
+   *
+   * `resolveDispute()` now REQUIRES a verified signature from the
+   * assigned arbiter's own identity key for every execution — a bar this
+   * function has no way to satisfy on its own (there is, by construction,
+   * no human present at the moment an uncontested window expires; that
+   * was the entire point of automating it). Rather than fabricate an
+   * attribution (having the server sign "on the arbiter's behalf" would
+   * reproduce the identical violation under a different name — explicitly
+   * forbidden, Missão 13 Fase 2 Task 16), this sweep no longer executes
+   * ANY settlement. It reverts an expired, uncontested `AUTO_PROPOSED`
+   * dispute back to `EVIDENCE_SUBMITTED` — the same transition
+   * `contestAutoResolution()` already performs — so the already-assigned
+   * arbiter reviews and produces a real, verifiable decision. The
+   * recommendation/confidence/reasoning QVAC already computed are left in
+   * place as context for that arbiter, not erased.
+   *
+   * A future, separate pass may reintroduce automated EXECUTION under a
+   * genuine scoped, signed delegation from the human arbiter (Missão 13
+   * Fase 1's Q2 model) — deliberately not attempted here per this
+   * mission's own QVAC STOP GATE ("acceptable to downgrade QVAC to
+   * ADVISORY... correct attribution is more important than preserving
+   * automation").
    */
-  async sweepExpiredAutoResolutions(): Promise<{ resolved: string[]; failed: Array<{ disputeId: string; error: string }> }> {
+  async sweepExpiredAutoResolutions(): Promise<{ revertedToHuman: string[]; failed: Array<{ disputeId: string; error: string }> }> {
     const expired = await prisma.dispute.findMany({
       where: { status: 'AUTO_PROPOSED', autoResolutionDeadline: { lt: new Date() } },
     })
 
-    const resolved: string[] = []
+    const revertedToHuman: string[] = []
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const dispute of expired) {
       try {
-        if (!dispute.arbiterId) throw new ValidationError(`Dispute ${dispute.id} has an auto-proposed resolution but no assigned arbiterId`)
-        if (!dispute.autoResolutionRecommendation) throw new ValidationError(`Dispute ${dispute.id} is AUTO_PROPOSED with no recommendation recorded`)
-
-        // RELEASE needs a real crypto payout address, same disclosed gap
-        // resolveDispute()'s own doc comment states: no field in this
-        // schema stores a participant's payout address, so a human
-        // arbiter calling resolveDispute() directly must be supplied one
-        // externally (by the route caller/UI). There is no such caller
-        // here — this sweep runs with nobody to ask — so a RELEASE
-        // recommendation cannot be safely auto-applied yet. Thrown as a
-        // real, visible failure (not silently skipped, not fabricated
-        // from a participant id, which is NOT a crypto address) so it
-        // surfaces in this method's own `failed` list and the dispute
-        // stays AUTO_PROPOSED for its already-assigned human arbiter to
-        // resolve normally. REFUND has no such gap — refundFunds()
-        // returns collateral to the seller's own escrow, no external
-        // address input needed.
-        if (dispute.autoResolutionRecommendation === 'RELEASE') {
-          throw new ValidationError(
-            `Dispute ${dispute.id}: auto-applying a RELEASE recommendation needs a real payout address this system ` +
-            'does not yet store for any participant — falling through to the assigned human arbiter instead of guessing one.'
-          )
-        }
-
-        await this.applyRuling(dispute, dispute.autoResolutionRecommendation, undefined, dispute.arbiterId)
-        await prisma.dispute.update({ where: { id: dispute.id }, data: { autoResolved: true } })
-        resolved.push(dispute.id)
+        await prisma.dispute.update({
+          where: { id: dispute.id },
+          data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
+        })
+        await eventBus.emit('dispute.auto_resolution_contested', {
+          disputeId: dispute.id,
+          settlementId: dispute.escrowId,
+          tradeId: dispute.tradeId,
+          contestedBy: 'window-expired-advisory-only',
+          triggeredBy: 'window-expired-advisory-only',
+        }, dispute.tradeId)
+        revertedToHuman.push(dispute.id)
       } catch (err) {
         failed.push({ disputeId: dispute.id, error: err instanceof Error ? err.message : String(err) })
       }
     }
-    return { resolved, failed }
+    return { revertedToHuman, failed }
   }
 }
 

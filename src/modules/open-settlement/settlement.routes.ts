@@ -111,6 +111,14 @@ const resolveSchema = z.object({
   // real split, not an all-or-nothing RELEASE/REFUND in disguise).
   refundToAddress: z.string().optional(),
   splitBuyerBps: z.number().int().min(1).max(9999).optional(),
+  // Missão 13 Fase 2 — INV-12 (Attributed Authority Integrity). Required:
+  // the arbiter's own Ed25519 signature (hex) over this exact dispute/
+  // escrow/outcome/allocation, produced client-side, and the ISO-8601
+  // timestamp bound into that same signature — see
+  // arbitration-authority.ts's canonical payload. Never optional; there is
+  // no conformant fallback to the bare `ruling` field alone.
+  authoritySignature: z.string().min(1),
+  authorityIssuedAt: z.string().min(1),
 })
 
 // RFC-021 D8
@@ -470,7 +478,10 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = resolveSchema.parse(request.body)
-    const dispute = await getDisputeService().resolveDispute(id, participantId(request), body.ruling, body.releaseToAddress, body.refundToAddress, body.splitBuyerBps)
+    const dispute = await getDisputeService().resolveDispute(
+      id, participantId(request), body.ruling, body.releaseToAddress, body.refundToAddress, body.splitBuyerBps,
+      body.authoritySignature, body.authorityIssuedAt
+    )
     return reply.code(200).send(success(dispute))
   })
 

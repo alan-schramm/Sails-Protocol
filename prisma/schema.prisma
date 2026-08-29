@@ -1103,6 +1103,28 @@ model Dispute {
   autoResolutionReasoning      String?
   autoResolutionDeadline       DateTime?
   autoResolved                 Boolean         @default(false)
+
+  // Missão 13 Fase 2 — INV-12 (Attributed Authority Integrity) closure.
+  // Additive/nullable: existing rows (every dispute resolved before this
+  // migration) simply have none of these set — never backfilled, never
+  // fabricated (Missão 13 Fase 2's own Task 38: "never manufacture
+  // historical authorization"). `resolveDispute()` now requires all three
+  // to be present and independently verifiable (against the arbiter's own
+  // already-registered `User.publicKey`, `arbitration-authority.ts`)
+  // before any settlement call is made. `authoritySignature`/
+  // `authorityIssuedAt` alone are not re-derivable from other columns —
+  // they must be persisted verbatim to reconstruct the exact canonical
+  // string that was signed, for crash recovery and independent audit
+  // alike. `authorityBuyerBps` is a snapshot of the SIGNED SPLIT
+  // allocation specifically — distinct from any later-derived value —
+  // because `Dispute` itself has no other column carrying it (SPLIT's
+  // `buyerBps` today only ever reaches `EscrowPendingTransaction`,
+  // created downstream of this decision, too late to answer "what was
+  // actually authorized").
+  authoritySignature String?
+  authorityIssuedAt  DateTime?
+  authorityBuyerBps  Int?
+
   moduleId   String         @default("opensettlement")
   protocolVersion String    @default("0.1")
   createdAt  DateTime       @default(now())

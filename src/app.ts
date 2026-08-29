@@ -472,9 +472,9 @@ export async function startServer() {
   if (config.features.disputeAutoResolutionSweeper) {
     const disputeSweepInterval = setInterval(() => {
       getDisputeService().sweepExpiredAutoResolutions()
-        .then(({ resolved, failed }) => {
-          if (resolved.length || failed.length) {
-            app.log.info({ msg: 'Dispute auto-resolution sweep completed', module: 'dispute-auto-resolution-sweeper', resolved: resolved.length, failed: failed.length })
+        .then(({ revertedToHuman, failed }) => {
+          if (revertedToHuman.length || failed.length) {
+            app.log.info({ msg: 'Dispute auto-resolution sweep completed (advisory-only, Missão 13 Fase 2)', module: 'dispute-auto-resolution-sweeper', revertedToHuman: revertedToHuman.length, failed: failed.length })
           }
         })
         .catch((err) => app.log.error({ msg: 'Dispute auto-resolution sweep failed', module: 'dispute-auto-resolution-sweeper', err: err instanceof Error ? err.message : err }))

@@ -14,6 +14,9 @@
  */
 import type { SailsTransport } from "../transport";
 import { SailsValidationError } from "../errors";
+import type { WalletAdapter } from "../wallet-adapter";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "../encoding";
 // Missão 11 Fase 9.1 §4/§5 — re-exported (not just imported) so a caller
 // depending only on @satsails/p2p-trading-sdk can declare the real
 // capability profile this SDK's own escrow-key-derivation.ts/
@@ -29,6 +32,77 @@ import type {
   EscrowType,
   PaginatedDisputes,
 } from "../types";
+
+/**
+ * Missão 13 Fase 2 — INV-12 (`docs/PROTOCOL_INVARIANTS.md`) closure. The
+ * server (`src/modules/open-settlement/dispute.service.ts`'s
+ * `resolveDispute()`) now REQUIRES a signed authority decision before it
+ * will execute any dispute ruling — a caller who is genuinely the
+ * assigned arbiter but supplies no valid signature is refused, never
+ * falling back to trusting the bare (disputeId, ruling) request body.
+ * `resolveDispute()` below builds and signs this artifact for the caller
+ * automatically; these exports exist for advanced callers who need to
+ * construct or inspect the artifact directly (e.g. an offline signing
+ * flow, or displaying exactly what is about to be signed before the
+ * caller's wallet prompts them).
+ *
+ * `canonicalizeAuthorityDecision()`/`hashAuthorityDecision()` mirror
+ * `src/modules/open-settlement/arbitration-authority.ts`'s server-side
+ * implementation byte-for-byte — the server independently recomputes this
+ * exact digest and verifies the signature against it, so any drift
+ * between the two would silently break every real resolveDispute() call.
+ * Cross-checked directly against the server module by
+ * `tests/arbitrationAuthoritySdkParity.test.ts`.
+ */
+export type AuthorityDecisionOutcome = "RELEASE" | "REFUND" | "SPLIT";
+
+export interface AuthorityDecisionInput {
+  disputeId: string;
+  escrowId: string;
+  appealRound: number;
+  authorityId: string;
+  outcome: AuthorityDecisionOutcome;
+  buyerBps: number | null;
+  issuedAt: string; // ISO 8601
+}
+
+const AUTHORITY_DECISION_DOMAIN = "SAILS_AUTHORITY_DECISION_V1";
+const AUTHORITY_DECISION_VERSION = 1;
+
+export function canonicalizeAuthorityDecision(payload: AuthorityDecisionInput): string {
+  if (payload.outcome === "SPLIT") {
+    if (
+      payload.buyerBps === null ||
+      !Number.isInteger(payload.buyerBps) ||
+      payload.buyerBps < 1 ||
+      payload.buyerBps > 9999
+    ) {
+      throw new SailsValidationError(
+        "Authority decision for SPLIT requires an integer buyerBps between 1 and 9999",
+      );
+    }
+  } else if (payload.buyerBps !== null) {
+    throw new SailsValidationError(
+      `Authority decision for ${payload.outcome} must not carry a buyerBps`,
+    );
+  }
+  return [
+    AUTHORITY_DECISION_DOMAIN,
+    String(AUTHORITY_DECISION_VERSION),
+    payload.disputeId,
+    payload.escrowId,
+    String(payload.appealRound),
+    payload.authorityId,
+    payload.outcome,
+    payload.buyerBps === null ? "" : String(payload.buyerBps),
+    payload.issuedAt,
+  ].join("|");
+}
+
+/** The raw 32-byte sha256 digest a wallet actually signs — never the hex string's own bytes. */
+export function hashAuthorityDecision(payload: AuthorityDecisionInput): Uint8Array {
+  return sha256(utf8ToBytes(canonicalizeAuthorityDecision(payload)));
+}
 
 export interface ArbiterProfile {
   participantId: string;
@@ -440,6 +514,17 @@ export class SailsSettlementModule {
    * partial payout (see each provider's own source for the full
    * reasoning); the server returns a clear error for those, not a silent
    * no-op.
+   *
+   * Missão 13 Fase 2 (INV-12) — `docs/API_STABLE.md`'s own additive-only
+   * precedent for this exact method (new params appended at the end,
+   * same as `refundToAddress`/`splitBuyerBps` before it): the server now
+   * REQUIRES a signed authority decision (see `AuthorityDecisionInput`'s
+   * own header comment above), so these two new trailing params are not
+   * optional in the sense of "may be omitted" — they're the manual/
+   * advanced path for a caller who already has a signature (e.g. an
+   * offline-signing flow). Most callers should use
+   * `resolveDisputeWithWallet()` below instead, which builds and signs
+   * the decision automatically.
    */
   async resolveDispute(
     disputeId: string,
@@ -447,6 +532,8 @@ export class SailsSettlementModule {
     releaseToAddress?: string,
     refundToAddress?: string,
     splitBuyerBps?: number,
+    authoritySignature?: string,
+    authorityIssuedAt?: string,
   ): Promise<Dispute> {
     if (ruling === "SPLIT") {
       if (
@@ -465,10 +552,69 @@ export class SailsSettlementModule {
         );
       }
     }
+    if (!authoritySignature || !authorityIssuedAt) {
+      throw new SailsValidationError(
+        'resolveDispute() requires authoritySignature and authorityIssuedAt (Missão 13 Fase 2, INV-12) — ' +
+          "use resolveDisputeWithWallet() to have the SDK build and sign this automatically, " +
+          "or construct it yourself with canonicalizeAuthorityDecision()/hashAuthorityDecision().",
+      );
+    }
     return this.transport.post<Dispute>(
       `/v1/settlement/disputes/${disputeId}/resolve`,
-      { ruling, releaseToAddress, refundToAddress, splitBuyerBps },
+      { ruling, releaseToAddress, refundToAddress, splitBuyerBps, authoritySignature, authorityIssuedAt },
       true,
+    );
+  }
+
+  /**
+   * Missão 13 Fase 2 (INV-12) — the convenience path most callers should
+   * use: fetches the dispute (for its `escrowId`/`appealRound`/
+   * `arbiterId`), builds the canonical authority decision, and asks
+   * `wallet.signMessage()` to sign it — the caller's private key never
+   * leaves their own wallet, the same shape `proof.ts`'s
+   * `attachEvidence()` already established. Throws `SailsValidationError`
+   * if the dispute has no assigned arbiter yet (nothing to attribute a
+   * decision to) — same validation as `resolveDispute()` otherwise.
+   */
+  async resolveDisputeWithWallet(
+    disputeId: string,
+    ruling: DisputeRuling,
+    // Same minimal-interface convention identity.ts's
+    // `authenticateWithWallet()` already established — signing an
+    // authority decision only ever needs `signMessage()`, never the full
+    // `WalletAdapter` surface (balances, transactions, peer id, ...), so
+    // a caller isn't forced to implement methods this call never touches.
+    wallet: Pick<WalletAdapter, "signMessage">,
+    releaseToAddress?: string,
+    refundToAddress?: string,
+    splitBuyerBps?: number,
+  ): Promise<Dispute> {
+    const dispute = await this.getDispute(disputeId);
+    if (!dispute.arbiterId) {
+      throw new SailsValidationError(
+        `Dispute ${disputeId} has no assigned arbiter yet — cannot produce an authority decision for it`,
+      );
+    }
+    const authorityIssuedAt = new Date().toISOString();
+    const buyerBps = ruling === "SPLIT" ? (splitBuyerBps ?? null) : null;
+    const digest = hashAuthorityDecision({
+      disputeId,
+      escrowId: dispute.escrowId,
+      appealRound: dispute.appealRound,
+      authorityId: dispute.arbiterId,
+      outcome: ruling,
+      buyerBps,
+      issuedAt: authorityIssuedAt,
+    });
+    const signatureBytes = await wallet.signMessage(digest);
+    return this.resolveDispute(
+      disputeId,
+      ruling,
+      releaseToAddress,
+      refundToAddress,
+      splitBuyerBps,
+      bytesToHex(signatureBytes),
+      authorityIssuedAt,
     );
   }
 

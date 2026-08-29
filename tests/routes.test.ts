@@ -1717,7 +1717,18 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         method: 'POST',
         url: '/v1/settlement/disputes/dispute-1/resolve',
         headers: { authorization: `Bearer ${token}` },
-        payload: { ruling: 'SPLIT', releaseToAddress: '0xbuyer', refundToAddress: '0xseller', splitBuyerBps: 6000 },
+        payload: {
+          ruling: 'SPLIT',
+          releaseToAddress: '0xbuyer',
+          refundToAddress: '0xseller',
+          splitBuyerBps: 6000,
+          // Missão 13 Fase 2 — resolveSchema now requires these two fields
+          // (INV-12); their values are irrelevant here since this test only
+          // asserts that the request clears Zod validation and reaches the
+          // real getDisputeService() config error underneath.
+          authoritySignature: 'deadbeef',
+          authorityIssuedAt: '2026-08-29T00:00:00.000Z',
+        },
       })
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.body).message).toMatch(/TRUSTED_ARBITRATORS/)

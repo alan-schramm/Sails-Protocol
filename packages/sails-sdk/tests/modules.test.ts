@@ -141,15 +141,22 @@ describe('SailsSettlementModule', () => {
     expect(init.headers.authorization).toBe('Bearer session-abc')
   })
 
-  it('resolveDispute() posts ruling+releaseToAddress to /v1/settlement/disputes/:id/resolve', async () => {
+  it('resolveDispute() posts ruling+releaseToAddress+authoritySignature+authorityIssuedAt to /v1/settlement/disputes/:id/resolve', async () => {
     const fetchImpl = fakeFetch(200, { success: true, data: { id: 'dispute-1', ruling: 'RELEASE' } })
     const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
 
-    await settlement.resolveDispute('dispute-1', 'RELEASE', '0xbuyer')
+    await settlement.resolveDispute('dispute-1', 'RELEASE', '0xbuyer', undefined, undefined, 'deadbeef', '2026-08-29T00:00:00.000Z')
 
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/settlement/disputes/dispute-1/resolve')
-    expect(JSON.parse(init.body)).toEqual({ ruling: 'RELEASE', releaseToAddress: '0xbuyer' })
+    expect(JSON.parse(init.body)).toEqual({
+      ruling: 'RELEASE',
+      releaseToAddress: '0xbuyer',
+      refundToAddress: undefined,
+      splitBuyerBps: undefined,
+      authoritySignature: 'deadbeef',
+      authorityIssuedAt: '2026-08-29T00:00:00.000Z',
+    })
   })
 
   // RFC-021 D9 (2026-08-02) — additive params on an already-frozen method
@@ -159,11 +166,65 @@ describe('SailsSettlementModule', () => {
     const fetchImpl = fakeFetch(200, { success: true, data: { id: 'dispute-1', ruling: 'SPLIT' } })
     const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
 
-    await settlement.resolveDispute('dispute-1', 'SPLIT', '0xbuyer', '0xseller', 6000)
+    await settlement.resolveDispute('dispute-1', 'SPLIT', '0xbuyer', '0xseller', 6000, 'deadbeef', '2026-08-29T00:00:00.000Z')
 
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/settlement/disputes/dispute-1/resolve')
-    expect(JSON.parse(init.body)).toEqual({ ruling: 'SPLIT', releaseToAddress: '0xbuyer', refundToAddress: '0xseller', splitBuyerBps: 6000 })
+    expect(JSON.parse(init.body)).toEqual({
+      ruling: 'SPLIT',
+      releaseToAddress: '0xbuyer',
+      refundToAddress: '0xseller',
+      splitBuyerBps: 6000,
+      authoritySignature: 'deadbeef',
+      authorityIssuedAt: '2026-08-29T00:00:00.000Z',
+    })
+  })
+
+  // Missão 13 Fase 2 (INV-12) — the server now requires a signed authority
+  // decision; a caller who omits it gets a clear client-side error, never
+  // a request the server would 400 on anyway.
+  it('resolveDispute() throws SailsValidationError when authoritySignature/authorityIssuedAt are omitted, without ever calling fetch', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: {} })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    await expect(settlement.resolveDispute('dispute-1', 'RELEASE', '0xbuyer')).rejects.toThrow(/authoritySignature/)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  // Missão 13 Fase 2 (INV-12) — resolveDisputeWithWallet() is the
+  // convenience path: it fetches the dispute for escrowId/appealRound/
+  // arbiterId, builds the canonical decision, and signs it via the
+  // wallet — the caller never constructs the signature by hand.
+  it('resolveDisputeWithWallet() fetches the dispute, signs the canonical decision via the wallet, and forwards it to resolveDispute()', async () => {
+    const fetchImpl = jest.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ success: true, data: { id: 'dispute-1', escrowId: 'escrow-1', appealRound: 0, arbiterId: 'arbiter-1' } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        json: async () => ({ success: true, data: { id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' } }),
+      })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+    const signMessage = jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4]))
+
+    const result = await settlement.resolveDisputeWithWallet('dispute-1', 'REFUND', { signMessage } as any)
+
+    expect(result).toEqual({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
+    expect(signMessage).toHaveBeenCalledTimes(1)
+    const [, resolveInit] = fetchImpl.mock.calls[1]
+    const body = JSON.parse(resolveInit.body)
+    expect(body.authoritySignature).toBe('01020304')
+    expect(typeof body.authorityIssuedAt).toBe('string')
+  })
+
+  it('resolveDisputeWithWallet() throws SailsValidationError when the dispute has no assigned arbiter yet', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'dispute-1', escrowId: 'escrow-1', appealRound: 0, arbiterId: null } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+    const signMessage = jest.fn()
+
+    await expect(settlement.resolveDisputeWithWallet('dispute-1', 'REFUND', { signMessage } as any)).rejects.toThrow(/no assigned arbiter/)
+    expect(signMessage).not.toHaveBeenCalled()
   })
 })
 

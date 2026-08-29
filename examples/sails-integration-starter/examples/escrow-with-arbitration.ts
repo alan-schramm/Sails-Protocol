@@ -128,7 +128,16 @@ async function main() {
   }
 
   step('Arbiter reviews and rules RELEASE (funds go to the buyer\'s stated address)')
-  const resolved = await arbiterClient.settlement.resolveDispute(dispute.id, 'RELEASE', 'example-buyer-payout-address')
+  // Missão 13 Fase 2 (INV-12, 2026-08-29) — resolveDispute() now requires
+  // a signed authority decision; resolveDisputeWithWallet() builds and
+  // signs it automatically. The arbiter's identity here is a raw
+  // tweetnacl keypair (fixedArbiterKeypair() above), not a full
+  // WalletAdapter, so this wraps it in the minimal shape
+  // resolveDisputeWithWallet() actually needs — the same "sign this exact
+  // digest with the identity's existing key, nothing more" contract every
+  // real WalletAdapter implements.
+  const arbiterWallet = { signMessage: async (message: Uint8Array) => nacl.sign.detached(message, arbiterKeypair.secretKey) }
+  const resolved = await arbiterClient.settlement.resolveDisputeWithWallet(dispute.id, 'RELEASE', arbiterWallet, 'example-buyer-payout-address')
   console.log(`    dispute ${resolved.id} resolved: status=${resolved.status}, ruling=${resolved.ruling}`)
 
   const finalEscrow = await sellerWallet.settlement.get(escrow.id)
