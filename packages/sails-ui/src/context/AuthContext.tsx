@@ -38,8 +38,8 @@
  * feedback_no_platform_operator_visibility (memory) for the full
  * non-custodial reasoning.
  */
-import React, { createContext, useContext, useState } from 'react'
-import { generateKeypair, type Ed25519Keypair } from '@satsails/p2p-trading-sdk'
+import React, { createContext, useContext, useMemo, useState } from 'react'
+import { generateKeypair, LocalKeypairWalletAdapter, type Ed25519Keypair, type WalletAdapter } from '@satsails/p2p-trading-sdk'
 import type { User } from '../types'
 import { sailsClient } from '../lib/sailsClient'
 import { deriveKeyFromPassphrase, encryptBytes, decryptBytes } from '../lib/keyEncryption'
@@ -132,6 +132,15 @@ interface AuthContextType {
   // by useEscrowKey.ts so the user isn't asked for their passphrase a
   // second time to unlock the (separate) escrow signing key.
   encryptionKey: CryptoKey | null
+  // `keypair` above wrapped as a WalletAdapter-shaped signer (Missão 13
+  // Fase 2, INV-12, 2026-08-29) — resolveDisputeWithWallet()/
+  // attachEvidence() etc. expect this shape, and every one of them must
+  // sign with this SAME already-registered identity key for server-side
+  // verification to succeed (a fresh/unrelated keypair just gets a 403).
+  // See LocalKeypairWalletAdapter's own header for why it only implements
+  // signMessage — this is still the demo-only localStorage key disclosed
+  // above, not a step toward real wallet custody.
+  wallet: WalletAdapter | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -141,6 +150,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [keypair, setKeypair] = useState<Ed25519Keypair | null>(null)
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null)
   const [loading, setLoading] = useState(false)
+  const wallet = useMemo(() => (keypair ? new LocalKeypairWalletAdapter(keypair) : null), [keypair])
 
   const login = async (passphrase: string) => {
     setLoading(true)
@@ -182,7 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // exposure this change closes, so it can't stay.)
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, keypair, encryptionKey }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, keypair, encryptionKey, wallet }}>
       {children}
     </AuthContext.Provider>
   )

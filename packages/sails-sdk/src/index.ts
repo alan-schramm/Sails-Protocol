@@ -170,6 +170,14 @@ export type { WalletAdapter, WalletCapabilitiesDeclaration } from './wallet-adap
 // external `npm install @satsails/p2p-trading-sdk` consumer. Production Readiness Audit
 // finding, closed 2026-08-09.
 export { MockWalletAdapter } from './wallet-adapter-mock'
+// LocalKeypairWalletAdapter — Missão 13 Fase 2 (INV-12, 2026-08-29): bridges
+// an already-held Ed25519 identity keypair into the WalletAdapter shape
+// resolveDisputeWithWallet()/authenticateWithWallet()/attachEvidence()
+// expect, for a caller (e.g. sails-ui's AuthContext) that manages this
+// exact keypair itself and needs to sign with that SAME registered public
+// key — see wallet-adapter-local-keypair.ts's own header for the full
+// rationale and its deliberately narrow scope (signMessage only).
+export { LocalKeypairWalletAdapter } from './wallet-adapter-local-keypair'
 
 // RFC-020 custody providers (fulfills RFC-019 Phase 2) — see
 // packages/sails-sdk/src/custody/types.ts's own header comment.
