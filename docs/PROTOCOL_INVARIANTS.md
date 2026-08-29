@@ -199,6 +199,14 @@ Protocol.
 > disclosed as a tracked gap, not hidden, the same discipline Structural
 > Invariant 2 already applies to the WDK custody violation above.
 
+> **Related, narrower gap (2026-08-29):** `docs/SEMANTIC_KERNEL.md` §19
+> identifies the same kind of missing mechanism one level down — not
+> "which artifact set constitutes a released Sails version" (this
+> paragraph's concern) but "which ruleset a single Interaction is bound
+> to, and how a migration away from it is distinguished from silent
+> reinterpretation." Tracked separately as Technical Debt items 34
+> (this one) and 35.
+
 ### 6. The Protocol Remains Infrastructure-Neutral
 
 No single blockchain, no single P2P transport, no single identity or
@@ -618,6 +626,22 @@ yet, and this document's own discipline (§"How Invariants Are
 Enforced" below) is to never claim evidence that isn't real. Missão
 12's conformance-impact findings identify exactly which current
 behaviors this invariant newly classifies as non-conformant.
+
+> **Corrigido/Implementado 2026-08-29 (Missão 13 Fase 2), MULTISIG
+> scope only.** The paragraph above is now partially stale: real
+> `EVIDENCE` exists for the MULTISIG rail's disputed-settlement path —
+> `src/modules/open-settlement/arbitration-authority.ts` and
+> `dispute.service.ts`'s `resolveDispute()` gate require and
+> independently verify a signed authority decision before any
+> settlement action, tested in `tests/arbitrationAuthority.test.ts`.
+> LIGHTNING_HODL/SAFE_GUARD_EVM and QVAC-originated execution were
+> explicitly out of scope for that pass (QVAC's own disputed-settlement
+> path was correspondingly downgraded to advisory-only, since it has no
+> verifiable authority to offer) and remain governed by this paragraph
+> as originally written. `docs/SEMANTIC_KERNEL.md` §6 (K2, "Attributed
+> Discretion") is this invariant's rail-independent, Kernel-level
+> generalization — read that document for the identity-level statement
+> this invariant expresses at current-protocol-version granularity.
 
 ---
 

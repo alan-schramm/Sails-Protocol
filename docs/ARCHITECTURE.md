@@ -69,6 +69,16 @@ layer instead.
 
 ## 1B. The Core — 6 Formal Components (v7.1 — Principal Engineer decision)
 
+> **Terminology note (2026-08-29):** "Core" below names this reference
+> implementation's own six current components — it is not the same thing
+> as the future **Sails Core** discussed in `SEMANTIC_KERNEL.md` §25, a
+> not-yet-designed software layer that would implement/expose the frozen
+> Semantic Kernel (K1/K2/K3). Whether that future Core reuses, replaces,
+> or extends the six components below is an open question `SEMANTIC_KERNEL.md`
+> §27 leaves explicitly unanswered — this section is evaluated against
+> the Kernel like any other part of the system, not assumed to already be
+> it.
+
 Following the CTO architectural review and a formal test applied to every
 proposed addition (see `PROTOCOL_SPECIFICATION.md` sections 1.10-1.11), the
 Core is now six named components — not an implicit grab-bag of logic

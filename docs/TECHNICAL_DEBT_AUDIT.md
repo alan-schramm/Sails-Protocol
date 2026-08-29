@@ -619,6 +619,54 @@ universal foi codificada; ver `INV-12`'s vizinho na Structural
 Invariant 5 e a rejeição explícita de `Constitution > Specification >
 RFC > Schema` como ordenação fixa).
 
+### 35. Classificação do Arbiter como ator não está ancorada em nenhuma taxonomia formal (Semantic Kernel, 2026-08-29)
+
+Achado durante o processo de Semantic Kernel Discovery/Red Team/Final
+Validation que produziu `docs/SEMANTIC_KERNEL.md`. `PROTOCOL_SPECIFICATION.md`
+§1.9 descreve o Arbiter como "a genuinely new actor" e o
+`ArbitrationProvider` como "registered per application (not a
+protocol-native role)" — nunca classificando formalmente o Arbiter como
+`Participant` (RFC-001), `Agent`, ou qualquer outra categoria de ator
+definida. **K2** (`SEMANTIC_KERNEL.md` §6, "Attributed Discretion") exige
+que uma decisão discricionária seja atribuível a "um ator específico,"
+mas a Especificação nunca ancora essa expressão a uma taxonomia concreta
+de ator para o Arbiter especificamente.
+
+**Classificação:** ambiguidade de especificação (não é uma contradição
+normativa — nada no texto atual viola K2/INV-12; apenas nunca resolve a
+pergunta "que TIPO de ator é o Arbiter" de forma explícita).
+
+**Fix restante:** decidir, em `PROTOCOL_SPECIFICATION.md` ou um RFC
+dedicado, se o Arbiter é uma subcategoria de `Participant`, uma categoria
+própria e nomeada, ou permanece deliberadamente não tipado — uma decisão
+normativa real, fora do escopo do processo de Semantic Kernel (que é
+descritivo, não normativo) e não inventada nesta auditoria.
+
+### 36. Cobertura adversarial de K2 (Attributed Discretion) além de MULTISIG não está demonstrada (Semantic Kernel, 2026-08-29)
+
+O mesmo processo confirmou, via leitura direta de código, que o portão de
+verificação em `dispute.service.ts`'s `resolveDispute()` — a
+implementação real de **K2**/`INV-12` — executa de forma incondicional
+para toda resolução de disputa, independente do `EscrowType` do escrow
+(o branch em `applyRuling()` que escolhe entre execução direta e
+`initiateRelease`/`initiateRefund`/`initiateSplit` acontece DEPOIS do
+portão de verificação, não antes). Ou seja, o código em si já não é
+MULTISIG-específico neste ponto.
+
+O que permanece genuinamente limitado a MULTISIG é a **cobertura de teste
+adversarial dedicada** (`tests/arbitrationAuthority.test.ts`'s cenários
+de substituição/replay/forja) e a disciplina de STOP GATE da Missão 13
+Fase 2, que restringiu escopo de revisão detalhada a essa rail
+especificamente.
+
+**Classificação:** débito de cobertura de teste, não de implementação.
+
+**Fix restante:** estender `tests/arbitrationAuthority.test.ts` (ou um
+arquivo irmão) com os mesmos cenários adversariais já cobertos para
+MULTISIG, exercitando explicitamente LIGHTNING_HODL e SAFE_GUARD_EVM via
+`resolveDispute()`, para fechar a lacuna entre "o código já é
+rail-agnóstico" e "isso foi verificado adversarialmente para cada rail."
+
 ---
 
 ## Ações Recomendadas por Prioridade

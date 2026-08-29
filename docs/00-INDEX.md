@@ -31,7 +31,14 @@
 | 20 | [PROTOCOL_INVARIANTS.md](PROTOCOL_INVARIANTS.md) | Rules stricter than principles — a technical constitution, never broken, not just guidance |
 | 21 | [BACKLOG.md](BACKLOG.md) | Engineering backlog ordered by architectural dependency, audited against real code state |
 
-**Not numbered, added later:** [GETTING_STARTED.md](GETTING_STARTED.md)
+**Not numbered, added later:** [SEMANTIC_KERNEL.md](SEMANTIC_KERNEL.md) —
+added 2026-08-29, the frozen baseline answering a narrower question than
+`ARCHITECTURE.md` or `PROTOCOL_INVARIANTS.md` do: not what the current
+protocol version requires, but what must remain true for anything to be
+Sails at all (K1 Valid Transition, K2 Attributed Discretion, K3 Semantic
+Settlement Independence). Read this before starting any future Sails Core
+architecture work — Core must conform to this, not the reverse.
+[GETTING_STARTED.md](GETTING_STARTED.md)
 — added 2026-08-10, the fastest entry point of all 20+: copy-paste
 commands only, a conceptual 8-step trade flow with no file/function
 names, and a "which endpoint for which action" lookup table. Read this
