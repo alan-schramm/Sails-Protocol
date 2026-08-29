@@ -48,11 +48,13 @@ This document's invariants now form three explicit levels:
   separate subsections purely for readability: the original six
   **Structural** invariants (protocol *shape* — custody, fiat,
   module boundaries, infrastructure neutrality; unchanged below,
-  just explicitly re-anchored into this hierarchy) and eleven
+  just explicitly re-anchored into this hierarchy) and twelve
   **Behavioral** invariants (participant authority, verification
-  discipline, economic exactness, recoverability, verifiability —
-  the framework referenced above, formally defined for the first time
-  in §"Level 1 — Behavioral Core Invariants" below).
+  discipline, economic exactness, recoverability, verifiability,
+  attributed authority integrity — the original eleven from the
+  framework referenced above, formally defined for the first time in
+  §"Level 1 — Behavioral Core Invariants" below, plus `INV-12`, added
+  Missão 12, 2026-08-29).
 - **Level 2 — Derived Properties.** Concrete consequences a Core
   Invariant *requires*, one level more specific than the Core law
   itself but still technology-general (not yet "here is the exact
@@ -77,7 +79,7 @@ This document's invariants now form three explicit levels:
 
 **Governance rule this hierarchy exists to enable** (see also
 §"Conformance Is Not "Tests Pass"" near the end of this document): a
-citation to any invariant — `INV-01` through `INV-11`, any
+citation to any invariant — `INV-01` through `INV-12`, any
 `INV-OP-*`, any `DP-*` — must resolve to a real, findable definition
 in this document. A citation that doesn't is a documentation bug, to
 be fixed the same way a broken code reference would be — not left as
@@ -170,6 +172,32 @@ Protocol. An implementation that touches fiat, or that lets an Agent act
 without a delegating Participant's authority, is not a partial
 implementation of Sails Protocol — it is not an implementation of Sails
 Protocol.
+
+> **Extended — Missão 12, 2026-08-29 (Constitutional Closure).** The
+> paragraph above states WHAT counts as a conformant implementation. It
+> says nothing about HOW that fact is determined — an independent
+> reviewer testing a candidate implementation against a private
+> conformance oracle would satisfy the paragraph above literally while
+> still depending entirely on someone's undisclosed say-so. Closing
+> that gap: for a **released version** of the protocol, whether a
+> given implementation meets this bar must be determinable from the
+> normative basis that version itself identifies — which may include,
+> by explicit incorporation, public external normative material
+> (consensus rules, cryptographic standards, accepted RFCs, schemas, or
+> other publicly identifiable references) — without resting on
+> interpretation available only to whoever authored it. A version's own
+> text may not make private, non-public judgment the ultimate
+> determinant of its own meaning, and no party — including whoever
+> authored a released version — may treat a later private assertion
+> about what it meant as retroactively binding on that same version.
+> This does not restrict who may author future versions, does not
+> require a released version's text to be unambiguous, and does not
+> require reproducing an external standard inside Sails' own artifacts
+> — only that a version's meaning, once released, not be silently
+> rewritten by anyone's after-the-fact say-so. This repository does not
+> yet have a formal released-version artifact-identity mechanism —
+> disclosed as a tracked gap, not hidden, the same discipline Structural
+> Invariant 2 already applies to the WDK custody violation above.
 
 ### 6. The Protocol Remains Infrastructure-Neutral
 
@@ -517,6 +545,79 @@ implementation, no drift risk yet; verification: independent, proven);
 `tests/multisigFeeConservation.test.ts`'s exact-conservation proof is
 itself a determinism proof (the same formula, run against the same
 input, always reconciles).
+
+### INV-12. Attributed Authority Integrity
+
+**RULE.** When the protocol attributes an economically consequential
+disposition of value to the decision or authorization of a
+discretionary authority, the resulting execution must correspond to an
+authorization currently valid for it, and that correspondence must be
+independently verifiable — never resting solely on the executor's own
+unilateral assertion, nor on a check the executor alone controls. This
+applies whether or not the authority is a Participant, whether or not
+it is publicly named, and whether the value is already settled or
+still locked/disputed pending that decision.
+
+**WHY.** `INV-01` and `INV-02` protect a Participant's own authority
+over their own state and assets. Neither reaches a distinct failure: a
+coordinator that never impersonates anyone and never touches a
+Participant's own funds can still be the sole judge of whether it
+faithfully carried out a decision it attributes to someone else — an
+arbiter, a delegated committee, an automated policy — with nothing
+outside itself able to check. That gap is real regardless of whether
+the decision-maker is given a public name, and regardless of whether
+the value in question has already reached a final state or is still
+locked pending exactly that decision — excluding the locked/disputed
+case would exclude the paradigm case this invariant exists for.
+
+**DERIVES / DERIVED BY.** Sibling of `INV-01` (Participant-Bound
+Authority) and `INV-02` (Propose, Don't Impersonate) — not an extension
+of either, since both are scoped to a Participant's own authority, and
+the authority this invariant protects need not be a Participant at
+all. Distinct from Structural Invariant 2: that invariant governs who
+holds custody of an asset; this one governs whether an executed
+disposition matches what was actually decided, independent of who
+holds the key. A coordinator can satisfy Structural Invariant 2,
+`INV-01`, and `INV-02` in full and still violate this invariant — the
+decisive counter-model examined during Missão 12: a discretionary
+authority's decision executed by a coordinator that alone controls
+every record of what that decision actually was.
+
+**NON-REQUIREMENTS.** Does not require the discretionary authority to
+itself execute the disposition, to hold any rail-specific settlement
+key, to be human, to be a single entity rather than a threshold or
+joint authority, or to disclose its identity publicly. Does not
+require any specific verification mechanism, cryptographic scheme, or
+a mandatory second human, server, or public verifier — only that the
+correspondence not rest on the executor's own say-so or on a check it
+alone controls. Does not extend to mechanical execution choices (which
+UTXO, which route, which fee, timing within an already-authorized
+window) that leave the authorized disposition unchanged, and does not
+attempt to solve compromised credentials, coerced authorities, or
+forged signatures — those are failures of the authority or security
+model a given rail relies on, not of this invariant, which assumes
+that mechanism's own validity rules and asks only whether the
+resulting execution can be tied to the authority the protocol
+recognizes without trusting the executor's assertion alone.
+
+**EXAMPLE PASS.** An arbiter rules on a disputed, still-locked escrow;
+a distinct executor carries out the ruling using its own execution
+capability; a party other than the executor can confirm, from evidence
+the executor does not unilaterally control, that the execution matches
+what the arbiter actually decided.
+
+**EXAMPLE FAIL.** An executor derives and exercises, on its own, the
+cryptographic capability attributed to an authority — named or not —
+with no record of that authority's actual decision existing, or
+checkable, outside the executor's own control.
+
+**STATUS.** New as of this constitutional delta (Missão 12,
+2026-08-29). No `EVIDENCE` section is claimed — unlike every invariant
+above, no current reference-implementation code satisfies this rule
+yet, and this document's own discipline (§"How Invariants Are
+Enforced" below) is to never claim evidence that isn't real. Missão
+12's conformance-impact findings identify exactly which current
+behaviors this invariant newly classifies as non-conformant.
 
 ---
 

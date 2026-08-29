@@ -514,6 +514,71 @@ mecanismo próprio ainda não desenhado. Fora do escopo desta fase (que
 era MULTISIG-only para a Pergunta 1, per instrução explícita do CTO —
 "não toque em Lightning/EVM architecture").
 
+### 33. `INV-12` (Attributed Authority Integrity, Missão 12) — execução de ruling de árbitro/QVAC não é verificável independentemente da própria assinatura do servidor
+
+Achado pela Missão 12 (Testes de Constituição/Red Team, Fases 6.1–7T),
+fechado normativamente com a adição de `INV-12` em
+`docs/PROTOCOL_INVARIANTS.md` — este item registra o **débito de
+implementação** que `INV-12` agora torna explicitamente não-conformante,
+sem redesenhar nada.
+
+**`multisig.provider.ts`'s `deriveArbiterKey()`** deriva a chave privada
+do árbitro sob demanda, a partir de `MULTISIG_SEED` (uma seed única do
+servidor) mais o `arbiterId`, e o próprio servidor assina diretamente
+toda liberação/reembolso/split em status `DISPUTED`
+(`multisig.provider.ts` — os três branches `DISPUTED` de
+`buildUnsignedRelease`/`Refund`/`Split`). Não existe nenhum registro,
+checável por um terceiro que não o próprio servidor, de que a
+assinatura produzida corresponde à decisão real do árbitro nomeado —
+`INV-12`'s EXAMPLE FAIL descreve exatamente este caso. **Classificação:
+POSSIBLE VIOLATION** de `INV-12` (o caminho feliz MULTISIG, buyer+seller,
+permanece plenamente conformante — a não-conformidade é específica ao
+caminho disputado).
+
+**`dispute.service.ts`'s `proposeAutoResolution()`/
+`sweepExpiredAutoResolutions()`** (automação QVAC de disputa, opt-in,
+off por padrão, confidence-gated, contestável) executa um REFUND
+automatizado usando a mesma chave server-derived do árbitro já
+designado, sem nenhum vínculo criptográfico verificável entre a
+recomendação do modelo e a execução resultante além do registro interno
+do próprio servidor. **Classificação: POSSIBLE VIOLATION**, mesma causa
+raiz do item acima — nenhuma mudança seria necessária no design de
+threshold/contest-window/policy-gating já existente, apenas na camada
+de execução.
+
+**Fix restante:** dar ao árbitro (humano ou o slot que a automação
+QVAC herda) uma capacidade de assinatura verificável e distinta da do
+servidor — ex.: uma credencial de delegação assinada e escopada com a
+própria identidade Ed25519 já registrada do árbitro, que um terceiro
+possa checar contra a execução real — sem exigir que o árbitro detenha
+diretamente a chave secp256k1 do script (`INV-12`'s NON-REQUIREMENTS
+já permite isso explicitamente). Fora do escopo da Missão 12 (que era
+constitucional, não de remediação de implementação).
+
+### 34. Ausência de mecanismo formal de identidade de versão publicada (Constitutional Closure, Missão 12)
+
+Achado pela Missão 12 (Fase 6.2, reconfirmado nas Fases 7/7T) e agora
+normativamente reconhecido na extensão da Structural Invariant 5
+("Constitutional Closure") em `docs/PROTOCOL_INVARIANTS.md`. Hoje não
+existe um conjunto declarado e fechado de artefatos que constitua "Sails
+vX" — `PROTOCOL_SPECIFICATION.md` tem seu próprio número de versão
+(v7.1) na capa, mas isso não amarra a nenhuma versão de
+`PROTOCOL_INVARIANTS.md`, nenhum conjunto de RFCs, nenhum commit
+específico do SDK. Isso não refuta a propriedade de Closure (o mesmo
+princípio que já se aplica à violação de custódia do WDK — a
+Constituição julga a implementação, a implementação não define a
+Constituição) — é uma dependência de remediação em camada inferior
+(Especificação/Governança), disclosed aqui, não escondida.
+
+**Fix restante:** definir, em `PROTOCOL_SPECIFICATION.md` ou
+`GOVERNANCE.md`, o conjunto exato de artefatos (e sua forma de
+incorporação/resolução de conflito) que constitui uma versão lançada do
+Sails — deliberadamente fora do escopo da Missão 12, que estabeleceu
+apenas o princípio constitucional (nenhuma hierarquia normativa
+universal foi codificada; ver `INV-12`'s vizinho na Structural
+Invariant 5 e a rejeição explícita de `Constitution > Specification >
+RFC > Schema` como ordenação fixa).
+
 ---
 
 ## Ações Recomendadas por Prioridade
