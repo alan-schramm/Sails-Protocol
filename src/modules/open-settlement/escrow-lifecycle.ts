@@ -70,7 +70,36 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
 // trusted internal callers (settlement-orchestrator.ts), never from an
 // HTTP request body, so accepting it here doesn't reopen the hole this
 // fix closes.
-export function isPartyOrAgent(triggeredBy: string, participantId: string): boolean {
+// Missão 11 Fase 9.6 — hardening, not a new authorization mechanism
+// (Kimi K3 R2's AUTH-01/AUTH-03/AUTH-04/CONST-GAP-02, downgraded from
+// P1 to DESIGN DEBT during Fase 9.5's independent triage: grepping
+// every real call site of isPartyOrAgent() in this codebase showed the
+// first argument is always either an authenticated caller's own
+// requireAuth-verified participantId — a server-generated UUID that
+// structurally can never take the `agent:...` shape — or a hardcoded
+// system constant; nothing request-controlled reaches this function
+// unchanged today). The gap the triage flagged wasn't that this is
+// exploitable now — it's that nothing STOPS a future call site from
+// threading raw request/body text into this parameter without
+// noticing the precedent this comment (and the one above, predating
+// this phase) already documents. TrustedActorId is a pure compile-time
+// brand — identical to `string` at runtime, zero behavior change —
+// so a future `isPartyOrAgent(request.body.someField, ...)` fails to
+// COMPILE instead of silently reopening the syntactic-pattern gap.
+declare const trustedActorBrand: unique symbol
+export type TrustedActorId = string & { readonly [trustedActorBrand]: true }
+
+// The ONLY sanctioned way to produce a TrustedActorId. Call it with
+// either an authenticated caller's own participantId (requireAuth's
+// verified session — settlement.routes.ts's participantId(request)
+// helper) or one of this codebase's own hardcoded system constants
+// (SYSTEM_SWEEPER_ID, an already-validated arbiterId, etc.) — never
+// with a raw, unvalidated request field.
+export function asTrustedActor(id: string): TrustedActorId {
+  return id as TrustedActorId
+}
+
+export function isPartyOrAgent(triggeredBy: TrustedActorId, participantId: string): boolean {
   return triggeredBy === participantId || new RegExp(`^agent:[^:]+:${participantId}$`).test(triggeredBy)
 }
 
@@ -84,7 +113,7 @@ export function isPartyOrAgent(triggeredBy: string, participantId: string): bool
 // public isSellerOrAssignedArbiter() method) — no instance state was
 // ever involved, so callers use the same call surface either way.
 export async function isSellerOrAssignedArbiter(tradeId: string, sellerId: string, triggeredBy: string): Promise<boolean> {
-  if (isPartyOrAgent(triggeredBy, sellerId)) return true
+  if (isPartyOrAgent(asTrustedActor(triggeredBy), sellerId)) return true
   const dispute = await escrowRepository.findDisputeByTradeAndArbiter(tradeId, triggeredBy)
   return dispute !== null
 }
@@ -312,6 +341,34 @@ export function computeEscrowEventHash(fromStatus: string, toStatus: string, tri
   return createHash('sha256').update(`${fromStatus}|${toStatus}|${triggeredBy}|${prevHash}`).digest('hex')
 }
 
+// Missão 11 Fase 9.7 — CONC-03's "C5" closure (found auditing this exact
+// function while investigating whether Fase 9.6's own crash-recovery
+// reconciliation could itself double-fire a settlement completion — it
+// could: a concurrent reconciliation run picking up the same escrow as
+// a live, not-yet-finished normal completion would both reach this
+// point). Every existing normal-path caller (releaseFunds()/
+// refundFunds()/splitFunds()/submitTransactionSignature()/markPaymentSent()/
+// openDispute()) is already protected against a CONCURRENT duplicate
+// call by claimEscrowTransition()'s own status-based atomic claim
+// earlier in its own flow — but escrow-settlement-reconciliation.service.ts's
+// crash-recovery catch-up calls this function directly, for an escrow
+// that may (rarely) still be genuinely mid-flight in a live completion
+// that hasn't crashed at all. This closes that race for every caller at
+// once: the FIRST invocation for a given (escrowId, toStatus) — a pair
+// this state machine's own VALID_TRANSITIONS graph never revisits, so
+// this is a safe, non-ambiguous key — creates the EscrowEvent row and
+// fires eventBus.emit(); every other concurrent or later attempt for
+// the IDENTICAL transition is a safe, silent no-op, never a second
+// firing of the non-idempotent downstream cascade (trade completion,
+// reputation, volume — audited Fase 9.7, several of which are raw
+// increments with no idempotency key of their own). Uses the SAME
+// escrowId-scoped advisory lock withEscrowFundingLock() already
+// provides — no new locking primitive, no schema change.
+//
+// Returns whether THIS call actually emitted (false = another caller
+// already had). No existing caller inspects the return value — this is
+// purely additive; every existing `await emitEscrowTransition(...)`
+// site is unaffected.
 export async function emitEscrowTransition(
   escrowId: string,
   tradeId: string,
@@ -321,27 +378,33 @@ export async function emitEscrowTransition(
   eventName: Parameters<typeof eventBus.emit>[0],
   eventExtra: Record<string, unknown> = {},
   note?: string
-) {
-  // RFC-008 D2 amendment — read-then-write, no explicit DB transaction,
-  // the exact same pattern intent-engine.ts's writeIntentEvent() already
-  // uses safely. Race-free for the same reason that one is: this function
-  // is only ever called after the caller's own claimEscrowTransition()
-  // (or openDispute()'s identical atomic claim) has already succeeded for
-  // this escrowId — Postgres itself already guaranteed only one request
-  // reaches this point per escrowId at a time, so there is no concurrent
-  // writer left to race against when reading "the last event" below.
+): Promise<boolean> {
   // entryHash/prevHash are never accepted from a caller — this function's
   // own signature has no such parameters, so they can only ever be what
   // the server itself derives here.
-  const last = await prisma.escrowEvent.findFirst({ where: { escrowId }, orderBy: { createdAt: 'desc' } })
-  const prevHash = last?.entryHash ?? 'genesis'
-  const entryHash = computeEscrowEventHash(from, to, triggeredBy, prevHash)
+  const claimed = await withEscrowFundingLock(escrowId, async (tx) => {
+    const alreadyEmitted = await tx.escrowEvent.findFirst({ where: { escrowId, toStatus: to as any } })
+    if (alreadyEmitted) return false
 
-  await prisma.escrowEvent.create({
-    data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note, entryHash, prevHash },
+    const last = await tx.escrowEvent.findFirst({ where: { escrowId }, orderBy: { createdAt: 'desc' } })
+    const prevHash = last?.entryHash ?? 'genesis'
+    const entryHash = computeEscrowEventHash(from, to, triggeredBy, prevHash)
+
+    await tx.escrowEvent.create({
+      data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note, entryHash, prevHash },
+    })
+    return true
   })
+
+  if (!claimed) return false
+
   // correlationId = tradeId (RFC-010) — stand-in for intentId until Intent
   // persistence exists; Trade already IS the concrete TradeIntent (§2.3).
+  // Deliberately outside the lock/transaction above — this cascades into
+  // several other modules' own writes (OpenP2P, OpenReputation), and
+  // holding a Postgres advisory lock open across that whole chain would
+  // be a real architectural liability for no added safety once the
+  // EscrowEvent claim above has already made this the sole winner.
   await eventBus.emit(eventName as any, {
     escrowId,
     tradeId,
@@ -350,6 +413,7 @@ export async function emitEscrowTransition(
     triggeredBy,
     ...eventExtra,
   }, tradeId)
+  return true
 }
 
 // RFC-008 D2 amendment — Fase 5's own verification primitive. Same shape

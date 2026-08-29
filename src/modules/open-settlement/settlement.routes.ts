@@ -549,8 +549,22 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     ...docsOnlySchema({ tags: ['open-settlement'], body: registerPaymentAccountSchema }),
   }, async (request, reply) => {
     const body = registerPaymentAccountSchema.parse(request.body)
-    const account = await paymentAccountService.getOrCreate(participantId(request), body.accountHash, body.paymentMethod)
-    return reply.code(201).send(success(account))
+    const caller = participantId(request)
+    const account = await paymentAccountService.getOrCreate(caller, body.accountHash, body.paymentMethod)
+    // Missão 11 Fase 9.6 — INV-OP-10 fix (Kimi K3 R2 triage, Fase 9.5).
+    // getOrCreate() returns the raw PaymentAccount row either way — a
+    // brand-new registration IS self-referential (the caller just
+    // created their own row, full disclosure is correct, same exception
+    // this route's own comment above already documents), but the
+    // existing-hash branch previously sent that same raw row —
+    // ownerId/signedBy/id/moduleId/protocolVersion included — to ANY
+    // authenticated caller who supplied someone else's real accountHash,
+    // not just the owner. Only self-referential calls (new account, or
+    // an owner re-submitting their own already-registered hash) get the
+    // full row now; anyone else gets the identical public projection
+    // GET /v1/settlement/payment-accounts/:accountHash already returns.
+    const view = account.ownerId === caller ? account : paymentAccountService.toPublicView(account)
+    return reply.code(201).send(success(view))
   })
 
   // Missão 11 Fase 9.3.1 — deliberately public (no requireAuth), matching
@@ -579,8 +593,16 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     ...docsOnlySchema({ tags: ['open-settlement'], params: accountHashParamsSchema }),
   }, async (request, reply) => {
     const { accountHash } = accountHashParamsSchema.parse(request.params)
-    const account = await paymentAccountService.signPaymentAccount(accountHash, participantId(request))
-    return reply.code(200).send(success(account))
+    const caller = participantId(request)
+    const account = await paymentAccountService.signPaymentAccount(accountHash, caller)
+    // Missão 11 Fase 9.6 — same INV-OP-10 gap as the POST .../payment-accounts
+    // route above, found in the same sweep: the signer attesting an
+    // account is very often NOT its owner (RFC-021 D1 — an arbiter or
+    // peer attests someone ELSE's account), so this response was sending
+    // ownerId/signedBy/id/moduleId/protocolVersion to exactly the caller
+    // this projection exists to keep that from.
+    const view = account.ownerId === caller ? account : paymentAccountService.toPublicView(account)
+    return reply.code(200).send(success(view))
   })
 
   // BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04

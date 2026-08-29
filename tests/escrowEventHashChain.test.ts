@@ -25,8 +25,21 @@ const mockCreate = jest.fn(async (args: any) => {
   escrowEvents.push(row)
   return row
 })
+// Missão 11 Fase 9.7 — emitEscrowTransition() now makes TWO distinct
+// findFirst() calls per invocation, inside the lock: (1) the new
+// idempotency claim, filtered by BOTH escrowId AND toStatus ("has THIS
+// exact transition already happened") and (2) the pre-existing "what's
+// the most recent event at all" lookup (escrowId only, no toStatus),
+// used to compute prevHash. This fake must honor toStatus when the real
+// query includes it — otherwise call (1) would incorrectly match ANY
+// prior event for the escrowId (any toStatus), not just a real repeat
+// of the SAME transition, and every subsequent emitEscrowTransition()
+// call for an escrow already past its first transition would be
+// wrongly treated as a duplicate and silently skipped.
 const mockFindFirst = jest.fn(async (args: any) => {
-  const matching = escrowEvents.filter((e) => e.escrowId === args.where.escrowId)
+  const matching = escrowEvents.filter((e) =>
+    e.escrowId === args.where.escrowId && (args.where.toStatus === undefined || e.toStatus === args.where.toStatus)
+  )
   if (matching.length === 0) return null
   return matching.reduce((latest, e) => (e.createdAt > latest.createdAt ? e : latest))
 })
@@ -43,6 +56,22 @@ jest.mock('../src/common/database', () => ({
       findFirst: (...args: unknown[]) => mockFindFirst(...(args as [any])),
       findMany: (...args: unknown[]) => mockFindMany(...(args as [any])),
     },
+    // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
+    // existence-check-then-create INSIDE withEscrowFundingLock()
+    // (prisma.$transaction()). This mock is a bare passthrough — no real
+    // mutual exclusion, exactly like every other test file's own
+    // $transaction mock — so it does NOT change the "concurrency" describe
+    // block's own scenario below: real serialization is a genuine Postgres
+    // property (tests/integration/escrowFundingConcurrency.test.ts), not
+    // something a mocked transaction can provide.
+    $transaction: (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({
+        $executeRaw: jest.fn().mockResolvedValue(0),
+        escrowEvent: {
+          create: (...args: unknown[]) => mockCreate(...(args as [any])),
+          findFirst: (...args: unknown[]) => mockFindFirst(...(args as [any])),
+        },
+      }),
   },
 }))
 jest.mock('../src/common/events/event-bus', () => ({

@@ -1467,10 +1467,102 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(404)
     })
 
-    it('signs an unsigned payment account for real', async () => {
+    // Missão 11 Fase 9.6 — CONC-03/INV-OP-10 remediation (Kimi K3 R2,
+    // Fase 9.5 triage). getOrCreate()'s existing-hash branch previously
+    // returned the raw PaymentAccount row (ownerId/signedBy/id/moduleId/
+    // protocolVersion included) to ANY authenticated caller who supplied
+    // someone else's real accountHash — the exact disclosure the GET
+    // route's own Fase 9.3.1 remediation was supposed to close, just
+    // reachable through a second, un-swept route. Same fix as signPaymentAccount()
+    // above: self-referential responses (a brand-new registration, or an
+    // owner re-submitting their own already-registered hash) stay full;
+    // anyone else gets the identical PublicPaymentAccountView projection
+    // GET /v1/settlement/payment-accounts/:accountHash already returns.
+    describe('POST /v1/settlement/payment-accounts — existing-hash branch privacy boundary (Missão 11 Fase 9.6)', () => {
+      const fullRow = {
+        id: 'internal-row-id-should-never-leak',
+        ownerId: 'buyer-1',
+        accountHash: 'hash-shared-1',
+        paymentMethod: 'PIX',
+        signed: true,
+        signedBy: 'user-signer-should-never-leak',
+        signedAt: new Date('2026-01-01T00:00:00.000Z'),
+        firstUsedAt: new Date('2025-06-01T00:00:00.000Z'),
+        completedTrades: 2,
+        chargebacks: 0,
+        moduleId: 'opensettlement',
+        protocolVersion: '0.1',
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+      }
+
+      it('a brand-new account registration is self-referential — full contract, exact expected shape', async () => {
+        const token = await authedSession('buyer-1')
+        mockPaymentAccountFindUnique.mockResolvedValueOnce(null)
+        mockPaymentAccountCreate.mockResolvedValueOnce({
+          accountHash: 'hash-new-1', ownerId: 'buyer-1', paymentMethod: 'PIX', signed: false, completedTrades: 0, chargebacks: 0,
+        })
+
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/settlement/payment-accounts',
+          headers: { authorization: `Bearer ${token}` },
+          payload: { accountHash: 'hash-new-1', paymentMethod: 'PIX' },
+        })
+
+        expect(res.statusCode).toBe(201)
+        const body = JSON.parse(res.body)
+        expect(body.data.accountHash).toBe('hash-new-1')
+        expect(body.data.ownerId).toBe('buyer-1')
+      })
+
+      it('an owner re-submitting their own already-registered hash gets the full row back — self-referential, not a privacy leak', async () => {
+        const token = await authedSession('buyer-1')
+        mockPaymentAccountFindUnique.mockResolvedValueOnce(fullRow) // ownerId: 'buyer-1' — the caller's own account
+
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/settlement/payment-accounts',
+          headers: { authorization: `Bearer ${token}` },
+          payload: { accountHash: 'hash-shared-1', paymentMethod: 'PIX' },
+        })
+
+        expect(res.statusCode).toBe(201)
+        const body = JSON.parse(res.body)
+        expect(body.data.ownerId).toBe('buyer-1')
+        expect(body.data.signedBy).toBe('user-signer-should-never-leak')
+      })
+
+      it('a caller supplying a COUNTERPARTY\'s real accountHash gets only the public projection — no ownerId, no signedBy, no internal id, no bookkeeping', async () => {
+        const token = await authedSession('someone-else') // not fullRow's ownerId
+        mockPaymentAccountFindUnique.mockResolvedValueOnce(fullRow)
+
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/settlement/payment-accounts',
+          headers: { authorization: `Bearer ${token}` },
+          payload: { accountHash: 'hash-shared-1', paymentMethod: 'PIX' },
+        })
+
+        expect(res.statusCode).toBe(201)
+        const body = JSON.parse(res.body)
+        expect(body.data).not.toHaveProperty('ownerId')
+        expect(body.data).not.toHaveProperty('signedBy')
+        expect(body.data).not.toHaveProperty('id')
+        expect(body.data).not.toHaveProperty('moduleId')
+        expect(body.data).not.toHaveProperty('protocolVersion')
+        expect(body.data).not.toHaveProperty('updatedAt')
+        expect(res.body).not.toContain('user-signer-should-never-leak')
+        expect(res.body).not.toContain('internal-row-id-should-never-leak')
+        expect(Object.keys(body.data).sort()).toEqual([
+          'accountHash', 'chargebacks', 'completedTrades', 'firstUsedAt', 'paymentMethod', 'signed', 'signedAt', 'tradeLimit',
+        ])
+      })
+    })
+
+    it('signs an unsigned payment account for real — signer is not the owner (the real RFC-021 D1 case: an arbiter/peer attesting someone else\'s account), so the response is the narrow public projection, not the raw row', async () => {
       const token = await authedSession('arbiter-1')
-      mockPaymentAccountFindUnique.mockResolvedValueOnce({ accountHash: 'hash-1', signed: false })
-      mockPaymentAccountUpdate.mockResolvedValueOnce({ accountHash: 'hash-1', signed: true, signedBy: 'arbiter-1' })
+      mockPaymentAccountFindUnique.mockResolvedValueOnce({ accountHash: 'hash-1', ownerId: 'buyer-1', signed: false, firstUsedAt: new Date('2026-01-01'), completedTrades: 0, chargebacks: 0 })
+      mockPaymentAccountUpdate.mockResolvedValueOnce({ accountHash: 'hash-1', ownerId: 'buyer-1', signed: true, signedBy: 'arbiter-1', firstUsedAt: new Date('2026-01-01'), completedTrades: 0, chargebacks: 0 })
 
       const res = await app.inject({
         method: 'POST',
@@ -1481,7 +1573,8 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.body)
       expect(body.data.signed).toBe(true)
-      expect(body.data.signedBy).toBe('arbiter-1')
+      expect(body.data).not.toHaveProperty('signedBy')
+      expect(body.data).not.toHaveProperty('ownerId')
     })
 
     // Missão 11 Fase 9.3.4 — CTO-mandated INV-OP-10 existing-surface

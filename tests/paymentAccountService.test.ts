@@ -328,4 +328,25 @@ describe('PaymentAccountService — getPublicView() (Missão 11 Fase 9.3.1 priva
     const [view, limit] = await Promise.all([service.getPublicView('hash-1'), service.getTradeLimit('hash-1')])
     expect(view.tradeLimit).toBe(limit)
   })
+
+  // Missão 11 Fase 9.6 — toPublicView() is getPublicView()'s pure
+  // projection half, split out so settlement.routes.ts's POST routes
+  // (create, sign) can apply the identical privacy boundary to a row
+  // they already have in hand, without a redundant fetch. Same field
+  // contract as getPublicView() itself — proven here directly, once,
+  // rather than duplicated per call site.
+  it('toPublicView() applied directly to a row produces the exact same projection getPublicView() computes from a fetch', () => {
+    const service = new PaymentAccountService()
+    const view = service.toPublicView(fullRow)
+    expect(view).not.toHaveProperty('ownerId')
+    expect(view).not.toHaveProperty('signedBy')
+    expect(view).not.toHaveProperty('id')
+    expect(view).not.toHaveProperty('moduleId')
+    expect(view).not.toHaveProperty('protocolVersion')
+    expect(view).not.toHaveProperty('updatedAt')
+    expect(Object.keys(view).sort()).toEqual([
+      'accountHash', 'chargebacks', 'completedTrades', 'firstUsedAt', 'paymentMethod', 'signed', 'signedAt', 'tradeLimit',
+    ])
+    expect(view.tradeLimit).toBe(ESTABLISHED_TRADE_LIMIT)
+  })
 })

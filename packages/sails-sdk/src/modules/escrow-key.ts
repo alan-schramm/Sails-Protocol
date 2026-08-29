@@ -104,6 +104,16 @@ export function generateEscrowKeypair(): EscrowKeypair {
 export function signEscrowPsbt(psbtBase64: string, privateKey: Uint8Array): string {
   const psbt = bitcoin.Psbt.fromBase64(psbtBase64)
   const keyPair = ECPair.fromPrivateKey(Buffer.from(privateKey))
-  psbt.signInput(0, keyPair)
+  // Missão 11 Fase 9.6 — Kimi K3 R2's PROV-01 finding (independently
+  // triaged as DESIGN DEBT, not a live exploit — this repository's own
+  // provider registry is a closed, operator-curated set with no runtime
+  // injection surface): this call previously relied on bitcoinjs-lib's
+  // own undocumented default (SIGHASH_ALL) rather than asserting it, so
+  // there was no test proving this signer would ever REFUSE to sign an
+  // input requesting a different sighash type. Explicit now — this
+  // function only ever produces a SIGHASH_ALL signature, and
+  // psbt.signInput() itself throws if the PSBT's own sighash type isn't
+  // in this list, rather than silently signing whatever was asked.
+  psbt.signInput(0, keyPair, [bitcoin.Transaction.SIGHASH_ALL])
   return psbt.toBase64()
 }

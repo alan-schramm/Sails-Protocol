@@ -881,6 +881,28 @@ HTTP layers). This closes the last known INV-OP-10 violation identified
 across the Fase 9.3.2/9.3.4 conformance sweeps of this document's
 existing public surfaces.
 
+**Closed a second, distinct violation — Missão 11 Fase 9.6, 2026-08-25.**
+An independent adversarial red-team (Kimi K3 R2) targeting the payment-
+account surface's fixed GET route found nothing new there — but tracing
+its own claim ("hash collision → ownership transfer," refuted: SHA-256
+collision is not what a shared accountHash actually requires, and
+`getOrCreate()` never mutates `ownerId`) surfaced a real, previously-
+unswept sibling gap: `POST /v1/settlement/payment-accounts` and
+`POST /v1/settlement/payment-accounts/:accountHash/sign`
+(`settlement.routes.ts`) both echoed `getOrCreate()`'s/
+`signPaymentAccount()`'s raw return value verbatim — full row,
+`ownerId`/`signedBy` included — whenever the caller was NOT the
+account's owner (an arbiter/peer attesting someone else's account via
+`/sign`, or any authenticated caller supplying a counterparty's real
+`accountHash` via the POST create route). The Fase 9.3.1 sweep only
+reached the sibling GET route. Fixed the same way: `PaymentAccountService.toPublicView()`
+(the projection half of `getPublicView()`, split out so a caller that
+already has the row in hand doesn't need a second fetch) is now applied
+whenever `account.ownerId !== caller` on both POST routes — a
+self-referential response (a brand-new registration, or an owner
+re-submitting their own hash) stays full, exactly the same exception
+this invariant's own text already carves out.
+
 **Executable conformance principle this invariant establishes:**
 *public verification surface != internal persistence model.* Wherever a
 route or SDK method exists to let an external party verify a claim
@@ -900,6 +922,160 @@ unnoticed; asserting the exact key set does.
 > the guess in the superseded version of this note was wrong; the fresh
 > Level 2 catalog numbers from `DP-1`, it does not continue any old
 > sequence).
+
+---
+
+### INV-OP-11. Settlement Crash-Recovery Converges to Externally-Observable Truth, Never a Blind Replay
+
+**Derives from:** `INV-07` (Explicit Failure & Recovery — Core, Structural)
+and `INV-06` (Exact Economic Conservation — Core, Behavioral). This is a
+Level 3 codification of an existing Level 1 law, not a new one: INV-07
+already requires that "a recovery path may not itself be blocked by the
+very uncertainty it exists to resolve," and already implies its
+converse — a recovery path must not itself *create* new uncertainty by
+guessing. No counterexample was found that INV-07/INV-06 together fail
+to cover; **no new Core Invariant was introduced for this finding.**
+
+**Recorded — Missão 11 Fase 9.6, 2026-08-25.** Closes CONC-03 (Kimi K3
+R2, CONFIRMED/P1 in Fase 9.5's independent triage): `escrow.service.ts`'s
+`releaseFunds()`/`refundFunds()`/`splitFunds()` and `escrow-pending-tx.ts`'s
+`submitTransactionSignature()` all `claimEscrowTransition()` a TERMINAL
+escrow status (`COMPLETED`/`REFUNDED`/`SPLIT` — `VALID_TRANSITIONS`'s
+own empty terminal set) *before* calling the real settlement provider, and
+persist `txReleaseId` only *after* it returns. A hard process crash
+(container eviction, OOM-kill — never a catchable JS exception, those
+were already handled) landing in that window leaves an escrow claiming
+a terminal outcome with no `txReleaseId` and, critically, no way for
+the process that resumes to know whether the real fund movement
+actually happened before it died.
+
+**The rule this invariant states:** a crash-recovery mechanism for a
+settlement-critical operation MUST NOT assume either "it definitely
+happened" or "it definitely didn't" — it must ask an authoritative,
+externally-observable source of truth, and MUST NOT re-execute an
+action whose real-world effect it cannot first rule out having already
+occurred. Where no such authoritative source exists for a given rail,
+recovery MUST fail closed (flag for manual review) rather than guess in
+either direction — a stuck-but-safe state is always preferable to a
+guessed, possibly-duplicate one.
+
+**How this is met today — MULTISIG only.** `escrow-settlement-reconciliation.service.ts`'s
+`reconcilePendingSettlements()` finds every terminal-status escrow with
+a null `txReleaseId`. For MULTISIG (the only rail whose settlement
+transaction is fully deterministic and reconstructable from already-
+persisted, already-collected data — the unsigned PSBT plus every
+required signer's already-submitted signed copy, both durable well
+before finalization ever runs), `multisig.provider.ts`'s
+`reconcilePendingSettlement()` deterministically rebuilds the exact
+transaction a crashed attempt would have produced (same combine/
+finalize logic `finalizeSpend()` itself uses — one shared implementation,
+not a second one that could drift, the same discipline ECON-04's
+investigation confirmed this codebase already applies to fee-basis
+math) and asks Bitcoin itself: does a transaction with this exact txid
+already exist on the network? If yes, local state converges to that
+observed truth with **no new broadcast**. If no, it checks whether the
+funding outpoint is still unspent; only then does it broadcast — the
+one and only real settlement action this escrow's signatures could ever
+produce, never a second, independently-constructed one. If the outpoint
+is spent by something that isn't this reconstructed transaction, that
+is a genuine anomaly (structurally should be impossible, given a single
+2-of-3 script and this escrow's own already-collected signatures) —
+reconciliation fails closed and reports it, moving no funds.
+
+**Deliberately narrow.** No other rail in this codebase has an
+equivalent authoritative-truth primitive today. MOCK/WDK_USDT_EVM move
+funds via a direct, single-call path with no persisted, independently-
+reconstructable transaction to compare against; LIGHTNING_HODL/
+SAFE_GUARD_EVM are structurally signature-collection rails like
+MULTISIG but have never had this primitive built for them (out of
+scope for this phase — see `docs/TECHNICAL_DEBT_AUDIT.md`). For any
+escrow this mechanism cannot safely reconcile, it does exactly what
+this invariant requires: fails closed, flagged for manual review,
+moving no funds. See `tests/multisigProvider.test.ts`'s
+`reconcilePendingSettlement()` suite (real signed PSBTs, real fetch-mocked
+network responses — the "expected txid" every test asserts against is
+independently computed, never asserted by fiat) and
+`tests/escrowSettlementReconciliation.test.ts` for the mechanical proof,
+including the fail-closed paths and the "a concurrent reconciliation run
+already converged this escrow" race guard.
+
+**Extended — Missão 11 Fase 9.7, 2026-08-25 (C5 closure).** Fase 9.6's
+own report explicitly disclosed a narrower, distinct gap it had found
+but not closed: a crash landing AFTER `txReleaseId` is durably
+persisted but BEFORE `emitEscrowTransition()` completes leaves the
+DOWNSTREAM completion effects (fee obligation, `Trade.status`,
+reputation, volume, the `settlement.escrow.*` event) silently missing —
+not duplicated, missing. This is a genuinely different failure mode
+from the on-chain-truth question above (by this point the real fund
+movement is already a confirmed fact — no further truth-seeking is
+needed for ANY rail, not just MULTISIG), so this invariant's own text
+is extended here rather than minting a new one: **a settlement's
+downstream completion effects must apply to exactly one logically
+consistent outcome per real settlement, with safe catch-up when
+missing — never a blind guess in either direction, the same rule this
+invariant already states for the fund movement itself.**
+
+**Root cause, audited directly (Fase 9.7), not assumed.** Several of
+these downstream effects have no idempotency key of their own:
+`recordTradeCompletion()`'s `totalTrades`/`totalVolumeBtc` increments
+and `reputationService.recordOutcome()`'s `reputationScore` increment
+(`common/events/handlers.ts`) are raw `{ increment: n }` writes — a
+naive re-run would double-count them. **Refuted as a safe reuse:**
+`Trade.completedAt`/`cancelledAt` were investigated as a possible
+existing-field idempotency claim and found UNSAFE for the refund side
+specifically — `trade.service.ts`'s own manually-triggered
+`updateStatus()` (a participant cancelling an ACTIVE trade directly,
+unrelated to escrow settlement) can ALSO set `cancelledAt`, so treating
+it as "has this trade's settlement-completion already run" would
+wrongly skip a real, later escrow refund's own reputation/vouch effects
+for a trade someone had separately, earlier, manually cancelled.
+
+**The actual fix — `emitEscrowTransition()` itself (`escrow-lifecycle.ts`)
+is now the single, atomic idempotency claim**, keyed on `(escrowId,
+toStatus)` — a pair `VALID_TRANSITIONS`' own state graph never revisits
+for a real escrow (every status is reachable at most once per escrow's
+lifetime), verified directly, not assumed. The claim (does an
+`EscrowEvent` for this exact transition already exist?) and the
+row-creation that answers it for the next caller both happen inside the
+SAME `withEscrowFundingLock()` advisory-lock transaction already used
+elsewhere in this file; `eventBus.emit()` itself — and everything it
+cascades into — only ever runs for the ONE caller that wins the claim.
+This protects EVERY caller in the codebase (the normal completion
+paths, already independently protected against a concurrent duplicate
+by `claimEscrowTransition()`'s own status gate, AND the reconciliation
+catch-up path below, which has no such independent protection of its
+own) with one shared mechanism, not two independently-maintained ones.
+
+`escrow-settlement-reconciliation.service.ts`'s second pass
+(`reconcileMissingCompletionEffects()`) finds every terminal escrow with
+`txReleaseId` already set, and — for ANY rail, not just MULTISIG, since
+no further truth-seeking is needed once the fund movement is already
+confirmed — re-runs the same downstream-effects sequence the normal
+path uses, safely, because `emitEscrowTransition()`'s own claim is what
+actually prevents a double-fire, not this pass's own (merely advisory)
+peek. One genuine, disclosed limitation: a direct-call-rail (MOCK/
+WDK_USDT_EVM) SPLIT with no surviving `EscrowPendingTransaction` row
+cannot recover its `buyerBps` (never persisted anywhere durable on that
+path) — fee-obligation recording is explicitly SKIPPED and flagged for
+manual review in that one case, never guessed. See
+`tests/escrowSettlementReconciliation.test.ts`'s "Fase 9.7" describe
+blocks and the dedicated `emitEscrowTransition()` idempotency tests in
+that same file for the mechanical proof.
+
+**Adjacent, not overlapping:** `INV-OP-5` (Reputation Score Changes
+Through Exactly One Entrypoint) states WHICH code path may mutate
+`reputationScore` — a structural property. This invariant's own C5
+extension states how many times that ONE entrypoint may actually fire
+per real settlement — an execution-count property. INV-OP-5 alone does
+not, and was never meant to, guard against its own single entrypoint
+being invoked twice for the same event; that gap is what this
+extension closes.
+
+**No new Core Invariant.** Same derivation as above (`INV-07` + `INV-06`
+— read broadly enough to cover the protocol's own volume/reputation
+ledgers as part of "exact economic conservation," not narrowly as
+"Bitcoin sats only"), no new one introduced. No genuine counterexample
+was found that INV-07/INV-06 together fail to represent.
 
 ---
 

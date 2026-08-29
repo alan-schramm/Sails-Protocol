@@ -16,6 +16,7 @@ import {
 } from './escrow-providers'
 import {
   isPartyOrAgent,
+  asTrustedActor,
   isSellerOrAssignedArbiter,
   loadEscrowWithAuthorization,
   loadParticipantPubkeys,
@@ -363,7 +364,7 @@ export class EscrowService {
     // doc comment (escrow-lifecycle.ts) for why an IDOR check was missing here.
     const trade = await tradeRepository.findById(escrow.tradeId)
     if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
-    if (!isPartyOrAgent(triggeredBy, trade.sellerId)) {
+    if (!isPartyOrAgent(asTrustedActor(triggeredBy), trade.sellerId)) {
       throw new ForbiddenError(`${triggeredBy} is not the seller of trade ${trade.id} — only the seller may lock escrow funds`)
     }
 
@@ -464,7 +465,7 @@ export class EscrowService {
     // Claiming fiat was sent is the buyer's own claim — see isPartyOrAgent()'s doc comment.
     const trade = await tradeRepository.findById(escrow.tradeId)
     if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
-    if (!isPartyOrAgent(triggeredBy, trade.buyerId)) {
+    if (!isPartyOrAgent(asTrustedActor(triggeredBy), trade.buyerId)) {
       throw new ForbiddenError(`${triggeredBy} is not the buyer of trade ${trade.id} — only the buyer may confirm payment sent`)
     }
 
@@ -632,7 +633,7 @@ export class EscrowService {
     // belongs at the actual choke point" lesson from RFC-014/015.
     const trade = await tradeRepository.findById(escrow.tradeId)
     if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
-    if (!isPartyOrAgent(triggeredBy, trade.buyerId) && !isPartyOrAgent(triggeredBy, trade.sellerId)) {
+    if (!isPartyOrAgent(asTrustedActor(triggeredBy), trade.buyerId) && !isPartyOrAgent(asTrustedActor(triggeredBy), trade.sellerId)) {
       throw new ForbiddenError(`${triggeredBy} is not a party to trade ${trade.id}`)
     }
 

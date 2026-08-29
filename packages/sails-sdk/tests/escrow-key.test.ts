@@ -117,4 +117,35 @@ describe('signEscrowPsbt', () => {
     const onlyBuyer = bitcoin.Psbt.fromBase64(buyerSignedBase64, { network: bitcoin.networks.testnet })
     expect(() => onlyBuyer.finalizeAllInputs()).toThrow()
   })
+
+  // Missão 11 Fase 9.6 — Kimi K3 R2's PROV-01 finding, independently
+  // triaged as DESIGN DEBT (no live exploit path — this repository's
+  // provider registry admits no runtime-injected implementation), but
+  // real fragility: this function relied on bitcoinjs-lib's own
+  // undocumented signInput() default rather than asserting SIGHASH_ALL
+  // explicitly. Now that the assertion is explicit, this proves it's
+  // enforced for real, not just declared in a comment: a PSBT input
+  // that itself requests a non-SIGHASH_ALL type is refused outright.
+  it('refuses to sign an input whose PSBT itself requests a non-SIGHASH_ALL sighash type — the explicit assertion added Missão 11 Fase 9.6 is enforced, not just declared', () => {
+    const buyer = generateEscrowKeypair()
+    const seller = generateEscrowKeypair()
+    const network = bitcoin.networks.testnet
+    const pubkeys = [Buffer.from(buyer.publicKey), Buffer.from(seller.publicKey)].sort(Buffer.compare)
+    const p2ms = bitcoin.payments.p2ms({ m: 2, pubkeys, network })
+    const p2wsh = bitcoin.payments.p2wsh({ redeem: p2ms, network })
+
+    const psbt = new bitcoin.Psbt({ network })
+    psbt.addInput({
+      hash: 'c'.repeat(64),
+      index: 0,
+      witnessUtxo: { script: p2wsh.output!, value: 100000n },
+      witnessScript: p2ms.output!,
+      // SIGHASH_ALL | SIGHASH_ANYONECANPAY — a real, distinct sighash
+      // type this function must never silently sign for.
+      sighashType: bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_ANYONECANPAY,
+    })
+    psbt.addOutput({ address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx', value: 90000n })
+
+    expect(() => signEscrowPsbt(psbt.toBase64(), buyer.privateKey)).toThrow()
+  })
 })

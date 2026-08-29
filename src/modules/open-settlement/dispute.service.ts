@@ -27,7 +27,7 @@ import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitrati
 import { marketArbitrationProvider } from './market-arbitration.provider'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
-import { isPartyOrAgent } from './escrow-lifecycle'
+import { isPartyOrAgent, asTrustedActor } from './escrow-lifecycle'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
 import type { EvidenceDescriptor, DisputeRuling } from '@satsails/p2p-schemas'
@@ -190,7 +190,7 @@ export class DisputeService {
 
     const trade = await tradeRepository.findById(escrow.tradeId)
     if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
-    if (!isPartyOrAgent(raisedBy, trade.sellerId)) {
+    if (!isPartyOrAgent(asTrustedActor(raisedBy), trade.sellerId)) {
       throw new ForbiddenError(
         `${raisedBy} is not the seller of trade ${trade.id} — expiry recovery for an EXPIRED escrow is a seller-only action, since the seller is the only party with locked collateral at stake in this state.`
       )

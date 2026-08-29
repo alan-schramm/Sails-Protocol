@@ -207,6 +207,32 @@ export interface TransactionConfirmationStatus {
   blockHeight: number | null
 }
 
+export interface TransactionExistence {
+  exists: boolean
+  confirmed: boolean
+}
+
+// Missão 11 Fase 9.6 — CONC-03 crash-recovery. The one query
+// reconcilePendingSettlement() below actually needs that
+// fetchTransactionConfirmationStatus() above can't answer safely: "is
+// ANY transaction with this exact txid known to the network at all" —
+// distinguishing a genuine 404 (never broadcast, or broadcast then
+// evicted/never relayed) from every other failure mode, which must keep
+// failing loud rather than being silently read as "doesn't exist."
+// Esplora/mempool.space's own convention (same REST family every other
+// explorer call in this file already relies on): `GET /tx/{txid}/status`
+// 404s only when the txid is genuinely unknown; a known-but-unconfirmed
+// (mempool) tx 200s with `confirmed: false`.
+export async function fetchTransactionExistence(txid: string): Promise<TransactionExistence> {
+  const res = await fetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`)
+  if (res.status === 404) return { exists: false, confirmed: false }
+  if (!res.ok) {
+    throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} checking existence for ${txid}`)
+  }
+  const body = (await res.json()) as { confirmed: boolean }
+  return { exists: true, confirmed: !!body.confirmed }
+}
+
 // Missão 11 Fase 5 §7 — the one real chain query the confirmation-
 // recognition job needs: is this specific, already-broadcast txid
 // confirmed, and at what height. Same esplora/mempool.space-style REST
@@ -1192,23 +1218,129 @@ export class MultisigProvider implements SettlementProvider {
   // partial signature (embedded by buildUnsignedRelease/Refund above), so
   // combining it with the single client-submitted copy still yields both
   // required signatures.
-  private async finalizeSpend(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+  // Missão 11 Fase 9.6 — CONC-03 crash recovery split this into a pure,
+  // deterministic half (this method — combine + finalize, no network
+  // call) and finalizeSpend()'s own broadcast() call below, so
+  // reconcilePendingSettlement() can recompute the EXACT SAME transaction
+  // a crashed finalize attempt would have produced — same combine/
+  // finalizeAllInputs/extractTransaction logic, zero duplication of the
+  // signature-combining logic itself (the ECON-04 lesson: two independent
+  // implementations of the same thing is exactly how basis-divergence
+  // bugs happen, even when they turn out harmless on inspection — here
+  // there is only ever one). Never re-derives or re-requests a signature;
+  // only recombines what real signers already submitted and persisted.
+  private buildFinalizedTransaction(tradeId: string, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): bitcoin.Transaction {
     const network = networkFor(config.multisig.network)
-    let merged: bitcoin.Psbt
     try {
-      merged = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
+      const merged = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
       for (const signed of signedPsbtBase64List) {
         merged.combine(bitcoin.Psbt.fromBase64(signed, { network }))
       }
       merged.finalizeAllInputs()
+      return merged.extractTransaction()
     } catch (err) {
       throw new EscrowError(
-        `MULTISIG provider: failed to combine/finalize signatures for trade ${escrow.tradeId}: ${err instanceof Error ? err.message : String(err)}`
+        `MULTISIG provider: failed to combine/finalize signatures for trade ${tradeId}: ${err instanceof Error ? err.message : String(err)}`
       )
     }
-    const tx = merged.extractTransaction()
+  }
+
+  private async finalizeSpend(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+    const tx = this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, signedPsbtBase64List)
     const txId = await this.broadcast(tx.toHex())
     return { txId }
+  }
+
+  // Missão 11 Fase 9.6 — CONC-03 crash recovery. Called ONLY by
+  // escrow-settlement-reconciliation.service.ts, ONLY for an escrow whose
+  // status is already claiming a terminal outcome (COMPLETED/REFUNDED/
+  // SPLIT) but whose txReleaseId never got persisted — i.e., a process
+  // died somewhere between claimEscrowTransition() and
+  // updateSignatureCollectionResult() in escrow-pending-tx.ts's
+  // submitTransactionSignature(). That crash could have landed before OR
+  // after the real broadcast succeeded (Estado A vs. Estado B — CTO's own
+  // "Regra Zero" framing); this method never guesses which. It always
+  // asks the chain first.
+  //
+  // Step 1: deterministically reconstruct the exact transaction the
+  // crashed attempt would have produced (buildFinalizedTransaction()
+  // above — same unsignedPsbtBase64 + same persisted signatures already
+  // durably stored in EscrowPendingTransaction/EscrowTransactionSignature,
+  // so this is not a guess, it is the one and only real spend this
+  // escrow's already-collected signatures could ever produce).
+  // Step 2: ask the network whether a transaction with that EXACT txid
+  // already exists (mempool or confirmed) — fetchTransactionExistence().
+  // If yes: Estado B. Funds already moved. Converge local state to that
+  // observed truth WITHOUT broadcasting anything — a second broadcast of
+  // an already-known txid is a harmless no-op to a Bitcoin node, but this
+  // method never relies on that; it simply never calls broadcast() at
+  // all in this branch, so there is structurally no second broadcast
+  // attempt to reason about.
+  // Step 3: if not found, check whether the funding outpoint is still
+  // unspent (the same fetchUtxos() lockFunds()/buildUnsignedSpend()
+  // already use). If still unspent: Estado A. The real broadcast never
+  // happened — safe to issue it now, for the first and only time, of the
+  // one transaction this escrow's signatures could ever produce.
+  // Step 4: if not found AND the outpoint is no longer unspent, something
+  // spent it that isn't the transaction these signatures produce — this
+  // script only has three keys and only this escrow's own already-
+  // collected signatures exist, so this should be structurally
+  // impossible; if it ever happens, it is a genuine anomaly, not a case
+  // to guess through. Fails closed, no funds moved by this method, full
+  // diagnostic evidence returned for manual review — per the CTO's own
+  // "fail closed + explicit manual recovery is preferable to unsafe
+  // replay" instruction.
+  //
+  // Grants no new authority: never calls a signing key, never accepts a
+  // caller-supplied txid, never trusts anything but (a) signatures the
+  // real required signers already submitted and the DB already durably
+  // recorded, and (b) what the Bitcoin network itself reports.
+  async reconcilePendingSettlement(
+    escrow: MultisigEscrowInput,
+    unsignedPsbtBase64: string,
+    signedPsbtBase64List: string[]
+  ): Promise<
+    | { outcome: 'ALREADY_BROADCAST'; txId: string; detail: string }
+    | { outcome: 'NEWLY_BROADCAST'; txId: string; detail: string }
+    | { outcome: 'ANOMALY'; detail: string }
+  > {
+    const tx = this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, signedPsbtBase64List)
+    const expectedTxId = tx.getId()
+
+    const existence = await fetchTransactionExistence(expectedTxId)
+    if (existence.exists) {
+      return {
+        outcome: 'ALREADY_BROADCAST', txId: expectedTxId,
+        detail: `Transaction ${expectedTxId} is already known to the network (confirmed=${existence.confirmed}) — converging local state to this observed truth, no new broadcast.`,
+      }
+    }
+
+    if (!escrow.txLockId) {
+      return { outcome: 'ANOMALY', detail: `Escrow for trade ${escrow.tradeId} has no recorded funding txLockId — cannot determine outpoint status.` }
+    }
+
+    const parties = this.partiesFor(escrow)
+    const { p2wsh } = this.buildScript(parties)
+    if (!p2wsh.address) {
+      return { outcome: 'ANOMALY', detail: `Failed to re-derive the P2WSH address for trade ${escrow.tradeId} during reconciliation.` }
+    }
+    const utxos = await this.fetchUtxos(p2wsh.address)
+    const stillUnspent = escrow.txLockVout !== null && escrow.txLockVout !== undefined
+      ? utxos.some((u) => u.txid === escrow.txLockId && u.vout === escrow.txLockVout)
+      : utxos.some((u) => u.txid === escrow.txLockId)
+
+    if (stillUnspent) {
+      const txId = await this.broadcast(tx.toHex())
+      return {
+        outcome: 'NEWLY_BROADCAST', txId,
+        detail: `Funding outpoint ${escrow.txLockId}:${escrow.txLockVout ?? '(no vout)'} was still unspent — broadcast the deterministically-reconstructed transaction for the first time.`,
+      }
+    }
+
+    return {
+      outcome: 'ANOMALY',
+      detail: `Funding outpoint ${escrow.txLockId}:${escrow.txLockVout ?? '(no vout)'} is no longer unspent, but no transaction matching the expected reconstructed txid ${expectedTxId} was found on the network — an unexpected spend. Manual review required; no funds moved by this reconciliation attempt.`,
+    }
   }
 
   async finalizeRelease(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {

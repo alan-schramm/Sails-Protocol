@@ -204,6 +204,11 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     durableEventRecord: durableEventRecords,
     escrow: escrows,
     escrowFundingEvidence: escrowFundingEvidence,
+    // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
+    // escrowEvent existence-check-then-create INSIDE withEscrowFundingLock()
+    // — same real fake-table object already used for prisma.escrowEvent
+    // below, this file's own "every table round-trips for real" discipline.
+    escrowEvent: escrowEvents,
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )

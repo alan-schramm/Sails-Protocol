@@ -183,6 +183,23 @@ export class PaymentAccountService {
    */
   async getPublicView(accountHash: string): Promise<PublicPaymentAccountView> {
     const account = await this.getByHash(accountHash)
+    return this.toPublicView(account)
+  }
+
+  /**
+   * Missão 11 Fase 9.6 — the projection half of getPublicView(), split
+   * out so a caller that already has the row in hand (settlement.routes.ts's
+   * POST /v1/settlement/payment-accounts, closing the INV-OP-10 gap Fase
+   * 9.5's Kimi K3 R2 triage found in that route's existing-hash branch —
+   * getOrCreate()'s raw row was being sent straight to any authenticated
+   * caller, including ownerId/signedBy/id/moduleId/protocolVersion for an
+   * account that isn't theirs) never needs a second fetch just to get the
+   * same public shape getPublicView() already computes.
+   */
+  toPublicView(account: {
+    accountHash: string; paymentMethod: string; signed: boolean; signedAt: Date | null
+    firstUsedAt: Date; completedTrades: number; chargebacks: number
+  }): PublicPaymentAccountView {
     return {
       accountHash: account.accountHash,
       paymentMethod: account.paymentMethod as PaymentMethod,

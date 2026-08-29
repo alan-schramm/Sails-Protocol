@@ -94,6 +94,31 @@ export interface EscrowRepository {
   /** status = FUNDS_LOCKED and expiresAt in the past — sweepExpiredEscrows()'s own shape. */
   findExpiredFundsLocked(now: Date): Promise<EscrowRow[]>
 
+  /** Missão 11 Fase 9.6 — CONC-03 crash-recovery candidates:
+   *  status already claiming a terminal outcome (COMPLETED/REFUNDED/
+   *  SPLIT — VALID_TRANSITIONS' own terminal set), but txReleaseId was
+   *  never persisted. Reachable only by a process crash between
+   *  claimEscrowTransition() and the later updateXResult() write — see
+   *  escrow-settlement-reconciliation.service.ts's own header comment. */
+  findTerminalWithoutTxReleaseId(): Promise<EscrowRow[]>
+
+  /** Missão 11 Fase 9.7 — CONC-03's "C5" closure candidates: status
+   *  already claiming a terminal outcome AND txReleaseId already
+   *  persisted (the real fund movement is confirmed) — but the
+   *  downstream completion effects (fee obligation / trade completion /
+   *  reputation / event) may never have run, if a crash landed between
+   *  txReleaseId persistence and emitEscrowTransition() succeeding.
+   *  Reconciliation itself determines, per escrow, whether the
+   *  downstream chain is actually missing (via EscrowEvent existence —
+   *  see escrow-settlement-reconciliation.service.ts) before touching
+   *  anything; this query is intentionally a superset (every settled
+   *  escrow, not just the stuck ones) since there's no cheap way to
+   *  express "missing EscrowEvent" as a single relational filter here
+   *  without a raw anti-join query, which read-only, Prisma-only
+   *  simplicity here was judged worth the extra per-escrow check for a
+   *  reference implementation's escrow volumes. */
+  findTerminalWithTxReleaseId(): Promise<EscrowRow[]>
+
   /** isSellerOrAssignedArbiter()'s fallback existence check — the one Dispute-by-this-shape read nobody else owns. */
   findDisputeByTradeAndArbiter(tradeId: string, arbiterId: string): Promise<DisputeRow | null>
 
@@ -219,6 +244,18 @@ class PrismaEscrowRepository implements EscrowRepository {
 
   async findExpiredFundsLocked(now: Date) {
     return prisma.escrow.findMany({ where: { status: 'FUNDS_LOCKED', expiresAt: { lt: now } } })
+  }
+
+  async findTerminalWithoutTxReleaseId() {
+    return prisma.escrow.findMany({
+      where: { status: { in: ['COMPLETED', 'REFUNDED', 'SPLIT'] }, txReleaseId: null },
+    })
+  }
+
+  async findTerminalWithTxReleaseId() {
+    return prisma.escrow.findMany({
+      where: { status: { in: ['COMPLETED', 'REFUNDED', 'SPLIT'] }, txReleaseId: { not: null } },
+    })
   }
 
   async findDisputeByTradeAndArbiter(tradeId: string, arbiterId: string) {

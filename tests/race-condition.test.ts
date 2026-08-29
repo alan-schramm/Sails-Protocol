@@ -108,6 +108,20 @@ const fakeDb = {
 
 const mockDisputeFindFirst = jest.fn().mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
 
+// Missão 05.5 — emitEscrowTransition() reads the last event for this
+// escrowId (findFirst) before creating the next one, to compute
+// prevHash. null is correct here: every race scenario in this file
+// starts a fresh escrow with no prior event.
+//
+// Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
+// escrowEvent existence-check-then-create INSIDE withEscrowFundingLock()
+// (an escrowId-scoped pg_advisory_xact_lock, via prisma.$transaction()) —
+// these same two mocks are reused on the `tx` object below so both the
+// top-level and transactional escrowEvent access route through one
+// shared, observable mock.
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
+
 jest.mock('../src/common/database', () => ({
   prisma: {
     escrow: {
@@ -122,17 +136,24 @@ jest.mock('../src/common/database', () => ({
         return { ...fakeDb.escrow }
       }),
     },
-    // Missão 05.5 — emitEscrowTransition() now reads the last event for
-    // this escrowId (findFirst) before creating the next one, to compute
-    // prevHash. null is correct here: every race scenario in this file
-    // starts a fresh escrow with no prior event.
-    escrowEvent: { create: jest.fn().mockResolvedValue({}), findFirst: jest.fn().mockResolvedValue(null) },
+    escrowEvent: { create: (...args: unknown[]) => mockEscrowEventCreate(...args), findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args) },
     trade: {
       findUnique: jest.fn().mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' }),
     },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     capabilityGrant: { findMany: jest.fn().mockResolvedValue([]) },
     escrowReleaseApproval: { count: jest.fn().mockResolvedValue(0) },
+    // withEscrowFundingLock() (escrow-lifecycle.ts) — a no-real-locking
+    // passthrough is enough here (this file's own concern is the
+    // updateMany-based atomic claim above, not the funding-reorg lock;
+    // that mechanism has its own dedicated real-Postgres proof in
+    // tests/integration/escrowFundingConcurrency.test.ts).
+    $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({
+        $executeRaw: jest.fn().mockResolvedValue(0),
+        escrowEvent: { findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args), create: (...args: unknown[]) => mockEscrowEventCreate(...args) },
+      })
+    ),
   },
 }))
 

@@ -122,6 +122,17 @@ jest.mock('../src/common/database', () => ({
     escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
     capabilityGrant: { findMany: (...args: [{ where: { grantedTo: string; capabilityName: string } }]) => mockCapabilityGrantFindMany(...args) },
     escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
+    // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
+    // escrowEvent existence-check-then-create INSIDE withEscrowFundingLock()
+    // — reuses the same mocks as the top-level escrowEvent block above.
+    $transaction: (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({
+        $executeRaw: jest.fn().mockResolvedValue(0),
+        escrowEvent: {
+          findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
+          create: (...args: unknown[]) => mockEscrowEventCreate(...args),
+        },
+      }),
   },
 }))
 

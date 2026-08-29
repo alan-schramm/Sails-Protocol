@@ -147,6 +147,13 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     escrowFundingEvidence: {
       findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args),
     },
+    // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
+    // escrowEvent existence-check-then-create INSIDE withEscrowFundingLock()
+    // — reuses the same mocks as the top-level escrowEvent block below.
+    escrowEvent: {
+      findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
+      create: (...args: unknown[]) => mockEscrowEventCreate(...args),
+    },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )

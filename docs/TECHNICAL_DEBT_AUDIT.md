@@ -474,6 +474,48 @@ intocado nesta fase por instrução explícita do CTO.
 
 ---
 
+### 32. Reconciliação de crash-recovery (INV-OP-11) — verdade-autoritativa do fund movement só cobre MULTISIG; catch-up de efeitos downstream (C5) já cobre todas as rails
+
+Achado na Missão 11 Fase 9.6, refinado na Fase 9.7 depois que o
+mecanismo de reconciliação ganhou um segundo pass. Duas perguntas
+DIFERENTES, escopos DIFERENTES:
+
+**Pergunta 1 — "o movimento real de fundos aconteceu?"** (`txReleaseId`
+ainda nulo). Só MULTISIG tem uma primitiva de verdade-autoritativa
+construída (`multisig.provider.ts`'s `reconcilePendingSettlement()`,
+verdade on-chain do Bitcoin). Para `MOCK`/`WDK_USDT_EVM` (caminho de
+chamada direta, sem transação independentemente reconstruível
+persistida) e `LIGHTNING_HODL`/`SAFE_GUARD_EVM` (rails de assinatura-
+colaborativa estruturalmente iguais ao MULTISIG, mas sem uma primitiva
+equivalente construída ainda), o mecanismo sinaliza
+`requiresManualReview` — nunca tenta recuperação automática, por design
+(fail-closed é explicitamente preferível a um replay inseguro).
+**Ainda fora de escopo — sem mudança na Fase 9.7.**
+
+**Pergunta 2 — "os efeitos downstream de um settlement já confirmado
+rodaram?" (C5, `txReleaseId` já setado).** Esta pergunta **não precisa**
+de nenhuma primitiva de verdade específica de rail (o movimento de
+fundos já é um fato confirmado — só falta saber se a obrigação de taxa/
+Trade.status/reputação/volume/evento já foram aplicados). Fechado para
+**todas as rails** na Fase 9.7 (`reconcileMissingCompletionEffects()`,
+guardado pela própria idempotência atômica de `emitEscrowTransition()`
+— ver `docs/PROTOCOL_INVARIANTS.md`'s `INV-OP-11`, extensão C5). Uma
+limitação genuína e divulgada permanece: um SPLIT de rail de chamada
+direta sem `EscrowPendingTransaction` sobrevivente não consegue
+recuperar seu `buyerBps` (nunca persistido em lugar nenhum nesse
+caminho) — a obrigação de taxa é explicitamente PULADA e sinalizada
+para revisão manual nesse caso específico, nunca adivinhada.
+
+**Fix restante:** construir uma primitiva de verdade-autoritativa
+análoga à do MULTISIG para cada rail (Pergunta 1) antes de qualquer
+ativação de produção real nesses tipos de escrow — para EVM, consultar
+o próprio chain por hash/nonce esperado; para Lightning HODL/VTXOs, um
+mecanismo próprio ainda não desenhado. Fora do escopo desta fase (que
+era MULTISIG-only para a Pergunta 1, per instrução explícita do CTO —
+"não toque em Lightning/EVM architecture").
+
+---
+
 ## Ações Recomendadas por Prioridade
 
 ### P0 — Antes de qualquer apresentação (1-2 dias)

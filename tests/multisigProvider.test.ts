@@ -750,3 +750,162 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     })
   })
 })
+
+// Missão 11 Fase 9.6 — CONC-03 crash recovery (Kimi K3 R2, CONFIRMED/P1
+// during Fase 9.5's independent triage). reconcilePendingSettlement() is
+// the on-chain-truth decision procedure a crash-recovery reconciliation
+// run uses to determine whether a terminal-status MULTISIG escrow with
+// no persisted txReleaseId already had its real transaction broadcast
+// (Estado B) or never did (Estado A) — see that method's own header
+// comment in multisig.provider.ts for the full four-step design and
+// escrow-settlement-reconciliation.service.ts's header comment for why
+// a blind retry is unsafe. These tests exercise the decision procedure
+// directly, using real signed PSBTs (same ECPair/bitcoinjs-lib pattern
+// this file's own "Phase 2 signature collection" describe block already
+// established) so the "expected txid" these tests assert against is the
+// SAME deterministic computation the real code performs — never a value
+// the test simply asserts by fiat.
+describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6, CONC-03 crash recovery)', () => {
+  const ecc = require('tiny-secp256k1')
+  const bitcoin = require('bitcoinjs-lib')
+  const { ECPairFactory } = require('ecpair')
+  const crypto = require('crypto')
+  bitcoin.initEccLib(ecc)
+  const ECPair = ECPairFactory(ecc)
+  const network = bitcoin.networks.testnet
+
+  const buyerKey = ECPair.fromPrivateKey(crypto.createHash('sha256').update('conc03-buyer').digest(), { network })
+  const sellerKey = ECPair.fromPrivateKey(crypto.createHash('sha256').update('conc03-seller').digest(), { network })
+  const buyerPubkeyHex = Buffer.from(buyerKey.publicKey).toString('hex')
+  const sellerPubkeyHex = Buffer.from(sellerKey.publicKey).toString('hex')
+  const REFUND_ADDRESS_UNUSED = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
+
+  const fetchMock = jest.fn()
+  beforeEach(() => {
+    fetchMock.mockReset()
+    ;(global as any).fetch = fetchMock
+  })
+
+  function mockUtxoFetch(txid: string, value: number, feeRateSatsPerVByte = 10) {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value, status: { confirmed: true } }] })
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ halfHourFee: feeRateSatsPerVByte }) })
+  }
+
+  // Builds a real unsigned PSBT (via buildUnsignedRelease, same as the
+  // real initiate-release flow), has both parties independently sign
+  // their own copy (same combine pattern the "Phase 2" describe block
+  // above already proves is correct), and independently computes the
+  // exact txid the real code's buildFinalizedTransaction() would compute
+  // — WITHOUT calling reconcilePendingSettlement() itself, so the
+  // expectation isn't circular.
+  async function buildRealSignedRelease(multisigProvider: any, txid: string) {
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    mockUtxoFetch(txid, 100_000)
+    const { psbtBase64 } = await multisigProvider.buildUnsignedRelease(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, txLockVout: 0, status: 'PAYMENT_PENDING' },
+      REFUND_ADDRESS_UNUSED
+    )
+    const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    buyerCopy.signInput(0, buyerKey)
+    const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    sellerCopy.signInput(0, sellerKey)
+
+    const independentlyMerged = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    independentlyMerged.combine(buyerCopy)
+    independentlyMerged.combine(sellerCopy)
+    independentlyMerged.finalizeAllInputs()
+    const expectedTxId = independentlyMerged.extractTransaction().getId()
+
+    const escrow = {
+      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1',
+      buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey,
+      lockedAmount: '0.001', txLockId: txid, txLockVout: 0, status: 'COMPLETED',
+    }
+    return { escrow, unsignedPsbtBase64: psbtBase64, signedList: [buyerCopy.toBase64(), sellerCopy.toBase64()], expectedTxId }
+  }
+
+  it('Estado B (funds already moved) — the reconstructed transaction is already known to the network — converges WITHOUT a new broadcast', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = 'a1'.repeat(32)
+    const { escrow, unsignedPsbtBase64, signedList, expectedTxId } = await buildRealSignedRelease(multisigProvider, txid)
+    fetchMock.mockClear() // discard buildUnsignedRelease()'s own setup fetches — only reconcilePendingSettlement()'s own calls should count below
+
+    // Only ONE fetch call expected: the existence check. No UTXO lookup,
+    // no broadcast — this is the whole point of asking the chain first.
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true }) })
+
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+
+    expect(result.outcome).toBe('ALREADY_BROADCAST')
+    expect(result.txId).toBe(expectedTxId)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0][0])).toContain(`/tx/${expectedTxId}/status`)
+  })
+
+  it('Estado A (funds never moved) — reconstructed transaction unknown to the network, funding outpoint still unspent — broadcasts it for the first time', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = 'a2'.repeat(32)
+    const { escrow, unsignedPsbtBase64, signedList, expectedTxId } = await buildRealSignedRelease(multisigProvider, txid)
+    fetchMock.mockClear()
+
+    fetchMock.mockResolvedValueOnce({ status: 404, ok: false }) // existence check: not found
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] }) // outpoint still unspent
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => expectedTxId }) // broadcast
+
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+
+    expect(result.outcome).toBe('NEWLY_BROADCAST')
+    expect(result.txId).toBe(expectedTxId)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    // The broadcast call must carry the SAME deterministic transaction —
+    // never a re-derived or re-signed one.
+    const [, broadcastInit] = fetchMock.mock.calls[2]
+    expect(typeof broadcastInit.body).toBe('string')
+  })
+
+  it('anomaly — reconstructed transaction unknown to the network AND the funding outpoint is no longer unspent — fails closed, no broadcast attempted', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = 'a3'.repeat(32)
+    const { escrow, unsignedPsbtBase64, signedList } = await buildRealSignedRelease(multisigProvider, txid)
+    fetchMock.mockClear()
+
+    fetchMock.mockResolvedValueOnce({ status: 404, ok: false }) // existence check: not found
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [] }) // outpoint no longer in the unspent set
+
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+
+    expect(result.outcome).toBe('ANOMALY')
+    expect(result.detail).toMatch(/unexpected spend/i)
+    // Exactly two calls — existence check + UTXO check. No third
+    // (broadcast) call under any circumstance in this branch.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('anomaly — no funding txLockId recorded at all', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = 'a4'.repeat(32)
+    const { escrow, unsignedPsbtBase64, signedList } = await buildRealSignedRelease(multisigProvider, txid)
+    fetchMock.mockClear()
+    escrow.txLockId = null as any
+
+    fetchMock.mockResolvedValueOnce({ status: 404, ok: false })
+
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+
+    expect(result.outcome).toBe('ANOMALY')
+    expect(fetchMock).toHaveBeenCalledTimes(1) // never even reaches the outpoint check
+  })
+
+  it('a genuine 404 vs. every other explorer failure are NOT treated the same way — a non-404 error still throws loud, never silently reads as "not found"', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = 'a5'.repeat(32)
+    const { escrow, unsignedPsbtBase64, signedList } = await buildRealSignedRelease(multisigProvider, txid)
+    fetchMock.mockClear()
+
+    fetchMock.mockResolvedValueOnce({ status: 503, ok: false })
+
+    await expect(
+      multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+    ).rejects.toThrow(/explorer API returned 503/)
+  })
+})

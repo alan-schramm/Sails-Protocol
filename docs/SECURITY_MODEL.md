@@ -351,5 +351,26 @@ the protocol collects, not a promise about how collected data is handled.
    (`packages/sails-ui`'s Trade page) now sources reputation stats from
    `reputation.get()` — its actual canonical home — instead.
 
+   Fourth case study, closed Missão 11 Fase 9.6: `POST /v1/settlement/
+   payment-accounts` and `POST /v1/settlement/payment-accounts/:accountHash/sign`
+   had the identical bug on the WRITE side of the payment-account
+   surface, un-swept by the Fase 9.3.1 pass that closed the sibling GET
+   route — `getOrCreate()`/`signPaymentAccount()`'s raw row (`ownerId`/
+   `signedBy` included) was echoed verbatim whenever the caller wasn't
+   the account's owner (an arbiter/peer attesting someone else's
+   account via `/sign`; any authenticated caller who supplied a
+   counterparty's real `accountHash` via the POST create route — RFC-021
+   D5's own design already requires knowing the correct hash to
+   register/attest an account, so this wasn't a public/anonymous leak,
+   but an authenticated one). Found while investigating an independent
+   red-team's (Kimi K3 R2) unrelated "hash collision" claim — refuted
+   (SHA-256 collision is not what a shared `accountHash` requires, and
+   `getOrCreate()` never mutates `ownerId`) — but tracing the claim
+   surfaced this real, different, adjacent gap. Fixed via
+   `PaymentAccountService.toPublicView()`, applied on both POST routes
+   whenever `account.ownerId !== caller`; a self-referential response
+   (new registration, or an owner re-submitting their own hash) stays
+   full, unchanged.
+
    See `docs/PROTOCOL_INVARIANTS.md`'s `INV-OP-10` entry for the
-   complete field-by-field accounting of all three surfaces.
+   complete field-by-field accounting of all four surfaces.
