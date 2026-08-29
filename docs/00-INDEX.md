@@ -38,6 +38,13 @@ protocol version requires, but what must remain true for anything to be
 Sails at all (K1 Valid Transition, K2 Attributed Discretion, K3 Semantic
 Settlement Independence). Read this before starting any future Sails Core
 architecture work — Core must conform to this, not the reverse.
+[CORE_ARCHITECTURE.md](CORE_ARCHITECTURE.md) — added 2026-08-29, the
+frozen software-architecture derivation of `SEMANTIC_KERNEL.md`: the Pure
+Core / Runtime / Modules / Providers boundary, the four-state condition
+model, the Transition Record and Outcome models, and the nine surviving
+architecture rules. No implementation exists yet — `@sails/core` is not
+authorized by this document either. Read it after `SEMANTIC_KERNEL.md`,
+before any future Sails Core implementation work.
 [GETTING_STARTED.md](GETTING_STARTED.md)
 — added 2026-08-10, the fastest entry point of all 20+: copy-paste
 commands only, a conceptual 8-step trade flow with no file/function

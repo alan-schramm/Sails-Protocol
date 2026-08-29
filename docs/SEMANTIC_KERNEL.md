@@ -375,11 +375,14 @@ system; not Kernel-derived):
 
 ## 25. Future Sails Core — Conceptual Definition
 
-**Sails Core** (conceptual only — no package, no implementation, no
-architecture decision made here) would be the future protocol-level
-software responsible for implementing and exposing the Semantic Kernel,
-and the minimum supporting machinery required to preserve it, across
-whatever protocol modules a given deployment implements.
+**Sails Core** would be the future protocol-level software responsible
+for implementing and exposing the Semantic Kernel, and the minimum
+supporting machinery required to preserve it, across whatever protocol
+modules a given deployment implements. **Corrected/Updated 2026-08-29**:
+this section originally stated "no architecture decision made here" —
+that architecture has since been frozen in `docs/CORE_ARCHITECTURE.md`.
+No package and no implementation exist; `@sails/core` remains
+unauthorized by either document.
 
 This is explicitly **not** the existing "Core — 6 Formal Components"
 named in `ARCHITECTURE.md` §1B (Intent Engine, Coordination Engine, Event
@@ -421,8 +424,11 @@ a surface exists today. In particular:
 
 ## 27. Open Core Architecture Questions
 
-Deliberately unanswered here — input to a future, separate Sails Core
-Architecture mission, not this one:
+**Answered, 2026-08-29, by `docs/CORE_ARCHITECTURE.md`** — the frozen
+software-architecture derivation of this Kernel. That document does not
+change anything written here; it is evaluated against this Kernel, not
+the reverse. The questions below are preserved as the record of what was
+open before that derivation, not reopened by this note.
 
 - What is the minimum Core semantic API?
 - How are Interaction / ruleset / State / Transition best represented —

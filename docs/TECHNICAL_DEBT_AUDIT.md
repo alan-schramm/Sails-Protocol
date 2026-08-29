@@ -667,6 +667,35 @@ MULTISIG, exercitando explicitamente LIGHTNING_HODL e SAFE_GUARD_EVM via
 `resolveDispute()`, para fechar a lacuna entre "o código já é
 rail-agnóstico" e "isso foi verificado adversarialmente para cada rail."
 
+### 37. Sails Core Architecture congelada em `docs/CORE_ARCHITECTURE.md`, mas sem nenhuma implementação (2026-08-29)
+
+Achado ao final do processo de Sails Core Architecture (Fases 1 → 3.1)
+que produziu `docs/CORE_ARCHITECTURE.md`. A arquitetura de software
+(Pure Core / Runtime / Modules / Providers, os quatro estados de
+`ConditionResult`, o modelo de Transition Record/Outcome, as nove regras
+finais) está congelada, mas nenhum código foi escrito — `@sails/core`
+continua não autorizado. O gap register do próprio documento (§44,
+G1-G15) já lista os itens concretos; este item existe apenas para que
+`TECHNICAL_DEBT_AUDIT.md` (que outros times consultam primeiro) não
+fique silenciosamente desatualizado em relação a esse novo documento.
+
+**Itens de maior prioridade do gap register** (ver `docs/CORE_ARCHITECTURE.md`
+§44 para a lista completa): ausência de mecanismo de identidade/versão de
+ruleset (G1); ausência do "Canonical Semantic Profile" necessário para
+conformidade cross-language (G2); ausência de um artefato de Transition
+Record/Decision (G3) — hoje o State machine só produz atualizações de
+status brutas; ausência de mecanismo de commitment para referências de
+State/ruleset/Assertion (G4).
+
+**Classificação:** débito de arquitetura reconhecido e disclosed, não
+escondido — a própria `docs/CORE_ARCHITECTURE.md` §43 já documenta o
+mapeamento honesto ALIGNED/PARTIAL/MISSING contra o código real.
+
+**Fix restante:** um programa futuro e separado, "Sails Core
+Implementation Architecture" (representação concreta, boundary
+Core/Runtime, migração do código atual) — deliberadamente não iniciado
+por esta auditoria nem pela missão que congelou a arquitetura.
+
 ---
 
 ## Ações Recomendadas por Prioridade
