@@ -103,6 +103,7 @@
  * economical, or likely to confirm promptly).
  */
 import { config } from '../../config'
+import { createHash } from 'crypto'
 
 /**
  * Conservative, documented vByte estimate for a 2-of-3 P2WSH spend — the
@@ -172,4 +173,51 @@ export function deriveDistributableTotal(grossSats: bigint, deliveredTotalSats: 
     }
   }
   return { ok: true, distributable: deliveredTotalSats, impliedFeeSats }
+}
+
+/**
+ * Sails Core Implementation Program M9-R (Recovery Closure), Part 6 —
+ * closes R5 (found during the M9 analytical gate: replaying
+ * correspondence for an old execution could silently use whatever
+ * execution-cost bounds happen to be configured NOW, not the ones in
+ * force when that execution actually happened).
+ *
+ * FIRST DISTINGUISHES semantic input from operational configuration, per
+ * the mission's own explicit test: "could changing this value cause the
+ * SAME historical Outcome and SAME historical execution to produce a
+ * DIFFERENT CorrespondenceResult?" For every value this file's own
+ * `maxExecutionCostSats()` reads:
+ *   - `maxFeeRateSatsPerVByte`   — YES: directly gates what counts as a
+ *     legitimate fee; a looser/tighter rate changes MATCH vs DIVERGENT
+ *     for the exact same real transaction.
+ *   - `maxFeeProportionOfGrossBasisPoints` — YES: same reasoning.
+ *   - `minFeeFloorSats`         — YES: same reasoning.
+ * All three are SEMANTIC INPUTS and are bound into this identity.
+ * `config.multisig.network`/`explorerApiUrl` are DELIBERATELY EXCLUDED —
+ * changing which chain/explorer is queried is an operational deployment
+ * concern (and would break approximately everything else in this system
+ * far more severely than correspondence replay specifically), never a
+ * value whose change is meant to reinterpret what an ALREADY-DECODED,
+ * FIXED `rawTxHex`'s outputs mean relative to a FIXED historical Outcome.
+ * Arbitrary environment variables are never swept in wholesale — only
+ * the three named values that actually participate in
+ * `maxExecutionCostSats()`'s own ceiling computation.
+ *
+ * A deterministic hash (not a manually-bumped version string) — so an
+ * operator changing any of these three env vars WITHOUT a corresponding
+ * code change automatically produces a new, distinguishable identity,
+ * rather than silently sharing the old one and defeating the whole point
+ * of historical binding. "Prefer a versioned/referenceable... identity if
+ * sufficient" (mission's own wording) — this is that identity: sufficient
+ * because it is a pure, reproducible function of exactly the semantic
+ * inputs identified above, never a manually-maintained number that could
+ * drift out of sync with what actually changed.
+ */
+export function computeExecutionCostPolicyIdentity(): string {
+  const semanticInputs = {
+    maxFeeRateSatsPerVByte: config.multisig.maxFeeRateSatsPerVByte,
+    maxFeeProportionOfGrossBasisPoints: config.multisig.maxFeeProportionOfGrossBasisPoints,
+    minFeeFloorSats: config.multisig.minFeeFloorSats,
+  }
+  return createHash('sha256').update(JSON.stringify(semanticInputs)).digest('hex').slice(0, 32)
 }

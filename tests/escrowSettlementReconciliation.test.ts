@@ -11,15 +11,29 @@
 // suite can focus on the orchestration around it.
 
 jest.mock('../src/config', () => ({
-  config: { multisig: { network: 'testnet' } },
+  // M9-R (Part 3, C8) — claimEscrowTransition() (real, from
+  // escrow-lifecycle.ts) reads config.escrowCircuitBreaker on its own
+  // failure path (recordEscrowConflict()); this mock previously omitted
+  // it entirely because nothing in this file called claimEscrowTransition()
+  // before this pass. Real production defaults, not arbitrary test values.
+  config: { multisig: { network: 'testnet' }, escrowCircuitBreaker: { failureThreshold: 5, windowMs: 30_000, cooldownMs: 120_000 } },
 }))
 
 const mockFindTerminalWithoutTxReleaseId = jest.fn()
 const mockFindTerminalWithTxReleaseId = jest.fn()
+// M9-R (Recovery Closure, Part 3, C8) — claimEscrowTransition() (the
+// REAL, unmocked function from escrow-lifecycle.ts) calls through to
+// escrowRepository.claimTransition(); since this whole module is
+// jest.mock()'d, that method needs its own stub here too, even though
+// only the new C8-specific tests below actually exercise it.
+const mockClaimTransition = jest.fn()
+const mockUpdateSignatureCollectionResult = jest.fn()
 jest.mock('../src/modules/open-settlement/escrow-repository', () => ({
   escrowRepository: {
     findTerminalWithoutTxReleaseId: (...args: unknown[]) => mockFindTerminalWithoutTxReleaseId(...args),
     findTerminalWithTxReleaseId: (...args: unknown[]) => mockFindTerminalWithTxReleaseId(...args),
+    claimTransition: (...args: unknown[]) => mockClaimTransition(...args),
+    updateSignatureCollectionResult: (...args: unknown[]) => mockUpdateSignatureCollectionResult(...args),
   },
 }))
 
@@ -67,6 +81,7 @@ jest.mock('../src/modules/open-settlement/dispute-correspondence', () => ({
 }))
 
 const mockPendingTxFindUnique = jest.fn()
+const mockPendingTxFindMany = jest.fn()
 const mockPendingTxDelete = jest.fn()
 const mockEscrowFindUnique = jest.fn()
 const mockEscrowUpdate = jest.fn()
@@ -99,6 +114,7 @@ jest.mock('../src/common/database', () => ({
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
     escrowPendingTransaction: {
       findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
+      findMany: (...args: unknown[]) => mockPendingTxFindMany(...args),
       delete: (...args: unknown[]) => mockPendingTxDelete(...args),
     },
     escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
@@ -110,6 +126,7 @@ jest.mock('../src/common/database', () => ({
 }))
 
 import { reconcilePendingSettlements } from '../src/modules/open-settlement/escrow-settlement-reconciliation.service'
+import { resetEscrowCircuitBreaker } from '../src/modules/open-settlement/escrow-circuit-breaker'
 
 function multisigEscrowFixture(overrides: Record<string, any> = {}) {
   return {
@@ -135,23 +152,108 @@ function pendingTxFixture(overrides: Record<string, any> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  resetEscrowCircuitBreaker()
   mockParticipantKeyFindMany.mockResolvedValue([])
   mockEscrowEventFindFirst.mockResolvedValue(null)
   mockTradeFindById.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
   mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: null })
   mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1' })
   mockPendingTxDelete.mockResolvedValue({})
+  mockClaimTransition.mockResolvedValue(1)
+  mockUpdateSignatureCollectionResult.mockResolvedValue({ id: 'escrow-1' })
+  // PASS 0 (M9-R, C8) candidates default to none — tests that specifically
+  // want one set mockPendingTxFindMany explicitly.
+  mockPendingTxFindMany.mockResolvedValue([])
   // PASS 2 (Fase 9.7) candidates default to none, so every PASS-1-only
   // (Fase 9.6) test below exercises exactly the scenario it names —
   // tests that specifically want a PASS 2 candidate set it explicitly.
   mockFindTerminalWithTxReleaseId.mockResolvedValue([])
 })
 
+// Sails Core Implementation Program M9-R (Recovery Closure, Part 3) —
+// PASS 0: crash window C8, a fully-signed pending transaction whose
+// escrow never got claimed. mockReconcilePendingSettlement is the SAME
+// mock PASS 1's own tests already use — proves CHAIN TRUTH BEFORE
+// ECONOMIC ACTION is honored (the claim/downstream-effects code below
+// only ever runs after that mock resolves), without re-testing the
+// chain-truth decision logic itself (already proven with real signed
+// PSBTs in tests/multisigProvider.test.ts).
+describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signed-pending recovery (PASS 0)', () => {
+  it('no PASS 0 candidates — a clean report on that side', async () => {
+    mockPendingTxFindMany.mockResolvedValue([])
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    const report = await reconcilePendingSettlements()
+    expect(report.resumedUnclaimed).toEqual([])
+    expect(report.alreadyClaimedConcurrently).toEqual([])
+  })
+
+  it('a pending row still collecting signatures (not fully signed) is silently not a candidate — the ordinary C7 state', async () => {
+    mockPendingTxFindMany.mockResolvedValue([{
+      ...pendingTxFixture(), signatures: [{ participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' }],
+      escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
+    }])
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.resumedUnclaimed).toEqual([])
+    expect(mockReconcilePendingSettlement).not.toHaveBeenCalled()
+    expect(mockClaimTransition).not.toHaveBeenCalled()
+  })
+
+  it('fully signed, escrow non-terminal — asks the chain FIRST, then claims the transition and runs the shared downstream effects', async () => {
+    mockPendingTxFindMany.mockResolvedValue([{
+      ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
+    }])
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'NEWLY_BROADCAST', txId: 'c8-txid-1', detail: 'broadcast for the first time', rawTxHex: 'c8-raw-hex' })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockReconcilePendingSettlement).toHaveBeenCalledTimes(1)
+    expect(mockClaimTransition).toHaveBeenCalledWith('escrow-1', 'DISPUTED', 'COMPLETED')
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'c8-txid-1', releasedAt: expect.any(Date) })
+    expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'c8-txid-1', outcome: 'NEWLY_BROADCAST' }])
+    expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
+    expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', 'c8-raw-hex')
+  })
+
+  it('ANOMALY (unexpected outpoint spend) — fails closed, transition never claimed, reported for manual review as C8', async () => {
+    mockPendingTxFindMany.mockResolvedValue([{
+      ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
+    }])
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ANOMALY', detail: 'unexpected spend — manual review required' })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockClaimTransition).not.toHaveBeenCalled()
+    expect(report.resumedUnclaimed).toEqual([])
+    expect(report.requiresManualReview).toEqual([{ escrowId: 'escrow-1', reason: 'C8 (fully-signed, unclaimed): unexpected spend — manual review required' }])
+  })
+
+  it('duplicate workers: claimEscrowTransition losing the atomic race is reported as a benign concurrent claim, not a failure', async () => {
+    mockPendingTxFindMany.mockResolvedValue([{
+      ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
+    }])
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'c8-txid-2', detail: 'already known', rawTxHex: 'c8-raw-hex-2' })
+    mockClaimTransition.mockResolvedValue(0) // lost the atomic claim — a concurrent caller (or a resubmitting signer) already won it
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.alreadyClaimedConcurrently).toEqual(['escrow-1'])
+    expect(report.resumedUnclaimed).toEqual([])
+    expect(report.failed).toEqual([])
+    expect(mockUpdateSignatureCollectionResult).not.toHaveBeenCalled()
+  })
+})
+
 describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash recovery orchestration', () => {
   it('no candidates — a clean, empty report', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
     const report = await reconcilePendingSettlements()
-    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [] })
+    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [] })
   })
 
   it('a non-MULTISIG rail has no automated recovery primitive in scope — fails closed, flagged for manual review, no chain calls attempted', async () => {

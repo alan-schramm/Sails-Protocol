@@ -538,9 +538,16 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
     sellerCopy.signInput(0, sellerKey)
 
+    // Sails Core Implementation Program M9-R (R6, provider txid
+    // integrity) — the broadcast response's own claimed txid ('f'.repeat(64))
+    // is DELIBERATELY wrong here, proving finalizeRelease() ignores it:
+    // the persisted txId must be the one Sails itself derived from the
+    // exact transaction it constructed and sent, never the provider's
+    // claim.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => 'f'.repeat(64) })
     const result = await multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64(), sellerCopy.toBase64()])
-    expect(result.txId).toBe('f'.repeat(64))
+    expect(result.txId).not.toBe('f'.repeat(64))
+    expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
 
   it('finalizeRelease fails to combine/finalize with only one of two required signatures', async () => {
@@ -592,9 +599,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
     buyerCopy.signInput(0, buyerKey)
 
+    // R6 — same deliberately-wrong-provider-response proof as above.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '3'.repeat(64) })
     const result = await multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])
-    expect(result.txId).toBe('3'.repeat(64))
+    expect(result.txId).not.toBe('3'.repeat(64))
+    expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
 
   it('disputed release rejects a mismatched dispute arbiter before ever building a PSBT', async () => {
@@ -648,9 +657,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
     buyerCopy.signInput(0, buyerKey)
 
+    // R6 — same deliberately-wrong-provider-response proof as above.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '6'.repeat(64) })
     const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64(), buyerCopy.toBase64()])
-    expect(result.txId).toBe('6'.repeat(64))
+    expect(result.txId).not.toBe('6'.repeat(64))
+    expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
 
   it('disputed refund: arbiter pre-signs immediately, only the seller remains a required client signer', async () => {
@@ -666,9 +677,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
     sellerCopy.signInput(0, sellerKey)
 
+    // R6 — same deliberately-wrong-provider-response proof as above.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '8'.repeat(64) })
     const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64()])
-    expect(result.txId).toBe('8'.repeat(64))
+    expect(result.txId).not.toBe('8'.repeat(64))
+    expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
 
   // RFC-021 D9 (2026-08-02) — real 2-output PSBT construction. Always the
@@ -727,9 +740,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
       const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
       buyerCopy.signInput(0, buyerKey)
 
+      // R6 — same deliberately-wrong-provider-response proof as above.
       fetchMock.mockResolvedValueOnce({ ok: true, text: async () => 'bb'.repeat(32) })
       const result = await multisigProvider.finalizeSplit({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])
-      expect(result.txId).toBe('bb'.repeat(32))
+      expect(result.txId).not.toBe('bb'.repeat(32))
+      expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
     })
 
     it('finalizeSplit fails to combine/finalize with only the arbiter pre-signature and no client signature at all', async () => {
@@ -861,6 +876,28 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     // never a re-derived or re-signed one.
     const [, broadcastInit] = fetchMock.mock.calls[2]
     expect(typeof broadcastInit.body).toBe('string')
+  })
+
+  // Sails Core Implementation Program M9-R (R6, provider txid integrity)
+  // — the reconciliation NEWLY_BROADCAST path independently derives
+  // expectedTxId BEFORE ever calling broadcast(); if the explorer's own
+  // POST /tx response disagrees with it, that disagreement must never be
+  // persisted as the recovered txId.
+  it('R6: a provider broadcast response that disagrees with the locally-derived txid is ignored — the locally-derived one is always what is returned', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = 'a5'.repeat(32)
+    const { escrow, unsignedPsbtBase64, signedList, expectedTxId } = await buildRealSignedRelease(multisigProvider, txid)
+    fetchMock.mockClear()
+
+    fetchMock.mockResolvedValueOnce({ status: 404, ok: false }) // existence check: not found
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] }) // outpoint still unspent
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => 'ff'.repeat(32) }) // broadcast — deliberately wrong txid in the response body
+
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+
+    expect(result.outcome).toBe('NEWLY_BROADCAST')
+    expect(result.txId).toBe(expectedTxId)
+    expect(result.txId).not.toBe('ff'.repeat(32))
   })
 
   it('anomaly — reconstructed transaction unknown to the network AND the funding outpoint is no longer unspent — fails closed, no broadcast attempted', async () => {

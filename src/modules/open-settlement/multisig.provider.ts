@@ -1271,14 +1271,33 @@ export class MultisigProvider implements SettlementProvider {
   private async finalizeSpend(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex: string }> {
     const tx = this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, signedPsbtBase64List)
     const rawTxHex = tx.toHex()
-    const txId = await this.broadcast(rawTxHex)
+    // Sails Core Implementation Program M9-R (R6, provider txid
+    // integrity) — a Bitcoin txid is the hash of the exact bytes that
+    // were broadcast; Sails itself constructed `tx` and computed its id
+    // BEFORE ever calling the provider, so that id is what gets
+    // persisted, unconditionally. The explorer's own POST /tx response
+    // body is never treated as the source of truth for what was
+    // broadcast — a provider must not be able to make Sails persist a
+    // different id than the one Sails itself derived from the
+    // transaction it constructed and sent. A disagreement is logged as a
+    // loud diagnostic (it would indicate something is wrong with the
+    // explorer integration itself) but never allowed to override the
+    // locally-derived value.
+    const locallyDerivedTxId = tx.getId()
+    const providerReturnedTxId = await this.broadcast(rawTxHex)
+    if (providerReturnedTxId !== locallyDerivedTxId) {
+      log.error({
+        msg: 'MULTISIG provider: broadcast response txid disagrees with the locally-derived txid of the exact transaction that was sent — ignoring the provider-reported value, persisting the locally-derived one',
+        locallyDerivedTxId, providerReturnedTxId,
+      })
+    }
     // Sails Core Implementation Program M8.6 — additive: the raw,
     // finalized transaction hex is what dispute-correspondence.ts needs
     // to independently decode real delivered outputs for the live
     // correspondence check. Never returned before this mission because
     // nothing needed it; every existing caller destructuring only
     // `{ txId }` is unaffected (structural typing).
-    return { txId, rawTxHex }
+    return { txId: locallyDerivedTxId, rawTxHex }
   }
 
   // Missão 11 Fase 9.6 — CONC-03 crash recovery. Called ONLY by
@@ -1366,9 +1385,20 @@ export class MultisigProvider implements SettlementProvider {
       : utxos.some((u) => u.txid === escrow.txLockId)
 
     if (stillUnspent) {
-      const txId = await this.broadcast(tx.toHex())
+      // Sails Core Implementation Program M9-R (R6, provider txid
+      // integrity) — same discipline as finalizeSpend(): `expectedTxId`
+      // was already independently derived from `tx` before this
+      // broadcast; the provider's own response text is never persisted
+      // as the txid, only compared against it as a diagnostic.
+      const providerReturnedTxId = await this.broadcast(tx.toHex())
+      if (providerReturnedTxId !== expectedTxId) {
+        log.error({
+          msg: 'MULTISIG provider: reconciliation broadcast response txid disagrees with the locally-derived txid of the exact transaction that was sent — ignoring the provider-reported value, persisting the locally-derived one',
+          escrowId: escrow.tradeId, expectedTxId, providerReturnedTxId,
+        })
+      }
       return {
-        outcome: 'NEWLY_BROADCAST', txId, rawTxHex,
+        outcome: 'NEWLY_BROADCAST', txId: expectedTxId, rawTxHex,
         detail: `Funding outpoint ${escrow.txLockId}:${escrow.txLockVout ?? '(no vout)'} was still unspent — broadcast the deterministically-reconstructed transaction for the first time.`,
       }
     }

@@ -1459,6 +1459,68 @@ model SemanticTransitionRecord {
   @@map("semantic_transition_records")
 }
 
+/// Sails Core Implementation Program M9-R (Recovery Closure), Part 5/6/7
+/// — closes a real concurrency + drift gap the M9 analytical gate found
+/// in `recordLiveCorrespondenceIfApplicable()`'s own idempotency guard:
+/// a presence-only check against the `durable_events` log (`getEvents()`
+/// then `emit()` if absent) is NOT atomic — two concurrent reconciliation
+/// workers can both observe "no existing event" before either writes,
+/// producing two durable observations of the same fact. `durable_events`
+/// itself stays exactly as it was (append-only, no new columns, never
+/// mutated) — this table is a separate, minimal, real DURABLE CLAIM
+/// primitive, the same "unique constraint IS the atomicity" pattern
+/// `SemanticTransitionRecord` and `EscrowPendingTransaction` already use,
+/// applied here instead of inventing new locking machinery.
+///
+/// The unique identity is `(escrowId, appealRound, evaluatorIdentity,
+/// policyVersion)` — DELIBERATELY not just `(escrowId, appealRound)`:
+/// `policyVersion` (a deterministic hash of the execution-cost policy
+/// bounds actually in force — `execution-cost-policy.ts`'s own
+/// `computeExecutionCostPolicyIdentity()`) makes an OLD execution
+/// re-evaluated under a genuinely CHANGED policy a NEW, additional,
+/// independently-recorded row — never an overwrite of the old one
+/// (history stays append-only) — while the SAME policy version can only
+/// ever claim this identity once, closing the concurrency race. `results`
+/// (the same per-beneficiary CorrespondenceResult map already emitted on
+/// `durable_events`) is stored here too specifically so a later, SAME-
+/// identity re-evaluation can be compared against it — a disagreement
+/// under the identical evaluator+policy identity is a genuine semantic
+/// inconsistency (a non-deterministic evaluator, or tampered persisted
+/// inputs), never silently accepted; see
+/// `recordLiveCorrespondenceIfApplicable()`'s own fail-closed check.
+model CorrespondenceEvaluation {
+  id String @id @default(uuid())
+
+  escrowId    String
+  appealRound Int
+
+  // The evaluator identity ACTUALLY used (same "actual, not merely
+  // expected" discipline SemanticTransitionRecord's own
+  // evaluatorIdentityName/Version columns already establish) —
+  // SAILS_DESTINATION_CORRESPONDENCE_EVALUATOR_IDENTITY today.
+  evaluatorIdentityName    String
+  evaluatorIdentityVersion String
+
+  // computeExecutionCostPolicyIdentity()'s own hash of the execution-cost
+  // bounds in force at evaluation time — the one SEMANTIC INPUT the M9
+  // report found could change a historical CorrespondenceResult (never
+  // an arbitrary environment-variable snapshot; see that function's own
+  // header for why network/explorer config is deliberately excluded).
+  policyVersion String
+
+  // Record<beneficiaryId, 'MATCH'|'DIVERGENT'|'PENDING'|'UNKNOWN'> — the
+  // same shape already emitted on the durable_events log, kept here too
+  // so a later same-identity recomputation has something real to compare
+  // against, not just a presence flag.
+  results Json
+
+  createdAt DateTime @default(now())
+
+  @@unique([escrowId, appealRound, evaluatorIdentityName, evaluatorIdentityVersion, policyVersion], name: "correspondence_evaluation_identity")
+  @@index([escrowId])
+  @@map("correspondence_evaluations")
+}
+
 enum SemanticPriorPositionKind {
   LEGACY_UNVERIFIED
   RESOLVED

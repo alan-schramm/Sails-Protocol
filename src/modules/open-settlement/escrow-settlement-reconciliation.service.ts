@@ -1,6 +1,7 @@
 import { prisma } from '../../common/database'
 import { config } from '../../config'
-import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition } from './escrow-lifecycle'
+import { EscrowError } from '../../common/errors'
+import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition } from './escrow-lifecycle'
 import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
@@ -65,6 +66,15 @@ export interface ReconciliationReport {
   completionEffectsRecovered: Array<{ escrowId: string; obligationSkipped: boolean }>
   requiresManualReview: Array<{ escrowId: string; reason: string }>
   failed: Array<{ escrowId: string; error: string }>
+  // Sails Core Implementation Program M9-R (Recovery Closure) — PASS 0,
+  // crash window C8: all required signatures were durably persisted but
+  // the process died before claimEscrowTransition() ever ran. Distinct
+  // from `recovered` above (PASS 1's own field, which only ever sees an
+  // escrow that is ALREADY terminal) — kept separate so a reader of this
+  // report can tell "the transition itself had to be resumed" apart from
+  // "the transition already happened, only txReleaseId was missing."
+  resumedUnclaimed: Array<{ escrowId: string; txId: string; outcome: 'ALREADY_BROADCAST' | 'NEWLY_BROADCAST' }>
+  alreadyClaimedConcurrently: string[]
 }
 
 // The audit-trail "from" state for the reconciliation-driven
@@ -204,6 +214,114 @@ async function applyDownstreamCompletionEffects(
   }
 
   return { obligationSkipped, emitted }
+}
+
+const NON_TERMINAL_QUERY_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT'] as const
+
+// PASS 0 (Sails Core Implementation Program M9-R, Recovery Closure,
+// Part 3) — crash window C8, found during the M9 analytical gate: every
+// required signature was durably persisted (submitTransactionSignature()'s
+// own `allSubmitted` check would already be true), but the process died
+// BEFORE claimEscrowTransition() ever ran — leaving the escrow
+// non-terminal with a fully-signed pending row. Neither PASS 1 below
+// (requires an ALREADY-terminal escrow) nor
+// dispute-pending-reconciliation.ts's stale-artifact cleanup (requires
+// ZERO collected signatures, by design — that module's whole safety
+// argument rests on there being nothing to sign yet) ever looks at this
+// combination. A participant re-submitting their own (already-recorded)
+// signature happens to nudge this forward today, but that is client-
+// driven, not automatic.
+//
+// CHAIN TRUTH BEFORE ECONOMIC ACTION (the mission's own explicit
+// requirement): this function NEVER calls provider.finalizeRelease/
+// Refund/Split() again — it reuses Mission11's own
+// reconcilePendingSettlement() (the exact same on-chain-truth decision
+// procedure PASS 1 already trusts) to determine whether the exact,
+// deterministically-reconstructed transaction is already known to the
+// network BEFORE claiming the local transition or touching any
+// bookkeeping. Only once that is known does it claim the transition
+// (claimEscrowTransition() — the same real, atomic, VALID_TRANSITIONS-
+// gated primitive every live signer call already uses) and run the same
+// shared downstream effects PASS 1 and PASS 2 both already use. No new
+// finalize/retry primitive was invented.
+async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport): Promise<void> {
+  const candidates = await prisma.escrowPendingTransaction.findMany({
+    where: { escrow: { type: 'MULTISIG', status: { notIn: [...NON_TERMINAL_QUERY_STATUSES] } } },
+    include: { signatures: true, escrow: true },
+  })
+
+  for (const pending of candidates) {
+    const escrow = pending.escrow
+    try {
+      const signedList = pending.requiredSigners.map(
+        (id: string) => pending.signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)?.signedPsbtBase64
+      )
+      if (signedList.some((s: string | undefined) => s === undefined)) {
+        // Still genuinely collecting signatures — the ordinary, expected
+        // C7 state, not a gap. Silently not a candidate (this is the
+        // overwhelming common case for any escrow with a pending row).
+        continue
+      }
+
+      const targetStatus = pending.kind === 'release' ? 'COMPLETED' as const
+        : pending.kind === 'refund' ? 'REFUNDED' as const
+        : 'SPLIT' as const
+
+      const trade = await tradeRepository.findById(escrow.tradeId)
+      if (!trade) {
+        report.requiresManualReview.push({ escrowId: escrow.id, reason: `Trade ${escrow.tradeId} not found (C8 recovery — fully-signed pending transaction, escrow non-terminal).` })
+        continue
+      }
+
+      const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrow.id)
+      const input: MultisigEscrowInput = {
+        tradeId: trade.id, lockedAmount: escrow.lockedAmount.toString(),
+        buyerId: trade.buyerId, sellerId: trade.sellerId,
+        buyerPubkey, sellerPubkey, arbiterPubkey,
+        txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
+        status: escrow.status,
+      }
+
+      const result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
+      if (result.outcome === 'ANOMALY') {
+        // FULLY_SIGNED_NOT_FINALIZED, surfaced explicitly rather than
+        // left invisible — see this file's own C8 header comment. Fails
+        // closed: no transition claimed, no funds moved by this pass.
+        log.error({ msg: 'C8 reconciliation anomaly — no automated recovery attempted', escrowId: escrow.id, detail: result.detail })
+        report.requiresManualReview.push({ escrowId: escrow.id, reason: `C8 (fully-signed, unclaimed): ${result.detail}` })
+        continue
+      }
+
+      try {
+        await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
+      } catch (err) {
+        // Only the SPECIFIC "lost the atomic claim" error (claimedCount
+        // === 0 — see claimEscrowTransition()'s own message) is treated
+        // as a benign concurrent-claim outcome: someone else (a live
+        // signer's own retry — submitTransactionSignature() resubmitting
+        // an already-recorded signature re-triggers its own allSubmitted
+        // branch — or a concurrent recovery worker) already won this
+        // exact claim, and their call path owns the rest of the
+        // downstream effects. Any OTHER error (an invalid transition, the
+        // circuit breaker open, a genuine DB failure) is a real anomaly,
+        // never silently reclassified as "someone else handled it."
+        if (err instanceof EscrowError && /already transitioned by a concurrent request/.test(err.message)) {
+          report.alreadyClaimedConcurrently.push(escrow.id)
+          continue
+        }
+        throw err
+      }
+
+      const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
+      await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData)
+
+      log.info({ msg: 'C8 recovery: claimed a previously-unclaimed, fully-signed pending transaction after asking the chain first', escrowId: escrow.id, outcome: result.outcome, txId: result.txId })
+      await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, targetStatus, pending.triggeredBy, result.txId, escrow, pending, result.rawTxHex)
+      report.resumedUnclaimed.push({ escrowId: escrow.id, txId: result.txId, outcome: result.outcome })
+    } catch (err) {
+      report.failed.push({ escrowId: escrow.id, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
 }
 
 // PASS 1 (Fase 9.6) — MULTISIG only. Determines whether the real fund
@@ -432,7 +550,12 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
  * per-transition claim, not this function's own peek.
  */
 export async function reconcilePendingSettlements(): Promise<ReconciliationReport> {
-  const report: ReconciliationReport = { recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [] }
+  const report: ReconciliationReport = {
+    recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [],
+    resumedUnclaimed: [], alreadyClaimedConcurrently: [],
+  }
+
+  await reconcileUnclaimedFullySignedPending(report)
 
   const txReleaseIdCandidates = await escrowRepository.findTerminalWithoutTxReleaseId()
   for (const escrow of txReleaseIdCandidates) {

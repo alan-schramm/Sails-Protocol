@@ -602,5 +602,147 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
       expect(events).toHaveLength(1)
       expect((events[0].payload as any).results[buyerId]).toBe('MATCH')
     })
+
+    // Sails Core Implementation Program M9-R (Recovery Closure), Part 1
+    // (R4) + Part 5 — the ORIGINAL guard (getEvents() then emit() if
+    // absent) was two separate round trips with no atomicity between
+    // them; two concurrent callers could both observe "absent" before
+    // either wrote. This proves the REPLACEMENT (CorrespondenceEvaluation's
+    // own real unique-constraint claim) closes it under REAL concurrent
+    // Postgres connections, not just sequential calls.
+    it('R4/Part 5: two concurrent workers evaluating the SAME execution never produce two conflicting canonical records — exactly one durable event, exactly one CorrespondenceEvaluation row', async () => {
+      requirePostgres('correspondence concurrency')
+      const { escrowId, disputeId, buyerId, tradeId } = await makeDisputedMultisigEscrow('livecorr-concurrent')
+      const realBuyerAddress = testnetAddress('m9r-concurrent-buyer')
+      await payoutAddressService.setPayoutAddress(buyerId, 'BTC', realBuyerAddress)
+
+      const { signature, issuedAt } = signRuling(escrowId, disputeId, 'RELEASE', null)
+      await getDisputeService().resolveDispute(disputeId, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+
+      const fakeTx = new bitcoin.Transaction()
+      fakeTx.addInput(Buffer.from(createHash('sha256').update('m9r-concurrent-tx').digest('hex'), 'hex').reverse(), 0)
+      fakeTx.addOutput(bitcoin.address.toOutputScript(realBuyerAddress, bitcoin.networks.testnet), 99_500n)
+      const rawTxHex = fakeTx.toHex()
+
+      // Two genuinely concurrent callers — both will independently
+      // recompute the IDENTICAL result (pure function of the same
+      // historical Outcome + the same rawTxHex) and race to claim the
+      // same CorrespondenceEvaluation identity.
+      await Promise.all([
+        recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex),
+        recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex),
+      ])
+
+      const events = await prisma.durableEventRecord.findMany({
+        where: { eventName: 'dispute.settlement.correspondence_evaluated', correlationId: tradeId },
+      })
+      expect(events).toHaveLength(1) // never two — the loser detected agreement and safely no-op'd, never re-emitted
+      const claims = await prisma.correspondenceEvaluation.findMany({ where: { escrowId } })
+      expect(claims).toHaveLength(1) // the unique constraint itself is what made this true, not application-level care
+    })
+
+    // Part 6/7 — a genuinely CHANGED execution-cost policy is a NEW,
+    // additional, independently-recorded identity — never an overwrite
+    // of the OLD evaluation (history stays append-only), and the OLD
+    // record is provably untouched.
+    it('Part 6/7: a changed execution-cost policy records a SEPARATE evaluation under its own new identity, leaving the original untouched', async () => {
+      requirePostgres('policy version drift — new version, additive')
+      const { escrowId, disputeId, buyerId, tradeId } = await makeDisputedMultisigEscrow('livecorr-policy-drift')
+      const realBuyerAddress = testnetAddress('m9r-policy-drift-buyer')
+      await payoutAddressService.setPayoutAddress(buyerId, 'BTC', realBuyerAddress)
+
+      const { signature, issuedAt } = signRuling(escrowId, disputeId, 'RELEASE', null)
+      await getDisputeService().resolveDispute(disputeId, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+
+      const fakeTx = new bitcoin.Transaction()
+      fakeTx.addInput(Buffer.from(createHash('sha256').update('m9r-policy-drift-tx').digest('hex'), 'hex').reverse(), 0)
+      fakeTx.addOutput(bitcoin.address.toOutputScript(realBuyerAddress, bitcoin.networks.testnet), 99_500n)
+      const rawTxHex = fakeTx.toHex()
+
+      await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex)
+      const firstClaims = await prisma.correspondenceEvaluation.findMany({ where: { escrowId } })
+      expect(firstClaims).toHaveLength(1)
+      const originalPolicyVersion = firstClaims[0].policyVersion
+
+      // A real, live deployment-config change — this codebase's own
+      // execution-cost bounds live on `config.multisig`, read live by
+      // computeExecutionCostPolicyIdentity(); mutating the loaded config
+      // object directly is the same effective change an operator
+      // changing MULTISIG_MAX_FEE_RATE_SATS_PER_VBYTE and restarting the
+      // process would produce.
+      const { config } = require('../../src/config')
+      const previousRate = config.multisig.maxFeeRateSatsPerVByte
+      config.multisig.maxFeeRateSatsPerVByte = previousRate + 1
+      try {
+        await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex)
+      } finally {
+        config.multisig.maxFeeRateSatsPerVByte = previousRate
+      }
+
+      const allClaims = await prisma.correspondenceEvaluation.findMany({ where: { escrowId }, orderBy: { createdAt: 'asc' } })
+      expect(allClaims).toHaveLength(2) // additive — the old evaluation was never touched
+      expect(allClaims[0].policyVersion).toBe(originalPolicyVersion)
+      expect(allClaims[1].policyVersion).not.toBe(originalPolicyVersion)
+      // The original row's own content is byte-for-byte unchanged.
+      expect(allClaims[0].results).toEqual(firstClaims[0].results)
+
+      const events = await prisma.durableEventRecord.findMany({
+        where: { eventName: 'dispute.settlement.correspondence_evaluated', correlationId: tradeId },
+      })
+      expect(events).toHaveLength(2) // both genuinely distinct identities get their own durable observation
+    })
+
+    // Part 7 — FAIL CLOSED on a genuine semantic disagreement under the
+    // IDENTICAL evaluator+policy identity. Simulated directly (a
+    // non-deterministic evaluator isn't reachable through real code
+    // today — this proves the DEFENSE exists and works, not that the
+    // scenario is common) by pre-seeding a CorrespondenceEvaluation row
+    // with a deliberately WRONG result under the exact identity the real
+    // call will independently recompute.
+    it('Part 7: a pre-existing record that disagrees with a fresh, identical-identity recomputation is never overwritten and never re-emitted — FAIL CLOSED', async () => {
+      requirePostgres('correspondence drift — fail closed')
+      const { escrowId, disputeId, buyerId, tradeId } = await makeDisputedMultisigEscrow('livecorr-inconsistency')
+      const realBuyerAddress = testnetAddress('m9r-inconsistency-buyer')
+      await payoutAddressService.setPayoutAddress(buyerId, 'BTC', realBuyerAddress)
+
+      const { signature, issuedAt } = signRuling(escrowId, disputeId, 'RELEASE', null)
+      await getDisputeService().resolveDispute(disputeId, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+
+      const fakeTx = new bitcoin.Transaction()
+      fakeTx.addInput(Buffer.from(createHash('sha256').update('m9r-inconsistency-tx').digest('hex'), 'hex').reverse(), 0)
+      fakeTx.addOutput(bitcoin.address.toOutputScript(realBuyerAddress, bitcoin.networks.testnet), 99_500n)
+      const rawTxHex = fakeTx.toHex()
+
+      const { SAILS_DESTINATION_CORRESPONDENCE_EVALUATOR_IDENTITY } = require('@sails/core')
+      const { computeExecutionCostPolicyIdentity } = require('../../src/modules/open-settlement/execution-cost-policy')
+      const disputeRow = await prisma.dispute.findUnique({ where: { id: disputeId } })
+
+      // Pre-seed a WRONG result (DIVERGENT, where the real recomputation
+      // will find MATCH) under the EXACT identity the real call below
+      // will independently derive.
+      await prisma.correspondenceEvaluation.create({
+        data: {
+          escrowId, appealRound: disputeRow!.appealRound,
+          evaluatorIdentityName: SAILS_DESTINATION_CORRESPONDENCE_EVALUATOR_IDENTITY.name,
+          evaluatorIdentityVersion: SAILS_DESTINATION_CORRESPONDENCE_EVALUATOR_IDENTITY.version,
+          policyVersion: computeExecutionCostPolicyIdentity(),
+          results: { [buyerId]: 'DIVERGENT' },
+        },
+      })
+
+      await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex)
+
+      // Never overwritten — the pre-seeded (wrong) row stands exactly as written.
+      const claim = await prisma.correspondenceEvaluation.findFirst({ where: { escrowId } })
+      expect(claim!.results).toEqual({ [buyerId]: 'DIVERGENT' })
+      // Never re-emitted as a durable event either — no observation is
+      // recorded for a detected inconsistency, matching "never overwrite
+      // history silently" without also fabricating a second, competing
+      // history.
+      const events = await prisma.durableEventRecord.findMany({
+        where: { eventName: 'dispute.settlement.correspondence_evaluated', correlationId: tradeId },
+      })
+      expect(events).toHaveLength(0)
+    })
   })
 })
