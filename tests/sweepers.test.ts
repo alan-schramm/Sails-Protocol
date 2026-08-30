@@ -43,6 +43,11 @@ jest.mock('../src/config', () => ({
       trade: { defaultTimelockHours: 24 },
       settlement: { trustedArbitrators: [], protocolFeeRate: 0 },
       arkade: { seed: '' },
+      // M4 — assertCircuitClosed()/recordEscrowConflict() (escrow-circuit-breaker.ts)
+      // are now on the target-slice's own atomic-commit path (the same
+      // pre-transaction safety checks claimEscrowTransition() already
+      // applies elsewhere); real default values, matching src/config's own.
+      escrowCircuitBreaker: { failureThreshold: 5, windowMs: 30_000, cooldownMs: 120_000 },
     }
   },
 }))
@@ -82,6 +87,11 @@ type EscrowRow = {
 const fakeDb = {
   escrows: new Map<string, EscrowRow>(),
   tradeSeller: new Map<string, string>(),
+  // M4 — keyed by `${interactionId}::${transitionType}`, mirroring the
+  // real @@unique([interactionId, transitionType]) constraint
+  // (M3.5's migration) so a duplicate-insert attempt fails here exactly
+  // like it fails against real Postgres.
+  semanticTransitionRecords: new Map<string, any>(),
 }
 
 const mockEscrowFindMany = jest.fn(async ({ where }: any) => {
@@ -89,6 +99,15 @@ const mockEscrowFindMany = jest.fn(async ({ where }: any) => {
   fakeDb.escrows.forEach((row) => {
     if (where.status && row.status !== where.status) return
     if (where.expiresAt?.lt && (!row.expiresAt || row.expiresAt >= where.expiresAt.lt)) return
+    // M4 (Sails Core Implementation Program) — findFundsLockedExpiryCandidates()'s
+    // own two extra filter shapes: `<=` (not `<`) so the exact-equality
+    // instant reaches this mock the same way it reaches the real Prisma
+    // query, and `type: { in: [...] }` scoping to signature-collection
+    // types only. Both must be honored here for real (not silently
+    // ignored) — this mock IS the boundary that proves whether equality
+    // structurally reaches Core in this file's own M4 suite.
+    if (where.expiresAt?.lte && (!row.expiresAt || row.expiresAt > where.expiresAt.lte)) return
+    if (where.type?.in && !where.type.in.includes(row.type)) return
     result.push({ ...row })
   })
   return result
@@ -131,6 +150,15 @@ const mockDisputeFindFirst = jest.fn(async ({ where }: any) => {
   return null
 })
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
+const mockSemanticTransitionRecordCreate = jest.fn(async ({ data }: any) => {
+  const key = `${data.interactionId}::${data.transitionType}`
+  if (fakeDb.semanticTransitionRecords.has(key)) {
+    throw new Error(`Unique constraint failed on the fields: (\`interactionId\`,\`transitionType\`)`)
+  }
+  const row = { id: `str-${key}`, createdAt: new Date(), ...data }
+  fakeDb.semanticTransitionRecords.set(key, row)
+  return row
+})
 
 jest.mock('../src/common/database', () => {
   return {
@@ -148,15 +176,28 @@ jest.mock('../src/common/database', () => {
       trade: { findUnique: ((...args: unknown[]) => (mockTradeFindUnique as any)(...args)) as any },
       dispute: { findFirst: ((...args: unknown[]) => (mockDisputeFindFirst as any)(...args)) as any },
       escrowParticipantKey: { findMany: ((...args: unknown[]) => (mockParticipantKeyFindMany as any)(...args)) as any },
+      semanticTransitionRecord: {
+        create: ((...args: unknown[]) => (mockSemanticTransitionRecordCreate as any)(...args)) as any,
+      },
       // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
       // escrowEvent existence-check-then-create INSIDE withEscrowFundingLock()
       // — reuses the same mocks as the top-level escrowEvent block above.
+      // M4 — ALSO used directly by commitAuthoritativeEscrowTimelockExpiry()
+      // (semantic-transition-record.ts), a separate, independent
+      // $transaction call combining the escrow status claim and the
+      // SemanticTransitionRecord insert — this tx object exposes both.
       $transaction: (async (callback: (tx: unknown) => Promise<unknown>) =>
         callback({
           $executeRaw: jest.fn().mockResolvedValue(0),
           escrowEvent: {
             findFirst: ((...args: unknown[]) => (mockEscrowEventFindFirst as any)(...args)) as any,
             create: ((...args: unknown[]) => (mockEscrowEventCreate as any)(...args)) as any,
+          },
+          escrow: {
+            updateMany: ((...args: unknown[]) => (mockEscrowUpdateMany as any)(...args)) as any,
+          },
+          semanticTransitionRecord: {
+            create: ((...args: unknown[]) => (mockSemanticTransitionRecordCreate as any)(...args)) as any,
           },
         })) as any,
     },
@@ -173,6 +214,7 @@ const { escrowService } = require('../src/modules/open-settlement/escrow.service
 function resetFakeDb() {
   fakeDb.escrows.clear()
   fakeDb.tradeSeller.clear()
+  fakeDb.semanticTransitionRecords.clear()
 }
 
 function seedEscrow(id: string, overrides: Partial<EscrowRow> = {}): EscrowRow {
@@ -371,6 +413,194 @@ describe('escrowService.sweepExpiredEscrows — RFC-007 timelock proactive sweep
       expect(result.requiresManualRecovery).toEqual([])
       expect(result.failed).toHaveLength(1)
       expect(result.failed[0].escrowId).toBe('escrow-1')
+    })
+  })
+
+  // Sails Core Implementation Program M4 (Retry) — FIRST CORE-AUTHORITATIVE
+  // SEMANTIC SLICE (FUNDS_LOCKED -> EXPIRED). These prove the migration
+  // end to end through the REAL escrowService.sweepExpiredEscrows() /
+  // real escrow-repository.ts / real expiry-authority.ts / real
+  // semantic-transition-record.ts — not a synthetic harness — because
+  // the mission requires the equality boundary and the atomic commit to
+  // demonstrably reach the real live path. tests/expiryAuthority.test.ts
+  // covers the pure-function-level proofs (Core failure modes,
+  // wrong-Core injection, Ruleset binding, structural non-authority)
+  // that don't need this file's full fake-Prisma harness.
+  describe('M4 (Retry) — FUNDS_LOCKED -> EXPIRED is Core-authoritative, atomically committed with its durable Record', () => {
+    it('T2/T3/T4 — boundary equality actually reaches Core through the live path, and each transition is accompanied by a real durable Record: evaluationTime=deadline-1 does not expire, =deadline expires, =deadline+1 expires', async () => {
+      jest.useFakeTimers()
+      try {
+        const now = new Date('2026-01-01T00:00:00.000Z').getTime()
+        jest.setSystemTime(now)
+
+        seedEscrow('escrow-not-yet', { type: 'MULTISIG', expiresAt: new Date(now + 1) })
+        seedEscrow('escrow-at-deadline', { type: 'MULTISIG', expiresAt: new Date(now) })
+        seedEscrow('escrow-past-deadline', { type: 'MULTISIG', expiresAt: new Date(now - 1) })
+
+        const result = await escrowService.sweepExpiredEscrows()
+
+        expect(result.requiresManualRecovery.sort()).toEqual(['escrow-at-deadline', 'escrow-past-deadline'])
+        expect(result.failed).toEqual([])
+        expect(fakeDb.escrows.get('escrow-not-yet')!.status).toBe('FUNDS_LOCKED')
+        expect(fakeDb.escrows.get('escrow-at-deadline')!.status).toBe('EXPIRED')
+        expect(fakeDb.escrows.get('escrow-past-deadline')!.status).toBe('EXPIRED')
+
+        // T23/T24/T25 — durable Record fidelity, for the exact-equality
+        // case specifically (the historical M3 divergence, now resolved
+        // by authority actually transferring): the Record exists, binds
+        // the actual evaluator/profile identity and the Ruleset, and
+        // records the exact committed inputs.
+        const record = fakeDb.semanticTransitionRecords.get('escrow-at-deadline::escrow.timelock.expire')
+        expect(record).toBeDefined()
+        expect(record.fromState).toBe('FUNDS_LOCKED')
+        expect(record.toState).toBe('EXPIRED')
+        expect(record.evaluatorIdentityName).toBe('sails-timelock-evaluator')
+        expect(record.profileIdentityName).toBe('sails-semantic-profile')
+        expect(record.rulesetIdentity).toBe('sails-escrow-timelock-expiry-ruleset')
+        expect(record.conditionResult).toBe('SATISFIED')
+        expect(record.deadlineMs).toBe(BigInt(now))
+        expect(record.evaluationTimeMs).toBe(BigInt(now))
+        // I. Candidate discovery design, proven directly against the
+        // literal query Prisma received: `<=`, never `<`, scoped to the
+        // signature-collection types only.
+        expect(mockEscrowFindMany).toHaveBeenCalledWith({
+          where: { status: 'FUNDS_LOCKED', type: { in: ['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'] }, expiresAt: { lte: new Date(now) } },
+        })
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+
+    it('T13/T18 — the disjoint refund branch is completely unaffected at the exact same boundary instant: still governed by the unchanged `<` predicate, no Record created for it', async () => {
+      jest.useFakeTimers()
+      try {
+        const now = new Date('2026-01-01T00:00:00.000Z').getTime()
+        jest.setSystemTime(now)
+        seedEscrow('escrow-mock-at-boundary', { type: 'MOCK', expiresAt: new Date(now) })
+
+        const result = await escrowService.sweepExpiredEscrows()
+
+        expect(result.refunded).toEqual([])
+        expect(result.requiresManualRecovery).toEqual([])
+        expect(fakeDb.escrows.get('escrow-mock-at-boundary')!.status).toBe('FUNDS_LOCKED')
+        expect(fakeDb.semanticTransitionRecords.size).toBe(0)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+
+    it('T12 — fund-moving branch regression: a mix of an expired MOCK (refund) and an expired MULTISIG (Core-authoritative EXPIRED) resolves each to its own unchanged bucket', async () => {
+      seedEscrow('escrow-mock', { type: 'MOCK' })
+      seedEscrow('escrow-multisig', { type: 'MULTISIG' })
+
+      const result = await escrowService.sweepExpiredEscrows()
+
+      expect(result.refunded).toEqual(['escrow-mock'])
+      expect(result.requiresManualRecovery).toEqual(['escrow-multisig'])
+      expect(result.failed).toEqual([])
+      expect(fakeDb.escrows.get('escrow-mock')!.status).toBe('REFUNDED')
+      expect(fakeDb.escrows.get('escrow-multisig')!.status).toBe('EXPIRED')
+      // T13 — no target expiry ever moves funds: the refund branch's own
+      // mock (updateXResult/provider calls) was never invoked for the
+      // MULTISIG escrow — the only write it received was the plain
+      // status claim + Record insert, nothing resembling a payout.
+      expect(fakeDb.semanticTransitionRecords.has('escrow-mock::escrow.timelock.expire')).toBe(false)
+    })
+
+    it('T8/T21 — Core evaluation failure fails closed, with no legacy fallback: the escrow stays FUNDS_LOCKED, surfaced in `failed`, unrelated candidates unaffected', async () => {
+      const expiryAuthority = require('../src/modules/open-settlement/expiry-authority')
+      const spy = jest.spyOn(expiryAuthority, 'evaluateExpiryAuthority').mockReturnValue({ kind: 'EVALUATION_FAILED' })
+      try {
+        seedEscrow('escrow-1', { type: 'MULTISIG' })
+        seedEscrow('escrow-mock', { type: 'MOCK' }) // unrelated refund-branch escrow — must be unaffected
+        const result = await escrowService.sweepExpiredEscrows()
+
+        expect(result.requiresManualRecovery).toEqual([])
+        expect(result.refunded).toEqual(['escrow-mock']) // the disjoint branch still ran to completion
+        expect(result.failed).toEqual([{ escrowId: 'escrow-1', error: 'Core expiry authority did not authorize a transition (EVALUATION_FAILED) — no legacy fallback' }])
+        expect(fakeDb.escrows.get('escrow-1')!.status).toBe('FUNDS_LOCKED')
+        expect(fakeDb.semanticTransitionRecords.size).toBe(0)
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('T9 — a Ruleset/evaluator binding mismatch fails closed, with no legacy fallback', async () => {
+      const expiryAuthority = require('../src/modules/open-settlement/expiry-authority')
+      const spy = jest.spyOn(expiryAuthority, 'evaluateExpiryAuthority').mockReturnValue({ kind: 'BINDING_MISMATCH', reason: 'simulated mismatch' })
+      try {
+        seedEscrow('escrow-1', { type: 'MULTISIG' })
+        const result = await escrowService.sweepExpiredEscrows()
+
+        expect(result.requiresManualRecovery).toEqual([])
+        expect(result.failed).toEqual([{ escrowId: 'escrow-1', error: 'Core expiry authority did not authorize a transition (BINDING_MISMATCH) — no legacy fallback' }])
+        expect(fakeDb.escrows.get('escrow-1')!.status).toBe('FUNDS_LOCKED')
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('T20 — wrong-Core test: sweepExpiredEscrows() follows whatever evaluateExpiryAuthority says, with no independent legacy re-check able to override it', async () => {
+      // A deliberately wrong evaluator: declares NOT_ELIGIBLE for an
+      // escrow that is genuinely, deeply expired under every real
+      // definition (findFundsLockedExpiryCandidates()'s own `<= now`
+      // filter — a real, unmocked repository predicate — would have
+      // discovered it as a candidate regardless of what Core says). If
+      // any legacy predicate could still override Core's negative word
+      // and transition it anyway on its own authority, this test would
+      // catch that.
+      const expiryAuthority = require('../src/modules/open-settlement/expiry-authority')
+      const spy = jest.spyOn(expiryAuthority, 'evaluateExpiryAuthority').mockReturnValue({ kind: 'NOT_ELIGIBLE', conditionResult: 'NOT_YET_SATISFIED' })
+      try {
+        seedEscrow('escrow-1', { type: 'MULTISIG', expiresAt: new Date(Date.now() - 1_000_000) })
+        const result = await escrowService.sweepExpiredEscrows()
+
+        expect(result.requiresManualRecovery).toEqual([])
+        expect(fakeDb.escrows.get('escrow-1')!.status).toBe('FUNDS_LOCKED')
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('T17/T19 — duplicate/idempotent retry: a repeated sweep tick never re-transitions or re-records an already-EXPIRED escrow', async () => {
+      seedEscrow('escrow-1', { type: 'MULTISIG' })
+      const { eventBus } = require('../src/common/events/event-bus')
+
+      const first = await escrowService.sweepExpiredEscrows()
+      expect(first.requiresManualRecovery).toEqual(['escrow-1'])
+      expect(eventBus.emit).toHaveBeenCalledTimes(1)
+      expect(fakeDb.semanticTransitionRecords.size).toBe(1)
+
+      const second = await escrowService.sweepExpiredEscrows()
+      expect(second.requiresManualRecovery).toEqual([])
+      expect(second.refunded).toEqual([])
+      expect(second.failed).toEqual([])
+      // findFundsLockedExpiryCandidates() only ever queries
+      // status='FUNDS_LOCKED' — an already-EXPIRED escrow is structurally
+      // excluded from the candidate set on the next tick.
+      expect(eventBus.emit).toHaveBeenCalledTimes(1)
+      expect(fakeDb.semanticTransitionRecords.size).toBe(1)
+    })
+
+    it('T16 — a lost race (a concurrent transition wins first) leaves no orphaned Record and no `failed` entry — it is a safe no-op, not an error', async () => {
+      seedEscrow('escrow-1', { type: 'MULTISIG' })
+      // Simulates a concurrent winner claiming the transition between
+      // this sweep's candidate discovery and its own atomic commit
+      // attempt (the same race window claimEscrowTransition() has
+      // always protected against for every other transition).
+      const realUpdateMany = mockEscrowUpdateMany.getMockImplementation()!
+      mockEscrowUpdateMany.mockImplementationOnce(async (...args) => {
+        fakeDb.escrows.get('escrow-1')!.status = 'DISPUTED'
+        return { count: 0 }
+      })
+
+      const result = await escrowService.sweepExpiredEscrows()
+
+      expect(result.requiresManualRecovery).toEqual([])
+      expect(result.failed).toEqual([])
+      expect(fakeDb.escrows.get('escrow-1')!.status).toBe('DISPUTED')
+      expect(fakeDb.semanticTransitionRecords.size).toBe(0)
+      mockEscrowUpdateMany.mockImplementation(realUpdateMany)
     })
   })
 })

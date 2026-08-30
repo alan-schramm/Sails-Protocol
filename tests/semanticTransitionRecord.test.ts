@@ -279,11 +279,10 @@ describe('Y/Z. Atomicity — the State claim and the Record insert share ONE tra
   })
 })
 
-describe('AF. Proof M4 is still inactive — this mechanism has no live caller', () => {
-  it('escrow.service.ts does not import semantic-transition-record.ts — the mechanism exists but is not wired in', () => {
+describe('M4 (retry) — this mechanism now has exactly the one live caller the mission authorized', () => {
+  it('escrow.service.ts wires commitAuthoritativeEscrowTimelockExpiry() into sweepExpiredEscrows() — Core is now authoritative for the target slice', () => {
     const source = fs.readFileSync(path.join(REPO_ROOT, 'src', 'modules', 'open-settlement', 'escrow.service.ts'), 'utf8')
-    expect(source).not.toContain('semantic-transition-record')
-    expect(source).not.toContain('commitAuthoritativeEscrowTimelockExpiry')
+    expect(source).toContain('commitAuthoritativeEscrowTimelockExpiry')
   })
 })
 

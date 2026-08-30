@@ -91,8 +91,25 @@ export interface EscrowRepository {
   /** Same include shape as findByIdWithDetails(), keyed by tradeId — getEscrowByTrade()'s own shape. */
   findByTradeIdWithDetails(tradeId: string): Promise<EscrowWithDetailsRow | null>
 
-  /** status = FUNDS_LOCKED and expiresAt in the past — sweepExpiredEscrows()'s own shape. */
+  /** status = FUNDS_LOCKED and expiresAt in the past — sweepExpiredEscrows()'s
+   *  own shape, feeding ONLY its refund branch as of M4 (Sails Core
+   *  Implementation Program). Deliberately left with its original strict
+   *  `<` predicate and unchanged scope — that branch's authority has not
+   *  migrated to Core, so this query's meaning must stay exactly what it
+   *  always was. See findFundsLockedExpiryCandidates() below for the
+   *  disjoint, Core-authoritative candidate query. */
   findExpiredFundsLocked(now: Date): Promise<EscrowRow[]>
+
+  /** M4 (Sails Core Implementation Program) — candidate discovery ONLY
+   *  for the FUNDS_LOCKED -> EXPIRED target slice. Deliberately broader
+   *  than findExpiredFundsLocked() (`<=` instead of `<`, so the exact
+   *  deadline instant can actually reach the Core evaluator — legacy's
+   *  strict `<` structurally hid equality from ever being decided) and
+   *  deliberately scoped to `types` (the signature-collection providers,
+   *  the only escrow class VALID_TRANSITIONS ever lets reach EXPIRED) so
+   *  this broadening can never pull a refund-branch escrow into this
+   *  candidate set. */
+  findFundsLockedExpiryCandidates(now: Date, types: string[]): Promise<EscrowRow[]>
 
   /** Missão 11 Fase 9.6 — CONC-03 crash-recovery candidates:
    *  status already claiming a terminal outcome (COMPLETED/REFUNDED/
@@ -244,6 +261,12 @@ class PrismaEscrowRepository implements EscrowRepository {
 
   async findExpiredFundsLocked(now: Date) {
     return prisma.escrow.findMany({ where: { status: 'FUNDS_LOCKED', expiresAt: { lt: now } } })
+  }
+
+  async findFundsLockedExpiryCandidates(now: Date, types: string[]) {
+    return prisma.escrow.findMany({
+      where: { status: 'FUNDS_LOCKED', type: { in: types as any }, expiresAt: { lte: now } },
+    })
   }
 
   async findTerminalWithoutTxReleaseId() {

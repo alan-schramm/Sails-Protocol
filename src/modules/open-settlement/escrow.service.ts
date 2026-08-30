@@ -28,13 +28,28 @@ import {
   checkFundMovementCapability,
   assertFundingNotUncertain,
   withEscrowFundingLock,
+  VALID_TRANSITIONS,
 } from './escrow-lifecycle'
+import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import * as dualApproval from './escrow-dual-approval'
 import * as pendingTx from './escrow-pending-tx'
 // Sails Core Implementation Program M3 — structurally non-authoritative
-// shadow observation only; see expiry-shadow.ts's own header.
+// shadow observation only; see expiry-shadow.ts's own header. Retained
+// ONLY on the disjoint, still-unmigrated refund branch below as pure
+// diagnostic evidence — removed from the target slice now that Core is
+// authoritative there (mission's own "M3 Shadow Migration, Option A":
+// retaining a shadow comparison alongside a now-authoritative decision
+// would read as a hidden second opinion, never actually gating anything
+// but confusing to a future reader).
 import { observeExpiryShadow } from './expiry-shadow'
+// Sails Core Implementation Program M4 — the SOLE semantic authority for
+// FUNDS_LOCKED -> EXPIRED eligibility; see expiry-authority.ts's own header.
+import { evaluateExpiryAuthority } from './expiry-authority'
+// M3.5's validated atomic commit path (State claim + durable
+// SemanticTransitionRecord, one Postgres transaction) — see
+// semantic-transition-record.ts's own header.
+import { commitAuthoritativeEscrowTimelockExpiry } from './semantic-transition-record'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
@@ -893,45 +908,121 @@ export class EscrowService {
     requiresManualRecovery: string[]
     failed: Array<{ escrowId: string; error: string }>
   }> {
-    // Captured once and reused for the M3 shadow observation below, so
-    // Core evaluates the exact same (deadline, now) pair the query
-    // already used to select each escrow — never a second, independently
-    // captured clock read, which would introduce spurious clock-skew
-    // "divergence" unrelated to any real semantic difference. This is a
-    // pure capture-into-a-variable of what was already `new Date()`
-    // evaluated exactly once inline — zero behavior change.
+    // Captured once and reused for BOTH the M4 authoritative evaluation
+    // and the M3 shadow observation below, so Core evaluates the exact
+    // same (deadline, now) pair the query already used to select each
+    // escrow — never a second, independently captured clock read, which
+    // would introduce spurious clock-skew "divergence" unrelated to any
+    // real semantic difference.
     const now = new Date()
-    const expired = await this.repo.findExpiredFundsLocked(now)
 
     const refunded: string[] = []
     const requiresManualRecovery: string[] = []
     const failed: Array<{ escrowId: string; error: string }> = []
     const SYSTEM_SWEEPER_ID = 'system:expiry-sweeper'
+    const SIGNATURE_COLLECTION_TYPES = Object.keys(SIGNATURE_COLLECTION_PROVIDERS)
 
-    for (const escrow of expired) {
-      // Sails Core Implementation Program M3 — structurally
-      // non-authoritative shadow observation only (see
-      // expiry-shadow.ts's own header). Never throws, mutates nothing,
-      // and its return value is deliberately unused here: deleting this
-      // one line leaves every economic path below byte-for-byte
-      // identical (tests/expiryShadow.test.ts asserts exactly this).
-      if (escrow.expiresAt) observeExpiryShadow(escrow.id, escrow.expiresAt, now)
-
+    // ---- Target slice (Sails Core Implementation Program M4): --------
+    // FUNDS_LOCKED -> EXPIRED, now exclusively Core-authoritative. This
+    // is the ONLY escrow class VALID_TRANSITIONS (escrow-lifecycle.ts)
+    // ever lets reach EXPIRED — the disjoint refund branch below can
+    // never overlap with it. evaluateExpiryAuthority() (expiry-authority.ts)
+    // is the sole decision-maker for whether each candidate is eligible;
+    // findFundsLockedExpiryCandidates()'s `<=` filter only ever WIDENS
+    // the candidate set relative to Core's own `>=` rule, so it can never
+    // silently decide a case Core doesn't get to rule on.
+    const expiryCandidates = await this.repo.findFundsLockedExpiryCandidates(now, SIGNATURE_COLLECTION_TYPES)
+    for (const escrow of expiryCandidates) {
+      // Defense in depth — the query already filters by type, but
+      // re-checking here (same discipline claimEscrowTransition() below
+      // already applies to its own caller-validated transition) means a
+      // typo or future refactor of SIGNATURE_COLLECTION_TYPES surfaces as
+      // a silent, harmless skip here, never as accidentally granting
+      // Core authority over the disjoint refund branch's escrow types.
+      if (!this.isSignatureCollectionType(escrow.type)) continue
+      if (!escrow.expiresAt) {
+        failed.push({ escrowId: escrow.id, error: 'FUNDS_LOCKED escrow has no expiresAt — cannot evaluate expiry eligibility' })
+        continue
+      }
       try {
-        if (this.isSignatureCollectionType(escrow.type)) {
-          const trade = await tradeRepository.findById(escrow.tradeId)
-          if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
-
-          await claimEscrowTransition(escrow.id, 'FUNDS_LOCKED', 'EXPIRED')
-          await emitEscrowTransition(
-            escrow.id, escrow.tradeId, 'FUNDS_LOCKED', 'EXPIRED', SYSTEM_SWEEPER_ID,
-            'settlement.escrow.expired',
-            { type: escrow.type, sellerId: trade.sellerId },
-            'Timelock expired with no cooperative resolution — cooperative refund needs both signatures; only a dispute (arbiter co-signature) can unilaterally recover this rail.'
-          )
-          requiresManualRecovery.push(escrow.id)
+        // evaluateExpiryAuthority() is documented to never throw past its
+        // own boundary — but it lives inside this per-escrow try anyway,
+        // on the same "do not crash unrelated system functionality"
+        // principle as everything else in this loop: if it ever did
+        // throw despite its own contract, that must cost this ONE
+        // candidate a `failed` entry, never take down the rest of this
+        // loop or the disjoint refund loop after it.
+        const verdict = evaluateExpiryAuthority(escrow.id, escrow.expiresAt.getTime(), now.getTime())
+        if (verdict.kind !== 'AUTHORIZED') {
+          // NOT_ELIGIBLE is the ordinary case candidate discovery's
+          // deliberately wide `<=` net is expected to occasionally
+          // produce — not an anomaly, no action. BINDING_MISMATCH/
+          // EVALUATION_FAILED fail closed — no legacy fallback — and are
+          // surfaced loudly so they aren't mistaken for an ordinary
+          // non-candidate next sweep.
+          if (verdict.kind === 'BINDING_MISMATCH' || verdict.kind === 'EVALUATION_FAILED') {
+            failed.push({ escrowId: escrow.id, error: `Core expiry authority did not authorize a transition (${verdict.kind}) — no legacy fallback` })
+          }
           continue
         }
+
+        // Same pre-transaction safety checks claimEscrowTransition()
+        // (escrow-lifecycle.ts) already applies for every other
+        // transition in this codebase — reproduced explicitly here
+        // because commitAuthoritativeEscrowTimelockExpiry()'s atomic
+        // transaction calls the repository's own claimTransition()
+        // directly (it needs the shared `tx` handle to keep the State
+        // claim and the SemanticTransitionRecord insert in one Postgres
+        // transaction, per M3.5/M3.5-V), not the claimEscrowTransition()
+        // wrapper, which has no such `tx` parameter to thread through.
+        // Core's AUTHORIZED verdict is necessary, not sufficient, for
+        // the transition to actually commit — these guards are unrelated
+        // to the semantic decision and must not be weakened by routing
+        // through the new atomic path.
+        assertCircuitClosed(escrow.id)
+        if (!(VALID_TRANSITIONS['FUNDS_LOCKED'] ?? []).includes('EXPIRED')) {
+          throw new EscrowError('Invalid escrow transition: FUNDS_LOCKED → EXPIRED is no longer a recognized transition')
+        }
+
+        const trade = await tradeRepository.findById(escrow.tradeId)
+        if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+
+        const commitResult = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', verdict.record)
+        if (!commitResult.committed) {
+          // A concurrent caller already transitioned this escrow — same
+          // circuit-breaker feed claimEscrowTransition() already gives
+          // every other lost-race outcome in this codebase, and the
+          // same "not an error, just lost the race" treatment (no
+          // `failed` entry): a real anomaly on this specific escrow, not
+          // a heuristic guess.
+          recordEscrowConflict(escrow.id)
+          continue
+        }
+        await emitEscrowTransition(
+          escrow.id, escrow.tradeId, 'FUNDS_LOCKED', 'EXPIRED', SYSTEM_SWEEPER_ID,
+          'settlement.escrow.expired',
+          { type: escrow.type, sellerId: trade.sellerId },
+          'Timelock expired with no cooperative resolution — cooperative refund needs both signatures; only a dispute (arbiter co-signature) can unilaterally recover this rail.'
+        )
+        requiresManualRecovery.push(escrow.id)
+      } catch (err) {
+        failed.push({ escrowId: escrow.id, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+
+    // ---- Untouched legacy path: FUNDS_LOCKED -> REFUNDED -------------
+    // Authority here has NOT migrated — still exactly the pre-M4
+    // `expiresAt < now` predicate, unchanged scope, unchanged behavior.
+    // Signature-collection types are explicitly skipped: they were
+    // already fully handled above, and legacy no longer decides anything
+    // for them.
+    const expired = await this.repo.findExpiredFundsLocked(now)
+    for (const escrow of expired) {
+      if (this.isSignatureCollectionType(escrow.type)) continue
+      // M3 shadow observation continues here as pure diagnostic evidence
+      // for this still-unmigrated transition — never gating it.
+      if (escrow.expiresAt) observeExpiryShadow(escrow.id, escrow.expiresAt, now)
+      try {
         const trade = await tradeRepository.findById(escrow.tradeId)
         if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
         await this.refundFunds(escrow.id, trade.sellerId)
