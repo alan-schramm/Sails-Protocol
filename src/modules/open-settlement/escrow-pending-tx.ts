@@ -207,10 +207,37 @@ export async function initiateRelease(escrowId: string, toAddress: string | unde
   )
 }
 
-export async function initiateRefund(escrowId: string, triggeredBy: string) {
+// Sails Core Implementation Program M8-RF (Destination Consistency) —
+// `toAddress` is optional/additive at the tail (every existing 2-arg
+// call site stays valid) and resolved exactly like `initiateRelease()`'s
+// own `resolvedToAddress` above: an explicit caller-supplied value wins
+// (the Core-authoritative disputed path passes the historical Outcome's
+// own committed seller destination here — never re-derived at dispatch
+// time), otherwise the seller's own registered PayoutAddress governs
+// (the cooperative/live path) — the SAME rule RELEASE has already
+// applied to the buyer since M8.5, now applied symmetrically to REFUND's
+// own beneficiary (the seller). `resolvePayoutAddress()` fails closed
+// (no fabricated destination) exactly as it already does for RELEASE.
+//
+// Unlike initiateRelease()/initiateSplit() above, this does NOT overwrite
+// the provider's own returned `toAddress` with `resolvedToAddress` —
+// buildUnsignedRefund()'s interface has ALWAYS included `toAddress` as
+// part of its real return shape (every provider already derives one
+// today; MultisigProvider's own now equals `resolvedToAddress` exactly
+// since it uses it directly, but LIGHTNING_HODL/SAFE_GUARD_EVM — genuinely
+// out of this mission's scope — still derive their OWN, different
+// destination internally and must keep reporting THAT truthfully, not a
+// value they never actually used).
+export async function initiateRefund(escrowId: string, triggeredBy: string, toAddress?: string) {
+  const escrow = await escrowRepository.findById(escrowId)
+  if (!escrow) throw new NotFoundError('Escrow', escrowId)
+  const trade = await tradeRepository.findById(escrow.tradeId)
+  if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+  const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.sellerId, escrow.asset)
+
   return initiateSignatureCollectionCore(
     escrowId, 'refund', 'REFUNDED', triggeredBy,
-    (provider, record) => provider.buildUnsignedRefund(record)
+    (provider, record) => provider.buildUnsignedRefund(record, resolvedToAddress)
   )
 }
 

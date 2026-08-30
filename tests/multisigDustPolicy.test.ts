@@ -102,29 +102,26 @@ describe('A. Release — dust matrix', () => {
 })
 
 describe('B. Refund — same dust matrix', () => {
-  // buildUnsignedRefund's destination is the seller's OWN pubkey's
-  // P2WPKH form (derived internally, not caller-supplied) — computed
-  // once here so the exact dust-boundary UTXO values line up the same
-  // way release's do.
-  function sellerRefundAddress() {
-    const bitcoin = require('bitcoinjs-lib')
-    const ecc = require('tiny-secp256k1')
-    bitcoin.initEccLib(ecc)
-    return bitcoin.payments.p2wpkh({ pubkey: Buffer.from(SELLER_PUBKEY, 'hex'), network: bitcoin.networks.bitcoin }).address
-  }
+  // Sails Core Implementation Program M8-RF (Destination Consistency,
+  // 2026-08-31) — buildUnsignedRefund() now TRANSLATES an authorized
+  // destination (P2WPKH_ADDR, the same real mainnet address release's
+  // own tests above already use) instead of deriving one internally from
+  // the seller pubkey. The dust-threshold arithmetic this describe block
+  // exists to prove is completely unaffected by WHICH address is used —
+  // only the OUTPUT VALUE matters here.
 
   it('B1. output clearly above dust → PASS', async () => {
     const { multisigProvider } = loadMainnetProvider()
     mockExplorerThenFee(10_000 + RELEASE_FEE_1SAT)
-    const { psbtBase64, toAddress } = await multisigProvider.buildUnsignedRefund({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+    const { psbtBase64, toAddress } = await multisigProvider.buildUnsignedRefund({ ...baseEscrow, status: 'FUNDS_LOCKED' }, P2WPKH_ADDR)
     expect(typeof psbtBase64).toBe('string')
-    expect(toAddress).toBe(sellerRefundAddress())
+    expect(toAddress).toBe(P2WPKH_ADDR)
   })
 
   it('B2. output exactly at threshold → ALLOWED', async () => {
     const { multisigProvider } = loadMainnetProvider()
     mockExplorerThenFee(294 + RELEASE_FEE_1SAT)
-    const { psbtBase64 } = await multisigProvider.buildUnsignedRefund({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+    const { psbtBase64 } = await multisigProvider.buildUnsignedRefund({ ...baseEscrow, status: 'FUNDS_LOCKED' }, P2WPKH_ADDR)
     const bitcoin = require('bitcoinjs-lib')
     expect(bitcoin.Psbt.fromBase64(psbtBase64).txOutputs[0].value).toBe(294n)
   })
@@ -132,7 +129,7 @@ describe('B. Refund — same dust matrix', () => {
   it('B3. output 1 sat below threshold → REJECTED', async () => {
     const { multisigProvider } = loadMainnetProvider()
     mockExplorerThenFee(293 + RELEASE_FEE_1SAT)
-    await expect(multisigProvider.buildUnsignedRefund({ ...baseEscrow, status: 'FUNDS_LOCKED' }))
+    await expect(multisigProvider.buildUnsignedRefund({ ...baseEscrow, status: 'FUNDS_LOCKED' }, P2WPKH_ADDR))
       .rejects.toThrow(/below the 294-sat dust threshold/)
   })
 })

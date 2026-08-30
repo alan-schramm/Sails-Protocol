@@ -326,7 +326,16 @@ export class DisputeService {
         }
       } else if (ruling === 'REFUND') {
         if (needsSignatureCollection) {
-          await escrowService.initiateRefund(dispute.escrowId, triggeredBy)
+          // M8-RF (Destination Consistency) — refundToAddress was already
+          // a real parameter of this function (used for SPLIT's seller
+          // leg below) but was never threaded through for a pure REFUND
+          // ruling, silently dropped. For this LEGACY, non-Core-authoritative
+          // path (LIGHTNING_HODL/SAFE_GUARD_EVM — MULTISIG never reaches
+          // this branch), the caller-supplied destination is still
+          // "fully authoritative" by this file's own documented boundary
+          // (see resolveDispute()'s own @deprecated-for-MULTISIG comment)
+          // — completing that existing intent, not introducing a new one.
+          await escrowService.initiateRefund(dispute.escrowId, triggeredBy, refundToAddress)
         } else {
           await escrowService.refundFunds(dispute.escrowId, triggeredBy)
         }
@@ -438,7 +447,15 @@ export class DisputeService {
       if (payload.outcome === 'RELEASE') {
         pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, payload.authorityId)
       } else if (payload.outcome === 'REFUND') {
-        pending = await escrowService.initiateRefund(dispute.escrowId, payload.authorityId)
+        // M8-RF (Destination Consistency) — sellerDestination is the
+        // seller's OWN historical DestinationBinding, already resolved
+        // and committed atomically with the Outcome above
+        // (commitAuthoritativeDisputeRuling() -> resolveBeneficiaryDestination()).
+        // Passing it here (previously silently dropped) is what makes
+        // the real Bitcoin translation match what the Outcome already
+        // authorized — never re-derived from the seller's multisig
+        // signing key, never re-read from current PayoutAddress state.
+        pending = await escrowService.initiateRefund(dispute.escrowId, payload.authorityId, sellerDestination)
       } else {
         pending = await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, payload.buyerBps!, payload.authorityId)
       }

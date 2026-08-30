@@ -326,7 +326,13 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
 
       const holdingWrite = simulateEvidenceWriteUnderLock(escrowId, 'RECONFIRMED', 100)
       await tick(15)
-      const refundAttempt = pendingTx.initiateRefund(escrowId, sellerId)
+      // M8-RF (Destination Consistency) — initiateRefund() now resolves
+      // the seller's registered PayoutAddress when no explicit
+      // destination is supplied; this test is about the funding LOCK,
+      // not destination resolution, so an explicit real testnet address
+      // is passed to bypass that lookup entirely (mirrors this file's
+      // own real-address fixtures elsewhere).
+      const refundAttempt = pendingTx.initiateRefund(escrowId, sellerId, 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx')
 
       // initiateRefund() never runs the funding-uncertainty check (refund
       // is a recovery path — see escrow-lifecycle.ts's own comment on

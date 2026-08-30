@@ -208,7 +208,8 @@ describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift dete
 
     await expect(
       driftedProvider.buildUnsignedRefund(
-        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'cc'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-1' }
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'cc'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-1' },
+        REFUND_ADDRESS_UNUSED
       )
     ).rejects.toThrow('does not match the arbiter public key committed')
   })
@@ -284,7 +285,8 @@ describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift dete
 
     await expect(
       creationTimeProvider.buildUnsignedRefund(
-        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'ff'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' }
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'ff'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' },
+        REFUND_ADDRESS_UNUSED
       )
     ).rejects.toThrow('does not match the arbiter public key committed')
   })
@@ -629,17 +631,47 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     ).rejects.toThrow('no recorded funding txid')
   })
 
-  it('buildUnsignedRefund derives a real P2WPKH refund address from the seller pubkey and requires seller+buyer on the normal path', async () => {
+  // Sails Core Implementation Program M8-RF (Destination Consistency,
+  // 2026-08-31) — REPLACES the prior test of the same name area, which
+  // proved buildUnsignedRefund() DERIVED the seller's refund address
+  // internally from their multisig pubkey. That behavior was a
+  // pre-M8.5 placeholder (verified via `git log`/`git show`, see this
+  // function's own updated header comment) and has been removed: the
+  // Provider now TRANSLATES an already-authorized destination, exactly
+  // like buildUnsignedRelease()/buildUnsignedSplit() already do, and
+  // never invents one. Two properties proved here: (1) the returned
+  // toAddress is EXACTLY the authorizedDestination passed in, never a
+  // pubkey-derived one, and (2) omitting it entirely fails closed rather
+  // than silently falling back to the old derivation.
+  it('M8-RF: buildUnsignedRefund() translates the authorized destination it is given — never derives one from the seller pubkey', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '4'.repeat(64)
     mockUtxoFetch(txid, 100_000)
-    const { psbtBase64, requiredSigners, toAddress } = await multisigProvider.buildUnsignedRefund({
-      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'FUNDS_LOCKED',
-    })
-    expect(toAddress).toMatch(/^tb1/)
+    const authorizedDestination = REFUND_ADDRESS_UNUSED
+    const pubkeyDerivedAddress = bitcoin.payments.p2wpkh({ pubkey: sellerKey.publicKey, network }).address!
+    expect(authorizedDestination).not.toBe(pubkeyDerivedAddress) // the two really are different addresses in this test
+
+    const { psbtBase64, requiredSigners, toAddress } = await multisigProvider.buildUnsignedRefund(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'FUNDS_LOCKED' },
+      authorizedDestination
+    )
+    expect(toAddress).toBe(authorizedDestination)
+    expect(toAddress).not.toBe(pubkeyDerivedAddress)
     expect(requiredSigners).toEqual(['seller-1', 'buyer-1'])
     expect(typeof psbtBase64).toBe('string')
+    const psbt = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+    expect(bitcoin.address.fromOutputScript(psbt.txOutputs[0].script, network)).toBe(authorizedDestination)
+  })
+
+  it('M8-RF: buildUnsignedRefund() fails closed with no fabricated destination when none is supplied', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    await expect(
+      multisigProvider.buildUnsignedRefund(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: '4'.repeat(64), status: 'FUNDS_LOCKED' },
+      )
+    ).rejects.toThrow('requires an authorized destination')
   })
 
   it('end-to-end refund: two independently-signed copies combine and finalize', async () => {
@@ -647,9 +679,10 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '5'.repeat(64)
     mockUtxoFetch(txid, 100_000)
-    const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRefund({
-      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'FUNDS_LOCKED',
-    })
+    const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRefund(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'FUNDS_LOCKED' },
+      REFUND_ADDRESS_UNUSED
+    )
     expect(requiredSigners).toEqual(['seller-1', 'buyer-1'])
 
     const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
@@ -669,9 +702,10 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '7'.repeat(64)
     mockUtxoFetch(txid, 100_000)
-    const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRefund({
-      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1',
-    })
+    const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRefund(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+      REFUND_ADDRESS_UNUSED
+    )
     expect(requiredSigners).toEqual(['seller-1'])
 
     const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })

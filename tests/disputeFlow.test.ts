@@ -396,8 +396,23 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       const [sig8, issuedAt8] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'REFUND')
       await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig8, issuedAt8)
 
-      expect(mockInitiateRefund).toHaveBeenCalledWith('escrow-1', 'arbiter-1')
+      // M8-RF (Destination Consistency) — no refundToAddress was supplied
+      // here, so it's threaded through as undefined (initiateRefund()
+      // itself resolves the seller's own registered PayoutAddress in
+      // that case) — never silently dropped.
+      expect(mockInitiateRefund).toHaveBeenCalledWith('escrow-1', 'arbiter-1', undefined)
       expect(mockRefundFunds).not.toHaveBeenCalled()
+    })
+
+    it('M8-RF: threads a caller-supplied refundToAddress through to initiateRefund() for this legacy (non-MULTISIG) signature-collection path — completes a parameter that already existed but was previously dropped for a pure REFUND ruling', async () => {
+      mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+      mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
+      mockIsSignatureCollectionType.mockReturnValueOnce(true)
+
+      const [sig, issuedAt] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'REFUND')
+      await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, 'legacy-seller-address', undefined, sig, issuedAt)
+
+      expect(mockInitiateRefund).toHaveBeenCalledWith('escrow-1', 'arbiter-1', 'legacy-seller-address')
     })
   })
 })

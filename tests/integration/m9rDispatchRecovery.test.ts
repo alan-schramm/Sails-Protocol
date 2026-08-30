@@ -202,51 +202,52 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
     expect(pending!.toAddress).not.toBe('m9r-release-rotated-after')
   })
 
-  // REAL, PRE-EXISTING FINDING (not an M9-R defect, not a test artifact):
-  // multisig.provider.ts's buildUnsignedRefund() ALWAYS derives the
-  // refund destination from the seller's own committed MULTISIG pubkey
-  // (a real P2WPKH address, EscrowParticipantKey — see that function's
-  // own `sellerRefundAddress` line) and NEVER accepts a destination
-  // argument at all (`initiateRefund(escrowId, triggeredBy)` — no
-  // toAddress parameter exists). dispute-outcome.ts's
-  // `resolveBeneficiaryDestination()`, however, unconditionally resolves
-  // EVERY ruling's beneficiary destination — REFUND included — from the
-  // seller's registered PayoutAddress. These two are different addresses
-  // in the overwhelming common case (a PayoutAddress is user-registered
-  // independently of the multisig script's own pubkey), so the durable
-  // Outcome's own destinationBinding for a REFUND ruling does not match
-  // what the real translation will ever pay. This means
-  // assertTranslationMatchesOutcome() — run identically by the LIVE
-  // applyRulingCoreAuthoritative() path, not just by this recovery module
-  // — would ALREADY reject every real MULTISIG REFUND dispute ruling
-  // today, crash or no crash; nothing in this M9-R pass introduced or
-  // worsened this. Confirmed here only as a byproduct of building a real
-  // reproduction, not assumed. Correctly out of THIS mission's scope to
-  // fix (a change to how buildUnsignedRefund()/resolveBeneficiaryDestination()
-  // agree on a REFUND destination is a Tier-3 M8-R dispatch-semantics fix,
-  // not a recovery concern) — reported prominently in the M9-R final
-  // report instead of silently patched here.
-  //
-  // What THIS test actually proves: recovery's own re-run of the SAME
-  // guard the live path uses correctly detects this mismatch and fails
-  // closed (GUARD_FAILED, pending row deleted, zero signatures collected
-  // — no fund-movement risk) rather than blindly dispatching a
-  // translation that doesn't match its own durable Outcome. That is
-  // exactly the safety property this module exists to provide, whether
-  // the mismatch's root cause is a genuine attack or (as here) a
-  // pre-existing upstream defect.
-  it('GUARD_FAILED: REFUND currently exposes a real, pre-existing M8-R destination-resolution mismatch — recovery correctly fails closed rather than dispatching it', async () => {
-    requirePostgres('C4 REFUND recovery — pre-existing mismatch')
-    const { escrowId } = await makeUndispatchedDisputedEscrow('refund', 'REFUND')
+  // Sails Core Implementation Program M8-RF (Destination Consistency,
+  // 2026-08-31) — REPLACES the prior version of this test, which
+  // documented a real, pre-existing M8-R defect (buildUnsignedRefund()
+  // always derived the seller's multisig-pubkey P2WPKH address, ignoring
+  // the historical Outcome's own committed seller PayoutAddress
+  // destinationBinding entirely) discovered as a byproduct of building
+  // C4 recovery. That defect is now fixed at its actual source
+  // (dispute.service.ts's applyRulingCoreAuthoritative() now threads the
+  // historical sellerDestination into initiateRefund(); multisig.provider.ts's
+  // buildUnsignedRefund() now REQUIRES and translates an authorized
+  // destination instead of deriving one) — see M8-RF's own final report
+  // for the full architectural justification
+  // (docs/DESTINATION_AUTHORITY_ARCHITECTURE.md's F′ model already
+  // required this; it was simply never applied to REFUND). This is now
+  // the PRIMARY regression proof that fix didn't just move the bug: a
+  // REFUND ruling's C4 crash (Outcome committed, dispatch never
+  // persisted) now RESUMES successfully, using the historical seller
+  // destination — never the seller's multisig-key-derived address, and
+  // never a live re-read of current PayoutAddress state.
+  it('RF-15: RESUME_AUTHORIZED_DISPATCH — REFUND now resumes successfully using the historical seller destination (M8-RF regression proof)', async () => {
+    requirePostgres('C4 REFUND recovery — fixed')
+    const { escrowId, sellerId } = await makeUndispatchedDisputedEscrow('refund', 'REFUND')
+    const historicalRecord = await prisma.semanticTransitionRecord.findUnique({
+      where: { interactionId_transitionType_appealRound: { interactionId: escrowId, transitionType: 'escrow.dispute.rule', appealRound: 0 } },
+    })
+    const historicalDestination = (historicalRecord!.outcomeDestinationBinding as any[])[0].destination
+
+    // RF-3 — rotate the seller's CURRENT payout address AFTER the
+    // Outcome committed; the resumed REFUND must still use the OLD one.
+    await payoutAddressService.setPayoutAddress(sellerId, 'BTC', testnetAddress('m8rf-refund-rotated-after'))
 
     const report = await reconcileMissingDispatch()
 
-    expect(report.resumed.find((r) => r.escrowId === escrowId)).toBeUndefined()
-    expect(report.guardFailed.find((r) => r.escrowId === escrowId)).toBeDefined()
-    // Never left collectible — the mismatched pending row is deleted, not
-    // silently left for a signer to unknowingly sign.
+    expect(report.resumed).toEqual([{ escrowId, disputeId: expect.any(String), ruling: 'REFUND' }])
+    expect(report.guardFailed.find((r) => r.escrowId === escrowId)).toBeUndefined()
     const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
-    expect(pending).toBeNull()
+    expect(pending).not.toBeNull()
+    expect(pending!.kind).toBe('refund')
+    expect(pending!.toAddress).toBe(historicalDestination)
+    expect(pending!.toAddress).not.toBe('m8rf-refund-rotated-after')
+
+    // RF-20 — the seller's own multisig-key-derived address (what the
+    // OLD, buggy translation would have paid) must NEVER be what the
+    // resumed dispatch actually used.
+    const sellerKeyDerivedAddress = bitcoin.payments.p2wpkh({ pubkey: Buffer.from(SELLER_PUBKEY, 'hex'), network: bitcoin.networks.testnet }).address
+    expect(pending!.toAddress).not.toBe(sellerKeyDerivedAddress)
   })
 
   it('RESUME_AUTHORIZED_DISPATCH: SPLIT — resumes with the historical buyerBps, never a re-derived one', async () => {

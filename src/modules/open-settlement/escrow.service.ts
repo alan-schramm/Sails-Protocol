@@ -794,8 +794,8 @@ export class EscrowService {
     return pendingTx.initiateRelease(escrowId, toAddress, triggeredBy)
   }
 
-  async initiateRefund(escrowId: string, triggeredBy: string) {
-    return pendingTx.initiateRefund(escrowId, triggeredBy)
+  async initiateRefund(escrowId: string, triggeredBy: string, toAddress?: string) {
+    return pendingTx.initiateRefund(escrowId, triggeredBy, toAddress)
   }
 
   async initiateSplit(escrowId: string, buyerAddress: string | undefined, sellerAddress: string | undefined, buyerBps: number, triggeredBy: string) {

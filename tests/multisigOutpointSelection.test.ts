@@ -192,7 +192,7 @@ describe('Missão 10 items 12-14 — release/refund/split all use the exact pers
   it('13. refund spends txLockVout exactly', async () => {
     const { multisigProvider } = loadProvider()
     mockExplorerThenFee(utxos)
-    const { psbtBase64 } = await multisigProvider.buildUnsignedRefund({ ...baseEscrow, status: 'FUNDS_LOCKED', txLockId: 'd'.repeat(64), txLockVout: 1 })
+    const { psbtBase64 } = await multisigProvider.buildUnsignedRefund({ ...baseEscrow, status: 'FUNDS_LOCKED', txLockId: 'd'.repeat(64), txLockVout: 1 }, REFUND_ADDRESS_UNUSED)
     expect(bitcoin.Psbt.fromBase64(psbtBase64, { network }).txInputs[0].index).toBe(1)
   })
 

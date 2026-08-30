@@ -1097,28 +1097,44 @@ export class MultisigProvider implements SettlementProvider {
     return { psbtBase64: psbt.toBase64(), requiredSigners: [escrow.buyerId, escrow.sellerId], feeCollection: feeCollectionResult, minerFeeSats: Number(feeSats) }
   }
 
-  // Missão 11 Fase 4 — deliberately UNCHANGED. Per this mission's own
-  // conservation equations (Fase 3.3/3.4 §H): a refund is Sails=0 always,
-  // and the seller's single existing output already receives 100% of
-  // spendableValue — which, under exact-funding, already equals
-  // (T+Fmax) - M in full. No code change is needed to make the frozen
-  // refund topology real; the pre-existing single-output construction
-  // already implements it correctly the moment lockFunds() enforces exact
-  // funding above. The reserve cannot disappear, cannot become revenue,
-  // and cannot go to the buyer — there is no code path here that could do
-  // any of those things.
+  // Missão 11 Fase 4 — the CONSERVATION property is deliberately
+  // UNCHANGED and still holds regardless of destination: a refund is
+  // Sails=0 always, and the seller's single existing output still
+  // receives 100% of spendableValue — which, under exact-funding, still
+  // equals (T+Fmax) - M in full. The reserve cannot disappear, cannot
+  // become revenue, and cannot go to the buyer — nothing below touches
+  // that arithmetic, only WHERE the one output pays.
   //
-  // Mirror of buildUnsignedRelease() above, for refund-to-seller. Refund
-  // address = the seller's own CLIENT-SUBMITTED pubkey's P2WPKH form — a
-  // reference stand-in (no per-user BTC payout address exists in the
-  // schema yet, same gap dispute.service.ts's own comment already flags
-  // for WDK's releaseToAddress), and only needs the seller's PUBLIC key
-  // (p2wpkh() takes a pubkey, not a private key) so it stays derivable
-  // even though this provider never holds the seller's private key.
-  async buildUnsignedRefund(escrow: MultisigEscrowInput): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string; minerFeeSats: number }> {
+  // Sails Core Implementation Program M8-RF (Destination Consistency,
+  // 2026-08-31) — CORRECTED. Prior to this mission, the refund
+  // destination was derived HERE, internally, from the seller's own
+  // CLIENT-SUBMITTED multisig pubkey's P2WPKH form — a stand-in written
+  // (2026-07-27, before PayoutAddress/M8.5 existed) because "no per-user
+  // BTC payout address exists in the schema yet" (this file's own
+  // original comment, verified via `git log`/`git show` before removing
+  // it — a disclosed placeholder, never a deliberate destination-
+  // authority decision; RELEASE/SPLIT's own `toAddress` parameters were
+  // never given the same placeholder, which is exactly the asymmetry
+  // M9-R's crash-recovery work surfaced). Controlling the multisig
+  // settlement key proves SIGNING CAPABILITY, never DESTINATION
+  // AUTHORITY (`docs/DESTINATION_AUTHORITY_ARCHITECTURE.md` §3/§12's own
+  // "settlement-key holder" attack result) — the two are independent
+  // axes, and this Provider translates an already-authorized destination
+  // exactly like `buildUnsignedRelease`/`buildUnsignedSplit` above
+  // already do; it never gets to invent one itself. `authorizedDestination`
+  // is REQUIRED (not merely accepted) for this provider — every real
+  // caller (`escrow-pending-tx.ts`'s `initiateRefund()`) always resolves
+  // one, from either the beneficiary's own registered PayoutAddress (the
+  // live/cooperative path, mirroring `initiateRelease()`'s own identical
+  // rule) or the historical Outcome's own committed DestinationBinding
+  // snapshot (the Core-authoritative disputed path, `dispute.service.ts`'s
+  // `applyRulingCoreAuthoritative()`) — never re-derived here.
+  async buildUnsignedRefund(escrow: MultisigEscrowInput, authorizedDestination?: string): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string; minerFeeSats: number }> {
+    if (!authorizedDestination) {
+      throw new EscrowError(`MULTISIG provider: buildUnsignedRefund() requires an authorized destination for trade ${escrow.tradeId} — the Provider never invents one`)
+    }
     const parties = this.partiesFor(escrow)
-    const network = networkFor(config.multisig.network)
-    const sellerRefundAddress = bitcoin.payments.p2wpkh({ pubkey: parties.sellerPubkey, network }).address!
+    const sellerRefundAddress = authorizedDestination
 
     const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
 

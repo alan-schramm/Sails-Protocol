@@ -250,7 +250,17 @@ export interface SignatureCollectionProvider {
   // own schema comment) — LIGHTNING_HODL/SAFE_GUARD_EVM's existing return
   // shapes stay valid unchanged.
   buildUnsignedRelease(escrow: unknown, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null; minerFeeSats?: number }>
-  buildUnsignedRefund(escrow: unknown): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string; minerFeeSats?: number }>
+  // Sails Core Implementation Program M8-RF (Destination Consistency) —
+  // `authorizedDestination` is optional/additive at the INTERFACE level
+  // only: LIGHTNING_HODL/SAFE_GUARD_EVM's own implementations keep their
+  // existing single-parameter signatures unchanged (TypeScript structural
+  // typing allows a narrower implementation of a wider interface method),
+  // still deriving their own refund destination internally — genuinely
+  // out of this mission's scope (M8-R never migrated those two rails).
+  // MultisigProvider's own implementation REQUIRES it — see that file's
+  // own header comment for why: the Provider translates an already-
+  // authorized destination, it does not get to invent one.
+  buildUnsignedRefund(escrow: unknown, authorizedDestination?: string): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string; minerFeeSats?: number }>
   // Sails Core Implementation Program M8.6 — rawTxHex is optional/
   // additive, same precedent as minerFeeSats above: only MULTISIG has a
   // real, independently-decodable finalized transaction worth returning

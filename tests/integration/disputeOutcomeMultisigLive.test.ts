@@ -208,6 +208,45 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
     expect(dispute!.authoritySignature).toBe(signature)
   })
 
+  // Sails Core Implementation Program M8-RF (Destination Consistency,
+  // 2026-08-31), RF-4/RF-6/RF-19/RF-20 — REFUND's own sibling of the
+  // RELEASE test above. Before M8-RF, this exact scenario would have
+  // produced a translation matching NEITHER the arbiter's attacker
+  // address NOR the seller's registered PayoutAddress, but the seller's
+  // own multisig-key-derived address instead (the pre-existing defect
+  // M9-R discovered) — proving the fix requires checking against BOTH
+  // wrong candidates, not just the legacy parameter.
+  it('RF-4/RF-19/RF-20: REFUND governed by the seller\'s registered PayoutAddress, snapshotted into a durable, attributed Outcome — arbiter-supplied address AND the seller\'s own settlement-key-derived address are both completely inert', async () => {
+    requirePostgres('REFUND live path — destination consistency')
+    const { escrowId, disputeId, sellerId } = await makeDisputedMultisigEscrow('refund-destination')
+
+    const realSellerAddress = testnetAddress('m8rf-real-seller')
+    await payoutAddressService.setPayoutAddress(sellerId, 'BTC', realSellerAddress)
+
+    const { signature, issuedAt } = signRuling(escrowId, disputeId, 'REFUND', null)
+    // Wrong legacy parameter (arbiter-supplied refundToAddress) — must have zero effect.
+    await getDisputeService().resolveDispute(disputeId, ARBITER_ID, 'REFUND', undefined, ATTACKER_ADDRESS, undefined, signature, issuedAt)
+
+    const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
+    expect(pending).not.toBeNull()
+    expect(pending!.toAddress).toBe(realSellerAddress)
+    expect(pending!.toAddress).not.toBe(ATTACKER_ADDRESS)
+
+    // RF-20 — the seller's OWN multisig-key-derived P2WPKH address (what
+    // the pre-M8-RF defect would have paid instead) must never be what
+    // was actually used, even though the seller genuinely controls that
+    // key.
+    const sellerKeyDerivedAddress = bitcoin.payments.p2wpkh({ pubkey: Buffer.from(SELLER_PUBKEY, 'hex'), network: bitcoin.networks.testnet }).address
+    expect(pending!.toAddress).not.toBe(sellerKeyDerivedAddress)
+
+    const record = await prisma.semanticTransitionRecord.findUnique({
+      where: { interactionId_transitionType_appealRound: { interactionId: escrowId, transitionType: 'escrow.dispute.rule', appealRound: 0 } },
+    })
+    expect(record).not.toBeNull()
+    expect(record!.outcomeContent).toMatchObject({ ruling: 'REFUND', asset: 'BTC', remainderBeneficiary: sellerId })
+    expect(record!.outcomeDestinationBinding).toEqual([{ beneficiary: sellerId, destination: realSellerAddress }])
+  })
+
   it('P12/L — legacy fail-closed: no registered PayoutAddress means the dispute stays unresolved and no orphan record is created', async () => {
     requirePostgres('fail-closed no PayoutAddress')
     const { escrowId, disputeId } = await makeDisputedMultisigEscrow('nopayout')

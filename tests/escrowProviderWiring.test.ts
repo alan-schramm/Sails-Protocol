@@ -64,6 +64,13 @@ jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 const mockGetDepositAddress = jest.fn()
 const mockBuildUnsignedRelease = jest.fn()
 const mockBuildUnsignedRefund = jest.fn()
+// M8-RF (Destination Consistency) — initiateRefund() now resolves the
+// seller's registered PayoutAddress (mirroring initiateRelease()'s own
+// pre-existing buyer-side resolution exactly) when no explicit
+// destination is supplied. Defaults to a real registered address so
+// every OTHER pre-existing test in this file — none of which cares
+// about this new resolution step — keeps passing unchanged.
+const mockPayoutAddressFindUnique = jest.fn()
 const mockFinalizeRelease = jest.fn()
 const mockFinalizeRefund = jest.fn()
 // RFC-021 D9 (2026-08-02)
@@ -171,6 +178,7 @@ jest.mock('../src/common/database', () => ({
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
     },
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
+    payoutAddress: { findUnique: (...args: unknown[]) => mockPayoutAddressFindUnique(...args) },
     // Missão 11 Fase 4.1 — createEscrow() now UNGUARDEDLY calls
     // escrowFeeSnapshotService.computeSnapshotFields() before creating the
     // escrow row (fail-closed, see escrow.service.ts's own comment) —
@@ -661,17 +669,35 @@ describe('initiateRelease()/initiateRefund() — Phase 2 signature-collection ro
     )
   })
 
-  it('initiateRefund builds an unsigned refund PSBT and persists the provider-derived toAddress', async () => {
+  it('initiateRefund builds an unsigned refund PSBT and persists the provider-returned toAddress', async () => {
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'FUNDS_LOCKED' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockBuildUnsignedRefund.mockResolvedValue({ psbtBase64: 'unsigned-refund-psbt', requiredSigners: ['seller-1', 'buyer-1'], toAddress: 'tb1qsellerrefund' })
     mockPendingTxCreate.mockResolvedValue({ id: 'ptx-2', escrowId: 'escrow-1', kind: 'refund', requiredSigners: ['seller-1', 'buyer-1'] })
 
-    const result = await escrowService.initiateRefund('escrow-1', 'seller-1')
+    // M8-RF (Destination Consistency) — an explicit toAddress bypasses
+    // the registered-PayoutAddress lookup (resolvePayoutAddress()'s own
+    // "explicit wins" rule, same as initiateRelease() already relies on
+    // in the tests above) and is what the Provider is now called with —
+    // proving the destination is TRANSLATED, not invented, by the
+    // orchestration layer regardless of what any individual provider's
+    // own (here mocked) implementation returns.
+    const result = await escrowService.initiateRefund('escrow-1', 'seller-1', 'tb1qauthorizedseller')
 
+    expect(mockBuildUnsignedRefund).toHaveBeenCalledWith(expect.anything(), 'tb1qauthorizedseller')
     expect(mockPendingTxCreate).toHaveBeenCalledWith({
       data: { escrowId: 'escrow-1', kind: 'refund', toAddress: 'tb1qsellerrefund', unsignedPsbtBase64: 'unsigned-refund-psbt', requiredSigners: ['seller-1', 'buyer-1'], triggeredBy: 'seller-1' },
     })
     expect(result.id).toBe('ptx-2')
+  })
+
+  it('M8-RF: initiateRefund fails closed when no explicit destination is supplied and the seller has no registered PayoutAddress — never falls back to a derived one', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'FUNDS_LOCKED' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockPayoutAddressFindUnique.mockResolvedValue(null)
+
+    await expect(escrowService.initiateRefund('escrow-1', 'seller-1')).rejects.toThrow(/No payout address/)
+    expect(mockBuildUnsignedRefund).not.toHaveBeenCalled()
   })
 })
 

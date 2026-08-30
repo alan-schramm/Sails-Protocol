@@ -158,7 +158,13 @@ export async function reconcileMissingDispatch(): Promise<DispatchRecoveryReport
         if (ruling === 'RELEASE') {
           pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, triggeredBy)
         } else if (ruling === 'REFUND') {
-          pending = await escrowService.initiateRefund(dispute.escrowId, triggeredBy)
+          // M8-RF (Destination Consistency) — the SAME historical
+          // sellerDestination (already extracted above from the durable
+          // Outcome's own destinationBinding) governs a RESUMED REFUND
+          // dispatch exactly as it governs a live one — never re-derived
+          // from the seller's multisig key, never re-read from current
+          // PayoutAddress state.
+          pending = await escrowService.initiateRefund(dispute.escrowId, triggeredBy, sellerDestination)
         } else {
           const buyerBps = outcome.content.allocations.find((a) => a.beneficiary === trade.buyerId)?.basisPoints
           if (buyerBps === undefined) {

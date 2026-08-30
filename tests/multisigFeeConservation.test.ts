@@ -63,6 +63,7 @@ function p2wpkhAddressFor(seed: string): string {
 // leg) — kept distinct on purpose.
 const BUYER_ADDRESS = p2wpkhAddressFor('fase4-buyer-payout')
 const SPLIT_SELLER_ADDRESS = p2wpkhAddressFor('fase4-split-seller-payout')
+const REFUND_SELLER_ADDRESS = p2wpkhAddressFor('m8rf-refund-seller-payout')
 const COLLECTION_ADDRESS = p2wpkhAddressFor('fase4-collection')
 const P2WPKH_DUST_THRESHOLD = Number(dustThresholdSats(Buffer.from(bitcoin.address.toOutputScript(COLLECTION_ADDRESS, network))))
 
@@ -287,12 +288,13 @@ describe('Fase 4.1 — REFUND satoshi conservation (Sails always 0, entire reser
     const R = T + T
     mockExactFunding(escrow.txLockId, R)
 
-    const { psbtBase64, toAddress } = await multisigProvider.buildUnsignedRefund(escrow)
+    const { psbtBase64, toAddress } = await multisigProvider.buildUnsignedRefund(escrow, REFUND_SELLER_ADDRESS)
     const { outputs, minerFee } = assertConservation(psbtBase64)
 
     expect(outputs).toHaveLength(1)
     expect(outputs.some((o: any) => o.address === COLLECTION_ADDRESS)).toBe(false)
     expect(outputs[0].address).toBe(toAddress)
+    expect(toAddress).toBe(REFUND_SELLER_ADDRESS) // M8-RF: translated, never derived
     expect(outputs[0].value).toBe(R - minerFee) // the ENTIRE reserve, unconditionally
   })
 })
