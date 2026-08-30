@@ -73,5 +73,10 @@ module.exports = {
     // first backend code to import `@satsails/p2p-trading-sdk` for real (its real
     // userOpHash math + SailsSignerService, not duplicated server-side).
     '^@satsails/p2p-trading-sdk$': '<rootDir>/packages/sails-sdk/src/index.ts',
+    // Same reasoning again — the M3 shadow adapter
+    // (expiry-shadow.ts) imports the Pure Core evaluator by package
+    // name; tests must not depend on `packages/sails-core/dist` having
+    // been built first.
+    '^@sails/core$': '<rootDir>/packages/sails-core/src/index.ts',
   },
 }

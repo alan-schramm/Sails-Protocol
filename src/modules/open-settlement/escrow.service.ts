@@ -32,6 +32,9 @@ import {
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import * as dualApproval from './escrow-dual-approval'
 import * as pendingTx from './escrow-pending-tx'
+// Sails Core Implementation Program M3 — structurally non-authoritative
+// shadow observation only; see expiry-shadow.ts's own header.
+import { observeExpiryShadow } from './expiry-shadow'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
@@ -890,7 +893,15 @@ export class EscrowService {
     requiresManualRecovery: string[]
     failed: Array<{ escrowId: string; error: string }>
   }> {
-    const expired = await this.repo.findExpiredFundsLocked(new Date())
+    // Captured once and reused for the M3 shadow observation below, so
+    // Core evaluates the exact same (deadline, now) pair the query
+    // already used to select each escrow — never a second, independently
+    // captured clock read, which would introduce spurious clock-skew
+    // "divergence" unrelated to any real semantic difference. This is a
+    // pure capture-into-a-variable of what was already `new Date()`
+    // evaluated exactly once inline — zero behavior change.
+    const now = new Date()
+    const expired = await this.repo.findExpiredFundsLocked(now)
 
     const refunded: string[] = []
     const requiresManualRecovery: string[] = []
@@ -898,6 +909,14 @@ export class EscrowService {
     const SYSTEM_SWEEPER_ID = 'system:expiry-sweeper'
 
     for (const escrow of expired) {
+      // Sails Core Implementation Program M3 — structurally
+      // non-authoritative shadow observation only (see
+      // expiry-shadow.ts's own header). Never throws, mutates nothing,
+      // and its return value is deliberately unused here: deleting this
+      // one line leaves every economic path below byte-for-byte
+      // identical (tests/expiryShadow.test.ts asserts exactly this).
+      if (escrow.expiresAt) observeExpiryShadow(escrow.id, escrow.expiresAt, now)
+
       try {
         if (this.isSignatureCollectionType(escrow.type)) {
           const trade = await tradeRepository.findById(escrow.tradeId)
