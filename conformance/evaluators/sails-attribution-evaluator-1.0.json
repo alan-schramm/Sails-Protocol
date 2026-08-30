@@ -1,0 +1,33 @@
+{
+  "evaluatorIdentity": { "name": "sails-attribution-evaluator", "version": "1.0" },
+  "title": "Sails Attribution Evaluator 1.0",
+  "description": "Evaluates whether a submitted discretionary-authorization claim constitutes valid attributed discretion (Kernel K2) for one specific interaction, transition, and decision-content commitment. Consumes no cryptographic capability of its own — `proofVerified` is an explicit, already-computed boolean supplied by the calling Runtime/Identity layer (see docs/CORE_ARCHITECTURE.md section 24, Time, for the identical discipline already applied to clock input; this evaluator applies the same discipline to cryptographic verification). This is the semantic definition; a TypeScript reference implementation exists at packages/sails-core/src/attribution.ts, but that implementation is not itself the definition of this identity — see docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 19 (Language Neutrality).",
+  "semanticProfileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+  "inputs": [
+    {
+      "name": "claim",
+      "type": "AttributionClaim",
+      "description": "What the submitted authorization material itself claims: the actor identity, the interaction it claims to bind to, the transition type it claims to bind to, the decision-content commitment it claims to bind to, and whether its raw cryptographic proof was already independently verified by the calling Runtime. This evaluator never verifies a signature itself; it only checks structural consistency of already-resolved material — see docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 23 (Ruleset Admission)'s identical Core/governance split, applied here to Core/Identity-layer instead."
+    },
+    {
+      "name": "context",
+      "type": "AttributionContext",
+      "description": "What is actually being evaluated right now: the real interaction, the real candidate transition type, and the real decision-content commitment recomputed from the actual candidate payload."
+    }
+  ],
+  "output": {
+    "type": "ConditionResult",
+    "reachableValues": ["SATISFIED", "UNSATISFIABLE"],
+    "unreachableValues": ["NOT_YET_SATISFIED", "UNKNOWN"],
+    "rationale": "Attribution for one specific, already-submitted claim is either valid now or can never become valid for that exact claim — there is no 'not yet' for a signature that already exists, and no genuine external uncertainty this evaluator itself introduces (any uncertainty about verification is resolved to a boolean before this evaluator runs). This is the complementary reachable-state pair to the timelock evaluator's own SATISFIED/NOT_YET_SATISFIED — a second, independent evaluator legitimately reaching the other half of the same frozen four-state vocabulary, not an omission."
+  },
+  "rule": "output = SATISFIED if and only if claim.proofVerified is true AND claim.claimedInteraction equals context.interaction AND claim.claimedTransitionType equals context.transitionType AND claim.claimedContentCommitment equals context.contentCommitment. Otherwise UNSATISFIABLE. All four conjuncts are independently checked — a submitted claim failing any one of them fails closed the same way as failing all of them.",
+  "determinism": "Pure function of (claim, context) only. No side effects, no hidden inputs, no cryptographic operation of its own. The same input pair always produces the same output.",
+  "normativeReferences": [
+    "docs/SEMANTIC_KERNEL.md section 6 (K2 — Attributed Discretion)",
+    "docs/PROTOCOL_INVARIANTS.md INV-12 (Attributed Authority Integrity)",
+    "docs/CORE_ARCHITECTURE.md section 28 (Semantic Roles), section 32 (Conceptual Core Operations)",
+    "docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 13 (Record Minimality) — DiscretionaryAttributionMaterial"
+  ],
+  "conformanceVectors": "conformance/vectors/sails-attribution-evaluator-1.0.vectors.json"
+}

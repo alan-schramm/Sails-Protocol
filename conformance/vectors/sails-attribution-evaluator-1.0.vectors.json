@@ -1,0 +1,68 @@
+[
+  {
+    "vectorId": "attribution-valid-claim-matches-context",
+    "evaluatorIdentity": { "name": "sails-attribution-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-attribution-evaluator-1.0.json",
+    "input": {
+      "claim": { "actor": "arbiter-1", "claimedInteraction": "escrow-1", "claimedTransitionType": "escrow.dispute.rule", "claimedContentCommitment": "sha256:abc123", "proofVerified": true },
+      "context": { "interaction": "escrow-1", "transitionType": "escrow.dispute.rule", "contentCommitment": "sha256:abc123" }
+    },
+    "expectedOutput": "SATISFIED"
+  },
+  {
+    "vectorId": "attribution-unverified-proof",
+    "evaluatorIdentity": { "name": "sails-attribution-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-attribution-evaluator-1.0.json",
+    "input": {
+      "claim": { "actor": "arbiter-1", "claimedInteraction": "escrow-1", "claimedTransitionType": "escrow.dispute.rule", "claimedContentCommitment": "sha256:abc123", "proofVerified": false },
+      "context": { "interaction": "escrow-1", "transitionType": "escrow.dispute.rule", "contentCommitment": "sha256:abc123" }
+    },
+    "expectedOutput": "UNSATISFIABLE"
+  },
+  {
+    "vectorId": "attribution-wrong-interaction-replay",
+    "evaluatorIdentity": { "name": "sails-attribution-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-attribution-evaluator-1.0.json",
+    "input": {
+      "claim": { "actor": "arbiter-1", "claimedInteraction": "escrow-1", "claimedTransitionType": "escrow.dispute.rule", "claimedContentCommitment": "sha256:abc123", "proofVerified": true },
+      "context": { "interaction": "escrow-2", "transitionType": "escrow.dispute.rule", "contentCommitment": "sha256:abc123" }
+    },
+    "expectedOutput": "UNSATISFIABLE"
+  },
+  {
+    "vectorId": "attribution-wrong-transition-replay",
+    "evaluatorIdentity": { "name": "sails-attribution-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-attribution-evaluator-1.0.json",
+    "input": {
+      "claim": { "actor": "arbiter-1", "claimedInteraction": "escrow-1", "claimedTransitionType": "escrow.dispute.rule", "claimedContentCommitment": "sha256:abc123", "proofVerified": true },
+      "context": { "interaction": "escrow-1", "transitionType": "escrow.timelock.expire", "contentCommitment": "sha256:abc123" }
+    },
+    "expectedOutput": "UNSATISFIABLE"
+  },
+  {
+    "vectorId": "attribution-decision-content-substituted",
+    "evaluatorIdentity": { "name": "sails-attribution-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-attribution-evaluator-1.0.json",
+    "input": {
+      "claim": { "actor": "arbiter-1", "claimedInteraction": "escrow-1", "claimedTransitionType": "escrow.dispute.rule", "claimedContentCommitment": "sha256:abc123", "proofVerified": true },
+      "context": { "interaction": "escrow-1", "transitionType": "escrow.dispute.rule", "contentCommitment": "sha256:different-content-xyz" }
+    },
+    "expectedOutput": "UNSATISFIABLE"
+  },
+  {
+    "vectorId": "attribution-all-mismatches-still-fails-closed",
+    "evaluatorIdentity": { "name": "sails-attribution-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-attribution-evaluator-1.0.json",
+    "input": {
+      "claim": { "actor": "arbiter-1", "claimedInteraction": "escrow-1", "claimedTransitionType": "escrow.dispute.rule", "claimedContentCommitment": "sha256:abc123", "proofVerified": false },
+      "context": { "interaction": "escrow-2", "transitionType": "escrow.timelock.expire", "contentCommitment": "sha256:different" }
+    },
+    "expectedOutput": "UNSATISFIABLE"
+  }
+]

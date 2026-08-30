@@ -44,6 +44,7 @@ import {
   createCanonicalSemanticProfileIdentity,
 } from '../packages/sails-core/src'
 import { referenceTimelockEvaluator, TimelockInput } from '../packages/sails-core/src/evaluators/timelock-evaluator'
+import { referenceAttributionEvaluator, AttributionEvaluationInput } from '../packages/sails-core/src/attribution'
 
 const REPO_ROOT = path.resolve(__dirname, '..')
 
@@ -72,6 +73,10 @@ function parseTimelockInput(raw: unknown): TimelockInput {
   }
 }
 
+function parseAttributionInput(raw: unknown): AttributionEvaluationInput {
+  return raw as AttributionEvaluationInput
+}
+
 /**
  * Local, repository-internal identity -> reference-implementation
  * registry. Keyed by "name@version" — the Canonical Evaluator Identity
@@ -81,6 +86,10 @@ const evaluatorRegistry: Record<string, RegistryEntry<any>> = {
   'sails-timelock-evaluator@1.0': {
     evaluator: referenceTimelockEvaluator,
     parseInput: parseTimelockInput,
+  },
+  'sails-attribution-evaluator@1.0': {
+    evaluator: referenceAttributionEvaluator,
+    parseInput: parseAttributionInput,
   },
 }
 
