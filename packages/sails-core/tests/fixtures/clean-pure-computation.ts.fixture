@@ -1,0 +1,24 @@
+// Legitimate pure code that must NOT be flagged: relative imports only,
+// no ambient globals, and deliberately exercising the two allowed edge
+// cases (an explicit-argument Date conversion, and Math usage that is
+// not Math.random).
+import { ConditionResult } from './condition-result'
+import { EvaluationTime, isAtOrAfter } from './time'
+
+export function pickWorse(a: ConditionResult, b: ConditionResult): ConditionResult {
+  return a === 'UNSATISFIABLE' || b === 'UNSATISFIABLE' ? 'UNSATISFIABLE' : a
+}
+
+export function explicitConversion(millis: number): Date {
+  // Converting an already-supplied timestamp is legitimate pure
+  // computation — never an implicit clock read.
+  return new Date(millis)
+}
+
+export function boundedAmount(a: number, b: number): number {
+  return Math.max(0, Math.min(a, b))
+}
+
+export function isExpired(evaluationTime: EvaluationTime, deadline: EvaluationTime): boolean {
+  return isAtOrAfter(evaluationTime, deadline)
+}

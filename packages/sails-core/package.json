@@ -1,0 +1,19 @@
+{
+  "name": "@sails/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Sails Protocol — Pure Semantic Core (internal, unpublished). See docs/CORE_IMPLEMENTATION_ARCHITECTURE.md — physical separation from day one, NOT public package from day one. Not exported, not built into the main application, not authorized for npm publication.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "check:boundary": "ts-node ../../scripts/check-core-boundary.ts src"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "license": "Apache-2.0"
+}

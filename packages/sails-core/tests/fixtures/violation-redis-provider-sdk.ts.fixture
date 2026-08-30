@@ -1,0 +1,6 @@
+import Redis from 'ioredis'
+import { WalletEvm } from '@tetherto/wdk-wallet-evm'
+
+export function connect() {
+  return { redis: new Redis(), wallet: WalletEvm }
+}

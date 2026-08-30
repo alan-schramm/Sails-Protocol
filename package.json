@@ -31,6 +31,7 @@
     "prepare": "husky install",
     "lint": "eslint . --ext .ts --fix",
     "format": "prettier --write .",
+    "check:core-boundary": "ts-node scripts/check-core-boundary.ts packages/sails-core/src",
     "db:local:start": "node scripts/local-postgres.js start",
     "db:local:stop": "node scripts/local-postgres.js stop",
     "redis:local:start": "node scripts/local-redis.js start",

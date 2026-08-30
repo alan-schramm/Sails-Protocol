@@ -704,14 +704,24 @@ Architecture" (Fases 1 → 3.1) que ele previa foi concluído e produziu
 representação/boundary/migração está congelada, mas nenhuma das três
 peças de ferramental que ela exige ainda existe no repositório:
 
-- **Boundary mecânico do Pure Core** (§17 do documento) — nenhuma
-  verificação estática de import (`eslint-plugin-import`'s
-  `no-extraneous-dependencies`, `dependency-cruiser`, ou equivalente)
-  está configurada hoje; confirmado por inspeção direta que não existe
-  `.eslintrc*`/`eslint.config.*` na raiz do repositório, e que a
-  hoisting padrão do npm workspaces tornaria uma checagem baseada
-  apenas em `package.json` insuficiente (verificado diretamente:
-  `@prisma/client` já está hoisted para o `node_modules` raiz).
+- ~~**Boundary mecânico do Pure Core** (§17 do documento)~~ — **FECHADO
+  2026-08-29** (Core Implementation Program, Fase 1 — M0). `packages/sails-core`
+  existe como workspace interno não publicado (`"private": true`),
+  zero dependências de runtime. `scripts/check-core-boundary.ts`
+  (nenhuma dependência nova instalada — usa o `typescript` já existente
+  via sua própria Compiler API) rejeita mecanicamente qualquer import
+  não-relativo, `require(...)`, `import()` dinâmico, e qualquer
+  referência a globals ambiente (`process`, `fetch`, `Date.now()`/`new
+  Date()` sem argumento, timers, `Math.random`) — validado com uma
+  violação real e temporária (`@prisma/client` + `Date.now()` +
+  `process.env`) confirmando rejeição em ambas as camadas antes de ser
+  removida. `tsconfig.json` do pacote (`"types": []`, sem `"DOM"`) dá
+  uma segunda camada independente: o `tsc --noEmit` do próprio pacote já
+  falha ao referenciar `process`, sem depender do checker. Cobertura de
+  teste: `tests/coreBoundaryCheck.test.ts` (fixtures `.ts.fixture`,
+  nunca compiladas de verdade) + verificação direta de
+  `packages/sails-core/src` real, todas passando. Ver
+  `packages/sails-core/README.md` para os comandos.
 - **Publicação da Canonical Evaluator Identity** (§5-6) — o mecanismo
   pelo qual uma identidade de evaluator se torna publicamente resolvível
   (evitando virar um ponto de interpretação privada, o mesmo risco já

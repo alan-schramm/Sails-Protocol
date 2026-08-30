@@ -1,0 +1,5 @@
+import { PrismaClient } from '@prisma/client'
+
+export function readSomething(client: PrismaClient) {
+  return client
+}

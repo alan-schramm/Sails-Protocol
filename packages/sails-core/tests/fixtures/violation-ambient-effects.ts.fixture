@@ -1,0 +1,16 @@
+export function ambientClock() {
+  const now = Date.now()
+  const also = new Date()
+  const secret = process.env.SOME_SECRET
+  const roll = Math.random()
+  return { now, also, secret, roll }
+}
+
+export async function ambientNetwork() {
+  const response = await fetch('https://example.com')
+  return response
+}
+
+export function ambientTimer() {
+  return setTimeout(() => {}, 1000)
+}
