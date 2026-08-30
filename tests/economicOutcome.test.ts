@@ -32,6 +32,7 @@ function releaseContent(overrides: Partial<ArbitrationOutcomeContent> = {}): Arb
     totalUnits: '100000',
     asset: 'BTC-SATS',
     allocations: [{ beneficiary: 'buyer', basisPoints: 10000 }],
+    remainderBeneficiary: 'buyer',
     ...overrides,
   }
 }
@@ -45,6 +46,7 @@ function splitContent(overrides: Partial<ArbitrationOutcomeContent> = {}): Arbit
       { beneficiary: 'buyer', basisPoints: 7000 },
       { beneficiary: 'seller', basisPoints: 3000 },
     ],
+    remainderBeneficiary: 'seller',
     ...overrides,
   }
 }
@@ -65,10 +67,22 @@ describe('P10/P11. Deterministic, exact-conservation integer allocation — neve
     expect(sum).toBe(BigInt('100001'))
   })
 
-  it('the canonically-last beneficiary (by name) absorbs the rounding remainder, deterministically — never caller/array-order-controlled', () => {
-    const a = allocateExactUnits({ ruling: 'SPLIT', totalUnits: '10', asset: 'X', allocations: [{ beneficiary: 'seller', basisPoints: 3333 }, { beneficiary: 'buyer', basisPoints: 6667 }] })
-    const b = allocateExactUnits({ ruling: 'SPLIT', totalUnits: '10', asset: 'X', allocations: [{ beneficiary: 'buyer', basisPoints: 6667 }, { beneficiary: 'seller', basisPoints: 3333 }] })
+  it('M8 W1 — the EXPLICITLY named remainderBeneficiary absorbs the rounding remainder, deterministically — never caller/array-order-controlled, never an incidental name-sort artifact', () => {
+    const a = allocateExactUnits({ ruling: 'SPLIT', totalUnits: '10', asset: 'X', remainderBeneficiary: 'buyer', allocations: [{ beneficiary: 'seller', basisPoints: 3333 }, { beneficiary: 'buyer', basisPoints: 6667 }] })
+    const b = allocateExactUnits({ ruling: 'SPLIT', totalUnits: '10', asset: 'X', remainderBeneficiary: 'buyer', allocations: [{ beneficiary: 'buyer', basisPoints: 6667 }, { beneficiary: 'seller', basisPoints: 3333 }] })
     expect(a).toEqual(b) // array order never changes the result
+    const buyerUnits = a.find((u) => u.beneficiary === 'buyer')!.units
+    expect(buyerUnits).toBe('7') // 6667/10000 of 10 floors to 6, but buyer is remainderBeneficiary so gets 10 - floor(3333/10000*10)=10-3=7
+  })
+
+  it('M8 W1 — changing WHICH beneficiary is named as remainderBeneficiary changes the allocation, proving the field is load-bearing, not decorative', () => {
+    const buyerAbsorbs = allocateExactUnits({ ruling: 'SPLIT', totalUnits: '10', asset: 'X', remainderBeneficiary: 'buyer', allocations: [{ beneficiary: 'seller', basisPoints: 3333 }, { beneficiary: 'buyer', basisPoints: 6667 }] })
+    const sellerAbsorbs = allocateExactUnits({ ruling: 'SPLIT', totalUnits: '10', asset: 'X', remainderBeneficiary: 'seller', allocations: [{ beneficiary: 'seller', basisPoints: 3333 }, { beneficiary: 'buyer', basisPoints: 6667 }] })
+    expect(buyerAbsorbs).not.toEqual(sellerAbsorbs)
+  })
+
+  it('M8 W1 — remainderBeneficiary must reference a real allocation beneficiary, fails closed otherwise', () => {
+    expect(() => hashOutcomeContent(splitContent({ remainderBeneficiary: 'nobody' }))).toThrow(/remainderBeneficiary/)
   })
 })
 

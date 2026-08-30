@@ -8,6 +8,20 @@
  * correctly through them, through M5 attribution, and through M6
  * correspondence, without inventing anything Core-level.
  *
+ * M8 W1 REMEDIATION (Provider Dispatch Gate mission): M7's original
+ * remainder rule ("canonically-last beneficiary by sorted name")
+ * survived M7's own adversarial pass only because that pass never
+ * questioned whether `beneficiary` itself was a stable identity.
+ * Attacked directly under M8: nothing in M7 guaranteed `beneficiary`
+ * was a permanent identifier rather than mutable display text, so an
+ * incidental string-sort order could end up deciding a real (if often
+ * small) money allocation. Fixed by requiring an EXPLICIT
+ * `remainderBeneficiary` field — see that field's own doc comment.
+ * `canonicalAllocations()`'s sort is retained, but narrowed to its one
+ * legitimate purpose: making the commitment hash independent of the
+ * caller's own array order, never deciding value.
+ *
+
  * NOT WIRED INTO ANY LIVE PATH. `dispute.service.ts`'s `applyRuling()`
  * is completely untouched — see this file's own "WHY NO LIVE MIGRATION"
  * below, which restates and reconfirms discretionary-authority.ts's
@@ -83,6 +97,19 @@ export interface ArbitrationOutcomeContent {
   readonly totalUnits: string
   readonly asset: string
   readonly allocations: readonly AllocationInput[]
+  /**
+   * M8 W1 remediation (Sails Core Implementation Program M8 — Provider
+   * Dispatch Gate): which beneficiary absorbs the exact rounding
+   * remainder — EXPLICIT and REQUIRED, never inferred from array order
+   * or from sorting `beneficiary` strings. M7's original design used
+   * "canonically-last by sorted name," attacked and found insufficient
+   * during M8: `beneficiary` was never guaranteed to be a stable,
+   * non-display identifier, so an incidental sort order could end up
+   * deciding a real (if small) money allocation — exactly the class of
+   * bug this field exists to make structurally impossible. Must
+   * reference one of `allocations`' own beneficiaries (validated below).
+   */
+  readonly remainderBeneficiary: string
 }
 
 export interface BeneficiaryDestination {
@@ -110,17 +137,23 @@ function assertWellFormedOutcomeContent(content: ArbitrationOutcomeContent): voi
   if (sum !== 10000) {
     throw new Error(`ArbitrationOutcomeContent allocations must sum to exactly 10000 basis points, got ${sum}`)
   }
+  if (!beneficiaries.has(content.remainderBeneficiary)) {
+    throw new Error(`ArbitrationOutcomeContent.remainderBeneficiary "${content.remainderBeneficiary}" must be one of the allocation beneficiaries`)
+  }
 }
 
 /**
- * Canonical, deterministic ordering — sorted by beneficiary name.
- * Neither the caller's own array order nor which allocation "comes
- * first" carries economic meaning; only the (beneficiary -> basisPoints)
- * MAPPING does. Applied identically before both commitment and unit
- * allocation, so "70% buyer / 30% seller" always canonicalizes and
- * allocates identically regardless of input order, while "30% buyer /
- * 70% seller" — a genuinely different economic fact — never collides
- * with it.
+ * Canonical, deterministic ordering — sorted by beneficiary name. This
+ * ordering is used ONLY to make the COMMITMENT (a hash) independent of
+ * the caller's own array order — it is NEVER used to decide who
+ * receives value (see `remainderBeneficiary` above and M8's own W1
+ * finding for why an economic decision must never ride on incidental
+ * sort order). Neither the caller's own array order nor which
+ * allocation "comes first" carries economic meaning; only the
+ * (beneficiary -> basisPoints) MAPPING does — "70% buyer / 30% seller"
+ * always canonicalizes identically regardless of input order, while
+ * "30% buyer / 70% seller" — a genuinely different economic fact —
+ * never collides with it.
  */
 function canonicalAllocations(content: ArbitrationOutcomeContent): readonly AllocationInput[] {
   return [...content.allocations].sort((a, b) => a.beneficiary.localeCompare(b.beneficiary))
@@ -128,27 +161,25 @@ function canonicalAllocations(content: ArbitrationOutcomeContent): readonly Allo
 
 /**
  * Deterministic, exact-conservation integer allocation — BigInt only,
- * never floating point. The canonically-LAST allocation (by sorted
- * beneficiary name, never caller-controlled) receives the exact
- * remainder after every other allocation's floor(basisPoints *
- * totalUnits / 10000) — guaranteeing sum(allocatedUnits) === totalUnits
- * always, regardless of how basisPoints divides totalUnits.
+ * never floating point. The EXPLICITLY named `remainderBeneficiary`
+ * (never an incidental sort-order pick — M8's own W1 remediation)
+ * receives the exact remainder after every OTHER allocation's
+ * floor(basisPoints * totalUnits / 10000) — guaranteeing
+ * sum(allocatedUnits) === totalUnits always, regardless of how
+ * basisPoints divides totalUnits.
  */
 export function allocateExactUnits(content: ArbitrationOutcomeContent): readonly { readonly beneficiary: string; readonly units: string }[] {
   assertWellFormedOutcomeContent(content)
-  const ordered = canonicalAllocations(content)
   const total = BigInt(content.totalUnits)
   let allocated = BigInt(0)
   const results: { beneficiary: string; units: string }[] = []
-  ordered.forEach((a, i) => {
-    if (i === ordered.length - 1) {
-      results.push({ beneficiary: a.beneficiary, units: (total - allocated).toString() })
-      return
-    }
+  for (const a of content.allocations) {
+    if (a.beneficiary === content.remainderBeneficiary) continue // computed last, below
     const units = (total * BigInt(a.basisPoints)) / BigInt(10000)
     allocated += units
     results.push({ beneficiary: a.beneficiary, units: units.toString() })
-  })
+  }
+  results.push({ beneficiary: content.remainderBeneficiary, units: (total - allocated).toString() })
   return results
 }
 
@@ -166,7 +197,7 @@ const ECONOMIC_OUTCOME_VERSION = 1 as const
 export function canonicalizeOutcomeContent(content: ArbitrationOutcomeContent): string {
   assertWellFormedOutcomeContent(content)
   const allocationsPart = canonicalAllocations(content).map((a) => `${a.beneficiary}:${a.basisPoints}`).join(',')
-  return [ECONOMIC_OUTCOME_DOMAIN, String(ECONOMIC_OUTCOME_VERSION), content.ruling, content.asset, content.totalUnits, allocationsPart].join('|')
+  return [ECONOMIC_OUTCOME_DOMAIN, String(ECONOMIC_OUTCOME_VERSION), content.ruling, content.asset, content.totalUnits, allocationsPart, content.remainderBeneficiary].join('|')
 }
 
 export function hashOutcomeContent(content: ArbitrationOutcomeContent): string {
