@@ -1,0 +1,28 @@
+{
+  "evaluatorIdentity": { "name": "sails-destination-correspondence-evaluator", "version": "1.0" },
+  "title": "Sails Destination Correspondence Evaluator 1.0",
+  "description": "Evaluates whether execution evidence corresponds to an already-authorized economic outcome's bound destination, amount, and asset. Materializes the second half of Kernel K3 (docs/SEMANTIC_KERNEL.md section 7) and closes the 'right amount, wrong recipient' / 'right recipient, wrong amount' failure classes docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 15 names explicitly. Consumes no rail-specific parsing capability of its own — destination/amount/asset are compared only as already-resolved, opaque values (see docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 15's own 'Core never needs to understand Bitcoin address, IBAN, Lightning-invoice, or EVM-account syntax'). This is the semantic definition; a TypeScript reference implementation exists at packages/sails-core/src/correspondence.ts, but that implementation is not itself the definition of this identity.",
+  "semanticProfileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+  "inputs": [
+    {
+      "name": "input",
+      "type": "CorrespondenceInput",
+      "description": "The authorized destination/amount/asset (each independently optional — only dimensions the authorization actually bound are ever checked) plus the observed execution evidence (status AWAITED/IRRESOLVABLE/OBSERVED, and the reported destination/amount/asset when OBSERVED)."
+    }
+  ],
+  "output": {
+    "type": "CorrespondenceResult",
+    "reachableValues": ["MATCH", "DIVERGENT", "PENDING", "UNKNOWN"],
+    "unreachableValues": [],
+    "rationale": "Unlike the timelock and attribution evaluators, this evaluator genuinely reaches all four states: PENDING when evidence is still expected (status AWAITED), UNKNOWN when reported evidence is irresolvable or a materially bound dimension was never actually reported, DIVERGENT when any bound dimension affirmatively mismatches, and MATCH only when every bound dimension was observed and matched (or nothing was bound at all)."
+  },
+  "rule": "If observation.status is AWAITED, output PENDING. If IRRESOLVABLE, output UNKNOWN. Otherwise (OBSERVED), independently check each of authorizedDestination/authorizedAmount/authorizedAsset that is present: if the corresponding observation field is absent, that check yields UNKNOWN; if present and unequal, DIVERGENT; if present and equal, MATCH. If any check yields DIVERGENT, the overall result is DIVERGENT (checked first, takes priority over an unrelated UNKNOWN on another dimension). Otherwise if any check yields UNKNOWN, the overall result is UNKNOWN. Otherwise MATCH.",
+  "determinism": "Pure function of (input) only — no rail-specific parsing, no clock, no network, no database. The same input always produces the same output.",
+  "normativeReferences": [
+    "docs/SEMANTIC_KERNEL.md section 7 (K3 — Semantic Settlement Independence)",
+    "docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 9 (Correspondence)",
+    "docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 10 (Historical Integrity)",
+    "docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 15-16 (Destination Binding, Destination Rotation)"
+  ],
+  "conformanceVectors": "conformance/vectors/sails-destination-correspondence-evaluator-1.0.vectors.json"
+}

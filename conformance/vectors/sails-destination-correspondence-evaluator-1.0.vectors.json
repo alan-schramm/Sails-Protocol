@@ -1,0 +1,111 @@
+[
+  {
+    "vectorId": "correspondence-full-match",
+    "evaluatorIdentity": { "name": "sails-destination-correspondence-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-destination-correspondence-evaluator-1.0.json",
+    "input": {
+      "authorizedDestination": { "reference": "bc1q-buyer-address" },
+      "authorizedAmount": "0.001",
+      "authorizedAsset": "BTC",
+      "observation": { "status": "OBSERVED", "destinationReference": "bc1q-buyer-address", "amount": "0.001", "asset": "BTC" }
+    },
+    "expectedOutput": "MATCH"
+  },
+  {
+    "vectorId": "correspondence-wrong-destination",
+    "evaluatorIdentity": { "name": "sails-destination-correspondence-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-destination-correspondence-evaluator-1.0.json",
+    "input": {
+      "authorizedDestination": { "reference": "bc1q-buyer-address" },
+      "authorizedAmount": "0.001",
+      "authorizedAsset": "BTC",
+      "observation": { "status": "OBSERVED", "destinationReference": "bc1q-ATTACKER-address", "amount": "0.001", "asset": "BTC" }
+    },
+    "expectedOutput": "DIVERGENT"
+  },
+  {
+    "vectorId": "correspondence-wrong-amount-correct-destination",
+    "evaluatorIdentity": { "name": "sails-destination-correspondence-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-destination-correspondence-evaluator-1.0.json",
+    "input": {
+      "authorizedDestination": { "reference": "bc1q-buyer-address" },
+      "authorizedAmount": "0.001",
+      "authorizedAsset": "BTC",
+      "observation": { "status": "OBSERVED", "destinationReference": "bc1q-buyer-address", "amount": "0.0001", "asset": "BTC" }
+    },
+    "expectedOutput": "DIVERGENT"
+  },
+  {
+    "vectorId": "correspondence-wrong-asset",
+    "evaluatorIdentity": { "name": "sails-destination-correspondence-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-destination-correspondence-evaluator-1.0.json",
+    "input": {
+      "authorizedDestination": { "reference": "bc1q-buyer-address" },
+      "authorizedAmount": "0.001",
+      "authorizedAsset": "BTC",
+      "observation": { "status": "OBSERVED", "destinationReference": "bc1q-buyer-address", "amount": "0.001", "asset": "WBTC" }
+    },
+    "expectedOutput": "DIVERGENT"
+  },
+  {
+    "vectorId": "correspondence-evidence-awaited",
+    "evaluatorIdentity": { "name": "sails-destination-correspondence-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-destination-correspondence-evaluator-1.0.json",
+    "input": {
+      "authorizedDestination": { "reference": "bc1q-buyer-address" },
+      "authorizedAmount": "0.001",
+      "observation": { "status": "AWAITED" }
+    },
+    "expectedOutput": "PENDING"
+  },
+  {
+    "vectorId": "correspondence-evidence-irresolvable",
+    "evaluatorIdentity": { "name": "sails-destination-correspondence-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-destination-correspondence-evaluator-1.0.json",
+    "input": {
+      "authorizedDestination": { "reference": "bc1q-buyer-address" },
+      "observation": { "status": "IRRESOLVABLE" }
+    },
+    "expectedOutput": "UNKNOWN"
+  },
+  {
+    "vectorId": "correspondence-observed-but-destination-not-reported",
+    "evaluatorIdentity": { "name": "sails-destination-correspondence-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-destination-correspondence-evaluator-1.0.json",
+    "input": {
+      "authorizedDestination": { "reference": "bc1q-buyer-address" },
+      "observation": { "status": "OBSERVED" }
+    },
+    "expectedOutput": "UNKNOWN"
+  },
+  {
+    "vectorId": "correspondence-nothing-bound-trivially-matches",
+    "evaluatorIdentity": { "name": "sails-destination-correspondence-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-destination-correspondence-evaluator-1.0.json",
+    "input": {
+      "observation": { "status": "OBSERVED" }
+    },
+    "expectedOutput": "MATCH"
+  },
+  {
+    "vectorId": "correspondence-provider-success-with-no-real-detail-is-not-match",
+    "evaluatorIdentity": { "name": "sails-destination-correspondence-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-destination-correspondence-evaluator-1.0.json",
+    "input": {
+      "authorizedDestination": { "reference": "bc1q-buyer-address" },
+      "authorizedAmount": "0.001",
+      "authorizedAsset": "BTC",
+      "observation": { "status": "OBSERVED", "amount": "0.001" }
+    },
+    "expectedOutput": "UNKNOWN"
+  }
+]

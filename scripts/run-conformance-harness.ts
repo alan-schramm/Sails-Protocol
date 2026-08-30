@@ -45,6 +45,13 @@ import {
 } from '../packages/sails-core/src'
 import { referenceTimelockEvaluator, TimelockInput } from '../packages/sails-core/src/evaluators/timelock-evaluator'
 import { referenceAttributionEvaluator, AttributionEvaluationInput } from '../packages/sails-core/src/attribution'
+import {
+  CorrespondenceConformanceVector,
+  CorrespondenceEvaluator,
+  runCorrespondenceConformanceVectors,
+  allCorrespondencePassed,
+} from '../packages/sails-core/src'
+import { referenceDestinationCorrespondenceEvaluator, CorrespondenceInput } from '../packages/sails-core/src/correspondence'
 
 const REPO_ROOT = path.resolve(__dirname, '..')
 
@@ -147,14 +154,83 @@ export function checkEvaluatorConformance<TInput>(
   }
 }
 
+/**
+ * M6 — the parallel check for `CorrespondenceEvaluator` implementations.
+ * Deliberately a separate function, not a generic-over-result-type
+ * merge with `checkEvaluatorConformance` above: the two check different
+ * evaluator ROLES (`docs/CORE_IMPLEMENTATION_ARCHITECTURE.md` §11), and
+ * `checkEvaluatorConformance`'s own frozen (M2) signature stays
+ * untouched rather than being widened for a role it was never scoped to.
+ */
+export interface CorrespondenceConformanceReport {
+  readonly evaluatorIdentity: string
+  readonly definitionPath: string
+  readonly vectorsPath: string
+  readonly recognized: boolean
+  readonly conformant: boolean
+  readonly outcomes: ReadonlyArray<{ readonly vectorId: string; readonly passed: boolean; readonly expected: string; readonly actual: string }>
+}
+
+function parseCorrespondenceInput(raw: unknown): CorrespondenceInput {
+  return raw as CorrespondenceInput
+}
+
+const correspondenceEvaluatorRegistry: Record<string, { readonly evaluator: CorrespondenceEvaluator<any>; readonly parseInput: (raw: unknown) => any }> = {
+  'sails-destination-correspondence-evaluator@1.0': {
+    evaluator: referenceDestinationCorrespondenceEvaluator,
+    parseInput: parseCorrespondenceInput,
+  },
+}
+
+export function checkCorrespondenceEvaluatorConformance<TInput>(
+  evaluatorIdentityKey: string,
+  implementation: CorrespondenceEvaluator<TInput>,
+  parseInput: (raw: unknown) => TInput,
+): CorrespondenceConformanceReport {
+  const definitionPath = path.join(REPO_ROOT, 'conformance', 'evaluators', `${evaluatorIdentityKey.replace('@', '-')}.json`)
+  const recognized = fs.existsSync(definitionPath)
+
+  const definition = recognized ? JSON.parse(fs.readFileSync(definitionPath, 'utf8')) : undefined
+  const vectorsRelativePath: string = recognized
+    ? definition.conformanceVectors
+    : path.join('conformance', 'vectors', `${evaluatorIdentityKey.replace('@', '-')}.vectors.json`)
+  const vectorsPath = path.join(REPO_ROOT, vectorsRelativePath)
+
+  const rawVectors: RawVector[] = fs.existsSync(vectorsPath) ? JSON.parse(fs.readFileSync(vectorsPath, 'utf8')) : []
+
+  const vectors: CorrespondenceConformanceVector<TInput>[] = rawVectors.map((raw) => ({
+    vectorId: raw.vectorId,
+    evaluatorIdentity: createCanonicalEvaluatorIdentity(raw.evaluatorIdentity.name, raw.evaluatorIdentity.version),
+    profileIdentity: createCanonicalSemanticProfileIdentity(raw.profileIdentity.name, raw.profileIdentity.version),
+    semanticDefinitionReference: raw.semanticDefinitionReference,
+    input: parseInput(raw.input),
+    expectedOutput: raw.expectedOutput as CorrespondenceConformanceVector<TInput>['expectedOutput'],
+  }))
+
+  const outcomes = runCorrespondenceConformanceVectors(implementation.evaluate, vectors)
+
+  return {
+    evaluatorIdentity: evaluatorIdentityKey,
+    definitionPath: path.relative(REPO_ROOT, definitionPath),
+    vectorsPath: path.relative(REPO_ROOT, vectorsPath),
+    recognized,
+    conformant: recognized && vectors.length > 0 && allCorrespondencePassed(outcomes),
+    outcomes,
+  }
+}
+
 function main(): void {
   const reports: ConformanceReport[] = []
   for (const [key, entry] of Object.entries(evaluatorRegistry)) {
     reports.push(checkEvaluatorConformance(key, entry.evaluator, entry.parseInput))
   }
+  const correspondenceReports: CorrespondenceConformanceReport[] = []
+  for (const [key, entry] of Object.entries(correspondenceEvaluatorRegistry)) {
+    correspondenceReports.push(checkCorrespondenceEvaluatorConformance(key, entry.evaluator, entry.parseInput))
+  }
 
   let anyFailed = false
-  for (const report of reports) {
+  for (const report of [...reports, ...correspondenceReports]) {
     console.log(`\n${report.evaluatorIdentity}`)
     console.log(`  definition: ${report.definitionPath} (recognized: ${report.recognized})`)
     console.log(`  vectors:    ${report.vectorsPath}`)
