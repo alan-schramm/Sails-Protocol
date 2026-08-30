@@ -18,36 +18,37 @@
  * this server-side self-check does not need to duplicate, since the
  * server itself built the PSBT from its own trusted escrow record).
  *
- * WHY GROSS-TOTAL vs. NET-OF-FEE (see `economic-outcome.ts`'s own
- * `allocateExactUnitsOverTotal()` comment): the authoritative Outcome
- * commits to the ECONOMIC RULE (ruling + bps + the escrow's full locked
- * amount), never a pre-computed net-of-miner-fee sat amount — the real
- * miner fee is only known once the provider actually builds the PSBT
- * against live network fee-rate data. This guard re-derives the EXPECTED
- * per-beneficiary split against the REAL spendable total it decodes from
- * the PSBT itself (input value minus the REAL fee actually implied by
- * that PSBT's own outputs) — never trusting a provider-claimed fee
- * figure at face value for a MULTI-beneficiary (SPLIT) ruling: shifting
- * the ratio between two real, independent beneficiaries (e.g. "70/30
- * shifted to 60/40") is caught regardless of what fee is claimed, since
- * the RATIO check has nothing to do with the total.
+ * EXECUTION COST SEMANTICS (Sails Core Implementation Program M8.6 —
+ * closes what this file used to disclose as an open, single-beneficiary
+ * skim gap): the authoritative Outcome commits to the ECONOMIC RULE
+ * (ruling + bps + the escrow's full GROSS locked amount), never a
+ * pre-computed net-of-miner-fee sat amount — the real miner fee is only
+ * known once the provider actually builds the PSBT against live network
+ * fee-rate data. This guard decodes the REAL spendable total from the
+ * PSBT itself (input value minus the REAL fee implied by its own
+ * outputs) and runs it through `execution-cost-policy.ts`'s
+ * `deriveDistributableTotal()` — which BOUNDS the implied gap between
+ * authorized gross and real delivered total against a deterministic fee
+ * ceiling — before ever using that total as the basis for the
+ * per-beneficiary ratio check. This is what makes the check
+ * non-tautological even for a SINGLE-beneficiary ruling: "100% of
+ * whatever is left" is no longer trivially satisfied by any real
+ * output, because "whatever is left" must first be plausible as
+ * legitimate rail execution cost (`execution-cost-policy.ts`'s own
+ * header has the full model derivation and the K3 justification for why
+ * this is translation, never redefinition). For a MULTI-beneficiary
+ * (SPLIT) ruling, the pre-existing ratio check (shifting "70/30" to
+ * "60/40") remains an independent, additional defense on top of the fee
+ * bound.
  *
- * DISCLOSED LIMIT — SINGLE-BENEFICIARY RULINGS (RELEASE/REFUND): with
- * only one beneficiary, "100% of whatever is left after the fee" is
- * tautologically satisfied by any real output — a translator that
- * skims value by claiming an inflated-but-internally-consistent miner
- * fee cannot be caught by a pure ratio/destination check alone,
- * exactly the same disclosed gap `sails-sdk`'s own wallet-side
- * `verifySigningIntent()` already carries for a REMOTE wallet
- * (`ExpectedSigningIntent.feeRate`'s own comment: "informational only").
- * This guard closes the adjacent, genuinely catchable case instead: an
- * OPTIONAL `declaredMinerFeeSats` parameter (the provider's OWN
- * `buildUnsignedRelease/Refund/Split()` return value, already computed
- * before this guard runs) is checked for INTERNAL CONSISTENCY against
- * the REAL fee implied by the PSBT's own bytes — catching a translator
- * whose reported fee disagrees with what it actually built, a real bug
- * class distinct from, and not a substitute for, an external fee-rate
- * oracle this program does not build.
+ * `declaredMinerFeeSats` (the provider's OWN `buildUnsignedRelease/
+ * Refund/Split()` return value) is still checked for INTERNAL
+ * CONSISTENCY against the real, PSBT-implied fee when supplied — a real,
+ * distinct bug class (a translator whose reported fee disagrees with
+ * what it actually built) the fee-ceiling check alone would not catch
+ * on its own if the reported and actual fees merely happened to agree
+ * with each other while both being wrong in the same way; kept as
+ * defense in depth, not a substitute for the ceiling.
  *
  * SCOPE (disclosed, not silently assumed): this guard's "exactly the
  * authorized beneficiary set, no more, no less" output-count check
@@ -61,6 +62,7 @@
 import * as bitcoin from 'bitcoinjs-lib'
 import { Outcome } from '@sails/core'
 import { ArbitrationOutcomeContent, BeneficiaryDestination, allocateExactUnitsOverTotal } from './economic-outcome'
+import { deriveDistributableTotal } from './execution-cost-policy'
 
 export interface TranslationGuardResult {
   readonly ok: boolean
@@ -117,10 +119,24 @@ export function validateTranslatedOutputsAgainstOutcome(
     return { ok: false, mismatches: ['authoritative Outcome has no destination binding — refusing to validate a translation against nothing'] }
   }
 
-  // Re-derive the EXPECTED per-beneficiary split over the REAL,
-  // PSBT-observed spendable total (outputTotal = inputValue - real fee)
-  // — never a value predicted in advance.
-  const expected = allocateExactUnitsOverTotal(outcome.content, outputTotal)
+  // M8.6 — bound the gap between the AUTHORIZED gross entitlement and
+  // the REAL, PSBT-observed delivered total (outputTotal) against the
+  // deterministic execution-cost ceiling BEFORE using it as the ratio
+  // basis. This is what prevents "100% of whatever is left" from being
+  // trivially satisfied by an arbitrarily skimmed output — see this
+  // file's own header and execution-cost-policy.ts.
+  const derivation = deriveDistributableTotal(BigInt(outcome.content.totalUnits), outputTotal, outcome.content.allocations.length)
+  if (!derivation.ok) {
+    // Append, never replace — an earlier internal-consistency finding
+    // (declaredMinerFeeSats mismatch) must not be silently discarded.
+    return { ok: false, mismatches: [...mismatches, derivation.reason] }
+  }
+
+  // Re-derive the EXPECTED per-beneficiary split over the BOUNDED
+  // distributable total — never the raw gross totalUnits directly
+  // (which would ignore the real, legitimate rail cost) and never the
+  // unbounded outputTotal directly (which would be tautological).
+  const expected = allocateExactUnitsOverTotal(outcome.content, derivation.distributable)
 
   for (const exp of expected) {
     const destination = destinations.find((d) => d.beneficiary === exp.beneficiary)

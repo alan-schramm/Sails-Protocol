@@ -517,6 +517,65 @@ export const config = {
     network: resolvedMultisigNetwork,
     explorerApiUrl: process.env.MULTISIG_EXPLORER_API_URL ?? 'https://mempool.space/testnet/api',
     requiredConfirmations: resolveMultisigRequiredConfirmations(),
+    // Sails Core Implementation Program M8.6 (Execution Cost Semantics) —
+    // a deterministic, deployment-wide CEILING on the rail execution cost
+    // (Bitcoin miner fee) a MULTISIG settlement transaction may ever
+    // imply, expressed as a fee RATE (sat/vByte) rather than an absolute
+    // amount, since the real fee scales with transaction size. This is
+    // NOT a fee-market-optimality oracle (execution-cost-policy.ts's own
+    // header explains the distinction) — it exists solely to bound the
+    // "excessive fee as a skim" attack (a translator or compromised
+    // explorer response claiming an absurd fee to divert value):
+    // multisig.provider.ts's own real fee-rate lookup
+    // (fetchFeeRateSatsPerVByte(), mempool.space's `/v1/fees/recommended`)
+    // has never had any ceiling at all before this. 200 sat/vB is a
+    // deliberately generous default — well above any historically
+    // observed real-world Bitcoin fee spike — so this never rejects a
+    // legitimate, even unusually expensive, real transaction; it exists
+    // to catch a value clearly outside plausible reality, not to
+    // second-guess normal fee-market conditions.
+    maxFeeRateSatsPerVByte: Number(process.env.MULTISIG_MAX_FEE_RATE_SATS_PER_VBYTE ?? '200'),
+    // A pure sat/vByte ceiling alone scales badly for a very small
+    // escrow: a generous rate bound (sized for real fee-market spikes)
+    // can still represent a large FRACTION of a tiny trade's total
+    // value, leaving room for a real, if bounded, skim
+    // (execution-cost-policy.ts's own header — the single-beneficiary
+    // "COST-18" attack this second, independent, proportional bound
+    // closes). Basis points, never a float, matching this codebase's
+    // own established money-math discipline.
+    //
+    // 2000 = 20.00% — deliberately loose, found directly (not assumed)
+    // while validating against this repository's own real
+    // multisigProvider.test.ts fixture: a genuinely realistic real-fee-
+    // spike scenario (50 sat/vB, a small 100,000-sat/~0.001 BTC escrow)
+    // already implies a real, honest fee of ~8.2% of gross — a tighter
+    // default (5%, this policy's own first draft) would have rejected
+    // that as if it were a skim, which mission §15/§19's own explicit
+    // "never reject a legitimate, even unusually expensive, real
+    // transaction" instruction forbids. This value exists ONLY to bound
+    // an extreme, implausible skim (mission §16's own worked example is
+    // 50%) on a very small escrow — it is NOT tight enough to catch a
+    // moderate (~10%) skim on a small trade, which is honestly
+    // indistinguishable from a legitimately high fee during real
+    // congestion without an external fee-market oracle (deliberately not
+    // introduced, mission §15) — a disclosed, accepted residual, not a
+    // silently swept-away gap.
+    maxFeeProportionOfGrossBasisPoints: Number(process.env.MULTISIG_MAX_FEE_PROPORTION_BPS ?? '2000'),
+    // A minimum, ABSOLUTE floor on the effective ceiling — found directly
+    // (not assumed) while validating against this repository's own real
+    // dust-policy test fixtures: those deliberately use near-dust escrow
+    // amounts (a few hundred sats) to exercise Bitcoin's own dust-relay
+    // threshold, where even the cheapest realistic fee (1 sat/vB) is
+    // already a large PERCENTAGE of such a tiny total — the proportional
+    // bound above would otherwise reject a real, honest, minimal fee on
+    // a legitimately tiny escrow, which mission M8.6 §15/§19's own
+    // "never reject a legitimate transaction" instruction forbids. This
+    // floor exists purely so the proportional bound never becomes
+    // TIGHTER than what any realistic single/double-output transaction
+    // fee requires even under normal (non-spike) network conditions —
+    // it does not weaken the rate or proportional bounds for any escrow
+    // large enough that 20%/200sat-vB already exceeds it.
+    minFeeFloorSats: Number(process.env.MULTISIG_MIN_FEE_FLOOR_SATS ?? '10000'),
   },
 
   // LIGHTNING_HODL SettlementProvider (lightning-hodl.provider.ts) — real

@@ -21,6 +21,7 @@ import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
 import { identifyFeeOutput, networkFor } from './multisig.provider'
+import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('escrow-pending-tx')
@@ -376,6 +377,17 @@ export async function submitTransactionSignature(escrowId: string, participantId
         })
       }
     }
+
+    // Sails Core Implementation Program M8.6 — live M6 correspondence for
+    // the ONE migrated slice (Mission13 MULTISIG dispute settlement).
+    // Narrowly scoped inside recordLiveCorrespondenceIfApplicable() itself
+    // (escrow type + "does a RESOLVED Dispute with a durable
+    // Core-authoritative Outcome actually exist" — never triggered for a
+    // cooperative release or any other rail); never allowed to fail this
+    // already-successful settlement (same established idiom as the
+    // fee-collection-evidence block immediately above — funds have
+    // already moved by this point).
+    await recordLiveCorrespondenceIfApplicable(escrowId, escrow.tradeId, escrow.type, result.rawTxHex)
 
     const eventName = pending.kind === 'release'
       ? 'settlement.escrow.released'

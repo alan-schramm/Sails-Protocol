@@ -251,8 +251,14 @@ export interface SignatureCollectionProvider {
   // shapes stay valid unchanged.
   buildUnsignedRelease(escrow: unknown, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null; minerFeeSats?: number }>
   buildUnsignedRefund(escrow: unknown): Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress: string; minerFeeSats?: number }>
-  finalizeRelease(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
-  finalizeRefund(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
+  // Sails Core Implementation Program M8.6 — rawTxHex is optional/
+  // additive, same precedent as minerFeeSats above: only MULTISIG has a
+  // real, independently-decodable finalized transaction worth returning
+  // for live correspondence evaluation (dispute-correspondence.ts) —
+  // LIGHTNING_HODL/SAFE_GUARD_EVM's existing return shapes stay valid
+  // unchanged (they simply omit it).
+  finalizeRelease(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex?: string }>
+  finalizeRefund(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex?: string }>
   // RFC-021 D9 — optional, same reasoning as SettlementProvider.splitFunds
   // above. Unlike that direct-call version, this is a single PSBT with two
   // real outputs (one transaction, one txid) — a signature-collection
@@ -261,7 +267,7 @@ export interface SignatureCollectionProvider {
   // LIGHTNING_HODL/SAFE_GUARD_EVM each have a real, provider-specific
   // reason they can't (see each one's own buildUnsignedSplit() override).
   buildUnsignedSplit?(escrow: unknown, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ psbtBase64: string; requiredSigners: string[]; feeCollection?: FeeCollectionResult | null; minerFeeSats?: number }>
-  finalizeSplit?(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }>
+  finalizeSplit?(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex?: string }>
 }
 export const SIGNATURE_COLLECTION_PROVIDERS: Record<string, SignatureCollectionProvider> = {
   MULTISIG: multisigProvider,

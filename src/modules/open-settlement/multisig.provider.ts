@@ -77,6 +77,7 @@ import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
 import { validateOutput, dustThresholdSats } from './bitcoin-dust-policy'
 import { computeMaxProtocolFee, computeProtocolFee } from './fee-reserve-math'
+import { estimatedVBytesForOutputCount, maxExecutionCostSats } from './execution-cost-policy'
 import type { FeeCollectionResult } from './escrow-providers'
 import { childLogger } from '../../common/logger'
 
@@ -921,9 +922,16 @@ export class MultisigProvider implements SettlementProvider {
   // be either — generous rather than exact, the same "err toward
   // overpaying, never toward a stuck tx" bias the real rate lookup
   // above already has).
+  //
+  // Sails Core Implementation Program M8.6 — the vsize formula itself
+  // moved to execution-cost-policy.ts (estimatedVBytesForOutputCount())
+  // so it is the SAME single source of truth this file's own real
+  // construction uses AND the one M8.6's independent skim-detection
+  // bound (maxExecutionCostSats()) uses — never two copies that could
+  // silently drift (INV-OP-9's own "exactly one normative algorithm"
+  // principle).
   private estimateFeeSats(feeRateSatsPerVByte: number, outputCount: number): bigint {
-    const estimatedVBytes = 11 + 110 + 43 * outputCount
-    return BigInt(Math.ceil(feeRateSatsPerVByte * estimatedVBytes))
+    return BigInt(Math.ceil(feeRateSatsPerVByte * estimatedVBytesForOutputCount(outputCount)))
   }
 
   // Shared by buildUnsignedRelease()/buildUnsignedRefund()/
@@ -976,6 +984,21 @@ export class MultisigProvider implements SettlementProvider {
     // estimateFeeSats()'s own comments for the reasoning.
     const feeRateSatsPerVByte = await this.fetchFeeRateSatsPerVByte()
     const feeSats = this.estimateFeeSats(feeRateSatsPerVByte, outputCount)
+    // Sails Core Implementation Program M8.6 — a deterministic ceiling on
+    // the fee this transaction may ever imply, independent of whatever
+    // the live fee-estimate endpoint returned. Closes the same class of
+    // gap this file's own fee-estimate lookup has always disclosed
+    // ("a wrong fee for a real Bitcoin spend either overpays or gets
+    // stuck unconfirmed") one step further: an explorer response that is
+    // wrong in the OTHER direction (implausibly high) must not silently
+    // become an unbounded value-diversion vector. See
+    // execution-cost-policy.ts's own header for the full reasoning.
+    const feeCeiling = maxExecutionCostSats(outputCount, BigInt(utxo.value))
+    if (feeSats > feeCeiling) {
+      throw new EscrowError(
+        `MULTISIG provider: estimated fee ${feeSats} sats (${feeRateSatsPerVByte} sat/vB) exceeds the deterministic ceiling ${feeCeiling} sats for a ${outputCount}-output spend — refusing to build a transaction with an implausible fee. Check MULTISIG_EXPLORER_API_URL and MULTISIG_MAX_FEE_RATE_SATS_PER_VBYTE.`
+      )
+    }
     const spendableValue = BigInt(utxo.value) - feeSats
     if (spendableValue <= 0n) {
       throw new EscrowError(`UTXO value ${utxo.value} sats too small to cover the estimated ${feeSats} sat fee (${feeRateSatsPerVByte} sat/vB)`)
@@ -1245,10 +1268,17 @@ export class MultisigProvider implements SettlementProvider {
     }
   }
 
-  private async finalizeSpend(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+  private async finalizeSpend(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex: string }> {
     const tx = this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, signedPsbtBase64List)
-    const txId = await this.broadcast(tx.toHex())
-    return { txId }
+    const rawTxHex = tx.toHex()
+    const txId = await this.broadcast(rawTxHex)
+    // Sails Core Implementation Program M8.6 — additive: the raw,
+    // finalized transaction hex is what dispute-correspondence.ts needs
+    // to independently decode real delivered outputs for the live
+    // correspondence check. Never returned before this mission because
+    // nothing needed it; every existing caller destructuring only
+    // `{ txId }` is unaffected (structural typing).
+    return { txId, rawTxHex }
   }
 
   // Missão 11 Fase 9.6 — CONC-03 crash recovery. Called ONLY by
@@ -1343,15 +1373,15 @@ export class MultisigProvider implements SettlementProvider {
     }
   }
 
-  async finalizeRelease(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+  async finalizeRelease(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex: string }> {
     return this.finalizeSpend(escrow, unsignedPsbtBase64, signedPsbtBase64List)
   }
 
-  async finalizeRefund(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+  async finalizeRefund(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex: string }> {
     return this.finalizeSpend(escrow, unsignedPsbtBase64, signedPsbtBase64List)
   }
 
-  async finalizeSplit(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+  async finalizeSplit(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex: string }> {
     return this.finalizeSpend(escrow, unsignedPsbtBase64, signedPsbtBase64List)
   }
 

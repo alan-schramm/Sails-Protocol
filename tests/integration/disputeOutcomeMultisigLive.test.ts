@@ -20,6 +20,17 @@ import { createHash } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
+// NOTE: recordLiveCorrespondenceIfApplicable is NOT statically imported
+// here — a top-level ES import is evaluated when THIS FILE loads, before
+// beforeAll() ever runs, and dispute-correspondence.ts transitively
+// imports '../../config' — freezing config.features.mockEscrow (and
+// every other env-derived flag) at whatever process.env held at that
+// moment, permanently, for this whole process (module singletons are
+// cached). Found directly (not assumed): this is exactly what broke
+// EVERY test in this file when the import was added statically. Lazily
+// require()'d inside beforeAll below, after MOCK_ESCROW/TRUSTED_ARBITRATORS
+// are set, matching the exact pattern every other service in this file
+// already uses.
 
 bitcoin.initEccLib(ecc)
 
@@ -53,6 +64,7 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
   let payoutAddressService: typeof import('../../src/modules/open-settlement/payout-address.service').payoutAddressService
   let signAuthorityDecision: typeof import('../../src/modules/open-settlement/arbitration-authority').signAuthorityDecision
   let hashAuthorityDecision: typeof import('../../src/modules/open-settlement/arbitration-authority').hashAuthorityDecision
+  let recordLiveCorrespondenceIfApplicable: typeof import('../../src/modules/open-settlement/dispute-correspondence').recordLiveCorrespondenceIfApplicable
 
   const ARBITER_ID = 'm8r-live-test-arbiter'
   const arbiterKeypair = nacl.sign.keyPair()
@@ -98,6 +110,7 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
     ;({ getDisputeService } = require('../../src/modules/open-settlement/dispute.service'))
     ;({ payoutAddressService } = require('../../src/modules/open-settlement/payout-address.service'))
     ;({ signAuthorityDecision, hashAuthorityDecision } = require('../../src/modules/open-settlement/arbitration-authority'))
+    ;({ recordLiveCorrespondenceIfApplicable } = require('../../src/modules/open-settlement/dispute-correspondence'))
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
 
     // The arbiter's DISPUTE-SIGNING identity (Ed25519, arbitration-authority.ts)
@@ -406,5 +419,146 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
       .then(() => 'unexpectedly succeeded')
       .catch((err: Error) => err.message)
     expect(replay).toMatch(/already exists/)
+  })
+
+  // Sails Core Implementation Program M8.6 (Execution Cost Semantics &
+  // Live Correspondence Closure) — real Postgres proof that live M6
+  // correspondence loads the DURABLE historical Outcome (never
+  // request-memory), correctly nets a real, non-zero miner fee, and
+  // records a durable, replayable event. Exercises
+  // recordLiveCorrespondenceIfApplicable() directly rather than through
+  // a full real PSBT-signing/broadcast round-trip — that cryptographic
+  // machinery (2-of-3 signing/combining) is already separately, thoroughly
+  // proven in tests/multisigProvider.test.ts and is completely unchanged
+  // by this mission; what M8.6 adds and this suite verifies is everything
+  // AROUND that already-proven core: discrimination, DB loading,
+  // execution-cost netting, and durable event recording.
+  describe('M8.6 — live correspondence recording (real Postgres)', () => {
+    it('P20/P21/P24: a faithful execution with a real, non-zero miner fee records a durable MATCH event, loaded from the historical Outcome', async () => {
+      requirePostgres('live correspondence — faithful MATCH')
+      const { escrowId, disputeId, buyerId, tradeId } = await makeDisputedMultisigEscrow('livecorr-match')
+      const realBuyerAddress = testnetAddress('m8r-livecorr-match-buyer')
+      await payoutAddressService.setPayoutAddress(buyerId, 'BTC', realBuyerAddress)
+
+      const { signature, issuedAt } = signRuling(escrowId, disputeId, 'RELEASE', null)
+      await getDisputeService().resolveDispute(disputeId, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+
+      // A real, faithful finalized transaction: the escrow locked
+      // 0.001 BTC (100,000 sats); this delivers 99,500 (a real, legitimate
+      // 500 sat fee) to the durably registered destination.
+      const fakeTx = new bitcoin.Transaction()
+      fakeTx.addInput(Buffer.from(createHash('sha256').update('livecorr-match-tx').digest('hex'), 'hex').reverse(), 0)
+      fakeTx.addOutput(bitcoin.address.toOutputScript(realBuyerAddress, bitcoin.networks.testnet), 99_500n)
+      const rawTxHex = fakeTx.toHex()
+
+      await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex)
+
+      const event = await prisma.durableEventRecord.findFirst({
+        where: { eventName: 'dispute.settlement.correspondence_evaluated', correlationId: tradeId },
+      })
+      expect(event).not.toBeNull()
+      const payload = event!.payload as any
+      expect(payload.disputeId).toBe(disputeId)
+      expect(payload.results[buyerId]).toBe('MATCH')
+    })
+
+    it('P25/P28: wrong destination records a durable DIVERGENT-classified event (UNKNOWN per M6\'s own frozen semantics for an unresolvable observation)', async () => {
+      requirePostgres('live correspondence — wrong destination')
+      const { escrowId, disputeId, buyerId, tradeId } = await makeDisputedMultisigEscrow('livecorr-wrongdest')
+      await payoutAddressService.setPayoutAddress(buyerId, 'BTC', testnetAddress('m8r-livecorr-wrongdest-buyer'))
+
+      const { signature, issuedAt } = signRuling(escrowId, disputeId, 'RELEASE', null)
+      await getDisputeService().resolveDispute(disputeId, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+
+      const fakeTx = new bitcoin.Transaction()
+      fakeTx.addInput(Buffer.from(createHash('sha256').update('livecorr-wrongdest-tx').digest('hex'), 'hex').reverse(), 0)
+      fakeTx.addOutput(bitcoin.address.toOutputScript(ATTACKER_ADDRESS, bitcoin.networks.testnet), 99_500n)
+      const rawTxHex = fakeTx.toHex()
+
+      await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex)
+
+      const event = await prisma.durableEventRecord.findFirst({
+        where: { eventName: 'dispute.settlement.correspondence_evaluated', correlationId: tradeId },
+      })
+      expect(event).not.toBeNull()
+      const payload = event!.payload as any
+      expect(payload.results[buyerId]).toBe('UNKNOWN')
+    })
+
+    it('COST-18/P26: a single-beneficiary skim disguised as "fee" records DIVERGENT, not MATCH', async () => {
+      requirePostgres('live correspondence — skim')
+      const { escrowId, disputeId, buyerId, tradeId } = await makeDisputedMultisigEscrow('livecorr-skim')
+      const realBuyerAddress = testnetAddress('m8r-livecorr-skim-buyer')
+      await payoutAddressService.setPayoutAddress(buyerId, 'BTC', realBuyerAddress)
+
+      const { signature, issuedAt } = signRuling(escrowId, disputeId, 'RELEASE', null)
+      await getDisputeService().resolveDispute(disputeId, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+
+      const fakeTx = new bitcoin.Transaction()
+      fakeTx.addInput(Buffer.from(createHash('sha256').update('livecorr-skim-tx').digest('hex'), 'hex').reverse(), 0)
+      fakeTx.addOutput(bitcoin.address.toOutputScript(realBuyerAddress, bitcoin.networks.testnet), 50_000n) // "50,000 sat fee" skim
+      const rawTxHex = fakeTx.toHex()
+
+      await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex)
+
+      const event = await prisma.durableEventRecord.findFirst({
+        where: { eventName: 'dispute.settlement.correspondence_evaluated', correlationId: tradeId },
+      })
+      const payload = event!.payload as any
+      expect(payload.results[buyerId]).toBe('DIVERGENT')
+    })
+
+    it('P23/CORR-12: a LATER payout-address rotation (after the Outcome was already committed) does not affect the recorded comparison — the historical binding governs', async () => {
+      requirePostgres('live correspondence — historical binding survives rotation')
+      const { escrowId, disputeId, buyerId, tradeId } = await makeDisputedMultisigEscrow('livecorr-rotation')
+      const historicalAddress = testnetAddress('m8r-livecorr-rotation-d1')
+      await payoutAddressService.setPayoutAddress(buyerId, 'BTC', historicalAddress)
+
+      const { signature, issuedAt } = signRuling(escrowId, disputeId, 'RELEASE', null)
+      await getDisputeService().resolveDispute(disputeId, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+
+      // Rotate AFTER the Outcome already committed.
+      await payoutAddressService.setPayoutAddress(buyerId, 'BTC', testnetAddress('m8r-livecorr-rotation-d2'))
+
+      // The real execution correctly paid the HISTORICAL address (D1) —
+      // must still MATCH even though the CURRENT profile now says D2.
+      const fakeTx = new bitcoin.Transaction()
+      fakeTx.addInput(Buffer.from(createHash('sha256').update('livecorr-rotation-tx').digest('hex'), 'hex').reverse(), 0)
+      fakeTx.addOutput(bitcoin.address.toOutputScript(historicalAddress, bitcoin.networks.testnet), 99_500n)
+      const rawTxHex = fakeTx.toHex()
+
+      await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex)
+
+      const event = await prisma.durableEventRecord.findFirst({
+        where: { eventName: 'dispute.settlement.correspondence_evaluated', correlationId: tradeId },
+      })
+      const payload = event!.payload as any
+      expect(payload.results[buyerId]).toBe('MATCH')
+    })
+
+    it('P35/CORR-15: a cooperative (non-disputed) MULTISIG settlement has no Core-authoritative record — recording is a safe no-op, never an error', async () => {
+      requirePostgres('live correspondence — no-op for non-disputed settlement')
+      const { escrowId, tradeId } = await makeDisputedMultisigEscrow('livecorr-noop')
+      // Deliberately never resolves the dispute — simulates any MULTISIG
+      // escrow settlement with no RESOLVED Dispute row at all.
+      const fakeTx = new bitcoin.Transaction()
+      fakeTx.addInput(Buffer.from(createHash('sha256').update('livecorr-noop-tx').digest('hex'), 'hex').reverse(), 0)
+      fakeTx.addOutput(bitcoin.address.toOutputScript(testnetAddress('m8r-livecorr-noop'), bitcoin.networks.testnet), 100_000n)
+
+      await expect(recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', fakeTx.toHex())).resolves.toBeUndefined()
+
+      const event = await prisma.durableEventRecord.findFirst({
+        where: { eventName: 'dispute.settlement.correspondence_evaluated', correlationId: tradeId },
+      })
+      expect(event).toBeNull()
+    })
+
+    it('P45: a non-MULTISIG escrow type is a safe no-op, never attempts to decode a Bitcoin transaction', async () => {
+      await expect(recordLiveCorrespondenceIfApplicable('some-escrow', 'some-trade', 'LIGHTNING_HODL', 'not-even-hex')).resolves.toBeUndefined()
+    })
+
+    it('no rawTxHex supplied (a provider that never returns one) is a safe no-op', async () => {
+      await expect(recordLiveCorrespondenceIfApplicable('some-escrow', 'some-trade', 'MULTISIG', undefined)).resolves.toBeUndefined()
+    })
   })
 })

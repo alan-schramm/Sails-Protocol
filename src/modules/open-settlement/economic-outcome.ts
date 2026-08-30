@@ -75,6 +75,7 @@ import {
 } from '@sails/core'
 import { evaluateSettlementCorrespondence } from './destination-correspondence'
 import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
+import { deriveDistributableTotal } from './execution-cost-policy'
 
 export type ArbitrationRuling = 'RELEASE' | 'REFUND' | 'SPLIT'
 
@@ -318,6 +319,71 @@ export function evaluateOutcomeCorrespondence(
       allocation.beneficiary,
       evaluateSettlementCorrespondence(authorizedDestination, allocation.units, outcome.content.asset, observation),
     )
+  }
+  return results
+}
+
+/**
+ * Sails Core Implementation Program M8.6 (Execution Cost Semantics &
+ * Live Correspondence Closure) — the execution-cost-aware sibling of
+ * `evaluateOutcomeCorrespondence()` above. That function compares each
+ * beneficiary's delivered amount against the Outcome's own GROSS
+ * `totalUnits` directly — correct for a rail with zero execution cost,
+ * but a real Bitcoin MULTISIG execution always deducts a real miner fee
+ * first (`execution-cost-policy.ts`'s own header has the full model
+ * derivation), so a literal gross comparison would report DIVERGENT on
+ * every faithful real execution. This function corrects exactly that,
+ * without touching M6's frozen Core evaluator or `evaluateOutcomeCorrespondence()`
+ * itself (existing callers/tests of that function are completely
+ * unaffected — this is a new, additive sibling, not a modification).
+ *
+ * Never tautological: the DISTRIBUTABLE total is derived from the
+ * AUTHORIZED gross entitlement (from the durable Outcome, an
+ * independent anchor no observation can influence) minus the REAL
+ * delivered total, bounded by `deriveDistributableTotal()`'s
+ * deterministic fee ceiling — an implausible gap (a skim) makes EVERY
+ * leg DIVERGENT, it never silently normalizes into a trivial match.
+ *
+ * Falls back to the plain gross-based evaluation whenever any allocated
+ * beneficiary's observation is not yet a real, amount-bearing OBSERVED
+ * fact — destination-only comparison (and PENDING/UNKNOWN) remain
+ * exactly as meaningful, and no premature execution-cost judgement is
+ * made on incomplete evidence.
+ */
+export function evaluateOutcomeCorrespondenceWithExecutionCost(
+  outcome: Outcome<ArbitrationOutcomeContent, readonly BeneficiaryDestination[]>,
+  observations: ReadonlyMap<string, ExecutionObservation<string>>,
+): ReadonlyMap<string, CorrespondenceResult> {
+  const { allocations } = outcome.content
+  const allObservedWithAmount = allocations.every((a) => {
+    const obs = observations.get(a.beneficiary)
+    return obs?.status === 'OBSERVED' && obs.amount !== undefined
+  })
+
+  if (!allObservedWithAmount) {
+    return evaluateOutcomeCorrespondence(outcome, observations)
+  }
+
+  const deliveredTotal = allocations.reduce((sum, a) => sum + BigInt(observations.get(a.beneficiary)!.amount!), 0n)
+  const derivation = deriveDistributableTotal(BigInt(outcome.content.totalUnits), deliveredTotal, allocations.length)
+
+  const results = new Map<string, CorrespondenceResult>()
+  if (!derivation.ok) {
+    // The gap between authorized gross entitlement and real delivered
+    // total is not explicable as legitimate rail execution cost — never
+    // silently fall back to a gross comparison, which would trivially
+    // MATCH the very skim this check exists to catch.
+    for (const a of allocations) results.set(a.beneficiary, 'DIVERGENT')
+    return results
+  }
+
+  const destinations = outcome.destinationBinding?.reference ?? []
+  const expected = allocateExactUnitsOverTotal(outcome.content, derivation.distributable)
+  for (const exp of expected) {
+    const destination = destinations.find((d) => d.beneficiary === exp.beneficiary)
+    const authorizedDestination = destination ? { reference: destination.destination } : undefined
+    const observation = observations.get(exp.beneficiary)!
+    results.set(exp.beneficiary, evaluateSettlementCorrespondence(authorizedDestination, exp.units, outcome.content.asset, observation))
   }
   return results
 }

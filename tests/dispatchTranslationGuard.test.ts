@@ -114,11 +114,37 @@ describe('§19/§46 — translator attacks are caught pre-dispatch', () => {
     expect(() => assertTranslationMatchesOutcome(psbt, outcome, NETWORK)).toThrow(TranslationGuardError)
   })
 
-  it('disclosed limit: for a SINGLE-beneficiary ruling, a self-consistent skim with no declared-fee anchor is NOT caught by ratio/destination checks alone (documented in this file\'s own header)', () => {
-    const outcome = releaseOutcome('100000')
-    const psbt = buildPsbt(100_500, [{ address: BUYER_ADDRESS, value: 90_000 }]) // claims a 10500 sat "fee"
-    const result = validateTranslatedOutputsAgainstOutcome(psbt, outcome, NETWORK) // no declaredMinerFeeSats anchor supplied
-    expect(result.ok).toBe(true) // tautological for a single beneficiary — see header comment
+  describe('M8.6 — execution-cost-bounded single-beneficiary skim detection (closes the M8-R disclosed gap)', () => {
+    it('a legitimate, small fee (well under both ceilings) still passes — never a false positive', () => {
+      const outcome = releaseOutcome('100000')
+      const psbt = buildPsbt(100_500, [{ address: BUYER_ADDRESS, value: 100_000 }]) // 500 sat fee, ~3 sat/vB, 0.5% of gross
+      const result = validateTranslatedOutputsAgainstOutcome(psbt, outcome, NETWORK)
+      expect(result).toEqual({ ok: true, mismatches: [] })
+    })
+
+    it('DISCLOSED RESIDUAL (execution-cost-policy.ts\'s own header): a moderate (~10%) skim on a small escrow is NOT caught — the proportional ceiling (20%, deliberately loose so a real fee-spike settlement is never falsely rejected) does not reach this far without an external fee-market oracle, which mission M8.6 §15 explicitly forbids introducing', () => {
+      const outcome = releaseOutcome('100000')
+      const psbt = buildPsbt(100_500, [{ address: BUYER_ADDRESS, value: 90_000 }]) // 10,000 sat implied fee, 10% of gross
+      const result = validateTranslatedOutputsAgainstOutcome(psbt, outcome, NETWORK)
+      expect(result.ok).toBe(true) // accepted — see disclosed residual above
+    })
+
+    it('a LARGER skim (25% of gross) still exceeds the looser proportional ceiling and is caught — proving it remains load-bearing at its own new threshold, not merely decorative', () => {
+      const outcome = releaseOutcome('100000')
+      const psbt = buildPsbt(100_500, [{ address: BUYER_ADDRESS, value: 75_000 }]) // 25,000 sat implied fee, ~152 sat/vB (under rate ceiling), 25% of gross (over the 20% proportional ceiling)
+      const result = validateTranslatedOutputsAgainstOutcome(psbt, outcome, NETWORK)
+      expect(result.ok).toBe(false)
+      expect(result.mismatches[0]).toMatch(/exceeds the deterministic ceiling/)
+    })
+
+    it('an extreme skim (a translator claiming half the escrow as "fee") is caught — the exact single-beneficiary vulnerability M8-R disclosed as open', () => {
+      const outcome = releaseOutcome('100000')
+      const psbt = buildPsbt(100_500, [{ address: BUYER_ADDRESS, value: 50_000 }]) // "50,000 sats fee"
+      const result = validateTranslatedOutputsAgainstOutcome(psbt, outcome, NETWORK)
+      expect(result.ok).toBe(false)
+      expect(result.mismatches[0]).toMatch(/exceeds the deterministic ceiling/)
+      expect(() => assertTranslationMatchesOutcome(psbt, outcome, NETWORK)).toThrow(TranslationGuardError)
+    })
   })
 
   it('closes the adjacent, genuinely catchable case: a translator whose declared minerFeeSats disagrees with what it actually built is caught', () => {
@@ -158,11 +184,22 @@ describe('§19/§46 — translator attacks are caught pre-dispatch', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('added unauthorized output is caught (output count mismatch)', () => {
+  it('added unauthorized output that inflates total delivered value beyond gross is caught by conservation, before the output-count check even runs', () => {
     const outcome = releaseOutcome('100000')
     const psbt = buildPsbt(150_500, [
       { address: BUYER_ADDRESS, value: 100_000 },
       { address: ATTACKER_ADDRESS, value: 50_000 },
+    ])
+    const result = validateTranslatedOutputsAgainstOutcome(psbt, outcome, NETWORK)
+    expect(result.ok).toBe(false)
+    expect(result.mismatches[0]).toMatch(/delivered total .* exceeds the authorized gross entitlement/)
+  })
+
+  it('added unauthorized output disguised WITHIN the gross total (no conservation violation) is still caught by the output-count check', () => {
+    const outcome = releaseOutcome('100000')
+    const psbt = buildPsbt(100_500, [
+      { address: BUYER_ADDRESS, value: 99_000 },
+      { address: ATTACKER_ADDRESS, value: 1_000 },
     ])
     const result = validateTranslatedOutputsAgainstOutcome(psbt, outcome, NETWORK)
     expect(result.ok).toBe(false)

@@ -185,6 +185,22 @@ export interface DisputeResolvedEvent extends DisputeEvent {
   ruling: 'RELEASE' | 'REFUND' | 'SPLIT'
 }
 
+// Sails Core Implementation Program M8.6 (Execution Cost Semantics &
+// Live Correspondence Closure) — durable, replayable record of a
+// post-execution M6 correspondence evaluation for a Core-authoritative
+// MULTISIG dispute settlement (dispute-correspondence.ts's own
+// recordLiveCorrespondenceIfApplicable()). `triggeredBy` on the base
+// DisputeEvent is always a system-observed fact, never a user action —
+// set to a fixed 'system:live-correspondence' sentinel, matching this
+// codebase's own established convention (e.g. 'system:expiry-sweeper').
+// `results` maps beneficiary -> CorrespondenceResult ('MATCH'|
+// 'DIVERGENT'|'PENDING'|'UNKNOWN') as a plain object (Records don't
+// survive JSON event serialization as Maps).
+export interface DisputeCorrespondenceEvaluatedEvent extends DisputeEvent {
+  appealRound: number
+  results: Record<string, 'MATCH' | 'DIVERGENT' | 'PENDING' | 'UNKNOWN'>
+}
+
 // dispute.appealed's real payload — RFC-021 D6, first real emitter is
 // dispute.service.ts's appeal().
 export interface DisputeAppealedEvent extends DisputeEvent {
@@ -400,6 +416,7 @@ export interface SailsEventMap {
   'dispute.arbitrated': DisputeEvent
   'dispute.resolved': DisputeResolvedEvent
   'dispute.appealed': DisputeAppealedEvent // RFC-021 D6
+  'dispute.settlement.correspondence_evaluated': DisputeCorrespondenceEvaluatedEvent // M8.6
   'dispute.auto_resolution_proposed': DisputeAutoResolutionProposedEvent // RFC-021 D8
   'dispute.auto_resolution_contested': DisputeAutoResolutionContestedEvent // RFC-021 D8
 
