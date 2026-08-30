@@ -101,8 +101,14 @@ class PrismaSemanticTransitionRecordRepository implements SemanticTransitionReco
   }
 
   async findByInteractionAndTransitionType(interactionId: string, transitionType: string) {
+    // Sails Core Implementation Program M8-R — appealRound: -1 is this
+    // slice's own sentinel ("not applicable to this transition type",
+    // schema.prisma's own comment on the column) — every M4 record was
+    // written with this default; this repository's callers (M4's expiry
+    // slice only) never carry a real appeal round, so the compound key
+    // is completed with the same sentinel, not a new parameter.
     return prisma.semanticTransitionRecord.findUnique({
-      where: { interactionId_transitionType: { interactionId, transitionType } },
+      where: { interactionId_transitionType_appealRound: { interactionId, transitionType, appealRound: -1 } },
     })
   }
 }

@@ -169,8 +169,29 @@ function canonicalAllocations(content: ArbitrationOutcomeContent): readonly Allo
  * basisPoints divides totalUnits.
  */
 export function allocateExactUnits(content: ArbitrationOutcomeContent): readonly { readonly beneficiary: string; readonly units: string }[] {
+  return allocateExactUnitsOverTotal(content, BigInt(content.totalUnits))
+}
+
+/**
+ * M8-R (Live Dispatch Retry) — the SAME floor+remainder algorithm as
+ * `allocateExactUnits()` above, parameterized by an explicit `total`
+ * rather than always reading `content.totalUnits`. Exists because a real
+ * Bitcoin RELEASE/SPLIT deducts a miner fee from the spendable value
+ * BEFORE splitting it between beneficiaries (`multisig.provider.ts`'s
+ * `buildUnsignedSpend()`, unchanged) — the authoritative Outcome commits
+ * to the ECONOMIC RULE (ruling + bps + the escrow's full locked amount as
+ * the gross basis), never a pre-computed net-of-fee sat amount that would
+ * require knowing a network-observed miner fee at authorization time.
+ * `dispatch-translation-guard.ts` uses this to re-derive the EXPECTED
+ * per-beneficiary split against the REAL, PSBT-observed spendable total
+ * (gross minus the REAL miner fee actually present in the built PSBT) —
+ * this is the K3-compliant "Provider applies the authorized rule using
+ * externally-submitted data" pattern
+ * (`docs/CORE_IMPLEMENTATION_ARCHITECTURE.md` §25), never the Provider
+ * substituting its own interpretation of what a beneficiary is owed.
+ */
+export function allocateExactUnitsOverTotal(content: ArbitrationOutcomeContent, total: bigint): readonly { readonly beneficiary: string; readonly units: string }[] {
   assertWellFormedOutcomeContent(content)
-  const total = BigInt(content.totalUnits)
   let allocated = BigInt(0)
   const results: { beneficiary: string; units: string }[] = []
   for (const a of content.allocations) {

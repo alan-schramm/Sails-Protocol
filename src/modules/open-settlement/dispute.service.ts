@@ -37,6 +37,11 @@ import {
   assertExecutionMatchesAuthorization,
   type AuthorityDecisionPayload,
 } from './arbitration-authority'
+import { Prisma } from '@prisma/client'
+import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './dispute-outcome'
+import { assertDisputeDispatchEligible } from './dispute-dispatch'
+import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
+import { networkFor } from './multisig.provider'
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
 // baseline (1-2% of the disputed amount, charged as Escrow.feeCharged by
@@ -375,6 +380,106 @@ export class DisputeService {
     return updated
   }
 
+  /**
+   * Sails Core Implementation Program M8-R (Live Dispatch Retry) — the
+   * Core-authoritative replacement for `applyRuling()` above, used ONLY
+   * for MULTISIG (`docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`,
+   * `docs/M8_DISPATCH_GATE_FINDINGS.md`). LIGHTNING_HODL/SAFE_GUARD_EVM/
+   * MOCK/WDK_USDT_EVM disputes remain on `applyRuling()`, byte-for-byte
+   * unchanged — this mission's own scope is Mission13 MULTISIG disputed
+   * settlement, no other rail (mission §2/§38).
+   *
+   * `releaseToAddress`/`refundToAddress` are DELIBERATELY ABSENT from
+   * this method's parameters — see `resolveDispute()`'s own comment for
+   * why they remain accepted-but-inert at that call site rather than
+   * being removed from the public route/SDK surface.
+   *
+   * Ordering (mission §13, proofs P19-P22): durable semantic commit
+   * (attribution + Outcome + destination snapshot, one Postgres
+   * transaction, `commitAuthoritativeDisputeRuling()`) STRICTLY
+   * PRECEDES dispatch-eligibility evaluation, which STRICTLY PRECEDES
+   * calling any settlement action. The eligibility check re-loads the
+   * record from the database (`assertDisputeDispatchEligible()`) rather
+   * than reusing anything built in this call stack — proving persistence
+   * governs, not transient request memory.
+   */
+  private async applyRulingCoreAuthoritative(
+    dispute: { id: string; escrowId: string; tradeId: string; status: string; appealRound: number },
+    payload: AuthorityDecisionPayload,
+    authoritySignature: string,
+    resolvedArbiterPublicKeyHex: string,
+    buyerId: string,
+    sellerId: string,
+    lockedAmount: Prisma.Decimal,
+    asset: AssetType,
+  ) {
+    const totalUnits = lockedAmount.times(1e8).toFixed(0)
+    const commitResult = await commitAuthoritativeDisputeRuling(
+      dispute, payload, authoritySignature, resolvedArbiterPublicKeyHex, totalUnits, asset, buyerId, sellerId,
+    )
+    if (!commitResult.committed) {
+      if (commitResult.reason === 'NOT_ATTRIBUTED') {
+        throw new ForbiddenError(
+          `Authority decision signature does not verify against ${payload.authorityId}'s registered public key for dispute ${dispute.id} — ` +
+          'refusing to execute a discretionary settlement attributed to an authorization that cannot be independently verified (INV-12).'
+        )
+      }
+      throw new ValidationError(`Dispute ${dispute.id} is already resolved`)
+    }
+
+    try {
+      const record = await assertDisputeDispatchEligible(dispute.escrowId, dispute.appealRound)
+      const outcome = record.outcome!
+      const network = networkFor(config.multisig.network)
+      const buyerDestination = commitResult.destinations.find((d) => d.beneficiary === buyerId)?.destination
+      const sellerDestination = commitResult.destinations.find((d) => d.beneficiary === sellerId)?.destination
+
+      let pending: { unsignedPsbtBase64: string; minerFeeSats: number | null }
+      if (payload.outcome === 'RELEASE') {
+        pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, payload.authorityId)
+      } else if (payload.outcome === 'REFUND') {
+        pending = await escrowService.initiateRefund(dispute.escrowId, payload.authorityId)
+      } else {
+        pending = await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, payload.buyerBps!, payload.authorityId)
+      }
+
+      try {
+        assertTranslationMatchesOutcome(pending.unsignedPsbtBase64, outcome, network, pending.minerFeeSats ?? undefined)
+      } catch (guardErr) {
+        // The translator produced something that does not correspond to
+        // the authoritative Outcome — never let it sit collectable for
+        // signature. Deleting the just-created pending row is what
+        // actually blocks dispatch (mission §19: "blocked before
+        // broadcast if translated intent is inspectable" — it was, and
+        // this is the block).
+        await prisma.escrowPendingTransaction.deleteMany({ where: { escrowId: dispute.escrowId } })
+        throw guardErr
+      }
+    } catch (err) {
+      // Same revert discipline as applyRuling()'s own catch above,
+      // extended to also delete the durable Core record this method
+      // additionally created — a reverted ruling must never leave a
+      // dangling Core authorization behind (dispute-outcome.ts's own
+      // header comment).
+      await prisma.dispute.update({
+        where: { id: dispute.id },
+        data: { status: dispute.status as DisputeStatus, ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
+      })
+      await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound)
+      throw err
+    }
+
+    await eventBus.emit('dispute.resolved', {
+      disputeId: dispute.id,
+      settlementId: dispute.escrowId,
+      tradeId: dispute.tradeId,
+      ruling: payload.outcome,
+      triggeredBy: payload.authorityId,
+    }, dispute.tradeId)
+
+    return prisma.dispute.findUnique({ where: { id: dispute.id } })
+  }
+
   async resolveDispute(
     disputeId: string,
     arbiterId: string,
@@ -386,11 +491,35 @@ export class DisputeService {
     // PayoutAddress for the escrow's asset, throwing its own clear error
     // only if neither exists — this method no longer pre-validates
     // presence, since "missing" is no longer necessarily an error.
+    //
+    // @deprecated for MULTISIG (Sails Core Implementation Program M8-R,
+    // 2026-08-30, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md). For a
+    // MULTISIG dispute this value is now COMPLETELY INERT — the
+    // beneficiary's own registered PayoutAddress, snapshotted atomically
+    // into the durable authoritative Outcome, is the ONLY destination
+    // that governs execution (Economic Disposition Authority — this
+    // ruling's own outcome/bps — is distinct from Destination Authority,
+    // which belongs to the beneficiary alone, never the arbiter's own
+    // request). Deliberately NOT removed from this signature: this SDK
+    // is workspace-internal and unpublished, but 61+ files (SDK, e2e
+    // tests, examples, unit tests) already call this method positionally
+    // — eliminating the parameter outright would be a large, purely
+    // mechanical rename exercise disproportionate to what M8-R's own
+    // mandate (a narrow, one-rail live migration) requires, and it would
+    // not have made the destination MORE authoritative, only differently
+    // shaped. Ambiguity is closed the way the mission's own §5 requires:
+    // not silently — see tests/disputeOutcomeMultisig.test.ts's "wrong
+    // legacy parameter is ignored" cases, which prove this value has
+    // zero effect on where MULTISIG funds go, whatever is supplied here.
+    // Still fully authoritative for LIGHTNING_HODL/SAFE_GUARD_EVM
+    // disputes (unmigrated, out of this mission's scope).
     releaseToAddress: string | undefined,
     // RFC-021 D9 (2026-08-02) — seller's payout address for SPLIT only
     // (mirrors releaseToAddress's buyer role), same fallback as above.
     // splitBuyerBps has no such fallback — it's a ruling decision, not an
     // address, so it's still required up front for SPLIT.
+    //
+    // @deprecated for MULTISIG — see releaseToAddress's own comment above; identical status.
     refundToAddress: string | undefined,
     splitBuyerBps: number | undefined,
     // Missão 13 Fase 2 — INV-12 closure. Required, never optional: the
@@ -454,16 +583,57 @@ export class DisputeService {
     // every caller goes through, not a special-cased inline comparison.
     assertExecutionMatchesAuthorization(payload, payload)
 
-    const updated = await this.applyRuling(
-      dispute,
-      ruling,
-      releaseToAddress,
-      arbiterId,
-      refundToAddress,
-      splitBuyerBps,
-      { authoritySignature, authorityIssuedAt: new Date(authorityIssuedAt), authorityBuyerBps: payload.buyerBps }
-    )
+    // Sails Core Implementation Program M8-R — Mission13 MULTISIG
+    // disputed settlement only (mission §2/§38: "no other rail").
+    // LIGHTNING_HODL/SAFE_GUARD_EVM/MOCK/WDK_USDT_EVM disputes fall
+    // through to applyRuling() below, byte-for-byte unchanged — this is
+    // a deliberate, disclosed, narrow live-migration boundary, not an
+    // oversight (docs/DESTINATION_AUTHORITY_ARCHITECTURE.md §16).
+    const escrowForBranch = await this.repo.findById(dispute.escrowId)
+    if (!escrowForBranch) throw new NotFoundError('Escrow', dispute.escrowId)
 
+    let updated
+    if (escrowForBranch.type === 'MULTISIG') {
+      const trade = await tradeRepository.findById(dispute.tradeId)
+      if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
+      updated = await this.applyRulingCoreAuthoritative(
+        dispute,
+        payload,
+        authoritySignature,
+        authority.publicKey,
+        trade.buyerId,
+        trade.sellerId,
+        new Prisma.Decimal(escrowForBranch.lockedAmount),
+        escrowForBranch.asset as AssetType,
+      )
+    } else {
+      updated = await this.applyRuling(
+        dispute,
+        ruling,
+        releaseToAddress,
+        arbiterId,
+        refundToAddress,
+        splitBuyerBps,
+        { authoritySignature, authorityIssuedAt: new Date(authorityIssuedAt), authorityBuyerBps: payload.buyerBps }
+      )
+    }
+
+    await this.finalizeResolveDispute(dispute, arbiterId, ruling)
+    return updated
+  }
+
+  /**
+   * The post-settlement bookkeeping shared by BOTH the Core-authoritative
+   * (MULTISIG) and legacy (`applyRuling()`) paths — arbiter track record,
+   * appeal-slashing, and appeal-fee settlement. Extracted unchanged
+   * (mission M8-R) so neither path duplicates it and both stay
+   * byte-for-byte identical in behavior to before this migration.
+   */
+  private async finalizeResolveDispute(
+    dispute: { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null },
+    arbiterId: string,
+    ruling: DisputeRuling,
+  ): Promise<void> {
     // RFC-021 D6/D4 — feeds the arbiter's track record on every real
     // resolution, correct or not (optional: only market mode has an
     // ArbiterProfile to update; trusted-list mode silently skips this).
@@ -479,7 +649,7 @@ export class DisputeService {
 
     // RFC-021 D6 — an appeal round reversing the ruling being appealed is
     // real evidence the original arbiter got it wrong; slash them.
-    // `dispute` here is the pre-update fetch at the top of this method,
+    // `dispute` here is the pre-update fetch at the top of resolveDispute(),
     // so previousRuling/previousArbiterId still reflect whatever appeal()
     // set them to before this resolution — untouched by the RESOLVED
     // write above. If the appeal panel reaches the SAME ruling, the
@@ -510,12 +680,10 @@ export class DisputeService {
     if (dispute.appealRound > 0) {
       const outcome = dispute.previousRuling && dispute.previousRuling !== ruling ? 'REFUNDED' : 'FORFEITED'
       await prisma.disputeAppealFee.updateMany({
-        where: { disputeId, appealRound: dispute.appealRound, outcome: null },
+        where: { disputeId: dispute.id, appealRound: dispute.appealRound, outcome: null },
         data: { outcome, settledAt: new Date() },
       })
     }
-
-    return updated
   }
 
   /**

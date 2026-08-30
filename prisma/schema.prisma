@@ -102,14 +102,14 @@ enum PaymentMethod {
 // the protocol version an entity was created under is always traceable.
 
 model User {
-  id              String   @id @default(uuid())
-  publicKey       String   @unique
-  displayName     String?
-  peerId          String?  @unique
-  reputationScore Float    @default(0)
-  totalTrades     Int      @default(0)
-  disputeCount    Int      @default(0)
-  totalVolumeBtc  Decimal  @default(0) @db.Decimal(24, 8)
+  id                     String   @id @default(uuid())
+  publicKey              String   @unique
+  displayName            String?
+  peerId                 String?  @unique
+  reputationScore        Float    @default(0)
+  totalTrades            Int      @default(0)
+  disputeCount           Int      @default(0)
+  totalVolumeBtc         Decimal  @default(0) @db.Decimal(24, 8)
   // RFC-021 D4, Phase 3 — the real cost-to-fabricate-reputation floor
   // (Yuri's own mechanism, formalized): sum of Escrow.feeCharged across
   // every trade this participant has completed (settlement.escrow.released
@@ -117,12 +117,12 @@ model User {
   // treat all of a participant's reputation as fabricated, but this
   // number is still a real, non-fabricatable lower bound on what that
   // fabrication cost in protocol fees — see RFC-021 D4.
-  cumulativeFeesObserved Decimal @default(0) @db.Decimal(24, 8)
-  verified        Boolean  @default(false)
-  moduleId        String   @default("openidentity")
-  protocolVersion String   @default("0.1")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  cumulativeFeesObserved Decimal  @default(0) @db.Decimal(24, 8)
+  verified               Boolean  @default(false)
+  moduleId               String   @default("openidentity")
+  protocolVersion        String   @default("0.1")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   offers             Offer[]
   buyerTrades        Trade[]           @relation("BuyerTrades")
@@ -130,43 +130,43 @@ model User {
   sentMessages       Message[]
   reputationGiven    ReputationEvent[] @relation("RaterEvents")
   reputationReceived ReputationEvent[] @relation("RatedEvents")
-  arbiterProfile     ArbiterProfile?   // RFC-021 — present only if this participant has registered as an arbiter candidate
-  paymentAccounts    PaymentAccount[]  // RFC-021 D5 — zero or more linked payment rails, each with its own trust ramp
-  vouchesGiven       Vouch[]           @relation("VouchesGiven")   // RFC-021 D7 — peer vouches this participant has extended to newcomers
+  arbiterProfile     ArbiterProfile? // RFC-021 — present only if this participant has registered as an arbiter candidate
+  paymentAccounts    PaymentAccount[] // RFC-021 D5 — zero or more linked payment rails, each with its own trust ramp
+  vouchesGiven       Vouch[]           @relation("VouchesGiven") // RFC-021 D7 — peer vouches this participant has extended to newcomers
   vouchesReceived    Vouch[]           @relation("VouchesReceived") // RFC-021 D7 — peer vouches this participant has received
-  payoutAddresses    PayoutAddress[]   // BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04
+  payoutAddresses    PayoutAddress[] // BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04
 
   @@index([reputationScore]) // P2: performance for leaderboard queries
   @@map("users")
 }
 
 model Offer {
-  id             String        @id @default(uuid())
-  userId         String
-  user           User          @relation(fields: [userId], references: [id])
-  asset          AssetType
-  side           TradeSide
-  priceUsd       Decimal       @db.Decimal(24, 8)
-  priceBrl       Decimal?      @db.Decimal(24, 8)
-  minAmount      Decimal       @db.Decimal(24, 8)
-  maxAmount      Decimal       @db.Decimal(24, 8)
-  paymentMethod  PaymentMethod
-  paymentDetails String?
-  status         OfferStatus   @default(ACTIVE)
-  network        String?
-  description    String?
-  moduleId       String        @default("openliquidity")
-  protocolVersion String       @default("0.1")
-  intentType     String?
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  asset           AssetType
+  side            TradeSide
+  priceUsd        Decimal       @db.Decimal(24, 8)
+  priceBrl        Decimal?      @db.Decimal(24, 8)
+  minAmount       Decimal       @db.Decimal(24, 8)
+  maxAmount       Decimal       @db.Decimal(24, 8)
+  paymentMethod   PaymentMethod
+  paymentDetails  String?
+  status          OfferStatus   @default(ACTIVE)
+  network         String?
+  description     String?
+  moduleId        String        @default("openliquidity")
+  protocolVersion String        @default("0.1")
+  intentType      String?
   // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) —
   // the real Intent row this Offer was created from (createOffer() ->
   // intentEngine.create()). Nullable: pre-migration Offer rows have no
   // Intent behind them and remain fully valid, same backward-compatible
   // pattern RFC-008 used for entryHash/prevHash.
-  intentId       String?
-  intent         Intent?       @relation(fields: [intentId], references: [id])
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  intentId        String?
+  intent          Intent?       @relation(fields: [intentId], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   trades Trade[]
 
@@ -176,33 +176,33 @@ model Offer {
 }
 
 model Trade {
-  id          String      @id @default(uuid())
-  offerId     String
-  offer       Offer       @relation(fields: [offerId], references: [id])
-  buyerId     String
-  buyer       User        @relation("BuyerTrades", fields: [buyerId], references: [id])
-  sellerId    String
-  seller      User        @relation("SellerTrades", fields: [sellerId], references: [id])
-  asset       AssetType
-  amount      Decimal     @db.Decimal(24, 8)
-  priceUsd    Decimal     @db.Decimal(24, 8)
-  totalUsd    Decimal     @db.Decimal(24, 8)
-  status      TradeStatus @default(PENDING)
-  escrowId    String?     @unique
-  escrow      Escrow?
-  network     String?
-  moduleId    String      @default("openp2p")
-  protocolVersion String  @default("0.1")
-  intentType  String      @default("TradeIntent")
+  id              String      @id @default(uuid())
+  offerId         String
+  offer           Offer       @relation(fields: [offerId], references: [id])
+  buyerId         String
+  buyer           User        @relation("BuyerTrades", fields: [buyerId], references: [id])
+  sellerId        String
+  seller          User        @relation("SellerTrades", fields: [sellerId], references: [id])
+  asset           AssetType
+  amount          Decimal     @db.Decimal(24, 8)
+  priceUsd        Decimal     @db.Decimal(24, 8)
+  totalUsd        Decimal     @db.Decimal(24, 8)
+  status          TradeStatus @default(PENDING)
+  escrowId        String?     @unique
+  escrow          Escrow?
+  network         String?
+  moduleId        String      @default("openp2p")
+  protocolVersion String      @default("0.1")
+  intentType      String      @default("TradeIntent")
   // RFC-018 — copied from the accepted Offer's intentId at trade
   // creation (createTrade()). Nullable, same rationale as Offer.intentId
   // above.
-  intentId    String?
-  intent      Intent?     @relation(fields: [intentId], references: [id])
-  completedAt DateTime?
-  cancelledAt DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  intentId        String?
+  intent          Intent?     @relation(fields: [intentId], references: [id])
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   messages         Message[]
   reputationEvents ReputationEvent[]
@@ -215,17 +215,17 @@ model Trade {
 }
 
 model Escrow {
-  id           String       @id @default(uuid())
-  tradeId      String       @unique
-  trade        Trade        @relation(fields: [tradeId], references: [id])
-  type         EscrowType   @default(MOCK)
-  status       EscrowStatus @default(CREATED)
-  lockedAmount Decimal      @db.Decimal(24, 8)
-  asset        AssetType
-  network      String?
-  multisigAddr String?
-  redeemScript String?
-  txLockId     String?
+  id                                    String            @id @default(uuid())
+  tradeId                               String            @unique
+  trade                                 Trade             @relation(fields: [tradeId], references: [id])
+  type                                  EscrowType        @default(MOCK)
+  status                                EscrowStatus      @default(CREATED)
+  lockedAmount                          Decimal           @db.Decimal(24, 8)
+  asset                                 AssetType
+  network                               String?
+  multisigAddr                          String?
+  redeemScript                          String?
+  txLockId                              String?
   // Missão 10 (2026-08-19), additive — Bitcoin identifies a UTXO by
   // outpoint (txid:vout), not txid alone. txLockId's own meaning is
   // UNCHANGED (still the bare funding txid, exactly as before) — this is
@@ -244,9 +244,9 @@ model Escrow {
   // that ever tried to claim the identical outpoint (both columns
   // non-null and equal) are rejected by the database itself, not just an
   // application-level check-then-write.
-  txLockVout   Int?
-  txReleaseId  String?
-  timelockHours Int         @default(24)
+  txLockVout                            Int?
+  txReleaseId                           String?
+  timelockHours                         Int               @default(24)
   // RFC-021 Phase 0 — real fee collection (PROTOCOL_ECONOMY.md §6.2).
   // Nullable, not defaulted to 0: null means "no fee was computed for
   // this escrow" (protocolFeeRate was 0 at release time, or this escrow
@@ -255,7 +255,7 @@ model Escrow {
   // apart later. Only ever set on release (PROTOCOL_ECONOMY.md §3: "The
   // Protocol Fee only ever attaches to a completed Settlement") — never
   // on refund.
-  feeCharged   Decimal?     @db.Decimal(24, 8)
+  feeCharged                            Decimal?          @db.Decimal(24, 8)
   // Missão 11 Fase 2.2 — Protocol Fee POLICY snapshot capability
   // (economic-accounting foundation only; feeCharged/FeeDistribution above
   // remain the sole LIVE fee mechanism, unchanged). Nullable: null means
@@ -282,11 +282,11 @@ model Escrow {
   // to prevent). Confirmed by generating the migration once without this
   // and inspecting the real SQL Prisma produced (Missão 11 Fase 2.2) —
   // caught before applying, not assumed correct by default.
-  feePolicyVersionId      String?
-  feePolicyVersion        FeePolicyVersion? @relation(fields: [feePolicyVersionId], references: [id], onDelete: Restrict)
-  snapshotProtocolFeeRate Decimal?          @db.Decimal(24, 8)
-  snapshotPayerModel      FeePayerModel?
-  snapshotEconomicBasis   FeeEconomicBasis?
+  feePolicyVersionId                    String?
+  feePolicyVersion                      FeePolicyVersion? @relation(fields: [feePolicyVersionId], references: [id], onDelete: Restrict)
+  snapshotProtocolFeeRate               Decimal?          @db.Decimal(24, 8)
+  snapshotPayerModel                    FeePayerModel?
+  snapshotEconomicBasis                 FeeEconomicBasis?
   // Missão 11 Fase 4.1 §1/§3 — the FROZEN collection destination and
   // pre-funding-waiver decision, computed ONCE at policy-snapshot time
   // (escrow-fee-snapshot.service.ts's computeSnapshotFields(), before the
@@ -318,19 +318,19 @@ model Escrow {
   // the actually-funded value was never persisted anywhere before this).
   // Legacy escrows (feePolicyVersionId NULL) never populate this — stays
   // NULL forever for them, unchanged behavior.
-  fundedAmount            Decimal?          @db.Decimal(24, 8)
-  moduleId     String       @default("opensettlement")
-  protocolVersion String    @default("0.1")
-  lockedAt     DateTime?
-  expiresAt    DateTime?
-  releasedAt   DateTime?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  fundedAmount                          Decimal?          @db.Decimal(24, 8)
+  moduleId                              String            @default("opensettlement")
+  protocolVersion                       String            @default("0.1")
+  lockedAt                              DateTime?
+  expiresAt                             DateTime?
+  releasedAt                            DateTime?
+  createdAt                             DateTime          @default(now())
+  updatedAt                             DateTime          @updatedAt
 
-  events            EscrowEvent[]
-  disputes          Dispute[]
-  feeDistribution   FeeDistribution?
-  feeObligation     FeeObligation?
+  events             EscrowEvent[]
+  disputes           Dispute[]
+  feeDistribution    FeeDistribution?
+  feeObligation      FeeObligation?
   // Missão 07.6.3 (R3) — back-relations for the three FKs that already
   // existed at the database level (first migration) but weren't
   // declared here. releaseApprovals/participantKeys are one-to-many
@@ -344,11 +344,6 @@ model Escrow {
   // model's own header comment).
   fundingEvidence    EscrowFundingEvidence[]
 
-  // DB_AUDIT_REPORT.md / RELATORIO_PERFORMANCE.md, closed 2026-08-08 —
-  // sweepExpiredEscrows() (escrow.service.ts) filters by exactly this
-  // pair; with zero indexes on this table it was a full table scan on
-  // every sweep interval tick.
-  @@index([status, expiresAt])
   // Missão 10 — cross-escrow double-claim protection for a funding
   // outpoint. Deliberately a plain (non-partial) unique constraint: see
   // txLockVout's own comment above for why Postgres's default
@@ -358,6 +353,11 @@ model Escrow {
   // schema language can't express — keeps prisma migrate diff / this
   // project's db:completeness-check honest (schema and DB agree exactly).
   @@unique([txLockId, txLockVout])
+  // DB_AUDIT_REPORT.md / RELATORIO_PERFORMANCE.md, closed 2026-08-08 —
+  // sweepExpiredEscrows() (escrow.service.ts) filters by exactly this
+  // pair; with zero indexes on this table it was a full table scan on
+  // every sweep interval tick.
+  @@index([status, expiresAt])
   @@map("escrows")
 }
 
@@ -368,18 +368,18 @@ model Escrow {
 // to query "how much fee has this account/pool actually generated" —
 // see docs/rfcs/RFC-021-market-based-arbitration-and-payment-trust.md.
 model FeeDistribution {
-  id                    String   @id @default(uuid())
-  escrowId              String   @unique
-  escrow                Escrow   @relation(fields: [escrowId], references: [id])
-  totalFee              Decimal  @db.Decimal(24, 8)
-  asset                 AssetType
-  nodeOperatorShare     Decimal  @db.Decimal(24, 8) // 30%
-  treasuryShare         Decimal  @db.Decimal(24, 8) // 25%
-  walletRebateShare     Decimal  @db.Decimal(24, 8) // 35%
-  arbitratorReserveShare Decimal @db.Decimal(24, 8) // 10%
-  moduleId              String   @default("opensettlement")
-  protocolVersion       String   @default("0.1")
-  createdAt             DateTime @default(now())
+  id                     String    @id @default(uuid())
+  escrowId               String    @unique
+  escrow                 Escrow    @relation(fields: [escrowId], references: [id])
+  totalFee               Decimal   @db.Decimal(24, 8)
+  asset                  AssetType
+  nodeOperatorShare      Decimal   @db.Decimal(24, 8) // 30%
+  treasuryShare          Decimal   @db.Decimal(24, 8) // 25%
+  walletRebateShare      Decimal   @db.Decimal(24, 8) // 35%
+  arbitratorReserveShare Decimal   @db.Decimal(24, 8) // 10%
+  moduleId               String    @default("opensettlement")
+  protocolVersion        String    @default("0.1")
+  createdAt              DateTime  @default(now())
 
   @@map("fee_distributions")
 }
@@ -515,7 +515,7 @@ enum EscrowFundingEvidenceKind {
 // db:completeness-check passing.
 model FeePolicyVersion {
   id        String          @id @default(uuid())
-  label     String          // human-readable, e.g. "v1-fixture" — unique only in combination with railScope, not globally
+  label     String // human-readable, e.g. "v1-fixture" — unique only in combination with railScope, not globally
   // Free-form string, not FK'd to the EscrowType enum: a policy's rail scope
   // may legitimately outlive/predate the exact enum values Escrow.type
   // offers today (Fase 1.2 §11 — same governance framework, different
@@ -530,9 +530,9 @@ model FeePolicyVersion {
   // ACTUAL rate is a governance decision explicitly NOT made in this
   // phase — every value used by this pass's own tests is a clearly-labeled
   // fixture.
-  protocolFeeRate      Decimal           @db.Decimal(24, 8)
-  payerModel           FeePayerModel
-  economicBasis        FeeEconomicBasis
+  protocolFeeRate       Decimal          @db.Decimal(24, 8)
+  payerModel            FeePayerModel
+  economicBasis         FeeEconomicBasis
   // Missão 11 Fase 7.2 (CTO decision, §I) — remnants of the retired
   // Mechanism 2 distribution architecture (Fase 6.5.2,
   // fee_distribution_batches/fee_distribution_batch_items, permanently
@@ -544,10 +544,10 @@ model FeePolicyVersion {
   // fully readable; no historical row is rewritten or reinterpreted).
   // FeePolicyVersion = charging economics (rate/payer/basis);
   // DistributionPolicyVersion = allocation economics (who/how much).
-  nodeOperatorPct      Decimal?          @db.Decimal(24, 8)
-  treasuryPct          Decimal?          @db.Decimal(24, 8)
-  walletRebatePct      Decimal?          @db.Decimal(24, 8)
-  arbitratorReservePct Decimal?          @db.Decimal(24, 8)
+  nodeOperatorPct       Decimal?         @db.Decimal(24, 8)
+  treasuryPct           Decimal?         @db.Decimal(24, 8)
+  walletRebatePct       Decimal?         @db.Decimal(24, 8)
+  arbitratorReservePct  Decimal?         @db.Decimal(24, 8)
   // Missão 11 Fase 5 §3 — the confirmation-depth rule a rail's collection-
   // recognition job uses to decide when a broadcast fee output becomes
   // COLLECTED, not a global constant. Nullable, no default: a DRAFT policy
@@ -569,10 +569,10 @@ model FeePolicyVersion {
   // still-evolving structured data" precedent this schema already uses for
   // Dispute.evidence/Intent.payload. Field names inside are NOT
   // schema-approved.
-  smallTradeRule   Json @default("{}")
-  triggerSemantics Json @default("{}")
+  smallTradeRule        Json             @default("{}")
+  triggerSemantics      Json             @default("{}")
 
-  createdBy   String    // caller-supplied identifier; no real admin/operator role model exists in this codebase yet (Fase 2 §15, open question)
+  createdBy   String // caller-supplied identifier; no real admin/operator role model exists in this codebase yet (Fase 2 §15, open question)
   createdAt   DateTime  @default(now())
   publishedAt DateTime?
   retiredAt   DateTime?
@@ -593,11 +593,11 @@ model FeePolicyVersion {
 // gated by that null check BEFORE ever asking "should an obligation exist,"
 // never processed through this model at all.
 model FeeObligation {
-  id                 String                    @id @default(uuid())
-  escrowId           String                    @unique
-  escrow             Escrow                    @relation(fields: [escrowId], references: [id])
+  id                 String           @id @default(uuid())
+  escrowId           String           @unique
+  escrow             Escrow           @relation(fields: [escrowId], references: [id])
   feePolicyVersionId String
-  feePolicyVersion   FeePolicyVersion          @relation(fields: [feePolicyVersionId], references: [id])
+  feePolicyVersion   FeePolicyVersion @relation(fields: [feePolicyVersionId], references: [id])
 
   economicDetermination FeeEconomicDetermination
   // Null when economicDetermination = NOT_APPLICABLE — deliberately no
@@ -622,13 +622,13 @@ model FeeObligation {
   // obligation it already claimed, silently making a distributed fee
   // reappear as "undistributed."
   distributedInBatchId String?
-  distributedInBatch   FeeDistributionBatch?    @relation(fields: [distributedInBatchId], references: [id], onDelete: Restrict)
+  distributedInBatch   FeeDistributionBatch? @relation(fields: [distributedInBatchId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  evidence          FeeCollectionEvidence[]
-  distributionItems FeeDistributionBatchItem[]
+  evidence                 FeeCollectionEvidence[]
+  distributionItems        FeeDistributionBatchItem[]
   // Missão 11 Fase 6.3A — the new entitlement-ledger foundation's own
   // back-relation, additive alongside (never replacing) distributionItems
   // above (the legacy, pre-Fase-6.3A mechanism — see BACKLOG.md's own
@@ -807,13 +807,13 @@ enum DistributionPolicyStatus {
 // non-null-identityKey rows of a future class with zero migration.
 model DistributionRecipient {
   id          String   @id @default(uuid())
-  class       String   // e.g. 'SAILS_PROTOCOL' — the only class populated by this pass
-  identityKey String?  // NULL for a singleton class (SAILS_PROTOCOL); a stable external identity string for a future multi-instance class
-  label       String   // human-readable, e.g. "Sails Protocol Treasury"
+  class       String // e.g. 'SAILS_PROTOCOL' — the only class populated by this pass
+  identityKey String? // NULL for a singleton class (SAILS_PROTOCOL); a stable external identity string for a future multi-instance class
+  label       String // human-readable, e.g. "Sails Protocol Treasury"
   createdAt   DateTime @default(now())
 
-  policyRecipients DistributionPolicyRecipient[]
-  ledgerEntries    EntitlementLedgerEntry[]
+  policyRecipients    DistributionPolicyRecipient[]
+  ledgerEntries       EntitlementLedgerEntry[]
   custodyAttestations CustodyAttestation[]
 
   @@index([class])
@@ -867,7 +867,7 @@ model CustodyAttestation {
   // codebase produces one yet.
   attestationAuthority CustodyAttestationAuthority @default(BOOTSTRAP_OPERATOR_ATTESTED)
 
-  attestedBy String   // operator attribution — same "no fabricated identity" convention as every other bootstrap-operator action
+  attestedBy String // operator attribution — same "no fabricated identity" convention as every other bootstrap-operator action
   attestedAt DateTime @default(now())
 
   // NULL = this is the CURRENTLY ACTIVE attestation for (recipientId,
@@ -897,15 +897,15 @@ enum CustodyAttestationAuthority {
 // any INSERT/UPDATE/DELETE of a recipient once the parent's status != DRAFT.
 model DistributionPolicyVersion {
   id          String                   @id @default(uuid())
-  label       String                   // human-readable, e.g. "test-fixture-90-10" or "v1-bootstrap-treasury-only"
+  label       String // human-readable, e.g. "test-fixture-90-10" or "v1-bootstrap-treasury-only"
   status      DistributionPolicyStatus @default(DRAFT)
   createdBy   String
   createdAt   DateTime                 @default(now())
   publishedAt DateTime?
   retiredAt   DateTime?
 
-  recipients    DistributionPolicyRecipient[]
-  ledgerEntries EntitlementLedgerEntry[]
+  recipients                     DistributionPolicyRecipient[]
+  ledgerEntries                  EntitlementLedgerEntry[]
   // Missão 11 Fase 7.2 — the FeeCollectionEvidence(CONFIRMED) rows that
   // froze this policy version as their governing economic authority at
   // COLLECTED time. See that model's own comment for the full reasoning.
@@ -1013,7 +1013,7 @@ model EntitlementLedgerEntry {
   // Positive for ALLOCATION, negative for REVERSAL — enforced by this
   // migration's own CHECK constraint (defense-in-depth; the service layer
   // never accepts a caller-supplied sign either).
-  amount Decimal @db.Decimal(48, 8)
+  amount Decimal                    @db.Decimal(48, 8)
 
   // Set only for kind=REVERSAL — the exact ALLOCATION entry this offsets.
   // The service layer always DERIVES a reversal's feeObligationId/asset/
@@ -1058,32 +1058,32 @@ enum DisputeStatus {
 
 enum DisputeRuling {
   RELEASE // buyer wins — "dispute_resolved_buyer"
-  REFUND  // seller wins — "dispute_resolved_seller"
-  SPLIT   // §1.9's third option — no direct buyer/seller equivalent, kept as-is
+  REFUND // seller wins — "dispute_resolved_seller"
+  SPLIT // §1.9's third option — no direct buyer/seller equivalent, kept as-is
 }
 
 model Dispute {
-  id         String         @id @default(uuid())
-  tradeId    String
-  trade      Trade          @relation(fields: [tradeId], references: [id])
-  escrowId   String
-  escrow     Escrow         @relation(fields: [escrowId], references: [id])
-  openedBy   String         // participantId who raised the dispute
-  reason     String
-  evidence   Json           @default("[]") // array of evidence descriptors
-  arbiterId  String?        // populated by ArbitrationProvider.assign()
-  status     DisputeStatus  @default(OPENED)
-  ruling     DisputeRuling?
-  resolvedAt DateTime?
+  id                           String             @id @default(uuid())
+  tradeId                      String
+  trade                        Trade              @relation(fields: [tradeId], references: [id])
+  escrowId                     String
+  escrow                       Escrow             @relation(fields: [escrowId], references: [id])
+  openedBy                     String // participantId who raised the dispute
+  reason                       String
+  evidence                     Json               @default("[]") // array of evidence descriptors
+  arbiterId                    String? // populated by ArbitrationProvider.assign()
+  status                       DisputeStatus      @default(OPENED)
+  ruling                       DisputeRuling?
+  resolvedAt                   DateTime?
   // RFC-021 D6 — appeal state. appealRound is 0 until the first appeal;
   // previousRuling/previousArbiterId snapshot the ruling being appealed
   // so resolveDispute() can compare the appeal panel's new ruling against
   // it and slash the original arbiter on an overturn (see
   // dispute.service.ts's resolveDispute() for the comparison).
-  appealRound       Int             @default(0)
-  previousRuling    DisputeRuling?
-  previousArbiterId String?
-  appealFees        DisputeAppealFee[]
+  appealRound                  Int                @default(0)
+  previousRuling               DisputeRuling?
+  previousArbiterId            String?
+  appealFees                   DisputeAppealFee[]
   // RFC-021 D8 — QVAC-assisted automated first-pass resolution. QVAC never
   // decides unilaterally (same "attestor, not mover" principle D1 already
   // establishes for human arbiters): a high-confidence recommendation
@@ -1102,7 +1102,7 @@ model Dispute {
   autoResolutionConfidence     Float?
   autoResolutionReasoning      String?
   autoResolutionDeadline       DateTime?
-  autoResolved                 Boolean         @default(false)
+  autoResolved                 Boolean            @default(false)
 
   // Missão 13 Fase 2 — INV-12 (Attributed Authority Integrity) closure.
   // Additive/nullable: existing rows (every dispute resolved before this
@@ -1125,10 +1125,10 @@ model Dispute {
   authorityIssuedAt  DateTime?
   authorityBuyerBps  Int?
 
-  moduleId   String         @default("opensettlement")
-  protocolVersion String    @default("0.1")
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
+  moduleId        String   @default("opensettlement")
+  protocolVersion String   @default("0.1")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Security-validation round (2026-07-19, CTO-role follow-up, "disputa
   // dupla" scenario): dispute.service.ts's raiseDispute() reads
@@ -1166,23 +1166,23 @@ model Dispute {
 // exactly one charge per round, not one per Dispute for its whole
 // lifetime.
 model DisputeAppealFee {
-  id          String    @id @default(uuid())
-  disputeId   String
-  dispute     Dispute   @relation(fields: [disputeId], references: [id])
-  appealRound Int
-  requestedBy String    // the appellant (participantId) — dispute.service.ts's appeal() caller
-  amount      Decimal   @db.Decimal(24, 8)
-  asset       AssetType
+  id              String    @id @default(uuid())
+  disputeId       String
+  dispute         Dispute   @relation(fields: [disputeId], references: [id])
+  appealRound     Int
+  requestedBy     String // the appellant (participantId) — dispute.service.ts's appeal() caller
+  amount          Decimal   @db.Decimal(24, 8)
+  asset           AssetType
   // Set once the appeal resolves: FORFEITED (the appeal panel upheld the
   // original ruling — the appellant's appeal was denied, same "cost of a
   // frivolous appeal" this fee exists to be) or REFUNDED (the appeal
   // overturned the original ruling — the appellant was right to appeal).
   // Null while the appeal is still pending.
-  outcome     String?
-  settledAt   DateTime?
-  moduleId    String    @default("opensettlement")
-  protocolVersion String @default("0.1")
-  createdAt   DateTime  @default(now())
+  outcome         String?
+  settledAt       DateTime?
+  moduleId        String    @default("opensettlement")
+  protocolVersion String    @default("0.1")
+  createdAt       DateTime  @default(now())
 
   @@unique([disputeId, appealRound])
   @@map("dispute_appeal_fees")
@@ -1195,20 +1195,20 @@ model DisputeAppealFee {
 // track record and a trader's trade history measure different things and
 // must be able to diverge — see RFC-021 D3.
 model ArbiterProfile {
-  id                     String    @id @default(uuid())
-  participantId          String    @unique
-  participant            User      @relation(fields: [participantId], references: [id])
-  monetaryCollateral      Decimal  @default(0) @db.Decimal(24, 8)
-  collateralAsset         AssetType?  // null when monetaryCollateral is 0
-  arbiterReputation       Float    @default(0)
-  rulingsTotal            Int      @default(0)
-  rulingsOverturned       Int      @default(0)  // RFC-021 D6 appeal outcomes
-  cumulativeFeesObserved  Decimal  @default(0) @db.Decimal(24, 8)  // RFC-021 D4, Phase 3
-  registeredAt            DateTime @default(now())
-  slashedAt               DateTime?
-  moduleId                String   @default("opensettlement")
-  protocolVersion         String   @default("0.1")
-  updatedAt               DateTime @updatedAt
+  id                     String     @id @default(uuid())
+  participantId          String     @unique
+  participant            User       @relation(fields: [participantId], references: [id])
+  monetaryCollateral     Decimal    @default(0) @db.Decimal(24, 8)
+  collateralAsset        AssetType? // null when monetaryCollateral is 0
+  arbiterReputation      Float      @default(0)
+  rulingsTotal           Int        @default(0)
+  rulingsOverturned      Int        @default(0) // RFC-021 D6 appeal outcomes
+  cumulativeFeesObserved Decimal    @default(0) @db.Decimal(24, 8) // RFC-021 D4, Phase 3
+  registeredAt           DateTime   @default(now())
+  slashedAt              DateTime?
+  moduleId               String     @default("opensettlement")
+  protocolVersion        String     @default("0.1")
+  updatedAt              DateTime   @updatedAt
 
   @@map("arbiter_profiles")
 }
@@ -1233,7 +1233,7 @@ model PaymentAccount {
   accountHash     String        @unique
   paymentMethod   PaymentMethod
   signed          Boolean       @default(false)
-  signedBy        String?       // the counterparty/arbiter who attested the first clean trade (RFC-021 D1's narrow factual-claim framing)
+  signedBy        String? // the counterparty/arbiter who attested the first clean trade (RFC-021 D1's narrow factual-claim framing)
   signedAt        DateTime?
   firstUsedAt     DateTime      @default(now())
   completedTrades Int           @default(0)
@@ -1257,15 +1257,15 @@ model PaymentAccount {
 // address and their USDT/EVM address are unrelated values) — one row per
 // (participant, asset), not one address covering everything.
 model PayoutAddress {
-  id            String    @id @default(uuid())
-  participantId String
-  participant   User      @relation(fields: [participantId], references: [id])
-  asset         AssetType
-  address       String
-  moduleId      String    @default("opensettlement")
-  protocolVersion String  @default("0.1")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(uuid())
+  participantId   String
+  participant     User      @relation(fields: [participantId], references: [id])
+  asset           AssetType
+  address         String
+  moduleId        String    @default("opensettlement")
+  protocolVersion String    @default("0.1")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@unique([participantId, asset])
   @@map("payout_addresses")
@@ -1284,15 +1284,15 @@ model PayoutAddress {
 // vouch is still active — see reputation.service.ts's
 // penalizeForBurnedVouch() and vouch.service.ts's burnVouchesFor().
 model Vouch {
-  id          String    @id @default(uuid())
-  voucherId   String
-  voucher     User      @relation("VouchesGiven", fields: [voucherId], references: [id])
-  voucheeId   String
-  vouchee     User      @relation("VouchesReceived", fields: [voucheeId], references: [id])
-  createdAt   DateTime  @default(now())
-  burnedAt    DateTime?
-  moduleId    String    @default("openreputation")
-  protocolVersion String @default("0.1")
+  id              String    @id @default(uuid())
+  voucherId       String
+  voucher         User      @relation("VouchesGiven", fields: [voucherId], references: [id])
+  voucheeId       String
+  vouchee         User      @relation("VouchesReceived", fields: [voucheeId], references: [id])
+  createdAt       DateTime  @default(now())
+  burnedAt        DateTime?
+  moduleId        String    @default("openreputation")
+  protocolVersion String    @default("0.1")
 
   @@unique([voucherId, voucheeId])
   @@index([voucheeId])
@@ -1317,7 +1317,7 @@ model EscrowEvent {
   // strategy (a NULL entryHash marks "written before the chain existed,"
   // not a break in it).
   entryHash   String?
-  prevHash    String?  // prior EscrowEvent.entryHash for this escrowId; 'genesis' for the first post-migration entry
+  prevHash    String? // prior EscrowEvent.entryHash for this escrowId; 'genesis' for the first post-migration entry
 
   // Same hot-path reasoning RELATORIO_PERFORMANCE.md already established
   // for intent_events: the chain's write path does
@@ -1338,12 +1338,13 @@ model EscrowEvent {
 // not merged, docs/CORE_IMPLEMENTATION_ARCHITECTURE.md §9), and why the
 // table is interaction-kind-neutral rather than Escrow-specific.
 //
-// NOT wired into any live authority path as of this migration — Core
-// remains non-authoritative (M3 shadow-only); this table exists purely
-// to satisfy the precondition ahead of a future M4 retry. Rows are
-// written only by narrowly-scoped, test-proven persistence code
-// (semantic-transition-record.ts), never by any production call site
-// yet.
+// Corrigido/Implementado 2026-08-30 (Mission M8-R) — the paragraph above
+// is now stale: M4 (Retry) wired this table into escrow.service.ts's
+// sweepExpiredEscrows() as the first live authority slice, and M8-R adds
+// a second, discretionary/outcome-bearing slice (Mission13 MULTISIG
+// dispute ruling) — see dispute-outcome.ts's own header. Kept here
+// rather than deleted so the original M3.5 design intent (why the table
+// exists, why it is interaction-kind-neutral) remains legible.
 model SemanticTransitionRecord {
   id String @id @default(uuid())
 
@@ -1400,21 +1401,60 @@ model SemanticTransitionRecord {
   // created for a decision that actually authorized the transition).
   conditionResult SemanticConditionResult
 
-  // attribution (K2) and outcome (K3) are both absent by design: this
-  // deterministic, non-fund-moving slice triggers neither — no columns
-  // added for either. A future discretionary/outcome-bearing slice adds
-  // its own conditional columns only when it actually needs them.
+  // attribution (K2) and outcome (K3) were both absent by design for
+  // M4's deterministic, non-fund-moving expiry slice — no columns were
+  // added for either. Mission M8-R (Mission13 MULTISIG dispute ruling)
+  // is exactly the "future discretionary/outcome-bearing slice" this
+  // comment anticipated: both groups below are populated for that
+  // decision class, and remain NULL for M4's own rows.
+  //
+  // attribution — DiscretionaryAttributionMaterial (transition.ts,
+  // frozen M1). Never a bare `verified: true` — the raw proof and
+  // resolved identity a future independent verifier actually needs
+  // (CORE_IMPLEMENTATION_ARCHITECTURE.md §13's own explicit rule).
+  // All three columns are populated together or not at all (enforced in
+  // code, dispute-outcome.ts — not a DB CHECK constraint, matching this
+  // model's own existing precedent of code-enforced, not DB-enforced,
+  // cross-column invariants).
+  attributionActor            String? // DiscretionaryAttributionMaterial.actor (the arbiter's authorityId)
+  attributionRawProof         String? // the raw Ed25519 signature hex — never a cached boolean
+  attributionResolvedIdentity String? // the arbiter's resolved User.publicKey hex, at decision time
+
+  // outcome — Outcome<ArbitrationOutcomeContent, readonly BeneficiaryDestination[]>
+  // (outcome.ts, frozen M1; economic-outcome.ts, M7, for the concrete
+  // domain content shape). JSON because Core's own Outcome.content is
+  // opaque to generic persistence — this table must not need a schema
+  // change for a future Outcome content shape from a different Ruleset.
+  outcomeContent            Json? // ArbitrationOutcomeContent (ruling, totalUnits, asset, allocations, remainderBeneficiary)
+  outcomeDestinationBinding Json? // readonly BeneficiaryDestination[] — the M8.5 destination snapshot, bound at this exact commit
 
   createdAt DateTime @default(now())
 
   // Replay resistance: under the CURRENT frozen VALID_TRANSITIONS graph
   // (escrow-lifecycle.ts), EXPIRED is reachable at most once per escrow,
-  // ever — so (interactionId, transitionType) is a correct, real
-  // idempotency key today. Deliberately narrower than a maximally
-  // general (interaction + transition + history position) key; flagged
-  // in docs/CORE_TRANSITION_RECORD.md as a technical-debt item if a
-  // future transition type is ever legitimately repeatable.
-  @@unique([interactionId, transitionType])
+  // ever — so (interactionId, transitionType) was a correct, real
+  // idempotency key for M4 alone.
+  //
+  // Mission M8-R — a single escrow's dispute-ruling transition IS
+  // legitimately repeatable across appeal rounds (appeal() resets
+  // Dispute.status, allowing a NEW resolveDispute() call for the SAME
+  // escrowId with the SAME transitionType) — exactly the technical-debt
+  // scenario this model's own prior comment flagged. `appealRound` closes
+  // it: a real, additive column (not folded into `transitionType`, which
+  // stays the semantic TYPE of decision, unchanged in meaning) with a
+  // NON-NULL sentinel default of -1 ("not applicable to this transition
+  // type"), never a nullable column — Postgres's own default NULLS
+  // DISTINCT behavior (already relied on elsewhere in this schema, see
+  // Escrow.txLockVout's own comment) would otherwise treat every one of
+  // M4's own NULL-appealRound rows as mutually non-conflicting, silently
+  // defeating the exact replay-resistance guarantee M3.5-V proved with
+  // real Postgres. Every M4 row backfills to -1 by this migration's own
+  // default; M8-R rows carry their real appealRound (0, 1, 2, ...),
+  // matching Mission13's own signed AuthorityDecisionPayload.appealRound
+  // replay-resistance dimension exactly.
+  appealRound Int @default(-1)
+
+  @@unique([interactionId, transitionType, appealRound])
   @@index([interactionId])
   @@map("semantic_transition_records")
 }
@@ -1437,14 +1477,14 @@ enum SemanticConditionResult {
 // approved by CISO + CTO).
 model Intent {
   id             String    @id @default(uuid())
-  type           String    // IntentType (common/types/intent.ts)
+  type           String // IntentType (common/types/intent.ts)
   version        String    @default("1.0")
   participantId  String
   agentId        String?
   parentIntentId String?
   moduleId       String
   payload        Json
-  status         String    // IntentStatus (core/state-machine.ts)
+  status         String // IntentStatus (core/state-machine.ts)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   expiresAt      DateTime?
@@ -1483,8 +1523,8 @@ model IntentEvent {
   triggeredBy String
   note        String?
   createdAt   DateTime @default(now())
-  entryHash   String?  // sha256(fromStatus+toStatus+triggeredBy+prevHash), computed at write time
-  prevHash    String?  // prior IntentEvent.entryHash for this intentId; 'genesis' for the first
+  entryHash   String? // sha256(fromStatus+toStatus+triggeredBy+prevHash), computed at write time
+  prevHash    String? // prior IntentEvent.entryHash for this intentId; 'genesis' for the first
 
   // RELATORIO_PERFORMANCE.md, closed 2026-08-08 — writeIntentEvent()'s
   // hot path does findFirst(where: { intentId }, orderBy: { createdAt:
@@ -1526,16 +1566,16 @@ model DurableEventRecord {
   // protocol one. Costs `jsonb`'s native indexing/query operators on
   // this column, unused today (every reader takes the whole payload,
   // never queries into its structure).
-  payload Json @db.Json
+  payload       Json   @db.Json
   // The exact ISO-8601 string computeEntryHash() hashed at write time —
   // never a native DateTime column. A DateTime column would round-trip
   // through a JS Date object on every read, a real and avoidable risk of
   // the recomputed hash silently disagreeing with what was stored.
   // ISO-8601's own format still sorts correctly under a plain
   // lexicographic ORDER BY, so ordering doesn't need a native type either.
-  publishedAt String
-  entryHash   String
-  prevHash    String
+  publishedAt   String
+  entryHash     String
+  prevHash      String
 
   // Same hot-path shape IntentEvent/EscrowEvent already established:
   // publish() reads the last event for a correlationId before writing the
@@ -1546,33 +1586,33 @@ model DurableEventRecord {
 }
 
 model Message {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   tradeId   String
-  trade     Trade    @relation(fields: [tradeId], references: [id])
+  trade     Trade     @relation(fields: [tradeId], references: [id])
   senderId  String
-  sender    User     @relation(fields: [senderId], references: [id])
+  sender    User      @relation(fields: [senderId], references: [id])
   content   String
-  msgType   String   @default("TEXT")
+  msgType   String    @default("TEXT")
   readAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([tradeId])
   @@map("messages")
 }
 
 model ReputationEvent {
-  id        String   @id @default(uuid())
-  tradeId   String
-  trade     Trade    @relation(fields: [tradeId], references: [id])
-  raterId   String
-  rater     User     @relation("RaterEvents", fields: [raterId], references: [id])
-  ratedId   String
-  rated     User     @relation("RatedEvents", fields: [ratedId], references: [id])
-  score     Int
-  comment   String?
-  moduleId  String   @default("openreputation")
-  protocolVersion String @default("0.1")
-  createdAt DateTime @default(now())
+  id              String   @id @default(uuid())
+  tradeId         String
+  trade           Trade    @relation(fields: [tradeId], references: [id])
+  raterId         String
+  rater           User     @relation("RaterEvents", fields: [raterId], references: [id])
+  ratedId         String
+  rated           User     @relation("RatedEvents", fields: [ratedId], references: [id])
+  score           Int
+  comment         String?
+  moduleId        String   @default("openreputation")
+  protocolVersion String   @default("0.1")
+  createdAt       DateTime @default(now())
 
   @@unique([tradeId, raterId])
   @@map("reputation_events")
@@ -1589,10 +1629,10 @@ model ReputationEvent {
 // Alternatives Considered — no real write path exists for it yet.
 model CapabilityGrant {
   id             String    @id @default(uuid())
-  grantedTo      String    // a Participant or Agent id (RFC-001)
-  capabilityName String    // e.g. 'trade-coordination' (RFC-005's table)
-  scope          String[]  // subset of that capability's events/API
-  constraints    Json?     // e.g. { maxValue, expiresAt }
+  grantedTo      String // a Participant or Agent id (RFC-001)
+  capabilityName String // e.g. 'trade-coordination' (RFC-005's table)
+  scope          String[] // subset of that capability's events/API
+  constraints    Json? // e.g. { maxValue, expiresAt }
   issuedBy       String
   revokedAt      DateTime?
   createdAt      DateTime  @default(now())
@@ -1622,7 +1662,7 @@ model EscrowReleaseApproval {
   // used to claim otherwise. Corrected: escrowId is real DB-enforced
   // referential integrity; the check below is a separate, additional
   // domain-level validation the FK alone can't express.
-  approverId String   // must equal the trade's buyerId or sellerId — enforced in escrow.service.ts
+  approverId String // must equal the trade's buyerId or sellerId — enforced in escrow.service.ts
   approvedAt DateTime @default(now())
 
   @@unique([escrowId, approverId])
@@ -1641,9 +1681,9 @@ model EscrowReleaseApproval {
 // with a real payload since "which pubkey" — unlike "did X approve" — is
 // not a boolean.
 model EscrowParticipantKey {
-  id            String   @id @default(uuid())
-  escrowId      String
-  escrow        Escrow   @relation(fields: [escrowId], references: [id])
+  id                String   @id @default(uuid())
+  escrowId          String
+  escrow            Escrow   @relation(fields: [escrowId], references: [id])
   // Missão 07.6.3 (R3): same correction as EscrowReleaseApproval.escrowId
   // above — the FK to escrows(id) is real and has existed since the
   // first migration; only the domain check below (role must match the
@@ -1672,8 +1712,8 @@ model EscrowParticipantKey {
   // all — MultisigProvider.partiesFor() falls back to live derivation for
   // those, unchanged from before this phase (no fake backfill was ever
   // performed to manufacture one).
-  role          String   // 'buyer' | 'seller' | 'arbiter' — buyer/seller must match the trade's own buyerId/sellerId, enforced in escrow.service.ts; arbiter is write-once, DB-enforced (see above)
-  participantId String
+  role              String // 'buyer' | 'seller' | 'arbiter' — buyer/seller must match the trade's own buyerId/sellerId, enforced in escrow.service.ts; arbiter is write-once, DB-enforced (see above)
+  participantId     String
   // 33-byte compressed secp256k1 pubkey, hex (66 chars) — the canonical
   // submitted format. MultisigProvider's P2WSH/OP_CHECKMULTISIG script
   // uses it as-is; LightningHodlProvider's Arkade Taproot script derives
@@ -1681,7 +1721,7 @@ model EscrowParticipantKey {
   // point, different serialization — verified experimentally before this
   // model was written, see multisig.provider.ts/lightning-hodl.provider.ts's
   // own header comments for the full disclosure).
-  pubkey        String
+  pubkey            String
   // Missão 11 Fase 9.1 §4/§5 — self-declared client capability profile
   // (see capability-profile.ts's own header comment for the full design).
   // NULL means "not declared" (grandfathered, see that file's disclosed
@@ -1691,7 +1731,7 @@ model EscrowParticipantKey {
   // row below never sets this (the arbiter key is server-derived, not a
   // client wallet whose implementation completeness is in question).
   capabilityProfile String?
-  createdAt     DateTime @default(now())
+  createdAt         DateTime @default(now())
 
   @@unique([escrowId, role])
   @@index([escrowId])
@@ -1712,28 +1752,28 @@ model EscrowParticipantKey {
 // finalize succeeds — a completed release/refund leaves no pending row
 // behind, only Escrow.txReleaseId as the durable record.
 model EscrowPendingTransaction {
-  id                 String   @id @default(uuid())
-  escrowId           String   @unique
+  id                  String   @id @default(uuid())
+  escrowId            String   @unique
   // Missão 07.6.3 (R3): this FK to escrows(id) has existed at the
   // database level since the first migration — declaring it here just
   // makes schema.prisma match reality. `@unique` above (already
   // present) is what makes this a real one-to-one relation — at most
   // one in-flight signature-collection round per escrow.
-  escrow             Escrow   @relation(fields: [escrowId], references: [id])
-  kind               String   // 'release' | 'refund' | 'split'
-  toAddress          String
+  escrow              Escrow   @relation(fields: [escrowId], references: [id])
+  kind                String // 'release' | 'refund' | 'split'
+  toAddress           String
   // Only set for kind='split' — the seller's payout address, alongside
   // toAddress (buyer's) above. A split PSBT has two real outputs, unlike
   // release/refund's one, so it needs a second address column rather than
   // reusing toAddress twice.
-  toAddressSecondary String?
+  toAddressSecondary  String?
   // Missão 11 Fase 3 — real gap found wiring FeeObligation into the
   // signature-collection finalize path: initiateSplit() validated and used
   // buyerBps to build the PSBT, but never persisted it anywhere, so
   // submitTransactionSignature() (which can run much later, once all
   // signatures arrive) had no way to compute the seller's basisAmount for
   // a SPLIT settled via this path. Only set for kind='split'.
-  buyerBps           Int?
+  buyerBps            Int?
   // Missão 11 Fase 4 §J — the fee-collection decision the provider ACTUALLY
   // built into unsignedPsbtBase64 at construction time (multisig.provider.ts's
   // buildUnsignedRelease()/buildUnsignedSplit()), persisted so
@@ -1758,8 +1798,8 @@ model EscrowPendingTransaction {
   // doesn't populate it (kept nullable rather than defaulted, matching
   // feeCollectionSats' own convention, so "not recorded" stays
   // distinguishable from "recorded as zero").
-  minerFeeSats       Int?
-  unsignedPsbtBase64 String
+  minerFeeSats        Int?
+  unsignedPsbtBase64  String
   // Participant ids who must each submit their own signed copy. On a
   // DISPUTED release/refund this list has only ONE entry (buyer or
   // seller) — the arbiter's own required signature is pre-embedded into
@@ -1769,9 +1809,9 @@ model EscrowPendingTransaction {
   // only ONE entry too (buyer, by convention — see multisig.provider.ts's
   // buildUnsignedSplit()) — still a 2-of-3 script underneath, so only one
   // more signature can combine with the arbiter's already-embedded one.
-  requiredSigners    String[]
-  triggeredBy        String
-  createdAt          DateTime @default(now())
+  requiredSigners     String[]
+  triggeredBy         String
+  createdAt           DateTime @default(now())
 
   signatures EscrowTransactionSignature[]
 
@@ -1805,10 +1845,10 @@ enum VerificationVerdict {
 // IPFS/etc.), or RFC-008's AnchorProof/TimestampAnchor — those remain
 // 📋 Planned, unbuilt, same as before this pass.
 model Claim {
-  id         String   @id @default(uuid())
-  claimedBy  String   // a Participant id (RFC-001)
-  claimType  String   // open string — e.g. 'payment_sent', 'keypair_control', 'collateral_held'
-  assertion  Json      // e.g. { amount: "500", currency: "BRL" }
+  id        String   @id @default(uuid())
+  claimedBy String // a Participant id (RFC-001)
+  claimType String // open string — e.g. 'payment_sent', 'keypair_control', 'collateral_held'
+  assertion Json // e.g. { amount: "500", currency: "BRL" }
   // RFC-007 D6's EvidenceBundle needs a real, queryable scope to
   // aggregate "every Claim for this trade" — nullable because not every
   // Claim is trade-related (this mirrors, and is corrected the same way
@@ -1816,10 +1856,10 @@ model Claim {
   // `intentId` is barely populated today, `tradeId` is the value every
   // real trade-lifecycle event actually carries — see that file's own
   // header comment for the full precedent this follows).
-  tradeId    String?
-  createdAt  DateTime @default(now())
+  tradeId   String?
+  createdAt DateTime @default(now())
 
-  proofs     Proof[]
+  proofs Proof[]
 
   @@index([claimedBy])
   @@index([tradeId])
@@ -1836,7 +1876,7 @@ model Proof {
   claimId      String
   claim        Claim    @relation(fields: [claimId], references: [id])
   evidence     Json
-  evidenceHash String   // sha256 hex of the canonicalized `evidence`, recomputed server-side — never client-supplied
+  evidenceHash String // sha256 hex of the canonicalized `evidence`, recomputed server-side — never client-supplied
   submittedBy  String
   submittedAt  DateTime @default(now())
 
@@ -1858,16 +1898,16 @@ model Proof {
 // get one, Policy Engine decides when the extra assurance is worth the
 // real cost (a real Bitcoin-anchored OpenTimestamps submission).
 model EvidenceReference {
-  id           String   @id @default(uuid())
-  proofId      String
-  proof        Proof    @relation(fields: [proofId], references: [id])
-  provider     String   // e.g. 'local-fs', 's3', 'r2', 'ipfs', 'arweave', 'nostr.build'
-  uri          String
-  sha256       String   // real hash of the stored media bytes — recomputed server-side, same discipline as Proof.evidenceHash
-  mimeType     String
-  signature    String   // signed by the submitting Participant's key
-  anchorProof  Json?    // RFC-008 D1 — { anchorType, anchorId, submittedAt, upgraded } once/if anchored; null until then
-  createdAt    DateTime @default(now())
+  id          String   @id @default(uuid())
+  proofId     String
+  proof       Proof    @relation(fields: [proofId], references: [id])
+  provider    String // e.g. 'local-fs', 's3', 'r2', 'ipfs', 'arweave', 'nostr.build'
+  uri         String
+  sha256      String // real hash of the stored media bytes — recomputed server-side, same discipline as Proof.evidenceHash
+  mimeType    String
+  signature   String // signed by the submitting Participant's key
+  anchorProof Json? // RFC-008 D1 — { anchorType, anchorId, submittedAt, upgraded } once/if anchored; null until then
+  createdAt   DateTime @default(now())
 
   @@index([proofId])
   @@map("evidence_references")

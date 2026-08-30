@@ -302,9 +302,14 @@ describe('AE. M2 conformance remains intact', () => {
 
 describe('Repository thin-wrapper behavior', () => {
   it('findByInteractionAndTransitionType queries the exact compound unique key', async () => {
+    // Sails Core Implementation Program M8-R — the compound unique key
+    // grew a third column (appealRound) so a second, appeal-repeatable
+    // decision class (Mission13 dispute ruling) can coexist with this
+    // slice's own single-shot expiry transition. M4's own records always
+    // carry the sentinel -1 ("not applicable to this transition type").
     await semanticTransitionRecordRepository.findByInteractionAndTransitionType('escrow-1', 'escrow.timelock.expire')
     expect(mockSemanticTransitionRecordFindUnique).toHaveBeenCalledWith({
-      where: { interactionId_transitionType: { interactionId: 'escrow-1', transitionType: 'escrow.timelock.expire' } },
+      where: { interactionId_transitionType_appealRound: { interactionId: 'escrow-1', transitionType: 'escrow.timelock.expire', appealRound: -1 } },
     })
   })
 })
