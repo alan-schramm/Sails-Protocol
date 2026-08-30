@@ -120,6 +120,48 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     expect(record!.evaluationTimeMs).toBe(BigInt(evaluationTimeMs))
   })
 
+  it('P2/V6 — a Record-write failure AFTER a successful State claim rolls the WHOLE transaction back, including the State claim', async () => {
+    requirePostgres('record-write failure rolls back the state claim')
+    const { escrow } = await fixtureFundsLockedMultisigEscrow()
+
+    // Deterministic, test-only failure injection using the real UNIQUE
+    // constraint (§20 — no production authority/config touched): a
+    // colliding row for this escrow's own (interactionId, transitionType)
+    // pre-exists, so when commitAuthoritativeEscrowTimelockExpiry's OWN
+    // claimTransition() succeeds (the escrow really is FUNDS_LOCKED) and
+    // it then attempts its own Record insert inside the SAME transaction,
+    // that insert is guaranteed to violate the constraint and throw.
+    await prisma.semanticTransitionRecord.create({
+      data: {
+        interactionId: escrow.id, transitionType: 'escrow.timelock.expire',
+        fromState: 'FUNDS_LOCKED', toState: 'EXPIRED',
+        priorPositionKind: 'LEGACY_UNVERIFIED', priorPositionReference: null,
+        rulesetName: 'preexisting', rulesetIdentity: 'preexisting', rulesetVersion: '1.0', rulesetCommitment: 'preexisting',
+        rulesetExpectedEvaluatorName: 'x', rulesetExpectedEvaluatorVersion: '1.0',
+        rulesetExpectedProfileName: 'x', rulesetExpectedProfileVersion: '1.0',
+        evaluatorIdentityName: 'sails-timelock-evaluator', evaluatorIdentityVersion: '1.0',
+        profileIdentityName: 'sails-semantic-profile', profileIdentityVersion: '1.0',
+        deadlineMs: BigInt(1), evaluationTimeMs: BigInt(2),
+        conditionResult: 'SATISFIED',
+      },
+    })
+
+    await expect(
+      commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now())),
+    ).rejects.toThrow()
+
+    // The State claim inside the SAME failed transaction must not have
+    // survived — independently re-queried, not inferred from the thrown
+    // exception alone.
+    const stillLocked = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+    expect(stillLocked.status).toBe('FUNDS_LOCKED')
+    // Exactly the one pre-existing row remains — our failed attempt's
+    // own insert never durably existed.
+    const allRecordsForThisEscrow = await prisma.semanticTransitionRecord.findMany({ where: { interactionId: escrow.id } })
+    expect(allRecordsForThisEscrow).toHaveLength(1)
+    expect(allRecordsForThisEscrow[0].rulesetName).toBe('preexisting')
+  })
+
   it('P2/AA — a real lost race leaves no orphaned Record: the escrow is claimed by a concurrent transition first, and the second attempt commits nothing', async () => {
     requirePostgres('real lost race')
     const { escrow } = await fixtureFundsLockedMultisigEscrow()
@@ -163,6 +205,35 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
         conditionResult: 'SATISFIED',
       } as any),
     ).rejects.toThrow()
+  })
+
+  it('P5/V9 — two genuinely concurrent attempts against the SAME escrow cannot both win: exactly one commits, the other loses the race cleanly', async () => {
+    requirePostgres('real concurrent claim')
+    const { escrow } = await fixtureFundsLockedMultisigEscrow()
+
+    // Two independent calls fired together — Prisma's connection pool
+    // submits them as two separate Postgres transactions/connections,
+    // so this is a real race on the same row, not a simulated one.
+    // Postgres's own row-level locking on the UPDATE ... WHERE
+    // status = 'FUNDS_LOCKED' serializes the two: whichever commits
+    // first wins; the other's UPDATE re-evaluates the WHERE clause
+    // against the now-changed row and affects 0 rows.
+    const [resultA, resultB] = await Promise.all([
+      commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 2000, Date.now())),
+      commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now())),
+    ])
+
+    const committedResults = [resultA, resultB].filter((r) => r.committed)
+    const lostResults = [resultA, resultB].filter((r) => !r.committed)
+    expect(committedResults).toHaveLength(1)
+    expect(lostResults).toHaveLength(1)
+    expect(lostResults[0]).toEqual({ committed: false, reason: 'STATE_TRANSITION_LOST_RACE' })
+
+    // ONE unambiguous authoritative outcome, durably, independently verified.
+    const finalEscrow = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+    expect(finalEscrow.status).toBe('EXPIRED')
+    const allRecordsForThisEscrow = await prisma.semanticTransitionRecord.findMany({ where: { interactionId: escrow.id } })
+    expect(allRecordsForThisEscrow).toHaveLength(1) // never two, never zero
   })
 
   it('P9/§45 — existing historical Escrow/EscrowEvent rows remain fully valid; the new, empty table requires nothing from them', async () => {
