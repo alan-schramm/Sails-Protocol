@@ -1,0 +1,32 @@
+{
+  "evaluatorIdentity": { "name": "sails-timelock-evaluator", "version": "1.0" },
+  "title": "Sails Timelock Evaluator 1.0",
+  "description": "Evaluates whether an explicitly-supplied evaluation time is at or after an explicitly-supplied deadline. Consumes no implicit clock and no external state of any kind — see docs/CORE_ARCHITECTURE.md section 24 (Time) and section 14 (Semantic Binding). This is the semantic definition; a TypeScript reference implementation exists at packages/sails-core/src/evaluators/timelock-evaluator.ts, but that implementation is not itself the definition of this identity — see docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 19 (Language Neutrality).",
+  "semanticProfileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+  "inputs": [
+    {
+      "name": "deadline",
+      "type": "EvaluationTime",
+      "description": "The already-recorded deadline this evaluation checks against — an integer number of milliseconds since the Unix epoch, per the semantic profile's integer/time representation rule. Supplied by the caller; this evaluator never reads or infers it from anywhere else."
+    },
+    {
+      "name": "evaluationTime",
+      "type": "EvaluationTime",
+      "description": "The explicit evaluation time supplied by the calling Runtime for this specific evaluation — never read from an implicit wall clock by the evaluator itself. Two evaluations of the same deadline with different explicit evaluationTime values may legitimately produce different results; this is expected, not nondeterminism, since the input itself differs."
+    }
+  ],
+  "output": {
+    "type": "ConditionResult",
+    "reachableValues": ["SATISFIED", "NOT_YET_SATISFIED"],
+    "unreachableValues": ["UNSATISFIABLE", "UNKNOWN"],
+    "rationale": "A bare deadline comparison over monotonically-increasing time can always eventually reach SATISFIED and depends on no uncertain input, so UNSATISFIABLE and UNKNOWN are never produced by this specific evaluator. This is a genuine property of this evaluator's own minimal semantics, not an omission — inventing a way to reach all four states here would misrepresent what this evaluator actually does. A richer future evaluator (e.g. one also considering a cancellation Assertion) could legitimately reach all four states under its own, separate identity."
+  },
+  "rule": "output = SATISFIED if evaluationTime >= deadline, otherwise NOT_YET_SATISFIED. Comparison is standard integer >=, per the semantic profile's integerRepresentation rule — never a strict > , which would incorrectly classify the exact deadline instant itself as not-yet-satisfied.",
+  "determinism": "Pure function of (deadline, evaluationTime) only. No side effects, no hidden inputs. The same input pair always produces the same output.",
+  "normativeReferences": [
+    "docs/SEMANTIC_KERNEL.md section 5 (K1 — Valid Transition)",
+    "docs/CORE_ARCHITECTURE.md section 12-14 (Condition Semantics, Semantic Binding, UNKNOWN/System-Error Boundary)",
+    "docs/CORE_ARCHITECTURE.md section 24 (Time)"
+  ],
+  "conformanceVectors": "conformance/vectors/sails-timelock-evaluator-1.0.vectors.json"
+}

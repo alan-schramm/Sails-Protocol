@@ -722,15 +722,31 @@ peças de ferramental que ela exige ainda existe no repositório:
   nunca compiladas de verdade) + verificação direta de
   `packages/sails-core/src` real, todas passando. Ver
   `packages/sails-core/README.md` para os comandos.
-- **Publicação da Canonical Evaluator Identity** (§5-6) — o mecanismo
-  pelo qual uma identidade de evaluator se torna publicamente resolvível
-  (evitando virar um ponto de interpretação privada, o mesmo risco já
-  documentado no item 35 sobre o Arbiter) ainda não foi desenhado nem
-  implementado.
-- **Ferramental de Ruleset Admission** (§23) — a separação entre
-  reconhecimento de governança e verificação estrutural pura do Core
-  está definida arquiteturalmente, mas nenhuma das duas camadas tem
-  implementação real ainda.
+- ~~**Publicação da Canonical Evaluator Identity** (§5-6)~~ — **PARCIALMENTE
+  FECHADO 2026-08-29** (Core Implementation Program, Fase 2 — M2). O
+  mecanismo repositório-local agora existe e está demonstrado para um
+  evaluator real: `conformance/evaluators/*.json` (definição semântica
+  pública, machine-addressable, versionada, nunca dependente de source
+  TypeScript) + `conformance/profiles/*.json` (Canonical Semantic
+  Profile mínimo) + `conformance/vectors/*.vectors.json` (vetores JSON
+  puro, sem valores TypeScript-only) + `scripts/run-conformance-harness.ts`
+  (fora do boundary do Pure Core — faz I/O de arquivo). Testado
+  adversarialmente: um evaluator com a identidade correta mas
+  comportamento incorreto (`>` em vez de `>=`, e um "identity spoofing"
+  puro) é corretamente reconhecido-mas-não-conformante. **O que
+  permanece genuinamente aberto**: isto é publicação *repositório-local*
+  (git), não um processo de publicação/governança externo — evitando
+  virar um ponto de interpretação privada exige que esse processo
+  externo exista, o mesmo risco já documentado no item 35 sobre o
+  Arbiter. Ver `conformance/README.md`.
+- **Ferramental de Ruleset Admission** (§23) — ainda **ABERTO**. M2
+  deliberadamente não implementou a camada de reconhecimento de
+  governança (decidir se uma combinação Ruleset/Evaluator/Profile é
+  *confiável*) — apenas a verificação estrutural pura do Core
+  (`checkRulesetBinding`, já existente desde M1) e o mecanismo de
+  *resolução* (`recognized`, via `checkEvaluatorConformance`) existem.
+  "Resolvível" e "confiável para uso" continuam sendo fatos distintos,
+  intencionalmente não colapsados.
 
 **Classificação:** débito de arquitetura reconhecido e disclosed, não
 escondido — nenhum destes bloqueia o início da migração em M0 (o

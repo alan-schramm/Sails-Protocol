@@ -1,0 +1,50 @@
+[
+  {
+    "vectorId": "timelock-exactly-at-deadline",
+    "evaluatorIdentity": { "name": "sails-timelock-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-timelock-evaluator-1.0.json",
+    "input": { "deadline": 2000, "evaluationTime": 2000 },
+    "expectedOutput": "SATISFIED"
+  },
+  {
+    "vectorId": "timelock-one-millisecond-after-deadline",
+    "evaluatorIdentity": { "name": "sails-timelock-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-timelock-evaluator-1.0.json",
+    "input": { "deadline": 2000, "evaluationTime": 2001 },
+    "expectedOutput": "SATISFIED"
+  },
+  {
+    "vectorId": "timelock-one-millisecond-before-deadline",
+    "evaluatorIdentity": { "name": "sails-timelock-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-timelock-evaluator-1.0.json",
+    "input": { "deadline": 2000, "evaluationTime": 1999 },
+    "expectedOutput": "NOT_YET_SATISFIED"
+  },
+  {
+    "vectorId": "timelock-epoch-zero-boundary",
+    "evaluatorIdentity": { "name": "sails-timelock-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-timelock-evaluator-1.0.json",
+    "input": { "deadline": 0, "evaluationTime": 0 },
+    "expectedOutput": "SATISFIED"
+  },
+  {
+    "vectorId": "timelock-realistic-far-future-deadline",
+    "evaluatorIdentity": { "name": "sails-timelock-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-timelock-evaluator-1.0.json",
+    "input": { "deadline": 4102444800000, "evaluationTime": 1730000000000 },
+    "expectedOutput": "NOT_YET_SATISFIED"
+  },
+  {
+    "vectorId": "timelock-large-elapsed-margin",
+    "evaluatorIdentity": { "name": "sails-timelock-evaluator", "version": "1.0" },
+    "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+    "semanticDefinitionReference": "conformance/evaluators/sails-timelock-evaluator-1.0.json",
+    "input": { "deadline": 1000000, "evaluationTime": 999999999 },
+    "expectedOutput": "SATISFIED"
+  }
+]

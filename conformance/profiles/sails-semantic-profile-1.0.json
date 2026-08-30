@@ -1,0 +1,30 @@
+{
+  "profileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+  "title": "Sails Semantic Profile 1.0",
+  "description": "The minimal canonical semantic profile required by the evaluators defined under conformance/evaluators/ as of this version. This document is deliberately narrow: it exists to eliminate the specific cross-language ambiguity classes the CURRENT evaluators actually depend on, never to pre-specify every future encoding concern. See docs/CORE_ARCHITECTURE.md section 18 (Canonical Semantic Profile) for the profile's architectural role, and docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 12 for why it must stay minimal.",
+  "rules": {
+    "integerRepresentation": {
+      "description": "Every semantic value of type EvaluationTime (and any other integer semantic value a future evaluator declares under this profile) is a signed integer with no fractional component. Where used as a time value, it represents whole milliseconds since the Unix epoch (1970-01-01T00:00:00Z).",
+      "precision": "Implementations MUST use an integer representation with at least 53 bits of precision (e.g. Rust i64, Go int64, a JavaScript number within Number.MAX_SAFE_INTEGER). Realistic protocol timestamps never approach this bound.",
+      "comparison": "Standard integer ordering: <, <=, >, >=, ==. Floating-point representation or comparison is never used for any value governed by this rule."
+    },
+    "conditionResultRepresentation": {
+      "description": "ConditionResult is represented as exactly one of four case-sensitive ASCII strings — no fifth value, no boolean or numeric encoding is canonical.",
+      "values": ["SATISFIED", "NOT_YET_SATISFIED", "UNSATISFIABLE", "UNKNOWN"]
+    },
+    "conformanceVectorRepresentation": {
+      "description": "Conformance vectors are UTF-8 JSON documents, one JSON array per evaluator version, each element matching the vector shape described in conformance/README.md.",
+      "semanticFields": ["input", "expectedOutput"],
+      "documentationOnlyFields": ["vectorId", "evaluatorIdentity", "profileIdentity", "semanticDefinitionReference"],
+      "note": "documentationOnlyFields identify and describe a vector for human readers and harness bookkeeping; they are never themselves compared as part of conformance evaluation — only input and expectedOutput are semantically binding."
+    }
+  },
+  "notSpecifiedByThisVersion": [
+    "string encoding/normalization",
+    "collection (array/map) ordering",
+    "canonical hash/commitment encoding",
+    "cryptographic representation",
+    "Outcome or Assertion content serialization"
+  ],
+  "notSpecifiedRationale": "No evaluator defined under this profile version consumes or produces any value governed by the concerns above. Introducing rules for them now would be speculative, contrary to the minimality this profile is required to preserve. A future profile version adds a rule only when a specific, real evaluator genuinely needs it."
+}

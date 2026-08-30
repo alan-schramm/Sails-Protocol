@@ -32,6 +32,7 @@
     "lint": "eslint . --ext .ts --fix",
     "format": "prettier --write .",
     "check:core-boundary": "ts-node scripts/check-core-boundary.ts packages/sails-core/src",
+    "check:conformance": "ts-node scripts/run-conformance-harness.ts",
     "db:local:start": "node scripts/local-postgres.js start",
     "db:local:stop": "node scripts/local-postgres.js stop",
     "redis:local:start": "node scripts/local-redis.js start",

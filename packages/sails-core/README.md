@@ -5,11 +5,12 @@ Pure Semantic Core for Sails Protocol. See `docs/SEMANTIC_KERNEL.md`,
 before touching this package — architecture is frozen; this package must
 conform to it, never the reverse.
 
-**Status**: M0 (mechanical boundary) + M1 (semantic model foundation)
-only. No evaluation logic, no evaluator conformance harness, no shadow
-evaluation, no authority transfer. The current, legacy implementation
-remains 100% authoritative — nothing in this package is invoked by any
-Runtime path yet.
+**Status**: M0 (mechanical boundary) + M1 (semantic model foundation) +
+M2 (Canonical Evaluator Identity, Semantic Profile & conformance
+harness) only. No shadow evaluation, no authority transfer, no
+Ruleset-admission/governance tooling. The current, legacy
+implementation remains 100% authoritative — nothing in this package is
+invoked by any Runtime path yet.
 
 ## Commands (no runtime infrastructure required)
 
@@ -17,6 +18,7 @@ Runtime path yet.
 npm run typecheck -w @sails/core   # tsc --noEmit, no Postgres/Redis/network needed
 npm run build -w @sails/core       # tsc, emits dist/ (not published, not consumed anywhere yet)
 npm run check:boundary -w @sails/core  # scripts/check-core-boundary.ts against src/
+npm run check:conformance          # scripts/run-conformance-harness.ts against conformance/
 ```
 
 ## Boundary
@@ -59,6 +61,9 @@ code.
 | SemanticHistoryPosition | implemented, storage-neutral | `semantic-history-position.ts` |
 | Explicit time input | implemented, language-neutral | `time.ts` |
 | CandidateTransition / TransitionRecord | implemented, conditional shape | `transition.ts` |
+| LeafEvaluator contract | implemented (M2) | `leaf-evaluator.ts` |
+| Reference timelock evaluator | implemented (M2), see `conformance/evaluators/sails-timelock-evaluator-1.0.json` for the semantic definition it implements | `evaluators/timelock-evaluator.ts` |
+| Conformance vector comparison (pure) | implemented (M2) | `conformance.ts` |
 
 ## Deliberately deferred (not missing — scoped out, with reason)
 
@@ -76,9 +81,11 @@ code.
 - **Attribution *verification* logic** — M5 scope; only the minimal
   `DiscretionaryAttributionMaterial` envelope shape exists now
   (`transition.ts`).
-- **Ruleset admission / Canonical Evaluator conformance harness** —
-  M2 scope (`CORE_IMPLEMENTATION_ARCHITECTURE.md` §23), tracked as
-  Technical Debt item 38.
+- **Ruleset admission / governance tooling** — deciding whether a
+  Ruleset/Evaluator/Profile combination is *trusted* for use (as
+  opposed to merely *resolvable*, which M2 now provides) remains open,
+  tracked as Technical Debt item 38. `see ../../conformance/README.md`
+  for the recognized-vs-conformant mechanism M2 actually built.
 
 ## What this package must never become
 
