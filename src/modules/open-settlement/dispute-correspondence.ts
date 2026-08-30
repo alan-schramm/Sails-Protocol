@@ -154,6 +154,30 @@ export async function recordLiveCorrespondenceIfApplicable(
       return
     }
 
+    // Sails Core Implementation Program M9 (Recovery) — idempotency
+    // guard. This function is now called from TWO places: the original
+    // happy path (escrow-pending-tx.ts's submitTransactionSignature(),
+    // exactly once per settlement) AND
+    // escrow-settlement-reconciliation.service.ts's PASS 2, which may
+    // run this same escrow through this function on EVERY reconciliation
+    // sweep (its own candidate query has no memory of what it already
+    // repaired). Without this check, a periodic sweep would append a
+    // fresh, duplicate `correspondence_evaluated` observation forever —
+    // never a duplicated ECONOMIC effect (this is observational
+    // bookkeeping, not a fund movement), but still a real violation of
+    // this module's own claimed "idempotent effects" discipline and a
+    // real, unbounded growth of the durable event log for no new
+    // information. Scoped to (tradeId, escrowId, appealRound) — a later,
+    // genuinely distinct appeal round is still allowed to record its own
+    // correspondence.
+    const existing = await eventBus.getEvents(tradeId)
+    const alreadyRecorded = existing.some((e) =>
+      e.eventName === 'dispute.settlement.correspondence_evaluated' &&
+      (e.payload as { settlementId: string; appealRound: number }).settlementId === escrowId &&
+      (e.payload as { settlementId: string; appealRound: number }).appealRound === dispute.appealRound
+    )
+    if (alreadyRecorded) return
+
     const record = fromDisputeRulingRow(row)
     if (!record.outcome) return
 

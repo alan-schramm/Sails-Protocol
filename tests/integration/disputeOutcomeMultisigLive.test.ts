@@ -561,4 +561,46 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
       await expect(recordLiveCorrespondenceIfApplicable('some-escrow', 'some-trade', 'MULTISIG', undefined)).resolves.toBeUndefined()
     })
   })
+
+  // Sails Core Implementation Program M9 (Recovery, Execution Uncertainty
+  // & Semantic Reconciliation) — recordLiveCorrespondenceIfApplicable()
+  // is now called from TWO places: the original happy path
+  // (escrow-pending-tx.ts's submitTransactionSignature(), exactly once)
+  // AND escrow-settlement-reconciliation.service.ts's PASS 2, which may
+  // run the SAME already-settled escrow through this function on every
+  // periodic reconciliation sweep. Without an idempotency guard, a
+  // period sweep would append a fresh, duplicate
+  // `correspondence_evaluated` observation forever. This proves the
+  // guard added in this mission (keyed on tradeId+escrowId+appealRound
+  // against the durable event log) actually holds against the REAL
+  // event store, not just a mock.
+  describe('M9 — recordLiveCorrespondenceIfApplicable() idempotency (real Postgres)', () => {
+    it('calling it twice for the same (escrow, appealRound) with the same transaction records exactly ONE durable event, not two', async () => {
+      requirePostgres('correspondence idempotency')
+      const { escrowId, disputeId, buyerId, tradeId } = await makeDisputedMultisigEscrow('livecorr-idempotent')
+      const realBuyerAddress = testnetAddress('m9-idempotent-buyer')
+      await payoutAddressService.setPayoutAddress(buyerId, 'BTC', realBuyerAddress)
+
+      const { signature, issuedAt } = signRuling(escrowId, disputeId, 'RELEASE', null)
+      await getDisputeService().resolveDispute(disputeId, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+
+      const fakeTx = new bitcoin.Transaction()
+      fakeTx.addInput(Buffer.from(createHash('sha256').update('m9-idempotent-tx').digest('hex'), 'hex').reverse(), 0)
+      fakeTx.addOutput(bitcoin.address.toOutputScript(realBuyerAddress, bitcoin.networks.testnet), 99_500n)
+      const rawTxHex = fakeTx.toHex()
+
+      // First call: the original happy-path recording.
+      await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex)
+      // Second call: simulates a later reconciliation sweep re-examining
+      // the SAME already-settled escrow — must be a safe no-op, never a
+      // second observation.
+      await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, 'MULTISIG', rawTxHex)
+
+      const events = await prisma.durableEventRecord.findMany({
+        where: { eventName: 'dispute.settlement.correspondence_evaluated', correlationId: tradeId },
+      })
+      expect(events).toHaveLength(1)
+      expect((events[0].payload as any).results[buyerId]).toBe('MATCH')
+    })
+  })
 })

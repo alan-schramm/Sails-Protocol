@@ -53,6 +53,19 @@ jest.mock('../src/common/events/event-bus', () => ({
   eventBus: { emit: jest.fn().mockResolvedValue(undefined) },
 }))
 
+// Sails Core Implementation Program M9 (Recovery, Execution Uncertainty &
+// Semantic Reconciliation) — mocked the same way multisig.provider's
+// reconcilePendingSettlement() already is above: this suite proves the
+// ORCHESTRATION (is correspondence recovery attempted, when, with what
+// arguments), not the real crypto/DB logic inside
+// recordLiveCorrespondenceIfApplicable() itself, which is separately,
+// thoroughly proven against real Postgres in
+// tests/integration/disputeOutcomeMultisigLive.test.ts.
+const mockRecordLiveCorrespondenceIfApplicable = jest.fn().mockResolvedValue(undefined)
+jest.mock('../src/modules/open-settlement/dispute-correspondence', () => ({
+  recordLiveCorrespondenceIfApplicable: (...args: unknown[]) => mockRecordLiveCorrespondenceIfApplicable(...args),
+}))
+
 const mockPendingTxFindUnique = jest.fn()
 const mockPendingTxDelete = jest.fn()
 const mockEscrowFindUnique = jest.fn()
@@ -190,7 +203,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   it('Estado B (ALREADY_BROADCAST) converges local state — persists txReleaseId, records the fee obligation, emits the settlement event, deletes the pending row — without a new broadcast (that already happened before this reconciliation ever ran)', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
     mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
-    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'real-txid-1', detail: 'already known to the network' })
+    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'real-txid-1', detail: 'already known to the network', rawTxHex: 'raw-hex-1' })
 
     const report = await reconcilePendingSettlements()
 
@@ -198,6 +211,9 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-txid-1', releasedAt: expect.any(Date) } })
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
     expect(mockPendingTxDelete).toHaveBeenCalledWith({ where: { id: 'pending-1' } })
+    // M9 — PASS 1 threads its own exact-reconstruction rawTxHex straight
+    // through to correspondence recovery, never re-deriving it a second time.
+    expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', 'raw-hex-1')
   })
 
   it('Estado A (NEWLY_BROADCAST) converges the same way — the broadcast itself already happened inside reconcilePendingSettlement(), this orchestrator never calls a provider a second time', async () => {
@@ -278,6 +294,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
     mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'already-set' })])
     mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-1', toStatus: 'COMPLETED' }) // the peek query itself
+    mockPendingTxFindUnique.mockResolvedValue(null) // no surviving pending row — nothing to reconstruct from
 
     const report = await reconcilePendingSettlements()
 
@@ -285,6 +302,90 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     expect(report.requiresManualReview).toEqual([])
     expect(mockRecordObligation).not.toHaveBeenCalled()
     expect(mockPendingTxDelete).not.toHaveBeenCalled()
+    // M9 — even though completion effects are already done (nothing
+    // missing on that side), correspondence recovery is STILL attempted:
+    // the two concerns are gated independently. rawTxHex is undefined
+    // here because no pending row survived to reconstruct from — still
+    // a correct, honest attempt, never a guess.
+    expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', undefined)
+  })
+
+  // Sails Core Implementation Program M9 (Recovery, Execution Uncertainty
+  // & Semantic Reconciliation) — closes the crash window PASS 2 did NOT
+  // cover before this mission: the completion event (settlement.escrow.*)
+  // already fired successfully, but the process crashed before
+  // recordLiveCorrespondenceIfApplicable() ever ran (or that call itself
+  // crashed). Before this fix, PASS 2's `if (alreadyEmitted) return`
+  // early-returned before reaching any correspondence logic, so this
+  // exact scenario was silently never repaired. These tests prove the
+  // fix: the two concerns (completion-effects catch-up vs. correspondence
+  // catch-up) are now checked and repaired independently.
+  describe('reconcilePendingSettlements() — Sails M9, correspondence catch-up decoupled from the completion-effects gate', () => {
+    it('completion effects ALREADY ran (alreadyEmitted=true) AND the pending row + all signatures still survive — correspondence recovery reconstructs the exact transaction and is attempted with the real rawTxHex, while completion effects are correctly NOT re-run', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+      mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-m9', status: 'COMPLETED' })])
+      mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-1', toStatus: 'COMPLETED' }) // completion effects already ran
+      mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture()) // pending row survives with all signatures
+      mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'confirmed-txid-m9', detail: 'already known', rawTxHex: 'recovered-raw-hex' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(report.completionEffectsRecovered).toEqual([]) // correctly NOT re-run — nothing was missing on that side
+      expect(mockRecordObligation).not.toHaveBeenCalled()
+      expect(mockPendingTxDelete).not.toHaveBeenCalled() // this pending row belongs to the completion-effects path, untouched by correspondence-only recovery
+      expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', 'recovered-raw-hex')
+    })
+
+    it('completion effects already ran AND a required signature is missing from the surviving pending row — reconstruction is skipped (never attempted with a partial/guessed signature set), correspondence is still attempted with rawTxHex undefined, never fatal', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+      mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-partial', status: 'COMPLETED' })])
+      mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-1', toStatus: 'COMPLETED' })
+      mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture({ signatures: [{ participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' }] }))
+
+      const report = await reconcilePendingSettlements()
+
+      expect(report.completionEffectsRecovered).toEqual([])
+      expect(mockReconcilePendingSettlement).not.toHaveBeenCalled() // never reconstructs from an incomplete signature set
+      expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', undefined)
+    })
+
+    it('reconstruction itself throws (e.g. transient chain-lookup failure inside reconcilePendingSettlement) — non-fatal, correspondence is still attempted with rawTxHex undefined, and the rest of the pass is unaffected', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+      mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-throws', status: 'COMPLETED' })])
+      mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-1', toStatus: 'COMPLETED' })
+      mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
+      // *Once* — this mock has no per-test isolation for its
+      // implementation (jest.config.js's clearMocks only clears call
+      // history, not implementations/mockResolvedValue), so a persistent
+      // .mockRejectedValue() here would silently leak this rejection
+      // into every later test in this file that also reaches the
+      // correspondence-reconstruction call.
+      mockReconcilePendingSettlement.mockRejectedValueOnce(new Error('transient explorer failure'))
+
+      const report = await reconcilePendingSettlements()
+
+      expect(report.failed).toEqual([]) // this is inside reconcileMissingCompletionEffects's own try/catch scope at the top level of the reconciliation loop — never crashes the whole pass
+      expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', undefined)
+    })
+
+    it('a non-MULTISIG escrow never attempts correspondence recovery in PASS 2 (no authoritative reconstruction primitive exists for that rail)', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+      mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-mock-2', type: 'MOCK', txReleaseId: 'mock-txid-2', status: 'COMPLETED' })])
+      mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-mock-2', toStatus: 'COMPLETED' })
+
+      await reconcilePendingSettlements()
+
+      expect(mockRecordLiveCorrespondenceIfApplicable).not.toHaveBeenCalled()
+    })
+
+    it('a MULTISIG escrow with no txReleaseId is not a PASS-2 candidate at all — correspondence recovery is never reached for it here (PASS 1\'s own job)', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+      mockFindTerminalWithTxReleaseId.mockResolvedValue([]) // findTerminalWithTxReleaseId() itself only returns rows with txReleaseId set — nothing to feed PASS 2 here
+
+      await reconcilePendingSettlements()
+
+      expect(mockRecordLiveCorrespondenceIfApplicable).not.toHaveBeenCalled()
+    })
   })
 
   it('C5 recovery for a MULTISIG (signature-collection-rail) escrow with a surviving pending row — records the obligation, emits the transition, cleans up the pending row', async () => {

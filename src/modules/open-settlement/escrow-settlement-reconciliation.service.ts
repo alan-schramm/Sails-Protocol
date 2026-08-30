@@ -6,6 +6,7 @@ import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
 import { multisigProvider, identifyFeeOutput, networkFor, type MultisigEscrowInput } from './multisig.provider'
+import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('escrow-settlement-reconciliation')
@@ -119,7 +120,17 @@ async function applyDownstreamCompletionEffects(
   triggeredBy: string,
   txId: string,
   escrowRow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>,
-  pending: PendingRow
+  pending: PendingRow,
+  // Sails Core Implementation Program M9 (Recovery) — the exact,
+  // deterministically-reconstructed transaction bytes, when the caller
+  // already has them (PASS 1 always does, from its own
+  // reconcilePendingSettlement() call; PASS 2 only if the pending row +
+  // signatures still survive — see reconcileMissingCompletionEffects()'s
+  // own comment). Optional: recordLiveCorrespondenceIfApplicable() below
+  // already no-ops safely when this is undefined (M8.6's own established
+  // contract), so a case where reconstruction genuinely is not possible
+  // here is a safe, honest no-op, never a guess.
+  rawTxHex: string | undefined
 ): Promise<{ obligationSkipped: boolean; emitted: boolean }> {
   const feeOutcome = targetStatus === 'COMPLETED' ? 'RELEASE' as const : targetStatus === 'REFUNDED' ? 'FULL_REFUND' as const : 'SPLIT' as const
 
@@ -168,6 +179,25 @@ async function applyDownstreamCompletionEffects(
     escrowId, tradeId, fromStatus, targetStatus, triggeredBy, eventName, { txId },
     'Recovered by settlement reconciliation after a process crash — see escrow-settlement-reconciliation.service.ts'
   )
+
+  // Sails Core Implementation Program M9 (Recovery) — closes crash window
+  // C13/C14 (external effect + local reference recovered, but M6
+  // correspondence for an M8-R Core-authoritative dispute was never
+  // computed/recorded because the ORIGINAL attempt crashed first).
+  // Narrowly discriminated INSIDE recordLiveCorrespondenceIfApplicable()
+  // itself (MULTISIG + a RESOLVED Dispute with a durable Outcome must
+  // actually exist) — a safe no-op for every cooperative settlement and
+  // every other rail, exactly like the happy path
+  // (escrow-pending-tx.ts's submitTransactionSignature()).
+  // recordLiveCorrespondenceIfApplicable() ALSO owns its own idempotency
+  // guard (keyed on tradeId+escrowId+appealRound against the durable
+  // event log) — this call site does not need to know or check whether
+  // correspondence was already recorded; a repeat call safely no-ops.
+  // Placed BEFORE the pending-row cleanup below so a crash between this
+  // call and that delete still leaves the row available for a LATER
+  // reconciliation pass to retry from, rather than losing the only
+  // remaining source of the signed PSBT.
+  await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, escrowRow.type, rawTxHex)
 
   if (pending) {
     await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
@@ -283,7 +313,7 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   // concurrent writer already claimed it) — emitEscrowTransition()'s own
   // (escrowId, toStatus) idempotency claim (Fase 9.7) is what actually
   // prevents a double-fire, not this flag; this call is always safe.
-  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, targetStatus, pending.triggeredBy, result.txId, escrow, pending)
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, targetStatus, pending.triggeredBy, result.txId, escrow, pending, result.rawTxHex)
   report.recovered.push({ escrowId: escrow.id, txId: result.txId, outcome: result.outcome })
 }
 
@@ -299,7 +329,64 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
 // already uses for the funding-reorg sweep.
 async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
   const alreadyEmitted = await prisma.escrowEvent.findFirst({ where: { escrowId: escrow.id, toStatus: escrow.status as any } })
-  if (alreadyEmitted) return // nothing missing — the overwhelmingly common case
+
+  // Sails Core Implementation Program M9 (Recovery) — closes crash window
+  // C13/C14 for the case PASS 1 does NOT cover: the completion event
+  // ALREADY fired (Fase 9.7's own bookkeeping is NOT missing) but M6
+  // correspondence for an M8-R Core-authoritative dispute was never
+  // computed/recorded, because the crash landed strictly between this
+  // module's own emitEscrowTransition() call and the correspondence call
+  // that now follows it. This is checked and repaired INDEPENDENTLY of
+  // the `alreadyEmitted` gate below — an early return on that gate must
+  // never also skip this, or exactly this crash window would remain
+  // silently unclosed. Cheap for the overwhelmingly common case (nothing
+  // missing): one MULTISIG-and-RESOLVED-dispute check inside
+  // recordLiveCorrespondenceIfApplicable() itself is a fast no-op for
+  // every other escrow.
+  if (escrow.type === 'MULTISIG' && escrow.txReleaseId) {
+    const pendingForCorrespondence = await prisma.escrowPendingTransaction.findUnique({
+      where: { escrowId: escrow.id },
+      select: { unsignedPsbtBase64: true, requiredSigners: true, signatures: true },
+    })
+    let rawTxHex: string | undefined
+    if (pendingForCorrespondence) {
+      const signedList = pendingForCorrespondence.requiredSigners.map(
+        (id: string) => pendingForCorrespondence.signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)?.signedPsbtBase64
+      )
+      if (signedList.every((s: string | undefined): s is string => s !== undefined)) {
+        try {
+          const trade = await tradeRepository.findById(escrow.tradeId)
+          if (trade) {
+            const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrow.id)
+            const reconciled = await multisigProvider.reconcilePendingSettlement(
+              {
+                tradeId: trade.id, lockedAmount: escrow.lockedAmount.toString(),
+                buyerId: trade.buyerId, sellerId: trade.sellerId,
+                buyerPubkey, sellerPubkey, arbiterPubkey,
+                txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
+                status: escrow.status,
+              },
+              pendingForCorrespondence.unsignedPsbtBase64, signedList
+            )
+            if (reconciled.outcome !== 'ANOMALY') rawTxHex = reconciled.rawTxHex
+          }
+        } catch (err) {
+          log.error({ msg: 'M9: exact reconstruction for correspondence catch-up failed — proceeding without it', escrowId: escrow.id, err: err instanceof Error ? err.message : String(err) })
+        }
+      }
+    }
+    // recordLiveCorrespondenceIfApplicable() itself re-derives everything
+    // it needs from the database (the RESOLVED dispute, the durable
+    // Outcome) — it is not told whether this is a "recovery" call versus
+    // the original happy-path call, because it does not need to be: the
+    // same deterministic function, given the same historical Outcome and
+    // the same real transaction bytes, always recomputes the identical
+    // result and safely no-ops (MULTISIG+RESOLVED-dispute check) for
+    // every escrow this mission does not migrate.
+    await recordLiveCorrespondenceIfApplicable(escrow.id, escrow.tradeId, escrow.type, rawTxHex)
+  }
+
+  if (alreadyEmitted) return // nothing missing for the completion-effects concern — the overwhelmingly common case
 
   const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) {
@@ -325,8 +412,11 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
   const triggeredBy = pendingRow?.triggeredBy ?? trade.sellerId
 
   log.info({ msg: 'Reconciliation: recovering missing downstream completion effects (C5)', escrowId: escrow.id, targetStatus })
+  // rawTxHex: undefined here — this call's own job is bookkeeping
+  // catch-up, not correspondence (already independently handled above,
+  // regardless of which branch of this function reaches it).
   const { obligationSkipped } = await applyDownstreamCompletionEffects(
-    escrow.id, escrow.tradeId, targetStatus, triggeredBy, escrow.txReleaseId!, escrow, pendingRow ?? null
+    escrow.id, escrow.tradeId, targetStatus, triggeredBy, escrow.txReleaseId!, escrow, pendingRow ?? null, undefined
   )
   report.completionEffectsRecovered.push({ escrowId: escrow.id, obligationSkipped })
 }

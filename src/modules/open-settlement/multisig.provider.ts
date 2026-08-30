@@ -1330,17 +1330,23 @@ export class MultisigProvider implements SettlementProvider {
     unsignedPsbtBase64: string,
     signedPsbtBase64List: string[]
   ): Promise<
-    | { outcome: 'ALREADY_BROADCAST'; txId: string; detail: string }
-    | { outcome: 'NEWLY_BROADCAST'; txId: string; detail: string }
+    | { outcome: 'ALREADY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
+    | { outcome: 'NEWLY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'ANOMALY'; detail: string }
   > {
     const tx = this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, signedPsbtBase64List)
     const expectedTxId = tx.getId()
+    // Sails Core Implementation Program M9 (Recovery) — additive, same
+    // precedent as finalizeSpend()'s own M8.6 change: the recovery path
+    // needs the real, exactly-reconstructed transaction bytes to
+    // (re)evaluate M6 correspondence, exactly like the happy path
+    // already does. Computed once here since `tx` already exists.
+    const rawTxHex = tx.toHex()
 
     const existence = await fetchTransactionExistence(expectedTxId)
     if (existence.exists) {
       return {
-        outcome: 'ALREADY_BROADCAST', txId: expectedTxId,
+        outcome: 'ALREADY_BROADCAST', txId: expectedTxId, rawTxHex,
         detail: `Transaction ${expectedTxId} is already known to the network (confirmed=${existence.confirmed}) — converging local state to this observed truth, no new broadcast.`,
       }
     }
@@ -1362,7 +1368,7 @@ export class MultisigProvider implements SettlementProvider {
     if (stillUnspent) {
       const txId = await this.broadcast(tx.toHex())
       return {
-        outcome: 'NEWLY_BROADCAST', txId,
+        outcome: 'NEWLY_BROADCAST', txId, rawTxHex,
         detail: `Funding outpoint ${escrow.txLockId}:${escrow.txLockVout ?? '(no vout)'} was still unspent — broadcast the deterministically-reconstructed transaction for the first time.`,
       }
     }
