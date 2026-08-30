@@ -1327,6 +1327,110 @@ model EscrowEvent {
   @@map("escrow_events")
 }
 
+// Sails Core Implementation Program M3.5 — durable semantic Transition
+// Record precondition for Core authority
+// (docs/CORE_IMPLEMENTATION_ARCHITECTURE.md §12: "No semantic decision
+// becomes Core-authoritative before a durable Transition Record exists
+// for that decision class."). See docs/CORE_TRANSITION_RECORD.md for
+// the full design rationale — why this is a separate table from
+// EscrowEvent (a Record explains WHY a semantic decision was valid;
+// EscrowEvent reports WHAT the Runtime observed happened — deliberately
+// not merged, docs/CORE_IMPLEMENTATION_ARCHITECTURE.md §9), and why the
+// table is interaction-kind-neutral rather than Escrow-specific.
+//
+// NOT wired into any live authority path as of this migration — Core
+// remains non-authoritative (M3 shadow-only); this table exists purely
+// to satisfy the precondition ahead of a future M4 retry. Rows are
+// written only by narrowly-scoped, test-proven persistence code
+// (semantic-transition-record.ts), never by any production call site
+// yet.
+model SemanticTransitionRecord {
+  id String @id @default(uuid())
+
+  // Core InteractionId (opaque, protocol-general) — deliberately no
+  // Prisma relation to Escrow specifically: every value happens to be
+  // an escrow id today, but this table must not need a schema change
+  // when a second Interaction kind eventually migrates.
+  interactionId String
+
+  // CandidateTransition — for this first slice a plain from/to state
+  // pair fully describes the payload; a generic JSON payload column is
+  // deferred until a transition genuinely needs one.
+  transitionType String
+  fromState      String
+  toState        String
+
+  // SemanticHistoryPosition | LegacyUnverified (packages/sails-core/src/semantic-history-position.ts) —
+  // both arms of the frozen union are representable; only
+  // LEGACY_UNVERIFIED is exercised by this slice (§30 Migration
+  // Genesis), since Escrow has never had a prior Core Transition Record.
+  priorPositionKind      SemanticPriorPositionKind
+  priorPositionReference String? // opaque Runtime reference, populated only when priorPositionKind = RESOLVED
+
+  // RulesetRef (packages/sails-core/src/ruleset.ts) — the EXPECTED
+  // evaluator/profile identity the Ruleset itself declares.
+  rulesetName                     String
+  rulesetIdentity                 String
+  rulesetVersion                  String
+  rulesetCommitment               String
+  rulesetExpectedEvaluatorName    String
+  rulesetExpectedEvaluatorVersion String
+  rulesetExpectedProfileName      String
+  rulesetExpectedProfileVersion   String
+
+  // Actual evaluator/profile identity USED for this decision — never
+  // merely the Ruleset's expected identity (§11 Actual != Expected).
+  evaluatorIdentityName    String
+  evaluatorIdentityVersion String
+  profileIdentityName      String
+  profileIdentityVersion   String
+
+  // Committed semantic inputs — Core's own EvaluationTime
+  // representation (packages/sails-core/src/time.ts): integer
+  // milliseconds since the Unix epoch, never a Date, never seconds,
+  // per conformance/profiles/sails-semantic-profile-1.0.json's own
+  // integerRepresentation rule. BigInt (Postgres BIGINT) stores this
+  // exactly, with no float/JSON-number precision risk.
+  deadlineMs       BigInt
+  evaluationTimeMs BigInt
+
+  // ConditionResult (packages/sails-core/src/condition-result.ts) — the
+  // schema supports all four frozen values; this slice's own
+  // persistence code only ever writes SATISFIED (a Record is only ever
+  // created for a decision that actually authorized the transition).
+  conditionResult SemanticConditionResult
+
+  // attribution (K2) and outcome (K3) are both absent by design: this
+  // deterministic, non-fund-moving slice triggers neither — no columns
+  // added for either. A future discretionary/outcome-bearing slice adds
+  // its own conditional columns only when it actually needs them.
+
+  createdAt DateTime @default(now())
+
+  // Replay resistance: under the CURRENT frozen VALID_TRANSITIONS graph
+  // (escrow-lifecycle.ts), EXPIRED is reachable at most once per escrow,
+  // ever — so (interactionId, transitionType) is a correct, real
+  // idempotency key today. Deliberately narrower than a maximally
+  // general (interaction + transition + history position) key; flagged
+  // in docs/CORE_TRANSITION_RECORD.md as a technical-debt item if a
+  // future transition type is ever legitimately repeatable.
+  @@unique([interactionId, transitionType])
+  @@index([interactionId])
+  @@map("semantic_transition_records")
+}
+
+enum SemanticPriorPositionKind {
+  LEGACY_UNVERIFIED
+  RESOLVED
+}
+
+enum SemanticConditionResult {
+  SATISFIED
+  NOT_YET_SATISFIED
+  UNSATISFIABLE
+  UNKNOWN
+}
+
 // Intent persistence — PROTOCOL_SPECIFICATION.md §2 (Intent Engine), §2.6.
 // Was "not yet implemented" per that section; this is the first real
 // implementation, built for the MVP happy path (03-implementation_plan.md,

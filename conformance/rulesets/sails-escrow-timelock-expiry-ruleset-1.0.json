@@ -1,0 +1,25 @@
+{
+  "rulesetRef": {
+    "name": "Sails Escrow Timelock Expiry Ruleset",
+    "identity": "sails-escrow-timelock-expiry-ruleset",
+    "version": "1.0",
+    "commitment": "sails-escrow-timelock-expiry-ruleset@1.0:evaluationTime>=deadline",
+    "expectedEvaluatorIdentity": { "name": "sails-timelock-evaluator", "version": "1.0" },
+    "expectedProfileIdentity": { "name": "sails-semantic-profile", "version": "1.0" }
+  },
+  "title": "Sails Escrow Timelock Expiry Ruleset 1.0",
+  "description": "The Ruleset governing the FUNDS_LOCKED -> EXPIRED semantic decision for the signature-collection escrow class (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM) — Sails Core Implementation Program M3.5. Its content is exactly the timelock-evaluator's own rule: an escrow's timelock has elapsed, and is eligible for the EXPIRED transition, once the explicit evaluationTime is at or after the escrow's explicit deadline. No other condition is part of this Ruleset's content.",
+  "commitmentNote": "docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 23 (Ruleset Admission) explicitly defers a general content-addressed commitment/registry scheme to future governance/conformance tooling, not Pure Core runtime machinery. This Ruleset has no separate structured content object to hash yet (no Ruleset registry exists in this codebase — src/core/policy-engine.ts remains a documented stub). The commitment above is therefore a plain, stable, versioned identity string, not a cryptographic content digest — sufficient to detect a name/version collision with a differently-worded Ruleset, but NOT sufficient to detect silent substitution of this Ruleset's own text under the same string. This is a disclosed, deliberate minimality choice for M3.5, not an oversight; a real content-addressed commitment scheme is deferred to whichever future mission builds Ruleset Admission tooling for real.",
+  "scopeExclusions": [
+    "Does not govern FUNDS_LOCKED -> REFUNDED (the disjoint fund-moving branch) — a different transition, never authorized by this Ruleset.",
+    "Does not govern any escrow type outside the signature-collection class.",
+    "Carries no discretionary/attribution content (K2 does not apply — this is a deterministic environmental check, not human or agent judgment).",
+    "Carries no economic Outcome content (K3 does not apply — EXPIRED moves no funds)."
+  ],
+  "normativeReferences": [
+    "docs/SEMANTIC_KERNEL.md section 5 (K1 — Valid Transition)",
+    "docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 12-13 (Transition Record, Record Minimality)",
+    "docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 23 (Ruleset Admission)",
+    "conformance/evaluators/sails-timelock-evaluator-1.0.json"
+  ]
+}
