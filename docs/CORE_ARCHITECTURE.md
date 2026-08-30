@@ -836,6 +836,14 @@ implementation exists (§36).
 
 ## 47. Open Questions Carried Forward
 
+**Answered, 2026-08-29, by `docs/CORE_IMPLEMENTATION_ARCHITECTURE.md`** —
+the frozen representation, boundary, and migration design for actually
+building the Core described here. That document does not change
+anything written in this one; it is evaluated against this Core
+Architecture like any other part of the system, not assumed to already
+satisfy it. The questions below are preserved as the record of what was
+open before that derivation, not reopened by this note.
+
 None of these block this freeze; each is classified so a future engineer
 does not mistake an open implementation choice for architectural
 uncertainty. See §46 for ownership and timing.

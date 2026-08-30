@@ -45,6 +45,16 @@ model, the Transition Record and Outcome models, and the nine surviving
 architecture rules. No implementation exists yet — `@sails/core` is not
 authorized by this document either. Read it after `SEMANTIC_KERNEL.md`,
 before any future Sails Core implementation work.
+[CORE_IMPLEMENTATION_ARCHITECTURE.md](CORE_IMPLEMENTATION_ARCHITECTURE.md)
+— added 2026-08-29, the frozen representation/boundary/migration design
+for actually building `CORE_ARCHITECTURE.md`'s Core: semantic-identity
+vs. package-identity separation, correspondence semantics, Transition
+Record minimality, destination binding, the mechanical (not
+convention-based) Pure Core dependency boundary, and the staged
+migration sequence (M0–M10) starting from the current implementation.
+Still no code, no `@sails/core`, no second-language implementation —
+read this last, after `SEMANTIC_KERNEL.md` and `CORE_ARCHITECTURE.md`,
+before any Core implementation program begins.
 [GETTING_STARTED.md](GETTING_STARTED.md)
 — added 2026-08-10, the fastest entry point of all 20+: copy-paste
 commands only, a conceptual 8-step trade flow with no file/function

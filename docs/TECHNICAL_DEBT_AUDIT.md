@@ -696,6 +696,42 @@ Implementation Architecture" (representação concreta, boundary
 Core/Runtime, migração do código atual) — deliberadamente não iniciado
 por esta auditoria nem pela missão que congelou a arquitetura.
 
+### 38. Sails Core Implementation Architecture congelada em `docs/CORE_IMPLEMENTATION_ARCHITECTURE.md`, ferramental ainda não existe (2026-08-29)
+
+O item 37 acima já está fechado: o programa "Sails Core Implementation
+Architecture" (Fases 1 → 3.1) que ele previa foi concluído e produziu
+`docs/CORE_IMPLEMENTATION_ARCHITECTURE.md`. A arquitetura de
+representação/boundary/migração está congelada, mas nenhuma das três
+peças de ferramental que ela exige ainda existe no repositório:
+
+- **Boundary mecânico do Pure Core** (§17 do documento) — nenhuma
+  verificação estática de import (`eslint-plugin-import`'s
+  `no-extraneous-dependencies`, `dependency-cruiser`, ou equivalente)
+  está configurada hoje; confirmado por inspeção direta que não existe
+  `.eslintrc*`/`eslint.config.*` na raiz do repositório, e que a
+  hoisting padrão do npm workspaces tornaria uma checagem baseada
+  apenas em `package.json` insuficiente (verificado diretamente:
+  `@prisma/client` já está hoisted para o `node_modules` raiz).
+- **Publicação da Canonical Evaluator Identity** (§5-6) — o mecanismo
+  pelo qual uma identidade de evaluator se torna publicamente resolvível
+  (evitando virar um ponto de interpretação privada, o mesmo risco já
+  documentado no item 35 sobre o Arbiter) ainda não foi desenhado nem
+  implementado.
+- **Ferramental de Ruleset Admission** (§23) — a separação entre
+  reconhecimento de governança e verificação estrutural pura do Core
+  está definida arquiteturalmente, mas nenhuma das duas camadas tem
+  implementação real ainda.
+
+**Classificação:** débito de arquitetura reconhecido e disclosed, não
+escondido — nenhum destes bloqueia o início da migração em M0 (o
+boundary mecânico é justamente o primeiro passo do próprio
+`docs/CORE_IMPLEMENTATION_ARCHITECTURE.md` §29).
+
+**Fix restante:** parte do futuro "SAILS CORE IMPLEMENTATION PROGRAM —
+PHASE 1 — MECHANICAL BOUNDARY & SEMANTIC MODEL FOUNDATION" —
+deliberadamente não iniciado por esta auditoria nem pela missão que
+congelou a arquitetura de implementação.
+
 ---
 
 ## Ações Recomendadas por Prioridade
