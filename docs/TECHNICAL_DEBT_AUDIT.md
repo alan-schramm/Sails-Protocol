@@ -758,6 +758,32 @@ PHASE 1 — MECHANICAL BOUNDARY & SEMANTIC MODEL FOUNDATION" —
 deliberadamente não iniciado por esta auditoria nem pela missão que
 congelou a arquitetura de implementação.
 
+### 39. Destination Authority arquiteturalmente resolvida, remediação ainda não implementada (Mission M8.5, 2026-08-30)
+
+Achado pela Missão M8 (Provider Dispatch Gate) e resolvido no nível de
+arquitetura pela Missão M8.5: `dispute.service.ts`'s `resolveDispute()`
+aceita `releaseToAddress`/`refundToAddress` do próprio pedido do
+**árbitro**, e `escrow-lifecycle.ts`'s `resolvePayoutAddress()` deixa
+esse valor sobrescrever incondicionalmente o `PayoutAddress` já
+registrado do beneficiário, sem nenhum traço à autorização verificada do
+próprio beneficiário — uma instância real, não hipotética, de
+`INV-01` (ver a anotação adicionada a esse invariante,
+`docs/PROTOCOL_INVARIANTS.md`). `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`
+define o modelo que fecha isso (Economic Disposition Authority ≠
+Destination Authority, reaproveitando o primitivo de Attribution já
+construído em M5 — zero mudança de Kernel ou Core).
+
+**Classificação:** débito de implementação, não de arquitetura — a
+arquitetura já está congelada e validada; o código de `resolveDispute()`/
+`applyRuling()` ainda não foi alterado.
+
+**Fix restante:** implementar o remendo descrito em
+`docs/DESTINATION_AUTHORITY_ARCHITECTURE.md` §16 (parar de aceitar o
+parâmetro de destino do árbitro; resolver e capturar o `PayoutAddress`
+do beneficiário no momento do commit do Outcome) — bloqueado apenas por
+uma decisão de produto ainda pendente sobre disputas legadas em voo
+(mesmo documento, §14) — e só então retomar a Missão M8-R.
+
 ---
 
 ## Ações Recomendadas por Prioridade

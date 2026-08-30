@@ -291,6 +291,19 @@ Provider. The old Record remains historically unchanged forever; a new
 Transition establishes a new binding for the still-unexecuted Outcome
 going forward — no retroactive mutation.
 
+**Corrigido/Implementado 2026-08-30 (Mission M8.5 — Destination
+Authority & Provenance).** §15/§16 above fix *when* a destination
+binding is fixed and *how* it may change, but neither states *whose*
+authorization fixes it in the first place — a real gap M8 found live in
+`dispute.service.ts`'s `resolveDispute()` (a discretionary authority's
+own request parameter, not the beneficiary, unconditionally supplied the
+destination). `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md` closes this:
+destination authorization is the beneficiary's own authority (`INV-01`),
+never the discretionary authority's, the Runtime's, or the
+settlement-key holder's — verified via the same generalized Attribution
+primitive M5 already built (`packages/sails-core/src/attribution.ts`),
+requiring no Kernel or Core change. See that document in full.
+
 ---
 
 ## 17. Pure Core Effect Boundary

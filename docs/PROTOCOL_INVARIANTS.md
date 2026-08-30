@@ -267,6 +267,21 @@ implementation of Sails Protocol). Derived Operational Invariants:
 **EVIDENCE.** `common/middleware/auth.ts`'s `requireAuth()`;
 `tests/escrowReleaseControls.test.ts`'s ownership/IDOR block (11 tests).
 
+> **Newly-recognized non-conformant instance — Mission M8.5, 2026-08-30.**
+> `dispute.service.ts`'s `resolveDispute()` accepts `releaseToAddress`/
+> `refundToAddress` from the **arbiter's own** request and, via
+> `escrow-lifecycle.ts`'s `resolvePayoutAddress()` ("an explicit address
+> always wins"), lets that value unconditionally override the
+> beneficiary's own registered `PayoutAddress` with no trace to the
+> beneficiary's own verified authorization — a coordinator/discretionary-
+> authority substituting its own assumption for a participant's, exactly
+> what this invariant's own rule text already forbids. This is not a new
+> rule; it is this already-frozen rule, correctly applied to a case not
+> previously checked against it. `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`
+> records the closing architecture (Economic Disposition Authority ≠
+> Destination Authority); remediation is not yet implemented — see that
+> document's own §16 for what remains before Mission M8-R.
+
 ### INV-02. Propose, Don't Impersonate
 
 **RULE.** A coordinator, agent, or automated process may *propose* an

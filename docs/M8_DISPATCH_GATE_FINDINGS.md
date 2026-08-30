@@ -94,3 +94,18 @@ and reports this rather than picking one silently.
 A dedicated, narrowly-scoped decision (not an M8 retry in isolation):
 choose Option A, B, or C above with explicit product input, then retry
 live migration against that resolved destination-provenance model.
+
+## 6. Resolved at the architecture level — Mission M8.5, 2026-08-30
+
+The product/protocol decision recommended above has been made at the
+architecture level: `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`
+selects a refined form of **Option B** (drop the caller-suppliable
+override; always resolve and snapshot the beneficiary's own registered
+`PayoutAddress` at Outcome-authorization time) as the default,
+sufficient remediation for this exact finding, with Option A's own
+underlying idea (an explicit, signed, beneficiary-authorized destination
+claim) preserved as a validated, optional extension — reusing M5's
+`AttributionClaim`/`referenceAttributionEvaluator` unchanged, never a new
+Core primitive. **Not yet implemented** — see that document's §16 for
+the concrete remaining work and the one open product decision (legacy
+in-flight disputes) before Mission M8-R may retry.
