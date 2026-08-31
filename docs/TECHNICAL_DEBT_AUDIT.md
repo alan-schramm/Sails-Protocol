@@ -786,6 +786,102 @@ uma decisão de produto ainda pendente sobre disputas legadas em voo
 
 ---
 
+### 40. Identidade de execução multi-tentativa (T1/T2) não é representável no schema atual (Mission 9, Missão M9-TC, 2026-08-31)
+
+`Escrow.txReleaseId` é um escalar único, permanentemente não-nulo uma
+vez definido — nenhuma rotina do sistema (nem `escrow-repository.ts`'s
+`findTerminalWithoutTxReleaseId()`/`findTerminalWithTxReleaseId()`, nem
+o sweep de reorg do release leg, `multisig-release-reorg-sweep.ts`)
+jamais o revisita depois de gravado. Isso significa que, quando uma
+transação de liquidação já confirmada (T1) é posteriormente reorganizada
+para fora da chain canônica (World C — outpoint de funding ainda não
+gasto), o schema atual não tem como representar uma segunda tentativa
+de execução (T2) como irmã de T1 sob o mesmo `Outcome` autorizado — só
+pode sobrescrever o fato histórico de T1 (violando `INV-05`) ou não
+representar T2 de forma alguma.
+
+**Achado experimentalmente, não hipotético:** um T2 construído sob o
+mesmo `Outcome`/`DestinationBinding` durável, com uma taxa de mineração
+diferente (e portanto um txid diferente), passa mecanicamente pelo mesmo
+guard real (`assertTranslationMatchesOutcome()`,
+`dispatch-translation-guard.ts`) que uma dispatch ao vivo já precisa
+passar — ou seja, a AUTORIZAÇÃO de T2 já está resolvida. O que falta é
+a capacidade de MODELAR T1 e T2 coexistindo.
+
+**Classificação:** débito arquitetural registrado, não crítico para o
+boundary de segurança fail-closed atual — `reconcileMissingDispatch()`'s
+própria query de candidatos (`dispute-dispatch-recovery.ts`) já exclui
+estruturalmente qualquer escrow terminal, então nenhum redispatch
+automático é sequer tentado hoje. **Necessário investigar antes de**
+reivindicar convergência automática pós-completion para World C — não
+antes disso.
+
+**Fix restante:** nenhum proposto por esta missão (fora de escopo:
+exigiria uma nova relação `EscrowExecutionAttempt` um-para-muitos e uma
+decisão de produto sobre reabrir dispatch-eligibility para um escrow
+terminal — uma missão própria, maior).
+
+### 41. Settlement Consistency Read Surface — nenhuma leitura pública expõe reorg detectado (Mission 9, Missão M9-TC, 2026-08-31)
+
+Um escrow pode estar internamente em `Escrow.status = COMPLETED` com um
+`EscrowReleaseEvidence(REORGED_INVALIDATED)` já registrado
+(`multisig-release-reorg-sweep.ts`), e nenhuma leitura pública
+(`GET /v1/settlement/escrows/:id`, `escrow-repository.ts`'s
+`findByIdWithDetails()`) expõe esse fato — um consumidor só vê
+`COMPLETED`, indistinguível de uma liquidação saudável.
+
+**Classificação:** débito de superfície de leitura, não de arquitetura
+— a distinção em si (Historical Completion ≠ Current Settlement
+Satisfaction) já é sustentada por evidência durável append-only
+(`EscrowReleaseEvidence`); falta apenas um consumidor.
+
+**Fix restante:** nenhum implementado por esta missão — decisão
+explícita do freeze de não fixar nomes de campo/enum agora. Formato
+conceitual candidato (não congelado): `workflowStatus` + um valor de
+consistência de liquidação DERIVADO de `EscrowReleaseEvidence`, nunca
+um novo estado mutável persistido (`SettlementConsistencyStatus`
+permanece explicitamente não autorizado). Pertence a uma fase futura de
+M10/SDK/DX/Protocol UX, após o freeze do Core.
+
+### 42. Semântica de volume após invalidação de settlement não está definida (Mission 9, Missão M9-TC, 2026-08-31)
+
+`User.totalTrades`/`totalVolumeBtc` são incrementados quando uma
+liquidação é OBSERVADA como confirmada (`common/events/handlers.ts`'s
+`recordTradeCompletion()`). Se essa liquidação for depois invalidada por
+reorg (World C) e permanecer sem resolução, o sistema atual não
+distingue "volume historicamente observado" de "volume atualmente
+liquidado" — ao contrário da reputação (cujo racional de "comportamento
+adjudicado, não localização atual de fundos" foi articulado por
+M9-TC), o volume não tem nenhum racional equivalente hoje.
+
+**Classificação:** débito semântico real, explicitamente não
+corrigido nem escondido por esta missão.
+
+**Fix restante:** nenhum proposto — requer uma decisão de produto sobre
+o que "volume" deve significar antes de qualquer mudança de código.
+
+### 43. Re-verificabilidade independente de Correspondence não está garantida (Mission 9, Missão M9-EI/M9-TC, 2026-08-31)
+
+`CorrespondenceEvaluation` (`schema.prisma`) armazena o veredito
+(`results: Json`, `MATCH`/`DIVERGENT`/`PENDING`/`UNKNOWN`) mas não os
+valores decodificados da transação real que produziram esse veredito.
+Se a transação subjacente se tornar indisponível na chain (podada, ou
+justamente evictada por um reorg que este mesmo Mission 9 detecta), uma
+implementação independente não consegue recomputar um `MATCH` histórico
+a partir apenas dos artefatos duráveis do próprio Sails — só pode
+confiar no veredito já registrado.
+
+**Classificação:** débito não-bloqueante para o freeze do Mission 9
+(nenhuma propriedade de recovery/consistência terminal depende de
+resolver isso); relacionado a Credible Exit / Conformance de forma mais
+ampla.
+
+**Fix restante:** nenhum proposto — se algum dia priorizado, o menor
+fix seria registrar os valores decodificados ao lado do veredito, não
+persistir bytes de transação brutos.
+
+---
+
 ## Ações Recomendadas por Prioridade
 
 ### P0 — Antes de qualquer apresentação (1-2 dias)
