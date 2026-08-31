@@ -387,6 +387,16 @@ export const config = {
     // Detection + logging only (see that sweep's own header comment for
     // why no status mutation happens here).
     multisigFundingReorgSweeper: process.env.MULTISIG_FUNDING_REORG_SWEEPER === 'true',
+    // Sails Core Implementation Program M9-F (Release-Leg Finality &
+    // Reorg Closure) — off by default, same reasoning as the three
+    // sweepers above. Closes C18: re-checks the MAIN MULTISIG
+    // release/refund/split payout (Escrow.txReleaseId) for a reorg —
+    // never previously monitored at all (only the fee sub-output was).
+    // Detection + durable evidence recording only; see that sweep's own
+    // header comment for why World C (confirmed payout disappears,
+    // funding outpoint unspent) is flagged for manual review rather than
+    // auto-rebroadcast.
+    multisigReleaseReorgSweeper: process.env.MULTISIG_RELEASE_REORG_SWEEPER === 'true',
   },
 
   trade: {
@@ -420,6 +430,11 @@ export const config = {
     // How often the Fase 8.1(A) funding-reorg sweeper (when enabled)
     // re-checks FUNDS_LOCKED MULTISIG escrows. Same 5-minute default.
     multisigFundingReorgSweepIntervalMs: requiredInt('MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 300000),
+    // Sails Core Implementation Program M9-F — how often the release-leg
+    // reorg sweeper (when enabled) re-checks terminal MULTISIG escrows'
+    // main payout. Same 5-minute default as every other sweeper here.
+    // Reuses multisigReorgSafetyWindowBlocks above for its own depth cutoff.
+    multisigReleaseReorgSweepIntervalMs: requiredInt('MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 300000),
   },
 
   // Sails OpenProof (proof.service.ts) — Fase 1 Task 3(c). Evidence

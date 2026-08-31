@@ -275,6 +275,36 @@ export async function fetchTransactionOutputs(txid: string): Promise<BroadcastTr
   return body.vout.map((o, vout) => ({ vout, scriptPubKeyHex: o.scriptpubkey, valueSats: o.value }))
 }
 
+export interface OutpointSpendStatus {
+  spent: boolean
+  /** The txid that spent this outpoint, when spent=true. Never trusted
+   *  as "the escrow's own release" without an explicit comparison by the
+   *  caller — a real, independent chain fact, nothing more. */
+  spendingTxid: string | null
+}
+
+// Sails Core Implementation Program M9-F (Release-Leg Finality & Reorg
+// Closure) — the ONE new chain-truth query this mission needs: "is this
+// SPECIFIC funding outpoint currently spent, and by what txid." Same
+// esplora/mempool.space-style REST family every other explorer call in
+// this file already relies on (`GET /tx/:txid/outspend/:vout`, a real,
+// documented endpoint on both hosts) — no new explorer dependency
+// introduced. This is what lets the release-leg reorg sweep distinguish
+// World C (funding outpoint still unspent — the confirmed release
+// transaction genuinely disappeared) from World D (outpoint spent by
+// something else — a conflict, never silently reinterpreted as success)
+// WITHOUT needing to reconstruct the P2WSH funding address at all — the
+// outpoint identity (txLockId:txLockVout) is already a durable,
+// never-mutated fact on the Escrow row itself.
+export async function fetchOutpointSpendStatus(txid: string, vout: number): Promise<OutpointSpendStatus> {
+  const res = await fetch(`${config.multisig.explorerApiUrl}/tx/${txid}/outspend/${vout}`)
+  if (!res.ok) {
+    throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} checking outspend status for ${txid}:${vout}`)
+  }
+  const body = (await res.json()) as { spent: boolean; txid?: string }
+  return { spent: !!body.spent, spendingTxid: body.spent && typeof body.txid === 'string' ? body.txid : null }
+}
+
 // Missão 11 Fase 5 §7 — the second half of computing "how many
 // confirmations does this transaction actually have": confirmations =
 // tipHeight - blockHeight + 1. Same esplora/mempool.space REST shape

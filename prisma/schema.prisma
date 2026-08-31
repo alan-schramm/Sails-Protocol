@@ -343,6 +343,9 @@ model Escrow {
   // Missão 11 Fase 9.1 §1 — the durable funding-evidence trail (see that
   // model's own header comment).
   fundingEvidence    EscrowFundingEvidence[]
+  // Sails Core Implementation Program M9-F — the durable release-leg
+  // reorg-evidence trail (see that model's own header comment).
+  releaseEvidence    EscrowReleaseEvidence[]
 
   // Missão 10 — cross-escrow double-claim protection for a funding
   // outpoint. Deliberately a plain (non-partial) unique constraint: see
@@ -709,6 +712,43 @@ model EscrowFundingEvidence {
 
   @@index([escrowId, recordedAt])
   @@map("escrow_funding_evidence")
+}
+
+/// Sails Core Implementation Program M9-F (Release-Leg Finality & Reorg
+/// Closure) — the durable, append-only counterpart of
+/// EscrowFundingEvidence for the OTHER leg: the main MULTISIG
+/// release/refund/split payout (Escrow.txReleaseId), never previously
+/// monitored for reorg at all (only its FEE sub-output was, via
+/// FeeCollectionEvidence/multisig-fee-reorg-sweep.ts — a REFUND or a
+/// fee-waived RELEASE/SPLIT had zero reorg coverage before this
+/// mission). Reuses EscrowFundingEvidenceKind verbatim — the same
+/// OBSERVED_CONFIRMED / REORGED_INVALIDATED / RECONFIRMED /
+/// REPLACEMENT_OBSERVED / AMBIGUOUS state shape applies identically to
+/// "was this specific txid confirmed, and is it still" regardless of
+/// which leg of the escrow it describes; a second, duplicate enum would
+/// only fragment one real concept into two names for the same thing.
+///
+/// Append-only by design, identical discipline to EscrowFundingEvidence:
+/// a later observation (reorg, reconfirmation) is always a NEW row, never
+/// an edit to a prior one. A reorg on this leg NEVER retroactively
+/// changes the historical CorrespondenceEvaluation recorded when the
+/// transaction was first observed (see dispute-correspondence.ts's own
+/// header) — MATCH-at-the-time-it-was-evaluated remains a true historical
+/// fact; current chain inclusion is a separate, later question this table
+/// answers instead.
+model EscrowReleaseEvidence {
+  id                     String                    @id @default(uuid())
+  escrowId               String
+  escrow                 Escrow                    @relation(fields: [escrowId], references: [id])
+  kind                   EscrowFundingEvidenceKind
+  txid                   String?
+  observedAtHeight       Int?
+  tipHeightAtObservation Int?
+  note                   String?
+  recordedAt             DateTime                  @default(now())
+
+  @@index([escrowId, recordedAt])
+  @@map("escrow_release_evidence")
 }
 
 // Batch-level distribution run metadata. Accounting/provenance ONLY — no

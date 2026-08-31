@@ -35,6 +35,7 @@ import { getDisputeService } from './modules/open-settlement/dispute.service'
 import { sweepMultisigFeeConfirmations } from './modules/open-settlement/multisig-fee-confirmation-job'
 import { sweepMultisigFeeReorgs } from './modules/open-settlement/multisig-fee-reorg-sweep'
 import { sweepMultisigFundingReorgs } from './modules/open-settlement/multisig-funding-reorg-sweep'
+import { sweepMultisigReleaseReorgs } from './modules/open-settlement/multisig-release-reorg-sweep'
 import { metricsRegistry, httpRequestsTotal, httpRequestDurationSeconds } from './common/metrics'
 import { recordSuspiciousActivity } from './common/security/suspicious-activity'
 import type { AuthenticatedRequest } from './common/middleware/auth'
@@ -533,6 +534,28 @@ export async function startServer() {
         .catch((err) => app.log.error({ msg: 'MULTISIG funding reorg sweep failed', module: 'multisig-funding-reorg-sweeper', err: err instanceof Error ? err.message : err }))
     }, config.trade.multisigFundingReorgSweepIntervalMs)
     fundingReorgInterval.unref()
+  }
+
+  // Sails Core Implementation Program M9-F — off by default, same
+  // reasoning as the sweepers above. Closes C18: detects a reorg on the
+  // MAIN MULTISIG release/refund/split payout (never previously
+  // monitored at all — only the fee sub-output was). Detection +
+  // durable evidence recording only; see that sweep's own header
+  // comment for why it never attempts an automatic rebroadcast.
+  if (config.features.multisigReleaseReorgSweeper) {
+    const releaseReorgInterval = setInterval(() => {
+      sweepMultisigReleaseReorgs()
+        .then(({ reconfirmed, requiresManualReview, failed }) => {
+          if (reconfirmed.length || requiresManualReview.length || failed.length) {
+            app.log.info({
+              msg: 'MULTISIG release-leg reorg sweep completed', module: 'multisig-release-reorg-sweeper',
+              reconfirmed: reconfirmed.length, requiresManualReview: requiresManualReview.length, failed: failed.length,
+            })
+          }
+        })
+        .catch((err) => app.log.error({ msg: 'MULTISIG release-leg reorg sweep failed', module: 'multisig-release-reorg-sweeper', err: err instanceof Error ? err.message : err }))
+    }, config.trade.multisigReleaseReorgSweepIntervalMs)
+    releaseReorgInterval.unref()
   }
 
   return app
