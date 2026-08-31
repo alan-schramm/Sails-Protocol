@@ -261,6 +261,53 @@ Philosophy (as a dedicated document, distinct from
 **DLC was removed from the roadmap in a prior session and is not
 reintroduced here.**
 
+#### D.1 Agent & Developer Interfaces (registered 2026-08-31, addendum)
+
+A narrower, more concrete sub-front than the flat list above, worth its
+own grouping because it's a real question already partially live in this
+repository (`.github/agents`, `.github/skills` exist; MCP/WebMCP were
+already named in the Mission 9.9 brief's own Master Backlog preservation
+list). Registered here exactly as raised — **a design hypothesis, not
+frozen architecture, and not implemented by this addendum**:
+
+- ⬜ Sails CLI / Developer Tooling
+- ⬜ Canonical Interaction / Tool Surface
+- ⬜ MCP Server
+- ⬜ WebMCP Adapter
+- ⬜ CLI Adapter
+- ⬜ Capability discovery / introspection
+- ⬜ CLI conformance / verification tooling
+- ⬜ Human / Agent semantic parity
+
+**CLI specifically splits into two, deliberately not treated as one
+item:**
+
+1. **Developer/Protocol Tooling CLI** — inspecting canonical objects
+   (`sails inspect trade`, `sails verify outcome/evidence/correspondence`,
+   `sails conformance run`, `sails providers list`) — the stronger
+   candidate, since it's close to what `docs/ENGINEERING_GOVERNANCE.md`
+   §3.2's Credible Exit direction already implies: someone should be able
+   to inspect/verify Sails artifacts without depending on any one party's
+   UI. Not scoped or scheduled here — a named candidate only.
+2. **Full trading-client CLI** (create trades, negotiate, sign, settle,
+   operate agents) — a future hypothesis, explicitly **not** something to
+   scope now; it depends on SDK/OpenP2P maturing further first.
+
+**The open architectural question, registered for future investigation,
+not answered here:** whether CLI, MCP, and WebMCP should each
+independently reimplement protocol semantics, or whether they should all
+be thin adapters over one **Canonical Tool/Interaction Surface** — the
+same "one canonical construction/verification path per concern" discipline
+`docs/PROTOCOL_INVARIANTS.md`'s `INV-OP-9` already applies to MULTISIG
+transaction construction, generalized to *tool* surfaces instead of
+*settlement* construction. If true, `verify correspondence` would carry
+identical semantics whether invoked by a developer via CLI, Claude via
+MCP, a browser agent via WebMCP, or a wallet via the SDK — "different
+interfaces, same economic meaning." This is not decided, not designed,
+and not authorized for implementation by this registration — it is named
+so a future investigation mission has a fixed starting question instead
+of re-discovering it from a chat transcript.
+
 ### E. Future / Parked
 Everything in `docs/ECOSYSTEM_INTEGRATIONS.md` and `docs/SDK_usecases.md`
 — both already self-labeled "vision/roadmap, not a spec," unchanged by
