@@ -1,0 +1,15 @@
+# CODEOWNERS
+#
+# Minimal, truthful configuration — see docs/GITHUB_PROJECT.md §0/§8.
+# This repository is a personal GitHub account, not an organization, so
+# `@org/team-name` syntax is not usable; only real individual usernames
+# are listed here. A future differentiated ownership model (Protocol/
+# Core, Security, SDK, UX, Documentation) is a documented TARGET, not a
+# current fact — see docs/ENGINEERING_GOVERNANCE.md §7 — and is not
+# encoded here until real per-area ownership exists to reflect.
+#
+# No required-review branch protection currently references this file
+# (docs/GITHUB_PROJECT.md §8) — it establishes default review routing,
+# it does not yet block a merge.
+
+* @alan-schramm

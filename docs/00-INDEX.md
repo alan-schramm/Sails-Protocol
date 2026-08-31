@@ -103,6 +103,21 @@ never a replacement — with an explicit comparison against Bisq/Hodl Hodl
 and a corrected, narrow regulatory-neutrality claim. Nothing in it is
 built; none of it changes today's scope.
 
+[ENGINEERING_GOVERNANCE.md](ENGINEERING_GOVERNANCE.md) — added
+2026-08-31 (Mission 9.9), following the Mission 9 Recovery Baseline
+freeze (`b0c581dd26281f230a3795dfdaa48412574ea5c1`): the engineering
+methodology layer — the BY-DESIGN interaction model between Product,
+Protocol, Security, UX, and Engineering; consequence-weighted
+development; STOP gates; Definition of Ready/Done; the Human + AI
+contributor model; evidence classification and claim discipline; the
+document-status vocabulary. Companion to `GITHUB_PROJECT.md`. Does not
+duplicate `GOVERNANCE.md`'s RFC process — references it.
+[GITHUB_PROJECT.md](GITHUB_PROJECT.md) — added 2026-08-31 (Mission 9.9):
+the GitHub Project configuration plan (not yet executed — see its §0
+for why), the Master Backlog classification, current program state,
+registered residuals, and Issue/label taxonomy. Read this for "what is
+Sails working on right now."
+
 **Not in this repository, by design:** `docs/GOVERNANCE.md` §6C
 ("Publication Discipline") keeps strategic evaluation documents —
 due-diligence reports, red-team/resilience reviews, internal

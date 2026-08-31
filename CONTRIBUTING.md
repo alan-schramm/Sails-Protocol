@@ -217,3 +217,76 @@ the relevant document in the same change** — don't let institutional
 knowledge live only in commit messages or a chat conversation that the next
 person won't have access to. That was the exact premise of why this handoff
 package was written in the first place; keep it true going forward.
+
+---
+
+## 8. Day-to-Day Workflow (added Mission 9.9, 2026-08-31)
+
+Sections 1–7 above are about **where code goes**. This section is about
+**how you actually work** — added because until now nothing in this
+repository said so explicitly. Full methodology (why, STOP gates,
+evidence, consequence weighting) lives in `docs/ENGINEERING_GOVERNANCE.md`
+— this section is the short, operational version, not a duplicate.
+
+**Read in this order if you're new here** (10 minutes, not the whole
+20-document handoff):
+
+1. `README.md` — what Sails is.
+2. This file, §8–§11 (you're here).
+3. `docs/PROJECT_CONTEXT.md` §1–2 if you need the architecture picture.
+4. `docs/GITHUB_PROJECT.md` §3 for current program state, once the
+   GitHub Project itself exists (`docs/GITHUB_PROJECT.md` §0 explains
+   why it may not yet).
+
+**Finding work:** the GitHub Project's "Current Mission" and "Master
+Backlog" views (`docs/GITHUB_PROJECT.md` §1.8), or `docs/GITHUB_PROJECT.md`
+§2's Bucket A/B classification if the Project isn't live yet. Don't pick
+up a Bucket C/D/E item (architectural front, research, or future/parked)
+expecting it to be a defined unit of work — it isn't yet.
+
+**Definition of Ready / Done:** `docs/ENGINEERING_GOVERNANCE.md` §5/§9.
+Consequence-weighted — a docs fix and a settlement-authority change do
+not carry the same ceremony.
+
+**Running tests:**
+```bash
+npm run test:unit               # no Postgres required
+SAILS_INTEGRATION_TEST_DB_CONFIRMED=yes-i-am-sure npm run test:integration:postgres
+npx tsc --noEmit                # root; repeat with -p packages/<name> for each workspace package
+npm run check:core-boundary
+npm run check:conformance
+```
+
+**STOP:** `docs/ENGINEERING_GOVERNANCE.md` §6. If you hit one of the
+listed conditions (a frozen invariant would need to change, evidence
+contradicts the architecture, a required fact can't be established),
+stop and write it down — in the Issue or PR — rather than push past it.
+A correct STOP is a successful outcome, not a failed one.
+
+**PR evidence:** every PR uses `.github/PULL_REQUEST_TEMPLATE.md`.
+Evidence is classified per `docs/ENGINEERING_GOVERNANCE.md` §11
+(Hypothesis → Designed/Implemented → Demonstrated → Validated) — state
+the real level, don't round up, and never let a shared code path stand
+in for independent verification of a different case.
+
+**Challenging architecture:** anyone may — `docs/ENGINEERING_GOVERNANCE.md`
+§1. A challenge needs the problem, the property gained, the property
+sacrificed, and evidence; it does not need seniority. If it changes a
+primitive, a module, or a Constitutional/Operational invariant, it goes
+through `docs/GOVERNANCE.md` §5 (RFC process) — see
+`docs/ENGINEERING_GOVERNANCE.md` §8 for the pre-flight questions to
+answer before drafting one.
+
+**What you may not change silently:** `docs/PROTOCOL_INVARIANTS.md`,
+`docs/SEMANTIC_KERNEL.md`, `docs/CORE_ARCHITECTURE.md`, the database
+schema, and anything a Mission Freeze report (e.g. `M9 FINAL FREEZE`,
+commit `b0c581dd26281f230a3795dfdaa48412574ea5c1`) marks frozen. All of
+these change only through the RFC process or an explicitly-authorized
+follow-up mission — never as a side effect of an unrelated PR.
+
+## 9. Human + AI Contributors
+
+Applies equally — `docs/ENGINEERING_GOVERNANCE.md` §7. AI-generated code
+satisfies the same Definition of Ready/Done, the same tests, the same
+STOP gates, and gets the same human review before merge as anyone else's.
+"An AI wrote it" is not evidence and is not authorization.
