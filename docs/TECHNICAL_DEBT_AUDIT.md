@@ -1052,6 +1052,36 @@ rede não confiável; `deepmerge-ts` aqui só processa os próprios
 arquivos de config/schema locais do desenvolvedor. Nenhum fix
 disponível upstream ainda; registrado, não corrigido.
 
+### 49. Nenhum workflow de CI buildava os pacotes do workspace antes dos testes (Mission 9.10, 2026-09-01)
+
+**Achado real, de terceira camada** — descoberto só depois que os dois
+fixes do item 44 deixaram os workflows reais avançarem o suficiente
+para alcançá-lo pela primeira vez, confirmando exatamente por que a
+missão instruiu "reproduza, não confie no diagnóstico anterior."
+
+Uma PR real (#40) rodando no GitHub Actions falhou com `TS2307: Cannot
+find module '@satsails/p2p-trading-sdk'` em ~29 suites, tanto em
+`ci.yml` (Node 20) quanto em `ci-tests.yml` (Node 24) — descartando
+uma causa específica de versão do Node. `packages/sails-sdk/package.json`
+aponta `"types": "dist/index.d.ts"` (`dist/` no `.gitignore`, nunca
+commitado). `jest.config.js`'s próprio `moduleNameMapper` (comentário
+já existente: "tests must not depend on packages/*/dist having been
+built first") só cobre a resolução em TEMPO DE EXECUÇÃO do Jest — a
+passada de diagnóstico do TypeScript dentro do `ts-jest` resolve
+módulos de forma independente, via `node_modules` → o symlink do
+workspace → o próprio campo `"types"` do pacote, exatamente como um
+consumidor real faria. Nenhum dos dois workflows nunca rodou
+`npm run build` antes dos testes.
+
+**Reproduzido localmente byte a byte, não assumido:** removido
+`packages/sails-sdk/dist` com cache do Jest limpo → erro idêntico;
+restaurado → passa. **Fix:** um step `Build workspace packages`
+(`npm run build -w @sails/core -w @satsails/p2p-schemas -w
+@satsails/p2p-trading-sdk`) adicionado a ambos os workflows, entre
+`Install dependencies` e `Generate Prisma Client`. Confirmado
+localmente com build genuinamente do zero (dist/ removido, cache do
+Jest limpo, suite completa rodada) antes de commitar.
+
 ## Ações Recomendadas por Prioridade
 
 ### P0 — Antes de qualquer apresentação (1-2 dias)

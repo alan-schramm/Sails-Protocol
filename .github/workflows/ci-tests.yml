@@ -45,6 +45,14 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Build workspace packages
+        # Mission 9.10 — same real root cause fixed in ci.yml (see that
+        # workflow's own comment and docs/TECHNICAL_DEBT_AUDIT.md #49):
+        # @satsails/p2p-trading-sdk's package.json "types" field points
+        # at dist/ (gitignored), which ts-jest's TypeScript diagnostic
+        # pass needs and jest.config.js's moduleNameMapper does not
+        # cover. Reproduced locally byte-for-byte before this fix.
+        run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
       - name: Generate Prisma Client
         # Mission 9.10 — same real root cause fixed in ci.yml (see that
         # workflow's own comment): `npm install` alone never populates
