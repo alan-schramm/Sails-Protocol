@@ -119,6 +119,19 @@ describe('GET /v1/settlement/escrow/:id and /disputes/:id — access control (Mi
   let app: FastifyInstance
 
   beforeAll(async () => {
+    // M9.10-R root cause: config/index.ts reads TRUSTED_ARBITRATORS exactly
+    // once, at first import, into dispute.service.ts's lazy singleton
+    // (getDisputeService()), which then throws ValidationError('No trusted
+    // arbitrators configured') on every call for the rest of the process
+    // if it was empty at that first construction. Locally this was always
+    // silently satisfied by a gitignored .env (TRUSTED_ARBITRATORS=k6-test-arbiter);
+    // CI never sets it. Set explicitly here, before the dynamic require
+    // below, so this test's outcome never depends on ambient environment —
+    // same pattern tests/cors.test.ts already established for this exact
+    // class of bug. Includes both arbiter fixtures since OTHER_ARBITER_ID
+    // is exercised as a real, legitimately-trusted arbiter who simply isn't
+    // assigned to this dispute.
+    process.env.TRUSTED_ARBITRATORS = `${ARBITER_ID},${OTHER_ARBITER_ID}`
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { buildApp } = require('../src/app')
     app = await buildApp()
@@ -240,14 +253,6 @@ describe('GET /v1/settlement/escrow/:id and /disputes/:id — access control (Mi
     it('buyer (who opened the dispute) can read it — ALLOW', async () => {
       const token = await authedSession(BUYER_ID)
       const res = await app.inject({ method: 'GET', url: `/v1/settlement/disputes/${DISPUTE_ID}`, headers: { authorization: `Bearer ${token}` } })
-      // TEMPORARY DIAGNOSTIC — M9.10-R, remove before merge. Prints the
-      // real error-handler response body (ZodError responses include
-      // `details: error.issues`, app.ts:230) so a real CI run reveals
-      // exactly which validation failed and why, instead of guessing.
-      if (res.statusCode !== 200) {
-        // eslint-disable-next-line no-console
-        console.log('M910R-DIAGNOSTIC buyer-ALLOW', JSON.stringify({ statusCode: res.statusCode, body: res.body }, null, 2))
-      }
       expect(res.statusCode).toBe(200)
     })
 
