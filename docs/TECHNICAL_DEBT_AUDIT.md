@@ -1080,7 +1080,45 @@ restaurado → passa. **Fix:** um step `Build workspace packages`
 @satsails/p2p-trading-sdk`) adicionado a ambos os workflows, entre
 `Install dependencies` e `Generate Prisma Client`. Confirmado
 localmente com build genuinamente do zero (dist/ removido, cache do
-Jest limpo, suite completa rodada) antes de commitar.
+Jest limpo, suite completa rodada) antes de commitar. **Resultado
+real, verificado em PR #40:** de ~29 suites falhando para exatamente
+1 suite / 6 testes — ver item 50.
+
+### 50. `tests/settlementReadAccess.test.ts`'s bloco `/disputes/:id` — 6 testes falham de forma determinística no GitHub Actions real, não reproduz localmente (Mission 9.10, ABERTO)
+
+Achado durante a validação real do PR #40, depois que os itens 44/49
+já haviam fechado toda a quebra estrutural anterior. Os 6 testes do
+describe block `GET /v1/settlement/disputes/:id` (incluindo os casos
+ALLOW, não só os DENY) retornam `400` em vez do status esperado —
+`app.inject()` real contra a rota real. **Determinístico, não flaky:**
+re-executado duas vezes de forma independente (`gh run rerun --failed`
+em runs distintas), os MESMOS 6 testes falharam da MESMA forma nas
+duas vezes, em `ci.yml` (Node 20) e `ci-tests.yml` (Node 24) —
+descarta tanto flakiness quanto uma causa específica de versão do
+Node.
+
+**Não reproduz localmente sob nenhuma condição testada** — `npm ci`
+genuinamente limpo, cache do Jest limpo, `dist/` reconstruído do
+zero: `tests/settlementReadAccess.test.ts` passa 100% (todas as
+execuções desta missão). A rota (`settlement.routes.ts:456-470`)
+valida `idParam` com `z.object({ id: z.string().min(1) })` — sem
+exigência de UUID — então o fixture `DISPUTE_ID = 'dispute-1'` não
+deveria falhar essa validação em nenhum ambiente; a causa real de um
+`400` incondicional em TODAS as chamadas (mesmo as autorizadas) não
+foi isolada dentro do orçamento desta missão.
+
+**Classificação: débito real, registrado, NÃO corrigido — disclosure
+explícito, não uma reivindicação de "CI totalmente verde."** Nenhuma
+tentativa de fix às cegas foi commitada (a própria missão proíbe
+"não otimizar para passar o gate"). Isolado a 6 de 1848 testes, em um
+único arquivo, sem relação aparente com nenhuma das dependências
+realmente aplicadas por esta missão (fastify/prisma/hyperdht/aws-sdk-
+kms/arkade-sdk — nenhuma toca `idParam`/`ForbiddenError`/`getDispute`
+diretamente). **Fix restante:** precisa de acesso interativo a um
+runner Linux real (não disponível nesta sessão) para diagnosticar a
+divergência de ambiente; próximo passo recomendado é adicionar
+logging temporário de diagnóstico dentro do handler da rota, rodar
+uma vez em CI, e remover antes do merge final.
 
 ## Ações Recomendadas por Prioridade
 
