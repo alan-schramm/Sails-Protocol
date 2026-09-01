@@ -366,34 +366,90 @@ and not authorized for implementation by this registration — it is named
 so a future investigation mission has a fixed starting question instead
 of re-discovering it from a chat transcript.
 
-#### D.2 Public Documentation — Mintlify & Developer Docs (registered 2026-09-01, M9.10-R addendum)
+#### D.2 Public Documentation — Mintlify & Developer Docs (registered 2026-09-01, M9.10-R addendum; expanded 2026-09-01, M9.10 Final Governance Checkpoint)
 
 Named for future investigation per the M9.10-R mission brief's own
-explicit instruction — **not scoped, not designed, not started, and not
-authorized for implementation by this registration.** Same discipline as
-D.1: a name and a rough shape, not a spec.
+explicit instruction, and re-asserted with fuller scope in the M9.10
+Final Governance & Pre-Merge Checkpoint mission — **not scoped, not
+designed, not started, and not authorized for implementation by this
+registration.** Same discipline as D.1: a name and a rough shape, not a
+spec.
 
+- ⬜ Mintlify plugin capability audit — what Mintlify itself can actually
+  do (not investigated)
 - ⬜ GitHub → Mintlify sync audit (what would actually need to publish,
   from where, kept in sync how — not investigated)
+- ⬜ Automatic deployment behavior (on what trigger, from what branch —
+  not investigated)
+- ⬜ Repository as canonical source of truth (the public docs site is a
+  presentation layer, never an independent source of protocol claims)
 - ⬜ Public / internal documentation boundary (the same "would a reader
   without context leave confused, alarmed, or with a stale picture?"
   test `docs/GOVERNANCE.md` §6C already applies elsewhere in this repo,
   extended to whatever ends up public-facing under Mintlify)
 - ⬜ Documentation information architecture (IA) for a public docs site,
   distinct from this repo's internal `docs/` tree
-- ⬜ SDK / Getting Started / integration docs, written for an external
-  developer audience rather than an internal engineering audience
-- ⬜ Versioning story for public docs (tied to SDK releases? protocol
-  versions? neither is decided)
-- ⬜ Claim-safe public docs — same discipline as this document's own
+- ⬜ CURRENT CANONICAL / SUPERSEDED / HISTORICAL / REJECTED / RESEARCH /
+  HYPOTHESIS handling — a status taxonomy for public docs content,
+  distinct from (but inspired by) this Project's own Status/Evidence
+  Status fields
+- ⬜ Getting Started
+- ⬜ Architecture overview
+- ⬜ Protocol concepts
+- ⬜ SDK documentation
+- ⬜ Integration guides
+- ⬜ Examples
+- ⬜ Demonstrated properties
+- ⬜ Security model / limitations
+- ⬜ Claim-safe documentation — same discipline as this document's own
   "OUTPUT ≠ EVIDENCE ≠ PROPERTY ≠ CLAIM" separation, applied to
   external-facing copy instead of internal mission reports
+- ⬜ Documentation versioning (tied to SDK releases? protocol versions?
+  neither is decided)
+- ⬜ AI-readable documentation
+
+**Preserved, unchanged, verbatim:**
+
+> GitHub owns the truth. Mintlify presents the truth.
+
+> Public documentation must describe the protocol that exists, not the
+> protocol we hope to have.
 
 **Explicit non-decision:** whether this becomes a real Mintlify site, a
 different static-docs tool, or stays inside this repo's own `docs/` tree
 long-term is not decided here — named so a future investigation mission
 has a fixed starting question instead of re-discovering it from a chat
 transcript.
+
+#### D.3 Preservation-only additions (registered 2026-09-01, M9.10 Final Governance Checkpoint, Phase 6)
+
+Cross-checked against every strategic front named in that mission's own
+Phase 6 list. Most were already durably represented — either here (D,
+D.1, D.2; Capability Composition/Negotiation, MCP/WebMCP/CLI, Nostr,
+Pubky/PKARR, ZK, Portable Economic Proofs, Arbitration Market,
+Knowledge Architecture, Whitepapers, Engineering Philosophy, Final
+External Red Team), or as real shipped architecture/docs (OpenP2P,
+OpenProof, OpenIdentity, OpenReputation, OpenLiquidity, OpenSettlement,
+OpenAgents — all named and described in `docs/ARCHITECTURE.md`; Protocol
+UX by design and Reference UI — both have their own section in
+`docs/ENGINEERING_GOVERNANCE.md` §3.2; Pear/Transport — `TransportProvider`,
+RFC-002). The following had **no durable representation anywhere** before
+this addition — named only, same "not scoped, not designed" discipline
+as the rest of Bucket D:
+
+- ⬜ Selective Disclosure
+- ⬜ Privacy Architecture
+- ⬜ Versioning / Protocol Lifecycle
+- ⬜ Second independent implementation
+- ⬜ Security Program (an ongoing front, distinct from the one-time
+  Final External Red Team already named above)
+- ⬜ Prior Art / Novelty Challenge
+- ⬜ Productization / Ecosystem Composition (loosely related to
+  `docs/ECOSYSTEM_INTEGRATIONS.md`, Bucket E below, but not the same
+  scope and not previously named as its own front)
+- ⬜ Archify — previously named only as one undifferentiated item; the
+  Pass 1 / Pass 2 split from that mission's own list is preserved here
+  even though neither pass has any scope yet
 
 ### E. Future / Parked
 Everything in `docs/ECOSYSTEM_INTEGRATIONS.md` and `docs/SDK_usecases.md`
