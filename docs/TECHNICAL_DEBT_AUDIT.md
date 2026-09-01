@@ -880,6 +880,42 @@ ampla.
 fix seria registrar os valores decodificados ao lado do veredito, não
 persistir bytes de transação brutos.
 
+### 44. `CI`/`CI Tests` (GitHub Actions) estão estruturalmente quebrados, não apenas instáveis (Mission 9.9 Completion Delta, 2026-09-01)
+
+Achado ao investigar quais status checks eram reais/confiáveis o
+suficiente para exigir em branch protection (`docs/GITHUB_PROJECT.md`
+§8). `gh run list --branch main` mostrou `CI` e `CI Tests` falhando em
+praticamente todo push recente, incluindo M9-F, M8-RF e o próprio M9
+freeze — não uma flakiness ocasional, uma quebra estrutural, confirmada
+lendo os logs reais de execução, não assumida:
+
+- `CI` (`.github/workflows/ci.yml`) — o job `build` falha em `npm ci`
+  com `##[error]An error occurred trying to start process
+  '/usr/bin/bash' with working directory '.../Sails-Protocol/./sails-
+  push-ready'. No such file or directory` — um `working-directory`
+  fixo no workflow que só existe no layout de pasta local aninhado
+  deste ambiente, nunca válido dentro de um checkout real do CI.
+- `CI Tests` (`.github/workflows/ci-tests.yml`) — o job `test` falha no
+  passo do container de serviço Postgres com `FATAL: role "root" does
+  not exist`, repetido até timeout — uma configuração de
+  usuário/role do container de serviço incorreta.
+
+**`CodeQL` (`Analyze (javascript-typescript)`) é o único check real e
+confiável** — verificado verde em toda execução recente checada.
+
+**Classificação:** débito de infraestrutura de CI, não um defeito de
+protocolo — nenhuma das duas quebras tem relação com o código de
+aplicação, apenas com a configuração dos próprios workflows.
+**Consequência real e já aplicada:** por não ser confiável, `CI`/`CI
+Tests` NÃO foi exigido como required status check na branch protection
+recém-aplicada em `main` — exigi-lo teria travado todo merge futuro
+permanentemente, independente do conteúdo de qualquer PR.
+
+**Fix restante:** nenhum proposto por esta missão — corrigir o YAML dos
+workflows é higiene de repositório não relacionada, fora de escopo aqui
+(mesma disciplina já aplicada ao flake de swagger-ui, item registrado
+em `docs/GITHUB_PROJECT.md` §6).
+
 ---
 
 ## Ações Recomendadas por Prioridade

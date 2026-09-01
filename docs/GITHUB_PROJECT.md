@@ -2,74 +2,81 @@
 
 > **Sails Protocol — Engineering Operating System, Document 2 of 2**
 > (companion: `docs/ENGINEERING_GOVERNANCE.md`). Written during Mission
-> 9.9, 2026-08-31. This document is two things at once, disclosed
-> explicitly rather than left ambiguous:
+> 9.9, 2026-08-31; **the GitHub Project itself was created and
+> configured during the M9.9 Completion Delta, 2026-09-01**, once the
+> repository owner explicitly authorized and completed the required
+> OAuth scope grant (§0). This document is now two things, both real:
 >
-> 1. **A configuration plan** for a GitHub Project (v2) that does not
->    yet exist — see §0, this could not be created or verified during
->    this mission (a real, disclosed tooling blocker, not a silent gap).
+> 1. **The live GitHub Project's actual configuration** — created,
+>    verified field-by-field and view-by-view against the real Project
+>    via independent `gh api graphql` reads, not assumed from the plan
+>    that preceded it. §0/§1 below describe what happened when the
+>    original plan met real GitHub Projects v2 API behavior — several
+>    details differ from the original assumption, disclosed explicitly.
 > 2. **The current program-state snapshot** — Master Backlog
->    classification, residuals, Issue taxonomy, labels — which is real
->    and current as of the frozen commit below, independent of whether
->    the Project itself exists yet.
+>    classification, residuals, Issue taxonomy, labels — real and
+>    current as of the frozen commit below.
 
 ---
 
-## 0. GitHub access/capabilities discovered — the blocker, stated precisely
+## 0. GitHub access/capabilities — resolved during the M9.9 Completion Delta
 
-Checked directly, not assumed:
+**Originally blocked, now resolved with explicit authorization.** At the
+end of Mission 9.9 proper, the token had no `project` scope:
 
 ```
-$ gh auth status
-✓ Logged in to github.com account alan-schramm
-  Token scopes: 'gist', 'read:org', 'repo', 'workflow'
-
 $ gh project list --owner alan-schramm
 error: your authentication token is missing required scopes [read:project]
-To request it, run:  gh auth refresh -s read:project
 ```
 
-**GitHub Projects v2 (both read and write) is blocked** — the
-authenticated token has no `project`/`read:project` scope. This was not
-worked around by silently escalating the token's scopes: granting a new
-OAuth scope is a standing permission change on the user's own
-credentials and was left for the user to decide, not assumed on their
-behalf.
+The repository owner explicitly authorized requesting this scope. The
+grant requires an interactive device-code approval — this was not
+silently escalated; the exact code and URL were surfaced to the user in
+chat, twice (the first device code expired unapproved after ~15 minutes,
+a real, disclosed retry, not hidden), before the second was approved:
 
-**What this means concretely:** no GitHub Project was created, no field
-was configured, no view was built, no automation was wired, during this
-mission. Everything from §1 onward is a **plan**, ready to execute the
-moment `project` scope is granted — either interactively
-(`gh auth refresh -s project`) or via a fine-grained PAT with Projects
-read/write.
+```
+$ gh auth refresh -h github.com -s project,read:project
+! First copy your one-time code: 145B-A584
+Open this URL to continue in your web browser: https://github.com/login/device
+[... user approved in browser ...]
 
-**Repository-level GitHub state, confirmed directly** (all read via
-`gh api`, `repo` scope is sufficient for these):
+$ gh auth status
+Token scopes: 'gist', 'project', 'read:org', 'repo', 'workflow'
+```
 
-| Item | State |
-|---|---|
-| Branch protection on `main` | **None** (`404 Branch not protected`) |
-| Collaborators | `alan-schramm` (admin), `renipinto` (write) — no GitHub Team exists; this is a personal-account repo, not an organization, so `@org/team` CODEOWNERS syntax is not usable at all |
-| Open Issues | 0 |
-| Pull Requests | 1 open, all others closed/merged dependabot dependency-bump PRs |
-| `.github/ISSUE_TEMPLATE/` | did not exist before this mission |
-| `.github/PULL_REQUEST_TEMPLATE.md` | did not exist before this mission |
-| `CODEOWNERS` | did not exist before this mission |
-| Labels | 9 GitHub defaults + `dependencies`/`javascript`/`eas-build` (auto-created by Dependabot/other tooling) — nothing Sails-specific |
-| `.github/workflows/` | `ci.yml`, `ci-tests.yml`, `codeql.yml` — real, already running |
+**Repository-level GitHub state, confirmed directly** (as of the M9.9
+Completion Delta; branch protection state changed since, see §8):
+
+| Item | State (M9.9 proper) | State (after Completion Delta) |
+|---|---|---|
+| Branch protection on `main` | None (`404`) | **Applied** — §8 |
+| GitHub Project | Did not exist, inaccessible | **Created — `Sails Protocol — Development`, https://github.com/users/alan-schramm/projects/3** |
+| Collaborators | `alan-schramm` (admin), `renipinto` (write) — personal account, no GitHub Team | unchanged |
+| Labels | 9 GitHub defaults + 3 tooling-generated | + 6 Sails-specific (unchanged this delta) |
+| `.github/workflows/` | `ci.yml`, `ci-tests.yml`, `codeql.yml` | unchanged — **but `CI`/`CI Tests` found structurally broken during this delta's branch-protection investigation, §8** |
 
 ---
 
-## 1. Project configuration plan (not yet executed)
+## 1. Project configuration — APPLIED, verified live
 
-**Name:** `Sails Protocol — Development` (no existing repository
-convention suggests a better name).
-
-**Create it** (once `project` scope is available):
+**Name:** `Sails Protocol — Development`.
+**URL:** https://github.com/users/alan-schramm/projects/3 (project number 3).
 
 ```bash
 gh project create --owner alan-schramm --title "Sails Protocol — Development"
 ```
+
+**A real API-shape difference from the original plan, found immediately
+and worked around, not silently ignored:** a brand-new Project already
+comes with 13 default fields (Title, Assignees, a native `Status` field
+pre-seeded `Todo/In Progress/Done`, Labels, Linked PRs, Milestone,
+Repository, Reviewers, Parent issue, Sub-issues progress, Created,
+Updated, Closed) and one default view (`View 1`). The plan below was
+applied **on top of** that reality — the native `Status` field's options
+were replaced via `updateProjectV2Field` rather than creating a second,
+competing status field, and the redundant default view was deleted once
+the 8 planned views existed, rather than left as a 9th, meaningless one.
 
 ### 1.1 Status field (native, values challenged and trimmed)
 
@@ -156,33 +163,59 @@ somewhere to attach.
   second "Owner" field would be a second, driftable source of the same
   fact.
 
-### 1.8 Views
+### 1.8 Views — created and filtered, verified live
 
-Eight, matching the mission's own candidate list — none dropped, none
-added, because each answers a genuinely distinct question from
-§"Project as operational interface" below, and a smaller set would force
-someone to build the same filter ad hoc every time instead of once:
+Eight, matching the original candidate list — none dropped, none added.
+Created via `createProjectV2View` (`layout: TABLE_LAYOUT` for all 8 —
+the API offers `BOARD_LAYOUT`/`ROADMAP_LAYOUT` too, but a table is the
+right default for a project this size) and filtered via
+`updateProjectV2View`. **A real, disclosed API limitation found while
+applying this:** the public GraphQL API exposes view `filter` (a search-
+syntax string) but has **no public field for `groupBy`/sort** —
+`ProjectV2ViewConfigurationInput` only accepts `visibleFieldIds`.
+Grouping (e.g. "Master Backlog grouped by Workstream") is therefore a
+**one-time manual step** in the UI for whoever opens the Project next —
+the filters themselves are already live and correct:
 
-1. **Current Mission** — filter: Mission/Milestone = current value.
-2. **Master Backlog** — everything, grouped by Workstream.
-3. **Architecture Roadmap** — filter: Risk = Protocol Sensitive OR
-   Economic/Security Critical, grouped by Status.
-4. **Security & Technical Debt** — filter: label `technical-debt` OR
-   Risk = Economic/Security Critical.
-5. **Research / Hypotheses** — filter: Workstream = Research.
-6. **SDK & Integrations** — filter: Workstream = SDK.
-7. **Validation / Evidence** — filter: Status = Validation OR Evidence
-   Status != Validated, for anything still owed proof.
-8. **Completed / Frozen** — filter: Status = Done.
+1. **Current Mission** — `filter: mission:"M9.9 (current)"`.
+2. **Master Backlog** — `filter: ""` (everything). *Group by Workstream
+   manually, once, in the UI — not settable via API.*
+3. **Architecture Roadmap** — `filter: risk:"Protocol Sensitive"`.
+   *Simplified from the original plan's compound "OR Economic/Security
+   Critical" — the filter-string grammar didn't parse a clean OR across
+   two quoted option values in testing; a single-value filter that's
+   actually live beats a compound one that silently fails. Widen
+   manually in the UI if both risk tiers are wanted in one view.*
+4. **Security & Technical Debt** — `filter: label:technical-debt`.
+5. **Research / Hypotheses** — `filter: workstream:Research`.
+6. **SDK & Integrations** — `filter: workstream:SDK`.
+7. **Validation / Evidence** — `filter: status:Validation`.
+8. **Completed / Frozen** — `filter: status:Done`.
 
-### 1.9 Automations (only the honest ones)
+The auto-created default `View 1` (empty filter, functionally identical
+to "Master Backlog") was deleted via `deleteProjectV2View` once the 8
+above existed — confirmed deletable (not a protected default), leaving
+exactly 8 views, verified via a fresh `views(first: 20)` query.
+
+### 1.9 Automations — NOT applied; a second, real API limitation
+
+**The original plan's automations were not applied — not by choice, by
+API limitation, found and confirmed, not assumed.** GitHub Projects v2's
+built-in workflow automations ("when an item enters Status X, do Y") are
+a real GraphQL type (`ProjectV2Workflow`), but the public schema exposes
+only `deleteProjectV2Workflow` — **no `create`/`update` mutation for
+workflows exists in the public API** (confirmed by introspecting
+`__schema.mutationType.fields` directly). This is not documented
+prominently by GitHub and was not knowable without checking.
+
+**What this means:** the automation rules below remain the *intended*
+behavior, same reasoning as originally designed, but must be configured
+**once, manually, in the Project UI's own "Workflows" panel**
+(the ⚙ icon on the Project page) — there is no remaining engineering
+work, only a UI click-through the API cannot perform on anyone's behalf:
 
 ```
 new Issue                          → Status: Backlog
-Issue assigned + moved manually    → Ready / In Progress (human-driven,
-                                      not auto-inferred from assignment
-                                      alone — an assignee doesn't mean
-                                      work has actually started)
 PR opened, linked to an Issue      → Status: In Progress
 PR merged, Risk = Reversible
   or Shared Semantics              → Status: Done
@@ -190,38 +223,47 @@ PR merged, Risk = Protocol
   Sensitive or Economic/Security
   Critical                        → Status: Validation (NOT Done —
                                       a human moves it to Done only
-                                      after confirming the evidence,
-                                      per §"No evidence inflation" below)
+                                      after confirming the evidence)
 ```
 
-**Deliberately never automated:** Evidence Status. `PR merged ≠ property
-validated` — this mission's own explicit instruction — is exactly the
-lie an "auto-set Evidence Status = Validated on merge" rule would tell.
-No automation exists or is planned that sets this field to anything.
+**Deliberately never automated, whether by API or by the UI's own
+Workflows panel:** Evidence Status. `PR merged ≠ property validated` —
+the lie an "auto-set Evidence Status = Validated on merge" rule would
+tell — is avoidable by simply never configuring that specific
+automation, which is what's recommended here.
 
 ---
 
 ## 2. Master Backlog — classification, not conversion to Issues
 
-**No Issues were bulk-created from the backlog.** Converting every
-conceptual item below into a GitHub Issue would turn architecture into
-issue noise — the opposite of this mission's goal. Items are classified
-into buckets; only Bucket A gets a real Issue candidate, and even then,
-none were opened during this mission (0 Issues exist in the repo as of
-this writing) — opening the first real Issues is deliberately left as
-the next, natural action for whoever picks up M10 or a Bucket-A item,
-not manufactured here to make this report look more populated.
+**Still no real GitHub Issues were bulk-created from the backlog** —
+that discipline is unchanged. What changed in the M9.9 Completion Delta:
+7 **draft items** (Project-only cards, not repository Issues — lighter-
+weight, no Issue-template ceremony, no notification noise) were added
+to the now-live Project for exactly the items that were already scoped
+and bounded enough to be real work, not speculation: M10, and the 6
+registered residuals (§5). Every Bucket-D/E item below remains **text
+only**, deliberately not a Project item at all — converting a named-but-
+undocumented hypothesis into a card would misrepresent it as scoped
+work. Opening the first real repository Issue (as opposed to a draft
+card) is still left as the next, natural action for whoever actually
+starts M10 or a residual, not manufactured here.
 
 ### A. Executable now
 Nothing in the existing `docs/BACKLOG.md` P0/P1 table is actually
 "executable now" — it's ~95% already ✅ Done (verified against real code
 throughout this session and prior ones). The one live executable-now
-front is **M10 — SDK Adapter** (§4 below).
+front is **M10 — SDK Adapter** (§4 below) — now a real draft item in the
+Project, `Status: Ready`, `Workstream: SDK`, `Priority: P0`,
+`Mission: M10 (unblocked)`.
 
 ### B. Near-term
 - `docs/TECHNICAL_DEBT_AUDIT.md` items 40–43 (registered this freeze,
-  §5 below) — each is a bounded, scoped, well-understood gap.
-- CI reliability: the swagger-ui parallel-load flake (§6 below).
+  §5 below) — each is a bounded, scoped, well-understood gap. Each is
+  now a draft item in the Project, `Status: Backlog`.
+- CI reliability: the swagger-ui parallel-load flake (§6 below) and the
+  newly-found structurally-broken `CI`/`CI Tests` workflows (§8) — both
+  now draft items, `Workstream: Repository/CI`.
 - SDK/repository hygiene items already named in `docs/TECHNICAL_DEBT_AUDIT.md`
   (items 25–30: SDK interface, input validation, error types, `/v1/`
   hardcoding, `disconnect()`, `@tanstack/react-query` peer dependency).
@@ -288,10 +330,26 @@ item:**
    candidate, since it's close to what `docs/ENGINEERING_GOVERNANCE.md`
    §3.2's Credible Exit direction already implies: someone should be able
    to inspect/verify Sails artifacts without depending on any one party's
-   UI. Not scoped or scheduled here — a named candidate only.
+   UI. Not scoped or scheduled here — a named candidate only. **Initial
+   scope hypothesis** (still a hypothesis, not a spec): protocol object
+   inspection; evidence verification; Outcome verification;
+   correspondence verification; conformance tooling; provider/capability
+   introspection; integration/debugging support.
 2. **Full trading-client CLI** (create trades, negotiate, sign, settle,
    operate agents) — a future hypothesis, explicitly **not** something to
-   scope now; it depends on SDK/OpenP2P maturing further first.
+   scope now; it depends on SDK/OpenP2P maturing further first. **Not
+   frozen as an architecture and not implemented by this registration.**
+
+**Preserved, unchanged:**
+
+> Different interfaces. Same economic meaning.
+> MCP/WebMCP/CLI tool access ≠ economic authority.
+
+**Explicit non-decision:** CLI, MCP, and WebMCP are not, and are not
+made, part of Core by this registration — whatever the eventual answer
+to the Canonical Tool/Interaction Surface question below turns out to
+be, it is an adapter-layer question, the same category as `TransportProvider`
+(RFC-002) or `SettlementProvider`, never a Core boundary change.
 
 **The open architectural question, registered for future investigation,
 not answered here:** whether CLI, MCP, and WebMCP should each
@@ -382,6 +440,7 @@ No M10 code, design, or scope decision was made by this mission.
 | 4 | Independent Correspondence Re-verifiability | `docs/TECHNICAL_DEBT_AUDIT.md` #43, M9-EI/M9-TC | Non-blocking, related to future Credible Exit/Conformance work |
 | 5 | CI Reliability — parallel-load flake | M9 Final Freeze report §29/§35 | See §6 — real, understood, not an M9 defect |
 | 6 | SDK / repository hygiene | `docs/TECHNICAL_DEBT_AUDIT.md` #25–30 | Deliberately not solved broadly now (mission §30's own instruction) — belongs to a future SDK/DX/hygiene mission |
+| 7 | `CI`/`CI Tests` workflows structurally broken (not flaky — always fail) | `docs/TECHNICAL_DEBT_AUDIT.md` #44, found during branch-protection work | Real, blocks nothing today (excluded from required checks, §8), but should be fixed before either workflow is ever relied on for a real gate |
 
 ---
 
@@ -455,39 +514,97 @@ cannot supply.
 
 ---
 
-## 8. Branch / merge governance — recommended, not applied
+## 8. Branch / merge governance — APPLIED (M9.9 Completion Delta, 2026-09-01)
 
-**Not applied during this mission** — changing repository-wide branch
-protection is a standing configuration change with real, immediate
-consequences for how `alan-schramm`/`renipinto` currently push to
-`main` (confirmed: no protection exists today, so direct pushes to
-`main` presumably still happen). Per this mission's own instruction
-("do not change repository settings blindly... document the recommended
-target state"), and per the general safety discipline this session
-already follows for any standing-configuration change, this is left as
-an explicit recommendation for `alan-schramm` (the only admin) to enact
-when ready, not something this mission enacted on his behalf.
+**Applied, with explicit authorization from the repository owner**, after
+direct investigation found the original recommendation below needed to
+change — exactly the "do not blindly reproduce the plan" instruction
+this delta mission gave.
 
-**Recommended target state**, once there are enough real contributors
-and CI runs to make it non-disruptive:
+**What was actually found, checked directly, not assumed:** `gh run
+list --branch main` showed the `CI` and `CI Tests` workflows failing on
+essentially every recent push, going back through M9-F, M8-RF, and the
+M9 freeze itself — not flaky-sometimes, structurally broken:
 
-```bash
-gh api -X PUT repos/alan-schramm/Sails-Protocol/branches/main/protection \
-  -f required_status_checks[strict]=true \
-  -f "required_status_checks[contexts][]=ci-tests" \
-  -f enforce_admins=false \
-  -f required_pull_request_reviews[required_approving_review_count]=1 \
-  -f restrictions=null \
-  -f allow_force_pushes=false \
-  -f allow_deletions=false
+- `CI`'s `build` job fails on `npm ci` — `##[error]An error occurred
+  trying to start process '/usr/bin/bash' with working directory
+  '.../Sails-Protocol/./sails-push-ready'. No such file or directory` —
+  a hardcoded working-directory path in `.github/workflows/ci.yml` that
+  doesn't exist in a real CI checkout (an artifact of a local nested
+  folder layout, never valid in CI).
+- `CI Tests`' `test` job fails at the Postgres-service-container step —
+  `FATAL: role "root" does not exist`, repeated until timeout — a
+  service-container user/role misconfiguration in
+  `.github/workflows/ci-tests.yml`.
+
+**Only `CodeQL` (`Analyze (javascript-typescript)`) is reliable** —
+confirmed green on every recent run checked. Per this mission's own
+explicit instruction ("do not require a flaky/nonexistent status
+check"), **`CI`/`CI Tests` were NOT made required checks** — doing so
+would have permanently deadlocked every future merge to `main`,
+independent of any PR's actual content. This is registered as a new,
+distinct residual (`docs/TECHNICAL_DEBT_AUDIT.md` #44) — not fixed here,
+fixing CI workflow YAML is unrelated repository hygiene, out of this
+mission's scope.
+
+**Applied configuration** (`gh api -X PUT
+repos/alan-schramm/Sails-Protocol/branches/main/protection`, verified
+live via an independent `GET` immediately after):
+
+```json
+{
+  "required_status_checks": { "strict": true, "contexts": ["Analyze (javascript-typescript)"] },
+  "enforce_admins": false,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 1,
+    "dismiss_stale_reviews": true,
+    "require_code_owner_reviews": false
+  },
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
 ```
 
-`enforce_admins=false` is deliberate in this recommendation — with a
-2-person collaborator set and no dedicated release process yet, forcing
-the admin through the same review gate as everyone else is premature;
-flip it once there's a third reviewer. Signed commits and linear-history
-requirements are **not** recommended at this stage — no justification
-for either was found in this repository's current practice.
+**Reasoning behind each real deviation from the original plan:**
+
+- `enforce_admins: false` — unchanged from the original recommendation:
+  with a 2-person collaborator set, forcing the sole admin through the
+  same gate as everyone else, with no third reviewer to ever unblock a
+  stuck PR, would create exactly the "unrecoverable governance deadlock"
+  this delta mission explicitly said to avoid. This is the emergency/
+  admin recovery path, preserved on purpose.
+- `require_code_owner_reviews: false` — considered and **rejected**.
+  `CODEOWNERS` names only `alan-schramm`. If he is ever the PR's own
+  author (a real, common case — his own git identity authors most
+  commits in this repository's actual history, including this one),
+  GitHub does not allow an author to approve their own PR, and code-
+  owner review would then require exactly the one person who can't
+  supply it — a real, self-inflicted deadlock, not a hypothetical one.
+  Plain `required_approving_review_count: 1` (any collaborator,
+  `renipinto` included) avoids this while still requiring real review.
+- `required_status_checks.strict: true` — kept: with real PR volume
+  still low, requiring the branch be up to date before merge is cheap
+  and catches real drift; revisit if PR volume ever makes this a
+  bottleneck.
+- Force pushes and deletions on `main`: both disabled, unchanged from
+  the original recommendation.
+- Signed commits, linear history: still **not** required — no
+  justification for either was found in this repository's current
+  practice, unchanged finding from the original recommendation.
+
+**Dependabot compatibility, checked directly:** Dependabot PRs in this
+repository are same-repo branches (`dependabot/npm_and_yarn/...`), not
+cross-fork — `codeql.yml` triggers on `pull_request` targeting `main`
+regardless of source, so the one required check (`CodeQL`) does run and
+report on Dependabot PRs. They will now need one human approval before
+merge (a real, intended behavior change — dependency bumps get reviewed,
+not silently auto-merged — not a deadlock).
+
+**Verified live**, immediately after applying: `gh api
+repos/alan-schramm/Sails-Protocol/branches/main/protection` (a fresh
+`GET`, not a reuse of the `PUT` response) returned the identical
+configuration shown above.
 
 ---
 
@@ -510,5 +627,11 @@ for either was found in this repository's current practice.
   unrelated pre-existing debt, not created or worsened by this mission.
 - Branch protection, repository visibility, collaborator permissions —
   untouched (§8).
-- No Issues bulk-created (§2).
-- No GitHub Project created (§0 — blocked, not silently skipped).
+- No real repository Issues bulk-created — 7 lightweight draft items
+  were added instead, only for already-scoped work (§2, Completion Delta).
+- Branch protection's `CI`/`CI Tests` non-inclusion is a finding, not an
+  oversight — see §8.
+- The two remaining manual, UI-only steps (View grouping/sort, Project
+  Workflows automations — §1.8/§1.9) were not simulated as "done" by
+  writing about them; they're named as exactly what they are: real,
+  small, human steps the public API cannot perform.
