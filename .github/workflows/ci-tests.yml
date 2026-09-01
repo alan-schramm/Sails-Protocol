@@ -37,6 +37,19 @@ jobs:
       # this service container is a fresh, disposable, CI-only Postgres,
       # never a shared or production database.
       SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+      # M9.10-R root cause: TRUSTED_ARBITRATORS was never set anywhere in
+      # this workflow. src/config/index.ts reads it once, at
+      # module-import time; when empty, dispute.service.ts's lazy
+      # singleton getDisputeService() throws ValidationError on its first
+      # call and stays broken for the rest of that worker's process. At
+      # least 10 tests/integration/*.test.ts files (and
+      # tests/settlementReadAccess.test.ts, fixed separately) assume this
+      # var is set — same as every local dev checkout's own gitignored
+      # .env already provides (TRUSTED_ARBITRATORS=k6-test-arbiter).
+      # Matching that exact value here, rather than patching each
+      # affected test file individually, since the dependency is on
+      # ambient environment, not on any one file.
+      TRUSTED_ARBITRATORS: k6-test-arbiter
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
