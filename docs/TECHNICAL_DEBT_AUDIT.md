@@ -1084,41 +1084,70 @@ Jest limpo, suite completa rodada) antes de commitar. **Resultado
 real, verificado em PR #40:** de ~29 suites falhando para exatamente
 1 suite / 6 testes — ver item 50.
 
-### 50. `tests/settlementReadAccess.test.ts`'s bloco `/disputes/:id` — 6 testes falham de forma determinística no GitHub Actions real, não reproduz localmente (Mission 9.10, ABERTO)
+### 50. `tests/settlementReadAccess.test.ts`'s bloco `/disputes/:id` — 6 testes falhavam de forma determinística no GitHub Actions real, não reproduzia localmente (Mission 9.10 → **FECHADO na Mission 9.10-R**, 2026-09-01)
 
-Achado durante a validação real do PR #40, depois que os itens 44/49
-já haviam fechado toda a quebra estrutural anterior. Os 6 testes do
-describe block `GET /v1/settlement/disputes/:id` (incluindo os casos
-ALLOW, não só os DENY) retornam `400` em vez do status esperado —
-`app.inject()` real contra a rota real. **Determinístico, não flaky:**
-re-executado duas vezes de forma independente (`gh run rerun --failed`
-em runs distintas), os MESMOS 6 testes falharam da MESMA forma nas
-duas vezes, em `ci.yml` (Node 20) e `ci-tests.yml` (Node 24) —
-descarta tanto flakiness quanto uma causa específica de versão do
-Node.
+Achado durante a validação real do PR #40 (Mission 9.10), depois que os
+itens 44/49 já haviam fechado toda a quebra estrutural anterior. Não
+reproduzia localmente sob nenhuma condição testada naquele momento —
+único débito real, disclosed, deixado ABERTO ao final da Mission 9.10
+em vez de um fix às cegas.
 
-**Não reproduz localmente sob nenhuma condição testada** — `npm ci`
-genuinamente limpo, cache do Jest limpo, `dist/` reconstruído do
-zero: `tests/settlementReadAccess.test.ts` passa 100% (todas as
-execuções desta missão). A rota (`settlement.routes.ts:456-470`)
-valida `idParam` com `z.object({ id: z.string().min(1) })` — sem
-exigência de UUID — então o fixture `DISPUTE_ID = 'dispute-1'` não
-deveria falhar essa validação em nenhum ambiente; a causa real de um
-`400` incondicional em TODAS as chamadas (mesmo as autorizadas) não
-foi isolada dentro do orçamento desta missão.
+**Root cause real, isolado na Mission 9.10-R via diagnóstico temporário
+rodado em CI real** (não em teoria — `console.log` disclosed, pushado,
+lido do log real do GitHub Actions, removido antes do fix final):
+`TRUSTED_ARBITRATORS` nunca era setado em nenhum workflow. `config/
+index.ts` lê `process.env.TRUSTED_ARBITRATORS` uma única vez, no
+import do módulo; `dispute.service.ts`'s `getDisputeService()` é um
+singleton lazy que, na primeira tentativa de construção, lança
+`ValidationError('No trusted arbitrators configured')` se esse array
+estiver vazio — e continua lançando para toda chamada seguinte no
+mesmo worker, já que o singleton nunca constrói com sucesso. Isso
+explica por que os 6 testes falhavam identicamente (400) independente
+da identidade do chamador: nenhum chegava a alcançar a checagem de
+autorização. Localmente sempre foi mascarado por um `.env` gitignored
+(`TRUSTED_ARBITRATORS=k6-test-arbiter`) — daí não reproduzir.
 
-**Classificação: débito real, registrado, NÃO corrigido — disclosure
-explícito, não uma reivindicação de "CI totalmente verde."** Nenhuma
-tentativa de fix às cegas foi commitada (a própria missão proíbe
-"não otimizar para passar o gate"). Isolado a 6 de 1848 testes, em um
-único arquivo, sem relação aparente com nenhuma das dependências
-realmente aplicadas por esta missão (fastify/prisma/hyperdht/aws-sdk-
-kms/arkade-sdk — nenhuma toca `idParam`/`ForbiddenError`/`getDispute`
-diretamente). **Fix restante:** precisa de acesso interativo a um
-runner Linux real (não disponível nesta sessão) para diagnosticar a
-divergência de ambiente; próximo passo recomendado é adicionar
-logging temporário de diagnóstico dentro do handler da rota, rodar
-uma vez em CI, e remover antes do merge final.
+**Esta investigação revelou, em sequência, DUAS camadas adicionais do
+mesmo root cause — só visíveis depois que a camada anterior foi
+corrigida e o CI real avançou mais longe do que nunca antes ("cada
+falha corrigida pode revelar a falha que estava impedida de
+executar"):**
+1. `tests/settlementReadAccess.test.ts` — não setava a var (fix:
+   `process.env.TRUSTED_ARBITRATORS` explícito em `beforeAll`, antes
+   do `require('../src/app')` dinâmico, mesmo padrão já estabelecido
+   por `tests/cors.test.ts`). Commit `f399aaa`.
+2. Nem `ci.yml` nem `ci-tests.yml` jamais setavam
+   `TRUSTED_ARBITRATORS` como env de workflow — ~10 arquivos
+   `tests/integration/*.test.ts` assumiam o valor ambiente que todo
+   checkout local já provê via `.env`. Fix: `TRUSTED_ARBITRATORS:
+   k6-test-arbiter` adicionado a ambos os workflows, mesmo escopo de
+   `DATABASE_URL`.
+3. Esse fix (2) imediatamente expôs um TERCEIRO problema adjacente:
+   `tests/integration/escrowFundingConcurrency.test.ts` tinha sua
+   própria linha de default (`process.env.TRUSTED_ARBITRATORS =
+   process.env.TRUSTED_ARBITRATORS || 'funding-concurrency-test-
+   arbiter'`), que só disparava quando a var estava vazia — e uma
+   constante `ARBITER_ID` separada, hardcoded, com o MESMO literal,
+   que parou de bater assim que (2) passou a fornecer um valor
+   ambiente real. Fix: `ARBITER_ID` agora deriva de
+   `process.env.TRUSTED_ARBITRATORS` diretamente, eliminando a
+   segunda fonte de verdade. Commit `a92f812`.
+
+**Verificação real, não teórica:** cada uma das 3 camadas foi
+reproduzida localmente (falha causada deliberadamente, confirmada,
+depois corrigida e reconfirmada) antes do push. Regressão completa
+local limpa (unit: 147/147 suites, 1848/1848 testes; Postgres real:
+27/27 suites, 218/218 testes, contra containers Postgres genuinamente
+novos, nunca reaproveitados). PR #40 real no GitHub Actions: **CI** e
+**CI Tests** verdes **duas vezes consecutivas** no mesmo commit
+(`a92f812`, via `gh run rerun` independente) — não apenas uma
+execução isolada.
+
+**Classificação: débito FECHADO com causa raiz completa, não um
+"CI ficou verde" sem explicação.** Nenhum teste foi pulado, nenhum
+status code foi trocado para forçar passagem, nenhuma
+autorização foi enfraquecida, nenhum retry foi usado para mascarar
+falha determinística — ver Sacrifice Check da Mission 9.10-R.
 
 ## Ações Recomendadas por Prioridade
 

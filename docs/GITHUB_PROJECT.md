@@ -366,6 +366,35 @@ and not authorized for implementation by this registration — it is named
 so a future investigation mission has a fixed starting question instead
 of re-discovering it from a chat transcript.
 
+#### D.2 Public Documentation — Mintlify & Developer Docs (registered 2026-09-01, M9.10-R addendum)
+
+Named for future investigation per the M9.10-R mission brief's own
+explicit instruction — **not scoped, not designed, not started, and not
+authorized for implementation by this registration.** Same discipline as
+D.1: a name and a rough shape, not a spec.
+
+- ⬜ GitHub → Mintlify sync audit (what would actually need to publish,
+  from where, kept in sync how — not investigated)
+- ⬜ Public / internal documentation boundary (the same "would a reader
+  without context leave confused, alarmed, or with a stale picture?"
+  test `docs/GOVERNANCE.md` §6C already applies elsewhere in this repo,
+  extended to whatever ends up public-facing under Mintlify)
+- ⬜ Documentation information architecture (IA) for a public docs site,
+  distinct from this repo's internal `docs/` tree
+- ⬜ SDK / Getting Started / integration docs, written for an external
+  developer audience rather than an internal engineering audience
+- ⬜ Versioning story for public docs (tied to SDK releases? protocol
+  versions? neither is decided)
+- ⬜ Claim-safe public docs — same discipline as this document's own
+  "OUTPUT ≠ EVIDENCE ≠ PROPERTY ≠ CLAIM" separation, applied to
+  external-facing copy instead of internal mission reports
+
+**Explicit non-decision:** whether this becomes a real Mintlify site, a
+different static-docs tool, or stays inside this repo's own `docs/` tree
+long-term is not decided here — named so a future investigation mission
+has a fixed starting question instead of re-discovering it from a chat
+transcript.
+
 ### E. Future / Parked
 Everything in `docs/ECOSYSTEM_INTEGRATIONS.md` and `docs/SDK_usecases.md`
 — both already self-labeled "vision/roadmap, not a spec," unchanged by
@@ -440,7 +469,7 @@ No M10 code, design, or scope decision was made by this mission.
 | 4 | Independent Correspondence Re-verifiability | `docs/TECHNICAL_DEBT_AUDIT.md` #43, M9-EI/M9-TC | Non-blocking, related to future Credible Exit/Conformance work |
 | 5 | CI Reliability — parallel-load flake | M9 Final Freeze report §29/§35 | See §6 — real, understood, not an M9 defect |
 | 6 | SDK / repository hygiene | `docs/TECHNICAL_DEBT_AUDIT.md` #25–30 | Deliberately not solved broadly now (mission §30's own instruction) — belongs to a future SDK/DX/hygiene mission |
-| 7 | `CI`/`CI Tests` workflows structurally broken (not flaky — always fail) | `docs/TECHNICAL_DEBT_AUDIT.md` #44, found during branch-protection work | Real, blocks nothing today (excluded from required checks, §8), but should be fixed before either workflow is ever relied on for a real gate |
+| 7 | `CI`/`CI Tests` workflows structurally broken (not flaky — always fail) | `docs/TECHNICAL_DEBT_AUDIT.md` #44 — **CLOSED** M9.10/M9.10-R (3 layered real root causes found and fixed: missing `prisma generate`, missing workspace-package build, missing `TRUSTED_ARBITRATORS`; see #44/#49/#50) | Both workflows now confirmed green twice consecutively on real GitHub Actions, same commit (`a92f812`) — whether to make them required branch-protection checks is a pending M9.10-R Phase 6 decision, not yet applied |
 
 ---
 
