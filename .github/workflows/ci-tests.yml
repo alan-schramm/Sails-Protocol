@@ -24,7 +24,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -45,6 +45,14 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Generate Prisma Client
+        # Mission 9.10 — same real root cause fixed in ci.yml (see that
+        # workflow's own comment): `npm install` alone never populates
+        # @prisma/client's real exports, only `prisma generate` does.
+        # Confirmed via this workflow's own jest-output.txt artifact
+        # (run 33352899462): 80 of 147 suites failed on
+        # `TS2305: Module '@prisma/client' has no exported member ...`.
+        run: npm run db:generate
       - name: Apply database migrations
         run: npm run db:migrate
       - name: Run tests (capture output)

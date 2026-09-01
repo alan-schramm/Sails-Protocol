@@ -5,12 +5,67 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
-    # Groups workspace packages' updates with the root's own, since
-    # package-lock.json is shared across the whole npm workspace
-    # (root + packages/sails-p2p-schemas + packages/sails-sdk) — separate
-    # per-directory Dependabot configs for each workspace would each try
-    # to update the same lockfile independently.
+    # Mission 9.10 (docs/GITHUB_PROJECT.md §9) — replaces the previous
+    # single catch-all `patterns: ["*"]` group, which is exactly how PR
+    # #39 bundled 37 unrelated updates into one diff: a real
+    # @fastify/rate-limit security release, two major crypto-foundation
+    # bumps (@noble/curves, @noble/hashes), and unrelated Storybook/
+    # TypeScript/jsdom tooling majors, all in the same PR, none
+    # individually diagnosable.
+    #
+    # Rule: crypto-sensitive packages are deliberately named in NO group
+    # below. A dependency that matches no group's `patterns` is not
+    # grouped at all — Dependabot opens it as its own, individual PR by
+    # default. This is the mechanism, not a comment-only intention: any
+    # package touching signing, key material, hashing, or Bitcoin/EVM
+    # transaction construction must never be added to a pattern below
+    # without deliberately re-deciding this rule first.
     groups:
-      dependencies:
+      tooling:
         patterns:
-          - "*"
+          - "typescript"
+          - "@types/*"
+          - "ts-node*"
+          - "husky"
+      testing:
+        patterns:
+          - "jest"
+          - "ts-jest"
+          - "vitest"
+          - "@vitest/*"
+          - "@testing-library/*"
+          - "jsdom"
+          - "@playwright/*"
+          - "@axe-core/*"
+          - "artillery"
+      storybook:
+        patterns:
+          - "storybook"
+          - "@storybook/*"
+          - "@chromatic-com/storybook"
+      infrastructure:
+        patterns:
+          - "ioredis"
+          - "redis-memory-server"
+          - "embedded-postgres"
+          - "@embedded-postgres/*"
+          - "pg"
+          - "@types/pg"
+          - "prisma"
+          - "@prisma/*"
+      fastify:
+        patterns:
+          - "fastify"
+          - "fastify-plugin"
+          - "@fastify/*"
+      ui-tooling:
+        patterns:
+          - "vite"
+          - "vite-plugin-*"
+          - "@vitejs/*"
+          - "tailwindcss"
+          - "@tailwindcss/*"
+          - "postcss"
+          - "autoprefixer"
+          - "lucide-react"
+          - "@radix-ui/*"

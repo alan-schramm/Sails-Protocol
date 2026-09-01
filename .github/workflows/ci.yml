@@ -9,9 +9,14 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./sails-push-ready
+    # Mission 9.10 — the `defaults.run.working-directory: ./sails-push-ready`
+    # that previously lived here was a real, confirmed bug (docs/GITHUB_PROJECT.md
+    # #44/TECHNICAL_DEBT_AUDIT.md #44): the repository root IS the working
+    # directory in a real `actions/checkout` — that path only ever existed
+    # on one contributor's own locally-nested folder layout, never inside a
+    # GitHub Actions runner. Removed; every step below now runs at the
+    # actual repository root, matching every other workflow in this repo.
+    #
     # Missão 11 Fase 6.3B.1 — `npm test` now includes a real-Postgres
     # integration lane (npm run test:integration:postgres); this
     # ephemeral service container is what makes that lane run for real
@@ -27,7 +32,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -45,6 +50,17 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Generate Prisma Client
+        # Mission 9.10 — the real, confirmed root cause of every prior
+        # CI Tests failure (jest-output.txt from run 33352899462: "Module
+        # '@prisma/client' has no exported member 'Prisma'/'PrismaClient'/
+        # 'AssetType'" across 80 suites). `npm ci` installs @prisma/client's
+        # own unbuilt stub; only `prisma generate` populates its real,
+        # schema-derived exports. Neither workflow ever ran it — `db:migrate`
+        # (prisma migrate deploy) does not implicitly generate. This step
+        # was missing, not the Postgres service container.
+        run: npm run db:generate
 
       - name: Apply database migrations
         # Scoped to this step only — targets the ephemeral CI Postgres
