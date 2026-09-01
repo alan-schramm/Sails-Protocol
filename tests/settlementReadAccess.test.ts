@@ -240,6 +240,14 @@ describe('GET /v1/settlement/escrow/:id and /disputes/:id — access control (Mi
     it('buyer (who opened the dispute) can read it — ALLOW', async () => {
       const token = await authedSession(BUYER_ID)
       const res = await app.inject({ method: 'GET', url: `/v1/settlement/disputes/${DISPUTE_ID}`, headers: { authorization: `Bearer ${token}` } })
+      // TEMPORARY DIAGNOSTIC — M9.10-R, remove before merge. Prints the
+      // real error-handler response body (ZodError responses include
+      // `details: error.issues`, app.ts:230) so a real CI run reveals
+      // exactly which validation failed and why, instead of guessing.
+      if (res.statusCode !== 200) {
+        // eslint-disable-next-line no-console
+        console.log('M910R-DIAGNOSTIC buyer-ALLOW', JSON.stringify({ statusCode: res.statusCode, body: res.body }, null, 2))
+      }
       expect(res.statusCode).toBe(200)
     })
 
