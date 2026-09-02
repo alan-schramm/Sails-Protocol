@@ -441,6 +441,12 @@ as the rest of Bucket D:
 - ⬜ Privacy Architecture
 - ⬜ Versioning / Protocol Lifecycle
 - ⬜ Second independent implementation
+- ⬜ Multi-language Conformance — distinct from Second independent
+  implementation above: this is the conformance harness/vectors
+  (`scripts/run-conformance-harness.ts`, `conformance/`) themselves
+  being portable/runnable against evaluator implementations in other
+  languages, not a second full protocol implementation (registered
+  2026-09-02, M9.10 Governance Hardening & Project Reconciliation)
 - ⬜ Security Program (an ongoing front, distinct from the one-time
   Final External Red Team already named above)
 - ⬜ Prior Art / Novelty Challenge
@@ -450,6 +456,62 @@ as the rest of Bucket D:
 - ⬜ Archify — previously named only as one undifferentiated item; the
   Pass 1 / Pass 2 split from that mission's own list is preserved here
   even though neither pass has any scope yet
+
+#### D.4 WDK / agentic prior-art research (registered 2026-09-02, M9.10 Governance Hardening & Project Reconciliation)
+
+Named per that mission's own explicit list — **not scoped, not designed,
+not started, no partnership/endorsement/integration/dependency claimed,
+and not authorized for implementation by this registration.** Same
+discipline as the rest of Bucket D: a name and a rough shape, not a
+spec, not a demonstrated protocol claim.
+
+- ⬜ WDK Modular Capability Composition — study WDK's community-module/
+  building-block model as prior art and as a possible capability/
+  provider surface beneath Sails
+- ⬜ WDK MCP Composition Study — investigate future composition between
+  Sails MCP and WDK MCP, preserving **Tool Access ≠ Economic Authority**
+- ⬜ WDK Pear Worklet Adapter Study — investigate WDK + Pear/Bare
+  integration as a potential execution/runtime composition, without
+  coupling Sails Core to Pear
+- ⬜ WDK Agentic Architecture Prior Art — track WDK's Agent Skills, MCP,
+  CLI, autonomous-agent positioning, and modular financial capability
+  model as prior art
+- ⬜ Sails Agent Skills — future machine-readable integration knowledge/
+  instructions for agents; not implemented now
+- ⬜ Canonical Interaction / Tool Surface — preserved as **HYPOTHESIS**:
+  investigate whether SDK, CLI, MCP, WebMCP, and Agent Skills can expose
+  the same canonical Sails economic semantics without independent
+  reinterpretation (same open question already named in D.1, restated
+  here in WDK's specific framing)
+- ⬜ Capability Composition Architecture — preserve: **"Interoperability
+  through capability composition, not stack uniformity"** and
+  **"Adapter, not dependency."**
+- ⬜ Capability Negotiation / Cross-Stack Interaction — future
+  investigation into whether heterogeneous implementations can discover
+  compatible identity, transport, and settlement capabilities while
+  preserving shared economic semantics
+- ⬜ Human / AI / Machine Economic Participants — research hypothesis
+  that the same Sails economic semantics may coordinate humans,
+  applications, agents, and machines without granting agents implicit
+  economic authority
+- ⬜ Ecosystem Composition Hypothesis — preserved as **HYPOTHESIS, not a
+  demonstrated property**: Sails should benefit when underlying
+  ecosystems add capabilities, rather than requiring those capabilities
+  to be implemented inside Sails
+
+**Preserved, unchanged, verbatim:**
+
+> Different interfaces. Same economic meaning.
+
+**Strategic WDK/Sails distinction — preserved as strategic hypothesis/
+prior-art framing, NOT a demonstrated protocol claim:**
+
+> WDK provides modular financial/execution capabilities. Sails explores
+> interoperable economic coordination across heterogeneous capabilities.
+
+No partnership, endorsement, integration, dependency, or demonstrated
+interoperability with WDK is claimed anywhere in this registration —
+none exists as of this writing.
 
 ### E. Future / Parked
 Everything in `docs/ECOSYSTEM_INTEGRATIONS.md` and `docs/SDK_usecases.md`
@@ -690,6 +752,38 @@ not silently auto-merged — not a deadlock).
 repos/alan-schramm/Sails-Protocol/branches/main/protection` (a fresh
 `GET`, not a reuse of the `PUT` response) returned the identical
 configuration shown above.
+
+### 8.1 Governance deviation on PR #40, and remediation (2026-09-01/02)
+
+The `enforce_admins: false` recovery path documented above was, in
+fact, exercised — not hypothetically. PR #40 (Mission 9.10 repository
+security, dependency & CI hygiene) was merged by the repository
+administrator (`alan-schramm`, also the PR's own author) without
+satisfying the required human review and before the required status
+checks had completed. `reviews: []`, `reviewDecision` remained
+`REVIEW_REQUIRED` at merge time, and no `review_requested`/`reviewed`
+event exists anywhere in the PR's GitHub timeline. **This is not
+reclassified as a compliant, reviewed merge.**
+
+The resulting merge commit (`8ea9b7be3dcea0177054f58d64374815f2130bec`)
+was independently, technically validated post-merge — full regression,
+typechecks, Core boundary check, semantic conformance, Prisma
+validate/drift, zero Protocol/Core/Kernel/schema diff, protocol fee
+confirmed unchanged at 0% — and frozen as **SAILS M9.10 REPOSITORY
+SECURITY & CI HYGIENE BASELINE**. Technical validity and governance
+compliance are separate axes; one does not imply the other.
+
+**Remediation applied 2026-09-02**: `enforce_admins` changed
+`false → true`. Read back live immediately after, confirmed as the
+*only* field that changed — every other protection property (required
+contexts, review count, dismiss-stale-reviews, force-push/deletion,
+signatures, linear history) identical to the configuration above. The
+2-person-team tradeoff this section originally weighed is now
+accepted deliberately: the sole admin (`alan-schramm`) can no longer
+bypass required reviews or required checks on `main`, including on his
+own PRs — `renipinto` (or a future additional collaborator) is now
+required to approve every PR `alan-schramm` authors, with no
+admin-bypass fallback if unavailable.
 
 ---
 
