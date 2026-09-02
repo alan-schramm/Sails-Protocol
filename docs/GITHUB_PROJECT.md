@@ -536,44 +536,68 @@ COMPLETED / FROZEN
   M9-R, M8-RF, M9-F, M9-EI, M9-TC, M9 FINAL FREEZE
   → baseline b0c581dd26281f230a3795dfdaa48412574ea5c1
 
-CURRENT
   M9.9 — Sails Engineering Operating System
-  (this document + ENGINEERING_GOVERNANCE.md + templates + CODEOWNERS)
+  M9.10 — Repository Security & CI Hygiene
+  M9.10 Governance Hardening (enforce_admins: true, PR #40 deviation
+    disclosed and remediated — see §8.1)
+  M10 — SDK Adapter
+    → merge SHA 02e7fb2f502e65ae99323be58c0ba5a4196aba66
+    → Verdict B — Partial Adapter / Disclosed Limitations
+    → residuals: Correspondence Canonical Read Semantics,
+      Historical Arbiter Read Access Policy (both now durable
+      Project items, not conversation-only)
+
+CURRENT
+  Project Backlog Reconciliation (2026-09-02) — reconciling the
+  GitHub Project against the Master Backlog / Norte Fixo. Not a
+  protocol implementation mission; capture/classify only.
 
 UNBLOCKED, NOT STARTED
-  M10 — SDK Adapter
+  (none currently designated as the next mission — see the Project's
+  own draft items for the candidate frontier)
 
-REGISTERED RESIDUALS  (see §5 — not equal priority)
+REGISTERED RESIDUALS  (see §5 — not equal priority; the Project itself
+is the durable, up-to-date list — this is a snapshot, not the source
+of truth)
   1. Multi-Attempt Execution Identity (T1/T2)
   2. Settlement Consistency Read Surface
   3. Volume Semantics after settlement invalidation
   4. Independent Correspondence Re-verifiability
   5. CI Reliability — parallel-load test flake
   6. SDK / repository production hygiene (named, not scheduled)
+  7. Correspondence Canonical Read Semantics (M10 residual)
+  8. Historical Arbiter Read Access Policy (M10 residual)
 
 Protocol fee: 0%. Intended 0.40% remains OFF.
 Multi-rail recovery: NOT demonstrated (MULTISIG only).
 Production readiness: NOT claimed.
+SDK version: 0.1.3 (unchanged since M10; not published).
 ```
 
 ---
 
-## 4. M10 tracking (prepared, not started)
+## 4. M10 tracking — COMPLETED (2026-09-02)
 
-A tracking placeholder for the next mission — **not** a GitHub Issue
-(none was created, per §2's own discipline: this is a single, well-known
-next step, not backlog noise), recorded here so the Project's "Current
-Mission" view has something real to point at once the Project exists:
+Originally a tracking placeholder for the next mission; M10 has since
+run to completion. Kept as a historical record rather than deleted —
+the Project item (`M10 — SDK Adapter`) is the live, current source of
+truth (`Status: Done`, `Evidence Status: Validated`).
 
 ```
 Title:       M10 — SDK Adapter
-Status:      Ready / Unblocked
-Started:     NOT STARTED
+Status:      DONE — frozen as SAILS M10 SDK ADAPTER BASELINE
+Merge SHA:   02e7fb2f502e65ae99323be58c0ba5a4196aba66
+Verdict:     B — Partial Adapter / Disclosed Limitations
+Residuals:   Correspondence Canonical Read Semantics,
+             Historical Arbiter Read Access Policy
 Depends on:  SAILS MISSION 9 RECOVERY BASELINE (b0c581d) — satisfied
-Definition:  to be provided by the mission brief that begins M10
+Definition:  provided by the M10 SDK Adapter mission brief
 ```
 
-No M10 code, design, or scope decision was made by this mission.
+No M10 code, design, or scope decision was made by *this* section's
+original authoring mission (M9.9). M10 itself was later run to
+completion as its own, separate, fully-governed mission — see the
+table above and `PR #52`.
 
 ---
 
