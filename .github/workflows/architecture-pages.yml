@@ -1,0 +1,74 @@
+name: Architecture Diagrams (Pages)
+
+# Regenerates and publishes the Archify-rendered architecture diagrams
+# from docs/architecture/archify/*.json — the committed JSON IR is the
+# reviewed source of truth (docs/architecture/README.md); this
+# workflow is the only place the rendered HTML is produced, so the
+# published site can never silently drift from what was actually
+# merged. Generated HTML is deliberately not committed to the repo
+# itself — see that README for why.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/architecture/archify/**.json'
+      - 'scripts/build-architecture-pages.mjs'
+      - '.github/workflows/architecture-pages.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment at a time; never cancel one already
+# publishing mid-flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Clone Archify (pinned commit)
+        # Pinned to the exact commit Archify Pass 1 was validated
+        # against (docs/architecture/README.md's recorded baseline) —
+        # deliberate: an unpinned `main` clone could silently change
+        # rendering or validation behavior on a later run and publish
+        # a page that no longer matches what was actually reviewed.
+        # Bump this SHA deliberately, in its own reviewed change, when
+        # a newer Archify version is adopted.
+        run: |
+          git clone --quiet https://github.com/tt-a1i/archify.git /tmp/archify-src
+          git -C /tmp/archify-src checkout --quiet 06dd052602dd9a369e4d034e24faef0917b5a60c
+
+      - name: Render diagrams + index
+        run: node scripts/build-architecture-pages.mjs /tmp/archify-src/archify/bin/archify.mjs _site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

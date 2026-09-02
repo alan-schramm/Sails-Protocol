@@ -57,11 +57,31 @@ a descendant of the **SAILS M10 SDK ADAPTER BASELINE** at `02e7fb2f`).
 | `recovery.workflow.json` | workflow (schema v2) | RECOVERY = f(durable facts, external facts) — MULTISIG-only today |
 | `sdk-adapter.architecture.json` | architecture | Core evaluation → durable semantic record → read-only projection → HTTP → SDK → integrator |
 
-## Regenerating and validating the HTML
+## Live, always-current rendered site
 
-Generated HTML is **intentionally not stored in Git** — see below. To
-regenerate and validate any artifact from its committed JSON IR, using
-the current Archify workflow:
+**[alan-schramm.github.io/Sails-Protocol](https://alan-schramm.github.io/Sails-Protocol/)**
+— published automatically by
+[`.github/workflows/architecture-pages.yml`](../../.github/workflows/architecture-pages.yml)
+every time a push to `main` touches `docs/architecture/archify/**.json`,
+using [`scripts/build-architecture-pages.mjs`](../../scripts/build-architecture-pages.mjs)
+against a pinned Archify commit. Diagram type is read from each file's
+own `diagram_type` field, so adding or renaming a diagram never needs
+a workflow edit. This is the easiest way to view a diagram — no local
+install needed — and it can never drift from what's actually committed,
+since nothing else produces the published HTML.
+
+## Regenerating and validating the HTML locally
+
+Generated HTML is **intentionally not stored in Git** — see below. The
+CI workflow above is the canonical regeneration path; to do the same
+locally (e.g. before opening a PR that changes a diagram):
+
+```bash
+node scripts/build-architecture-pages.mjs <path-to-archify>/bin/archify.mjs _site
+```
+
+Or invoke Archify directly on a single file, using the current Archify
+workflow:
 
 ```bash
 # one-time: install Archify per its own README (npx skills add tt-a1i/archify -g),
