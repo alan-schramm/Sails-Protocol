@@ -70,7 +70,17 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
     pubkey: Buffer.from(ECPair.fromPrivateKey(createHash('sha256').update('funding-concurrency-split-seller').digest(), { network: btcTestnet }).publicKey),
     network: btcTestnet,
   }).address!
-  const ARBITER_ID = 'funding-concurrency-test-arbiter' // matches TRUSTED_ARBITRATORS set at the top of this file
+  // M9.10-R: derived from the actual env var (not a second, independently
+  // hardcoded literal) so this can never silently drift from whatever
+  // TRUSTED_ARBITRATORS this process actually started with. Line 27's own
+  // `||` default only fires when the var was empty going in — once CI
+  // started setting a real ambient value (M9.10-R, ci.yml/ci-tests.yml),
+  // a hardcoded literal here would keep claiming a match that no longer
+  // held, producing exactly the "identity does not match the arbiter
+  // public key committed... at creation time" error this now avoids.
+  // Same split/trim convention config/index.ts's own trustedArbitrators
+  // parsing uses.
+  const ARBITER_ID = process.env.TRUSTED_ARBITRATORS!.split(',')[0].trim()
   const RUN_ID = Date.now().toString(36)
 
   let realFetch: typeof fetch

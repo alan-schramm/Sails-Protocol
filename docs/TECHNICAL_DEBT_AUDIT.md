@@ -886,37 +886,268 @@ Achado ao investigar quais status checks eram reais/confiáveis o
 suficiente para exigir em branch protection (`docs/GITHUB_PROJECT.md`
 §8). `gh run list --branch main` mostrou `CI` e `CI Tests` falhando em
 praticamente todo push recente, incluindo M9-F, M8-RF e o próprio M9
-freeze — não uma flakiness ocasional, uma quebra estrutural, confirmada
-lendo os logs reais de execução, não assumida:
+freeze — não uma flakiness ocasional, uma quebra estrutural.
 
-- `CI` (`.github/workflows/ci.yml`) — o job `build` falha em `npm ci`
-  com `##[error]An error occurred trying to start process
-  '/usr/bin/bash' with working directory '.../Sails-Protocol/./sails-
-  push-ready'. No such file or directory` — um `working-directory`
-  fixo no workflow que só existe no layout de pasta local aninhado
-  deste ambiente, nunca válido dentro de um checkout real do CI.
-- `CI Tests` (`.github/workflows/ci-tests.yml`) — o job `test` falha no
-  passo do container de serviço Postgres com `FATAL: role "root" does
-  not exist`, repetido até timeout — uma configuração de
-  usuário/role do container de serviço incorreta.
+**`CI` (`.github/workflows/ci.yml`)** — diagnóstico original (M9.9)
+confirmado correto: o job `build` falhava em `npm ci` porque
+`defaults.run.working-directory: ./sails-push-ready` só existia no
+layout de pasta local aninhado deste ambiente, nunca dentro de um
+checkout real do CI.
 
-**`CodeQL` (`Analyze (javascript-typescript)`) é o único check real e
-confiável** — verificado verde em toda execução recente checada.
+**`CI Tests` (`.github/workflows/ci-tests.yml`)** — **diagnóstico
+original (M9.9) estava ERRADO, corrigido nesta missão (M9.10) por
+instrução explícita de não confiar nele e reproduzir o log real.** A
+causa real, confirmada baixando o artefato `jest-output.txt` da run
+33352899462: 80 de 147 suites falhavam em `TS2305: Module
+"@prisma/client" has no exported member 'Prisma'/'PrismaClient'/
+'AssetType'` — nenhum dos dois workflows executava `prisma generate`
+antes dos testes (só `prisma migrate deploy`, que não gera o client).
+O ruído `FATAL: role "root" does not exist` que motivou o diagnóstico
+original era o próprio health-check `pg_isready` (sem `-U postgres`)
+falhando em segundo plano — confirmado inofensivo: o step "Apply
+database migrations" (que usa a conexão real da aplicação) sempre
+teve sucesso na mesma run.
 
-**Classificação:** débito de infraestrutura de CI, não um defeito de
-protocolo — nenhuma das duas quebras tem relação com o código de
-aplicação, apenas com a configuração dos próprios workflows.
-**Consequência real e já aplicada:** por não ser confiável, `CI`/`CI
-Tests` NÃO foi exigido como required status check na branch protection
-recém-aplicada em `main` — exigi-lo teria travado todo merge futuro
-permanentemente, independente do conteúdo de qualquer PR.
+**`CodeQL` (`Analyze (javascript-typescript)`)** permanece o único
+check real e confiável — verificado verde em toda execução recente
+checada; 61 alertas abertos no total, 60 confinados a
+`.github/skills/impeccable/` (ferramenta de terceiros vendorizada, não
+código próprio do Sails, fora de escopo desta auditoria), 1 real
+(`load-tests/artillery/pregenerate-users.js`, `js/http-to-file-access`,
+medium) — revisado e classificado como não explorável (script de
+load-test rodado manualmente contra `localhost`, nenhum ator externo
+envolvido em nenhuma ponta do fluxo rede→arquivo).
 
-**Fix restante:** nenhum proposto por esta missão — corrigir o YAML dos
-workflows é higiene de repositório não relacionada, fora de escopo aqui
-(mesma disciplina já aplicada ao flake de swagger-ui, item registrado
-em `docs/GITHUB_PROJECT.md` §6).
+**Status: CLOSED.** Ambos os workflows corrigidos nesta missão —
+`ci.yml` (working-directory removido, `prisma generate` adicionado,
+`pg_isready -U postgres`) e `ci-tests.yml` (`prisma generate`
+adicionado, `pg_isready -U postgres`). Evidência: ver
+`docs/GITHUB_PROJECT.md` §16-19 (M9.10) para as execuções reais no
+GitHub Actions pós-fix.
 
 ---
+
+### 45. `@fastify/rate-limit` — CVE real, não corrigível sem regressão conhecida (Mission 9.10, 2026-09-01)
+
+`@fastify/rate-limit@11.2.0` é uma "⚠️ Security Release" real e
+confirmada (release notes do próprio mantenedor,
+`GHSA-grpc-p53c-r64v`/`CVE-2026-15144`, severity HIGH/CVSS 7.3): a
+chave de rate-limit por IP não normaliza endereços IPv6, permitindo
+bypass do limite via rotação/reescrita textual do mesmo endereço
+IPv6 quando `trustProxy` está habilitado atrás de um proxy que
+expõe IPv6 ao origin.
+
+**Reachability, verificado diretamente:** `trustProxy` nunca é setado
+em nenhum lugar deste código (`grep -rn "trustProxy" src/` só encontra
+o comentário que MENCIONA a opção, nunca a define) — não explorável
+na configuração padrão deste repositório hoje. **Mas** torna-se
+explorável no momento em que um deployment real atrás de um CDN/load
+balancer (exatamente o cenário que qualquer deployment de produção
+real precisaria) habilitar `trustProxy`, derrotando silenciosamente a
+proteção de rate-limit que `/challenge`/`/authenticate` (RT-002) foram
+desenhados para fornecer.
+
+**Por que não foi corrigido nesta missão, confirmado empiricamente, não
+apenas por comentário herdado:** `app.ts`'s própria pin em `11.1.0`
+(não um range) já documentava, com evidência, que `11.2.0`'s
+`normalizeIP()` lança `TypeError: Cannot read properties of undefined
+(reading 'toLowerCase')` sempre que `request.ip` é `undefined` — o que
+acontece em todo WebSocket upgrade real sob `app.injectWS()`. **Esta
+missão reproduziu o exato mesmo crash de forma independente** (bumped
+para 11.2.0 primeiro, sem ler este comentário; 6 testes de "Pears
+relay" em `tests/routes.test.ts` falharam com o mesmo stack trace
+`normalizeIP → defaultKeyGenerator → applyRateLimit`; revertido para
+11.1.0, 134/134 passaram) — confirmação direta e independente de que o
+pin continua necessário, não apenas herdado.
+
+**Classificação:** NEEDS INVESTIGATION, não DEFER — diferente de um
+major de tooling qualquer, esta é uma vulnerabilidade real, já
+publicada, sem patch aplicável hoje sem quebrar WebSocket. **Fix
+restante (não tentado nesta missão — é trabalho de código de
+segurança de aplicação, fora do escopo de "repository hygiene"):**
+ou aguardar uma versão upstream que corrija ambos os problemas juntos,
+ou escrever um `keyGenerator` customizado que normalize IPv6
+manualmente enquanto permanece em `11.1.0` (o próprio advisory
+documenta esse workaround, mas o helper exportado `normalizeIP()` só
+existe a partir de `11.2.0` — um `keyGenerator` customizado precisaria
+reimplementar a normalização, não reusar o helper).
+
+### 46. Majors deliberadamente adiados por esta missão (Mission 9.10, 2026-09-01)
+
+Registrados, não implementados — nenhum critério do
+`docs/GITHUB_PROJECT.md`-equivalente "major upgrade" gate (segurança
+real / dependência de outra transição justificada / bloqueio de CI-
+segurança-confiabilidade / risco de migração baixo E redução material
+de débito) foi satisfeito para nenhum destes:
+
+- `@noble/curves`/`@noble/hashes` (root: 1.x→2.x; `packages/sails-ui`:
+  1.9.0→2.3.0) e `@bitcoinerlab/secp256k1` (1.x→2.x, `packages/sails-sdk`
+  + `examples/wallet-integration`) — Classe B (cripto). Achado real que
+  reduz o risco de uma futura investigação isolada: `packages/sails-sdk`
+  já roda em produção contra `@noble/curves@2.2.0` hoje (resolução real
+  do workspace, `npm ls` verificado) — o bump do root/UI para 2.3.0
+  convergiria versões já parcialmente em uso, não introduziria uma v2
+  inteiramente nova ao ecossistema. `multisig.provider.ts`/
+  `arbitration-authority.ts` (o caminho de assinatura real Mission13/M8/
+  M9) não importam nenhum destes pacotes diretamente — mas
+  `@bitcoinerlab/secp256k1` é importado diretamente pelos próprios
+  testes de integração reais desta suite (`m9fReleaseReorg.test.ts` e
+  irmãos), via hoisting da declaração do SDK — uma investigação futura
+  precisa rodar exatamente esses testes contra a v2 antes de aplicar.
+- `@scure/btc-signer` (`packages/sails-sdk`, 2.0.1→2.3.0) — adiado
+  junto com os nobles acima por acoplamento real (btc-signer v2.x
+  alveja noble-curves v2.x internamente); aplicar um sem o outro é o
+  próprio risco de inconsistência parcial que este item existe para
+  evitar.
+- `ioredis` (5.x→6.x) — Classe D, major real, não investigado a fundo
+  nesta missão (fora do orçamento).
+- `typescript` (5.9.3→7.0.2, pula a v6 inteira) — Classe E, mas com
+  blast radius total do repositório; exemplo nomeado explicitamente
+  pela própria missão como "não faça isso só porque existe."
+- Família Storybook (`@chromatic-com/storybook`, `@storybook/*`,
+  `@testing-library/jest-dom`, `@vitejs/plugin-react` em
+  `packages/sdk-react`, `jsdom`, `storybook`) — **achado real, não
+  apenas adiado por cautela:** o PR #39, como construído, bumpava
+  `@storybook/addon-a11y`/`addon-themes`/`react`/`react-vite` para v10
+  enquanto deixava `@storybook/addon-essentials`/`addon-interactions`/
+  `test` em v8 — Storybook exige versões major idênticas entre seus
+  próprios pacotes; mergeado como estava, isso quebraria o Storybook,
+  não apenas arriscaria quebrá-lo. Uma futura migração precisa mover
+  TODOS os pacotes `@storybook/*` juntos, na mesma major, nunca parcial.
+- `@qvac/sdk` (0.15.0→0.18.2) — pre-1.0, bump minor pode ser breaking;
+  ver item 47.
+- `next.js`/demais deps de `examples/sails-integration-starter` e
+  `examples/wallet-integration` (exceto o bitcoinerlab já listado acima)
+  — apps standalone isolados, deliberadamente fora do escopo desta
+  passada para manter o diff pequeno e diagnosticável.
+
+### 47. QVAC SDK — investigado, não aplicado (Mission 9.10, 2026-09-01)
+
+`@qvac/sdk` `0.15.0→0.18.2` (PR #39) não foi aplicado. Semver pre-1.0
+— um bump "minor" pode ser breaking pela própria convenção do
+ecossistema. `qvac-agent.provider.ts` mantém QVAC estritamente
+advisory-only onde autoridade de protocolo é exigida
+(`SEMANTIC_KERNEL.md` §16) — esta fronteira é imposta pelo código do
+próprio Sails (QVAC nunca é chamado em um caminho que trata sua
+resposta como autoridade), não por uma garantia do SDK, então um
+upgrade de versão não pode silenciosamente movê-la sozinho. Ainda
+assim, uma mudança de superfície de API entre 0.15→0.18 não foi
+auditada função a função nesta missão — registrado como trabalho
+futuro antes de aplicar, não como "seguro por design."
+
+### 48. `deepmerge-ts` — vulnerabilidade real, sem fix disponível, não explorável (Mission 9.10, 2026-09-01)
+
+`npm audit --omit=dev` aponta `deepmerge-ts@7.1.5 < 8.0.0`
+(GHSA-ggr8-5vv4-36mx, high, stack exhaustion em merge de grafos de
+objeto recursivos), puxado transitivamente por `prisma@7.10.0` →
+`@prisma/config@7.10.0`. `npm audit fix --force`'s própria sugestão é
+fazer DOWNGRADE do prisma inteiro para `6.12.0` — rejeitado
+explicitamente (regressão de major inteira, exatamente o tipo de
+"fix" automático que esta missão existe para não aceitar cegamente).
+Corresponde ao alerta Dependabot #73, historicamente
+`auto_dismissed` pelo GitHub, reintroduzido pela própria resolução do
+lockfile desta missão. **Classificação: não explorável** — `prisma`
+é uma ferramenta de CLI/dev, nunca processa grafo de objeto vindo de
+rede não confiável; `deepmerge-ts` aqui só processa os próprios
+arquivos de config/schema locais do desenvolvedor. Nenhum fix
+disponível upstream ainda; registrado, não corrigido.
+
+### 49. Nenhum workflow de CI buildava os pacotes do workspace antes dos testes (Mission 9.10, 2026-09-01)
+
+**Achado real, de terceira camada** — descoberto só depois que os dois
+fixes do item 44 deixaram os workflows reais avançarem o suficiente
+para alcançá-lo pela primeira vez, confirmando exatamente por que a
+missão instruiu "reproduza, não confie no diagnóstico anterior."
+
+Uma PR real (#40) rodando no GitHub Actions falhou com `TS2307: Cannot
+find module '@satsails/p2p-trading-sdk'` em ~29 suites, tanto em
+`ci.yml` (Node 20) quanto em `ci-tests.yml` (Node 24) — descartando
+uma causa específica de versão do Node. `packages/sails-sdk/package.json`
+aponta `"types": "dist/index.d.ts"` (`dist/` no `.gitignore`, nunca
+commitado). `jest.config.js`'s próprio `moduleNameMapper` (comentário
+já existente: "tests must not depend on packages/*/dist having been
+built first") só cobre a resolução em TEMPO DE EXECUÇÃO do Jest — a
+passada de diagnóstico do TypeScript dentro do `ts-jest` resolve
+módulos de forma independente, via `node_modules` → o symlink do
+workspace → o próprio campo `"types"` do pacote, exatamente como um
+consumidor real faria. Nenhum dos dois workflows nunca rodou
+`npm run build` antes dos testes.
+
+**Reproduzido localmente byte a byte, não assumido:** removido
+`packages/sails-sdk/dist` com cache do Jest limpo → erro idêntico;
+restaurado → passa. **Fix:** um step `Build workspace packages`
+(`npm run build -w @sails/core -w @satsails/p2p-schemas -w
+@satsails/p2p-trading-sdk`) adicionado a ambos os workflows, entre
+`Install dependencies` e `Generate Prisma Client`. Confirmado
+localmente com build genuinamente do zero (dist/ removido, cache do
+Jest limpo, suite completa rodada) antes de commitar. **Resultado
+real, verificado em PR #40:** de ~29 suites falhando para exatamente
+1 suite / 6 testes — ver item 50.
+
+### 50. `tests/settlementReadAccess.test.ts`'s bloco `/disputes/:id` — 6 testes falhavam de forma determinística no GitHub Actions real, não reproduzia localmente (Mission 9.10 → **FECHADO na Mission 9.10-R**, 2026-09-01)
+
+Achado durante a validação real do PR #40 (Mission 9.10), depois que os
+itens 44/49 já haviam fechado toda a quebra estrutural anterior. Não
+reproduzia localmente sob nenhuma condição testada naquele momento —
+único débito real, disclosed, deixado ABERTO ao final da Mission 9.10
+em vez de um fix às cegas.
+
+**Root cause real, isolado na Mission 9.10-R via diagnóstico temporário
+rodado em CI real** (não em teoria — `console.log` disclosed, pushado,
+lido do log real do GitHub Actions, removido antes do fix final):
+`TRUSTED_ARBITRATORS` nunca era setado em nenhum workflow. `config/
+index.ts` lê `process.env.TRUSTED_ARBITRATORS` uma única vez, no
+import do módulo; `dispute.service.ts`'s `getDisputeService()` é um
+singleton lazy que, na primeira tentativa de construção, lança
+`ValidationError('No trusted arbitrators configured')` se esse array
+estiver vazio — e continua lançando para toda chamada seguinte no
+mesmo worker, já que o singleton nunca constrói com sucesso. Isso
+explica por que os 6 testes falhavam identicamente (400) independente
+da identidade do chamador: nenhum chegava a alcançar a checagem de
+autorização. Localmente sempre foi mascarado por um `.env` gitignored
+(`TRUSTED_ARBITRATORS=k6-test-arbiter`) — daí não reproduzir.
+
+**Esta investigação revelou, em sequência, DUAS camadas adicionais do
+mesmo root cause — só visíveis depois que a camada anterior foi
+corrigida e o CI real avançou mais longe do que nunca antes ("cada
+falha corrigida pode revelar a falha que estava impedida de
+executar"):**
+1. `tests/settlementReadAccess.test.ts` — não setava a var (fix:
+   `process.env.TRUSTED_ARBITRATORS` explícito em `beforeAll`, antes
+   do `require('../src/app')` dinâmico, mesmo padrão já estabelecido
+   por `tests/cors.test.ts`). Commit `f399aaa`.
+2. Nem `ci.yml` nem `ci-tests.yml` jamais setavam
+   `TRUSTED_ARBITRATORS` como env de workflow — ~10 arquivos
+   `tests/integration/*.test.ts` assumiam o valor ambiente que todo
+   checkout local já provê via `.env`. Fix: `TRUSTED_ARBITRATORS:
+   k6-test-arbiter` adicionado a ambos os workflows, mesmo escopo de
+   `DATABASE_URL`.
+3. Esse fix (2) imediatamente expôs um TERCEIRO problema adjacente:
+   `tests/integration/escrowFundingConcurrency.test.ts` tinha sua
+   própria linha de default (`process.env.TRUSTED_ARBITRATORS =
+   process.env.TRUSTED_ARBITRATORS || 'funding-concurrency-test-
+   arbiter'`), que só disparava quando a var estava vazia — e uma
+   constante `ARBITER_ID` separada, hardcoded, com o MESMO literal,
+   que parou de bater assim que (2) passou a fornecer um valor
+   ambiente real. Fix: `ARBITER_ID` agora deriva de
+   `process.env.TRUSTED_ARBITRATORS` diretamente, eliminando a
+   segunda fonte de verdade. Commit `a92f812`.
+
+**Verificação real, não teórica:** cada uma das 3 camadas foi
+reproduzida localmente (falha causada deliberadamente, confirmada,
+depois corrigida e reconfirmada) antes do push. Regressão completa
+local limpa (unit: 147/147 suites, 1848/1848 testes; Postgres real:
+27/27 suites, 218/218 testes, contra containers Postgres genuinamente
+novos, nunca reaproveitados). PR #40 real no GitHub Actions: **CI** e
+**CI Tests** verdes **duas vezes consecutivas** no mesmo commit
+(`a92f812`, via `gh run rerun` independente) — não apenas uma
+execução isolada.
+
+**Classificação: débito FECHADO com causa raiz completa, não um
+"CI ficou verde" sem explicação.** Nenhum teste foi pulado, nenhum
+status code foi trocado para forçar passagem, nenhuma
+autorização foi enfraquecida, nenhum retry foi usado para mascarar
+falha determinística — ver Sacrifice Check da Mission 9.10-R.
 
 ## Ações Recomendadas por Prioridade
 
