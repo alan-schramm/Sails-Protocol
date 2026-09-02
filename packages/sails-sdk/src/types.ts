@@ -323,6 +323,16 @@ export interface Dispute {
   evidence: unknown[]
   arbiterId: string | null
   status: DisputeStatus
+  // M10 SDK Adapter — this is a convenience/current representation of
+  // the dispute's latest ruling, NOT authoritative historical semantic
+  // evidence. It reflects whatever the most recent appeal round decided
+  // and is silently overwritten across appeals. For the actual,
+  // attributed, historically-durable decision Core recorded for one
+  // specific appeal round — including evaluator/profile/ruleset
+  // identity, the signed attribution proof, and the full Outcome/
+  // DestinationBinding — use SailsSettlementModule.getSemanticRecord()
+  // instead. Do not treat this field as proof of what was decided; it
+  // is a display/legacy field only.
   ruling: DisputeRuling | null
   resolvedAt: string | null
   // RFC-021 D6 — appeal state.

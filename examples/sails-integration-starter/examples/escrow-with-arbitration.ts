@@ -143,7 +143,37 @@ async function main() {
   const finalEscrow = await sellerWallet.settlement.get(escrow.id)
   console.log(`    final escrow status: ${finalEscrow.status}, txReleaseId: ${finalEscrow.txReleaseId ?? '(none — MOCK provider)'}`)
 
-  console.log('\nDone — real dispute -> assign -> resolve -> release flow completed end-to-end.')
+  step('M10 SDK Adapter — read the historical semantic record for round 0 (getSemanticRecord)')
+  // This is a genuinely different question from `resolved.ruling` above
+  // (Dispute.ruling — a convenience/current field, see its own JSDoc in
+  // @satsails/p2p-trading-sdk). This is what Core's own frozen evaluators
+  // actually authorized for THIS specific appeal round, imported only
+  // through the public @satsails/p2p-trading-sdk package surface — never
+  // any internal backend or @sails/core path.
+  const semanticRecord = await buyerWallet.settlement.getSemanticRecord(dispute.id, 0)
+  console.log(`    conditionResult: ${semanticRecord.conditionResult} (the frozen four-state vocabulary — SATISFIED here, since a record only ever exists for an authorized decision)`)
+  console.log(`    evaluator: ${semanticRecord.evaluatorIdentity.name}@${semanticRecord.evaluatorIdentity.version}`)
+  console.log(`    profile:   ${semanticRecord.profileIdentity.name}@${semanticRecord.profileIdentity.version}`)
+  console.log(`    ruleset:   ${semanticRecord.rulesetIdentity.name}@${semanticRecord.rulesetIdentity.version}`)
+  if (semanticRecord.attribution) {
+    console.log(`    attributed to: ${semanticRecord.attribution.actor} (signature ${semanticRecord.attribution.signatureHex.slice(0, 16)}...)`)
+  }
+  if (semanticRecord.outcome) {
+    console.log(`    outcome: ruling=${semanticRecord.outcome.ruling} asset=${semanticRecord.outcome.asset} destinations=${JSON.stringify(semanticRecord.outcome.destinations)}`)
+  }
+
+  step('M10 SDK Adapter — a round with no decision yet is 404 (SailsNotFoundError), never conditionResult: "UNKNOWN"')
+  // Proves the two are structurally different facts: absence of a
+  // decision vs. an existing decision whose own evaluation was uncertain.
+  try {
+    await buyerWallet.settlement.getSemanticRecord(dispute.id, 99)
+    console.error('    unexpected: round 99 should not have a semantic record')
+  } catch (err) {
+    const name = err instanceof Error ? err.name : 'unknown'
+    console.log(`    round 99 correctly threw ${name} — absence is not the same fact as an uncertain ConditionResult`)
+  }
+
+  console.log('\nDone — real dispute -> assign -> resolve -> release -> read-semantic-record flow completed end-to-end.')
 }
 
 main().catch((err) => {
