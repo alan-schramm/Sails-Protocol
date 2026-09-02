@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Sails Protocol — Recovery Model",
+    "output": "recovery.workflow.html",
+    "quality_profile": "showcase",
+    "viewBox": [1006, 534],
+    "views": [
+      { "id": "recovery-function", "label": "RECOVERY = f(durable, external)", "focus": ["durable_facts", "external_facts", "recovery_fn"], "note": "Recovery reconstructs what should happen from durable authorized facts plus external settlement reality — it never re-derives authority." },
+      { "id": "converge-or-fail", "label": "Converge, dispatch once, or fail closed", "focus": ["ask_source", "converge", "dispatch_once", "fail_closed"], "note": "No authoritative source for a rail means fail closed — never a guess in either direction." }
+    ]
+  },
+  "lanes": [
+    { "id": "facts", "label": "Durable + External Facts" },
+    { "id": "recovery", "label": "Recovery Determination" },
+    { "id": "outcome", "label": "Outcome" }
+  ],
+  "phases": [
+    { "id": "inputs", "label": "Inputs", "fromCol": 0, "toCol": 1 },
+    { "id": "determine", "label": "Ask, never guess", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "resolve", "label": "Resolve", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["durable_facts", "recovery_fn", "ask_source", "converge"],
+  "nodes": [
+    { "id": "durable_facts", "lane": "facts", "col": 0, "type": "database", "label": "Durable Protocol Facts", "sublabel": "authorized Outcome + collected sigs", "width": 150 },
+    { "id": "external_facts", "lane": "facts", "col": 1, "type": "external", "label": "External Facts", "sublabel": "chain / rail observed state", "width": 150 },
+    { "id": "recovery_fn", "lane": "recovery", "col": 2, "type": "backend", "label": "Recovery Determination", "sublabel": "f(durable, external)", "tag": "not a state machine", "width": 150 },
+    { "id": "ask_source", "lane": "recovery", "col": 3, "type": "security", "label": "Authoritative Source?", "sublabel": "e.g. exact txid broadcast?", "width": 150 },
+    { "id": "converge", "lane": "outcome", "col": 3, "type": "backend", "label": "Converge", "sublabel": "observed truth, no new broadcast", "width": 150 },
+    { "id": "dispatch_once", "lane": "outcome", "col": 4, "type": "cloud", "label": "Dispatch Once", "sublabel": "funding still unspent", "width": 150 },
+    { "id": "fail_closed", "lane": "outcome", "col": 5, "type": "security", "label": "Fail Closed", "sublabel": "flag for manual review", "width": 150 }
+  ],
+  "edges": [
+    { "id": "durable-to-fn", "from": "durable_facts", "to": "recovery_fn", "variant": "emphasis" },
+    { "id": "external-to-fn", "from": "external_facts", "to": "recovery_fn", "variant": "emphasis" },
+    { "id": "fn-to-ask", "from": "recovery_fn", "to": "ask_source", "variant": "emphasis" },
+    { "id": "ask-to-converge", "from": "ask_source", "to": "converge", "label": "already broadcast", "variant": "emphasis" },
+    { "id": "ask-to-dispatch", "from": "ask_source", "to": "dispatch_once", "label": "funding unspent", "variant": "dashed" },
+    { "id": "ask-to-failclosed", "from": "ask_source", "to": "fail_closed", "label": "no authoritative source", "variant": "security", "role": "error" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "RECOVERY = f(durable, external)", "items": [
+      "No RecoveryStateMachine — reconciliation reads observed truth, it owns no state machine of its own",
+      "Recovery ≠ re-deciding authority — it reads the Outcome's own historically-bound facts, never whatever is currently registered"
+    ] },
+    { "dot": "rose", "title": "MULTISIG Only, Disclosed", "items": [
+      "The exact same combine/finalize logic a live dispatch already uses — never a second, independently-built implementation",
+      "No other rail has an equivalent authoritative-truth primitive yet — an anomaly (spent by something else) fails closed, moving no funds"
+    ] }
+  ]
+}

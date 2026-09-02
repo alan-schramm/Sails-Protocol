@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Sails Protocol — High-Level Architecture",
+    "output": "sails-high-level.architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/alan-schramm/Sails-Protocol",
+      "revision": "de2afb8a6aa38d0a1ac783f1ef55f4767312883b"
+    },
+    "views": [
+      { "id": "main-path", "label": "Semantic material to execution", "focus": ["modules", "core", "runtime", "providers"], "note": "Follow how ruleset meaning is evaluated, committed, and executed without ever being redefined downstream." },
+      { "id": "kernel-authority", "label": "Frozen identity vs. future profile", "focus": ["kernel", "profile", "core"], "note": "The Kernel is frozen and demonstrated; the Canonical Semantic Profile is architecturally required but not yet specified." },
+      { "id": "sdk-boundary", "label": "SDK read surface", "focus": ["runtime", "sdk_adapter", "integrator"], "note": "The SDK Adapter reads durable semantic records; it does not compute or infer them." }
+    ]
+  },
+  "components": [
+    { "id": "kernel", "type": "security", "label": "Semantic Kernel", "sublabel": "K1 · K2 · K3 — frozen identity", "pos": [40, 50], "size": [160, 72], "sources": [
+      { "path": "docs/SEMANTIC_KERNEL.md", "line": 63, "end_line": 104, "label": "K1/K2/K3" },
+      { "path": "docs/SEMANTIC_KERNEL.md", "line": 125, "end_line": 136, "label": "Kernel Equation" }
+    ] },
+    { "id": "profile", "type": "security", "label": "Canonical Semantic Profile", "sublabel": "future conformance artifact", "tag": "RESIDUAL — future", "pos": [40, 195], "size": [190, 68], "sources": [
+      { "path": "docs/CORE_ARCHITECTURE.md", "line": 374, "end_line": 390, "label": "§18 Canonical Semantic Profile" }
+    ] },
+    { "id": "modules", "type": "backend", "label": "Domain Modules / Rulesets", "sublabel": "domain rules + Outcome meaning", "pos": [230, 50], "size": [180, 72], "sources": [
+      { "path": "docs/CORE_ARCHITECTURE.md", "line": 224, "end_line": 235, "label": "§10 Module Boundary" }
+    ] },
+    { "id": "core", "type": "security", "label": "Pure Sails Core", "sublabel": "pure deterministic evaluator", "pos": [440, 50], "size": [150, 72], "sources": [
+      { "path": "docs/CORE_ARCHITECTURE.md", "line": 181, "end_line": 197, "label": "§8 Pure Core Boundary" }
+    ] },
+    { "id": "runtime", "type": "backend", "label": "Runtime", "sublabel": "commits, dispatches, recovers", "pos": [620, 50], "size": [170, 72], "sources": [
+      { "path": "docs/CORE_ARCHITECTURE.md", "line": 199, "end_line": 222, "label": "§9 Runtime Boundary" }
+    ] },
+    { "id": "providers", "type": "cloud", "label": "Providers", "sublabel": "execute, report back", "pos": [820, 50], "size": [150, 72], "sources": [
+      { "path": "docs/CORE_ARCHITECTURE.md", "line": 237, "end_line": 245, "label": "§11 Provider Boundary" }
+    ] },
+    { "id": "sdk_adapter", "type": "backend", "label": "Sails P2P Trading SDK", "sublabel": "read-only projection (HTTP)", "pos": [620, 195], "size": [170, 68], "sources": [
+      { "path": "src/modules/open-settlement/settlement.routes.ts", "line": 483, "end_line": 554, "label": "M10 semantic-record route" },
+      { "path": "packages/sails-sdk/src/modules/settlement.ts", "line": 408, "end_line": 412, "label": "getSemanticRecord()" }
+    ] },
+    { "id": "integrator", "type": "external", "label": "Integrator", "sublabel": "wallet apps, reference impl.", "pos": [620, 325], "size": [170, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Semantic Authority — defines meaning", "wraps": ["kernel", "profile", "modules", "core"], "pad": 20 },
+    { "kind": "region", "label": "Operational Authority — enforces commitment", "wraps": ["runtime", "sdk_adapter"], "pad": 20 },
+    { "kind": "security-group", "label": "Execution Authority — never defines validity", "wraps": ["providers"], "pad": 18 }
+  ],
+  "connections": [
+    { "id": "kernel-governs-modules", "from": "kernel", "to": "modules", "label": "bounds validity", "variant": "dashed", "fromSide": "right", "toSide": "left", "labelDy": 76 },
+    { "id": "kernel-requires-profile", "from": "kernel", "to": "profile", "label": "requires (future)", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "modules-to-core", "from": "modules", "to": "core", "label": "ruleset + Outcome meaning", "variant": "emphasis", "labelDy": 76 },
+    { "id": "core-to-runtime", "from": "core", "to": "runtime", "label": "Transition Record", "variant": "emphasis", "labelDy": 76 },
+    { "id": "runtime-to-providers", "from": "runtime", "to": "providers", "label": "dispatch (post-commit only)", "variant": "emphasis", "labelDy": 76 },
+    { "id": "providers-feedback-core", "from": "providers", "to": "core", "label": "execution-report Assertion", "variant": "dashed", "fromSide": "bottom", "toSide": "bottom", "via": [[895, 450], [515, 450]], "labelAt": [705, 456] },
+    { "id": "runtime-to-sdk", "from": "runtime", "to": "sdk_adapter", "label": "durable semantic record (read)", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "sdk-to-integrator", "from": "sdk_adapter", "to": "integrator", "label": "read-only HTTP projection", "fromSide": "bottom", "toSide": "top", "labelDy": 24 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Semantic Authority", "items": [
+      "Semantic Kernel (K1/K2/K3) is frozen and demonstrated across M0-M10",
+      "Canonical Semantic Profile is architecturally required but not yet specified — a disclosed residual, not a built layer",
+      "Pure Core evaluates under the Kernel; it never redefines what a Module's ruleset means"
+    ] },
+    { "dot": "emerald", "title": "Meaning vs. Execution", "items": [
+      "Upper layers may express protocol meaning. They may not redefine protocol meaning.",
+      "Runtime commits and dispatches; it never re-derives authority once fixed",
+      "Providers translate an authorized Outcome into mechanism-specific execution against chains, bank rails, and counterparties, and report back — a report is an Assertion, never world truth"
+    ] },
+    { "dot": "rose", "title": "SDK Adapter Boundary", "items": [
+      "The M10 read surface exposes authoritative, already-persisted semantic facts",
+      "It may not create, infer, recompute, or reinterpret them",
+      "Absence of a record is a distinct fact from a semantic UNKNOWN result"
+    ] }
+  ]
+}
