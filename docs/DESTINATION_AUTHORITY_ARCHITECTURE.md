@@ -58,9 +58,11 @@ signed `AuthorityDecisionPayload`, K2/`INV-12`) but no model at all for
 >
 > **Execution Authority / Settlement Key** — the capability to
 > mechanically construct, sign, and broadcast a transaction. Already
-> distinguished from both of the above by Mission13 (`arbitration-authority.ts`'s
-> own header: "decision authority ≠ execution authority ≠ settlement
-> key").
+> distinguished from both of the above by Mission13 — `arbitration-authority.ts`'s
+> own header states its security target as Target 1 (Verifiable
+> Attribution), never Target 2 (cryptographic prevention of
+> divergence), which is exactly this same distinction: decision
+> authority ≠ execution authority ≠ settlement key.
 
 These are three independent axes. A conformant system may satisfy all
 three with the same identity in a degenerate case (e.g. a single-party

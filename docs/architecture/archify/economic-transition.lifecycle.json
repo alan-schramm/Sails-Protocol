@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Sails Protocol — Economic Transition Lifecycle",
+    "output": "economic-transition.lifecycle.html",
+    "quality_profile": "showcase",
+    "viewBox": [980, 566],
+    "views": [
+      { "id": "happy-path", "label": "Condition to finality", "focus": ["condition_eval", "satisfied", "transition_authorized", "durable_record", "execution", "finality"], "note": "Follow a satisfied condition through to observed settlement." },
+      { "id": "condition-outcomes", "label": "The four ConditionResult states", "focus": ["condition_eval", "satisfied", "not_yet", "unknown", "unsatisfiable"], "note": "SATISFIED is only one of four semantically distinct outcomes — none is a default." },
+      { "id": "crash-recovery", "label": "Crash recovery converges, never guesses", "focus": ["execution", "recovery", "finality"], "note": "Recovery asks an authoritative external source; it never assumes an outcome happened." }
+    ]
+  },
+  "lanes": [
+    { "id": "main", "label": "Condition + Transition + Record" },
+    { "id": "secondary", "label": "Other Outcomes / Recovery / Observed" }
+  ],
+  "states": [
+    { "id": "condition_eval", "type": "decision", "label": "Evaluate", "sublabel": "vs ruleset + State", "lane": "main", "col": 0, "step": "01" },
+    { "id": "satisfied", "type": "active", "label": "SATISFIED", "sublabel": "holds now", "lane": "main", "col": 1, "step": "02" },
+    { "id": "transition_authorized", "type": "active", "label": "Transition OK", "sublabel": "K1 (+K2)", "lane": "main", "col": 2, "step": "03" },
+    { "id": "durable_record", "type": "active", "label": "Durable Record", "sublabel": "Record committed", "lane": "main", "col": 3, "step": "04", "tag": "terminal ≠ irreversible" },
+    { "id": "execution", "type": "active", "label": "Execution", "sublabel": "post-commit dispatch", "lane": "main", "col": 4, "step": "05" },
+    { "id": "not_yet", "type": "waiting", "label": "NOT_YET", "sublabel": "path open", "lane": "secondary", "col": 0, "yOffset": 0 },
+    { "id": "unknown", "type": "waiting", "label": "UNKNOWN", "sublabel": "no guarantee", "lane": "secondary", "col": 1, "yOffset": 0 },
+    { "id": "unsatisfiable", "type": "failure", "label": "UNSATISFIABLE", "sublabel": "cannot hold", "lane": "secondary", "col": 2, "yOffset": 0 },
+    { "id": "recovery", "type": "active", "label": "Recovery", "sublabel": "asks external truth", "lane": "secondary", "col": 0, "yOffset": 90, "tag": "or fail closed" },
+    { "id": "finality", "type": "success", "label": "Finality", "sublabel": "observed", "lane": "secondary", "col": 2, "yOffset": 90, "tag": "historical ≠ current" }
+  ],
+  "transitions": [
+    { "from": "condition_eval", "to": "satisfied", "variant": "emphasis", "route": "straight" },
+    { "from": "condition_eval", "to": "not_yet", "label": "NOT_YET_SATISFIED", "variant": "dashed", "route": "drop" },
+    { "from": "condition_eval", "to": "unknown", "label": "UNKNOWN", "variant": "dashed", "route": "drop" },
+    { "from": "condition_eval", "to": "unsatisfiable", "label": "UNSATISFIABLE", "variant": "security", "route": "drop" },
+    { "from": "not_yet", "to": "condition_eval", "variant": "dashed", "route": "drop" },
+    { "from": "satisfied", "to": "transition_authorized", "variant": "emphasis", "route": "straight" },
+    { "from": "transition_authorized", "to": "durable_record", "variant": "emphasis", "route": "straight" },
+    { "from": "durable_record", "to": "execution", "variant": "emphasis", "route": "straight" },
+    { "from": "execution", "to": "finality", "variant": "emphasis", "route": "right-channel", "channelX": 850, "fromSide": "right", "toSide": "right" },
+    { "from": "execution", "to": "recovery", "label": "crash mid-dispatch", "variant": "security", "fromSide": "right", "toSide": "top", "via": [[910, 157], [910, 350], [402, 350]], "labelDy": -34 },
+    { "from": "recovery", "to": "finality", "label": "converges to truth", "variant": "emphasis", "route": "straight" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Four Outcomes, Never a Default", "items": [
+      "UNKNOWN ≠ NOT_YET_SATISFIED: no guarantee the uncertainty resolves"
+    ] },
+    { "dot": "rose", "title": "Workflow Terminal ≠ Irreversible", "items": [
+      "A confirmed MULTISIG release can still be reorged out (TECHNICAL_DEBT_AUDIT.md #40)"
+    ] },
+    { "dot": "emerald", "title": "Historical ≠ Current Satisfaction", "items": [
+      "COMPLETED can coexist with a later REORGED_INVALIDATED event (TECHNICAL_DEBT_AUDIT.md #41)"
+    ] }
+  ]
+}

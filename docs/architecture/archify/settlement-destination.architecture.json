@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Sails Protocol — Settlement / Destination Authority",
+    "output": "settlement-destination.architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/alan-schramm/Sails-Protocol",
+      "revision": "de2afb8a6aa38d0a1ac783f1ef55f4767312883b"
+    },
+    "views": [
+      { "id": "translate-not-redefine", "label": "Translate, never redefine", "focus": ["authorized_outcome", "settlement_provider", "execution_attempt"], "note": "A provider translates an authorized Outcome into mechanism-specific execution — it cannot alter what was authorized." }
+    ]
+  },
+  "components": [
+    { "id": "authorized_outcome", "type": "security", "label": "Authorized Outcome", "sublabel": "meaning fixed before execution (K3)", "pos": [30, 60], "size": [180, 72], "sources": [
+      { "path": "docs/CORE_ARCHITECTURE.md", "line": 451, "end_line": 466, "label": "§22 Outcome Semantics" }
+    ] },
+    { "id": "destination_authority", "type": "external", "label": "Destination Authority", "sublabel": "beneficiary's own (commit-time)", "pos": [235, 60], "size": [180, 72], "sources": [
+      { "path": "docs/DESTINATION_AUTHORITY_ARCHITECTURE.md", "line": 45, "end_line": 78, "label": "§3 The Distinction" }
+    ] },
+    { "id": "settlement_provider", "type": "cloud", "label": "Settlement Provider", "sublabel": "Multisig, Lightning HODL, Safe-Guard EVM", "pos": [440, 60], "size": [180, 72], "sources": [
+      { "path": "docs/CORE_ARCHITECTURE.md", "line": 237, "end_line": 245, "label": "§11 Provider Boundary" }
+    ] },
+    { "id": "execution_attempt", "type": "backend", "label": "Execution Attempt", "sublabel": "translate + dispatch, never redefine", "pos": [645, 60], "size": [180, 72], "sources": [
+      { "path": "docs/DESTINATION_AUTHORITY_ARCHITECTURE.md", "line": 307, "end_line": 316, "label": "§13 Timing / State Policy" }
+    ] },
+    { "id": "external_observation", "type": "database", "label": "External Observation", "sublabel": "chain / rail confirms or diverges", "pos": [850, 60], "size": [180, 72], "sources": [
+      { "path": "docs/CORE_ARCHITECTURE.md", "line": 480, "end_line": 491, "label": "§24 Execution Correspondence" }
+    ] }
+  ],
+  "connections": [
+    { "id": "outcome-to-destination", "from": "authorized_outcome", "to": "destination_authority", "label": "snapshot beneficiary's own destination", "variant": "emphasis", "labelDy": 76 },
+    { "id": "destination-to-provider", "from": "destination_authority", "to": "settlement_provider", "label": "binds destination (never re-derived)", "variant": "emphasis", "labelDy": 76 },
+    { "id": "provider-to-execution", "from": "settlement_provider", "to": "execution_attempt", "label": "translate to mechanism terms", "variant": "emphasis", "labelDy": 76 },
+    { "id": "execution-to-observation", "from": "execution_attempt", "to": "external_observation", "label": "dispatch", "variant": "emphasis", "labelDy": 76 },
+    { "id": "observation-feedback", "from": "external_observation", "to": "execution_attempt", "label": "execution-report Assertion", "variant": "dashed", "fromSide": "top", "toSide": "top", "via": [[940, 10], [735, 10]], "labelAt": [835, 4] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Destination Authority ≠ Settlement Key", "items": [
+      "Destination Authority is the beneficiary's own authority over where their entitlement is delivered (INV-01)",
+      "Execution Authority / Settlement Key is only the capability to construct, sign, and broadcast — a separate axis"
+    ] },
+    { "dot": "rose", "title": "Authority ≠ Execution", "items": [
+      "During recovery, execution reads the Outcome's own historically-bound destination — never whatever is currently registered",
+      "Providers may not invent discretionary authority or redefine an authorized Outcome's meaning — the same rule covers a manually-triggered dispatch: initiating a call is not economic authority"
+    ] },
+    { "dot": "emerald", "title": "Report ≠ Truth", "items": [
+      "An execution report is an Assertion, never world truth — Core may find correspondence, never certify the external world behaved as claimed"
+    ] }
+  ]
+}

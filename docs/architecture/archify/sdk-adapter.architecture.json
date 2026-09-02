@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Sails Protocol — SDK Adapter Boundary",
+    "output": "sdk-adapter.architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/alan-schramm/Sails-Protocol",
+      "revision": "de2afb8a6aa38d0a1ac783f1ef55f4767312883b"
+    },
+    "views": [
+      { "id": "read-not-recompute", "label": "Expose, never recompute", "focus": ["durable_record", "read_projection"], "note": "Every field is a direct, unmodified read of a persisted column — no branching that could alter meaning." }
+    ]
+  },
+  "components": [
+    { "id": "core_eval", "type": "security", "label": "Core Evaluation", "sublabel": "K1/K2/K3 produce Transition Record", "pos": [20, 60], "size": [165, 72], "sources": [
+      { "path": "docs/CORE_ARCHITECTURE.md", "line": 421, "end_line": 437, "label": "§20 Transition Record" }
+    ] },
+    { "id": "durable_record", "type": "database", "label": "Durable Semantic Record", "sublabel": "SemanticTransitionRecord columns", "pos": [210, 60], "size": [165, 72], "sources": [
+      { "path": "src/modules/open-settlement/settlement.routes.ts", "line": 544, "end_line": 554, "label": "direct column reads" }
+    ] },
+    { "id": "read_projection", "type": "backend", "label": "Read-Only Projection", "sublabel": "loadDisputeRulingRecord()", "pos": [400, 60], "size": [165, 72], "sources": [
+      { "path": "src/modules/open-settlement/settlement.routes.ts", "line": 483, "end_line": 520, "label": "M10 route rationale" }
+    ] },
+    { "id": "http_boundary", "type": "cloud", "label": "HTTP Boundary", "sublabel": "GET .../semantic-record", "pos": [590, 60], "size": [165, 72], "sources": [
+      { "path": "src/modules/open-settlement/settlement.routes.ts", "line": 521, "end_line": 526, "label": "route + authorization" }
+    ] },
+    { "id": "sdk", "type": "backend", "label": "Sails P2P Trading SDK", "sublabel": "getSemanticRecord()", "pos": [780, 60], "size": [165, 72], "sources": [
+      { "path": "packages/sails-sdk/src/modules/settlement.ts", "line": 408, "end_line": 412, "label": "SDK method" }
+    ] },
+    { "id": "integrator", "type": "external", "label": "Integrator", "sublabel": "trade parties only", "pos": [970, 60], "size": [165, 72] }
+  ],
+  "connections": [
+    { "id": "core-to-record", "from": "core_eval", "to": "durable_record", "label": "commit (never re-derived later)", "variant": "emphasis", "labelDy": 76 },
+    { "id": "record-to-projection", "from": "durable_record", "to": "read_projection", "label": "direct column read", "variant": "emphasis", "labelDy": 76 },
+    { "id": "projection-to-http", "from": "read_projection", "to": "http_boundary", "label": "200 body / 404 absence", "variant": "emphasis", "labelDy": 76 },
+    { "id": "http-to-sdk", "from": "http_boundary", "to": "sdk", "label": "typed response", "variant": "emphasis", "labelDy": 76 },
+    { "id": "sdk-to-integrator", "from": "sdk", "to": "integrator", "label": "read-only", "variant": "emphasis", "labelDy": 76 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "May Expose, May Not Create", "items": [
+      "The read surface may expose authoritative, already-persisted semantic facts",
+      "It may not create, infer, recompute, reinterpret, or mutate them — every field is a direct column read"
+    ] },
+    { "dot": "rose", "title": "Absence ≠ UNKNOWN", "items": [
+      "404 (no record for this escrowId+appealRound) is structurally different from conditionResult: UNKNOWN inside a 200 body",
+      "One means this decision was never made; the other means Core's own evaluation was itself uncertain"
+    ] },
+    { "dot": "emerald", "title": "Known Residual", "items": [
+      "Correspondence Canonical Read Semantics is not exposed through this SDK — multiple legitimate CorrespondenceEvaluation rows can exist per round with no selection rule invented here"
+    ] }
+  ]
+}

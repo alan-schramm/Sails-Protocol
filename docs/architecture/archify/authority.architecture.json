@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Sails Protocol — Authority Architecture",
+    "output": "authority.architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/alan-schramm/Sails-Protocol",
+      "revision": "de2afb8a6aa38d0a1ac783f1ef55f4767312883b"
+    },
+    "views": [
+      { "id": "mission13-triple", "label": "Decision, destination, execution", "focus": ["destination_authority", "economic_disposition", "execution_authority"], "note": "The three axes Mission13/M8.5 established as independent — never required to coincide." },
+      { "id": "m10-extension", "label": "Economic vs. information access", "focus": ["economic_disposition", "information_access"], "note": "The M10 SDK Adapter's own finding: who decided is distinct from who may read about it." }
+    ]
+  },
+  "components": [
+    { "id": "destination_authority", "type": "external", "label": "Destination Authority", "sublabel": "who decided where — beneficiary's own", "pos": [40, 60], "size": [190, 76], "sources": [
+      { "path": "docs/DESTINATION_AUTHORITY_ARCHITECTURE.md", "line": 51, "end_line": 57, "label": "§3 Destination Authority" }
+    ] },
+    { "id": "economic_disposition", "type": "security", "label": "Economic Disposition", "sublabel": "authority — who decided how much (K1/K2)", "pos": [260, 60], "size": [190, 76], "sources": [
+      { "path": "docs/DESTINATION_AUTHORITY_ARCHITECTURE.md", "line": 47, "end_line": 49, "label": "§3 Economic Disposition Authority" }
+    ] },
+    { "id": "execution_authority", "type": "backend", "label": "Execution Authority", "sublabel": "settlement key — construct, sign, broadcast", "pos": [480, 60], "size": [190, 76], "sources": [
+      { "path": "docs/DESTINATION_AUTHORITY_ARCHITECTURE.md", "line": 59, "end_line": 63, "label": "§3 Execution Authority / Settlement Key" },
+      { "path": "src/modules/open-settlement/arbitration-authority.ts", "line": 14, "end_line": 23, "label": "Target 1 — verifiable attribution" }
+    ] },
+    { "id": "information_access", "type": "database", "label": "Information Access", "sublabel": "authority — who may read the record (M10)", "pos": [700, 60], "size": [190, 76], "sources": [
+      { "path": "src/modules/open-settlement/settlement.routes.ts", "line": 502, "end_line": 520, "label": "M10 authorization rationale" }
+    ] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Four independent axes — never required to coincide", "wraps": ["destination_authority", "economic_disposition", "execution_authority", "information_access"], "pad": 22 }
+  ],
+  "connections": [
+    { "id": "destination-ne-economic", "from": "destination_authority", "to": "economic_disposition", "label": "≠ never inferred from", "variant": "dashed", "labelDy": 76 },
+    { "id": "economic-ne-execution", "from": "economic_disposition", "to": "execution_authority", "label": "≠ decision ≠ execution ≠ key", "variant": "dashed", "labelDy": 76 },
+    { "id": "economic-ne-information", "from": "economic_disposition", "to": "information_access", "label": "≠ economic authority ≠ information access", "variant": "dashed", "fromSide": "bottom", "toSide": "bottom", "via": [[355, 220], [795, 220]], "labelAt": [575, 226] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Never Collapsed (Mission13 / M8.5)", "items": [
+      "DECISION AUTHORITY ≠ EXECUTION AUTHORITY ≠ SETTLEMENT KEY",
+      "An arbiter entitled to rule \"buyer receives 70%\" has never been shown authority over where the buyer receives it",
+      "Independent means never required to coincide — not that they must always differ"
+    ] },
+    { "dot": "rose", "title": "M10 Extension — Information Access", "items": [
+      "Economic authority (who decided this) and information access authority (who may read about it) are distinct — the M10 read route never conflates them",
+      "The current historical semantic-record route authorizes trade parties only, deliberately narrower than current dispute access",
+      "Historical Arbiter Read Access Policy remains an explicit, undecided residual — not invented here"
+    ] },
+    { "dot": "emerald", "title": "Related, Not Redrawn Here — Outcome ≠ Execution Instance", "items": [
+      "An Outcome's meaning is fixed before execution (CORE_ARCHITECTURE.md §22)",
+      "A provider execution report is an Assertion, never world truth (§24) — Core may find correspondence, never establish the external world definitely behaved as claimed",
+      "This is a separate distinction from the four authority axes above, governing the same Provider boundary"
+    ] }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Sails Protocol — Dispute / Attributed Authority Sequence",
+    "output": "dispute-authority.sequence.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [920, 520],
+    "views": [
+      { "id": "signed-decision", "label": "Ruling to attributed record", "focus": ["arbiter", "dispute_svc", "core", "db"], "note": "The arbiter's ruling is signed and bound to this exact interaction and transition before Core ever evaluates it." },
+      { "id": "settlement", "label": "Authorized Outcome to execution", "focus": ["core", "settlement", "db"], "note": "Core hands Runtime a fixed Outcome; execution translates it, never redefines it." },
+      { "id": "independent-verify", "label": "SDK read for independent verification", "focus": ["parties", "sdk", "db"], "note": "A party reads the durable record and can check the signature independently of the server's own database." }
+    ]
+  },
+  "participants": [
+    { "id": "parties", "type": "external", "label": "Trade Parties", "sublabel": "buyer / seller" },
+    { "id": "dispute_svc", "type": "backend", "label": "Dispute Svc", "sublabel": "dispute.service.ts" },
+    { "id": "arbiter", "type": "external", "label": "Arbiter", "sublabel": "assigned this round" },
+    { "id": "core", "type": "security", "label": "Pure Core", "sublabel": "K1 + K2 evaluation" },
+    { "id": "db", "type": "database", "label": "Durable Record", "sublabel": "Transition Record" },
+    { "id": "settlement", "type": "cloud", "label": "Settlement", "sublabel": "provider dispatch" },
+    { "id": "sdk", "type": "backend", "label": "SDK Adapter", "sublabel": "M10 read route" }
+  ],
+  "segments": [
+    { "from": 150, "to": 250, "label": "Ruling + Signed Attribution" },
+    { "from": 260, "to": 345, "label": "Evaluation + Settlement" },
+    { "from": 355, "to": 435, "label": "Independent Read" }
+  ],
+  "messages": [
+    { "id": "raise-dispute", "from": "parties", "to": "dispute_svc", "y": 185, "label": "raise dispute", "variant": "default" },
+    { "id": "signed-ruling", "from": "arbiter", "to": "dispute_svc", "y": 213, "label": "signed ruling (Ed25519)", "variant": "security" },
+    { "id": "evaluate", "from": "dispute_svc", "to": "core", "y": 241, "label": "evaluate (K2 attribution)", "variant": "emphasis" },
+    { "id": "commit-record", "from": "core", "to": "db", "y": 269, "label": "commit Record (sig. verified)", "variant": "emphasis" },
+    { "id": "authorize-outcome", "from": "core", "to": "settlement", "y": 300, "label": "authorized Outcome", "variant": "emphasis" },
+    { "id": "exec-report", "from": "settlement", "to": "db", "y": 330, "label": "execution-report Assertion", "variant": "dashed" },
+    { "id": "get-record", "from": "parties", "to": "sdk", "y": 365, "label": "GET semantic-record", "variant": "default" },
+    { "id": "load-record", "from": "sdk", "to": "db", "y": 393, "label": "loadDisputeRulingRecord()", "variant": "default" },
+    { "id": "return-record", "from": "sdk", "to": "parties", "y": 421, "label": "200 record", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "dispute_svc", "from": 180, "to": 246, "type": "backend" },
+    { "participant": "core", "from": 236, "to": 305, "type": "security" },
+    { "participant": "settlement", "from": 295, "to": 335, "type": "cloud" },
+    { "participant": "sdk", "from": 360, "to": 426, "type": "backend" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Attributed, Not Inferred", "items": [
+      "Verified against the arbiter's own registered key — K2"
+    ] },
+    { "dot": "rose", "title": "Decision ≠ Execution ≠ Key", "items": [
+      "The arbiter never holds settlement keys via decision authority alone"
+    ] },
+    { "dot": "emerald", "title": "Target 1, Not Target 2", "items": [
+      "Divergence is detectable, not cryptographically impossible"
+    ] }
+  ]
+}
