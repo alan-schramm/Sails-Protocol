@@ -104,6 +104,58 @@ export function hashAuthorityDecision(payload: AuthorityDecisionInput): Uint8Arr
   return sha256(utf8ToBytes(canonicalizeAuthorityDecision(payload)));
 }
 
+/**
+ * M10 SDK Adapter — the frozen four-state condition vocabulary
+ * (`packages/sails-core/src/condition-result.ts`, internal/unpublished).
+ * This is a structural, string-for-string mirror declared here in the
+ * public SDK — never an import of `@sails/core` itself, which remains
+ * internal and unpublished (docs/CORE_IMPLEMENTATION_ARCHITECTURE.md
+ * §18). The wire format crossing HTTP is just these four strings, so
+ * this type faithfully represents what the server actually returns
+ * without creating any dependency on the Core package.
+ */
+export type ConditionResult = "SATISFIED" | "NOT_YET_SATISFIED" | "UNSATISFIABLE" | "UNKNOWN";
+
+export interface SemanticIdentity {
+  name: string;
+  version: string;
+}
+
+/** ArbitrationOutcomeContent + destinations, field-complete — see economic-outcome.ts server-side. */
+export interface DisputeRulingOutcome {
+  ruling: AuthorityDecisionOutcome;
+  totalUnits: string;
+  asset: string;
+  allocations: { beneficiary: string; basisPoints: number }[];
+  remainderBeneficiary: string;
+  destinations: { beneficiary: string; destination: string }[];
+}
+
+export interface DisputeRulingAttribution {
+  actor: string;
+  /** Hex-encoded raw signature — the same value canonicalizeAuthorityDecision()/hashAuthorityDecision() produce the signable digest for. Preserved (not hidden) so a caller can independently re-verify it — see this module's own resolveDisputeWithWallet(). */
+  signatureHex: string;
+  resolvedIdentityReference: string | null;
+}
+
+/**
+ * M10 SDK Adapter — the historical semantic record for one dispute's
+ * specific appeal round, as Core's own frozen evaluators actually
+ * authorized it. See SailsSettlementModule.getSemanticRecord()'s own
+ * header comment for the full contract.
+ */
+export interface DisputeRulingSemanticRecord {
+  disputeId: string;
+  escrowId: string;
+  appealRound: number;
+  rulesetIdentity: SemanticIdentity;
+  evaluatorIdentity: SemanticIdentity;
+  profileIdentity: SemanticIdentity;
+  conditionResult: ConditionResult;
+  attribution: DisputeRulingAttribution | null;
+  outcome: DisputeRulingOutcome | null;
+}
+
 export interface ArbiterProfile {
   participantId: string;
   monetaryCollateral: string;
@@ -316,6 +368,50 @@ export class SailsSettlementModule {
     return this.transport.get<Dispute>(
       `/v1/settlement/disputes/${disputeId}`,
       undefined,
+      true,
+    );
+  }
+
+  /**
+   * M10 SDK Adapter — the historical semantic read surface. Answers
+   * "what did Core actually authorize for this dispute's specific
+   * appeal round," not "what is the dispute's current state"
+   * (`getDispute()` above — see `Dispute.ruling`'s own JSDoc for why
+   * that field is a convenience/current representation only).
+   * `appealRound` is required and never defaulted, matching the
+   * server route's own deliberate choice not to guess which historical
+   * round a caller means.
+   *
+   * Throws `SailsNotFoundError` when no semantic record exists for this
+   * `(disputeId, appealRound)` pair. This is DELIBERATELY distinguishable
+   * from `conditionResult: 'UNKNOWN'`, which only ever appears inside a
+   * successful response for a record that DOES exist — never treat a
+   * `SailsNotFoundError` here as equivalent to an `UNKNOWN` condition
+   * result; they answer different questions ("does a decision exist"
+   * vs. "was Core's own evaluation of it certain").
+   *
+   * Authorized readers: the trade's buyer or seller only — narrower
+   * than `getDispute()`. Neither the dispute's current arbiter nor the
+   * specific historical actor who made this decision receives implicit
+   * read access here; see the server route's own comment
+   * (`settlement.routes.ts`) for why — economic authority to decide is
+   * a different question from information-access authority to read
+   * about the decision, and this is currently an open policy question,
+   * not silently resolved either way.
+   *
+   * This method performs zero interpretation: it returns exactly what
+   * the server's authoritative record contains, unmodified. It never
+   * evaluates, infers, or reconstructs protocol meaning — the actual
+   * evaluators live in `@sails/core` (internal, unpublished, never
+   * imported by this SDK).
+   */
+  async getSemanticRecord(
+    disputeId: string,
+    appealRound: number,
+  ): Promise<DisputeRulingSemanticRecord> {
+    return this.transport.get<DisputeRulingSemanticRecord>(
+      `/v1/settlement/disputes/${disputeId}/semantic-record`,
+      { appealRound },
       true,
     );
   }

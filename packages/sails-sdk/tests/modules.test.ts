@@ -844,6 +844,50 @@ describe('SailsSettlementModule — RFC-021 settlement gaps', () => {
     expect(url).toBe('http://localhost:3000/v1/settlement/disputes/dispute-1')
     expect(init.headers.authorization).toBe('Bearer session-abc')
   })
+
+  // M10 SDK Adapter — item 15 of the required implementation tests:
+  // proves the SDK returns the server's semantic representation
+  // verbatim, with zero recomputation/reinterpretation. The mocked
+  // server body deliberately includes an UNSATISFIABLE conditionResult
+  // and a null attribution/outcome (a shape no real endpoint returns
+  // for a genuine ruling, but exactly the kind of edge case that would
+  // reveal if the SDK were silently normalizing "falsy" fields away) —
+  // asserting a byte-exact match proves getSemanticRecord() performs no
+  // interpretation at all, only transport.
+  it('getSemanticRecord() hits GET .../semantic-record?appealRound=N WITH auth, and returns the server body byte-exact (no recomputation)', async () => {
+    const serverBody = {
+      disputeId: 'dispute-1',
+      escrowId: 'escrow-1',
+      appealRound: 2,
+      rulesetIdentity: { name: 'sails-mission13-dispute-ruling-ruleset', version: '1.0' },
+      evaluatorIdentity: { name: 'sails-attribution-evaluator', version: '1.0' },
+      profileIdentity: { name: 'sails-semantic-profile', version: '1.0' },
+      // Deliberately UNSATISFIABLE, not the "happy path" SATISFIED — if
+      // the SDK ever collapsed this to a falsy/generic value, this
+      // assertion would catch it.
+      conditionResult: 'UNSATISFIABLE',
+      // Deliberately null, not omitted — proves the SDK doesn't
+      // silently coerce null into undefined, an empty object, or throw.
+      attribution: null,
+      outcome: null,
+    }
+    const fetchImpl = fakeFetch(200, { success: true, data: serverBody })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    const result = await settlement.getSemanticRecord('dispute-1', 2)
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/disputes/dispute-1/semantic-record?appealRound=2')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(result).toEqual(serverBody)
+  })
+
+  it('getSemanticRecord() throws SailsNotFoundError on a 404 — never returns a fabricated record or conditionResult: UNKNOWN', async () => {
+    const fetchImpl = fakeFetch(404, { success: false, error: 'NOT_FOUND', message: 'semantic record for dispute dispute-1 not found: appealRound=5' })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    await expect(settlement.getSemanticRecord('dispute-1', 5)).rejects.toMatchObject({ name: 'SailsNotFoundError' })
+  })
 })
 
 describe('SailsOpenP2PModule — reconcileTrade()', () => {

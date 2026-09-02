@@ -12,6 +12,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { escrowService } from './escrow.service'
 import { getDisputeService } from './dispute.service'
+import { loadDisputeRulingRecord } from './dispute-outcome'
 import { marketArbitrationProvider } from './market-arbitration.provider'
 import { paymentAccountService } from './payment-account.service'
 import { payoutAddressService } from './payout-address.service'
@@ -20,7 +21,7 @@ import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { createSharedRateLimit } from '../../common/middleware/redis-rate-limit'
 import { config } from '../../config'
-import { ForbiddenError } from '../../common/errors'
+import { ForbiddenError, NotFoundError } from '../../common/errors'
 import { docsOnlySchema } from '../../common/openapi'
 import { MAX_PAGE_LIMIT } from '../../common/pagination'
 import { positiveDecimalString } from '../../common/validation'
@@ -163,6 +164,16 @@ const setPayoutAddressSchema = z.object({
 const disputeListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+})
+
+// M10 SDK Adapter — GET .../semantic-record. appealRound is REQUIRED
+// (never defaulted to the dispute's current round): this route answers
+// "what did Core authorize for THIS specific historical appeal round,"
+// a structurally different question from "what is the dispute's ruling
+// right now" (GET .../disputes/:id above). Defaulting would silently
+// conflate the two — see this route's own header comment below.
+const semanticRecordQuerySchema = z.object({
+  appealRound: z.coerce.number().int().min(0),
 })
 
 const arbiterProfileParamsSchema = z.object({ participantId: z.string().min(1) })
@@ -467,6 +478,97 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
       throw new ForbiddenError(`${callerId} is not authorized to view dispute ${id}`)
     }
     return reply.code(200).send(success(dispute))
+  })
+
+  // M10 SDK Adapter — historical semantic read surface, DELIBERATELY
+  // separate from the route above. GET /disputes/:id answers "what is
+  // this dispute's current, legacy-shaped state" (Dispute.ruling is a
+  // convenience/current field, never authoritative historical semantic
+  // evidence — see Dispute.ruling's own JSDoc in
+  // packages/sails-sdk/src/types.ts). THIS route answers "what did
+  // Core's own frozen evaluators actually authorize for one specific,
+  // named historical appeal round" — reading the durable
+  // SemanticTransitionRecord `dispute-outcome.ts`'s existing, already-
+  // tested `loadDisputeRulingRecord()` already knows how to fetch.
+  //
+  // Deliberately does NOT route through `fromDisputeRulingRow()`
+  // (dispute-outcome.ts) — that function substitutes the CURRENT
+  // in-memory DISPUTE_RULING_RULESET constant for rulesetRef instead of
+  // reading the row's own persisted rulesetIdentity/Version/Commitment
+  // columns. This route reads those persisted columns directly, so a
+  // future change to the in-memory constant can never silently alter
+  // what a past record is reported to have used.
+  //
+  // Authorization: parties (buyer/seller) ONLY — narrower than
+  // /disputes/:id above. Real, evidenced reasons, not an oversight:
+  //   1. dispute.arbiterId is CURRENT-round only (dispute.service.ts's
+  //      appeal() reassigns it — the prior arbiter moves to
+  //      previousArbiterId). Reusing it here would authorize whoever
+  //      currently holds the role for a historical round they may have
+  //      had no part in, while excluding the actor who actually decided
+  //      it. Economic authority (who decided this) and information
+  //      access authority (who may read about it) are distinct — this
+  //      route never conflates them.
+  //   2. Whether the ACTOR who actually decided this specific historical
+  //      round (row.attributionActor) should retain a narrow read right
+  //      to just that record is a real, open question — no existing
+  //      route/test/RFC in this codebase grants a past arbiter ANY
+  //      access once reassigned (previousArbiterId is used only for
+  //      slashing, never for reads; listForArbiter() itself excludes a
+  //      reassigned-away arbiter from even seeing the dispute exists).
+  //      Registered as an explicit residual (Historical Arbiter Read
+  //      Access Policy) rather than invented here either way.
+  app.get('/v1/settlement/disputes/:id/semantic-record', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, querystring: semanticRecordQuerySchema }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    const { appealRound } = semanticRecordQuerySchema.parse(request.query)
+    const callerId = participantId(request)
+    const dispute = await getDisputeService().getDispute(id)
+    const trade = await tradeService.getTrade(dispute.tradeId)
+    const isParty = callerId === trade.buyerId || callerId === trade.sellerId
+    if (!isParty) {
+      throw new ForbiddenError(`${callerId} is not authorized to view the semantic record for dispute ${id}`)
+    }
+    const record = await loadDisputeRulingRecord(dispute.escrowId, appealRound)
+    if (!record) {
+      // Absence, not uncertainty. 404 must never be reachable from
+      // anything a caller could mistake for `conditionResult: 'UNKNOWN'`
+      // — that value only ever appears INSIDE a 200 body, for a record
+      // that exists and whose own Core evaluation was itself uncertain.
+      // No record for this (escrowId, appealRound) is a structurally
+      // different fact: this decision was never made (yet, or at all).
+      throw new NotFoundError(`semantic record for dispute ${id}`, `appealRound=${appealRound}`)
+    }
+    // Every field below is a direct, unmodified read of a persisted
+    // column — no branching that could alter meaning, no recomputation.
+    // The actual (never merely expected) evaluator/profile identity —
+    // rulesetExpectedEvaluatorName/Version and rulesetExpectedProfileName/
+    // Version exist as SEPARATE columns on this same row and are never
+    // read here.
+    return reply.code(200).send(success({
+      disputeId: id,
+      escrowId: record.interactionId,
+      appealRound: record.appealRound,
+      rulesetIdentity: { name: record.rulesetIdentity, version: record.rulesetVersion },
+      evaluatorIdentity: { name: record.evaluatorIdentityName, version: record.evaluatorIdentityVersion },
+      profileIdentity: { name: record.profileIdentityName, version: record.profileIdentityVersion },
+      conditionResult: record.conditionResult,
+      attribution: record.attributionActor
+        ? {
+            actor: record.attributionActor,
+            signatureHex: record.attributionRawProof,
+            resolvedIdentityReference: record.attributionResolvedIdentity,
+          }
+        : null,
+      outcome: record.outcomeContent
+        ? {
+            ...(record.outcomeContent as object),
+            destinations: record.outcomeDestinationBinding ?? [],
+          }
+        : null,
+    }))
   })
 
   // Not yet in API_REFERENCE.md's section 4 table — added alongside this

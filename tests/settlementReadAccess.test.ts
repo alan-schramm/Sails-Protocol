@@ -70,6 +70,71 @@ const PENDING_TX_ROW = {
 }
 const RELEASE_APPROVAL_ROWS = [{ id: 'approval-1', escrowId: ESCROW_ID, participantId: BUYER_ID, approvedAt: new Date() }]
 
+// M10 SDK Adapter fixtures — GET .../semantic-record. Deliberately
+// picks values that DIFFER from both the "expected" ruleset columns
+// (rulesetExpectedEvaluatorName/Version) and from the real, current
+// in-memory DISPUTE_RULING_RULESET constant (packages'
+// dispute-outcome.ts: version '1.0') — so a test asserting the
+// response matches THESE fixture values, not the constant's or the
+// "expected" columns', proves the route reads actual/persisted data,
+// never the current constant or the merely-expected identity.
+const SEMANTIC_RECORD_ROUND_0 = {
+  id: 'str-round-0',
+  interactionId: ESCROW_ID,
+  transitionType: 'ESCROW_DISPUTE_RULING',
+  fromState: 'DISPUTED',
+  toState: 'RESOLVED',
+  priorPositionKind: 'LEGACY_UNVERIFIED',
+  priorPositionReference: null,
+  rulesetName: 'Sails Mission13 Dispute Ruling Ruleset',
+  rulesetIdentity: 'sails-mission13-dispute-ruling-ruleset',
+  // Deliberately NOT '1.0' (the current DISPUTE_RULING_RULESET
+  // constant's real version) — proves the route reads the persisted
+  // column, not the constant.
+  rulesetVersion: '0.9-HISTORICAL',
+  rulesetCommitment: 'sails-mission13-dispute-ruling-ruleset@0.9-HISTORICAL:attributed-decision+economic-outcome',
+  rulesetExpectedEvaluatorName: 'expected-evaluator-NEVER-RETURNED',
+  rulesetExpectedEvaluatorVersion: '9.9',
+  rulesetExpectedProfileName: 'expected-profile-NEVER-RETURNED',
+  rulesetExpectedProfileVersion: '9.9',
+  evaluatorIdentityName: 'sails-attribution-evaluator',
+  evaluatorIdentityVersion: '1.0',
+  profileIdentityName: 'sails-semantic-profile',
+  profileIdentityVersion: '1.0',
+  deadlineMs: 0n,
+  evaluationTimeMs: 0n,
+  conditionResult: 'SATISFIED',
+  // Deliberately NOT the dispute's current arbiterId (ARBITER_ID) — a
+  // different actor, proving neither the current arbiter nor this
+  // record's own historical actor gets implicit read access.
+  attributionActor: OTHER_ARBITER_ID,
+  attributionRawProof: 'aa'.repeat(64),
+  attributionResolvedIdentity: SELLER_PUBKEY_HEX,
+  outcomeContent: {
+    ruling: 'RELEASE',
+    totalUnits: '1000000',
+    asset: 'BTC',
+    allocations: [{ beneficiary: BUYER_ID, basisPoints: 10000 }],
+    remainderBeneficiary: BUYER_ID,
+  },
+  outcomeDestinationBinding: [{ beneficiary: BUYER_ID, destination: 'bc1qround0destination' }],
+  createdAt: new Date('2026-08-30T00:00:00Z'),
+  appealRound: 0,
+}
+const SEMANTIC_RECORD_ROUND_1 = {
+  ...SEMANTIC_RECORD_ROUND_0,
+  id: 'str-round-1',
+  attributionActor: ARBITER_ID,
+  attributionRawProof: 'bb'.repeat(64),
+  outcomeContent: {
+    ...SEMANTIC_RECORD_ROUND_0.outcomeContent,
+    ruling: 'REFUND',
+    asset: 'DIFFERENT_ASSET_ROUND_1',
+  },
+  outcomeDestinationBinding: [{ beneficiary: SELLER_ID, destination: 'bc1qround1destination' }],
+  appealRound: 1,
+}
+
 jest.mock('../src/common/database', () => ({
   prisma: {
     trade: {
@@ -88,6 +153,20 @@ jest.mock('../src/common/database', () => ({
     escrowReleaseApproval: {
       findMany: jest.fn(({ where }: any) => Promise.resolve(where.escrowId === ESCROW_ID ? RELEASE_APPROVAL_ROWS : [])),
       count: jest.fn(({ where }: any) => Promise.resolve(where.escrowId === ESCROW_ID ? RELEASE_APPROVAL_ROWS.length : 0)),
+    },
+    // M10 SDK Adapter — mirrors loadDisputeRulingRecord()'s own real
+    // where-shape exactly (interactionId_transitionType_appealRound).
+    // appealRound 2 (and any other escrow/round pair) deliberately has
+    // no fixture — real absence, not a stubbed-in null — to prove the
+    // route's 404 path is reachable, not just theoretically distinct.
+    semanticTransitionRecord: {
+      findUnique: jest.fn(({ where }: any) => {
+        const key = where.interactionId_transitionType_appealRound
+        if (!key || key.interactionId !== ESCROW_ID) return Promise.resolve(null)
+        if (key.appealRound === 0) return Promise.resolve(SEMANTIC_RECORD_ROUND_0)
+        if (key.appealRound === 1) return Promise.resolve(SEMANTIC_RECORD_ROUND_1)
+        return Promise.resolve(null)
+      }),
     },
   },
 }))
@@ -354,6 +433,142 @@ describe('GET /v1/settlement/escrow/:id and /disputes/:id — access control (Mi
     it('an unauthenticated request is rejected — DENY (this was the real gap: used to be 200)', async () => {
       const res = await app.inject({ method: 'GET', url: `/v1/settlement/escrow/${ESCROW_ID}/release-approvals` })
       expect(res.statusCode).toBe(401)
+    })
+  })
+
+  // M10 SDK Adapter — historical semantic read surface.
+  describe('GET /v1/settlement/disputes/:id/semantic-record', () => {
+    async function getRecord(callerId: string, appealRound: number | undefined) {
+      const token = await authedSession(callerId)
+      const url = appealRound === undefined
+        ? `/v1/settlement/disputes/${DISPUTE_ID}/semantic-record`
+        : `/v1/settlement/disputes/${DISPUTE_ID}/semantic-record?appealRound=${appealRound}`
+      return app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${token}` } })
+    }
+
+    it('1. buyer can read — ALLOW', async () => {
+      const res = await getRecord(BUYER_ID, 0)
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('2. seller can read — ALLOW', async () => {
+      const res = await getRecord(SELLER_ID, 0)
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('3. an unrelated authenticated user is rejected — DENY', async () => {
+      const res = await getRecord(OUTSIDER_ID, 0)
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('4. the current arbiter (dispute.arbiterId) receives NO implicit privilege — DENY', async () => {
+      // ARBITER_ID is DISPUTE_ROW.arbiterId (current), but is NOT
+      // SEMANTIC_RECORD_ROUND_0.attributionActor (OTHER_ARBITER_ID) —
+      // proves reading the current arbiter field grants nothing here.
+      const res = await getRecord(ARBITER_ID, 0)
+      expect(res.statusCode).toBe(403)
+    })
+
+    it("5. the historical record's own attributionActor receives NO implicit privilege — DENY", async () => {
+      // OTHER_ARBITER_ID actually decided round 0 (per the fixture) but
+      // is not a trade party — proves economic authority to decide ≠
+      // information access authority to read about the decision.
+      const res = await getRecord(OTHER_ARBITER_ID, 0)
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('6. explicit appealRound selects the correct historical record, not a different one', async () => {
+      const round0 = await getRecord(BUYER_ID, 0)
+      const round1 = await getRecord(BUYER_ID, 1)
+      const body0 = JSON.parse(round0.body).data
+      const body1 = JSON.parse(round1.body).data
+      expect(body0.appealRound).toBe(0)
+      expect(body1.appealRound).toBe(1)
+      expect(body0.outcome.asset).toBe('BTC')
+      expect(body1.outcome.asset).toBe('DIFFERENT_ASSET_ROUND_1')
+      expect(body0.attribution.actor).toBe(OTHER_ARBITER_ID)
+      expect(body1.attribution.actor).toBe(ARBITER_ID)
+    })
+
+    it('7. a round with no persisted record — 404, not fabricated content', async () => {
+      const res = await getRecord(BUYER_ID, 2)
+      expect(res.statusCode).toBe(404)
+    })
+
+    it("8. absence (404) is never representable as conditionResult: 'UNKNOWN' — the two are structurally different facts", async () => {
+      const absent = await getRecord(BUYER_ID, 2)
+      expect(absent.statusCode).toBe(404)
+      const body = JSON.parse(absent.body)
+      // A 404 body must never carry a conditionResult field at all —
+      // if it did, a careless caller could mistake absence for
+      // uncertainty. UNKNOWN only ever appears inside a 200 body for a
+      // record that genuinely exists.
+      expect(body.data?.conditionResult).toBeUndefined()
+      const present = await getRecord(BUYER_ID, 0)
+      expect(present.statusCode).toBe(200)
+      expect(JSON.parse(present.body).data.conditionResult).toBe('SATISFIED')
+    })
+
+    it('9. persisted evaluator identity survives unchanged', async () => {
+      const res = await getRecord(BUYER_ID, 0)
+      const body = JSON.parse(res.body).data
+      expect(body.evaluatorIdentity).toEqual({ name: 'sails-attribution-evaluator', version: '1.0' })
+    })
+
+    it('10. persisted profile identity survives unchanged', async () => {
+      const res = await getRecord(BUYER_ID, 0)
+      const body = JSON.parse(res.body).data
+      expect(body.profileIdentity).toEqual({ name: 'sails-semantic-profile', version: '1.0' })
+    })
+
+    it('11. persisted ruleset identity survives unchanged — never the current in-memory constant, never the merely-expected identity', async () => {
+      const res = await getRecord(BUYER_ID, 0)
+      const body = JSON.parse(res.body).data
+      // '0.9-HISTORICAL' is the fixture's PERSISTED version — deliberately
+      // NOT '1.0' (DISPUTE_RULING_RULESET's real current constant).
+      expect(body.rulesetIdentity).toEqual({ name: 'sails-mission13-dispute-ruling-ruleset', version: '0.9-HISTORICAL' })
+      // The "expected" columns (rulesetExpectedEvaluatorName/Version)
+      // must never leak into the response as if they were actual.
+      expect(JSON.stringify(body)).not.toContain('expected-evaluator-NEVER-RETURNED')
+      expect(JSON.stringify(body)).not.toContain('expected-profile-NEVER-RETURNED')
+    })
+
+    it('12. the exact attribution signature survives unchanged', async () => {
+      const res = await getRecord(BUYER_ID, 0)
+      const body = JSON.parse(res.body).data
+      expect(body.attribution).toEqual({
+        actor: OTHER_ARBITER_ID,
+        signatureHex: 'aa'.repeat(64),
+        resolvedIdentityReference: SELLER_PUBKEY_HEX,
+      })
+    })
+
+    it('13. Outcome survives field-complete', async () => {
+      const res = await getRecord(BUYER_ID, 0)
+      const body = JSON.parse(res.body).data
+      expect(body.outcome).toMatchObject({
+        ruling: 'RELEASE',
+        totalUnits: '1000000',
+        asset: 'BTC',
+        allocations: [{ beneficiary: BUYER_ID, basisPoints: 10000 }],
+        remainderBeneficiary: BUYER_ID,
+      })
+    })
+
+    it('14. DestinationBinding survives field-complete', async () => {
+      const res = await getRecord(BUYER_ID, 0)
+      const body = JSON.parse(res.body).data
+      expect(body.outcome.destinations).toEqual([{ beneficiary: BUYER_ID, destination: 'bc1qround0destination' }])
+    })
+
+    it('an unauthenticated request is rejected — DENY', async () => {
+      const res = await app.inject({ method: 'GET', url: `/v1/settlement/disputes/${DISPUTE_ID}/semantic-record?appealRound=0` })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('a missing appealRound query param is rejected — 400, never silently defaulted', async () => {
+      const res = await getRecord(BUYER_ID, undefined)
+      expect(res.statusCode).toBe(400)
     })
   })
 })

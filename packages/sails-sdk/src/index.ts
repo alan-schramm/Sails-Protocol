@@ -66,6 +66,11 @@ export {
   type AuthorityDecisionInput,
   canonicalizeAuthorityDecision,
   hashAuthorityDecision,
+  type ConditionResult,
+  type SemanticIdentity,
+  type DisputeRulingOutcome,
+  type DisputeRulingAttribution,
+  type DisputeRulingSemanticRecord,
 } from './modules/settlement'
 export { SailsProofModule, type EvidenceBundle, type AssertClaimInput, type SubmitProofInput, type VerifyProofInput } from './modules/proof'
 export {
