@@ -32,7 +32,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
+        # fetch-depth: 0 — Archify's --repo-root evidence check verifies
+        # the pinned commit actually exists in the local clone; a
+        # shallow checkout (the actions/checkout@v3 default) only has
+        # the latest commit and fails with
+        # "Evidence revision ... is not available in the local
+        # repository" (found running this workflow for the first time,
+        # 2026-09-02). Same full-history checkout ci.yml already uses.
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
