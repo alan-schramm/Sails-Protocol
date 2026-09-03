@@ -78,7 +78,7 @@ export function conditionOr(...results: readonly ConditionResult[]): ConditionRe
  * This is a strict generalization of AND/OR: threshold(m, results) ===
  * conditionAnd(...results) and threshold(1, results) ===
  * conditionOr(...results) for any m equal to results.length — verified
- * in `condition-result.test.ts`.
+ * in `packages/sails-core/tests/conditionResult.test.ts`.
  */
 export function conditionThreshold(n: number, results: readonly ConditionResult[]): ConditionResult {
   if (!Number.isInteger(n) || n < 1) {
