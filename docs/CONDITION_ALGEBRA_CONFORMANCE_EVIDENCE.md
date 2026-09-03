@@ -17,6 +17,18 @@
   (`conformance/rulesets/sails-escrow-timelock-expiry-ruleset-1.0.json`)
 - **New conformance identity registered:** `sails-condition-algebra@1.0`
 
+**Claim structure, stated explicitly and preserved throughout this document:**
+
+```
+Mission origin:            Ruleset Composition Conformance
+Discovery:                 no currently-published Ruleset composes conditions
+Demonstrated property:     Condition Algebra Conformance
+Remaining open property:   Ruleset Composition Conformance
+```
+
+`Condition Algebra Conformance demonstrated` ≠ `Ruleset Composition Conformance demonstrated`.
+This document never uses the second phrase to describe what was proven.
+
 ## 2. Scope Correction Found During This Mission
 
 The mission's own framing anticipated testing "the published ruleset's
@@ -72,16 +84,20 @@ No contradiction was found among 1-5. **COMPOSITION SEMANTIC AUTHORITY: ESTABLIS
 
 ## 5. Independent Expected-Value Derivation
 
-Every vector's `expectedOutput` was transcribed directly from §13's own
-AND/OR tables and N-of-M formula into
-`conformance/evaluators/sails-condition-algebra-1.0.json` and
-`conformance/vectors/sails-condition-algebra-1.0.vectors.json` **before
-`packages/sails-core/src/condition-result.ts` was executed against
-them.** For every vector, the expected value is answerable from the
-table/formula alone — e.g. `AND(SATISFIED, UNSATISFIABLE, UNSATISFIABLE)
-= UNSATISFIABLE` because §13's AND row/column for UNSATISFIABLE is
-UNSATISFIABLE against every other value, never because "the TypeScript
-implementation returns it."
+**What makes each expected value admissible as evidence is semantic
+traceability to §13, not the order in which files were written or
+executed.** Every vector's `expectedOutput` is answerable directly from
+`docs/CORE_ARCHITECTURE.md` §13's own AND/OR tables and N-of-M formula
+— e.g. `AND(SATISFIED, UNSATISFIABLE, UNSATISFIABLE) = UNSATISFIABLE`
+because §13's AND row/column for UNSATISFIABLE is UNSATISFIABLE against
+every other value, never because "the TypeScript
+implementation returns it." As procedural context only (not itself
+evidence of correctness): the vector files were written before
+`packages/sails-core/src/condition-result.ts` was ever executed against
+them, so the transcription could not have been adjusted to match
+observed output. That ordering is a discipline that was followed, not
+the reason any single expected value is admissible — the reason is
+always the specific §13 table cell or formula branch cited above.
 
 ## 6. Positive Vectors — 39 total
 
@@ -187,11 +203,14 @@ fixed. The existing internal identity test suite
 (`packages/sails-core/tests/conditionResult.test.ts`, 24/24) further
 corroborates this independently.
 
-**Minor documentation-precision finding, not fixed (out of this
-mission's scope):** `condition-result.ts`'s own header comment cites
+**Minor documentation-precision finding, fixed as an authorized
+citation correction (non-behavioral, comment-only):**
+`condition-result.ts`'s own header comment cited
 "`condition-result.test.ts`"; the real file is
-`packages/sails-core/tests/conditionResult.test.ts` (camelCase). Noted
-for a future minimal citation fix, not corrected here.
+`packages/sails-core/tests/conditionResult.test.ts` (camelCase). The
+comment now cites the full real path. No code, type, or runtime
+behavior changed — verified by `npx tsc --noEmit` and the full test
+suite still passing identically before and after.
 
 ## 11. Regression Results
 
@@ -212,18 +231,28 @@ No existing conformance behavior regressed.
 - `scripts/run-conformance-harness.ts` (modified — one new import block, one wrapper, one registry entry)
 - `conformance/evaluators/sails-condition-algebra-1.0.json` (new)
 - `conformance/vectors/sails-condition-algebra-1.0.vectors.json` (new)
-- `docs/CONDITION_ALGEBRA_CONFORMANCE_EVIDENCE.md` (this file, new)
+- `docs/CONDITION_ALGEBRA_CONFORMANCE_EVIDENCE.md` (this file, new; finalization pass corrected
+  claim wording in §13, provenance framing in §5, and this file's own §10/§12 entries)
+- `packages/sails-core/src/condition-result.ts` (finalization pass — one header-comment citation
+  fix only: `condition-result.test.ts` → `packages/sails-core/tests/conditionResult.test.ts`;
+  zero behavioral/type change)
 
 No Core semantics, Semantic Kernel, Ruleset content, SDK, or schema changed.
 
 ## 13. Smallest Defensible Claim
 
-**"The shared Sails Condition Algebra (AND/OR/N-of-M threshold,
-`sails-condition-algebra@1.0`) has published, adversarially-validated
-conformance vectors, independently derived from
-`docs/CORE_ARCHITECTURE.md` §13, that the reference implementation
-passes and that 9 deliberately-incorrect implementations each fail, as
-of commit [this mission's merge commit]."**
+**"The shared Sails Condition Algebra has published conformance vectors
+independently derived from the documented composition semantics
+(`docs/CORE_ARCHITECTURE.md` §13). The Sails reference implementation
+passes the tested vectors, while nine deliberately incorrect
+implementations fail them."**
+
+Deliberately not "adversarially-validated" or any use of "Validated" as
+a status word: `FOUNDATIONS-04` established that `Validated` currently
+lacks a written, falsifiable evidence threshold in this Project, so no
+claim in this document uses it as a certification label. "Nine
+deliberately incorrect implementations fail them" states the concrete,
+falsifiable fact directly instead.
 
 ## 14. NOT PROVEN
 
