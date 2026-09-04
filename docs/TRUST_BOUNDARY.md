@@ -78,6 +78,16 @@
 └────────────────────────────────────────────────────────┘
 ```
 
+**Corrigido 2026-09-04 (Current Truth Reconciliation P0) — note on
+Boundaries 1 and 4 above:** "Never custodies funds" and "No single
+party unilaterally moves funds" describe this protocol's design intent
+and hold for every `SettlementProvider` except one. See row 5 of the
+table below ("Settlement → chain") for the real, disclosed
+`WDK_USDT_EVM` exception (one server-held seed signs every escrow) —
+this diagram does not repeat that caveat inline, to keep the boundary
+map itself uncluttered, but a reader should not stop at the diagram
+alone when evaluating custody claims.
+
 ---
 
 ## 2. Boundary-by-Boundary: Who Can Lie, Sign, or Alter State

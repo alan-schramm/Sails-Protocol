@@ -7,13 +7,24 @@
  * durable Transition Record exists for that decision class." See
  * docs/CORE_TRANSITION_RECORD.md for the full design rationale.
  *
- * NOT WIRED INTO ANY LIVE PATH. No production call site invokes
- * `commitAuthoritativeEscrowTimelockExpiry` yet — Core remains
- * non-authoritative; the M3 shadow observer (expiry-shadow.ts) is still
- * the only live Core-adjacent code running in sweepExpiredEscrows().
- * This module exists to be proven correct in isolation
+ * NOT WIRED INTO ANY LIVE PATH when this module (M3.5) was built — no
+ * production call site invoked `commitAuthoritativeEscrowTimelockExpiry`
+ * at that time; the M3 shadow observer (`expiry-shadow.ts`) was the only
+ * live Core-adjacent code running in `sweepExpiredEscrows()`. This
+ * module was built to be proven correct in isolation
  * (tests/semanticTransitionRecord.test.ts) ahead of a future M4 retry,
- * per mission §37 ("Testability before authority").
+ * per mission §37 ("Testability before authority"). **Corrigido
+ * 2026-09-04 (Current Truth Reconciliation P0):** that M4 retry has
+ * since landed — `escrow.service.ts`'s `sweepExpiredEscrows()` now calls
+ * `commitAuthoritativeEscrowTimelockExpiry()` unconditionally
+ * (`escrow.service.ts:990`) for every escrow whose type is
+ * signature-collection-capable (`isSignatureCollectionType()` —
+ * MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM) undergoing the
+ * FUNDS_LOCKED→EXPIRED transition. Core is authoritative for that one
+ * transition, on those rails — a separate live path from the
+ * MULTISIG-only dispute-ruling chain described in this module's sibling
+ * files (`discretionary-authority.ts`, `dispatch-gate-adapter.ts`,
+ * `destination-correspondence.ts`, `economic-outcome.ts`).
  *
  * Maps `@sails/core`'s `TransitionRecord` (packages/sails-core/src/transition.ts)
  * — a pure, database-agnostic type — onto this Reference Implementation's
