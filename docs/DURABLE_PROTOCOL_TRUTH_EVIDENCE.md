@@ -243,12 +243,21 @@ recoverable case — this is reported honestly, not claimed solved.**
 
 ## 13. Stranger Reconstruction Test
 
-A technically competent third party given only the artifacts *intended*
-to survive the operator (i.e., what is actually documented as public:
-`docs/CORE_ARCHITECTURE.md`, `SEMANTIC_KERNEL.md`, conformance vectors,
-the open-source SDK code) can determine: the semantic/ruleset identity
-model (T2) in the abstract; how canonicalization/hashing/signing work
-(T4); the deterministic Outcome-allocation algorithm (T5). They
+Sharpened per the precision pass into two explicitly distinct
+sub-verdicts — success on one must never hide failure on the other:
+
+**Protocol reconstructability (`can a stranger understand the system
+itself`): DEMONSTRATED.** A technically competent third party given
+only what is actually documented/open-source (`docs/CORE_ARCHITECTURE.md`,
+`SEMANTIC_KERNEL.md`, conformance vectors, the SDK code) can determine:
+the semantic/ruleset identity model (T2) in the abstract; exactly how
+canonicalization/hashing/signing work (T4, section 18.2); the
+deterministic Outcome-allocation algorithm (T5, section 18.3). This is
+real and already independently demonstrated by the Condition Algebra
+mission's own non-circular-derivation discipline.
+
+**Interaction reconstructability (`can a stranger prove what happened in
+one specific interaction`): NOT DEMONSTRATED.** The same stranger
 **cannot** determine, for any *specific* historical interaction, without
 an exported copy of that interaction's own API responses: which
 interaction it was, what evidence existed, what was actually decided,
@@ -256,9 +265,48 @@ what Outcome/destination followed, or whether execution corresponded —
 because none of that is published anywhere outside Satsails' database,
 and no export mechanism exists (section 14). This is a **missing
 portability** failure, not a legitimate privacy boundary — nothing in
-`INV-OP-10` (section 17) requires this data to be undiscoverable by the
-*parties themselves*; it simply isn't proactively made available to
-survive the operator.
+`INV-OP-10` requires this data to be undiscoverable by the *parties
+themselves*; it simply isn't proactively made available to survive the
+operator.
+
+**Success on protocol reconstructability does not offset failure on
+interaction reconstructability — both are reported as distinct rows in
+section 22's property matrix.**
+
+## 13b. T4 Authority Fact — Availability Correction (precision pass)
+
+The prior pass's implicit equation `NO EXPORT ENDPOINT = NO EXTERNAL
+COPY CAN EXIST` is corrected here — it does not hold for T4
+specifically. Confirmed directly: `POST /v1/settlement/disputes/:id/resolve`
+(`settlement.routes.ts`) declares `authoritySignature: z.string().min(1)`
+as a **request-body field** — the signature is computed by the caller
+*before* the request is sent, meaning **the server never holds, and
+never needs to hold, the arbiter's private signing key.** The arbiter's
+own device is therefore the artifact's natural point of origin,
+independent of Satsails' infrastructure, before any server involvement
+at all — not because an export feature exists, but because the
+architecture never centralizes signing in the first place.
+
+Buyer and seller can additionally retrieve the raw `signatureHex` +
+`resolvedIdentityReference` via the party-scoped
+`GET /v1/settlement/disputes/:id/semantic-record` route while the
+operator is live (section 10). So, at minimum, three parties (arbiter,
+buyer, seller) naturally have the opportunity to hold a copy of T4
+independent of Satsails — the arbiter by construction, buyer/seller by
+a real, already-existing read surface.
+
+**What remains genuinely unproven:** whether any of these parties'
+own clients *durably retain* that copy is outside this repository's
+control — no evidence either way was found or claimed. Revised
+classification:
+
+```
+T4 AUTHENTICITY:                        DEMONSTRATED
+T4 DURABILITY (server-side):            DEMONSTRATED (Postgres, while operator present)
+T4 PARTICIPANT AVAILABILITY:            DEMONSTRATED — natural client-side origin + party-scoped read access
+T4 PORTABILITY:                         PARTIAL — the SDK ships the exact canonicalization; no dedicated export route exists, but the raw signed material is already reachable by 3 real parties
+T4 OPERATOR-INDEPENDENT SURVIVABILITY:  PARTIAL, stronger than previously stated — depends on whether a party's own client retains what it already, naturally receives, not on any Satsails-provided mechanism
+```
 
 ## 14. Portability Test
 
@@ -313,59 +361,144 @@ durable-but-operator-dependent, no different from T5/T6. No new gap is
 introduced beyond what section 9 already states; not absorbed further,
 not implemented.
 
-## 18. Authority -> Outcome -> Destination Chain Analysis
+## 18. Authority -> Outcome -> Destination Chain Analysis (precision pass)
 
-**This is the mission's central, most load-bearing finding.**
+**This is the mission's central, most load-bearing finding — reworked
+below with a full binding-chain trace, a deterministic-derivation
+challenge, and a precise (not inflated) reassociation classification,
+per the CTO's own required precision pass.**
 
-```
-AuthorityDecisionPayload (T4)          -- SIGNED (Ed25519, domain-separated, canonical)
-        |
-        | (same-Postgres-transaction convention only -- NOT a cryptographic link)
-        v
-ArbitrationOutcomeContent (T5)         -- hashOutcomeContent() exists, tested, NEVER CALLED
-        |
-        | (plain JSON column, populated from a live PayoutAddress lookup)
-        v
-DestinationBinding (T6)                -- NEVER hashed, NEVER signed, anywhere
-```
+### 18.1 Central question, stated precisely
 
-Verified directly: `hashAuthorityDecision()` (`arbitration-authority.ts`)
-is called live (`discretionary-authority.ts`). `hashOutcomeContent()`
-(`economic-outcome.ts`) has zero callers anywhere in the codebase —
-confirmed by direct search. `packages/sails-core/src/outcome.ts`'s
-`DestinationBinding`/`Outcome` types carry no hash/commitment field, and
-no function in `@sails/core` computes one for a destination.
-`dispute-outcome.ts`'s `toDisputeRulingTransitionRecordRow()` persists
-`outcomeContent`/`outcomeDestinationBinding` as raw `Prisma.InputJsonValue`
-— never `hashOutcomeContent(content)`'s output, never anything derived
-from T6.
+*Can an independent verifier establish, without trusting operator-held
+database associations, that a specific Outcome and DestinationBinding
+are the authorized consequence of a specific signed Authority decision?*
 
-**What this means concretely:** given a signed `AuthorityDecisionPayload`
-(RELEASE, `buyerBps: null`) and a database row claiming the destination
-was address X, no cryptographic artifact anywhere lets an outside party
-confirm that X — specifically — is what the arbiter's signature
-actually authorized. The arbiter's signature covers *that* a RELEASE
-was decided; it says nothing, cryptographically, about *where*. This is
-precisely the residual `destination-correspondence.ts`'s own header
-(read during the Provider Substitution mission) already named for
-non-MULTISIG rails ("a server that also controls one participant's
-cooperation could... construct a cryptographically valid settlement
-transaction to a DIFFERENT address") — **this mission's new finding is
-that the same absence of cryptographic destination-binding exists for
-MULTISIG too**, the one rail with every other link in the chain
-(signed authority, self-derived txid, pre-dispatch translation guard,
-post-execution correspondence check) already real. `dispatch-translation-guard.ts`
-compares the plain in-memory destination value against the PSBT — never
-a hash — confirmed by direct search (zero hash-related matches in that
-file).
+### 18.2 Full binding-chain trace
 
-**Can an operator rewrite association without invalidating something?**
-For T4 alone: no — any change to the signed fields invalidates the
-signature. For the *link* between T4 and T5/T6: **yes** — an operator
-with database write access could persist a different `outcomeDestinationBinding`
-against the same, still-validly-signed `AuthorityDecisionPayload`, and
-nothing in this architecture would detect it, because nothing
-cryptographically binds them today.
+| Link | Mechanism(s) | Independent verification | Operator trust required? |
+|---|---|---|---|
+| Interaction -> Authority Actor | DATABASE-ASSOCIATED ONLY (`Dispute.arbiterId`/`escrowId`) | No dedicated check found | Yes, for the *assignment* fact itself |
+| Authority Actor -> Signed Decision | SIGNED (Ed25519) + SEMANTICALLY CONSTRAINED (`AuthorityDecisionPayload` fields are exhaustive and domain-separated) | **Yes** — `verifyAuthorityDecisionSignature()`, reproducible client-side via the SDK's own `canonicalizeAuthorityDecision()`/`hashAuthorityDecision()` | No, for the signature itself. Yes, for confirming the signing key was genuinely the arbiter's *at decision time* (section 21) |
+| Signed Decision -> Outcome content | **DETERMINISTICALLY DERIVABLE**, not merely unhashed — see 18.3 | Partial — derivable given the signed `ruling`/`buyerBps` PLUS independently-obtainable `totalUnits`/`asset` (chain-observable for MULTISIG) PLUS `buyerId`/`sellerId` (database-associated only) | Yes, for `buyerId`/`sellerId`; no, for the allocation math itself once those are known |
+| Outcome -> DestinationBinding | **NOT BOUND** — see 18.4 | **No mechanism found** | Yes, entirely |
+| DestinationBinding -> Execution Request | TRANSACTIONALLY ASSOCIATED (same-Postgres-transaction snapshot, M8-R) + SEMANTICALLY CONSTRAINED at dispatch (`dispatch-translation-guard.ts` compares the snapshot against the real PSBT) | Yes, but only *that the dispatch matches the snapshot* — never that the snapshot itself was correct | Yes, for the snapshot's own correctness |
+| Execution Request -> External Execution | SELF-DERIVED (MULTISIG: `tx.getId()` computed before broadcast, never the provider's own reported value — Recovery evidence) | **Yes**, chain-observable | No |
+| External Execution -> Correspondence | DETERMINISTICALLY DERIVED (`evaluateFinalizedTransactionCorrespondence()`, recomputes from real tx bytes) | Yes, recomputable by anyone with the real tx and the durable Outcome | Yes, for trusting the durable Outcome it compares against (same weak link as above) |
+
+**The chain is independently verifiable through the Signed Decision, and
+again from External Execution onward. It has exactly one break: Outcome
+-> DestinationBinding.**
+
+### 18.3 Deterministic Derivation Challenge — Outcome content
+
+`buildRulingOutcomeContent(ruling, totalUnits, asset, buyerId, sellerId,
+buyerBps)` (`dispute-outcome.ts`) is a **pure function**, open-source,
+unit-tested. Of its six parameters: `ruling` and `buyerBps` are
+literally part of the signed `AuthorityDecisionPayload`. `totalUnits`/
+`asset` are the escrow's own locked amount/asset — for MULTISIG,
+independently observable on-chain (the funding transaction), not
+arbiter-decided. `buyerId`/`sellerId` are the trade's own participants —
+currently database-associated only (no signature found binding trade
+formation in this pass; out of this mission's scope to trace further).
+
+**Conclusion: Outcome content is deterministically derivable from the
+signed decision plus independently-obtainable context, given
+`buyerId`/`sellerId`.** The absence of a call to `hashOutcomeContent()`
+does **not**, by itself, mean Outcome content is unbound — it means the
+binding mechanism that actually exists is deterministic derivation, not
+hashing. `hashOutcomeContent()` exists and is tested but has no
+production call site in the inspected baseline — this fact is reported
+exactly that narrowly, not expanded into "Outcome is unprotected."
+
+### 18.4 DestinationBinding full lifecycle — where the chain actually breaks
+
+Traced end to end: **creation** — `resolveBeneficiaryDestination()`
+reads `PayoutAddress`, a participant-registered, participant-mutable
+row, inside the same transaction as the Outcome commit (M8-R). **No
+input to this read is signed by the arbiter, derivable from anything
+signed, or constrained by ruleset semantics** — unlike Outcome content,
+there is no pure function that produces a unique valid destination from
+public/durable facts; the destination is *chosen by the beneficiary at
+registration time*, a genuinely free-standing fact. **Validation**:
+none at write time beyond "a row exists." **Persistence**:
+`outcomeDestinationBinding Json?`, written once, inside the
+transaction. **Mutation**: `Grep` confirms **zero application-code
+`.update()`/`.upsert()` calls against `semanticTransitionRecord`
+anywhere in `src/`** — the row is insert-only by application
+convention (matching `EscrowEvent`/`EvidenceReference`'s own append-only
+discipline), though this is **enforced only in code, not by a database
+trigger** — `tests/integration/dbNativeInvariants.test.ts` (the suite
+that tests real DB-native triggers for other financial tables) has no
+entry for `semantic_transition_records`. **Read**: via the party-scoped
+semantic-record route, plain JSON, no re-verification against anything.
+**Use by provider**: `dispatch-translation-guard.ts` compares the
+snapshot's plain value against the real PSBT — confirmed zero
+hash-related code in that file. **Use by correspondence/recovery**:
+both consume the same unhashed snapshot as ground truth (Recovery
+evidence).
+
+**Precisely where independent verifiability stops:** not at "signed
+decision," not at "Outcome content" (both survive, per 18.2/18.3). It
+stops exactly at the moment `resolveBeneficiaryDestination()`'s result
+is written — a fact that is genuinely un-derivable from anything signed
+or ruleset-constrained, and therefore has no possible "hash it and
+compare" fix without also solving a harder problem (the beneficiary's
+own destination choice was never signed by anyone at registration time
+either — `PayoutAddress` registration is not part of this mission's
+traced scope).
+
+### 18.5 Operator Reassociation Claim — corrected classification
+
+**C — STRUCTURAL INTEGRITY / EQUIVOCATION RISK.** No dynamic
+mutation/reload experiment was run (no A), and no exploit was
+constructed to manufacture one — per the mission's own explicit
+instruction, "Correct C > Artificial A." What was structurally traced
+and confirmed: (1) the application itself has no code path that
+UPDATEs an existing `SemanticTransitionRecord` row — reassociation of
+an *already-committed* record via the app's own normal operation is
+not something the running system does; (2) nothing at the database
+level (`dbNativeInvariants.test.ts` has no corresponding trigger)
+prevents a privileged party with direct database access from doing so
+anyway; (3) more importantly, **the write-time integrity gap exists
+regardless of any later mutation risk** — because nothing independently
+constrains what gets written in the first place, an honest,
+never-tampered-with row and a subtly-wrong one (application bug,
+`PayoutAddress` changed mid-transaction by something outside this
+code's control, or operator error) are **indistinguishable** to any
+verifier, including a completely honest one, without trusting the
+database's own claim.
+
+**Corrected statement, replacing the prior mission's overreaching
+"operator can rewrite association" claim:** *The current investigation
+found no independently verifiable binding between the persisted
+DestinationBinding and the signed Authority artifact, and confirmed the
+application itself has no code path to mutate an already-committed
+record. An independent verifier therefore cannot establish, for any
+specific historical ruling, that the recorded destination is genuinely
+what the signed decision implies — not because reassociation was
+demonstrated, but because no mechanism exists to rule it out.*
+
+### 18.6 Four-question test (Authority -> Outcome -> Destination)
+
+- **Question A** (authenticate the Authority decision): **YES**,
+  independently, via Ed25519 verification against the canonical digest.
+- **Question B** (prove which Outcome is the unique authorized
+  consequence): **YES, conditionally** — deterministically derivable
+  given the signed fields plus `totalUnits`/`asset`/`buyerId`/`sellerId`
+  (18.3); the condition is trusting those four inputs, not trusting an
+  Outcome hash that doesn't exist.
+- **Question C** (prove which DestinationBinding is the unique
+  authorized consequence): **NO** — no mechanism, cryptographic or
+  deterministic, exists (18.4).
+- **Question D** (A+B+C without operator database/API trust, private
+  code, or institutional knowledge): **NO — fails exactly at C.** A and
+  B alone do not require operator trust (the canonicalization,
+  verification, and allocation functions are all open-source and
+  reproducible); C cannot be completed independently at all.
+
+**First point where the chain ceases to be independently verifiable:
+Outcome -> DestinationBinding, and only there.**
 
 ## 19. Mutant / Wrong-Truth Challenge
 
@@ -393,9 +526,24 @@ disclaimer: `INV-OP-10` (three real violations found and closed —
 payment-account, payout-address, identity-participant surfaces) and
 RFC-008's own explicit rejection of global-Merkle/always-anchor
 alternatives citing Principle 8. This mission adds no new privacy
-mechanism and proposes none — the correct posture, given
-`Portable != Public` is already a demonstrated, tested property here,
-not an aspiration.
+mechanism and proposes none.
+
+**Precision correction:** the demonstrated property is narrower than
+"`Portable != Public` is demonstrated" — that phrasing risks implying
+portability itself was shown to exist, which section 14/17 explicitly
+find is not the case. The corrected, precise statement:
+
+```
+GLOBAL PUBLICATION:            NOT REQUIRED (by design — INV-OP-10, RFC-008)
+PUBLIC-SURFACE MINIMIZATION:   DEMONSTRATED (three real, closed violations)
+PARTICIPANT PORTABILITY:       NOT DEMONSTRATED (section 14/17)
+```
+
+*The architecture demonstrates that protocol-relevant information need
+not be globally public. Participant portability itself is not currently
+demonstrated.* `Portable != Public` is retained as a **design
+principle** this codebase already honors on the public-minimization
+half — not as a claim that the portable half exists today.
 
 ## 21. External Reality Limit
 
@@ -405,23 +553,22 @@ own append-only World A-E classification) — not re-litigated here. This
 mission's own T10 fact class explicitly excludes "current chain state"
 from durable Protocol Truth, consistent with that finding.
 
-## 22. Property-by-Property Verdicts
+## 22. Property-by-Property Verdicts (precision pass — required table)
 
 | Property | Verdict |
 |---|---|
-| Historical Meaning Survivability (T1/T2) | **PARTIAL** — durable while operator present; no export |
-| Authority Fact Survivability (T4) | **DEMONSTRATED** — signed, portable, independently verifiable |
-| Outcome Survivability (T5) | **PARTIAL** — content reconstructable from T4+trusted facts; not independently verifiable via its own hash (never computed) |
-| DestinationBinding Survivability (T6) | **NOT DEMONSTRATED** — no cryptographic protection of any kind |
-| Execution Fact Survivability (T7) | **DEMONSTRATED for MULTISIG** — on-chain, self-derived, independently observable |
-| Correspondence Fact Survivability (T8) | **PARTIAL** — recomputable if T5/T6/T7 survive; own row is operator-dependent |
-| Recovery Fact Availability (T9) | **PARTIAL** — real while operator present (frozen Recovery Conformance); not evaluated for operator absence |
-| Independent Authenticity Verification | **DEMONSTRATED for T4 only** |
-| Independent Semantic Reconstruction | **PARTIAL** — protocol *meaning* (Kernel/Core/conformance) yes; specific *historical facts* no, absent export |
-| Participant Portability | **NOT DEMONSTRATED** — zero export/backup capability exists anywhere |
-| Privacy-Preserving Survivability | **DEMONSTRATED** (as a non-violated constraint — `INV-OP-10`, RFC-008's own rejections) |
-| Operator Disappearance Survivability | **NOT DEMONSTRATED** — this mission's central question; material dependencies remain (T5/T6 above all) |
-| Hostile Operator Equivocation Resistance | **PARTIAL** — T4 resists it; T5/T6 do not; arbiter's own signing key is itself DB-controlled, not self-anchored |
+| Protocol Semantic Reconstructability | **DEMONSTRATED** — section 13; a stranger can understand the system itself from open-source docs/code/vectors |
+| Authority Authenticity | **DEMONSTRATED** — section 18.6 Question A; Ed25519, independently reproducible |
+| Authority Operator-Independent Availability | **PARTIAL, corrected upward from the prior pass** — section 13b; client-side signing means a natural external copy exists at 3 real parties (arbiter, buyer, seller), not because of any export feature; durable retention by those parties' own clients is unproven either way |
+| Outcome Operator-Independent Survivability | **PARTIAL** — section 18.3; deterministically derivable from signed fields + `totalUnits`/`asset` (chain-observable for MULTISIG) + `buyerId`/`sellerId` (database-associated only) |
+| DestinationBinding Operator-Independent Survivability | **NOT DEMONSTRATED** — section 18.4; no signature, no hash, no deterministic derivation, no ruleset constraint of any kind |
+| Authority -> Outcome Independent Binding | **PARTIAL / DEMONSTRATED CONDITIONALLY** — section 18.6 Question B; holds once `buyerId`/`sellerId` are trusted |
+| Outcome -> Destination Independent Binding | **NOT DEMONSTRATED** — section 18.6 Question C; this is the one real break point in the entire chain |
+| Interaction Reconstructability | **NOT DEMONSTRATED** — section 13; distinct from, and not rescued by, Protocol Semantic Reconstructability above |
+| Participant Portability | **NOT DEMONSTRATED** — section 14/17; zero export/backup capability, though T4 has real natural availability (section 13b) short of a true export mechanism |
+| Public-Surface Minimization | **DEMONSTRATED** — section 20; `INV-OP-10`, three real closed violations, RFC-008's own rejections; kept explicitly distinct from Participant Portability |
+| Operator Disappearance Survivability | **NOT DEMONSTRATED** — the mission's central question; DestinationBinding alone is sufficient to keep this NOT DEMONSTRATED even though Authority Facts are stronger than previously stated |
+| Hostile Operator Equivocation Resistance | **PARTIAL, precisely classified as C, not A or B-with-mutation** — section 18.5; T4 resists it; the Outcome->Destination link does not, though no dynamic exploit was demonstrated and none was manufactured to inflate the finding |
 
 ## 23. Implementation Defects
 
@@ -446,17 +593,30 @@ misrepresent its own scope.
 None of these were fixed. Per the mission's own gate, a discovered
 architectural gap is reported, not implemented.
 
-## 25. Smallest Defensible Claim
+## 25. Smallest Defensible Claim (precision pass)
 
-**"Sails demonstrates real, independently verifiable Authority Facts
-(signed discretionary decisions, portable canonicalization, cross-tested
-client/server parity) and a real, tested public-surface minimization
-discipline (`INV-OP-10`) consistent with privacy-preserving
-survivability. It does not currently demonstrate operator-independent
-survivability for Outcome content or DestinationBinding — the specific
-facts that state what was economically authorized and where it was
-authorized to go — nor does it provide any participant-facing
-export/portability mechanism for any protocol fact."**
+**Confirmed, narrowed in one place and strengthened in another relative
+to the prior pass — not broadened overall:**
+
+**"Sails demonstrates independently verifiable signed Authority Facts —
+authenticatable without operator trust, and naturally available to three
+real parties (arbiter, buyer, seller) by construction, not by any export
+feature — and tested public-surface minimization on selected protocol
+surfaces (`INV-OP-10`). Outcome content is conditionally
+operator-independent, derivable from the signed decision plus
+independently-obtainable context. It does not currently demonstrate
+independent binding between Outcome and DestinationBinding — the one
+point in the entire authority-to-execution chain that breaks — nor does
+it provide any participant-facing export/portability mechanism for
+interaction-specific facts."**
+
+Attacked against 18.2-18.6: every clause is directly supported.
+"Naturally available... not by any export feature" corrects the prior
+pass's implicit T4 understatement (section 13b). "Conditionally
+operator-independent" corrects the prior pass's implicit T5
+overstatement of the gap (section 18.3). "The one point... that breaks"
+is now precisely located, not a broad "Outcome/DestinationBinding are
+both unprotected" claim.
 
 Deliberately not: Sails is decentralized; Sails survives Satsails
 disappearance; operator-independent history; censorship resistance;
@@ -467,9 +627,16 @@ without qualification by the evidence above.
 
 ## 26. NOT PROVEN
 
-- Operator-independent survivability of Outcome or DestinationBinding.
-- Any form of participant data export/portability.
+- Unconditional operator-independent survivability of Outcome content
+  (it is only conditionally derivable — section 18.3).
+- Any operator-independent survivability of DestinationBinding at all
+  (the one link with no derivability, no signature, no hash — section 18.4).
+- Any form of participant data export/portability (distinct from T4's
+  natural, non-export-based availability — section 13b).
 - External anchoring of any hash-chain genesis point.
+- Durable retention of a signed Authority decision by the arbiter's or
+  a party's own client, once received — plausible by construction, not
+  confirmed either way (section 13b).
 - That an outside party can confirm the arbiter's registered public key
   was genuinely theirs at decision time, independent of the operator's
   own database.
@@ -528,6 +695,41 @@ without qualification by the evidence above.
   section 25's claim is narrower than F03's own original candidate
   obligation, not broader.
 
+**Precision-pass-specific additions:**
+- **Did we infer absence of all binding from one unused helper?**
+  Corrected — section 18.3 explicitly separates "no call site" (a narrow
+  fact) from "no binding exists" (which turned out false for Outcome,
+  true for DestinationBinding, established by tracing derivation, not
+  by the helper's absence).
+- **Did we confuse transactional association with independent
+  verification?** Corrected — section 18.2's table marks the M8-R
+  snapshot as "TRANSACTIONALLY ASSOCIATED," never conflated with
+  independent verifiability.
+- **Did we call operator reassociation demonstrated without
+  demonstrating it?** Corrected — section 18.5 reclassifies from an
+  unqualified claim to C, explicitly declining to manufacture A.
+- **Did we assume cryptographic hashing is the only valid binding
+  mechanism?** No — section 18.3 credits deterministic derivation as a
+  real, sufficient binding mechanism for Outcome content.
+- **Did we overlook deterministic derivation?** Corrected in this pass
+  — section 18.3 is new.
+- **Did we confuse signature authenticity with availability?**
+  Corrected — section 13b separates them into distinct rows.
+- **Did we infer no external T4 copy merely from lack of export
+  endpoint?** Corrected — section 13b.
+- **Did we claim portability while simultaneously reporting no export
+  mechanism?** No — section 14/22 keep Participant Portability as NOT
+  DEMONSTRATED throughout, including after the T4 correction.
+- **Did we confuse protocol reconstructability with interaction
+  reconstructability?** Corrected — section 13 now states both as
+  explicit, separately-labeled sub-verdicts.
+- **Did we turn the backlog gap into a preferred implementation?** No —
+  section 30's renamed delta explicitly rejects mechanism-flavored names.
+- **Did we broaden the claim because the finding looks important?** No
+  — section 25's claim is narrower in one place (Outcome) and stronger
+  in another (T4 availability) than the prior pass; net scope is not
+  broadened.
+
 No STOP triggered by this check.
 
 ## 28. Files Changed
@@ -553,24 +755,40 @@ guarantee. Not STOP: no material contradiction among normative sources
 was found (the one discrepancy found, section 4, is a stale Project
 card vs. real code — not a normative conflict).
 
-## 30. Backlog Delta
+## 30. Backlog Delta (refined — property-oriented name, not a preferred mechanism)
 
-**BACKLOG DELTA DETECTED** — one genuinely new, material delta, not
-already covered by any item on the "do not count" list:
+**BACKLOG DELTA DETECTED** — the same underlying finding as the prior
+pass, renamed to name the missing *property*, not a *preferred
+mechanism* ("hash Outcome," "sign DestinationBinding," "add a Merkle
+root," "anchor Outcome" were all considered and explicitly rejected as
+names — each smuggles in a specific implementation the investigation is
+not authorized to prescribe):
 
-**Cryptographic Content-Binding Gap in Durable Protocol Facts.**
-`hashOutcomeContent()` (Core-level, tested, real) is never invoked
-anywhere in the codebase; `DestinationBinding` has no commitment
-mechanism of any kind in `@sails/core` or the runtime layer; the
-`EscrowEvent`/`DurableEventRecord` hash chains both anchor at a
-hardcoded, unverified `'genesis'` sentinel with no external anchor. The
-durable question this delta records: **should the Outcome/DestinationBinding
-that a signed Authority decision commits an escrow to also be
-cryptographically bound to that signature (or independently anchored),
-and if so, by which mechanism** — this mission does not answer that
-question or propose a mechanism, consistent with its own anti-solutionism
-gate. Distinct from Provider Substitution's own already-known finding
-(that non-MULTISIG rails pass destination as an unsigned parameter) —
-this delta is specifically that **even MULTISIG**, the one rail with
-every other part of the chain real, has this gap. Not implemented, not
-Project-synced, by this mission (no such authority granted).
+**Independent Verifiability of Authority -> Outcome -> Destination
+Binding.** The durable question this delta records, unchanged from
+section 2/18.1: *can an independent verifier establish, without
+trusting operator-held database associations, that a specific Outcome
+and DestinationBinding are the authorized consequence of a specific
+signed Authority decision?* Precision-pass finding (18.2-18.6): the
+Authority-decision link is already independently verifiable; the
+Authority->Outcome link is conditionally independently verifiable
+(given `buyerId`/`sellerId`); the Outcome->DestinationBinding link is
+where independent verifiability actually stops, and this holds even for
+MULTISIG, the one rail with every other part of the chain real. This
+does **not** become "another" delta merely because its name changed
+from the prior pass — same finding, sharper name, same non-answer on
+mechanism. Not implemented, not Project-synced, by this mission (no
+such authority granted).
+
+## 30b. Project Drift
+
+**PROJECT DRIFT: DETECTED.** The "OpenProof — Registry, Evidence
+Provider & Timestamp Anchor" Project card's claim that
+`TimestampAnchor`/`AnchorProof` are "genuinely not started" is directly
+contradicted by RFC-008's own text and by `src/modules/open-proof/timestamp-anchor.ts`'s
+real, live-wired `anchor()` implementation (section 4). Reported and
+classified as **stale-bookkeeping drift, not a new architectural
+backlog delta** — the underlying capability is real; only the Project's
+own description of it is wrong. Not resolved, not Project-synced, by
+this mission (no Project write authority; explicitly not the main
+mission per the CTO's own instruction).
