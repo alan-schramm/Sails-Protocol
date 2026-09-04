@@ -227,7 +227,7 @@ Mapped against the mission's own candidate attacks:
 
 | Attack | Evidence | Result |
 |---|---|---|
-| M1 — Provider identity substitution (Outcome/DestinationBinding invariant under a provider-identity change) | `correspondence.ts`'s own import list contains no Provider/Prisma/network dependency (structural, verified by inspection — the evaluator cannot distinguish providers because it never receives one) | Structurally satisfied by construction |
+| M1 — Provider identity substitution (Outcome/DestinationBinding invariant under a provider-identity change) | `correspondence.ts`'s own import list contains no Provider/Prisma/network dependency (structural, verified by inspection — the evaluator cannot distinguish providers because it never receives one) | **Provider-identity architectural independence: SUPPORTED.** **Metamorphic execution across two real providers: NOT DEMONSTRATED** — this is absence-of-coupling evidence (the evaluator has no way to depend on a provider), not a runtime execution that actually substituted one real provider for another and compared results. No two real providers exist to run such an execution against (§4). Absence of provider coupling supports separation; it does not itself demonstrate operational substitution. |
 | P1 — Destination mutation | `disputeCorrespondence.test.ts` "CORR-2/P25: wrong destination -> UNKNOWN... never MATCH" | PASS (correctly rejects) |
 | P3/P4 — Amount mutation / skim | `disputeCorrespondence.test.ts` "COST-18/P26: an extreme single-beneficiary skim disguised as fee is DIVERGENT"; "CORR-5/P26: a delivered-value shortfall... is DIVERGENT"; SPLIT ratio-substitution ("70/30 shifted to 60/40... is DIVERGENT on both legs") | PASS (correctly rejects) |
 | P6 — Success laundering | `destinationCorrespondence.test.ts` "P9. Provider SUCCESS never automatically becomes MATCH" — a provider reporting only "reached the rail" with no real detail normalizes to UNKNOWN, never MATCH | PASS (correctly rejects) |
@@ -270,6 +270,18 @@ Correspondence evaluation  <-- LIVE only for MULTISIG + disputed/arbitrated rele
   No — its one live wiring point is single-rail, single-path.
 
 ## 11. Structural vs. Operational Replaceability (Phase 11)
+
+```
+STRUCTURAL PROVIDER SEMANTIC BOUNDARIES
+                !=
+OPERATIONAL PROVIDER REPLACEABILITY
+```
+
+- **Structural** — the tested architecture prevents selected
+  provider/execution behavior from becoming authoritative economic
+  meaning on the demonstrated surface.
+- **Operational** — two legitimate, distinct providers/mechanisms have
+  actually been substituted while preserving the declared property.
 
 ```
 Structural: SUPPORTED (for the boundary the architecture actually enforces — see scope below)
@@ -326,16 +338,32 @@ on `main` before this mission started; they were rerun, not written.
 
 ## 15. Smallest Defensible Claim
 
-**"Sails enforces a uniform, fail-closed `SettlementProvider` dispatch
-boundary across all five registered providers, under which no provider
-receives or decides the authorized destination it executes against; a
-real historical violation of this boundary was found and closed, with a
-regression test. For the one rail with a live post-execution check
-(MULTISIG disputed releases), destination and amount mutation are
-demonstrated — via already-existing, rerun-and-passing tests — to be
-detected, never silently treated as a match. No two legitimate,
-distinct providers or mechanisms have been substituted for one another
-in this repository, because no such pair currently exists to test."**
+**Confirmed final claim (CTO-reviewed wording):**
+
+**"Sails demonstrates tested structural boundaries that prevent
+settlement providers from redefining selected authoritative economic
+meaning. Operational substitution between two distinct legitimate
+providers has not been demonstrated."**
+
+Attacked against the evidence above and confirmed, not narrowed further
+— every clause is directly supported: "tested structural boundaries"
+(§6, §9, §11), "selected" (not universal — §7/§10's per-provider scope
+table), "has not been demonstrated" (§4, §11). A broader claim would not
+survive; this exact wording is retained as the governing sentence for
+this evidence artifact and any future freeze record.
+
+**Supporting elaboration (same claim, with the specific mechanisms
+named):** Sails enforces a uniform, fail-closed `SettlementProvider`
+dispatch boundary across all five registered providers, under which no
+provider receives or decides the authorized destination it executes
+against; a real historical violation of this boundary was found and
+closed, with a regression test. For the one rail with a live
+post-execution check (MULTISIG disputed releases), destination and
+amount mutation are demonstrated — via already-existing,
+rerun-and-passing tests — to be detected, never silently treated as a
+match. No two legitimate, distinct providers or mechanisms have been
+substituted for one another in this repository, because no such pair
+currently exists to test.
 
 Deliberately not "provider independence" or "provider substitution
 demonstrated" as unqualified claims — those would conflate the
@@ -398,6 +426,15 @@ opening caution).
   test that rejects this.
 - **Did we manufacture a second provider to obtain an A?** No — this is
   the central reason the verdict is B, not A.
+- **Did we treat absence of imports as direct substitution evidence?**
+  Corrected — §9's M1 row now explicitly separates "provider-identity
+  architectural independence: SUPPORTED" (what the import-absence check
+  actually shows) from "metamorphic execution across two real providers:
+  NOT DEMONSTRATED" (what it does not show).
+- **Did we broaden "selected authoritative economic meaning" into
+  universal K3?** No — §16 explicitly lists "Full K3 conformance" under
+  NOT PROVEN, and every claim sentence (§15) uses "selected," never
+  "universal" or "full."
 - **Did we confuse interface modularity with decentralization?** No —
   §6 explicitly separates custody (RFC-019, a different axis) from
   destination-meaning preservation (this mission's actual scope).
