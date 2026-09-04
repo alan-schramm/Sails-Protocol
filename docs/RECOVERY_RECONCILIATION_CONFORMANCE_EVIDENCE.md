@@ -211,17 +211,32 @@ every terminal escrow — no supported recovery path in this repository
 ever attempts a second execution attempt against an already-terminal
 escrow today. Recovery Conformance for the scenarios this mission
 actually claims (§14) does not depend on T1/T2 being solved.
+
+**T1/T2 — NOT REPRESENTABLE.** Not solved, not redesigned, no schema
+added, no execution-attempt abstraction introduced, and the mission
+property (§6) was not weakened to route around it — it remains exactly
+the existing tracked residual it already was.
 `BACKLOG DELTA: ZERO` contribution from T1/T2 (already known).
 
 ## 10. Observation / Finality Findings (Phase 9)
 
-No universal finality model exists in this repository, and none is
-invented here. Each sweep (`multisig-release-reorg-sweep.ts` et al.)
-defines its own scoped "buried enough" confirmation-depth threshold for
-its own purpose only. `OBSERVATION != FINALITY` is preserved by
-construction: every sweep run **re-asks the real explorer** rather than
-trusting a cached belief (`multisig-release-reorg-sweep.ts`'s own header,
-"CHAIN TRUTH DOMINATES... never trusts a cached 'it was CONFIRMED at
+**Precise scope of this finding, stated explicitly:** re-querying
+external reality on every sweep run is not, by itself, evidence of a
+universal finality model — it is evidence of a narrower, correctly
+scoped property. **Observation/Finality discipline is demonstrated for
+the tested MULTISIG reconciliation/reorg behaviors: recovery does not
+treat a previously cached observation as permanently authoritative, and
+always re-evaluates current external evidence before acting on it. No
+universal finality model is defined by this repository, and none is
+demonstrated or invented by this mission.**
+
+Each sweep (`multisig-release-reorg-sweep.ts` et al.) defines its own
+scoped "buried enough" confirmation-depth threshold for its own purpose
+only — this threshold is a local heuristic, not a protocol-wide finality
+definition. `OBSERVATION != FINALITY` is preserved by construction:
+every sweep run **re-asks the real explorer** rather than trusting a
+cached belief (`multisig-release-reorg-sweep.ts`'s own header, "CHAIN
+TRUTH DOMINATES... never trusts a cached 'it was CONFIRMED at
 recognition time' belief"), and a stale/absent/conflicting observation
 is classified into a distinct World (B/C/D/E) rather than silently
 promoted to certainty.
@@ -429,7 +444,7 @@ obtain a pass.**
 |---|---|
 | Authority Preservation | **DEMONSTRATED** (MULTISIG scope) |
 | Outcome / Destination Preservation | **DEMONSTRATED** (MULTISIG scope) |
-| Observation / Finality Discipline | **DEMONSTRATED** (no universal finality claimed) |
+| Observation / Finality Discipline | **DEMONSTRATED for tested MULTISIG behavior** — no universal finality model defined or demonstrated |
 | Reconciliation Idempotence | **DEMONSTRATED** (semantic; operational side-effects legitimately vary) |
 | Historical / Current-State Separation | **PARTIAL** — durable-fact level yes; public-read level no (TECHNICAL_DEBT_AUDIT.md #41, already tracked) |
 | Reorg Discipline | **DEMONSTRATED** (MULTISIG scope) |
@@ -451,11 +466,27 @@ found in any tested scenario.
 
 ## 25. Smallest Defensible Claim
 
-**"Sails demonstrates that its supported recovery/reconciliation paths
-— all currently scoped to MULTISIG — reconstruct or continue execution
-from durable and admissible external facts without re-authorizing
-selected economic meaning, under the tested crash (C4, C8, C13-14, C18),
-retry, and observation scenarios."**
+**Confirmed final claim (CTO-reviewed wording):**
+
+**"Sails demonstrates that its supported MULTISIG recovery/reconciliation
+paths reconstruct or continue execution from durable and admissible
+external facts without re-authorizing selected economic meaning under
+the tested crash, retry, reconciliation and observation scenarios."**
+
+Attacked against the evidence above and confirmed, not narrowed
+further — "supported MULTISIG" (§4/§8's exclusive scope finding),
+"reconstruct or continue execution" (§7/§8), "without re-authorizing
+selected economic meaning" (§7), "tested crash, retry, reconciliation
+and observation scenarios" (§8/§9/§10/§14). A broader claim would not
+survive; this exact wording is retained as the governing sentence for
+this evidence artifact and any future freeze record.
+
+**Supporting elaboration (same claim, with the specific crash windows
+named):** Sails demonstrates that its supported recovery/reconciliation
+paths — all currently scoped to MULTISIG — reconstruct or continue
+execution from durable and admissible external facts without
+re-authorizing selected economic meaning, under the tested crash (C4,
+C8, C13-14, C18), retry, and observation scenarios.
 
 Deliberately not "universal recovery correctness," "exactly-once
 settlement globally," "reorg safety across every rail," "universal
@@ -543,5 +574,20 @@ has no automated recovery path today. Distinct from — not a duplicate of
 — Backlog Delta Sync #6's "Live Correspondence Coverage Across
 Settlement Paths" (that delta concerns post-execution *divergence
 detection*; this one concerns *crash-recovery automation itself*, a
-different mechanism). Not implemented, not Project-synced, by this
-mission (no such authority granted).
+different mechanism):
+
+```
+Correspondence coverage:
+Is divergence being detected/recorded?
+
+Recovery coverage:
+Can execution/state be reconstructed or reconciled correctly?
+```
+
+**The primary backlog question this delta records is not "implement
+recovery for every rail."** It is the earlier, unanswered
+architectural/product question: which settlement paths are intended to
+survive, and what recovery/reconciliation obligations — if any — does
+each surviving path require? This mission does not answer that question,
+does not implement recovery for any additional rail, and does not
+Project-sync this delta (no such authority granted).
