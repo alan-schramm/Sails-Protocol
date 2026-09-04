@@ -2,15 +2,18 @@
 
 ### Sails Protocol — Strategic Macrofront Map
 
-> Recorded 2026-09-04, following the Independent Master Backlog Audit's
-> finding that the exact 38-macrofront strategic map, previously
-> referenced only in passing (`docs/GITHUB_PROJECT.md` §2, "reconciling
-> the GitHub Project against the Master Backlog / Norte Fixo"), did not
-> exist as a durable artifact anywhere in this repository or its git
-> history (verified via exhaustive search across 553+ commits before
-> this file was written). This is the smallest durable representation
-> that closes that gap — a plain list and a short statement of role,
-> nothing more.
+> The exact 38-macrofront strategic map was institutionalized as a
+> durable repository artifact on 2026-09-04 after the Independent
+> Master Backlog Audit demonstrated that it previously existed only
+> outside durable repository memory — referenced only in passing
+> (`docs/GITHUB_PROJECT.md` §2, "reconciling the GitHub Project against
+> the Master Backlog / Norte Fixo"), never itself recorded anywhere in
+> this repository or its git history (verified via exhaustive search
+> across 553+ commits before this file was written). Before this file:
+> Strategic Direction Survivability — NOT YET DEMONSTRATED. This file
+> is the smallest durable representation that closes that specific
+> institutional-memory gap — a plain list and a short statement of
+> role, nothing more.
 
 ## What this document is, and is not
 
@@ -28,9 +31,12 @@
 ## The distinction this repository now preserves explicitly
 
 ```
-Master Backlog (docs/BACKLOG.md, docs/TECHNICAL_DEBT_AUDIT.md)
+Master Backlog (docs/BACKLOG.md)
   remembers everything — completed work, known debt, historical
-  decisions, in full technical detail.
+  decisions, in full technical detail. This is the canonical Master
+  Backlog; docs/TECHNICAL_DEBT_AUDIT.md is a complementary durable
+  technical-debt/audit source, not part of the Master Backlog's own
+  identity.
 
 Norte Fixo (this document)
   prevents strategic blindness — a fixed map of the macrofronts that
@@ -50,8 +56,9 @@ work on it is scheduled, funded, or even currently intended to start.
 
 ## The 38 macrofronts
 
-This is the exact list confirmed durable as of 2026-09-04. Order is the
-order it was given; it does not imply priority ranking.
+This is the exact list institutionalized as a durable artifact on
+2026-09-04. Order is the order it was given; it does not imply priority
+ranking.
 
 1. Constitution/Invariants
 2. Semantic Kernel
@@ -91,18 +98,6 @@ order it was given; it does not imply priority ranking.
 36. Engineering Philosophy
 37. Final Product ↔ Protocol Boundary
 38. Master Backlog Closure
-
-## Known coverage gaps, as of the 2026-09-04 audit
-
-The Independent Master Backlog Audit found 13 of the 38 fronts above
-with weak-to-nonexistent durable representation elsewhere in this
-repository (Human & Agent Interaction; several buried inside the
-GitHub Project's "Final Evidence Program" card rather than tracked as
-their own front — Final External Cold Red Team, Final Product ↔
-Protocol Boundary, Master Backlog Closure; among others). This document
-does not resolve that — recording the map itself is the fix this pass
-is authorized to make. Closing individual coverage gaps remains future,
-separately-authorized work.
 
 ## Maintenance discipline
 
