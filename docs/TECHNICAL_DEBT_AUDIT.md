@@ -15,7 +15,26 @@
 | **Médio** (dificulta onboarding) | 15 | Baixo (horas) |
 | **Baixo** (melhoria de DX) | 10 | Baixo (minutos) |
 
-**Total:** 45 itens de dívida técnica invisível identificados
+**Total:** 45 itens de dívida técnica invisível identificados no
+levantamento original de 2026-08-07 (tabela acima, itens classificados
+na escala Crítico/Alto/Médio/Baixo).
+
+**Nota — 2026-09-04 (Independent Master Backlog Audit), contagem
+verificada diretamente da fonte, não assumida.** Este documento foi
+posteriormente estendido por missões subsequentes (Mission 9, Missão
+M8.5, Missão 11, Durable Protocol Truth, entre outras) que registraram
+itens adicionais numerados até o **item #50** — verificado por contagem
+direta dos cabeçalhos `### N.` deste arquivo, sequencial, sem lacunas.
+Esses itens adicionais (aproximadamente #31-#50) usam seu próprio
+vocabulário de classificação específico da missão que os registrou
+(ex.: "débito arquitetural reconhecido", "POSSIBLE VIOLATION",
+"débito de superfície de leitura") em vez da escala Crítico/Alto/Médio/
+Baixo da tabela acima — deliberadamente não forçados nela nesta
+correção, para não fabricar uma classificação de severidade que a
+missão original que os registrou nunca atribuiu. A tabela acima
+permanece precisa para o escopo do levantamento original de
+2026-08-07; ela nunca pretendeu, e não deve ser lida como, cobrindo
+o total atual de itens registrados neste documento.
 
 ---
 
@@ -783,6 +802,65 @@ parâmetro de destino do árbitro; resolver e capturar o `PayoutAddress`
 do beneficiário no momento do commit do Outcome) — bloqueado apenas por
 uma decisão de produto ainda pendente sobre disputas legadas em voo
 (mesmo documento, §14) — e só então retomar a Missão M8-R.
+
+**Corrigido/Parcialmente remediado — escopo por rail 2026-09-04
+(Independent Master Backlog Audit, verificado diretamente contra
+`dispute.service.ts` na baseline `c9812a8`).** O achado acima estava
+correto na sua baseline original (Missão M8.5, 2026-08-30) e permanece
+preservado sem alteração — a Missão M8-R, executada depois, de fato
+retomou o trabalho e fechou este débito **apenas para o rail MULTISIG**.
+Verificação direta, rail por rail:
+
+- **MULTISIG — remediação implementada.** `resolveDispute()` bifurca
+  para `applyRulingCoreAuthoritative()` (`dispute.service.ts:415-421`)
+  quando `escrowForBranch.type === 'MULTISIG'`. O parâmetro legado
+  `releaseToAddress`/`refundToAddress` ainda pode entrar em
+  `resolveDispute()` (a assinatura pública não foi alterada, por
+  decisão deliberada — ver o comentário `@deprecated for MULTISIG` no
+  próprio `resolveDispute()`), mas está **estruturalmente ausente** dos
+  parâmetros de `applyRulingCoreAuthoritative()` — não pode alcançar a
+  execução econômica deste rail de forma alguma. A autoridade de
+  Outcome + DestinationBinding é Core-autoritativa para este caminho: o
+  commit durável (Outcome + snapshot do destino, `commitAuthoritativeDisputeRuling()`)
+  "STRICTLY PRECEDES dispatch-eligibility evaluation, which STRICTLY
+  PRECEDES calling any settlement action" (comentário do próprio
+  método). Comprovado por `tests/disputeOutcomeMultisig.test.ts`'s
+  casos "wrong legacy parameter is ignored". **Isto não demonstra
+  verificabilidade independente do destino** — apenas que o árbitro não
+  tem mais poder de override; ver a distinção com o property gap
+  separado citado abaixo.
+- **LIGHTNING_HODL / SAFE_GUARD_EVM — achado original permanece
+  integralmente válido, não remediado.** Ambos continuam no caminho
+  legado `applyRuling()`, byte-for-byte inalterado desde a baseline
+  original. O destino fornecido pelo árbitro/chamador **ainda afeta a
+  execução econômica real** — o próprio código documenta isso como
+  "fully authoritative by this file's own documented boundary"
+  (`dispute.service.ts:335`). A remediação de Destination Authority
+  **não** é Core-autoritativa para nenhum dos dois.
+- **WDK_USDT_EVM — assimetria real entre RELEASE e REFUND, preservada
+  sem achatamento.** RELEASE: o destino fornecido pelo árbitro/chamador
+  permanece economicamente efetivo (`escrowService.releaseFunds()`,
+  mesmo caminho legado). REFUND: o destino **não** é escolhido pelo
+  chamador pelo mesmo mecanismo — `refundFunds()` não aceita parâmetro
+  de endereço algum, sempre envia para `treasuryAccount()`
+  (`wdk-settlement.provider.ts:167-177`, verificado diretamente) — a
+  semântica é fixa/tesouraria, não um destino arbitrário do árbitro.
+- **MOCK — mesmo comportamento legado de RELEASE que WDK_USDT_EVM**,
+  mesmo branch de código (`needsSignatureCollection === false`); não
+  reivindicado além do que a evidência sustenta.
+
+**Distinto de, e não equivalente a**, o property gap separado
+`Independent Verifiability of Authority → Outcome → Destination
+Binding` (`docs/DURABLE_PROTOCOL_TRUTH_EVIDENCE.md`, `docs/BACKLOG.md`
+"Known Debt" — permanece **OPEN PROPERTY GAP**, não afetado por esta
+atualização). Aquele item pergunta se um terceiro pode *provar*, de
+forma independente e sem confiar no banco de dados do operador, qual
+destino foi autorizado — mesmo para MULTISIG, onde este item 39 já foi
+resolvido, nada assina ou hasheia o `DestinationBinding`, então aquele
+gap permanece aberto **mesmo depois desta remediação**. Destination
+Authority (quem decide) ≠ Verificabilidade Independente de Destino
+(quem consegue provar depois) — resolver um não resolve o outro; o
+MULTISIG é a prova formal disso.
 
 ---
 

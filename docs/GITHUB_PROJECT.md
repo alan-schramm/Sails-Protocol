@@ -549,8 +549,10 @@ COMPLETED / FROZEN
 
 CURRENT
   Project Backlog Reconciliation (2026-09-02) — reconciling the
-  GitHub Project against the Master Backlog / Norte Fixo. Not a
-  protocol implementation mission; capture/classify only.
+  GitHub Project against the Master Backlog / Norte Fixo (the exact
+  38-macrofront strategic map, now durably recorded at
+  `docs/NORTE_FIXO.md` — 2026-09-04, Independent Master Backlog Audit).
+  Not a protocol implementation mission; capture/classify only.
 
 UNBLOCKED, NOT STARTED
   (none currently designated as the next mission — see the Project's
