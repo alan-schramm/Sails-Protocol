@@ -22,12 +22,23 @@
  * caller's own array order, never deciding value.
  *
 
- * NOT WIRED INTO ANY LIVE PATH. `dispute.service.ts`'s `applyRuling()`
- * is completely untouched — see this file's own "WHY NO LIVE MIGRATION"
- * below, which restates and reconfirms discretionary-authority.ts's
- * (M5) own finding: the fusion of verification, decision, and fund
- * dispatch inside one synchronous call has not changed since M5, so the
- * same STOP applies here.
+ * NOT WIRED INTO ANY LIVE PATH when this module (M7) was built —
+ * `dispute.service.ts`'s `applyRuling()` was, at that time, completely
+ * untouched; see this file's own "WHY NO LIVE MIGRATION" below for that
+ * mission's own scope decision, which restated and reconfirmed
+ * discretionary-authority.ts's (M5) own finding at the time: the fusion
+ * of verification, decision, and fund dispatch inside one synchronous
+ * call had not changed since M5. **Corrigido 2026-09-04 (Current Truth
+ * Reconciliation P0):** this module has since been wired live for
+ * MULTISIG — its `ArbitrationOutcomeContent`/`BeneficiaryDestination`
+ * types and `buildArbitrationOutcome()`/`buildOutcomeDestinationBinding()`
+ * functions are used throughout the later M8-R live chain
+ * (`dispute-outcome.ts`, `dispute-dispatch.ts`,
+ * `dispatch-translation-guard.ts`), all invoked unconditionally inside
+ * `dispute.service.ts`'s MULTISIG-only `applyRulingCoreAuthoritative()`.
+ * `applyRuling()` (the legacy path, still fusing verification/decision/
+ * dispatch in one synchronous call exactly as described below) remains
+ * unchanged for LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK.
  *
  * WHY NO LIVE MIGRATION (mission's own §4/§26): `applyRuling()`
  * (dispute.service.ts) verifies the signed decision AND immediately
