@@ -60,6 +60,15 @@ At the time this document was written, no code existed yet. **Correction,
 document designed is now underway (Sails Core Implementation Program,
 started 2026-08-30) — read this document for the migration design
 itself, which remains the frozen plan that program follows.
+[architecture/](architecture/) — added 2026-09-02 (Archify Pass 1), the
+first canonical visual representation of the M0–M10 architecture above:
+seven diagrams (high-level layers, authority axes, economic transition
+lifecycle, dispute/attributed-authority sequence, settlement/destination
+authority, recovery model, SDK Adapter boundary) as reviewed, source-
+evidenced JSON IR — rendered and always current at
+[alan-schramm.github.io/Sails-Protocol](https://alan-schramm.github.io/Sails-Protocol/).
+Represents architecture; does not define it — where a diagram and a
+document above disagree, the document governs.
 [GETTING_STARTED.md](GETTING_STARTED.md)
 — added 2026-08-10, the fastest entry point of all 20+: copy-paste
 commands only, a conceptual 8-step trade flow with no file/function
