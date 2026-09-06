@@ -4,9 +4,20 @@
  * `@sails/core`'s generalized attribution evaluator
  * (`packages/sails-core/src/attribution.ts`).
  *
- * NOT WIRED INTO ANY LIVE PATH. `dispute.service.ts`'s `resolveDispute()`
- * is completely untouched by this mission — see this file's own header
- * below for why a live migration was explicitly not attempted. This
+ * NOT WIRED INTO ANY LIVE PATH when this module (M5) was built —
+ * `dispute.service.ts`'s `resolveDispute()` was, at that time, completely
+ * untouched; see this file's own header below for why a live migration
+ * was explicitly not attempted THEN. **Corrigido 2026-09-04 (Current
+ * Truth Reconciliation P0):** this module has since been wired live —
+ * the later M8-R mission's `dispute-outcome.ts` calls
+ * `evaluateAuthorityDecisionAttribution()` unconditionally inside
+ * `applyRulingCoreAuthoritative()`, itself unconditional for every
+ * MULTISIG dispute ruling (`dispute.service.ts`'s
+ * `escrowForBranch.type === 'MULTISIG'` branch). Still not wired for
+ * LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK, which still use the
+ * legacy `applyRuling()` path. The "WHY NO LIVE MIGRATION" section below
+ * remains an accurate historical record of this mission's own scope
+ * decision, not a description of the current state. This
  * module exists to prove the generalized Core primitive genuinely works
  * against REAL Mission13-shaped signed authority decisions
  * (tests/discretionaryAuthority.test.ts), reusing Mission13's own,

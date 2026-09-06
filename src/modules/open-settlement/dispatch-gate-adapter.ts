@@ -3,18 +3,32 @@
  * (Provider Dispatch Gate). Runtime-layer adapter for `@sails/core`'s
  * `evaluateDispatchEligibility` (`packages/sails-core/src/dispatch-gate.ts`).
  *
- * NOT WIRED INTO ANY LIVE PATH. See docs/M8_DISPATCH_GATE_FINDINGS.md
- * (and this mission's own final report) for the full, concrete reason:
- * `dispute.service.ts`'s `resolveDispute()` currently lets a caller's
+ * NOT WIRED INTO ANY LIVE PATH when this module (M8) was built. See
+ * docs/M8_DISPATCH_GATE_FINDINGS.md (and this mission's own final
+ * report) for the full, concrete reason THEN. **Corrigido 2026-09-04
+ * (Current Truth Reconciliation P0):** this module has since been wired
+ * live — the later M8-R mission's `dispute-dispatch.ts` calls
+ * `evaluateLiveDispatchEligibility()` unconditionally inside
+ * `dispute.service.ts`'s MULTISIG-only `applyRulingCoreAuthoritative()`
+ * path. Still not wired for LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM/
+ * MOCK, which still use the legacy `applyRuling()` path with no
+ * dispatch-gate check. The destination-substitution gap described below
+ * was closed for the MULTISIG path by M8-R's own destination-snapshot
+ * mechanism (M8.5) — see `dispute-outcome.ts`'s header for that
+ * sequencing. For the remaining four rails (the legacy `applyRuling()`
+ * path this correction describes above), the original finding this
+ * module was built to eventually close still holds exactly as written:
+ * `dispute.service.ts`'s `resolveDispute()` lets a caller's
  * `releaseToAddress`/`refundToAddress` parameter unconditionally
  * override a participant's own registered payout address
  * (`escrow-lifecycle.ts`'s `resolvePayoutAddress()`: "an explicit
  * address always wins") with NO cryptographic or durable-provenance
- * check at all — a real, concrete instance of exactly the destination-
- * substitution threat this whole Core Implementation Program exists to
- * close. Migrating live before that gap has a deliberate, disclosed
- * resolution would risk building a gate that looks authoritative while
- * the actual vulnerable input still flows straight through it.
+ * check at all, on those rails — a real, concrete instance of exactly
+ * the destination-substitution threat this whole Core Implementation
+ * Program exists to close. Migrating those rails live before that gap
+ * has a deliberate, disclosed resolution would risk building a gate
+ * that looks authoritative while the actual vulnerable input still
+ * flows straight through it.
  *
  * WHAT THIS FILE DEMONSTRATES: the correct SHAPE of the trust boundary
  * a future live wiring must respect — `alreadyDispatched` is NEVER a

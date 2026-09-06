@@ -421,6 +421,67 @@ long-term is not decided here — named so a future investigation mission
 has a fixed starting question instead of re-discovering it from a chat
 transcript.
 
+**Correction — 2026-09-04, Cold Sweep Institutional Sync.** The text
+above (2026-09-01) is preserved verbatim as the historical record of
+what was true when it was written. It is now stale: a real Mintlify
+site (`satsails.mintlify.site`, ~28 populated pages — Introduction,
+Quickstart, Architecture, Concepts, Guides, SDK, and a full REST API
+reference) already exists and is live, closing the "whether this
+becomes a real Mintlify site" non-decision above as **yes, it already
+has**. This does not close the rest of D.2's unstarted items (sync
+audit, IA, versioning, etc. remain genuinely not investigated) and does
+not authorize any content change to that site. Currently authorized:
+registering that a **Current Truth Reconciliation** pass against it is
+required (`docs/BACKLOG.md`'s "Cold Sweep Institutional Sync" entry —
+P0 findings only: a self-contradictory custody claim, `LIQUID_COVENANT`
+presented as available despite being reserved/unimplemented, an
+unqualified reputation-portability claim, and a stale LIGHTNING_HODL
+mechanism description). Not authorized by this correction: any P1/P2/P3
+expansion, any actual edit to the Mintlify site, or a decision on the
+sync-audit/IA items still listed above as not investigated.
+
+**Documentation surface responsibility model (registered 2026-09-04,
+Cold Sweep Institutional Sync)** — this section already gestured at
+part of this ("GitHub owns the truth. Mintlify presents the truth.");
+recorded here in full now that the other surfaces are confirmed to
+exist, not as a new governance framework:
+
+- **Repository — TRUTH.** Authoritative home for protocol semantics,
+  code, architecture, RFCs, evidence, invariants, the Master Backlog,
+  demonstrated properties, and limitations.
+- **Mintlify — BUILD / INTEGRATE.** Primary developer-facing surface
+  (SDK, API, quickstart, integration, examples, provider
+  capabilities/limitations, developer-relevant trust/security
+  boundaries). Derived and non-authoritative.
+- **GitBook — UNDERSTAND.** Broader explanatory/ecosystem/product/
+  protocol surface. Derived and non-authoritative. Technical sync
+  model: **INSUFFICIENT EVIDENCE** — no in-repo config
+  (`.gitbook.yaml`/`SUMMARY.md`-equivalent) exists at any point in this
+  repository's git history; confirmed live and auto-triggered on every
+  push to `main` via commit-status metadata only. Not invented or
+  assumed further than that.
+- **GitHub Wiki — REMEMBER.** Future historical/engineering knowledge
+  layer. Current status: **LOCKED / NO WRITES**. Eligibility pipeline:
+  Hypothesis → Investigation → Evidence → Adversarial Review → CTO Gate
+  → Freeze → Wiki Eligibility Review → optional publication, plus two
+  guards — (1) Wiki material must link back to the frozen repository
+  evidence/commit it summarizes; (2) if the frozen source is later
+  superseded, the Wiki representation becomes eligible for re-review
+  rather than silently remaining current. Frozen ≠ automatically
+  Wiki-worthy.
+- **GitHub Pages / Archify — VISUALIZE.** Mechanically derived
+  architecture visualization only (pinned source commit, generated HTML
+  never committed — `architecture-pages.yml`). Non-authoritative.
+
+No two surfaces compete for the same concept as independent truth by
+design; where overlap exists, exactly one is authoritative and the
+others derive from or point back to it. This model is not a new
+lifecycle, schema, or synchronization framework — it is a naming of
+roles already implied by "GitHub owns the truth. Mintlify presents the
+truth." above, now extended to the two additional real surfaces
+(GitBook, prospective Wiki) confirmed to exist since that line was
+written.
+
 #### D.3 Preservation-only additions (registered 2026-09-01, M9.10 Final Governance Checkpoint, Phase 6)
 
 Cross-checked against every strategic front named in that mission's own
@@ -454,8 +515,11 @@ as the rest of Bucket D:
   `docs/ECOSYSTEM_INTEGRATIONS.md`, Bucket E below, but not the same
   scope and not previously named as its own front)
 - ⬜ Archify — previously named only as one undifferentiated item; the
-  Pass 1 / Pass 2 split from that mission's own list is preserved here
-  even though neither pass has any scope yet
+  Pass 1 / Pass 2 split from that mission's own list is preserved here.
+  **Correction, 2026-09-06 (Current Truth P1+ Cleanup):** this entry was
+  stale — Pass 1 has since shipped and merged (PR #54, 2026-09-02,
+  `docs/architecture/`, rendered via `architecture-pages.yml`). Pass 2
+  remains unscoped, not designed, not started.
 
 #### D.4 WDK / agentic prior-art research (registered 2026-09-02, M9.10 Governance Hardening & Project Reconciliation)
 
@@ -549,8 +613,10 @@ COMPLETED / FROZEN
 
 CURRENT
   Project Backlog Reconciliation (2026-09-02) — reconciling the
-  GitHub Project against the Master Backlog / Norte Fixo. Not a
-  protocol implementation mission; capture/classify only.
+  GitHub Project against the Master Backlog / Norte Fixo (the exact
+  38-macrofront strategic map, now durably recorded at
+  `docs/NORTE_FIXO.md` — 2026-09-04, Independent Master Backlog Audit).
+  Not a protocol implementation mission; capture/classify only.
 
 UNBLOCKED, NOT STARTED
   (none currently designated as the next mission — see the Project's

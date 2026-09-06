@@ -1,0 +1,38 @@
+{
+  "evaluatorIdentity": { "name": "sails-condition-algebra", "version": "1.0" },
+  "title": "Sails Condition Algebra 1.0",
+  "description": "NOT a LeafEvaluator (docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 11's own 'distinguishability of role, not necessarily of concrete type' — the same reasoning that already gave CorrespondenceEvaluator its own separate role rather than reusing LeafEvaluator). A LeafEvaluator produces a ConditionResult from raw domain facts (e.g. the timelock evaluator, from deadline/evaluationTime); this identity instead COMPOSES already-produced ConditionResult values into an aggregate ConditionResult, per the frozen Condition Algebra (docs/CORE_ARCHITECTURE.md section 13). It governs the shared composition mechanism any composing Ruleset would rely on — no currently-published Ruleset (including sails-escrow-timelock-expiry-ruleset-1.0, the only Ruleset published as of this identity's registration) actually declares a composite AND/OR/threshold condition; this identity exists to make the underlying mechanism conformance-checkable ahead of the first Ruleset that needs it, exactly as sails-timelock-evaluator-1.0 was registered before any Ruleset consumed it. A TypeScript reference implementation exists at packages/sails-core/src/condition-result.ts (conditionAnd/conditionOr/conditionThreshold), but that implementation is not itself the definition of this identity — docs/CORE_IMPLEMENTATION_ARCHITECTURE.md section 19 (Language Neutrality).",
+  "semanticProfileIdentity": { "name": "sails-semantic-profile", "version": "1.0" },
+  "inputs": [
+    {
+      "name": "op",
+      "type": "\"AND\" | \"OR\" | \"THRESHOLD\"",
+      "description": "Which composition operator this vector exercises. AND and OR take two or more ConditionResult children; THRESHOLD additionally takes an integer n."
+    },
+    {
+      "name": "n",
+      "type": "integer (THRESHOLD only)",
+      "description": "The threshold count N-of-M. Present only when op = \"THRESHOLD\"; absent (and not applicable) for AND/OR, which are the N=M and N=1 special cases of the same underlying rule respectively."
+    },
+    {
+      "name": "args",
+      "type": "ConditionResult[]",
+      "description": "The already-evaluated child ConditionResult values being composed, in the exact case/order given — order is asserted NOT to affect the result for AND/OR/THRESHOLD (see the permutation-invariance vectors), but is preserved in the vector's own input for auditability."
+    }
+  ],
+  "output": {
+    "type": "ConditionResult",
+    "reachableValues": ["SATISFIED", "NOT_YET_SATISFIED", "UNSATISFIABLE", "UNKNOWN"],
+    "unreachableValues": [],
+    "rationale": "All four states are genuinely reachable by composition even when individual children are drawn from a narrower evaluator (e.g. the timelock evaluator alone never reaches UNSATISFIABLE or UNKNOWN, but AND-ing its result with a child that can reach those states can)."
+  },
+  "rule": "Total order: UNSATISFIABLE < UNKNOWN < NOT_YET_SATISFIED < SATISFIED (docs/CORE_ARCHITECTURE.md section 13). AND(args) = min(args) over this order; requires at least one arg, rejects (never silently answers) an empty args array. OR(args) = max(args) over this order; same non-empty requirement. THRESHOLD(n, args): counting s = count(SATISFIED), p = count(NOT_YET_SATISFIED), k = count(UNKNOWN), f = count(UNSATISFIABLE) among args — if s >= n then SATISFIED; else if s+p+k < n then UNSATISFIABLE (target unreachable even optimistically); else if s+p >= n then NOT_YET_SATISFIED (already-known paths alone suffice); else UNKNOWN (reaching n requires at least one uncertain slot to resolve favorably). THRESHOLD(1, args) reduces to OR(args); THRESHOLD(M, args) with M = args.length reduces to AND(args). AND, OR, and THRESHOLD are all order-independent (commutative/grouping-independent) over args, per section 13's own verification note.",
+  "determinism": "Pure function of (op, n, args) only — no side effects, no hidden inputs, no implicit clock or external state. The same input always produces the same output.",
+  "normativeReferences": [
+    "docs/SEMANTIC_KERNEL.md section 5 (K1 — Valid Transition)",
+    "docs/CORE_ARCHITECTURE.md section 12 (Condition Semantics — the four-state definitions)",
+    "docs/CORE_ARCHITECTURE.md section 13 (Condition Algebra — the AND/OR/threshold rule this identity implements verbatim)",
+    "docs/CORE_ARCHITECTURE.md section 14 (UNKNOWN / System-Error Boundary — governs the empty-input rejection: a Runtime assembly failure must never silently become a ConditionResult)"
+  ],
+  "conformanceVectors": "conformance/vectors/sails-condition-algebra-1.0.vectors.json"
+}

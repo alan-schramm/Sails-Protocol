@@ -651,7 +651,7 @@ the same day RFC-021 D8 landed, both times left "not fixed here" until
 now): the model above now matches `prisma/schema.prisma` exactly,
 including D6's appeal fields and D8's auto-resolution fields.
 
-### `ArbiterProfile` — owned by `opensettlement`, RFC-021 D2/D3's real permissionless-registration + reputation-as-collateral state
+### `ArbiterProfile` — owned by `opensettlement`, RFC-021 D2/D3's real permissionless-registration (opt-in per deployment via `ARBITRATION_MODE=market`; `'trusted-list'` remains the default) + reputation-as-collateral state
 
 ```prisma
 model ArbiterProfile {

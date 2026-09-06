@@ -42,6 +42,10 @@ import {
   createEvaluationTime,
   createCanonicalEvaluatorIdentity,
   createCanonicalSemanticProfileIdentity,
+  conditionAnd,
+  conditionOr,
+  conditionThreshold,
+  ConditionResult,
 } from '../packages/sails-core/src'
 import { referenceTimelockEvaluator, TimelockInput } from '../packages/sails-core/src/evaluators/timelock-evaluator'
 import { referenceAttributionEvaluator, AttributionEvaluationInput } from '../packages/sails-core/src/attribution'
@@ -85,6 +89,39 @@ function parseAttributionInput(raw: unknown): AttributionEvaluationInput {
 }
 
 /**
+ * sails-condition-algebra@1.0 — NOT a LeafEvaluator in packages/sails-core/src
+ * (conditionAnd/conditionOr/conditionThreshold are plain N-ary functions
+ * over already-produced ConditionResult values, not evaluators of raw
+ * domain facts — see conformance/evaluators/sails-condition-algebra-1.0.json's
+ * own "NOT a LeafEvaluator" disclosure). This wrapper exists ONLY here,
+ * outside Pure Core's own boundary, purely to give the harness's existing
+ * LeafEvaluator-shaped registry a single dispatch point across AND/OR/
+ * THRESHOLD — it adds no behavior of its own beyond routing to the three
+ * real, already-frozen (M1) functions.
+ */
+interface AlgebraInput {
+  readonly op: 'AND' | 'OR' | 'THRESHOLD'
+  readonly n?: number
+  readonly args: readonly ConditionResult[]
+}
+
+const referenceConditionAlgebra: LeafEvaluator<AlgebraInput> = {
+  identity: createCanonicalEvaluatorIdentity('sails-condition-algebra', '1.0'),
+  evaluate: (input: AlgebraInput): ConditionResult => {
+    if (input.op === 'AND') return conditionAnd(...input.args)
+    if (input.op === 'OR') return conditionOr(...input.args)
+    if (input.n === undefined) {
+      throw new Error('THRESHOLD vector requires n')
+    }
+    return conditionThreshold(input.n, input.args)
+  },
+}
+
+function parseAlgebraInput(raw: unknown): AlgebraInput {
+  return raw as AlgebraInput
+}
+
+/**
  * Local, repository-internal identity -> reference-implementation
  * registry. Keyed by "name@version" — the Canonical Evaluator Identity
  * itself, never a package name.
@@ -97,6 +134,10 @@ const evaluatorRegistry: Record<string, RegistryEntry<any>> = {
   'sails-attribution-evaluator@1.0': {
     evaluator: referenceAttributionEvaluator,
     parseInput: parseAttributionInput,
+  },
+  'sails-condition-algebra@1.0': {
+    evaluator: referenceConditionAlgebra,
+    parseInput: parseAlgebraInput,
   },
 }
 
