@@ -16,7 +16,7 @@ Checked directly against the CTO's proposed 6-stage schedule, not assumed:
 | Stage | Status |
 |---|---|
 | 1. Protocol Freeze | ✅ **Done** — `PROTOCOL_FREEZE_REPORT.md`, confirmed "Sails Protocol v1.0 — Architecture Frozen" |
-| 2. Implementation Review | 🟡 **Substantially in progress** *(updated 2026-07-16, open-reputation pass)* — every P0 item is done or explicitly scoped-out; every one of the 5 application/cross-module services (OpenIdentity, OpenLiquidity, OpenP2P, OpenSettlement, OpenReputation) now has both a real service layer and HTTP routes, `API_REFERENCE.md`-conformant, tested via `app.inject()`. Genuinely remaining: production-grade Settlement/Liquidity providers beyond Mock/Internal, OpenProof's service layer, and OpenAgents/OpenFinance (both explicitly blocked on external dependencies, not on this backlog's own pace) |
+| 2. Implementation Review | 🟡 **Substantially in progress** *(updated 2026-07-16, open-reputation pass; row stale relative to this file's own later sections — see correction below)* — every P0 item is done or explicitly scoped-out; every one of the 5 application/cross-module services (OpenIdentity, OpenLiquidity, OpenP2P, OpenSettlement, OpenReputation) now has both a real service layer and HTTP routes, `API_REFERENCE.md`-conformant, tested via `app.inject()`. Genuinely remaining: production-grade Settlement/Liquidity providers beyond Mock/Internal, OpenProof's service layer, and OpenAgents/OpenFinance (both explicitly blocked on external dependencies, not on this backlog's own pace) |
 | 3. Economic Model & Governance | 🟡 **Substantially already done** — `PROTOCOL_ECONOMY.md` (8 sections) and `GOVERNANCE.md` already cover fees, incentives, value capture, neutrality, RFC approval, module registration. One genuine gap (formal version-stability criteria) is correctly deferred to the future "RFC de Operação" phase, not blocking here. |
 | 4. Resilience Reviews | 🟡 **Partially done** — `RED_TEAM_REVIEW.md` already covers several attack scenarios that overlap with "Economic Attack" (RT-003, wash-trading reputation laundering) and "Protocol Resilience" (RT-005, governance capture during bootstrap; RT-006/007, name-squatting and arbitration griefing at scale). No dedicated Network Simulation exercise exists yet — genuinely not started. |
 | 5. Release Candidate 1 (RC1) | 🔲 **Not started** — blocked on Implementation Review |
@@ -28,6 +28,23 @@ before RC1 are already partially or substantially satisfied.** What's
 genuinely ahead: finishing Implementation Review's remaining P2/P3 items
 (production Settlement/Liquidity providers, OpenProof's service layer),
 a Network Simulation exercise within Resilience Reviews, and RC1 itself.
+
+**Correction, 2026-09-06 (Current Truth P1+ Cleanup) — the row 2 cell
+above is stale relative to this file's own later sections.** "Genuinely
+remaining: production-grade Settlement/Liquidity providers beyond
+Mock/Internal, OpenProof's service layer" no longer accurately describes
+current state: four real settlement providers exist today (MULTISIG,
+LIGHTNING_HODL, WDK_USDT_EVM, SAFE_GUARD_EVM — see the OpenSettlement row
+in the Known Debt section below for the full, dated build history), and
+OpenProof's service layer has been real since 2026-08-04 (see the Sails
+OpenProof row below). Narrowest current statement: none of the four real
+settlement providers is production-authorized (each is testnet-only or
+explicitly production-ineligible per `docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md`
+§7) — "production-grade" in the sense of a production-authorized rail is
+still genuinely open; "production-grade" in the sense of "no real
+implementation exists" is not. Original 2026-07-16 text preserved above
+verbatim as the historical record of what was true when it was written;
+not rewritten in place.
 
 ---
 

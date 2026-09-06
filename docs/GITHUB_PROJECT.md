@@ -515,8 +515,11 @@ as the rest of Bucket D:
   `docs/ECOSYSTEM_INTEGRATIONS.md`, Bucket E below, but not the same
   scope and not previously named as its own front)
 - ⬜ Archify — previously named only as one undifferentiated item; the
-  Pass 1 / Pass 2 split from that mission's own list is preserved here
-  even though neither pass has any scope yet
+  Pass 1 / Pass 2 split from that mission's own list is preserved here.
+  **Correction, 2026-09-06 (Current Truth P1+ Cleanup):** this entry was
+  stale — Pass 1 has since shipped and merged (PR #54, 2026-09-02,
+  `docs/architecture/`, rendered via `architecture-pages.yml`). Pass 2
+  remains unscoped, not designed, not started.
 
 #### D.4 WDK / agentic prior-art research (registered 2026-09-02, M9.10 Governance Hardening & Project Reconciliation)
 

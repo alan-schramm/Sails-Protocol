@@ -74,13 +74,25 @@ document.
 
 ### 💸 Settlement — *candidate: "Sails Settlement SDK"*
 
-- **Status: 🏗️ Specified.** OpenSettlement's escrow lifecycle, WDK USDT
-  release, and dispute resolution are real and tested — but only for
-  `WDK_USDT_EVM` and `MOCK`. `LightningHodlProvider`/
-  `LiquidCovenantProvider` both still throw "not yet implemented"
-  (`TODO.md` §4). The "abstract multiple rails behind one interface"
-  value proposition is real *as an interface* (`SettlementProvider`),
-  not yet real as delivered multi-rail coverage.
+- **Status: 🏗️ Specified.** OpenSettlement's escrow lifecycle and dispute
+  resolution are real and tested. **Corrigido 2026-09-06 (Current Truth
+  P1+ Cleanup):** this cell originally said only `WDK_USDT_EVM`/`MOCK`
+  were real and that `LightningHodlProvider` still threw "not yet
+  implemented" — that was accurate when written but is stale now.
+  Current state: `MULTISIG`, `LIGHTNING_HODL` (real since 2026-07-27, via
+  Arkade/VTXO/Taproot — not the classic HTLC/hold-invoice design this
+  cell originally implied), `WDK_USDT_EVM`, and `SAFE_GUARD_EVM` are all
+  real providers today; none is production-authorized (each is
+  testnet-only or explicitly production-ineligible, per
+  `docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md` §7).
+  `LiquidCovenantProvider` remains genuinely unimplemented — reserved,
+  deliberately not built (2026-08-01 decision) — the one part of the
+  original claim still accurate. The "abstract multiple rails behind one
+  interface" value proposition is real both as an interface
+  (`SettlementProvider`) and as delivered multi-rail coverage for four of
+  the five registered escrow types; it is not yet real as demonstrated
+  operational substitution between rails (`docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md`'s
+  own frozen conclusion).
 - Market equivalents: Lightning (LDK), Liquid, Strike.
 - Differentiator: a team wanting only cross-rail settlement — without
   adopting the full P2P trading/negotiation flow — could integrate this

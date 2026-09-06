@@ -1,6 +1,19 @@
 # HANDOFF.md
 ### Sails Protocol — Technical Handoff (2026-07-17, updated 2026-07-20)
 
+> **Historical, 2026-09-06 (Current Truth P1+ Cleanup):** the "what to
+> attack first" priority list below reflects repository state as of
+> 2026-07-20 and has not been updated since — everything in it has since
+> closed (Proof primitive, Intent→Trade SDK wiring, Capability Registry,
+> `MultisigProvider`, and more, all real per `docs/BACKLOG.md`), and the
+> current frontier (the Sails Core Implementation Program, started
+> 2026-08-30; the Independent Master Backlog Audit and Current Truth
+> Reconciliation work, 2026-09-04 onward) postdates this document
+> entirely and is not reflected in it. Kept for its historical
+> engineering-priority record, not as a current "attack in this order"
+> guide — see `docs/BACKLOG.md`'s Known Debt section and
+> `docs/GITHUB_PROJECT.md` for current state instead.
+>
 > Short, practical brief for whoever is picking this repo up next. Not a
 > replacement for `docs/00-INDEX.md`'s full 20-document reading order —
 > this is "what to run, what's real, what to attack first."
