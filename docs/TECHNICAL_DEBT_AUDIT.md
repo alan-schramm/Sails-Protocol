@@ -36,6 +36,19 @@ permanece precisa para o escopo do levantamento original de
 2026-08-07; ela nunca pretendeu, e não deve ser lida como, cobrindo
 o total atual de itens registrados neste documento.
 
+**Nota — 2026-09-06 (Independent Code Quality & Production Reality
+Audit, Institutional Sync).** O documento foi estendido novamente,
+itens **#51 a #55**, verificado por contagem direta dos cabeçalhos
+`### N.` (agora sequencial até #55, sem lacunas). Quatro são dívida
+técnica nova genuína (#51 timeout/retry de chain/RPC, #52 schema
+compartilhado SDK↔backend de criação de escrow, #53 `verifyLock()` sem
+call site, #54 observabilidade de degradação de detecção QVAC); um
+(#55) é classificado explicitamente como **Current Truth Documentation
+Drift**, não dívida técnica — um comentário desatualizado em
+`proof.service.ts`, não um gap de implementação real. Mesma ressalva de
+antes se aplica: os itens novos não são forçados na escala Crítico/
+Alto/Médio/Baixo da tabela original.
+
 ---
 
 ## CRÍTICO — Bloqueia Evolução do Sistema
@@ -222,6 +235,15 @@ const { socialEngineeringAgent } = require('../../modules/open-agents/social-eng
 **Problema:** No mesmo arquivo, `escrow.service.ts` tem both patterns. Desenvolvedor não sabe se um cast é "sei o que estou fazendo" ou "só quero calar o compilador".
 
 **Fix:** Eliminar `as any`, padronizar `as unknown as X` como escape hatch documentado.
+
+**Evidência adicional — 2026-09-06 (Independent Code Quality & Production
+Reality Audit).** Reforço de evidência apenas, sem nova classificação:
+instâncias concretas do padrão `as any` sobre `status`/`type`/`asset`
+foram confirmadas em `escrow-repository.ts:182,185,268,315,316,338` e
+`escrow-lifecycle.ts:386,394,408` — precisamente no caminho de escrita de
+transição de estado do escrow (fundos reais), não em código periférico.
+Não altera a classificação CRÍTICO já atribuída acima; apenas ancora o
+achado a um caminho de código específico e sensível a fundos.
 
 ---
 
@@ -1226,6 +1248,136 @@ execução isolada.
 status code foi trocado para forçar passagem, nenhuma
 autorização foi enfraquecida, nenhum retry foi usado para mascarar
 falha determinística — ver Sacrifice Check da Mission 9.10-R.
+
+### 51. Chamadas de chain/RPC ao vivo não têm timeout ou retry limitado (Independent Code Quality & Production Reality Audit, 2026-09-06)
+
+**Classificação: P1 — débito técnico novo, disponibilidade operacional do settlement.**
+
+Toda chamada `fetch()` a um explorer Bitcoin real ou ao bundler EVM é
+uma chamada única, sem `AbortSignal`, sem timeout, sem retry/backoff
+limitado: `multisig.provider.ts:228,243,270,300,314,654,908,930`;
+`safe-guard-evm.provider.ts:571`.
+
+**Propriedade em risco:** liveness/disponibilidade operacional do
+settlement — não uma questão de correção econômica (nenhum "sucesso
+fabricado" foi encontrado nesses caminhos, ver item de auditoria de
+error-handling correspondente), mas um endpoint travado bloqueia a
+requisição indefinidamente em vez de falhar rápido ou tentar novamente
+com limite.
+
+**Por que importa:** deveria ser corrigido antes de expansão
+significativa de rails — cada novo rail adiciona mais chamadas de rede
+sem essa proteção.
+
+**Fix recomendado (propriedade, não mecanismo):** toda chamada de rede
+a um provedor de liquidação/chain externo deve falhar dentro de um
+tempo limitado e pode ser reexecutada um número limitado de vezes antes
+de propagar o erro. Não prescreve um mecanismo específico (sem
+"ResilienceManager" genérico ou camada de resiliência universal) —
+decisão de implementação de uma futura Refactoring Authorization Gate.
+
+**Não corrigido por este registro.**
+
+### 52. Contrato de criação de escrow entre SDK e backend não tem schema compartilhado canônico (Independent Code Quality & Production Reality Audit, 2026-09-06)
+
+**Classificação: P1 — débito técnico novo, integridade de contrato SDK↔servidor.**
+
+`packages/sails-p2p-schemas` cobre dispute/offer/trade/capability-profile/
+bitcoin-network, mas não a criação de escrow. `packages/sails-sdk/src/modules/settlement.ts`'s
+`create()` e `settlement.routes.ts`'s `createEscrowSchema` (zod) são
+mantidos independentemente, com paridade garantida apenas por
+comentários manuais — um dos quais já documenta uma divergência real
+passada ("found missing WDK_USDT_EVM/SAFE_GUARD_EVM").
+
+**Propriedade em risco:** integridade do contrato SDK↔backend — um
+campo novo obrigatório ou um valor de enum renomeado compila
+corretamente dos dois lados de forma independente e só é descoberto por
+um integrador real em runtime (erro 400 genérico), nunca pelo CI.
+
+**Por que importa:** deveria ser corrigido antes de expansão
+substancial de superfície SDK/settlement.
+
+**Fix recomendado (propriedade, não mecanismo):** SDK e servidor devem
+compartilhar a mesma fonte de verdade estrutural para o contrato de
+criação de escrow. Não prescreve uma ferramenta/serviço específico (sem
+"schema broker service") — decisão de implementação de uma futura
+Refactoring Authorization Gate.
+
+**Não corrigido por este registro.**
+
+### 53. `SettlementProvider.verifyLock()` existe em todos os providers mas não tem nenhum call site real (Independent Code Quality & Production Reality Audit, 2026-09-06)
+
+**Classificação: P2 — débito técnico novo, integridade de abstração / deriva de interface morta.**
+
+Toda implementação real (`multisig.provider.ts:892`,
+`lightning-hodl.provider.ts:312`, `wdk-settlement.provider.ts:201`,
+`safe-guard-evm.provider.ts:622`) implementa `verifyLock()`; nenhum call
+site real existe em `src/` além das próprias definições —
+auto-documentado em `multisig.provider.ts:762-765`.
+
+**Propriedade em risco:** integridade da abstração — um método nunca
+exercitado no caminho de fundos reais pode divergir silenciosamente da
+lógica real de `lockFunds()` sem que nenhum teste ou chamador jamais
+perceba.
+
+**Decisão futura necessária (não tomada aqui):** (A) conectar
+`verifyLock()` a um caminho real que carregue uma propriedade genuína,
+ou (B) removê-lo com uma nota disclosed. Este registro não escolhe —
+apenas nomeia a decisão pendente.
+
+**Não corrigido por este registro. Nenhum mecanismo criado.**
+
+### 54. Caminhos de detecção baseados em QVAC degradam silenciosamente (log-only) em falha de inferência (Independent Code Quality & Production Reality Audit, 2026-09-06)
+
+**Classificação: P2 — débito técnico novo, observabilidade / sinal de segurança.**
+
+`liquidity.service.ts:270-289` (`screenOfferContent`) e
+`handlers.ts:519-543` (`socialEngineeringAgent.evaluate`) envolvem a
+chamada QVAC em um `.catch(err => log.error(...))` terminal — em
+falha, o sinal de detecção simplesmente nunca é emitido, sem
+métrica/alerta visível ao operador.
+
+**Importante, para não superestimar:** isto NÃO fabrica um resultado
+(nenhum veredito falso é inventado) e NÃO é um bug de correção de
+settlement — é puramente uma questão de visibilidade operacional de um
+sinal protetivo degradado.
+
+**Propriedade em risco:** visibilidade operacional de controles de
+segurança degradados.
+
+**Fix recomendado (propriedade, não mecanismo):** uma falha no pipeline
+de detecção deve ser distinguível operacionalmente de "nenhuma ameaça
+detectada" — não prescreve um mecanismo de alerta específico.
+
+**Não corrigido por este registro.**
+
+### 55. `proof.service.ts`'s comentário sobre o event store default está desatualizado (Current Truth Documentation Drift, 2026-09-06)
+
+**Classificação: Current Truth Documentation Drift — não é débito técnico novo, não é gap de implementação.**
+
+`proof.service.ts:346-352`'s comentário (datado "Missão 05,
+2026-08-15") ainda descreve "o store default (`InMemoryEventStore`...)"
+como o comportamento atual. Isso era verdade quando escrito, mas
+`event-bus.ts`'s próprio `SailsEventBus` mudou seu default para
+`PostgresEventStore` na MESMA data, em uma passagem posterior (Missão
+05.7, per `event-bus.ts:450-451,463`). O comportamento em runtime já
+está correto — `timelineDurable`/`timelineStore` (`proof.service.ts:364-368`)
+leem dinamicamente o store real configurado, não um valor hardcoded —
+apenas o texto estático do comentário nunca foi atualizado para
+refletir a mudança de default.
+
+**Não é:** um gap de durabilidade real, um bug de implementação, ou uma
+nova obrigação técnica. A auditoria original que levantou este ponto
+("runtime durability gap") superestimou o achado — corrigido aqui após
+verificação direta contra `event-bus.ts`.
+
+**Correção futura (comment-only, não feita aqui):** atualizar o
+comentário para refletir que `PostgresEventStore` é o default real
+desde Missão 05.7, preservando a explicação da distinção
+durável/não-durável (que continua genuinamente relevante caso um
+deployment configure explicitamente `InMemoryEventStore`).
+
+**Não corrigido por este registro.**
 
 ## Ações Recomendadas por Prioridade
 

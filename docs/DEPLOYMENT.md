@@ -87,6 +87,19 @@ generates fake transaction IDs and moves nothing real. Left `true` in
 hard stop, `RED_TEAM_REVIEW.md` RT-001) rather than silently running
 theater-escrow in production.
 
+**Low-priority hardening note (2026-09-06):** the `.env.example` values
+shown above (`NODE_ENV=development`, `MOCK_ESCROW=true`,
+`MOCK_SETTLEMENT=true`) are dev-oriented defaults, matching
+`docker-compose.yml`'s own dev/mock posture — they are not a production
+configuration and are not read as one anywhere in this document. This is
+not a production blocker: the real Dockerfile sets
+`NODE_ENV=production` explicitly, and the hard-stop guard above already
+prevents the mock providers from running in production regardless of
+what `.env.example` shows. Registered only as optional future DX
+hardening — e.g. an inline comment in `.env.example` itself flagging
+these three values as dev-only — not authorized or scheduled by this
+note.
+
 ## 3. Setup
 
 **Docker-first path (2026-08-03) — no Node/npm on the host at all**, the
