@@ -1278,6 +1278,30 @@ decisão de implementação de uma futura Refactoring Authorization Gate.
 
 **Não corrigido por este registro.**
 
+**Status — CLOSED (Bounded Remediation F1, 2026-09-06).** Todas as 9
+chamadas `fetch()` cruas (8 em `multisig.provider.ts`, 1 em
+`safe-guard-evm.provider.ts`) mais as 4 chamadas RPC via `ethers`
+`JsonRpcProvider`/`Contract` (`getNonce`/`getStorage`/`getBalance`×2 em
+`safe-guard-evm.provider.ts`) agora resolvem ou falham dentro de um
+timeout limitado (`AbortController` real para `fetch()`; um
+`Promise.race` com timeout — limitação honestamente registrada, não
+garante o encerramento do socket subjacente do `ethers` — para as
+chamadas via `ethers`). Retry limitado e seguro (3 tentativas, backoff
+linear) foi aplicado SOMENTE aos 11 caminhos de leitura pura; os 2
+caminhos de submissão/broadcast (`multisig.provider.ts`'s `broadcast()`,
+`safe-guard-evm.provider.ts`'s `broadcast()` via bundler) permanecem
+TIMEOUT_ONLY, sem retry automático, por design — um timeout após o
+envio significa resultado DESCONHECIDO, não FALHOU, e reenviar
+poderia duplicar uma ação econômica já aceita pela rede. Nenhuma
+semântica de estado do escrow, autoridade, destino, ou assinatura foi
+alterada. Novo arquivo: `src/modules/open-settlement/bounded-rpc.ts`
+(helper local compartilhado, não um framework de resiliência genérico).
+Evidência completa: PR (branch `fix/f1-rpc-bounded-liveness`),
+`tests/boundedRpc.test.ts` (13 testes provando timeout/retry/no-retry/
+erro-final-visível/sem-sucesso-fabricado) + testes existentes
+atualizados em `tests/multisigProvider.test.ts` para refletir o novo
+retry seguro intencional.
+
 ### 52. Contrato de criação de escrow entre SDK e backend não tem schema compartilhado canônico (Independent Code Quality & Production Reality Audit, 2026-09-06)
 
 **Classificação: P1 — débito técnico novo, integridade de contrato SDK↔servidor.**

@@ -80,6 +80,12 @@ import { computeMaxProtocolFee, computeProtocolFee } from './fee-reserve-math'
 import { estimatedVBytesForOutputCount, maxExecutionCostSats } from './execution-cost-policy'
 import type { FeeCollectionResult } from './escrow-providers'
 import { childLogger } from '../../common/logger'
+import { boundedFetch } from './bounded-rpc'
+
+// docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded, safe retry for
+// read-only explorer queries only. Never applied to broadcast() (a
+// mutating/submission call) — see bounded-rpc.ts's own header.
+const EXPLORER_READ_RETRY = { attempts: 3, backoffMs: 250 }
 
 bitcoin.initEccLib(ecc)
 const bip32 = BIP32Factory(ecc)
@@ -225,7 +231,10 @@ export interface TransactionExistence {
 // 404s only when the txid is genuinely unknown; a known-but-unconfirmed
 // (mempool) tx 200s with `confirmed: false`.
 export async function fetchTransactionExistence(txid: string): Promise<TransactionExistence> {
-  const res = await fetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`)
+  const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`, {}, {
+    timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    retry: EXPLORER_READ_RETRY,
+  })
   if (res.status === 404) return { exists: false, confirmed: false }
   if (!res.ok) {
     throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} checking existence for ${txid}`)
@@ -240,7 +249,10 @@ export async function fetchTransactionExistence(txid: string): Promise<Transacti
 // shape (`GET /tx/{txid}/status`) this provider's own fetchUtxos()/
 // broadcast() already rely on — no new explorer dependency introduced.
 export async function fetchTransactionConfirmationStatus(txid: string): Promise<TransactionConfirmationStatus> {
-  const res = await fetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`)
+  const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`, {}, {
+    timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    retry: EXPLORER_READ_RETRY,
+  })
   if (!res.ok) {
     throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} checking confirmation status for ${txid}`)
   }
@@ -267,7 +279,10 @@ export interface BroadcastTransactionOutput {
 // ever recognizing a collection. Same esplora/mempool.space REST shape
 // (`GET /tx/{txid}`) every other explorer call in this file already uses.
 export async function fetchTransactionOutputs(txid: string): Promise<BroadcastTransactionOutput[]> {
-  const res = await fetch(`${config.multisig.explorerApiUrl}/tx/${txid}`)
+  const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}`, {}, {
+    timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    retry: EXPLORER_READ_RETRY,
+  })
   if (!res.ok) {
     throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} fetching transaction ${txid}`)
   }
@@ -297,7 +312,10 @@ export interface OutpointSpendStatus {
 // outpoint identity (txLockId:txLockVout) is already a durable,
 // never-mutated fact on the Escrow row itself.
 export async function fetchOutpointSpendStatus(txid: string, vout: number): Promise<OutpointSpendStatus> {
-  const res = await fetch(`${config.multisig.explorerApiUrl}/tx/${txid}/outspend/${vout}`)
+  const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/outspend/${vout}`, {}, {
+    timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    retry: EXPLORER_READ_RETRY,
+  })
   if (!res.ok) {
     throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} checking outspend status for ${txid}:${vout}`)
   }
@@ -311,7 +329,10 @@ export async function fetchOutpointSpendStatus(txid: string, vout: number): Prom
 // (`GET /blocks/tip/height`, a bare integer response) every other
 // explorer call in this file already relies on.
 export async function fetchChainTipHeight(): Promise<number> {
-  const res = await fetch(`${config.multisig.explorerApiUrl}/blocks/tip/height`)
+  const res = await boundedFetch(`${config.multisig.explorerApiUrl}/blocks/tip/height`, {}, {
+    timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    retry: EXPLORER_READ_RETRY,
+  })
   if (!res.ok) {
     throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} fetching the chain tip height`)
   }
@@ -651,7 +672,10 @@ export class MultisigProvider implements SettlementProvider {
   }
 
   private async fetchUtxos(address: string): Promise<ExplorerUtxo[]> {
-    const res = await fetch(`${config.multisig.explorerApiUrl}/address/${address}/utxo`)
+    const res = await boundedFetch(`${config.multisig.explorerApiUrl}/address/${address}/utxo`, {}, {
+      timeoutMs: config.multisig.explorerRequestTimeoutMs,
+      retry: EXPLORER_READ_RETRY,
+    })
     if (!res.ok) {
       throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} for ${address}`)
     }
@@ -904,8 +928,20 @@ export class MultisigProvider implements SettlementProvider {
     return depth >= required
   }
 
+  // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — TIMEOUT_ONLY, deliberately no
+  // retry: this submits a raw signed Bitcoin transaction. A timeout after
+  // dispatch means the broadcast's real outcome is UNKNOWN, not FAILED —
+  // the explorer may already have accepted and relayed it even though
+  // the HTTP response never arrived. Retrying here is not authorized by
+  // this mission (cross-backend duplicate-submission idempotence is not
+  // proven); on timeout, the bounded error propagates unchanged to the
+  // existing caller, which already treats a broadcast failure as
+  // "did not confirm this attempt succeeded," never as "definitely
+  // failed" — no escrow-state semantics are changed by this fix.
   private async broadcast(txHex: string): Promise<string> {
-    const res = await fetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex })
+    const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
+      timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    })
     if (!res.ok) {
       throw new EscrowError(`MULTISIG provider: broadcast failed with ${res.status}: ${await res.text()}`)
     }
@@ -927,7 +963,10 @@ export class MultisigProvider implements SettlementProvider {
   private async fetchFeeRateSatsPerVByte(): Promise<number> {
     let res: Response
     try {
-      res = await fetch(`${config.multisig.explorerApiUrl}/v1/fees/recommended`)
+      res = await boundedFetch(`${config.multisig.explorerApiUrl}/v1/fees/recommended`, {}, {
+        timeoutMs: config.multisig.explorerRequestTimeoutMs,
+        retry: EXPLORER_READ_RETRY,
+      })
     } catch (err) {
       throw new EscrowError(
         `MULTISIG provider: failed to reach the fee-estimate endpoint (${config.multisig.explorerApiUrl}/v1/fees/recommended) — refusing to guess a fee for a real Bitcoin spend: ${err instanceof Error ? err.message : String(err)}`

@@ -119,6 +119,13 @@ import {
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
+import { boundedFetch, withBoundedRpcTimeout } from './bounded-rpc'
+
+// docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded, safe retry for
+// read-only RPC queries only (getNonce/getStorage/getBalance below).
+// Never applied to broadcast() (a mutating/submission call) — see
+// bounded-rpc.ts's own header.
+const RPC_READ_RETRY = { attempts: 3, backoffMs: 250 }
 
 const ZERO_BYTES32 = '0x' + '00'.repeat(32)
 
@@ -362,14 +369,23 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     const entryPoint = new Contract(config.safeGuardEvm.entryPointAddress, ENTRY_POINT_IFACE, rpc)
     // Real nonce — INonceManager.getNonce(sender, key=0), read directly
     // from the installed @account-abstraction/contracts interface before
-    // this was written.
-    const nonce: bigint = await entryPoint.getNonce(sender, 0)
+    // this was written. docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded
+    // liveness + safe retry (read-only, no side effect).
+    const nonce: bigint = await withBoundedRpcTimeout(
+      () => entryPoint.getNonce(sender, 0),
+      `SAFE_GUARD_EVM entryPoint.getNonce(${sender})`,
+      { timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs, retry: RPC_READ_RETRY }
+    )
     // Real check for whether the guard is already active — GuardManager
     // exposes no public getter, so this reads its own documented storage
     // slot directly. Expected to always be unset the one time this runs
     // per escrow (this protocol's one-shot-per-trade design), but checked
-    // rather than assumed.
-    const guardStorage = await rpc.getStorage(sender, GUARD_STORAGE_SLOT)
+    // rather than assumed. Bounded liveness + safe retry, same as above.
+    const guardStorage = await withBoundedRpcTimeout(
+      () => rpc.getStorage(sender, GUARD_STORAGE_SLOT),
+      `SAFE_GUARD_EVM rpc.getStorage(${sender})`,
+      { timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs, retry: RPC_READ_RETRY }
+    )
     const guardAlreadySet = BigInt(guardStorage) !== 0n
     const transferValue = weiFromDecimalString(escrow.lockedAmount)
 
@@ -550,6 +566,15 @@ export class SafeGuardEvmProvider implements SettlementProvider {
   // later `eth_getUserOperationReceipt` poll once the bundler actually
   // includes it in a block, disclosed here rather than fabricated as an
   // immediate real txId.
+  // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — TIMEOUT_ONLY, deliberately no
+  // retry: this submits a signed ERC-4337 UserOperation to a bundler. A
+  // timeout after dispatch means the submission's real outcome is
+  // UNKNOWN, not FAILED — the bundler may have already accepted it into
+  // its mempool even though the HTTP response never arrived. Retrying is
+  // not authorized by this mission (duplicate-submission idempotence
+  // across bundler implementations is not proven); on timeout, the
+  // bounded error propagates unchanged — no escrow-state semantics
+  // change.
   private async broadcast(userOp: PackedUserOperation, combinedSignature: string): Promise<{ txId: string }> {
     if (!config.safeGuardEvm.bundlerUrl) {
       throw new EscrowError(
@@ -568,7 +593,7 @@ export class SafeGuardEvmProvider implements SettlementProvider {
       paymasterAndData: userOp.paymasterAndData,
       signature: combinedSignature,
     }
-    const res = await fetch(config.safeGuardEvm.bundlerUrl, {
+    const res = await boundedFetch(config.safeGuardEvm.bundlerUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -577,6 +602,8 @@ export class SafeGuardEvmProvider implements SettlementProvider {
         method: 'eth_sendUserOperation',
         params: [signedUserOp, config.safeGuardEvm.entryPointAddress],
       }),
+    }, {
+      timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs,
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok || body.error) {
@@ -603,7 +630,13 @@ export class SafeGuardEvmProvider implements SettlementProvider {
   // never moves funds itself.
   async lockFunds(escrow: SafeGuardEvmEscrowInput): Promise<{ txId: string; address: string }> {
     const address = this.requireSafeAddress(escrow)
-    const balance = await this.provider().getBalance(address)
+    // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded liveness + safe
+    // retry (read-only balance check, no side effect).
+    const balance = await withBoundedRpcTimeout(
+      () => this.provider().getBalance(address),
+      `SAFE_GUARD_EVM getBalance(${address})`,
+      { timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs, retry: RPC_READ_RETRY }
+    )
     const expected = weiFromDecimalString(escrow.lockedAmount)
     if (balance < expected) {
       throw new EscrowError(
@@ -621,7 +654,13 @@ export class SafeGuardEvmProvider implements SettlementProvider {
 
   async verifyLock(escrow: SafeGuardEvmEscrowInput): Promise<boolean> {
     const address = this.requireSafeAddress(escrow)
-    const balance = await this.provider().getBalance(address)
+    // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded liveness + safe
+    // retry (read-only balance check, no side effect).
+    const balance = await withBoundedRpcTimeout(
+      () => this.provider().getBalance(address),
+      `SAFE_GUARD_EVM getBalance(${address})`,
+      { timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs, retry: RPC_READ_RETRY }
+    )
     return balance >= weiFromDecimalString(escrow.lockedAmount)
   }
 
