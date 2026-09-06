@@ -3,6 +3,15 @@
 Date: 2026-07-29
 Scope: developer experience for a completely new integrator trying to use the SDK from an empty wallet.
 
+> **Historical, 2026-09-06 (Current Truth P1+ Cleanup):** this review's
+> core recommendations (a canonical Getting Started path, a concrete
+> first-integration journey) were substantially adopted afterward —
+> `GETTING_STARTED.md` (added 2026-08-10) and `DEVELOPER_JOURNEY.md`
+> directly address the discoverability/onboarding gaps this document
+> identifies. Kept as the original design-rationale record, not as a
+> current, open list of gaps — check `GETTING_STARTED.md`/`DEVELOPER_JOURNEY.md`
+> for the current developer entry point instead.
+
 ## Executive summary
 
 The repository already contains a real SDK and a real reference implementation, but the experience for a first-time external developer still feels like a guided internal walkthrough rather than a polished public package.
