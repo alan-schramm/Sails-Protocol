@@ -192,6 +192,29 @@ Not underspecified — proceeding past this phase.
 No `HodlHodlProvider` implementation exists in this codebase (referenced
 only as an external design precedent in comments).
 
+**Correction/addendum, 2026-09-06 (Cross-Rail Guard-Maturity Disclosure
+mission) — a real guard this table did not originally surface.**
+`MULTISIG` has a fail-closed capability-profile enforcement mechanism
+(`capability-profile.ts`'s `REQUIRED_CAPABILITY_PROFILE` /
+`findCapabilityCommitBlocker()`, Missão 11 Fase 9.1.1): a MULTISIG
+deposit address is never derived unless both participants have declared
+a known, compatible client capability profile — "unknown capability =
+unsupported" with no silent-pass path. `LIGHTNING_HODL`, `SAFE_GUARD_EVM`,
+`WDK_USDT_EVM`, and `MOCK` have **no requirement wired in this map at
+all** — `findCapabilityCommitBlocker()` returns `null` (no blocker) for
+any escrow type absent from `REQUIRED_CAPABILITY_PROFILE`, unconditionally.
+This is a distinct property from the correspondence/translation-guard
+asymmetry already documented elsewhere in this file (§9's P7 row,
+`dispatchTranslationGuard.test.ts`) — capability-profile enforcement
+checks *client declaration compatibility before commitment*;
+correspondence/translation guards check *the constructed transaction
+against the authorized rule before signing*. Both are real, both are
+MULTISIG-only today, and this document previously named only the
+second. Registered here as a factual addition to this table's own
+scope — it does not change any conclusion already reached in §15/§16
+below (operational substitution remains NOT DEMONSTRATED; this is a
+disclosure correction, not a new equivalence or substitution claim).
+
 ## 8. Testability Gate (Phase 7)
 
 Direct substitution testing (Classes A/B) is not possible — no
