@@ -293,18 +293,33 @@ this checklist either — see §4's consequence weighting.
 
 **Institutional gap this section closes, confirmed by direct inspection,
 not assumed:** `.github/dependabot.yml` already discovers dependency
-updates weekly and — per its own Mission 9.10 comment — deliberately
-never bundles a crypto-sensitive package (`@qvac/sdk`, `@arkade-os/sdk`,
-`@tetherto/wdk-wallet-evm`, `@noble/*`, `bitcoinjs-lib`, `tiny-secp256k1`,
-`sodium-native`, `tweetnacl*`, `bip32`, `ecpair`, `@aws-sdk/client-kms`,
-`hyperdht`, `hyperswarm`, and their transitive equivalents such as
-`ethers`) into a group PR — each opens individually, and branch
-protection (`GITHUB_PROJECT.md` §8) already requires human review before
-any of them merges. That is real, working **discovery** and **review
-gating**. What does not exist anywhere in this repository: a rule for
-**deciding whether to actually adopt** what a dependency update offers.
-This section is that rule — it does not touch Dependabot's configuration
-or branch protection, both already sufficient for their own job.
+updates weekly. Its own Mission 9.10 comment states an explicit rule —
+**"any package touching signing, key material, hashing, or Bitcoin/EVM
+transaction construction must never be added to a [group] pattern"** —
+covering, by that description, `@noble/curves`, `@noble/hashes`,
+`sodium-native`, `tweetnacl*`, `bitcoinjs-lib`, `bip32`, `ecpair`,
+`tiny-secp256k1`, `@aws-sdk/client-kms`, and (transitively, via
+`@tetherto/wdk-wallet-evm`/`SAFE_GUARD_EVM`) `ethers`. Separately, as a
+mechanical consequence of the six group patterns currently defined
+(`tooling`, `testing`, `storybook`, `infrastructure`, `fastify`,
+`ui-tooling`) — not because the config declares them crypto-sensitive —
+`@qvac/sdk`, `@tetherto/wdk-wallet-evm`, `@arkade-os/sdk`, `hyperdht`,
+and `hyperswarm` also currently match no group and are opened
+individually today. Precision matters here: **do not read Dependabot's
+config as explicitly classifying every one of these packages as
+"crypto-sensitive"** — only the first list is covered by the config's
+own stated rule; the second list is ungrouped as a side effect of the
+current pattern set, which could change if a future pattern were added
+without re-deciding this rule first (the comment's own warning). Either
+way, every package above opens as its own individual PR today, and
+branch protection (`GITHUB_PROJECT.md` §8) already requires human
+review before any of them merges. That is real, working **discovery**
+(periodic awareness that something changed — see Triggers below, not
+itself a review) and **review gating**. What does not exist anywhere in
+this repository: a rule for **deciding whether to actually adopt** what
+a dependency update offers. This section is that rule — it does not
+touch Dependabot's configuration or branch protection, both already
+sufficient for their own job.
 
 ### Canonical principle
 
@@ -358,11 +373,16 @@ duplicate that mechanism.
 
 ### Triggers
 
-**A. Periodic review.** No new, invented cadence — Dependabot's existing
-`schedule.interval: weekly` (`.github/dependabot.yml`) is the review
-rhythm this policy relies on for routine awareness; a weekly PR opening
-IS the periodic-review trigger already in place. This policy adds no
-second calendar.
+**A. Periodic awareness.** No new, invented cadence — Dependabot's
+existing `schedule.interval: weekly` (`.github/dependabot.yml`) is the
+periodic **awareness/discovery trigger** this policy relies on. It is
+not itself a review: opening a PR performs neither a Capability Delta
+Review, a Security Review, an Architecture Fit check, nor a CTO
+Decision. A review under this policy only begins once the surfaced
+change is classified (below) as Class A/B, or as a Class C/D change
+touching a property named in the Security-Sensitive Rule. This policy
+adds no second calendar — it only names what the existing one does and
+does not accomplish. **Discovery ≠ Review. Review ≠ Adoption.**
 
 **B. Event-triggered review**, any of: a security advisory; a breaking
 release; a major API removal; a relevant new capability; a
@@ -375,6 +395,17 @@ Class C/D (below) and merge through the existing human-review gate with
 no separate process.
 
 ### Change classification
+
+> **CLASSIFICATION ≠ CONSEQUENCE.** Classification describes *why* /
+> *what kind* of upstream change this is. It does not, by itself,
+> determine how much evidence and review the change requires — that is
+> the job of the Security-Sensitive Rule and the Decision Test below,
+> applied to the actual property affected, not to the class label
+> alone. A Class C (Compatibility) update is not automatically "safe to
+> merge with no property review" — a compatibility-driven change can
+> still touch signing, settlement, or another security-sensitive
+> property, and if it does, it is reviewed accordingly regardless of
+> its class.
 
 - **Class A — Security/Correctness.** A material security fix,
   correctness property, vulnerability, or production-safety issue.
@@ -389,8 +420,9 @@ no separate process.
 
 ### Decision test
 
-Before adopting a Class A or Class B change to an in-scope dependency,
-answer:
+Before adopting a Class A or Class B change to an in-scope dependency —
+or a Class C/D change that touches a property named in the
+Security-Sensitive Rule below — answer:
 
 1. What changed upstream?
 2. What capability/property does Sails gain?
@@ -414,22 +446,27 @@ answer:
 - **STOP — architectural contradiction or insufficient evidence** —
   same STOP discipline as §6, recorded the same way.
 
-Class C/D changes ordinarily need none of this — they merge through
-Dependabot's existing human-review gate.
+A Class C/D change that touches none of those properties needs none of
+this — it merges through Dependabot's existing human-review gate,
+consistent with Classification ≠ Consequence above: most routine bumps
+carry a routine consequence, but the classification alone never settles
+the question.
 
 ### Security-sensitive rule
 
-For dependencies touching settlement behavior, signing behavior,
-retry/idempotence, transaction construction, key custody, verification,
-finality interpretation, network transport guarantees, or authorization
-boundaries: **no upgrade is justified merely by version freshness,
+**Applies regardless of class** (Classification ≠ Consequence, above).
+For an update — Class A, B, C, or D — touching signing, settlement,
+transaction construction, key custody, verification, finality,
+retry/idempotence, authorization, transport security, or semantic
+behavior: **no upgrade is justified merely by version freshness,
 marketing claims, release notes alone, new API availability, or
 "latest is better."** Require evidence proportionate to the property
 affected — the same evidence discipline §10/§11 already require for any
 Sails-authored change, applied here to a vendor-authored one. A
 security/correctness (Class A) upgrade's urgency can override normal
 sequencing, but only after classification — never used to skip
-classification itself.
+classification itself, and never used to skip this rule for a
+Class C/D update that happens to touch one of these properties.
 
 ### Agent/QVAC authority rule
 
@@ -469,9 +506,14 @@ ranges — no evidence justifies overriding either existing convention
 wholesale. It adds one vocabulary distinction, useful precisely because
 the other two already exist informally:
 
-- **Declared range** — what `package.json` states (e.g. `^0.15.0`).
-- **Resolved version** — what `package-lock.json` actually installed
-  (may float within the declared range on a fresh `npm install`).
+- **Declared range** — what `package.json` permits (e.g. `^0.15.0`).
+- **Resolved version** — what `package-lock.json` records for that
+  dependency across the whole tree. With a committed lockfile, a normal
+  `npm install` reproduces the resolved version already recorded — it
+  changes only when dependency resolution runs again and the lockfile
+  is updated or regenerated (e.g. `npm update`, a fresh `npm install`
+  after a `package.json` range change, or a manual lockfile
+  regeneration), not merely because another ordinary install happens.
 - **Reviewed version** — the specific version against which current
   Sails evidence (tests, live verification, a Mission Freeze) was
   actually produced. This is the version this policy's Decision Test
@@ -486,23 +528,32 @@ self-authorize architectural adoption, self-merge a critical dependency
 upgrade, or convert a version bump into an accepted capability claim.
 **Automated update ≠ architectural approval.** No automation change is
 made or proposed by this section — `.github/dependabot.yml`'s existing
-per-package grouping (crypto-sensitive packages ungrouped) and branch
+per-package grouping (signing/key-material/hashing/Bitcoin-EVM-tx
+packages never grouped, per its own stated rule; several other
+packages, QVAC/WDK/Arkade/Hyperswarm/HyperDHT among them, likewise
+ungrouped today as a consequence of the current pattern set) and branch
 protection's existing human-review requirement (`GITHUB_PROJECT.md`
 §8) already enforce this in practice; this section states the rule the
 existing mechanism was already, correctly, built to satisfy.
 
 ### Evidence obligation
 
-An adopted (Class A/B) external upgrade records, proportionately to its
-classification and the property affected: previous reviewed version,
-new reviewed version, relevant upstream changes, Sails
+Every adopted in-scope upgrade leaves evidence proportionate to its
+actual consequence (Classification ≠ Consequence, above) — not a fixed
+record size tied to its class label. For a Class A/B upgrade, or any
+upgrade touching a Security-Sensitive Rule property: previous reviewed
+version, new reviewed version, relevant upstream changes, Sails
 capabilities/properties affected, tests/evidence performed, unresolved
-residuals, claim impact, and rollback/defer rationale if relevant. A new
-RFC is not required for every library bump — only if the upgrade
-crosses into the Semantic Stability Rule above, per `docs/GOVERNANCE.md`
-§3's existing table. `docs/TECHNICAL_DEBT_AUDIT.md`/`docs/BACKLOG.md`
-are the existing homes for recording a residual or a deferred
-decision — no new ledger is created by this section.
+residuals, claim impact, and rollback/defer rationale if relevant. For a
+genuinely non-material Class D update touching no such property, this
+may be minimal — version change, classification, tests/checks run, and
+a one-line "no material property impact observed" — not the full record
+above; routine bumps must not be made to carry a disproportionate
+paperwork cost. A new RFC is not required for every library bump —
+only if the upgrade crosses into the Semantic Stability Rule above, per
+`docs/GOVERNANCE.md` §3's existing table. `docs/TECHNICAL_DEBT_AUDIT.md`/
+`docs/BACKLOG.md` are the existing homes for recording a residual or a
+deferred decision — no new ledger is created by this section.
 
 ### Representation
 
