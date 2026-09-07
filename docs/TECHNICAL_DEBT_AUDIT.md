@@ -1715,7 +1715,67 @@ desde Missão 05.7, preservando a explicação da distinção
 durável/não-durável (que continua genuinamente relevante caso um
 deployment configure explicitamente `InMemoryEventStore`).
 
-**Não corrigido por este registro.**
+**CLOSED (F7, 2026-09-07).** Comentário de `proof.service.ts` corrigido
+diretamente no código-fonte (não é um ledger versionado como este
+documento, então a correção foi aplicada in-place, não anexada como
+bloco datado). Confirmado por leitura direta do código, não assumido:
+`event-bus.ts:463`'s `constructor(private readonly store: EventStore =
+new PostgresEventStore())` mais `event-bus.ts:542`'s `export const
+eventBus = new SailsEventBus()` — nenhum argumento passado, nenhuma
+outra construção de `SailsEventBus`/`PostgresEventStore`/
+`InMemoryEventStore` existe em `src/` fora de testes, nenhuma seleção
+de store via `config/index.ts` ou variável de ambiente — confirmam que
+o default real e único caminho de produção é `PostgresEventStore`
+(`storeName='postgres'`, `durable=true`, `event-store.ts:219-221`).
+`InMemoryEventStore` (`storeName='in-memory'`, `durable=false`,
+`event-store.ts:120-122`) e `RedisStreamsEventStore`
+(`storeName='redis-streams'`, `durable=true`, `event-store.ts:518-519`)
+continuam existindo como classes importáveis — nenhuma seleção
+silenciosa entre elas foi encontrada. `tests/evidenceBundleDurability.test.ts`
+já prova isso contra o `eventBus` real, não mockado
+(`expect(eventBus.durable).toBe(true)`,
+`expect(eventBus.storeName).toBe('postgres')`) — nenhum teste novo
+necessário. O comentário corrigido preserva: (1) que
+claims/proofs/verifications/externalReferences são Postgres-backed;
+(2) que `timeline` é lido através do `EventStore` de fato configurado,
+não uma suposição hardcoded; (3) que o default atual é
+`PostgresEventStore`; (4) que `timelineDurable`/`timelineStore`
+reportam o store real em tempo de leitura; (5) que um `InMemoryEventStore`
+explicitamente configurado continua possível; (6) que, se configurado
+assim, um restart/redeploy pode perder o histórico do timeline e por
+isso ausência não pode ser inferida de um timeline vazio; (7) que a
+evidência de violação (hash chain, RFC-008 D2) é uma propriedade
+distinta de durabilidade. Nenhum comportamento em runtime alterado.
+Nenhuma nova obrigação técnica. **BACKLOG DELTA: ZERO** — nenhuma
+contradição encontrada entre o entendimento registrado neste item #55
+e o comportamento real do código.
+
+**Correção (CTO Gate, mesmo dia).** O parágrafo acima e o comentário de
+código continham duas sobre-afirmações, corrigidas em ambos os lugares:
+(a) "um timeline vazio genuinamente significa 'nada aconteceu'" foi
+substituído por uma afirmação mais estreita — sob o default atual,
+o histórico do timeline não é perdido apenas por um restart do
+processo (diferente do antigo default `InMemoryEventStore`), mas isso
+não prova, por si só, que nenhum evento deixou de ser gravado; (b) "um
+prova nada foi alterado silenciosamente, o outro prova nada foi
+perdido silenciosamente" foi substituído por linguagem precisa por
+propriedade: verificação por hash chain (RFC-008 D2) detecta mutação/
+reordenação/deleção COBERTA dos eventos que de fato foram registrados;
+durabilidade descreve se o histórico registrado sobrevive à fronteira
+de persistência/restart relevante; nenhuma das duas propriedades,
+isoladamente, prova completude, não-ocorrência histórica,
+portabilidade, ou verificabilidade independente. Também esclarecido:
+o item (5) acima ("um `InMemoryEventStore` explicitamente configurado
+continua possível") não deve ser lido como afirmando que existe hoje
+um caminho de configuração/variável de ambiente operacional para
+selecioná-lo no singleton de produção — nenhum foi encontrado
+(confirmado por inspeção direta, ver acima); `SailsEventBus` aceita um
+`EventStore` via seu construtor e `InMemoryEventStore` continua
+existindo como implementação não-durável disponível, mas o singleton
+real (`eventBus`) não expõe hoje nenhum switch de config/env para
+selecioná-lo. Nenhuma mudança de comportamento em runtime nesta
+correção — apenas precisão de linguagem, no comentário-fonte e neste
+registro.
 
 ### 56. `WDK_USDT_EVM`'s `lockFunds()` — resultado desconhecido/segurança de retry não demonstrada (CTO Gate #2 sobre F6, 2026-09-07)
 
