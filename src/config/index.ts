@@ -24,6 +24,21 @@ function requiredInt(name: string, fallback: number): number {
   return parsed
 }
 
+// Same shape as requiredInt(), plus a floor of 1 — for values (like a
+// network-call timeout in ms) where zero or negative would be nonsensical
+// rather than merely unusual. Same validated-config discipline
+// resolveMultisigRequiredConfirmations() below already applies to
+// MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS.
+function requiredPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = parseInt(raw, 10)
+  if (isNaN(parsed) || parsed < 1) {
+    throw new Error(`Environment variable ${name} must be a positive integer, got: ${raw}`)
+  }
+  return parsed
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -591,6 +606,12 @@ export const config = {
     // it does not weaken the rate or proportional bounds for any escrow
     // large enough that 20%/200sat-vB already exceeds it.
     minFeeFloorSats: Number(process.env.MULTISIG_MIN_FEE_FLOOR_SATS ?? '10000'),
+    // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded liveness for the
+    // explorer API. Every live call in this provider must resolve or
+    // fail within this ceiling; whether a given call may then be safely
+    // retried is decided per-call-site in multisig.provider.ts, never
+    // here (a read may retry, a broadcast never does).
+    explorerRequestTimeoutMs: requiredPositiveInt('MULTISIG_EXPLORER_TIMEOUT_MS', 8000),
   },
 
   // LIGHTNING_HODL SettlementProvider (lightning-hodl.provider.ts) — real
@@ -649,6 +670,11 @@ export const config = {
     safeModuleSetup: process.env.SAFE_GUARD_EVM_MODULE_SETUP ?? '0x2dd68b007B46fBe91B9A7c3EDa5A7a1063cB5b47',
     multiSendCallOnly: process.env.SAFE_GUARD_EVM_MULTISEND_CALL_ONLY ?? '0x9641d764fc13c8B624c04430C7356C1C7C8102e2',
     deterministicDeployer: process.env.SAFE_GUARD_EVM_DETERMINISTIC_DEPLOYER ?? '0x4e59b44847b379578588920ca78fbf26c0b4956c',
+    // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded liveness for both
+    // the RPC (ethers JsonRpcProvider reads) and the bundler (raw fetch
+    // submission). Retry policy is decided per-call-site in
+    // safe-guard-evm.provider.ts, never here.
+    rpcRequestTimeoutMs: requiredPositiveInt('SAFE_GUARD_EVM_RPC_TIMEOUT_MS', 8000),
   },
 }
 

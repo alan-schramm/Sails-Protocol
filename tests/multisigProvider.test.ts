@@ -374,13 +374,41 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
     expect(confirmed).toBe(true)
   })
 
-  it('propagates a clear error when the explorer API itself fails', async () => {
+  it('propagates a clear error when the explorer API itself fails — F1: bounded safe retry (3 attempts) on a persistent transient error, same final error as before', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    // F1 (docs/TECHNICAL_DEBT_AUDIT.md #51) — a 503 is retryable on this
+    // read-only call; all 3 bounded attempts must be exhausted before the
+    // same "explorer API returned 503" error the caller always threw
+    // resurfaces — retry never invents a different failure mode.
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
     fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
     await expect(
       multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
     ).rejects.toThrow('503')
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('a transient explorer error that clears on the second attempt succeeds without ever surfacing to the caller — F1 bounded safe retry', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 }) // attempt 1: transient
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid: 'ab'.repeat(32), vout: 0, value: 50_000, status: { confirmed: true } }] }) // attempt 2: succeeds
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 100 }) })
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '105' })
+    const result = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
+    expect(result).toBe(true)
+  })
+
+  it('a deterministic client error (404) is never retried — F1', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 404 })
+    await expect(
+      multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
+    ).rejects.toThrow('404')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -475,11 +503,17 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
       expect(outputValue(highRate.psbtBase64)).toBeLessThan(outputValue(lowRate.psbtBase64))
     })
 
-    it('throws a clear error rather than guessing a fee when the fee-estimate endpoint is unreachable', async () => {
+    it('throws a clear error rather than guessing a fee when the fee-estimate endpoint is unreachable — F1: bounded safe retry (3 attempts) exhausted first', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
       const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
       const txid = 'c1'.repeat(32)
       fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] })
+      // F1 (docs/TECHNICAL_DEBT_AUDIT.md #51) — a network-level rejection
+      // is retryable on this read-only call; all 3 bounded attempts must
+      // be exhausted before the same "refusing to guess a fee" error the
+      // caller always threw resurfaces.
+      fetchMock.mockRejectedValueOnce(new Error('ECONNRESET'))
+      fetchMock.mockRejectedValueOnce(new Error('ECONNRESET'))
       fetchMock.mockRejectedValueOnce(new Error('ECONNRESET'))
 
       await expect(
@@ -487,7 +521,8 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
           { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
           REFUND_ADDRESS_UNUSED
         )
-      ).rejects.toThrow(/refusing to guess a fee/)
+      ).rejects.toThrow(/refusing to guess a fee.*ECONNRESET/)
+      expect(fetchMock).toHaveBeenCalledTimes(4) // 1 UTXO fetch + 3 fee-rate attempts
     })
 
     it('throws a clear error rather than guessing a fee when the endpoint returns no usable rate', async () => {
@@ -973,10 +1008,17 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     const { escrow, unsignedPsbtBase64, signedList } = await buildRealSignedRelease(multisigProvider, txid)
     fetchMock.mockClear()
 
+    // F1 (docs/TECHNICAL_DEBT_AUDIT.md #51) — a 503 is retryable on this
+    // read-only existence check; all 3 bounded attempts must be
+    // exhausted before the same "explorer API returned 503" error the
+    // caller always threw resurfaces.
+    fetchMock.mockResolvedValueOnce({ status: 503, ok: false })
+    fetchMock.mockResolvedValueOnce({ status: 503, ok: false })
     fetchMock.mockResolvedValueOnce({ status: 503, ok: false })
 
     await expect(
       multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
     ).rejects.toThrow(/explorer API returned 503/)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 })
