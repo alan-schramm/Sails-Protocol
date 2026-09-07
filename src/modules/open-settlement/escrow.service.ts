@@ -1,7 +1,7 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
-import { AssetType } from '../../common/types'
 import { EscrowType } from '../../common/types/trade'
+import type { CreateEscrowInput } from '@satsails/p2p-schemas'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
 import {
@@ -167,14 +167,14 @@ function mapDistributionPolicyFreezesShape(escrow: any): any {
   return { ...rest, distributionPolicyFreezes }
 }
 
-export interface CreateEscrowInput {
-  tradeId: string
-  type?: EscrowType
-  lockedAmount: string   // decimal string — RFC-009, never a JS number
-  asset: AssetType
-  network?: string
-  timelockHours?: number
-}
+// F5 (docs/TECHNICAL_DEBT_AUDIT.md #52) — the canonical escrow-creation
+// structural contract, shared with the SDK
+// (packages/sails-sdk/src/modules/settlement.ts) and the route's own
+// zod validator (settlement.routes.ts's createEscrowSchema), both of
+// which now import the SAME type/enum-value source instead of each
+// redeclaring their own copy. See packages/sails-p2p-schemas/src/escrow.ts
+// for the full rationale and scope.
+export type { CreateEscrowInput }
 
 export class EscrowService {
   constructor(private readonly repo: EscrowRepository = escrowRepository) {}

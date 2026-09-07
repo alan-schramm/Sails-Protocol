@@ -1375,6 +1375,79 @@ Refactoring Authorization Gate.
 
 **Não corrigido por este registro.**
 
+**Status — CLOSED (Bounded Remediation F5, 2026-09-06). CORRIGIDO no
+mesmo dia (CTO Gate) — ver a nota logo abaixo. Texto original
+preservado, não apagado, para o histórico da correção.** Novo arquivo
+`packages/sails-p2p-schemas/src/escrow.ts` — `ESCROW_TYPE_VALUES`/
+`EscrowType`, `ASSET_TYPE_VALUES`/`AssetType`, `CreateEscrowInput`, e um
+validador estrutural puro (`isValidCreateEscrowInput`, zero
+dependências, mesma convenção zero-runtime-dependency já estabelecida
+por este pacote) — é agora a ÚNICA fonte canônica. Três declarações
+independentes foram encontradas (não duas, como o achado original
+citava): `packages/sails-sdk/src/modules/settlement.ts`'s
+`CreateEscrowInput`, `src/modules/open-settlement/escrow.service.ts`'s
+próprio `CreateEscrowInput`, e `settlement.routes.ts`'s `createEscrowSchema`
+(zod) — as três agora importam o mesmo tipo/arrays canônicos em vez de
+redeclarar sua própria cópia. A prova de paridade é o próprio compilador:
+`settlement.routes.ts`'s handler removeu o cast `as any` que existia
+antes (`escrowService.createEscrow(body as any, ...)` → `(body, ...)`)
+— `z.infer<typeof createEscrowSchema>` agora precisa satisfazer
+estruturalmente `CreateEscrowInput` sem cast algum, confirmado por
+`npx tsc --noEmit` limpo; se as duas alguma vez divergirem, isso deixa
+de compilar. `tests/escrowCreationSchemaParity.test.ts` (11 testes)
+prova adicionalmente: (1) o enum do zod foi construído a partir do
+array canônico exportado (introspecção real do schema, não uma cópia
+reconstruída), (2) identidade de tipo em tempo de compilação entre as
+três declarações (`Equal<A,B>` — falha ao compilar, não apenas em
+runtime, se divergirem), (3) todo valor histórico de provider atual
+(MOCK/MULTISIG/LIGHTNING_HODL/WDK_USDT_EVM/SAFE_GUARD_EVM) continua
+válido, (4) `LIQUID_COVENANT` continua estruturalmente válido, sem
+alteração — reservado/não-implementado no nível do provider, não no
+nível do schema, distinção preservada, não removida. Escopo
+deliberadamente estreito: `AssetType`/`EscrowType` permanecem
+declarados independentemente em outros lugares
+(`src/common/types/index.ts`, `src/common/types/trade.ts`,
+`packages/sails-sdk/src/types.ts`) para seus próprios usos mais amplos,
+não relacionados à criação de escrow (Offer/Trade/PayoutAddress) —
+hoje estruturalmente idênticos aos valores acima, não alterados por
+este fix, fora do escopo desta remediação. Nenhuma semântica
+econômica, de máquina de estados, ou de maturidade de provider foi
+alterada. Validação positiva de `lockedAmount` permanece
+deliberadamente server-side apenas (`positiveDecimalString()`) — regra
+de negócio, não fato estrutural, per a distinção explícita desta
+missão.
+
+**Correção (CTO Gate, 2026-09-07).** O parágrafo acima descreve
+corretamente a arquitetura primária (fonte estrutural canônica → SDK →
+backend → validação Zod), mas registrava incorretamente
+`isValidCreateEscrowInput()` (junto com seus dois helpers de suporte,
+`isKnownEscrowType()`/`isKnownAssetType()`) como parte do design
+aceito. O CTO identificou que esse validador era, ele mesmo, uma
+SEGUNDA implementação de validação de runtime, independente da
+verdadeira autoridade (`settlement.routes.ts`'s `createEscrowSchema`,
+Zod) — com uma divergência de comportamento real e deliberada
+(`lockedAmount`: o helper só checava "string não-vazia," o schema real
+exige `positiveDecimalString()`, finito e positivo). Chamar os dois
+"em paralelo" para provar paridade criava exatamente o tipo de proxy
+enganoso que este fix existe para eliminar — dois validadores nunca
+foram, e nunca deveriam ter sido, tratados como equivalentes.
+
+Os três helpers foram **removidos** de
+`packages/sails-p2p-schemas/src/escrow.ts` (confirmado, via grep, zero
+consumidores de produção fora do próprio teste de paridade antes da
+remoção). A superfície canônica final é deliberadamente menor:
+`ESCROW_TYPE_VALUES`/`EscrowType`, `ASSET_TYPE_VALUES`/`AssetType`,
+`CreateEscrowInput` — nada mais. O pacote compartilhado fornece a
+fonte estrutural canônica (tipo/enum); o backend permanece a única
+autoridade de validação em runtime (Zod, inalterado). `tests/escrowCreationSchemaParity.test.ts`
+foi reescrito para validar exclusivamente contra o `createEscrowSchema`
+real (13 testes, incluindo dois novos provando explicitamente que a
+validação positiva de `lockedAmount` no schema real permanece
+inalterada) — nenhum teste cria ou depende de um segundo validador
+falso/compartilhado. `LIQUID_COVENANT` não teve seu status estrutural
+alterado por esta correção — continua exatamente como estava antes e
+depois do F5 original.
+
 ### 53. `SettlementProvider.verifyLock()` existe em todos os providers mas não tem nenhum call site real (Independent Code Quality & Production Reality Audit, 2026-09-06)
 
 **Classificação: P2 — débito técnico novo, integridade de abstração / deriva de interface morta.**
