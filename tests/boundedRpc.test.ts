@@ -7,7 +7,9 @@
  * multisig.provider.ts and safe-guard-evm.provider.ts delegate to it
  * identically.
  */
-import { boundedFetch, withBoundedRpcTimeout, BoundedRpcTimeoutError } from '../src/modules/open-settlement/bounded-rpc'
+import * as net from 'net'
+import { FetchRequest, JsonRpcProvider } from 'ethers'
+import { boundedFetch, withBoundedRetry, BoundedRpcTimeoutError } from '../src/modules/open-settlement/bounded-rpc'
 
 // A fetch stand-in that genuinely never resolves on its own — it only
 // settles if its AbortSignal fires, exactly like a real hung TCP
@@ -110,25 +112,18 @@ describe('boundedFetch() — raw fetch() calls (multisig explorer, EVM bundler)'
   })
 })
 
-describe('withBoundedRpcTimeout() — ethers JsonRpcProvider calls (SAFE_GUARD_EVM)', () => {
-  it('1. a hung RPC call times out rather than hanging forever', async () => {
-    const neverResolves = () => new Promise<bigint>(() => {})
-    await expect(
-      withBoundedRpcTimeout(neverResolves, 'test-hung-rpc-call', { timeoutMs: 30 })
-    ).rejects.toThrow(BoundedRpcTimeoutError)
-  })
-
+describe('withBoundedRetry() — ethers JsonRpcProvider calls (SAFE_GUARD_EVM), timeout handled natively by ethers itself (see below)', () => {
   it('2. a safe (read-only) call retries only a bounded number of times, then gives up', async () => {
     const attempt = jest.fn().mockRejectedValue(new Error('ECONNRESET'))
     await expect(
-      withBoundedRpcTimeout(attempt, 'test-retry-call', { timeoutMs: 100, retry: { attempts: 3, backoffMs: 1 } })
+      withBoundedRetry(attempt, { attempts: 3, backoffMs: 1 })
     ).rejects.toThrow('ECONNRESET')
     expect(attempt).toHaveBeenCalledTimes(3)
   })
 
   it('3. a successful call does not retry, even when retry is authorized', async () => {
     const attempt = jest.fn().mockResolvedValue(123n)
-    const result = await withBoundedRpcTimeout(attempt, 'test-success-call', { timeoutMs: 100, retry: { attempts: 3, backoffMs: 1 } })
+    const result = await withBoundedRetry(attempt, { attempts: 3, backoffMs: 1 })
     expect(result).toBe(123n)
     expect(attempt).toHaveBeenCalledTimes(1)
   })
@@ -136,16 +131,110 @@ describe('withBoundedRpcTimeout() — ethers JsonRpcProvider calls (SAFE_GUARD_E
   it('7. the final error remains visible to the caller after retries are exhausted', async () => {
     const attempt = jest.fn().mockRejectedValue(new Error('rpc unreachable'))
     await expect(
-      withBoundedRpcTimeout(attempt, 'test-final-error', { timeoutMs: 100, retry: { attempts: 2, backoffMs: 1 } })
+      withBoundedRetry(attempt, { attempts: 2, backoffMs: 1 })
     ).rejects.toThrow('rpc unreachable')
   })
 
-  it('8. no fake success is produced — a timeout never resolves, it always rejects', async () => {
-    const neverResolves = () => new Promise<bigint>(() => {})
-    const outcome = await withBoundedRpcTimeout(neverResolves, 'test-no-fake-success', { timeoutMs: 20 }).then(
+  it('8. no fake success is produced — a persistently failing call never resolves', async () => {
+    const attempt = jest.fn().mockRejectedValue(new Error('down'))
+    const outcome = await withBoundedRetry(attempt, { attempts: 2, backoffMs: 1 }).then(
       () => 'resolved',
       () => 'rejected'
     )
     expect(outcome).toBe('rejected')
   })
+})
+
+// CTO Gate correction (2026-09-06) — the earlier Promise.race()-based
+// wrapper was rejected because it only bounded the CALLER's wait, not
+// the underlying ethers call itself. These tests prove the REAL,
+// evidence-backed replacement directly against `ethers`: a plain TCP
+// server that accepts a connection and never responds — no
+// application-level mock — and a real `ethers.FetchRequest`/
+// `JsonRpcProvider` pointed at it. This is the exact mechanism
+// safe-guard-evm.provider.ts's `provider()` now configures.
+describe('ethers.FetchRequest.timeout — real transport-level bound (not Promise.race)', () => {
+  // Root-cause finding (2026-09-06, CTO Gate correction investigation):
+  // an earlier version of this helper did not track accepted sockets,
+  // and close() (a plain server.close(cb)) hung indefinitely in every
+  // test below. net.Server.close()'s callback does not fire until every
+  // connected socket has ended — and it never did, because `ethers`'
+  // own timeout handler (node_modules/ethers/lib.commonjs/utils/geturl.js)
+  // rejects its JS-level promise on timeout but never calls
+  // request.destroy() on the underlying client socket. That hang is
+  // itself direct, reproducible evidence for the exact gap the CTO Gate
+  // flagged: the promise settling is not the same as the network
+  // operation being torn down. This test file's own cleanup now tracks
+  // and destroys the abandoned server-side socket explicitly — a
+  // test-hygiene fix, not a claim that safe-guard-evm.provider.ts's
+  // production code does this too (it does not, and does not attempt
+  // to — see provider()'s own comment).
+  function hungServer(): Promise<{ port: number; close: () => Promise<void> }> {
+    return new Promise((resolve) => {
+      const sockets = new Set<net.Socket>()
+      const server = net.createServer((socket) => {
+        // Accept the connection, then do nothing — never write a
+        // response, never close it. Genuinely hung, not a mock.
+        sockets.add(socket)
+        socket.on('close', () => sockets.delete(socket))
+        socket.on('error', () => {})
+      })
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address()
+        const port = typeof address === 'object' && address ? address.port : 0
+        resolve({
+          port,
+          close: () =>
+            new Promise((r) => {
+              for (const socket of sockets) socket.destroy()
+              server.close(() => r())
+            }),
+        })
+      })
+    })
+  }
+
+  it('1. a genuinely hung connection (real TCP server, no mock) times out at the configured bound with a distinguishable error', async () => {
+    const { port, close } = await hungServer()
+    try {
+      const connection = new FetchRequest(`http://127.0.0.1:${port}/`)
+      connection.timeout = 300
+      // staticNetwork requires an explicit network alongside the boolean
+      // (confirmed directly — passing staticNetwork:true with no network
+      // arg is a no-op) so this test isn't slowed/noised by ethers' own
+      // background eth_chainId network-detection retry loop; chainId is
+      // arbitrary, this test never reaches a real chain.
+      const provider = new JsonRpcProvider(connection, 1, { staticNetwork: true })
+      const start = Date.now()
+      await expect(provider.getBalance('0x0000000000000000000000000000000000000001')).rejects.toMatchObject({ code: 'TIMEOUT' })
+      const elapsed = Date.now() - start
+      // Bounded, not instant and not indefinite — proves this settled at
+      // the configured timeout, not immediately and not never.
+      expect(elapsed).toBeGreaterThanOrEqual(250)
+      expect(elapsed).toBeLessThan(5000)
+    } finally {
+      await close()
+    }
+  }, 10_000)
+
+  it('8. no fake success is produced against a genuinely hung connection', async () => {
+    const { port, close } = await hungServer()
+    try {
+      const connection = new FetchRequest(`http://127.0.0.1:${port}/`)
+      connection.timeout = 250
+      // staticNetwork requires an explicit network alongside the boolean
+      // (confirmed directly — passing staticNetwork:true with no network
+      // arg is a no-op) so this test isn't slowed/noised by ethers' own
+      // background eth_chainId network-detection retry loop; chainId is
+      // arbitrary, this test never reaches a real chain.
+      const provider = new JsonRpcProvider(connection, 1, { staticNetwork: true })
+      const outcome = await provider.getBalance('0x0000000000000000000000000000000000000001').then(
+        () => 'resolved',
+        () => 'rejected'
+      )
+      expect(outcome).toBe('rejected')
+    } finally {
+      await close()
+    }
+  }, 10_000)
 })

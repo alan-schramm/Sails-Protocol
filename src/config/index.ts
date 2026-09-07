@@ -24,6 +24,21 @@ function requiredInt(name: string, fallback: number): number {
   return parsed
 }
 
+// Same shape as requiredInt(), plus a floor of 1 — for values (like a
+// network-call timeout in ms) where zero or negative would be nonsensical
+// rather than merely unusual. Same validated-config discipline
+// resolveMultisigRequiredConfirmations() below already applies to
+// MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS.
+function requiredPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = parseInt(raw, 10)
+  if (isNaN(parsed) || parsed < 1) {
+    throw new Error(`Environment variable ${name} must be a positive integer, got: ${raw}`)
+  }
+  return parsed
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -596,7 +611,7 @@ export const config = {
     // fail within this ceiling; whether a given call may then be safely
     // retried is decided per-call-site in multisig.provider.ts, never
     // here (a read may retry, a broadcast never does).
-    explorerRequestTimeoutMs: Number(process.env.MULTISIG_EXPLORER_TIMEOUT_MS ?? '8000'),
+    explorerRequestTimeoutMs: requiredPositiveInt('MULTISIG_EXPLORER_TIMEOUT_MS', 8000),
   },
 
   // LIGHTNING_HODL SettlementProvider (lightning-hodl.provider.ts) — real
@@ -659,7 +674,7 @@ export const config = {
     // the RPC (ethers JsonRpcProvider reads) and the bundler (raw fetch
     // submission). Retry policy is decided per-call-site in
     // safe-guard-evm.provider.ts, never here.
-    rpcRequestTimeoutMs: Number(process.env.SAFE_GUARD_EVM_RPC_TIMEOUT_MS ?? '8000'),
+    rpcRequestTimeoutMs: requiredPositiveInt('SAFE_GUARD_EVM_RPC_TIMEOUT_MS', 8000),
   },
 }
 

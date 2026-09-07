@@ -106,6 +106,7 @@ import { secp256k1 } from '@noble/curves/secp256k1'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import {
   JsonRpcProvider,
+  FetchRequest,
   Contract,
   Interface,
   AbiCoder,
@@ -119,12 +120,13 @@ import {
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
-import { boundedFetch, withBoundedRpcTimeout } from './bounded-rpc'
+import { boundedFetch, withBoundedRetry } from './bounded-rpc'
 
 // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded, safe retry for
 // read-only RPC queries only (getNonce/getStorage/getBalance below).
 // Never applied to broadcast() (a mutating/submission call) — see
-// bounded-rpc.ts's own header.
+// bounded-rpc.ts's own header. Timeout itself is NOT handled here — see
+// provider() below.
 const RPC_READ_RETRY = { attempts: 3, backoffMs: 250 }
 
 const ZERO_BYTES32 = '0x' + '00'.repeat(32)
@@ -320,8 +322,25 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     return new SailsSignerService({ region: config.safeGuardEvm.kmsRegion, keyId: config.safeGuardEvm.kmsKeyId })
   }
 
+  // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — real, transport-level bounded
+  // liveness, not a Promise.race() wrapper. Confirmed by direct
+  // inspection of the installed ethers@6.17.0 source
+  // (node_modules/ethers/lib.commonjs/utils/geturl.js) plus an empirical
+  // test against a TCP server that accepts a connection and never
+  // responds: FetchRequest.timeout is applied via Node's own
+  // http.ClientRequest.setTimeout(), which genuinely rejects a hung
+  // request at the configured bound with a distinguishable TIMEOUT-coded
+  // error — not merely a caller-side race against an uncancelled call.
+  // (Honestly disclosed, not fixed here — would need a custom transport,
+  // which this mission's Simplicity Rule forbids: ethers' own timeout
+  // handler does not call request.destroy(), so the underlying TCP
+  // connection is not guaranteed torn down immediately. There is no
+  // overlapping-attempts concern from this, though — see
+  // bounded-rpc.ts's withBoundedRetry() header for why.)
   private provider(): JsonRpcProvider {
-    return new JsonRpcProvider(config.safeGuardEvm.rpcUrl)
+    const connection = new FetchRequest(config.safeGuardEvm.rpcUrl)
+    connection.timeout = config.safeGuardEvm.rpcRequestTimeoutMs
+    return new JsonRpcProvider(connection)
   }
 
   // The Safe's 3 owners (buyer, seller, arbiter), 2-of-3 threshold — the
@@ -369,23 +388,17 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     const entryPoint = new Contract(config.safeGuardEvm.entryPointAddress, ENTRY_POINT_IFACE, rpc)
     // Real nonce — INonceManager.getNonce(sender, key=0), read directly
     // from the installed @account-abstraction/contracts interface before
-    // this was written. docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded
-    // liveness + safe retry (read-only, no side effect).
-    const nonce: bigint = await withBoundedRpcTimeout(
-      () => entryPoint.getNonce(sender, 0),
-      `SAFE_GUARD_EVM entryPoint.getNonce(${sender})`,
-      { timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs, retry: RPC_READ_RETRY }
-    )
+    // this was written. docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — timeout
+    // is native (provider() above); safe retry (read-only, no side
+    // effect) only.
+    const nonce: bigint = await withBoundedRetry(() => entryPoint.getNonce(sender, 0), RPC_READ_RETRY)
     // Real check for whether the guard is already active — GuardManager
     // exposes no public getter, so this reads its own documented storage
     // slot directly. Expected to always be unset the one time this runs
     // per escrow (this protocol's one-shot-per-trade design), but checked
-    // rather than assumed. Bounded liveness + safe retry, same as above.
-    const guardStorage = await withBoundedRpcTimeout(
-      () => rpc.getStorage(sender, GUARD_STORAGE_SLOT),
-      `SAFE_GUARD_EVM rpc.getStorage(${sender})`,
-      { timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs, retry: RPC_READ_RETRY }
-    )
+    // rather than assumed. Timeout is native (provider() above); safe
+    // retry only, same as above.
+    const guardStorage = await withBoundedRetry(() => rpc.getStorage(sender, GUARD_STORAGE_SLOT), RPC_READ_RETRY)
     const guardAlreadySet = BigInt(guardStorage) !== 0n
     const transferValue = weiFromDecimalString(escrow.lockedAmount)
 
@@ -630,13 +643,10 @@ export class SafeGuardEvmProvider implements SettlementProvider {
   // never moves funds itself.
   async lockFunds(escrow: SafeGuardEvmEscrowInput): Promise<{ txId: string; address: string }> {
     const address = this.requireSafeAddress(escrow)
-    // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded liveness + safe
-    // retry (read-only balance check, no side effect).
-    const balance = await withBoundedRpcTimeout(
-      () => this.provider().getBalance(address),
-      `SAFE_GUARD_EVM getBalance(${address})`,
-      { timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs, retry: RPC_READ_RETRY }
-    )
+    // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — timeout is native
+    // (provider() above); safe retry (read-only balance check, no side
+    // effect) only.
+    const balance = await withBoundedRetry(() => this.provider().getBalance(address), RPC_READ_RETRY)
     const expected = weiFromDecimalString(escrow.lockedAmount)
     if (balance < expected) {
       throw new EscrowError(
@@ -654,13 +664,10 @@ export class SafeGuardEvmProvider implements SettlementProvider {
 
   async verifyLock(escrow: SafeGuardEvmEscrowInput): Promise<boolean> {
     const address = this.requireSafeAddress(escrow)
-    // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded liveness + safe
-    // retry (read-only balance check, no side effect).
-    const balance = await withBoundedRpcTimeout(
-      () => this.provider().getBalance(address),
-      `SAFE_GUARD_EVM getBalance(${address})`,
-      { timeoutMs: config.safeGuardEvm.rpcRequestTimeoutMs, retry: RPC_READ_RETRY }
-    )
+    // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — timeout is native
+    // (provider() above); safe retry (read-only balance check, no side
+    // effect) only.
+    const balance = await withBoundedRetry(() => this.provider().getBalance(address), RPC_READ_RETRY)
     return balance >= weiFromDecimalString(escrow.lockedAmount)
   }
 

@@ -3,18 +3,26 @@
  *
  * Closes docs/TECHNICAL_DEBT_AUDIT.md #51: every live external chain/RPC
  * call in the MULTISIG/SAFE_GUARD_EVM settlement path must resolve or
- * fail within a bounded time. Shared by both providers because both
- * genuinely need identical semantics (timeout, and — only where the
- * caller explicitly asks for it — a bounded retry); this is a tiny local
- * helper, not a generic resilience framework, provider abstraction, or
- * policy registry.
+ * fail within a bounded time. Two distinct transports, two distinct
+ * mechanisms — neither is a generic resilience framework, provider
+ * abstraction, or policy registry:
  *
- * TIMEOUT != RETRY. Every call here gets a bounded timeout. Retry is an
- * opt-in the CALLER decides per call site, never inferred here — a
- * mutating/broadcast/submission call must never pass `retry`, since a
- * timeout after dispatch means "result unknown," not "operation failed,"
- * and retrying could duplicate an already-accepted economic action
- * (docs/BACKLOG.md's F1 obligation).
+ * - `boundedFetch()` — raw `fetch()` calls (multisig.provider.ts's
+ *   explorer calls, safe-guard-evm.provider.ts's bundler submission).
+ *   This codebase owns the transport directly, so timeout is a real
+ *   `AbortController` that genuinely cancels the in-flight request.
+ * - `withBoundedRetry()` — `ethers` `JsonRpcProvider`/`Contract` calls
+ *   (safe-guard-evm.provider.ts's RPC reads). This codebase does NOT own
+ *   the transport; timeout is configured natively on `ethers` itself
+ *   (`FetchRequest.timeout`, set once where the provider is constructed
+ *   — see that call site's own comment for the evidence this is a real,
+ *   not merely caller-side, bound), so this helper is retry-only.
+ *
+ * TIMEOUT != RETRY. Retry is an opt-in the CALLER decides per call site,
+ * never inferred here — a mutating/broadcast/submission call must never
+ * request it, since a timeout after dispatch means "result unknown," not
+ * "operation failed," and retrying could duplicate an already-accepted
+ * economic action (docs/BACKLOG.md's F1 obligation).
  */
 
 export class BoundedRpcTimeoutError extends Error {
@@ -88,37 +96,52 @@ export async function boundedFetch(url: string, init: RequestInit, options: Boun
 }
 
 /**
- * Bounds an already-issued call whose transport this codebase doesn't
- * control directly (ethers' `JsonRpcProvider` — no external AbortSignal
- * pass-through in the installed version). This bounds the CALLER's wait
- * and produces a distinguishable timeout error; it does not guarantee
- * the underlying socket is torn down (a disclosed, honest limitation of
- * ethers' transport, not a gap in this helper) — the property this
- * mission closes ("resolve or fail within a bounded time") is satisfied
- * from the settlement path's own perspective either way. Retry, when
- * requested, is bounded and linear-backoff, matching `boundedFetch()`.
+ * CTO Gate correction (2026-09-06): an earlier version of this file
+ * bounded ethers `JsonRpcProvider` calls with a `Promise.race()`-based
+ * timeout (`withBoundedRpcTimeout()`). That was rejected — it only
+ * bounds the CALLER's wait; the underlying ethers call keeps running
+ * unbounded, so a retry loop built on top of it could start a second
+ * attempt while the first was still live (overlapping hung network
+ * work, never economically unsafe here since these are all reads, but
+ * a real resource/liveness concern the CTO correctly flagged).
+ *
+ * Direct inspection of the installed `ethers@6.17.0` source
+ * (`node_modules/ethers/lib.commonjs/utils/geturl.js`) plus an empirical
+ * test against a TCP server that accepts a connection and never responds
+ * confirmed `ethers.FetchRequest.timeout` is a REAL transport-level
+ * timeout: `JsonRpcProvider` accepts a `FetchRequest` in its constructor
+ * (`provider-jsonrpc.js`'s own `constructor(url, network, options)`
+ * clones whatever `FetchRequest` it's given), and the default
+ * `getUrlFunc` applies `req.timeout` via Node's own
+ * `http.ClientRequest.setTimeout()`, which — proven empirically — DOES
+ * reject a genuinely hung request with a distinguishable `TIMEOUT`-coded
+ * error at the configured bound, not merely after some unrelated race.
+ * Because each retry attempt now only starts after ethers' OWN transport
+ * has already settled (rejected) the prior attempt, there is no more
+ * overlap — `withBoundedRetry()` below is a plain sequential retry loop,
+ * no timer of its own.
+ *
+ * Disclosed, not fixed here (would require writing a custom transport,
+ * which this mission's own Simplicity Rule forbids): ethers' timeout
+ * handler rejects the JS-level promise but does not call
+ * `request.destroy()`/abort the socket — confirmed empirically, the
+ * underlying TCP connection can still be open after the JS timeout
+ * fires. This is a pre-existing ethers library behavior at the deepest
+ * layer this codebase can reach without inventing a new transport, not
+ * a gap introduced by this file.
  */
-export async function withBoundedRpcTimeout<T>(fn: () => Promise<T>, label: string, options: BoundedFetchOptions): Promise<T> {
-  const attempts = options.retry?.attempts ?? 1
-  const backoffMs = options.retry?.backoffMs ?? 0
+export async function withBoundedRetry<T>(fn: () => Promise<T>, options: BoundedRetryPolicy): Promise<T> {
   let lastError: unknown
-
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new BoundedRpcTimeoutError(label, options.timeoutMs)), options.timeoutMs)
-    })
+  for (let attempt = 1; attempt <= options.attempts; attempt++) {
     try {
-      return await Promise.race([fn(), timeout])
+      return await fn()
     } catch (err) {
       lastError = err
-      if (attempt < attempts) {
-        await delay(backoffMs * attempt)
+      if (attempt < options.attempts) {
+        await delay(options.backoffMs * attempt)
         continue
       }
       throw lastError
-    } finally {
-      clearTimeout(timer)
     }
   }
   throw lastError
