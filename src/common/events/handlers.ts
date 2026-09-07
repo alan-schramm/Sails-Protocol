@@ -9,7 +9,7 @@ import { executeSettlement } from '../../modules/open-settlement/settlement-orch
 import { wdkSettlementProvider, buyerIndexFor } from '../../modules/open-settlement/wdk-settlement.provider'
 import { intentEngine } from '../../core/intent-engine'
 import { config } from '../../config'
-import { escrowsCreatedTotal, escrowsReleasedTotal, escrowsRefundedTotal, disputesOpenedTotal } from '../metrics'
+import { escrowsCreatedTotal, escrowsReleasedTotal, escrowsRefundedTotal, disputesOpenedTotal, qvacDetectionFailuresTotal } from '../metrics'
 import { childLogger } from '../logger'
 
 const log = childLogger('handlers')
@@ -538,6 +538,7 @@ export function registerEventHandlers(): void {
         detectedAt: signal.detectedAt,
       }, signal.correlationId)   // correlationId (RFC-010) = tradeId
     } catch (err) {
+      qvacDetectionFailuresTotal.inc({ path: 'social_engineering' })
       log.error({ msg: 'socialEngineeringDetection failed', eventId: event.eventId, err: err instanceof Error ? err.message : err })
     }
   })

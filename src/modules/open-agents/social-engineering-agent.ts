@@ -37,6 +37,7 @@
 import { qvacAgentProvider, type QvacAgentProvider } from './qvac-agent.provider'
 import { getTimeline, type TimelineEntry } from '../../core/timeline'
 import { tradeRepository, type TradeRepository } from '../open-p2p/trade-repository'
+import { qvacDetectionInvocationsTotal } from '../../common/metrics'
 
 export type RiskPattern = 'off_channel_migration' | 'payment_instruction_change' | 'unexpected_flow_deviation' | string
 
@@ -83,6 +84,25 @@ export class SocialEngineeringAgent {
 
     const payload = event.payload as { tradeId: string; content: string }
     if (!payload.content?.trim()) return null // empty content = a media (IMAGE/VIDEO) message, nothing to analyze
+
+    // F8 (docs/TECHNICAL_DEBT_AUDIT.md #54, corrected per CTO Gate 2026-09-07)
+    // — incremented here, immediately after the two path-specific
+    // pre-filters above accept this message, marking the start of one
+    // protective-evaluation attempt. Both this counter and the paired
+    // failures counter (incremented in handlers.ts's catch around this
+    // whole evaluate() call) must share the same population: a message
+    // filtered out above never counts as an attempt at all, but once an
+    // attempt has begun, EITHER a context-prep failure (recentMessageContext()/
+    // buildTradeStateContext() below) OR a QVAC provider failure counts as
+    // that same attempt failing — deliberately not narrowed to the literal
+    // QVAC SDK call, since from an operator's perspective a protective
+    // evaluation that could not complete is equally degraded regardless of
+    // which internal step failed. (Originally placed after the two prep
+    // reads, right before the QVAC call itself — corrected because that
+    // let a prep-read failure register as failures+=1/invocations+=0,
+    // making failures/invocations exceed 1 and mixing two different
+    // denominators.)
+    qvacDetectionInvocationsTotal.inc({ path: 'social_engineering' })
 
     const recentContext = await this.recentMessageContext(payload.tradeId, event.eventId)
     const tradeStateContext = await this.buildTradeStateContext(payload.tradeId)

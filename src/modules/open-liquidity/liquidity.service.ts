@@ -8,6 +8,7 @@ import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeIntentPayload } from '../../common/types/intent'
 import type { Prisma } from '@prisma/client'
 import { config } from '../../config'
+import { qvacDetectionInvocationsTotal, qvacDetectionFailuresTotal } from '../../common/metrics'
 
 const log = childLogger('liquidity')
 
@@ -271,6 +272,14 @@ export function screenOfferContent(offerId: string, userId: string, description:
   if (!config.features.socialEngineeringDetection) return
   if (!description?.trim() && !paymentDetails?.trim()) return
 
+  // F8 (docs/TECHNICAL_DEBT_AUDIT.md #54) — marks the start of one
+  // protective-evaluation attempt, right after both path-specific
+  // pre-filters above accept this offer (same "attempt after
+  // pre-filters" placement social-engineering-agent.ts's evaluate()
+  // uses, since this path has no separate context-prep step between
+  // the pre-filters and the QVAC call itself).
+  qvacDetectionInvocationsTotal.inc({ path: 'offer_screening' })
+
   import('../open-agents/qvac-agent.provider')
     .then(({ qvacAgentProvider }) => qvacAgentProvider.assessOfferContentRisk(description, paymentDetails))
     .then(async (signal) => {
@@ -285,7 +294,10 @@ export function screenOfferContent(offerId: string, userId: string, description:
         detectedAt: new Date().toISOString(),
       }, offerId)
     })
-    .catch((err) => log.error({ msg: 'Offer content risk screening failed', offerId, err: err instanceof Error ? err.message : String(err) }))
+    .catch((err) => {
+      qvacDetectionFailuresTotal.inc({ path: 'offer_screening' })
+      log.error({ msg: 'Offer content risk screening failed', offerId, err: err instanceof Error ? err.message : String(err) })
+    })
 }
 
 // ─── Router: tries providers in order, aggregates and ranks ──────────────────

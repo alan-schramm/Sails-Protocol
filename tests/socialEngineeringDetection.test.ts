@@ -59,6 +59,13 @@ jest.mock('../src/common/events/event-bus', () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { registerEventHandlers } = require('../src/common/events/handlers')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { metricsRegistry } = require('../src/common/metrics')
+
+async function failures(): Promise<number> {
+  const m = await metricsRegistry.getSingleMetricAsString('sails_qvac_detection_failures_total')
+  return Number(m.match(/path="social_engineering"\} (\d+)/)?.[1] ?? 0)
+}
 
 const durableMessageEvent = {
   eventId: 'evt-1',
@@ -75,6 +82,7 @@ describe('openp2p.message.sent -> SocialEngineeringAgent.evaluate (config-gated 
   beforeEach(() => {
     jest.clearAllMocks()
     socialEngineeringDetection = false
+    metricsRegistry.resetMetrics()
     registerEventHandlers()
   })
 
@@ -129,5 +137,27 @@ describe('openp2p.message.sent -> SocialEngineeringAgent.evaluate (config-gated 
     mockEvaluate.mockRejectedValueOnce(new Error('QVAC unavailable'))
 
     await expect(onDurableHandlers['openp2p.message.sent'](durableMessageEvent)).resolves.not.toThrow()
+    // F8 (docs/TECHNICAL_DEBT_AUDIT.md #54): the failure is now counted
+    // distinctly, not just logged. evaluate() itself is mocked in this
+    // file, so its own invocation counter (asserted for real in
+    // tests/socialEngineeringAgent.test.ts) doesn't fire here — only this
+    // handler's own failure counter, at the same catch that already
+    // logs the error.
+    expect(await failures()).toBe(1)
+  })
+
+  it('does not increment the failure counter on a clean or threat-positive evaluation', async () => {
+    socialEngineeringDetection = true
+    mockEvaluate.mockResolvedValueOnce(null) // clean
+
+    await onDurableHandlers['openp2p.message.sent'](durableMessageEvent)
+    expect(await failures()).toBe(0)
+
+    mockEvaluate.mockResolvedValueOnce({
+      correlationId: 'trade-1', pattern: 'off_channel_migration', riskScore: 80,
+      reasoning: 'x', detectedAt: '2026-01-01T00:00:01.000Z', sourceEventId: 'evt-1',
+    })
+    await onDurableHandlers['openp2p.message.sent'](durableMessageEvent)
+    expect(await failures()).toBe(0)
   })
 })

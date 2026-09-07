@@ -65,8 +65,14 @@ function fakeCompletionRun(contentText: string) {
 import { QvacAgentProvider } from '../src/modules/open-agents/qvac-agent.provider'
 import { SocialEngineeringAgent } from '../src/modules/open-agents/social-engineering-agent'
 import { eventBus } from '../src/common/events/event-bus'
+import { metricsRegistry } from '../src/common/metrics'
 import type { TimelineEntry } from '../src/core/timeline'
 import type { TradeRepository } from '../src/modules/open-p2p/trade-repository'
+
+async function socialEngineeringInvocations(): Promise<number> {
+  const m = await metricsRegistry.getSingleMetricAsString('sails_qvac_detection_invocations_total')
+  return Number(m.match(/path="social_engineering"\} (\d+)/)?.[1] ?? 0)
+}
 
 // No trade found by default — same as every test below wants (they're
 // not exercising unexpected_flow_deviation), matching the "constructor
@@ -95,6 +101,7 @@ describe('SocialEngineeringAgent.evaluate', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     durableEvents = []
+    metricsRegistry.resetMetrics()
   })
 
   it('returns null without calling QVAC for a non-message event type', async () => {
@@ -106,6 +113,8 @@ describe('SocialEngineeringAgent.evaluate', () => {
 
     expect(result).toBeNull()
     expect(mockCompletion).not.toHaveBeenCalled()
+    // F8: filtered out before the QVAC call — not an invocation
+    expect(await socialEngineeringInvocations()).toBe(0)
   })
 
   it('returns null without calling QVAC for an empty-content (media) message', async () => {
@@ -114,6 +123,7 @@ describe('SocialEngineeringAgent.evaluate', () => {
 
     expect(result).toBeNull()
     expect(mockCompletion).not.toHaveBeenCalled()
+    expect(await socialEngineeringInvocations()).toBe(0)
   })
 
   it('returns null when QVAC classifies the message as "none"', async () => {
@@ -124,6 +134,8 @@ describe('SocialEngineeringAgent.evaluate', () => {
     const result = await agent.evaluate(messageEntry('trade-x', 'Sure, sending PIX now.'))
 
     expect(result).toBeNull()
+    // F8: SUCCESS+CLEAN is a real invocation
+    expect(await socialEngineeringInvocations()).toBe(1)
   })
 
   it('returns a RiskSignal when QVAC detects off_channel_migration', async () => {
@@ -141,6 +153,37 @@ describe('SocialEngineeringAgent.evaluate', () => {
       detectedAt: expect.any(String),
       sourceEventId: 'evt-42',
     })
+    // F8: SUCCESS+THREAT is also a real invocation, same as SUCCESS+CLEAN
+    expect(await socialEngineeringInvocations()).toBe(1)
+  })
+
+  it('still counts a real invocation when the underlying QVAC call fails (F8 — degraded, not silent)', async () => {
+    mockCompletion.mockImplementationOnce(() => { throw new Error('model unavailable') })
+    const agent = new SocialEngineeringAgent(new QvacAgentProvider(), fakeTradeRepo())
+
+    // evaluate() itself does not swallow the error — the catch/failure
+    // counter live one layer up, in common/events/handlers.ts, matching
+    // the pre-existing try/catch boundary (unchanged by F8).
+    await expect(agent.evaluate(messageEntry('trade-x', 'Sure, sending PIX now.'))).rejects.toThrow('model unavailable')
+    expect(await socialEngineeringInvocations()).toBe(1)
+  })
+
+  it('also counts a real invocation when required context-preparation fails, before QVAC is ever called (F8 — CTO Gate correction, 2026-09-07)', async () => {
+    // buildTradeStateContext() calls this.tradeRepo.findByIdWithEscrow() —
+    // a required prep step, not the QVAC SDK call itself. It failing must
+    // still count as one attempted-and-failed evaluation, same population
+    // as a QVAC provider failure: an operator cannot complete a protective
+    // evaluation without this context either way.
+    const repo = fakeTradeRepo({
+      findByIdWithEscrow: jest.fn().mockRejectedValue(new Error('database unavailable')),
+    })
+    const agent = new SocialEngineeringAgent(new QvacAgentProvider(), repo)
+
+    await expect(agent.evaluate(messageEntry('trade-x', 'Sure, sending PIX now.'))).rejects.toThrow('database unavailable')
+    expect(await socialEngineeringInvocations()).toBe(1)
+    // QVAC was never reached — proves this is genuinely a pre-QVAC
+    // context-prep failure, not a relabeled provider failure.
+    expect(mockCompletion).not.toHaveBeenCalled()
   })
 
   it('sends the requested schema name and the message text to QVAC', async () => {
