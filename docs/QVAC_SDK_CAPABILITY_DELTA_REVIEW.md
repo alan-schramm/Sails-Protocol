@@ -401,7 +401,7 @@ only, and must not be read more broadly than that:
   source; it did not install `0.19.0` and run Sails' actual code
   against it. "No code migration indicated" is a static-analysis
   conclusion, not a runtime-verified one — a future upgrade mission
-  (§7a) must produce that verification before this finding can be
+  (§7A) must produce that verification before this finding can be
   treated as demonstrated rather than expected.
 
 ## 9. Security / Trust-Boundary Review
@@ -466,7 +466,7 @@ consequence for any future adoption, independent of the primary
 capability classification (§18) — this is exactly the case §8A's
 Classification ≠ Consequence rule exists to catch, and a future upgrade
 mission must satisfy the Security-Sensitive Rule's proportionate
-evidence bar (§7a) before adoption, not merely because the primary
+evidence bar (§7A) before adoption, not merely because the primary
 class label is "Capability."
 
 ## 10. Privacy Review
@@ -610,17 +610,34 @@ being newest.
    check, clearer worker-startup failure diagnosis, and (the most
    significant, unconfirmed) potential concurrent-evaluation throughput
    via continuous batching for a future Guardian layer.
-3. **What existing behavior could break?** Nothing in Sails' actual
-   4-symbol usage, per §8's direct grep-based analysis. Zero migration
-   required for current code.
-4. **What trust/security boundary changes?** None found that touch
-   Sails' actual usage; delegated-inference removal *strengthens* the
-   local-only property upstream (not directly consumed by Sails
-   either way). HF checksum applicability to Sails' model source is
-   UNKNOWN, not resolved by this review.
-5. **What API/semantic assumptions change?** None for Sails' 4 used
-   symbols (§8). `@qvac/inference` becomes a required co-dependency at
-   0.19.0 — a packaging assumption, not a semantic one.
+3. **What existing behavior could break? (corrected, CTO Gate,
+   2026-09-07)** No Sails source-level API migration is currently
+   indicated for the 4-symbol surface Sails uses, per §8's direct
+   grep-based analysis. However, `0.19.0` changes the runtime/package
+   architecture through `@qvac/inference` (§15), and actual Sails
+   runtime compatibility has not yet been demonstrated. Therefore:
+   **SOURCE API MIGRATION INDICATED: NONE** / **RUNTIME/PACKAGE
+   MIGRATION: PRESENT** / **RUNTIME BREAKAGE: NOT YET TESTED** — this
+   review does not claim nothing could break, only that nothing in the
+   static source-level analysis indicates a break.
+4. **What trust/security boundary changes? (corrected, CTO Gate,
+   2026-09-07)** **PROTOCOL AUTHORITY CHANGE: NONE INDICATED** —
+   delegated-inference removal *strengthens* the local-only property
+   upstream, and no finding touches Sails' `AgentGrant`/protocol
+   authority (§13). But **SECURITY/RUNTIME CONSEQUENCE: PRESENT** — the
+   upgrade changes the inference engine/package boundary, the
+   native/runtime dependency surface, worker startup/error behavior,
+   delegated-inference availability, and adds a new download-
+   verification capability. These require proportionate upgrade
+   evidence under §8A (§7A), regardless of the absence of a protocol-
+   authority change. HF checksum applicability to Sails' model source
+   remains UNKNOWN, not resolved by this review.
+5. **What API/semantic assumptions change? (corrected, CTO Gate,
+   2026-09-07)** No Sails protocol semantic change is indicated for the
+   currently used QVAC API surface (§14). The runtime/package
+   assumption does change, however: `0.19.0` depends on
+   `@qvac/inference` as a required co-installation (§15) — a real
+   packaging-level change, not merely an unchanged assumption restated.
 6. **Can Sails safely remain on the current version?** Yes — 0.15.0
    is still installable, still functions exactly as reviewed, and
    nothing in the delta reviewed here identifies a security
@@ -633,10 +650,14 @@ being newest.
    concurrency hypothesis (§7/§11); resolution of the HF-checksum
    applicability UNKNOWN (§6C/§9); a real full-suite + F8-targeted test
    run against the upgraded SDK.
-8. **What migration cost/complexity is introduced?** Low for a
-   same-shape upgrade (no source-code migration required per §8) —
-   the main cost is the new `@qvac/inference` co-dependency addition
-   (§15) and validation effort (§7 above), not code rewrites.
+8. **What migration cost/complexity is introduced? (corrected, CTO
+   Gate, 2026-09-07)** The main new runtime/package consideration is
+   `@qvac/sdk` `0.19.0`'s dependency on `@qvac/inference` (§15). Whether
+   Sails must declare `@qvac/inference` directly or receives it
+   transitively remains to be established by the bounded upgrade
+   mission (§7A item 2) — not assumed either way here. Migration
+   complexity remains expected LOW (no source-code rewrite indicated,
+   per Q3) but is **NOT YET DEMONSTRATED** — expectation, not evidence.
 9. **Can the capability be adopted without coupling Sails semantics to
    the vendor implementation?** Yes — every genuinely relevant
    capability found (§6) is infrastructure-level (lifecycle, health,
@@ -760,16 +781,21 @@ or by the bounded mission it describes (§7A's own closing line).
 **Gain (if a future upgrade proceeds on this evidence):** bounded local
 disk usage, a pre-flight model-fit check, clearer worker-failure
 diagnosis, and a real shot at concurrent Guardian evaluations.
-**Sacrifice:** none identified — no Sails capability regresses per §8's
-direct compatibility analysis. **Complexity introduced (if adopted):**
-one new co-dependency (`@qvac/inference`) and a version-strategy update
-— genuinely minimal. **Did it earn its place?** Not decided here —
-that is exactly what defers to a future, evidence-gated Decision Test
-once the Guardian concurrency question has real answers. **What remains
-not demonstrated:** the concurrency benefit for Sails specifically
-(§7/§11), the HF-checksum applicability to Sails' model source (§6C/§9),
-and any native-layer security-relevant behavior change in
-`@qvac/inference` (§9) — all explicitly named, none silently dropped.
+**Sacrifice (corrected, CTO Gate, 2026-09-07):** no source-level Sails
+regression is currently indicated by the reviewed API surface (§8) —
+this is narrower than "none identified": runtime/native regressions are
+**NOT YET DEMONSTRATED either way** and are themselves part of the
+bounded upgrade evidence obligation (§7A), not a settled absence.
+**Complexity introduced (if adopted):** one new runtime/package
+consideration (`@qvac/inference`, whether direct or transitive — §17
+Q8) and a version-strategy update — expected minimal, not yet measured.
+**Did it earn its place?** Not decided here — that is exactly what
+defers to the bounded upgrade mission (§7A) the CTO Gate direction
+(§19A) authorizes. **What remains not demonstrated, none silently
+dropped:** the concurrency benefit for Sails specifically (§7/§11) —
+NOT DEMONSTRATED; the HF-checksum applicability to Sails' model source
+(§6C/§9) — UNKNOWN; any native/runtime-relevant behavior change in
+`@qvac/inference` (§9) — NOT TESTED.
 
 ## 22. Sources
 
