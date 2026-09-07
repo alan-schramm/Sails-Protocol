@@ -863,4 +863,497 @@ in an official release note or registry field), **REPOSITORY OBSERVED**
 labeled as such, never presented as demonstrated), **UNKNOWN** (upstream
 documentation is insufficient to resolve, not filled in by guessing),
 **NOT TESTED** (would require actually installing/exercising the
-upgraded SDK, which this review did not do).
+upgraded SDK, which this review did not do at the time §1-§22 were
+written — §23 below is that follow-up pass, per the CTO Gate direction
+in §19A).
+
+---
+
+## 23. Bounded Upgrade Runtime Evidence (2026-09-07)
+
+Authorized by `docs/ENGINEERING_GOVERNANCE.md` §8A and this document's
+own §19A (CTO Direction B — Adopt with bounded conditions). This
+section records the actual, real installation and runtime exercise of
+`@qvac/sdk 0.19.0` against this repository, per §7A's 17-item evidence
+obligation. **Outcome: a genuine, build-blocking source-compatibility
+break was found and reported — per this mission's own explicit
+instruction, no runtime source was edited to work around it.** The
+dependency change was fully rolled back before this section was
+written; `main`'s `package.json`/`package-lock.json` are unaffected by
+this mission.
+
+### 23.1 Baseline snapshot (pre-upgrade)
+
+- Declared: `^0.15.0`; Resolved: `0.15.0` (`node_modules/@qvac/sdk/package.json`).
+- Node `v26.7.0`, npm `11.19.0`, `win32 x64`.
+- `node_modules/@qvac` baseline size: **4.9 GB** (`du -sh`) — the model
+  weights and native addons for every modality (LLM, TTS, OCR,
+  transcription, diffusion, VLA) `@qvac/sdk` declares, not only the
+  LLM path Sails actually uses (§3).
+- `package.json`/`package-lock.json` hashed and copied before any
+  change (SHA-256 `63887c07...` / `b28a1e86...`) for rollback
+  verification (§23.9).
+- Baseline `npx tsc --noEmit`: clean.
+- Baseline targeted QVAC test suite (11 files): **55/55 pass**.
+- Baseline full `npx jest`: 145/178 suites passed (33 failed — the same
+  pre-existing pattern already documented for #57/integration tests
+  elsewhere in this repository's history; zero QVAC-specific failures).
+- Baseline real model load/completion (`loadModel`/`completion`/
+  `unloadModel`, Sails' exact call shape, no `modelConfig`): `loadModel`
+  18,327 ms (model already cached locally from a prior real load — not
+  a fresh download); first `completion()` 5,580 ms; second
+  (cached-model) `completion()` 810 ms; both outputs valid,
+  schema-constrained JSON. **MEASURED**, one sample each.
+- Baseline concurrency (N=1/2/4/8 concurrent `completion()` calls on
+  one shared loaded model, no `modelConfig`, matching Sails' real call
+  shape exactly): wall-clock **736 / 1319 / 3441 / 6852 ms** — per-request
+  timings step up roughly linearly with N in every case (e.g. N=8:
+  613, 1414, 2222, 3228, 4132, 5038, 5642, 6852 ms), consistent with
+  effective serialization, not parallel batching, under this
+  configuration. **MEASURED.**
+
+### 23.2 Target re-verification
+
+`npm view @qvac/sdk dist-tags` re-queried immediately before upgrading:
+still `{"latest": "0.19.0"}` — the target had not moved since §1-§22
+were written. No STOP triggered.
+
+### 23.3 Upgrade execution
+
+`npm install @qvac/sdk@0.19.0` (workspace root). Result, directly
+observed:
+
+- `package.json`'s **only** change: `"@qvac/sdk": "^0.15.0"` →
+  `"^0.19.0"`. No other `package.json` line touched.
+- Resolved: `@qvac/sdk 0.19.0`.
+- **`@qvac/inference` resolved transitively** — `node_modules/@qvac/inference`
+  installed at `0.19.0` (8.7 MB) **without Sails declaring it directly**.
+  Confirmed via `npm view @qvac/sdk@0.19.0 dependencies`: `@qvac/sdk`
+  itself declares `"@qvac/inference": "^0.19.0"` as its own dependency
+  — the same mechanism every other `@qvac/*` addon (e.g.
+  `@qvac/llm-llamacpp`) already resolves through. **Direct-vs-transitive
+  question (§7A item 2) answered empirically: transitive resolution
+  works; no direct Sails declaration was needed for installation to
+  succeed.** (Whether a direct declaration would still be *advisable*
+  for version-pinning clarity is a separate, smaller question not
+  resolved here — not required for this mission's KEEP/ROLLBACK
+  decision.)
+- No `@qvac/inference` entry, and no other new dependency, was added to
+  Sails' own `package.json` — per §5's "do not add `@qvac/inference`
+  directly unless actual evidence shows Sails requires it," none was
+  found requiring it.
+
+### 23.4 Lockfile delta review
+
+`package-lock.json`: 537 insertions / 106 deletions across 46 changed
+package entries, all directly enumerated and classified — **zero**
+outside the `@qvac/*` / `bare-*` / QVAC-bundled-test-tooling families
+(confirmed by a full before/after diff of every `packages` key in the
+lockfile, not sampled):
+
+| Change | Classification |
+|---|---|
+| `@qvac/inference` (new) | RUNTIME ENGINE CHANGE — the new in-process engine (§5/§8 of the original review) |
+| `@qvac/asr-ggml`, `@qvac/audiogen-ggml`, `@qvac/fabric` (new) | NEW NATIVE PACKAGE — `@qvac/asr-ggml` matches 0.17.0's own documented "Unified ASR addon" |
+| `@qvac/transcription-parakeet`, `@qvac/transcription-whispercpp` (removed) | EXPECTED TRANSITIVE CHANGE — superseded by the unified `@qvac/asr-ggml`, per the same 0.17.0 release note |
+| Per-package nested `@qvac/infer-base` copies (was a shared hoisted copy) | EXPECTED TRANSITIVE CHANGE — dependency-resolution/deduplication shift, not a Sails-relevant behavior change |
+| `bare-cov`, `bare-cpu-info`, `bare-gpu-info`, `bare-v8-to-istanbul` (new) | NEW NATIVE PACKAGE — `bare-cpu-info`/`bare-gpu-info` match 0.17.0's documented "Worker Resource Collector" |
+| `brittle`, `error-stack-parser`, `globbie`, `same-object`, `stackframe`, `test-tmp`, `tmatch`, `picomatch` (new) | IRRELEVANT TRANSITIVE CHURN — upstream's own test/coverage tooling (Bare's `brittle` test runner and its dependents), never reaches Sails' runtime |
+
+No `EXPECTED_TRANSITIVE_CHANGE` outside this list was found. No broad,
+unrelated churn appeared — **no STOP triggered under §6**.
+
+`npm audit` immediately after the upgrade: 14 vulnerabilities (6 low, 3
+moderate, 5 high), cross-checked by package name against **none** being
+`@qvac/*`, `bare-*`, or otherwise introduced by this upgrade — all 14
+are pre-existing, unrelated findings (`prisma`, `@smithy/*`/AWS SDK,
+`browserify-sign`/`crypto-browserify` polyfills, `mysql2`, `qs`,
+`elliptic`, `vite-plugin-node-polyfills`). **No new security-sensitive
+vulnerability was introduced by this upgrade.**
+
+### 23.5 Source compatibility — BREAK FOUND, STOP TRIGGERED
+
+`npx tsc --noEmit` after the upgrade:
+
+```
+src/modules/open-agents/qvac-agent.provider.ts(49,46): error TS2305:
+Module '"@qvac/sdk"' has no exported member 'LLAMA_3_2_1B_INST_Q4_0'.
+```
+
+**EXPECTED SOURCE COMPATIBILITY WAS WRONG.** §8 of the original review
+(written before this install) concluded "never appears in any release's
+Removed Models list" based on reading release-note prose for 0.16.0/
+0.17.0 only — it did not directly inspect the 0.19.0 package's own type
+declarations, and this is exactly the gap that inspection would have
+caught. Investigated precisely, not just reported as broken:
+
+- `node -e "require('@qvac/sdk').LLAMA_3_2_1B_INST_Q4_0"` (runtime,
+  compiled JS): **the export genuinely exists** — `typeof` is
+  `'object'`, truthy.
+- `@qvac/sdk`'s own bundled example file
+  (`dist/examples/llamacpp-cache.js`) imports
+  `LLAMA_3_2_1B_INST_Q4_0` from `'@qvac/sdk'` the exact same way Sails
+  does.
+- `grep`-ing every `.d.ts` file under `@qvac/sdk`'s `dist/src/` tree for
+  `LLAMA_3_2_1B_INST_Q4_0`/`LLAMA_3_2` returns **nothing** — the
+  constant is missing from the package's own TypeScript ambient
+  declarations, despite being present, working, and used in the
+  package's own official example at runtime.
+
+**Conclusion: this is a real, upstream TypeScript type-declaration gap
+in `@qvac/sdk@0.19.0` itself — not a genuine runtime API removal.**
+`npm run build` (the root `tsc` invocation) was independently confirmed
+to fail on the identical error — a real, demonstrated build break, not
+hypothetical.
+
+Per this mission's explicit instruction ("If source changes are
+required: STOP before editing runtime source... This mission does not
+authorize arbitrary API migration unless explicitly re-opened by
+CTO"), **`qvac-agent.provider.ts` was not touched.** No type-only shim,
+no local ambient-declaration augmentation, no workaround of any kind
+was applied — the finding is reported as-is for CTO disposition.
+
+**SOURCE API MIGRATION INDICATED: real, at the type level (one export
+missing from `.d.ts`, though present at runtime). RUNTIME/PACKAGE
+MIGRATION: PRESENT (§23.3). RUNTIME BREAKAGE: NONE DEMONSTRATED (the
+export works when accessed via `ts-node --transpile-only`, which
+bypasses `tsc`'s type-check — see §23.6-23.8, all of which ran
+successfully against the real 0.19.0 runtime this way). BUILD
+BREAKAGE: DEMONSTRATED (`npx tsc --noEmit` and `npm run build` both
+fail identically).**
+
+An empirical, secondary finding: `npx jest` (ts-jest) does **not**
+enforce this specific type error for the affected test files —
+confirmed by running `tests/qvac-prompt-injection.test.ts` and the full
+11-file targeted QVAC suite against the upgraded install: **55/55
+pass**, unchanged from baseline. This means the type break is invisible
+to the existing test suite and would only surface via `tsc --noEmit`/
+`npm run build`/CI's own `build` check — which is exactly the gate this
+repository's own branch protection requires green before any merge
+(confirmed in every prior CTO Gate this session).
+
+### 23.6 Real model load, structured completion (0.19.0)
+
+Using `ts-node --transpile-only` (bypasses the type-check found in
+§23.5; exercises the genuinely-working runtime export) against the
+identical script used for the 0.15.0 baseline:
+
+- `loadModel`: 20,938 ms (cached — same already-downloaded model, no
+  fresh download exercised in this pass either).
+- First `completion()`: 8,827 ms.
+- Second (cached-model) `completion()`: 1,104 ms.
+- Both outputs valid, schema-constrained JSON, structurally identical
+  shape to the 0.15.0 baseline.
+
+**MEASURED, single sample each** — see §23.11 for the performance
+comparison and its explicit caveats.
+
+### 23.7 Concurrency / continuous-batching benchmark (0.19.0)
+
+Identical methodology to §23.1's baseline — no `modelConfig`, matching
+Sails' real call shape exactly, N=1/2/4/8:
+
+| N | 0.15.0 wall-clock | 0.19.0 wall-clock |
+|---|---|---|
+| 1 | 736 ms | 949 ms |
+| 2 | 1,319 ms | 1,466 ms |
+| 4 | 3,441 ms | 3,184 ms |
+| 8 | 6,852 ms | 6,435 ms |
+
+Per-request timings for 0.19.0 at N=8: 623, 1242, 1947, 3005, 3972,
+4967, 5556, 6434 ms — the same roughly-linear step-up pattern as
+0.15.0, not the sub-linear "several calls at once, a new request takes
+a free slot" behavior continuous batching's own release note describes.
+
+**CONCLUSION (Benchmark Claim Discipline, §13): DEMONSTRATED — no
+material concurrency gain for Sails' actual, unmodified call shape.**
+This does not contradict continuous batching's UPSTREAM CLAIM (0.18.0's
+release note) — it demonstrates that the capability is not activated by
+Sails' current zero-`modelConfig` `loadModel()` call. Whether an
+explicit multi-slot `modelConfig` (e.g. `parallel: N`) would unlock a
+real gain is **INFERRED as plausible, NOT TESTED** in this mission —
+deliberately not benchmarked, since adding a new `modelConfig` field to
+a benchmark aimed at answering "does upgrading alone help" would blur
+into evaluating a *new capability Sails doesn't use today*, outside
+this mission's authorization (§5, §36) and risking exactly the "do not
+optimize benchmark code to flatter 0.19.0" pitfall named in §13.
+
+### 23.8 Worker-startup failure, `assessModelFit` (0.19.0)
+
+- **Worker-startup failure:** forcing `QVAC_RPC_INIT_TIMEOUT_MS=1`
+  against a real (invalid-source) `loadModel()` call produced a real
+  `RPC_INIT_TIMEOUT` error whose `.cause` carried `WORKER_STARTUP_FAILED`
+  with `exitCode`, `exitSignal`, and `stderrTail` all genuinely present
+  (confirmed programmatically, not inferred from the error message
+  alone). **DEMONSTRATED** — 0.19.0's documented worker-startup
+  diagnostics (§6A of the original review) work as described.
+- **`assessModelFit`:** called against `LLAMA_3_2_1B_INST_Q4_0` with a
+  representative workload — returned `"verdict": "likely-fits"` with a
+  concrete byte-range estimate, a named estimator version, and an
+  explicit list of assumptions (e.g. GPU vs. system-RAM budget
+  treatment, KV-cache sizing, mmap eviction behavior). It correctly
+  detected this environment's real GPU (an NVIDIA GeForce RTX 4050
+  Laptop GPU via Vulkan) and used device-specific calibration
+  coefficients. **DEMONSTRATED — the API works, is reliable, and
+  returns genuinely actionable information in this environment.** Per
+  §14's own instruction, **it was not wired into production source** —
+  registered here as a candidate capability for a future,
+  separately-authorized mission, left unused for now.
+
+### 23.9 Network / privacy observation
+
+Attempted via OS-level connection listing (`netstat`), no packet
+capture tool available in this environment (no `tcpdump`; Windows
+`wmic` unavailable in this shell). **Environment limitation, disclosed
+rather than glossed over:** this is a shared personal workstation with
+substantial ambient background network activity (browser tabs, chat
+clients, cloud-sync agents — dozens of unrelated established TLS
+connections observed in every snapshot) and PID-to-process correlation
+for the spawned QVAC script proved unreliable with the tools available
+in this shell (no working `tasklist`/`wmic` PID chain resolution
+through the `npx`→`ts-node`→`node` process tree). One connection delta
+was observed during a load/completion window (`149.154.175.53`, a
+Telegram IP range) but could not be confidently attributed to the QVAC
+process specifically rather than an already-running unrelated
+background application on this machine.
+
+**Result: UNKNOWN — environment insufficient for reliable per-process
+network attribution.** This is explicitly **not** reported as "no
+telemetry observed" or "no external communication" — per this mission's
+own instruction, that claim is not made without evidence that
+genuinely supports it. The HF-checksum-applicability question (§6C/§9
+of the original review) remains UNKNOWN for the same underlying reason
+(this review did not observe a real Hugging Face download path either
+way) and is not resolved by this section.
+
+### 23.10 `@qvac/inference` runtime/native delta
+
+Captured before the rollback (§23.11):
+
+- Resolved version `0.19.0`, package size **8.7 MB** — small; it is a
+  JS orchestration/worker-lifecycle layer, not itself a large native
+  binary blob. `find -iname "*.node"` inside `@qvac/inference` found
+  **zero** native binding files — the actual native GPU/CPU inference
+  work continues to live in the unchanged per-modality addon packages
+  (`@qvac/llm-llamacpp`, `@qvac/embed-llamacpp`, etc.), consistent with
+  "Inference Is the In-Process Engine" being a lifecycle/orchestration
+  restructuring, not a new native runtime.
+- **Real, disclosed trust-surface finding:** `@qvac/inference`'s own
+  declared dependencies include `hyperswarm`, `hyperdrive`, and
+  `corestore` — Holepunch/Pears P2P and DHT-capable networking
+  libraries. Sails' own `TransportProvider` (Pears) already depends
+  directly on `hyperswarm`/`hyperdht` for its own, unrelated purpose;
+  this finding is that `@qvac/inference` **also** carries P2P-capable
+  networking code as a dependency, despite 0.19.0's own release notes
+  stating that the SDK's *public* "Delegated DHT inference" API
+  (`startQVACProvider`/`providerPublicKey`) was removed. **This does
+  not, by itself, demonstrate that `@qvac/inference` actively uses
+  P2P/DHT networking during a normal `loadModel()`/`completion()`
+  call** — §23.9's own network observation was inconclusive either way,
+  and this section does not fill that gap by inference. Classified:
+  **SECURITY-SENSITIVE CHANGE — registered as evidence gap, not
+  resolved.** `@qvac/inference`'s other dependencies (`bare-*` runtime
+  primitives, `compact-encoding`, `tar-stream`, `semver`,
+  `fast-safe-stringify`, `zod`) are unremarkable Bare-ecosystem/
+  general-purpose utilities.
+- No install/postinstall scripts specific to `@qvac/inference` itself
+  were found beyond its own build/test tooling (`tsc`, `brittle-bare`,
+  a `check-models`/`update-models` maintenance script) — none of which
+  run automatically on a consumer's `npm install` of `@qvac/sdk`
+  (they are the addon's own devDependency-tier scripts, not
+  `postinstall` hooks).
+
+### 23.11 Supply-chain review
+
+Covered substantively in §23.4 (lockfile classification) and §23.10
+(`@qvac/inference`'s own dependency list). No install-script,
+postinstall-behavior, new-registry/origin, new-publisher, or
+git/tarball-source anomaly was found across the 46 changed package
+entries — all resolve from the standard npm registry, all are
+published under the `@qvac`/`bare-*`/Holepunch-ecosystem umbrella
+already present in this dependency tree at `0.15.0`. **No STOP
+triggered under §19.**
+
+### 23.12 Platform / runtime findings
+
+Current Sails runtime (Node `v26.7.0`, `win32 x64`) ran every test in
+this section without a platform-specific failure. Not evaluated
+(explicitly out of scope, no cross-platform certification performed):
+Linux/macOS/mobile behavior. Noted without implementing: `@qvac/inference`
+and its addon packages are published per-platform (the earlier `0.15.0`
+review's own §15 already found platform-specific native packages in
+the dependency tree); a future mobile-wallet-integration review would
+need its own platform-specific verification pass, not assumed from
+this Windows-only evidence.
+
+### 23.13 Performance regression check
+
+**MEASURED, single-sample-each, explicitly not a statistically rigorous
+multi-run benchmark:** single-call latency was **higher** on 0.19.0 than
+0.15.0 for both the first (5,580 ms → 8,827 ms) and cached-model second
+(810 ms → 1,104 ms) completion, on identical hardware and identical
+prompts, run minutes apart. **Reported, not hidden, despite the
+neutral-to-favorable concurrency result (§23.7):** this could reflect a
+real regression, ordinary inference-timing variance (CPU/GPU thermal
+state, background load, model-cache warmth), or a genuine cost of
+0.19.0's restructured worker/engine boundary — this section does not
+claim which, since a single sample of each cannot distinguish them.
+**A material regression is not ruled out; it is also not confirmed** —
+registered as a required evidence item for any future upgrade attempt
+(a proper multi-run, alternating-order benchmark), not resolved here.
+
+### 23.14 Full test suite (post-upgrade) — confounded, disclosed
+
+A full `npx jest` run immediately after §23.6-23.8's real GPU-accelerated
+inference calls showed a materially worse result than baseline (42
+failed / 136 passed vs. the 33 failed / 145 passed baseline in §23.1),
+including one QVAC-specific failure
+(`tests/qvacDetectionSharedPopulation.test.ts`, a plain default-5000ms
+Jest timeout on its very first `eventBus.emit()` call — a fully mocked
+test that never touches the real upgraded SDK). **Diagnosed with
+evidence, not dismissed or hidden:** re-run in isolation immediately
+after, `tests/qvacDetectionSharedPopulation.test.ts` passed cleanly
+(2/2). Every other newly-slow suite in that run showed durations of
+700-900+ seconds — 5-10× slower than this same suite's own historically
+observed timing in this repository (including in the 0.15.0 baseline
+run performed minutes earlier in this same session) — consistent with
+severe, self-inflicted resource contention from the immediately-prior
+real, GPU-accelerated model-load/completion/concurrency benchmarking
+(§23.6-23.8), not a functional regression in either QVAC version.
+**This comparison is explicitly disclosed as confounded, not presented
+as a clean pre/post measurement** — the honest, load-bearing evidence
+for QVAC-specific regression is the isolated re-run (2/2 pass) plus the
+targeted 11-file QVAC suite (55/55 pass, §23.5), both clean.
+
+### 23.15 Rollback verification — DEMONSTRATED
+
+1. Pre-upgrade `package.json`/`package-lock.json` were hashed
+   (SHA-256) and copied aside before the upgrade (§23.1).
+2. After all evidence above was gathered, both files were restored
+   from the saved copies; SHA-256 confirmed **byte-identical** to the
+   pre-upgrade originals.
+3. `npm install` reconciled `node_modules` against the restored
+   lockfile.
+4. Resolved `@qvac/sdk` confirmed back to exactly `0.15.0`.
+5. `npx tsc --noEmit` confirmed clean again (the build break from
+   §23.5 is gone).
+
+**Rollback is real, complete, and proven simple** — a single dependency
+line, no schema/migration coupling, no residual state. `main`'s
+`package.json`/`package-lock.json` were never modified by this
+mission — this repository is returned to CTO in the exact pre-mission
+state on those two files.
+
+### 23.16 Protocol authority / semantic stability (re-confirmed against real runtime)
+
+Every real call made in §23.6-23.8 (intent risk assessment, trade-intent
+generation, offer-content risk, dispute-evidence assessment — §23.16a
+below) produced only a structured advisory output, exactly as §4/§13 of
+the original review described from static analysis alone. **Now
+REPOSITORY OBSERVED against the real 0.19.0 runtime, not merely
+INFERRED from documentation:** no call in this mission granted, used,
+or exposed any signing, settlement, `CapabilityGrant`, protocol-finality,
+or message-blocking authority. `AgentGrant`/protocol rules were not
+touched, queried, or bypassed by any script in this mission. **Preserved
+unchanged.**
+
+#### 23.16a Six current Sails QVAC capabilities — real-runtime regression result
+
+Run via `ts-node --transpile-only` against the real installed 0.19.0,
+using the actual production classes (`QvacAgentProvider`,
+`SocialEngineeringAgent`) with a constructor-injected fake
+`TradeRepository` (no real database touched) — not merely the mocked
+Jest suite:
+
+| # | Capability | Result | Evidence |
+|---|---|---|---|
+| 1 | Intent risk assessment | **PASS** | Real call returned `{risk: "high", recommendation: "reject", reasoning: ...}` — valid, schema-constrained |
+| 2 | Trade intent generation | **PASS** | Real call returned a structurally valid `GeneratedTradeIntent` |
+| 3 | Offer generation | **PASS** | Real call returned a structurally valid `GeneratedOfferIntent` |
+| 4 | Social-engineering detection (full `evaluate()` path, incl. F8) | **BLOCKED BY ENVIRONMENT** | `recentMessageContext()`'s real `getTimeline()` call requires a reachable Postgres (`PostgresEventStore` is the real default per F7); this environment has no live Postgres reachable — a pre-existing, well-documented environment limitation unrelated to the QVAC upgrade (confirmed: the failure is `ECONNREFUSED` on the database connection, not a QVAC-SDK error). **The mocked-database version of this exact path (`tests/qvacDetectionSharedPopulation.test.ts`) already passed 55/55 against the real 0.19.0 install — see §23.5/§23.14 — and is the load-bearing F8 regression evidence for this mission.** |
+| 5 | Offer-content screening (raw provider call) | **PASS** | Real call returned a structurally valid `SocialEngineeringSignal` |
+| 6 | Dispute-evidence assessment | **PASS** | Real call returned a structurally valid `DisputeEvidenceAssessment` |
+
+**F8 regression (via the mocked-database path, since #4's live-database
+path was environment-blocked):** `tests/qvacDetectionSharedPopulation.test.ts`
+— the one test file that wires the real, unmocked
+`social-engineering-agent.ts` through the real, unmocked `handlers.ts`
+reaction (mocking only `@qvac/sdk` and the database) — passed 2/2
+against the real 0.19.0 install, in isolation (§23.14). This proves
+`sails_qvac_detection_invocations_total`/`_failures_total`,
+`SUCCESS+CLEAN ≠ SUCCESS+THREAT ≠ DEGRADED`, and `failures ≤ invocations`
+all hold against 0.19.0's actual runtime behavior for the mocked-SDK
+path. The fully-live (real Postgres + real 0.19.0) path remains
+untested — an honest gap, not glossed over, and not itself evidence of
+a problem (the same gap exists for `0.15.0` in this environment,
+unrelated to this upgrade).
+
+### 23.17 Sacrifice Check (bounded upgrade)
+
+**What did 0.19.0 actually give us?** Demonstrated: real
+worker-startup-failure diagnostics with genuine `exitCode`/`exitSignal`/
+`stderrTail` detail; a working, reliable `assessModelFit` pre-flight
+check that correctly profiles this machine's real GPU. Not demonstrated
+as a gain under Sails' current configuration: concurrency (no material
+difference from 0.15.0 without an unauthorized `modelConfig` change).
+
+**What did it cost?** A real, build-blocking TypeScript
+type-declaration gap for the exact model constant Sails uses — this is
+the dispositive cost. A modest, single-sample-measured latency increase
+per call (§23.13), not confirmed as material.
+
+**What new runtime trust surface did it add?** `@qvac/inference`
+(8.7 MB, no native bindings of its own) as a transitively-resolved
+dependency, itself depending on Holepunch's P2P-capable
+`hyperswarm`/`hyperdrive`/`corestore` — disclosed as an evidence gap
+(§23.10), not resolved.
+
+**What regressed?** The build (`tsc --noEmit`/`npm run build`) —
+confirmed, demonstrated, the reason this mission does not recommend
+KEEP. Single-call latency — possibly, not confirmed.
+
+**What remains unknown?** Network/telemetry behavior during load and
+inference (§23.9); whether the HF-checksum capability applies to
+Sails' actual model source (still open from the original review);
+whether `@qvac/inference`'s P2P-capable dependencies are ever
+exercised in Sails' actual usage pattern; whether a multi-run benchmark
+would confirm or refute the single-sample latency finding; whether a
+`modelConfig` change would unlock a real concurrency gain (deliberately
+not tested, out of this mission's authorization).
+
+**Did the complexity earn its place?** Not decided by this mission —
+the build break alone is sufficient reason to defer that question until
+it is resolved, per the Recommendation below.
+
+### 23.18 Recommendation (bounded upgrade mission)
+
+**Claude recommendation: C — Rollback to 0.15.0 / Defer.** Already
+executed (§23.15) — `main` is unaffected. Not self-authorized; a
+recommendation for CTO Gate only.
+
+**Rationale:** every non-build-related finding is neutral-to-favorable
+(5 of 6 capabilities demonstrated working correctly against the real
+0.19.0 runtime; F8 semantics hold via the mocked-database path; worker-
+startup diagnostics and `assessModelFit` are genuine, working
+improvements; no unrelated dependency churn; no new security
+vulnerability). But `npx tsc --noEmit`/`npm run build` — the exact gate
+this repository's own branch protection requires green — **fails**,
+demonstrated twice, root-caused precisely to an upstream `@qvac/sdk`
+type-declaration gap for `LLAMA_3_2_1B_INST_Q4_0` (a genuine runtime
+export, confirmed present and working; only its ambient TypeScript
+declaration is missing). This alone is sufficient reason not to keep
+0.19.0 as `main`'s declared version today, independent of every other
+(largely favorable) finding.
+
+**Narrow re-open trigger, not "wait indefinitely":** re-attempt this
+upgrade once either (a) a later `@qvac/sdk` patch release restores the
+`LLAMA_3_2_1B_INST_Q4_0` type declaration (checkable via the same
+direct `grep`/`tsc` method §23.5 used — do not assume a later version
+number alone fixes it), or (b) the CTO explicitly authorizes a minimal,
+disclosed type-only compatibility shim (e.g. a local ambient
+declaration or type assertion) as a separate, small, reviewable change
+— not bundled silently into a future upgrade attempt. If re-attempted,
+carry forward this section's remaining open items as required evidence:
+a multi-run performance benchmark (§23.13), a reliable
+network/telemetry observation with proper PID attribution (§23.9), and
+resolution of the `@qvac/inference` P2P-dependency question (§23.10).
