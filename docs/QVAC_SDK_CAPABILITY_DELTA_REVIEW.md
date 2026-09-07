@@ -968,8 +968,18 @@ moderate, 5 high), cross-checked by package name against **none** being
 `@qvac/*`, `bare-*`, or otherwise introduced by this upgrade — all 14
 are pre-existing, unrelated findings (`prisma`, `@smithy/*`/AWS SDK,
 `browserify-sign`/`crypto-browserify` polyfills, `mysql2`, `qs`,
-`elliptic`, `vite-plugin-node-polyfills`). **No new security-sensitive
-vulnerability was introduced by this upgrade.**
+`elliptic`, `vite-plugin-node-polyfills`). **Stated precisely (CTO
+Gate, 2026-09-07): no new `npm audit` finding was attributable to the
+QVAC 0.19.0 dependency delta in this run.** `npm audit` is a scan
+against known published advisories, not a proof of vulnerability
+absence — it says nothing about an undisclosed or not-yet-published
+issue in any of the 46 changed entries. Separately, and not replaced by
+this narrower audit claim: §23.11's supply-chain review independently
+found no install-script/new-registry-origin/new-publisher anomaly in
+the reviewed delta, and §23.10 registers `@qvac/inference`'s real
+dependency on Holepunch's P2P-capable `hyperswarm`/`hyperdrive`/
+`corestore` as its own, separate, unresolved evidence gap — not
+answered or closed by the audit result above.
 
 ### 23.5 Source compatibility — BREAK FOUND, STOP TRIGGERED
 
@@ -1270,23 +1280,47 @@ Jest suite:
 | 1 | Intent risk assessment | **PASS** | Real call returned `{risk: "high", recommendation: "reject", reasoning: ...}` — valid, schema-constrained |
 | 2 | Trade intent generation | **PASS** | Real call returned a structurally valid `GeneratedTradeIntent` |
 | 3 | Offer generation | **PASS** | Real call returned a structurally valid `GeneratedOfferIntent` |
-| 4 | Social-engineering detection (full `evaluate()` path, incl. F8) | **BLOCKED BY ENVIRONMENT** | `recentMessageContext()`'s real `getTimeline()` call requires a reachable Postgres (`PostgresEventStore` is the real default per F7); this environment has no live Postgres reachable — a pre-existing, well-documented environment limitation unrelated to the QVAC upgrade (confirmed: the failure is `ECONNREFUSED` on the database connection, not a QVAC-SDK error). **The mocked-database version of this exact path (`tests/qvacDetectionSharedPopulation.test.ts`) already passed 55/55 against the real 0.19.0 install — see §23.5/§23.14 — and is the load-bearing F8 regression evidence for this mission.** |
+| 4 | Social-engineering detection (full `evaluate()` path, incl. F8) | **BLOCKED BY ENVIRONMENT** (live path) / see F8 correction below | `recentMessageContext()`'s real `getTimeline()` call requires a reachable Postgres (`PostgresEventStore` is the real default per F7); this environment has no live Postgres reachable — a pre-existing, well-documented environment limitation unrelated to the QVAC upgrade (confirmed: the failure is `ECONNREFUSED` on the database connection, not a QVAC-SDK error). |
 | 5 | Offer-content screening (raw provider call) | **PASS** | Real call returned a structurally valid `SocialEngineeringSignal` |
 | 6 | Dispute-evidence assessment | **PASS** | Real call returned a structurally valid `DisputeEvidenceAssessment` |
 
-**F8 regression (via the mocked-database path, since #4's live-database
-path was environment-blocked):** `tests/qvacDetectionSharedPopulation.test.ts`
-— the one test file that wires the real, unmocked
-`social-engineering-agent.ts` through the real, unmocked `handlers.ts`
-reaction (mocking only `@qvac/sdk` and the database) — passed 2/2
-against the real 0.19.0 install, in isolation (§23.14). This proves
-`sails_qvac_detection_invocations_total`/`_failures_total`,
-`SUCCESS+CLEAN ≠ SUCCESS+THREAT ≠ DEGRADED`, and `failures ≤ invocations`
-all hold against 0.19.0's actual runtime behavior for the mocked-SDK
-path. The fully-live (real Postgres + real 0.19.0) path remains
-untested — an honest gap, not glossed over, and not itself evidence of
-a problem (the same gap exists for `0.15.0` in this environment,
-unrelated to this upgrade).
+**F8 evidence, corrected precisely (CTO Gate, 2026-09-07) — the
+original wording here overstated what was demonstrated.**
+`tests/qvacDetectionSharedPopulation.test.ts` **mocks `@qvac/sdk`
+entirely** (`jest.mock('@qvac/sdk', ...)`, confirmed by direct reading
+of that file) — it exercises the real, unmocked
+`social-engineering-agent.ts`/`handlers.ts` *wiring* (event bus,
+invocation/failure counters, the catch boundary), but every QVAC
+`completion()` call inside it is a mock return value, never the actual
+installed SDK. Passing this test therefore does **not** demonstrate F8
+against QVAC 0.19.0's real inference behavior — only against the
+already-mocked call surface, which is identical regardless of which
+`@qvac/sdk` version happens to be installed on disk. Split precisely,
+not conflated:
+
+- **F8 SAILS WIRING / COUNTER SEMANTICS: DEMONSTRATED.** `failures ≤
+  invocations`, `SUCCESS+CLEAN ≠ SUCCESS+THREAT ≠ DEGRADED`, and the
+  invocation/failure counters themselves are all proven correct for
+  Sails' own code, run 2/2 in isolation while `@qvac/sdk 0.19.0` was
+  the installed package (§23.14) — but this is evidence about Sails'
+  wiring, not about QVAC 0.19.0's real inference path, since the SDK
+  itself was mocked throughout.
+- **F8 WITH THE REAL QVAC 0.19.0 INFERENCE PATH: NOT FULLY
+  DEMONSTRATED.** No test in this mission exercised F8's counters
+  while a real, unmocked `completion()` call against the real 0.19.0
+  runtime was also in the same code path.
+- **FULL LIVE SOCIAL-ENGINEERING PATH (real Postgres + real QVAC
+  inference together): BLOCKED BY ENVIRONMENT** — no reachable Postgres
+  here, the same pre-existing gap that would also block this exact test
+  against `0.15.0`, unrelated to this upgrade.
+
+Installing the upgraded package on disk does not, by itself, convert a
+mocked-SDK test into real-runtime evidence — that distinction is the
+correction here. Capabilities 1/2/3/5/6 above remain the genuinely
+real-runtime QVAC 0.19.0 evidence this mission produced; F8's
+counter/invariant correctness is demonstrated for Sails' own wiring,
+not yet jointly demonstrated with real 0.19.0 inference in the same
+run.
 
 ### 23.17 Sacrifice Check (bounded upgrade)
 
@@ -1333,10 +1367,13 @@ recommendation for CTO Gate only.
 
 **Rationale:** every non-build-related finding is neutral-to-favorable
 (5 of 6 capabilities demonstrated working correctly against the real
-0.19.0 runtime; F8 semantics hold via the mocked-database path; worker-
-startup diagnostics and `assessModelFit` are genuine, working
-improvements; no unrelated dependency churn; no new security
-vulnerability). But `npx tsc --noEmit`/`npm run build` — the exact gate
+0.19.0 runtime; F8's counter/invariant semantics are demonstrated for
+Sails' own wiring, though not yet jointly demonstrated with a real,
+unmocked 0.19.0 inference call in the same run — §23.16a's correction;
+worker-startup diagnostics and `assessModelFit` are genuine, working
+improvements; no unrelated dependency churn; no new npm-audit finding
+attributable to the QVAC 0.19.0 dependency delta in this run — §23.4's
+correction). But `npx tsc --noEmit`/`npm run build` — the exact gate
 this repository's own branch protection requires green — **fails**,
 demonstrated twice, root-caused precisely to an upstream `@qvac/sdk`
 type-declaration gap for `LLAMA_3_2_1B_INST_Q4_0` (a genuine runtime
