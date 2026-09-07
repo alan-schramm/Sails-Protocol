@@ -782,11 +782,15 @@ export class MultisigProvider implements SettlementProvider {
   }
 
   // Missão 11 Fase 8.1 LB-02 — the real, load-bearing gate for
-  // FUNDS_LOCKED (escrow.service.ts's lockFunds() calls this method, not
-  // the never-invoked verifyLock() below) previously accepted a
-  // value-matching UTXO regardless of `status.confirmed` at all — not
-  // even the one confirmation verifyLock() itself checked, since nothing
-  // ever calls verifyLock(). This helper is the one place a candidate
+  // FUNDS_LOCKED (escrow.service.ts's lockFunds() calls this method)
+  // previously accepted a value-matching UTXO regardless of
+  // `status.confirmed` at all. F6 (docs/TECHNICAL_DEBT_AUDIT.md #53,
+  // 2026-09-07) — this fix was originally described relative to a
+  // sibling `verifyLock()` method that duplicated this same logic with a
+  // weaker guarantee and had no real caller anywhere; that method has
+  // since been removed from the interface entirely (see
+  // escrow-providers.ts's own SettlementProvider header comment), not
+  // merely left uncalled. This helper is the one place a candidate
   // funding UTXO is checked for real economic finality: confirmed AND at
   // or beyond config.multisig.requiredConfirmations deep, computed from
   // the actual chain tip the same way multisig-fee-confirmation-job.ts
@@ -904,28 +908,6 @@ export class MultisigProvider implements SettlementProvider {
     if (!candidate) return null
     const { depth, blockHeight, tipHeight } = await this.confirmationDepth(candidate.utxo.txid)
     return { txId: candidate.utxo.txid, vout: candidate.utxo.vout, depth, confirmedAtHeight: blockHeight, tipHeightAtObservation: tipHeight }
-  }
-
-  // Missão 11 Fase 8.1 LB-02 — not currently called anywhere in
-  // src/ (confirmed by exhaustive grep before this fix) — lockFunds()
-  // above is the real, load-bearing gate for FUNDS_LOCKED. Brought up to
-  // the same confirmation-depth standard as lockFunds() anyway: a
-  // SettlementProvider interface method with a WEAKER guarantee than the
-  // method that actually gates real money is its own latent trap for
-  // whatever calls this in the future.
-  async verifyLock(escrow: MultisigEscrowInput): Promise<boolean> {
-    const parties = this.partiesFor(escrow)
-    const { p2wsh } = this.buildScript(parties)
-    const utxos = await this.fetchUtxos(p2wsh.address!)
-    const required = config.multisig.requiredConfirmations
-
-    const funding = this.isPolicyAware(escrow)
-      ? utxos.find((u) => u.value === this.requiredFundingSats(escrow) && u.status.confirmed)
-      : utxos.find((u) => u.value >= this.expectedSats(escrow.lockedAmount) && u.status.confirmed)
-    if (!funding) return false
-
-    const { depth } = await this.confirmationDepth(funding.txid)
-    return depth >= required
   }
 
   // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — TIMEOUT_ONLY, deliberately no

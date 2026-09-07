@@ -1470,6 +1470,59 @@ apenas nomeia a decisão pendente.
 
 **Não corrigido por este registro. Nenhum mecanismo criado.**
 
+**Status — CLOSED, Decisão B (Bounded Remediation F6, 2026-09-07).**
+Investigação exaustiva do call-graph real (não apenas grep) confirmou:
+em todos os 4 providers reais, `verifyLock()` reimplementa — de forma
+independente, textualmente quase idêntica — exatamente a mesma lógica
+de verificação de fundos que `lockFunds()` já executa (mesmo padrão em
+MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM, WDK_USDT_EVM); `MOCK`'s
+`verifyLock()` era um `return true` incondicional, sem propriedade
+alguma. A transição CREATED→FUNDS_LOCKED já é atômica e já verifica
+fundos externos de verdade dentro de `lockFunds()` — confirmado lendo
+`escrow.service.ts`'s `lockFunds()` diretamente (claim atômico via
+Postgres ANTES de chamar o provider; reversão em caso de falha,
+retry seguro). A reconciliação de reorg do MULTISIG (`multisig-funding-reorg-sweep.ts`)
+já usa seu próprio método dedicado, mais rico (`rescanFunding()` —
+outpoint, profundidade, alturas), nunca `verifyLock()`. Nenhuma rota
+HTTP, método de SDK, ou RFC normativo jamais expôs ou exigiu
+`verifyLock()` como capacidade chamável — confirmado por busca
+completa no repositório antes da remoção.
+
+**Ataque à Opção A (conectar) — rejeitada.** Toda tentativa de wiring
+revelou "uso pelo uso": duplicaria uma chamada de rede já realizada por
+`lockFunds()`; criaria ambiguidade TOCTOU (o estado da chain pode mudar
+entre um "pre-check" e o `lockFunds()` real); sugeriria falsamente
+garantias de segurança uniformes entre rails que não compartilham o
+mesmo modelo (MULTISIG verifica profundidade de confirmação; LIGHTNING_HODL
+verifica apenas VTXO gasto; SAFE_GUARD_EVM verifica saldo nativo;
+WDK_USDT_EVM é custodial — o saldo é consequência direta do próprio
+`lockFunds()`); e qualquer wiring que realmente "significasse algo"
+exigiria alterar semântica da máquina de estados, o que esta missão
+foi explicitamente instruída a não fazer.
+
+**Ataque à Opção B (remover) — sobreviveu.** Nenhum tipo público/SDK
+depende dele; nenhum teste prova uma propriedade de produção real (só
+a correção interna do próprio método, isolado); a verificação real
+continua exatamente onde sempre esteve (`lockFunds()`, e para MULTISIG,
+`rescanFunding()`); impacto de compatibilidade pública é zero.
+
+**Implementação:** `verifyLock(escrow): Promise<boolean>` removido de
+`SettlementProvider` (`escrow-providers.ts`) e das 5 implementações
+(`MockSettlementProvider`, `MultisigProvider`, `LightningHodlProvider`,
+`SafeGuardEvmProvider`, `WdkSettlementProvider`). Nenhuma lógica real de
+verificação de fundos foi removida — `lockFunds()`/`rescanFunding()`
+permanecem inalterados. Comentários que descreviam `verifyLock()` como
+capacidade viva (código-fonte, testes, whitepaper) corrigidos para
+refletir a verdade atual. `tests/multisigProvider.test.ts`/
+`tests/safeGuardEvmProvider.test.ts` tiveram seus testes específicos de
+`verifyLock()` removidos — a propriedade de bounded-retry/timeout (F1)
+que 3 desses testes também provavam permanece coberta de forma
+genérica e independente de provider em `tests/boundedRpc.test.ts`.
+Nenhuma claim de "todos os locks são verificados de forma independente"
+ou "verificação uniforme entre rails" é feita — pelo contrário, este
+registro documenta explicitamente que as garantias diferem por rail.
+Evidência completa: PR (branch `fix/f6-verifylock-decision`).
+
 ### 54. Caminhos de detecção baseados em QVAC degradam silenciosamente (log-only) em falha de inferência (Independent Code Quality & Production Reality Audit, 2026-09-06)
 
 **Classificação: P2 — débito técnico novo, observabilidade / sinal de segurança.**

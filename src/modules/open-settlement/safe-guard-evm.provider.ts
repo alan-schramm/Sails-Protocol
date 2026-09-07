@@ -20,7 +20,7 @@
  * Safe's real, documented ascending-address-sorted packed-signature
  * format (`checkNSignatures()` in `Safe.sol`); CREATE2 address prediction
  * for both the Safe and the Guard (below); real on-chain balance checks
- * (`lockFunds()`/`verifyLock()`) and real ERC-4337 bundler submission
+ * (`lockFunds()`) and real ERC-4337 bundler submission
  * (`broadcast()`) via a configured RPC/bundler endpoint. Never exercised
  * against a live funded Sepolia account or a live bundler in this
  * environment — same disclosed "verified structurally, not end-to-end"
@@ -660,15 +660,6 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     // without a third-party indexer/explorer API — disclosed here, not
     // fabricated as a real hash.
     return { txId: 'native-balance-verified-no-indexer', address }
-  }
-
-  async verifyLock(escrow: SafeGuardEvmEscrowInput): Promise<boolean> {
-    const address = this.requireSafeAddress(escrow)
-    // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — timeout is native
-    // (provider() above); safe retry (read-only balance check, no side
-    // effect) only.
-    const balance = await withBoundedRetry(() => this.provider().getBalance(address), RPC_READ_RETRY)
-    return balance >= weiFromDecimalString(escrow.lockedAmount)
   }
 
   // Not directly callable — same reasoning as MULTISIG/LIGHTNING_HODL:

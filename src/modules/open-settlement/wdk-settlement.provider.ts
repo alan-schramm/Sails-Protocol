@@ -198,12 +198,6 @@ export class WdkSettlementProvider implements SettlementProvider {
     return { txIds: [buyerResult.hash, sellerResult.hash] }
   }
 
-  async verifyLock(escrow: { tradeId: string; lockedAmount: string }): Promise<boolean> {
-    const escrowAcct = await this.escrowAccount(escrow.tradeId)
-    const balance = await escrowAcct.getTokenBalance(config.wdk.usdtContract)
-    const expected = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
-    return balance >= expected
-  }
 }
 
 export const wdkSettlementProvider = new WdkSettlementProvider()

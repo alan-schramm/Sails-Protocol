@@ -56,8 +56,8 @@ function loadMainnetProvider() {
   // Missão 11 Fase 8.1 LB-02 — MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS is
   // now required alongside MULTISIG_NETWORK=mainnet, same reasoning as
   // MULTISIG_EXPLORER_API_URL above. This file's own tests build unsigned
-  // PSBTs (buildUnsignedRelease/Split), never lockFunds()/verifyLock()
-  // (the two methods that actually read this value), so the number
+  // PSBTs (buildUnsignedRelease/Split), never lockFunds()
+  // (the method that actually reads this value), so the number
   // itself is inert here — set for boot-time validity only.
   process.env = { ...ORIGINAL_ENV, MOCK_ESCROW: 'false', MULTISIG_SEED: 'seed-dust', TRUSTED_ARBITRATORS: 'arb-dust', MULTISIG_NETWORK: 'bitcoin', MULTISIG_EXPLORER_API_URL: 'https://mempool.space/api', MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '1' }
   return require('../src/modules/open-settlement/multisig.provider')

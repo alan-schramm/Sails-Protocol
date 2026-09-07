@@ -232,9 +232,17 @@ interface SettlementProvider {
   lockFunds(escrow): Promise<{ txId; address }>
   releaseFunds(escrow, toAddress): Promise<{ txId }>
   refundFunds(escrow): Promise<{ txId }>
-  verifyLock(escrow): Promise<boolean>
 }
 ```
+
+<!-- Correction, 2026-09-07 (F6, docs/TECHNICAL_DEBT_AUDIT.md #53): this
+snippet previously also listed `verifyLock(escrow): Promise<boolean>`.
+That method has been removed from the real interface — it duplicated
+`lockFunds()`'s own funding-verification logic with no real caller
+anywhere in the codebase. Funding verification for each rail happens
+inside `lockFunds()` itself (and, for MULTISIG, is re-verified by a
+dedicated reorg-sweep path) — see `src/modules/open-settlement/escrow-providers.ts`'s
+own `SettlementProvider` header comment for the full account. -->
 
 `MOCK` and `WDK_USDT_EVM` are the two real implementations today;
 `LIGHTNING_HODL` and `LIQUID_COVENANT` are named, typed, and stubbed —
