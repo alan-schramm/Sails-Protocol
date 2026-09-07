@@ -50,10 +50,15 @@ silently resolved by assumption:
   issues, last pushed `2026-09-07T18:44:36Z` — hours after this
   review's own data pull) did not exist yet when `1.0.0`/`1.1.0` were
   published.
-- The `latest` npm dist-tag has stayed on the `0.x` line through 20+
-  releases after `1.1.0` and was moved to `0.19.0` today. No `1.x`
-  dist-tag or second active tag (other than `dev`, a pre-release
-  channel) exists.
+- Directly demonstrated facts (corrected, CTO Gate, 2026-09-07 — this
+  review did not query historical dist-tag state, so a claim that the
+  tag "stayed on `0.x`" over time is not itself evidenced): more than
+  20 `0.x` releases (`0.4.0` through `0.19.0`) were published after
+  `1.1.0`; no `1.x` release later than `1.1.0` is present anywhere in
+  the registry's version list; the **current** npm `latest` dist-tag
+  points to `0.19.0`; the official current GitHub release on
+  `tetherto/qvac` is `sdk-v0.19.0`. No `1.x` dist-tag or second active
+  tag (other than `dev`, a pre-release channel) exists today.
 
 **Epistemic status, split precisely (CTO Gate correction, 2026-09-07):**
 
@@ -564,13 +569,22 @@ under §14/§8A's Semantic Stability Rule is triggered.**
   path it actually exercises, not the full tree.
 - 0.19.0's restructure onto `@qvac/inference` as the worker engine
   (§5/§8) is the most material dependency-tree change in the reviewed
-  range — `@qvac/sdk` at 0.19.0 requires `@qvac/inference@^0.19.0`
-  installed alongside it (per the release notes' own migration note:
-  "Install both at 0.19.0"). This is a real new co-installation
-  requirement for any future upgrade mission to account for in its
-  `package.json` strategy (§20) — not evaluated for size/binary-count
-  impact in this review (out of scope per §15's own "do not conduct a
-  giant supply-chain audit").
+  range. Directly observed (corrected, CTO Gate, 2026-09-07 — cited to
+  the package manifest itself, not only the release note's prose):
+  `npm view @qvac/sdk@0.19.0 dependencies` shows `@qvac/sdk 0.19.0`
+  declares `@qvac/inference: "^0.19.0"` as one of its own `dependencies`
+  — meaning `npm`/`package-lock.json` would already resolve and install
+  it *transitively* as part of installing `@qvac/sdk` itself, the same
+  way `@qvac/llm-llamacpp` and every other `@qvac/*` sub-package already
+  is at `0.15.0` (§15's own first bullet). This does **not** by itself
+  mean Sails must add `@qvac/inference` as its own direct
+  `package.json` dependency — whether a direct declaration is needed
+  or advisable (e.g. for version-pinning clarity) versus relying on the
+  transitive resolution is exactly the open question §7A's evidence
+  obligation #2 registers for the bounded upgrade mission to establish,
+  not resolved here. The release notes' own migration prose ("Install
+  both at 0.19.0") is corroborating context, not the primary evidence
+  for this fact.
 - No new build prerequisite, platform constraint, or Node-version
   requirement was found in any reviewed release note.
 - `@qvac/bare-sdk` is explicitly de-lockstepped from the SDK's own
@@ -638,11 +652,16 @@ being newest.
    assumption does change, however: `0.19.0` depends on
    `@qvac/inference` as a required co-installation (§15) — a real
    packaging-level change, not merely an unchanged assumption restated.
-6. **Can Sails safely remain on the current version?** Yes — 0.15.0
-   is still installable, still functions exactly as reviewed, and
-   nothing in the delta reviewed here identifies a security
-   vulnerability, EOL status, or correctness defect in 0.15.0 itself
-   that would make remaining unsafe.
+6. **Can Sails safely remain on the current version? (corrected, CTO
+   Gate, 2026-09-07)** Current repository tests against the existing
+   `0.15.0` installation pass (§22's test list, 55/55), and this review
+   found no vulnerability, EOL notice, or correctness defect requiring
+   departure from `0.15.0`. A fresh real-model runtime revalidation of
+   `0.15.0` was not performed by this review — the tests above exercise
+   `0.15.0` through the existing mocked/unmocked test suite, not a new
+   live-inference pass run specifically for this review. Based on the
+   available evidence, remaining temporarily on `0.15.0` is currently
+   acceptable.
 7. **What evidence is required before adoption?** A real,
    post-upgrade install-and-test pass confirming §8's grep-based
    compatibility claim empirically (not just statically); a real
