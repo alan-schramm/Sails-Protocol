@@ -55,16 +55,28 @@ silently resolved by assumption:
   dist-tag or second active tag (other than `dev`, a pre-release
   channel) exists.
 
-**Conclusion:** `1.0.0`/`1.1.0` are legacy artifacts from before the
-current repository/package lineage was established under active
-maintenance — not the actively-maintained line, not what the
-maintainer's own `latest` tag points to, and not a candidate for
-"latest relevant stable" in this review. This is UPSTREAM DOCUMENTED
-(directly observed from the registry and GitHub API, not inferred) —
-**this review treats `0.19.0` as the latest relevant stable version**,
-consistent with npm's own authoritative `latest` dist-tag and with the
-actively-maintained release cadence. `@qvac/sdk`'s `dev` dist-tag
-(`0.2.7-dev.*`, a pre-release channel) is separately noted under §16
+**Epistemic status, split precisely (CTO Gate correction, 2026-09-07):**
+
+- **OBSERVED** (directly, from the registry and GitHub API, not
+  inferred): the publication dates above; `1.0.0`/`1.1.0`'s
+  `repository` field; the `tetherto/qvac` repository's creation date;
+  the current `latest` dist-tag; the absence of any `1.x` release after
+  `1.1.0` through 20+ further `0.x` releases.
+- **INFERRED** (a reasoned conclusion from the observed facts above,
+  not itself stated by any upstream maintainer source): that
+  `1.0.0`/`1.1.0` represent a historical lineage that is not currently
+  maintained. No Tether/QVAC source explicitly says this — it is this
+  review's own reasoning from the dates/repository-creation evidence,
+  labeled as such rather than presented as upstream-documented fact.
+
+**This does not weaken the version selection itself.** Independently of
+that inference, `0.19.0` is the correct latest-relevant-stable
+candidate on OBSERVED grounds alone: it is npm's own authoritative
+`latest` dist-tag, and it is the official current release on the
+package's own actively-maintained repository. **This review treats
+`0.19.0` as the latest relevant stable version.** `@qvac/sdk`'s `dev`
+dist-tag (`0.2.7-dev.*`, a pre-release channel) is separately noted
+under §16
 (Release Quality) and is not treated as a candidate either.
 
 ### Sources used
@@ -309,6 +321,54 @@ strictly scoped to the adaptive-security side of that line.
 QVAC by this review** (COBRA Check, §29) — every finding above stays on
 the adaptive/advisory side of the boundary in §4.
 
+## 7A. Bounded Upgrade Mission Requirements (registered, not executed)
+
+Added per CTO Gate direction, 2026-09-07 — see §19A for the disposition
+this section supports. **Nothing below is performed by this review.**
+It is the evidence obligation a future, separately-authorized upgrade
+mission must satisfy, at minimum, before adopting `0.19.0`:
+
+1. Target `@qvac/sdk 0.19.0`.
+2. Verify whether `@qvac/inference` requires explicit direct declaration
+   in `package.json` or is satisfied transitively — based on actual
+   package-install behavior, not assumed from the release notes alone.
+3. Preserve lockfile evidence (the pre-upgrade `package-lock.json`
+   state, for rollback per §17 Q10).
+4. `npx tsc --noEmit` / full typecheck against the upgraded install.
+5. Run all existing QVAC-touching tests (§22's list) against the
+   upgraded install.
+6. A real model load against `0.19.0` (not mocked).
+7. A real structured `completion()` call against `0.19.0` (not mocked).
+8. Real clean / threat / degraded paths exercised end-to-end (not just
+   unit-mocked) to confirm §12's expectation empirically.
+9. F8's `failures ≤ invocations` invariant re-verified under the
+   upgraded runtime (§12).
+10. A concurrent-`completion()` benchmark on one shared loaded model,
+    to test the continuous-batching hypothesis (§7/§11) for real.
+11. A baseline comparison against `0.15.0` where practical (same
+    prompts, same hardware).
+12. Worker-startup failure behavior exercised directly (kill/delay a
+    worker, confirm `WorkerStartupError`'s shape).
+13. `assessModelFit` behavior exercised directly, if adopted as part of
+    the same mission.
+14. Network/telemetry observation (e.g. a packet capture or proxy
+    during a real load/completion cycle) sufficient to bound the
+    privacy claim in §10 with real evidence, not release-note inference
+    alone.
+15. A dependency/native/runtime delta review of `@qvac/inference`
+    itself (§9's NOT TESTED native-layer gap) — at least a directory/
+    size/native-binding diff against the pre-upgrade tree.
+16. Full regression suite (not just QVAC-touching suites).
+17. A documented rollback test or rollback plan, exercised or at least
+    dry-run-verified, not merely asserted.
+
+**Explicitly not authorized by this section or by any future mission it
+describes:** any Guardian authority expansion, any tool execution
+capability, any `AgentGrant` change, any signing/settlement authority
+change. A bounded upgrade mission satisfying the list above still ends
+at "the SDK version changed" — it does not, on its own, authorize any
+of those four.
+
 ## 8. Breaking Change Review (per Sails' actual 4-symbol surface)
 
 | Sails API used | 0.19.0 status | Evidence |
@@ -319,13 +379,30 @@ the adaptive/advisory side of the boundary in §4.
 | `LLAMA_3_2_1B_INST_Q4_0` | **UNCHANGED** | Never appears in any release's "Removed Models" list (0.16.0, 0.17.0). |
 | `./worker-core`, `./commands`, `startQVACProvider`, `delegate`, `heartbeat`, `n_discarded`, `toolsMode` | **REMOVED upstream (0.18.0/0.19.0), but never imported by Sails** | Confirmed by repository-wide grep returning zero matches (§3). |
 
-**Result: zero of Sails' 4 actually-used symbols require any code
-change to move from 0.15.0 to 0.19.0.** Every breaking change in the
-0.16.0–0.19.0 range touches either an unused modality (OCR, TTS,
-diffusion, VLA) or an unused configuration surface (`modelConfig.tools`/
-`toolsMode`/`no_mmap`, delegated-inference options) Sails' code never
-sets. This is the single strongest piece of evidence in this review —
+**Result, stated precisely (CTO Gate correction, 2026-09-07):** no
+Sails source-code API migration is indicated for its currently used
+4-symbol QVAC surface. Every breaking change in the 0.16.0–0.19.0 range
+touches either an unused modality (OCR, TTS, diffusion, VLA) or an
+unused configuration surface (`modelConfig.tools`/`toolsMode`/
+`no_mmap`, delegated-inference options) Sails' code never sets —
 directly demonstrated by grep, not inferred from documentation.
+
+This finding is deliberately scoped to *source-level API compatibility*
+only, and must not be read more broadly than that:
+
+- **SOURCE API MIGRATION INDICATED: NONE** — the 4 symbols' call shapes
+  are unchanged.
+- **RUNTIME/PACKAGE MIGRATION: PRESENT** — 0.19.0 restructures the
+  worker/engine boundary onto `@qvac/inference` as a required
+  co-dependency (§15), a real packaging change independent of whether
+  Sails' own source needs to change.
+- **EMPIRICAL COMPATIBILITY: NOT YET DEMONSTRATED** — this review
+  confirms compatibility by reading release notes and grepping Sails'
+  source; it did not install `0.19.0` and run Sails' actual code
+  against it. "No code migration indicated" is a static-analysis
+  conclusion, not a runtime-verified one — a future upgrade mission
+  (§7a) must produce that verification before this finding can be
+  treated as demonstrated rather than expected.
 
 ## 9. Security / Trust-Boundary Review
 
@@ -374,18 +451,42 @@ Rule). Investigated:
 scoped to a specific, named property, per the mission's explicit
 instruction.
 
+**Security/consequence classification (CTO Gate correction, 2026-09-07)
+— narrowing an earlier, too-narrow statement that "none of the reviewed
+changes touch a security-sensitive property":** that statement is
+correct only with respect to Sails' *protocol* authority (§4/§13 —
+unaffected, confirmed) — it understates the review under §8A's own
+"Classification ≠ Consequence" rule. 0.19.0 genuinely changes the
+inference engine/package boundary (`@qvac/inference` becomes the
+in-process engine, §5/§8/§15), the native/runtime dependency surface,
+worker startup/error behavior, delegated-inference availability, and
+introduces new download-verification capabilities. None of this changes
+protocol authority. It **does** create a real security/runtime-sensitive
+consequence for any future adoption, independent of the primary
+capability classification (§18) — this is exactly the case §8A's
+Classification ≠ Consequence rule exists to catch, and a future upgrade
+mission must satisfy the Security-Sensitive Rule's proportionate
+evidence bar (§7a) before adoption, not merely because the primary
+class label is "Capability."
+
 ## 10. Privacy Review
 
-No evidence found, across the reviewed release notes, of a change to:
-where prompts go (still local-only, strengthened by delegated-inference
-removal), telemetry, model acquisition beyond the checksum addition
-(§6C/§9), caching (beyond the disk-bounding change, §6A), logs, or
-metadata exposure. Sails' own content boundaries — trade data, offers,
-chat content, risk context, agent goals — all stay on the same
-local-only path they already used at 0.15.0. **No privacy improvement
-is claimed without evidence** (per the mission's explicit instruction);
-none of the reviewed changes plausibly *worsens* privacy either, based
-on documented release notes alone.
+No evidence found, across the reviewed *release notes*, of a change to:
+where prompts go, telemetry, model acquisition beyond the checksum
+addition (§6C/§9), caching (beyond the disk-bounding change, §6A),
+logs, or metadata exposure. **Stated precisely (CTO Gate correction,
+2026-09-07):** no documented inference-destination/privacy regression
+was found in the reviewed upstream material. Delegated/DHT inference
+removal is UPSTREAM DOCUMENTED and plausibly narrows the surface for
+external communication, but this review does not infer from it that
+every external communication path is therefore absent. **Actual
+0.19.0 runtime network/telemetry behavior was NOT TESTED in this
+investigation** — no traffic was observed, no install was performed.
+Sails' own content boundaries (trade data, offers, chat content, risk
+context, agent goals) are unchanged at the source level (§8), which is
+a narrower claim than a demonstrated privacy property of the upgraded
+runtime. No privacy improvement, and no privacy regression, is claimed
+without evidence.
 
 ## 11. Performance / Concurrency Review
 
@@ -411,15 +512,20 @@ Sails' own code (`liquidity.service.ts`, `social-engineering-agent.ts`,
 `handlers.ts`) around calls into the SDK's `completion()`/context-prep
 steps — they do not depend on any QVAC-internal error type, shape, or
 concurrency model. Per §8's finding that none of Sails' 4 used symbols
-change shape through 0.19.0, an upgrade to 0.19.0 would preserve
-`SUCCESS+CLEAN ≠ SUCCESS+THREAT ≠ DEGRADED` exactly as implemented —
-**no F8 metric or instrumentation code would need to change** for a
-same-shape-call upgrade. The one caveat: if a future upgrade mission
-*also* adopted continuous batching's concurrent `completion()` calls
-(§7), that would be a genuine new usage pattern, not merely a version
-bump — worth re-checking F8's per-item accounting (`failures ≤
-invocations`) still holds under real concurrency at that time, not
-assumed to hold automatically. **F8 is not changed by this review.**
+change shape through 0.19.0, an upgrade to 0.19.0 would be expected to
+preserve `SUCCESS+CLEAN ≠ SUCCESS+THREAT ≠ DEGRADED` exactly as
+implemented. **Stated precisely (CTO Gate correction, 2026-09-07): no
+instrumentation migration is currently indicated, but the frozen F8
+properties must be regression-tested under the upgraded runtime** before
+that expectation is treated as demonstrated — this review's static
+source-level analysis (§8) is not itself a runtime test of F8's
+counters against `0.19.0`. The one additional caveat: if a future
+upgrade mission *also* adopted continuous batching's concurrent
+`completion()` calls (§7), that would be a genuine new usage pattern,
+not merely a version bump — `failures ≤ invocations` must be
+re-verified under real concurrency at that time, not assumed to hold
+automatically. **F8 is not changed by this review**, and this review
+performed no runtime test against `0.19.0` at all.
 
 ## 13. AgentGrant / Authority Compatibility
 
@@ -549,22 +655,37 @@ being newest.
 **Primary: Class B — Capability** (operational/reliability
 improvements — KV-cache bounding, model-fit pre-check,
 worker-startup diagnostics — plus the unconfirmed-but-plausible
-Guardian concurrency capability). **Secondary consequence noted, not a
-separate classification: none of the reviewed changes touch a
-security-sensitive property in Sails' actual usage** (§9's own
-conclusion) — so the Security-Sensitive Rule's heightened evidence bar
-does not currently apply beyond what this review already performed;
-if the HF-checksum-applicability UNKNOWN (§6C) is later resolved
-affirmatively, that finding would itself warrant Class A treatment for
-that specific point, not for the upgrade as a whole (Classification ≠
-Consequence, §8A).
+Guardian concurrency capability).
+
+**Secondary consequence (corrected, CTO Gate, 2026-09-07): Security /
+Runtime-sensitive — not "none."** An earlier version of this section
+concluded that no reviewed change touches a security-sensitive
+property, reasoning only from Sails' *protocol authority* boundary
+(§4/§13, genuinely unaffected). That was too narrow under §8A's own
+Classification ≠ Consequence rule: 0.19.0 changes the inference
+engine/package boundary, the native/runtime dependency surface, worker
+startup/error behavior, delegated-inference availability, and adds new
+download-verification capabilities (§9's own corrected finding) — none
+of which changes protocol authority, but all of which are a genuine
+runtime/security-adjacent consequence a primary "Capability"
+classification does not, by itself, downgrade. **Final classification:
+Primary Class B — Capability; Secondary Consequence — Security /
+Runtime-sensitive.** This means a future upgrade mission must satisfy
+the Security-Sensitive Rule's proportionate-evidence bar (§7A) before
+adoption — the primary class label alone does not exempt it. If the
+HF-checksum-applicability UNKNOWN (§6C) is later resolved affirmatively,
+that finding would itself additionally warrant Class A treatment for
+that specific point, not for the upgrade as a whole.
 
 ## 19. Recommendation
 
-**C — Defer / remain on current version (`^0.15.0`).**
+**Claude recommendation (original, preserved for the record): C —
+Defer / remain on current version (`^0.15.0`).**
 
-This is a recommendation for CTO Gate, not authority — **Claude
-recommendation ≠ CTO decision.**
+This was a recommendation for CTO Gate, not authority — **Claude
+recommendation ≠ CTO decision** — and CTO Gate has since directed a
+different disposition (§19A). The original rationale is preserved
+unedited rather than silently removed:
 
 Rationale: no security/correctness defect in 0.15.0 was found; no
 capability gap materially blocks anything Sails currently does; the
@@ -579,7 +700,34 @@ against a *future*, evidence-gated upgrade once the Guardian
 architecture is far enough along to make concurrent-evaluation
 throughput an actual, not merely hypothetical, need.
 
-## 20. If Deferred — Recorded Per §21
+## 19A. CTO Gate Direction (2026-09-07)
+
+**B — Adopt with bounded conditions**, superseding the Claude
+recommendation above for the record of this review's disposition.
+
+**Reason, as directed:** the capability delta is relevant to *current*
+Sails use, not only a future, not-yet-built Guardian layer. Current
+Sails already routes six real capabilities through the shared QVAC
+provider (§3: intent-risk assessment, trade-intent generation,
+offer-intent generation, social-engineering detection, offer-content
+screening, dispute-evidence assessment). Continuous batching, KV-cache
+lifecycle bounding, `assessModelFit` preflight, and worker-startup
+diagnostics can therefore plausibly improve an *existing* operational
+property, not merely a speculative future one — and the empirical
+evidence this review found missing (§7/§11: real concurrency benchmark,
+runtime compatibility, network/telemetry observation) is exactly what a
+bounded upgrade mission exists to produce, not a reason to defer
+producing it indefinitely.
+
+**This does not authorize production adoption.** It authorizes a
+future, separately-scoped experimental/validation upgrade mission,
+gated on the evidence obligations in §7A, with a mandatory rollback
+posture (§17 Q10) if that evidence fails to confirm the expected
+compatibility/benefit. No Guardian authority expansion, no tool
+execution, and no `AgentGrant` change are authorized by this direction
+or by the bounded mission it describes (§7A's own closing line).
+
+## 20. If Deferred — Recorded Per §21 (historical — superseded by §19A's Adopt-with-bounded-conditions direction, preserved for the record)
 
 - **Why staying is safe:** §17 Q6 — no vulnerability, EOL, or
   correctness defect identified in `0.15.0`; every capability delta
