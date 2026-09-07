@@ -4,6 +4,17 @@
  * to the SAME canonical structural source (@satsails/p2p-schemas), not
  * two independently-maintained copies that happen to agree today.
  *
+ * CTO Gate correction (2026-09-07): an earlier version of this file also
+ * tested a second, hand-written structural validator
+ * (`isValidCreateEscrowInput()`) alongside the real server schema. That
+ * helper has been removed — it was itself a second, independently
+ * drifting validation implementation (its `lockedAmount` check was a
+ * bare non-empty-string test, while the real server enforces
+ * `positiveDecimalString()`), the exact class of duplication this
+ * mission exists to close. Every assertion below now runs ONLY against
+ * `createEscrowSchema`, the real, single runtime validation authority —
+ * never a parallel stand-in for it.
+ *
  * Deliberately does NOT re-type the field list or enum values a third
  * time — every assertion below either (a) inspects the REAL schema
  * object's own introspectable internals, or (b) is a compile-time type
@@ -34,7 +45,6 @@ jest.mock('../src/common/redis', () => ({
 import {
   ESCROW_TYPE_VALUES,
   ASSET_TYPE_VALUES,
-  isValidCreateEscrowInput,
   type CreateEscrowInput as SchemaCreateEscrowInput,
 } from '@satsails/p2p-schemas'
 import { createEscrowSchema } from '../src/modules/open-settlement/settlement.routes'
@@ -53,7 +63,7 @@ type _ServerMatchesSchema = Expect<Equal<ServerCreateEscrowInput, SchemaCreateEs
 type _SdkMatchesSchema = Expect<Equal<SdkCreateEscrowInput, SchemaCreateEscrowInput>>
 type _ServerInferredBodyMatchesSchema = Expect<Equal<import('zod').infer<typeof createEscrowSchema>, SchemaCreateEscrowInput>>
 
-describe('escrow creation schema parity (F5)', () => {
+describe('escrow creation schema parity (F5) — against the real server Zod schema only', () => {
   it('the server enum was constructed from the canonical ESCROW_TYPE_VALUES array, not a copy', () => {
     const typeField = createEscrowSchema.shape.type
     const options = (typeField as unknown as { unwrap: () => { options: readonly string[] } }).unwrap().options
@@ -68,61 +78,58 @@ describe('escrow creation schema parity (F5)', () => {
 
   const validBase = { tradeId: 'trade-1', lockedAmount: '1.5', asset: 'BTC' as const }
 
-  it('accepts every currently valid escrow type — the real, current historical provider set', () => {
+  it('the real server schema accepts every currently valid escrow type — the real, current historical provider set', () => {
     const historicalProviders = ['MOCK', 'MULTISIG', 'LIGHTNING_HODL', 'WDK_USDT_EVM', 'SAFE_GUARD_EVM'] as const
     for (const type of historicalProviders) {
-      const input = { ...validBase, type }
-      expect(createEscrowSchema.safeParse(input).success).toBe(true)
-      expect(isValidCreateEscrowInput(input)).toBe(true)
+      expect(createEscrowSchema.safeParse({ ...validBase, type }).success).toBe(true)
     }
   })
 
-  it('LIQUID_COVENANT remains structurally valid (reserved/unimplemented at the provider level, not the schema level — not removed by this fix)', () => {
-    const input = { ...validBase, type: 'LIQUID_COVENANT' }
-    expect(createEscrowSchema.safeParse(input).success).toBe(true)
-    expect(isValidCreateEscrowInput(input)).toBe(true)
+  it('LIQUID_COVENANT remains structurally valid on the real server schema (reserved/unimplemented at the provider level, not the schema level — not changed by this fix)', () => {
+    expect(createEscrowSchema.safeParse({ ...validBase, type: 'LIQUID_COVENANT' }).success).toBe(true)
   })
 
-  it('accepts every currently valid asset type', () => {
+  it('the real server schema accepts every currently valid asset type', () => {
     for (const asset of ASSET_TYPE_VALUES) {
-      const input = { tradeId: 'trade-1', lockedAmount: '1.5', asset }
-      expect(createEscrowSchema.safeParse(input).success).toBe(true)
-      expect(isValidCreateEscrowInput(input)).toBe(true)
+      expect(createEscrowSchema.safeParse({ tradeId: 'trade-1', lockedAmount: '1.5', asset }).success).toBe(true)
     }
   })
 
-  it('rejects an invalid/unknown escrow type on both the server schema and the shared structural validator', () => {
-    const input = { ...validBase, type: 'NOT_A_REAL_TYPE' }
-    expect(createEscrowSchema.safeParse(input).success).toBe(false)
-    expect(isValidCreateEscrowInput(input)).toBe(false)
+  it('the real server schema rejects an invalid/unknown escrow type', () => {
+    expect(createEscrowSchema.safeParse({ ...validBase, type: 'NOT_A_REAL_TYPE' }).success).toBe(false)
   })
 
-  it('rejects an invalid/unknown asset type on both the server schema and the shared structural validator', () => {
-    const input = { tradeId: 'trade-1', lockedAmount: '1.5', asset: 'NOT_A_REAL_ASSET' }
-    expect(createEscrowSchema.safeParse(input).success).toBe(false)
-    expect(isValidCreateEscrowInput(input)).toBe(false)
+  it('the real server schema rejects an invalid/unknown asset type', () => {
+    expect(createEscrowSchema.safeParse({ tradeId: 'trade-1', lockedAmount: '1.5', asset: 'NOT_A_REAL_ASSET' }).success).toBe(false)
   })
 
-  it('rejects a missing required field (tradeId) on both', () => {
-    const input = { lockedAmount: '1.5', asset: 'BTC' }
-    expect(createEscrowSchema.safeParse(input).success).toBe(false)
-    expect(isValidCreateEscrowInput(input)).toBe(false)
+  it('the real server schema rejects a missing required field (tradeId)', () => {
+    expect(createEscrowSchema.safeParse({ lockedAmount: '1.5', asset: 'BTC' }).success).toBe(false)
   })
 
-  it('rejects a missing required field (asset) on both', () => {
-    const input = { tradeId: 'trade-1', lockedAmount: '1.5' }
-    expect(createEscrowSchema.safeParse(input).success).toBe(false)
-    expect(isValidCreateEscrowInput(input)).toBe(false)
+  it('the real server schema rejects a missing required field (asset)', () => {
+    expect(createEscrowSchema.safeParse({ tradeId: 'trade-1', lockedAmount: '1.5' }).success).toBe(false)
   })
 
-  it('optional fields (type, network, timelockHours) remain optional on both — omitting all three still validates', () => {
+  it('optional fields (type, network, timelockHours) remain optional on the real server schema — omitting all three still validates', () => {
     expect(createEscrowSchema.safeParse(validBase).success).toBe(true)
-    expect(isValidCreateEscrowInput(validBase)).toBe(true)
   })
 
-  it('optional fields, when present, still validate on both', () => {
+  it('optional fields, when present, still validate on the real server schema', () => {
     const input = { ...validBase, type: 'MULTISIG' as const, network: 'testnet', timelockHours: 24 }
     expect(createEscrowSchema.safeParse(input).success).toBe(true)
-    expect(isValidCreateEscrowInput(input)).toBe(true)
+  })
+
+  // F5 must not change lockedAmount's existing server-side business
+  // validation (positiveDecimalString()) — these prove it is still the
+  // real, unchanged authority, not silently loosened or duplicated.
+  it("lockedAmount's existing positive-decimal validation on the real server schema is unchanged — a non-positive amount is still rejected", () => {
+    expect(createEscrowSchema.safeParse({ ...validBase, lockedAmount: '0' }).success).toBe(false)
+    expect(createEscrowSchema.safeParse({ ...validBase, lockedAmount: '-1' }).success).toBe(false)
+    expect(createEscrowSchema.safeParse({ ...validBase, lockedAmount: 'not-a-number' }).success).toBe(false)
+  })
+
+  it("lockedAmount's existing positive-decimal validation on the real server schema is unchanged — a genuinely positive amount is still accepted", () => {
+    expect(createEscrowSchema.safeParse({ ...validBase, lockedAmount: '0.00000001' }).success).toBe(true)
   })
 })
