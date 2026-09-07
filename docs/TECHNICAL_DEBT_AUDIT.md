@@ -1598,6 +1598,61 @@ detectada" — não prescreve um mecanismo de alerta específico.
 
 **Não corrigido por este registro.**
 
+**CLOSED (Bounded Remediation F8, 2026-09-07).** Dois `Counter`s
+`prom-client` pareados, registrados no `Registry` já existente de
+`common/metrics.ts` e expostos pelo `GET /metrics` já existente (nenhuma
+biblioteca de telemetria nova, nenhum endpoint novo):
+`sails_qvac_detection_invocations_total` e
+`sails_qvac_detection_failures_total`, ambos com um único label limitado
+(`path`, enum fechado de 2 valores: `offer_screening` |
+`social_engineering`) — o mesmo padrão já estabelecido por
+`suspiciousActivityTotal` (`common/security/suspicious-activity.ts`).
+
+Pareados deliberadamente: um contador de falhas isolado, lendo 0, não
+distingue "rodou limpo sempre" de "nunca rodou" (a feature flag
+`socialEngineeringDetection` é `false` por padrão) — o contador de
+invocações resolve essa ambiguidade (Fase 7 da missão F8). SUCCESS+CLEAN
+vs. SUCCESS+THREAT já eram distinguíveis via o evento de risco que cada
+caminho já emite (`liquidity.offer.content_risk_detected`,
+`agents.social_engineering.risk_detected`) — este fechamento não
+adiciona nada ali; o que genuinamente faltava era apenas DEGRADED vs.
+qualquer um dos dois estados de SUCCESS.
+
+Nenhum label carrega texto de erro livre, IDs de
+participante/trade/offer/message, ou saída do modelo. Nenhum evento
+novo, nenhum indicador de health/degraded, e nenhum label
+`reason_class` foram adicionados — cada um avaliado e rejeitado por não
+justificar seu custo (não existe hoje uma taxonomia de erro QVAC para
+classificar contra; um evento ou sinal de health implicaria autoridade
+de enforcement que este detector não tem). Detecção em si, e seu
+comportamento fail-open, permanecem completamente inalterados —
+nenhuma semântica de settlement, estado de protocolo, ou comportamento
+de bloqueio foi tocado.
+
+`liquidity.service.ts` incrementa `invocations` logo após seus dois
+pre-filtros existentes (flag desligada / sem texto) — uma chamada
+filtrada nunca conta como invocação. `social-engineering-agent.ts`
+incrementa `invocations` no mesmo ponto equivalente, imediatamente
+antes da chamada real ao QVAC. `failures` é incrementado exatamente nos
+dois `catch` já existentes (inalterados na lógica, só ganharam a
+chamada `.inc()`) — no caminho `social_engineering`, esse `catch` vive
+em `handlers.ts`, uma camada acima de `evaluate()`, e cobre também uma
+falha de leitura do `TradeRepository`/Timeline usada para montar o
+contexto do QVAC, não só a chamada ao SDK em si; isso é deliberado, não
+uma imprecisão — do ponto de vista operacional, uma avaliação protetiva
+que não completou é igualmente "degradada" independente de qual etapa
+interna falhou.
+
+Testes: `tests/qvacDetectionMetrics.test.ts` (novo — cardinalidade de
+label, ausência de PII, não-duplicação de registro sob reimport de
+módulo, tipo `Counter`) mais extensões em
+`tests/offerContentScreening.test.ts`,
+`tests/socialEngineeringAgent.test.ts` e
+`tests/socialEngineeringDetection.test.ts` provando, para cada
+caminho: não-invocado ≠ invocado-e-limpo ≠ invocado-e-falhou, e que
+SUCCESS+THREAT não é contado como falha. Evidência completa: PR
+(branch `fix/f8-qvac-degraded-observability`).
+
 ### 55. `proof.service.ts`'s comentário sobre o event store default está desatualizado (Current Truth Documentation Drift, 2026-09-06)
 
 **Classificação: Current Truth Documentation Drift — não é débito técnico novo, não é gap de implementação.**

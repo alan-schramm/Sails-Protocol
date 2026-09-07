@@ -39,10 +39,23 @@ const { screenOfferContent } = require('../src/modules/open-liquidity/liquidity.
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 10))
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { metricsRegistry } = require('../src/common/metrics')
+
+async function invocations(): Promise<number> {
+  const m = await metricsRegistry.getSingleMetricAsString('sails_qvac_detection_invocations_total')
+  return Number(m.match(/path="offer_screening"\} (\d+)/)?.[1] ?? 0)
+}
+async function failures(): Promise<number> {
+  const m = await metricsRegistry.getSingleMetricAsString('sails_qvac_detection_failures_total')
+  return Number(m.match(/path="offer_screening"\} (\d+)/)?.[1] ?? 0)
+}
+
 describe('screenOfferContent()', () => {
   beforeEach(() => {
     socialEngineeringDetection = false
     jest.clearAllMocks()
+    metricsRegistry.resetMetrics()
   })
 
   it('never calls QVAC when the flag is off, even with real text content', async () => {
@@ -50,6 +63,8 @@ describe('screenOfferContent()', () => {
     screenOfferContent('offer-1', 'user-1', 'contact me on telegram', undefined)
     await flush()
     expect(mockAssessOfferContentRisk).not.toHaveBeenCalled()
+    // F8: not invoked (flag off) must not be counted as an invocation
+    expect(await invocations()).toBe(0)
   })
 
   it('never calls QVAC when both description and paymentDetails are empty, even with the flag on', async () => {
@@ -58,6 +73,8 @@ describe('screenOfferContent()', () => {
     screenOfferContent('offer-1', 'user-1', '   ', '')
     await flush()
     expect(mockAssessOfferContentRisk).not.toHaveBeenCalled()
+    // F8: pre-filtered out (no text) must not be counted as an invocation either
+    expect(await invocations()).toBe(0)
   })
 
   it('is fire-and-forget — returns before the QVAC call resolves', () => {
@@ -84,6 +101,10 @@ describe('screenOfferContent()', () => {
       expect.objectContaining({ offerId: 'offer-1', userId: 'user-1', pattern: 'off_channel_migration', riskScore: 85 }),
       'offer-1'
     )
+    // F8: a real invocation happened, and it did NOT fail — SUCCESS+THREAT
+    // must not be counted as a degraded/failed evaluation
+    expect(await invocations()).toBe(1)
+    expect(await failures()).toBe(0)
   })
 
   it('does not emit anything when the pattern is none', async () => {
@@ -94,14 +115,20 @@ describe('screenOfferContent()', () => {
     await flush()
 
     expect(mockEmit).not.toHaveBeenCalled()
+    // F8: SUCCESS+CLEAN counts as a real invocation, not a failure
+    expect(await invocations()).toBe(1)
+    expect(await failures()).toBe(0)
   })
 
-  it('does not throw when the QVAC call itself fails', async () => {
+  it('does not throw when the QVAC call itself fails, and records the failure distinctly from a clean evaluation', async () => {
     socialEngineeringDetection = true
     mockAssessOfferContentRisk.mockRejectedValueOnce(new Error('model unavailable'))
 
     expect(() => screenOfferContent('offer-1', 'user-1', 'some text', undefined)).not.toThrow()
     await flush()
     expect(mockEmit).not.toHaveBeenCalled()
+    // F8: DEGRADED — invocation was attempted, and it failed
+    expect(await invocations()).toBe(1)
+    expect(await failures()).toBe(1)
   })
 })

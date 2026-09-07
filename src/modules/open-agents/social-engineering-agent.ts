@@ -37,6 +37,7 @@
 import { qvacAgentProvider, type QvacAgentProvider } from './qvac-agent.provider'
 import { getTimeline, type TimelineEntry } from '../../core/timeline'
 import { tradeRepository, type TradeRepository } from '../open-p2p/trade-repository'
+import { qvacDetectionInvocationsTotal } from '../../common/metrics'
 
 export type RiskPattern = 'off_channel_migration' | 'payment_instruction_change' | 'unexpected_flow_deviation' | string
 
@@ -86,6 +87,19 @@ export class SocialEngineeringAgent {
 
     const recentContext = await this.recentMessageContext(payload.tradeId, event.eventId)
     const tradeStateContext = await this.buildTradeStateContext(payload.tradeId)
+
+    // F8 (docs/TECHNICAL_DEBT_AUDIT.md #54) — incremented here, after both
+    // pre-filters above and the two prep reads, i.e. right at the point
+    // this function actually commits to the QVAC call, so a message
+    // filtered out above (wrong event type, empty content) never counts
+    // as an invocation. handlers.ts's own catch around this whole
+    // evaluate() call increments the paired failures counter — that
+    // catch also covers recentMessageContext()/buildTradeStateContext()
+    // failing, not only the QVAC call itself, which is deliberate: from
+    // an operator's perspective, a failure to complete the protective
+    // evaluation for this message is equally "degraded" regardless of
+    // which internal step failed.
+    qvacDetectionInvocationsTotal.inc({ path: 'social_engineering' })
     const signal = await this.provider.assessSocialEngineeringRisk(payload.content, recentContext, tradeStateContext)
     if (signal.pattern === 'none') return null
 
