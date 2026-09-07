@@ -74,6 +74,17 @@ export const disputesOpenedTotal = new Counter({
 // free-form error text, no participant/trade/offer/message id, no model
 // output. Detection remains advisory-only; these counters observe, they
 // do not gate or block anything.
+//
+// Claim discipline (CTO Gate, 2026-09-07): both counters MUST share one
+// population per path — INVOCATION = a protective evaluation attempt
+// has begun, after that path's own pre-filters accept the item;
+// FAILURE = that same attempt did not complete successfully, for ANY
+// reason (not narrowed to the literal QVAC SDK call — a required
+// context-preparation step failing is equally a degraded evaluation).
+// Never describe this as "QVAC availability" — the social_engineering
+// path's failure counter can include a context-prep failure upstream
+// of the QVAC call itself; that is deliberate, not a bug. failures
+// must never exceed invocations for the same path.
 export const qvacDetectionInvocationsTotal = new Counter({
   name: 'sails_qvac_detection_invocations_total',
   help: 'Total QVAC-backed protective detection evaluations attempted, by path',

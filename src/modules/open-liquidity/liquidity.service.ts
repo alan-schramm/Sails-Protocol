@@ -272,6 +272,12 @@ export function screenOfferContent(offerId: string, userId: string, description:
   if (!config.features.socialEngineeringDetection) return
   if (!description?.trim() && !paymentDetails?.trim()) return
 
+  // F8 (docs/TECHNICAL_DEBT_AUDIT.md #54) — marks the start of one
+  // protective-evaluation attempt, right after both path-specific
+  // pre-filters above accept this offer (same "attempt after
+  // pre-filters" placement social-engineering-agent.ts's evaluate()
+  // uses, since this path has no separate context-prep step between
+  // the pre-filters and the QVAC call itself).
   qvacDetectionInvocationsTotal.inc({ path: 'offer_screening' })
 
   import('../open-agents/qvac-agent.provider')

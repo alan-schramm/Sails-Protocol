@@ -168,6 +168,24 @@ describe('SocialEngineeringAgent.evaluate', () => {
     expect(await socialEngineeringInvocations()).toBe(1)
   })
 
+  it('also counts a real invocation when required context-preparation fails, before QVAC is ever called (F8 — CTO Gate correction, 2026-09-07)', async () => {
+    // buildTradeStateContext() calls this.tradeRepo.findByIdWithEscrow() —
+    // a required prep step, not the QVAC SDK call itself. It failing must
+    // still count as one attempted-and-failed evaluation, same population
+    // as a QVAC provider failure: an operator cannot complete a protective
+    // evaluation without this context either way.
+    const repo = fakeTradeRepo({
+      findByIdWithEscrow: jest.fn().mockRejectedValue(new Error('database unavailable')),
+    })
+    const agent = new SocialEngineeringAgent(new QvacAgentProvider(), repo)
+
+    await expect(agent.evaluate(messageEntry('trade-x', 'Sure, sending PIX now.'))).rejects.toThrow('database unavailable')
+    expect(await socialEngineeringInvocations()).toBe(1)
+    // QVAC was never reached — proves this is genuinely a pre-QVAC
+    // context-prep failure, not a relabeled provider failure.
+    expect(mockCompletion).not.toHaveBeenCalled()
+  })
+
   it('sends the requested schema name and the message text to QVAC', async () => {
     mockCompletion.mockReturnValueOnce(
       fakeCompletionRun(JSON.stringify({ pattern: 'payment_instruction_change', riskScore: 55, reasoning: 'New PIX key given mid-trade.' }))

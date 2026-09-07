@@ -1632,26 +1632,50 @@ de bloqueio foi tocado.
 `liquidity.service.ts` incrementa `invocations` logo após seus dois
 pre-filtros existentes (flag desligada / sem texto) — uma chamada
 filtrada nunca conta como invocação. `social-engineering-agent.ts`
-incrementa `invocations` no mesmo ponto equivalente, imediatamente
-antes da chamada real ao QVAC. `failures` é incrementado exatamente nos
-dois `catch` já existentes (inalterados na lógica, só ganharam a
-chamada `.inc()`) — no caminho `social_engineering`, esse `catch` vive
-em `handlers.ts`, uma camada acima de `evaluate()`, e cobre também uma
-falha de leitura do `TradeRepository`/Timeline usada para montar o
-contexto do QVAC, não só a chamada ao SDK em si; isso é deliberado, não
-uma imprecisão — do ponto de vista operacional, uma avaliação protetiva
-que não completou é igualmente "degradada" independente de qual etapa
-interna falhou.
+incrementa `invocations` no mesmo ponto equivalente: logo após seus
+próprios dois pre-filtros (tipo de evento, conteúdo vazio), mas ANTES
+das duas leituras de preparação de contexto (`recentMessageContext()`,
+`buildTradeStateContext()`) e da chamada real ao QVAC. `failures` é
+incrementado exatamente nos dois `catch` já existentes (inalterados na
+lógica, só ganharam a chamada `.inc()`) — no caminho
+`social_engineering`, esse `catch` vive em `handlers.ts`, uma camada
+acima de `evaluate()`, e cobre também uma falha de leitura do
+`TradeRepository`/Timeline usada para montar o contexto do QVAC, não só
+a chamada ao SDK em si; isso é deliberado, não uma imprecisão — do
+ponto de vista operacional, uma avaliação protetiva que não completou é
+igualmente "degradada" independente de qual etapa interna falhou.
 
-Testes: `tests/qvacDetectionMetrics.test.ts` (novo — cardinalidade de
-label, ausência de PII, não-duplicação de registro sob reimport de
-módulo, tipo `Counter`) mais extensões em
-`tests/offerContentScreening.test.ts`,
-`tests/socialEngineeringAgent.test.ts` e
-`tests/socialEngineeringDetection.test.ts` provando, para cada
-caminho: não-invocado ≠ invocado-e-limpo ≠ invocado-e-falhou, e que
-SUCCESS+THREAT não é contado como falha. Evidência completa: PR
-(branch `fix/f8-qvac-degraded-observability`).
+**Correção (CTO Gate, 2026-09-07).** Uma primeira versão deste fechamento
+incrementava `invocations` do caminho `social_engineering` DEPOIS das
+duas leituras de preparação de contexto, imediatamente antes da chamada
+real ao QVAC — o que permitia uma falha de leitura de contexto produzir
+`failures += 1` com `invocations += 0` para o mesmo item, tornando
+`failures / invocations` matematicamente inválido (podendo exceder 1) e
+misturando dois denominadores diferentes (uma "tentativa de avaliação
+protetiva" completa vs. apenas "a chamada ao SDK QVAC"). Corrigido
+movendo o incremento de `invocations` para o ponto acima — logo após os
+pre-filtros, antes das leituras de contexto — de modo que os dois
+contadores compartilhem uma única população por item avaliado: `failures
+<= invocations` sempre, para o mesmo `path`. O catch mais amplo em
+`handlers.ts` (cobrindo falha de contexto E falha do provider QVAC)
+permanece deliberado e inalterado — não é "QVAC availability", é
+"degradação da avaliação protetiva", que pode legitimamente incluir uma
+falha de preparação de contexto anterior à própria chamada ao QVAC.
+
+Testes: `tests/qvacDetectionMetrics.test.ts` (cardinalidade de label,
+ausência de PII, não-duplicação de registro sob reimport de módulo,
+tipo `Counter`); extensões em `tests/offerContentScreening.test.ts`,
+`tests/socialEngineeringAgent.test.ts` (incluindo um caso novo de falha
+de preparação de contexto, QVAC nunca alcançado) e
+`tests/socialEngineeringDetection.test.ts` provando, para cada caminho:
+não-invocado ≠ invocado-e-limpo ≠ invocado-e-falhou, e que SUCCESS+THREAT
+não é contado como falha. `tests/qvacDetectionSharedPopulation.test.ts`
+(novo, adicionado na correção do CTO Gate) prova a propriedade
+`failures <= invocations` diretamente contra a fiação real de
+`social-engineering-agent.ts` + `handlers.ts` (não mockando nenhum dos
+dois), com um lote misto de avaliação limpa, ameaça, falha de
+preparação de contexto, e falha do provider QVAC. Evidência completa:
+PR (branch `fix/f8-qvac-degraded-observability`).
 
 ### 55. `proof.service.ts`'s comentário sobre o event store default está desatualizado (Current Truth Documentation Drift, 2026-09-06)
 

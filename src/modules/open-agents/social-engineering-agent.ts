@@ -85,21 +85,27 @@ export class SocialEngineeringAgent {
     const payload = event.payload as { tradeId: string; content: string }
     if (!payload.content?.trim()) return null // empty content = a media (IMAGE/VIDEO) message, nothing to analyze
 
+    // F8 (docs/TECHNICAL_DEBT_AUDIT.md #54, corrected per CTO Gate 2026-09-07)
+    // — incremented here, immediately after the two path-specific
+    // pre-filters above accept this message, marking the start of one
+    // protective-evaluation attempt. Both this counter and the paired
+    // failures counter (incremented in handlers.ts's catch around this
+    // whole evaluate() call) must share the same population: a message
+    // filtered out above never counts as an attempt at all, but once an
+    // attempt has begun, EITHER a context-prep failure (recentMessageContext()/
+    // buildTradeStateContext() below) OR a QVAC provider failure counts as
+    // that same attempt failing — deliberately not narrowed to the literal
+    // QVAC SDK call, since from an operator's perspective a protective
+    // evaluation that could not complete is equally degraded regardless of
+    // which internal step failed. (Originally placed after the two prep
+    // reads, right before the QVAC call itself — corrected because that
+    // let a prep-read failure register as failures+=1/invocations+=0,
+    // making failures/invocations exceed 1 and mixing two different
+    // denominators.)
+    qvacDetectionInvocationsTotal.inc({ path: 'social_engineering' })
+
     const recentContext = await this.recentMessageContext(payload.tradeId, event.eventId)
     const tradeStateContext = await this.buildTradeStateContext(payload.tradeId)
-
-    // F8 (docs/TECHNICAL_DEBT_AUDIT.md #54) — incremented here, after both
-    // pre-filters above and the two prep reads, i.e. right at the point
-    // this function actually commits to the QVAC call, so a message
-    // filtered out above (wrong event type, empty content) never counts
-    // as an invocation. handlers.ts's own catch around this whole
-    // evaluate() call increments the paired failures counter — that
-    // catch also covers recentMessageContext()/buildTradeStateContext()
-    // failing, not only the QVAC call itself, which is deliberate: from
-    // an operator's perspective, a failure to complete the protective
-    // evaluation for this message is equally "degraded" regardless of
-    // which internal step failed.
-    qvacDetectionInvocationsTotal.inc({ path: 'social_engineering' })
     const signal = await this.provider.assessSocialEngineeringRisk(payload.content, recentContext, tradeStateContext)
     if (signal.pattern === 'none') return null
 
