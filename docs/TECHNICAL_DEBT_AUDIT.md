@@ -1750,6 +1750,33 @@ Nenhuma nova obrigação técnica. **BACKLOG DELTA: ZERO** — nenhuma
 contradição encontrada entre o entendimento registrado neste item #55
 e o comportamento real do código.
 
+**Correção (CTO Gate, mesmo dia).** O parágrafo acima e o comentário de
+código continham duas sobre-afirmações, corrigidas em ambos os lugares:
+(a) "um timeline vazio genuinamente significa 'nada aconteceu'" foi
+substituído por uma afirmação mais estreita — sob o default atual,
+o histórico do timeline não é perdido apenas por um restart do
+processo (diferente do antigo default `InMemoryEventStore`), mas isso
+não prova, por si só, que nenhum evento deixou de ser gravado; (b) "um
+prova nada foi alterado silenciosamente, o outro prova nada foi
+perdido silenciosamente" foi substituído por linguagem precisa por
+propriedade: verificação por hash chain (RFC-008 D2) detecta mutação/
+reordenação/deleção COBERTA dos eventos que de fato foram registrados;
+durabilidade descreve se o histórico registrado sobrevive à fronteira
+de persistência/restart relevante; nenhuma das duas propriedades,
+isoladamente, prova completude, não-ocorrência histórica,
+portabilidade, ou verificabilidade independente. Também esclarecido:
+o item (5) acima ("um `InMemoryEventStore` explicitamente configurado
+continua possível") não deve ser lido como afirmando que existe hoje
+um caminho de configuração/variável de ambiente operacional para
+selecioná-lo no singleton de produção — nenhum foi encontrado
+(confirmado por inspeção direta, ver acima); `SailsEventBus` aceita um
+`EventStore` via seu construtor e `InMemoryEventStore` continua
+existindo como implementação não-durável disponível, mas o singleton
+real (`eventBus`) não expõe hoje nenhum switch de config/env para
+selecioná-lo. Nenhuma mudança de comportamento em runtime nesta
+correção — apenas precisão de linguagem, no comentário-fonte e neste
+registro.
+
 ### 56. `WDK_USDT_EVM`'s `lockFunds()` — resultado desconhecido/segurança de retry não demonstrada (CTO Gate #2 sobre F6, 2026-09-07)
 
 **Classificação: novo delta de backlog / obrigação de evidência de segurança de produção. Não é causado pela remoção de `verifyLock()` (F6/#53) nem invalida a Decisão B — descoberto durante a revisão do F6, mas é um achado independente sobre `lockFunds()`, não sobre `verifyLock()`.**

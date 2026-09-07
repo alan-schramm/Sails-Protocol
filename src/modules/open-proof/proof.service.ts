@@ -352,22 +352,32 @@ export class ProofService {
     // singleton) is actually configured with, not a hardcoded assumption.
     // As of Missão 05.7 (2026-08-15, a later same-day pass than the
     // original finding above), the real default is `PostgresEventStore`
-    // (`durable = true`) — under the current default, an empty `timeline`
-    // genuinely means "nothing happened," not "history lost to a
-    // restart." A deployment could still explicitly configure a
-    // non-durable store (`InMemoryEventStore`, `durable = false`, an
-    // in-process Map) — if so, this array is silently EMPTY after any
-    // restart/redeploy, and an arbiter reading this bundle would have no
-    // way to tell "nothing happened" apart from "the history was lost."
-    // `timelineDurable`/`timelineStore` below report the actual
-    // configured store at read time (never hardcoded), specifically so
-    // that ambiguity can never be silently reintroduced by a future
-    // deployment/config change swapping the store. Separately: RFC-008
-    // D2's hash chain makes the Timeline tamper-EVIDENT (verifyChain()
-    // genuinely catches mutation/reordering/deletion —
-    // tests/timeline.test.ts proves it), but tamper-evidence is a
-    // distinct property from durability — one proves nothing was
-    // silently altered, the other proves nothing was silently lost.
+    // (`durable = true`) — under the current default, timeline history
+    // is not lost merely because the application process restarts,
+    // unlike the former `InMemoryEventStore` default. This does not by
+    // itself prove that an empty `timeline` means nothing ever happened
+    // for this trade: durability describes whether recorded history
+    // survives the relevant persistence/restart boundary, not whether
+    // every event was ever recorded in the first place.
+    // `SailsEventBus` accepts an `EventStore` via its constructor, and
+    // `InMemoryEventStore` remains an available non-durable
+    // implementation — but the current production singleton (`eventBus`,
+    // above) exposes no config/env switch to select it; today's real
+    // default is unconditionally `PostgresEventStore`. If a future
+    // change did wire a non-durable store in, this array could again go
+    // silently EMPTY after a restart/redeploy, and an arbiter reading
+    // this bundle would have no way to tell "nothing happened" apart
+    // from "the history was lost." `timelineDurable`/`timelineStore`
+    // below report the actual configured store at read time (never
+    // hardcoded), specifically so that ambiguity can never be silently
+    // reintroduced without also becoming visible here. Separately:
+    // RFC-008 D2's hash chain gives the Timeline tamper-EVIDENCE —
+    // `verifyChain()` detects covered mutation/reordering/deletion of
+    // the events it does record (`tests/timeline.test.ts` proves this).
+    // Durability is a distinct property describing whether that
+    // recorded history survives a restart. Neither property alone
+    // proves completeness, historical non-occurrence, portability, or
+    // independent verifiability.
     const timelineDurable = eventBus.durable
     return {
       tradeId, claims, proofs, verifications, externalReferences, timeline,
