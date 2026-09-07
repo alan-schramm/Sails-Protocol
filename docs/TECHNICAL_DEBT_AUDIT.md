@@ -59,6 +59,18 @@ delta de backlog/obrigação de evidência de segurança de produção, não
 como débito técnico da mesma família dos itens #51-#54 — mesma
 ressalva, não forçado na escala Crítico/Alto/Médio/Baixo.
 
+**Nota — 2026-09-07 (CTO Gate Follow-up sobre F8).** Um sétimo item
+novo foi adicionado, **#57**, sequencial (agora até #57, sem lacunas).
+Mesma categoria de #56 (não veio da auditoria original, descoberto
+durante a validação de uma missão de remediação — desta vez o F8): 10
+suites de teste não relacionadas ao F8 falharam sob carga paralela do
+Jest (`beforeAll()`'s `buildApp()` excedendo 30s), todas passando
+isoladamente. Classificado como novo delta de backlog/confiabilidade de
+sistema de engenharia/qualidade de evidência do harness de testes, não
+como débito técnico da mesma família dos itens #51-#54, e explicitamente
+NÃO uma regressão causada pelo F8. Mesma ressalva, não forçado na escala
+Crítico/Alto/Médio/Baixo.
+
 ---
 
 ## CRÍTICO — Bloqueia Evolução do Sistema
@@ -1765,6 +1777,76 @@ suposição.
 **Não corrigido por este registro. Nenhum mecanismo criado. Nenhuma
 mudança de comportamento em `lockFunds()`/`escrow.service.ts` feita ou
 autorizada por este registro.**
+
+### 57. Falhas de `buildApp()` sob carga paralela do Jest — evidência de confiabilidade do harness de testes não conclusiva (CTO Gate Follow-up sobre F8, 2026-09-07)
+
+**Classificação: novo delta de backlog / confiabilidade de sistema de
+engenharia / qualidade de evidência do harness de testes. Não é uma
+regressão do F8** — descoberto durante a validação do F8, mas é um
+achado independente sobre o comportamento do harness de testes sob
+carga, não sobre o código do F8 em si.
+
+**Propriedade em risco:** uma execução completa da suíte de testes deve
+falhar porque código está errado, não porque bootstraps de aplicação
+não relacionados excedem orçamentos de tempo sob contenção paralela.
+
+**Achado (fato atual, sem sobre-afirmar em nenhuma direção):** durante
+a validação do F8, a suíte completa do Jest sob carga paralela produziu
+10 suites não-relacionadas ao F8 falhando (`cors.test.ts`,
+`healthLiveReady.test.ts`, `metrics.test.ts`, `securityHeaders.test.ts`,
+`fullTradeLifecycle.test.ts`, `joinTradeAuthorization.test.ts`,
+`liquidityDiscoverPagination.test.ts`, `proofBundleAccess.test.ts`,
+`settlementReadAccess.test.ts`, `suspiciousActivityWiring.test.ts`),
+todas com o mesmo sintoma: `beforeAll()`'s `buildApp()` excedendo o
+timeout de hook de 30s. Todas as 10 passaram de forma limpa quando
+re-executadas isoladamente (`--runInBand`, 86/86 testes). Esse mesmo
+padrão já havia aparecido em forma menor em missões anteriores desta
+sessão (historicamente citado como "6 suites conhecidas de registro do
+swagger-ui flakando sob carga paralela") e agora apareceu em mais
+suites.
+
+**Não se afirma:** que a causa raiz é definitivamente o registro do
+Swagger/OpenAPI — essa é uma hipótese suportada por observação de
+tempo, não um fato arquitetural comprovado. Também não se afirma que a
+suíte de CI (que roda sob topologia diferente) reproduz a mesma
+distribuição de tempo observada localmente.
+
+**Verdade atual, explícita:**
+- as suites afetadas passam isoladamente;
+- o CI do PR pode ainda passar normalmente;
+- o comportamento local da suíte completa sob paralelismo não é
+  determinístico o suficiente para servir como evidência forte e
+  independente de regressão;
+- a causa raiz não está provada;
+- a hipótese de contenção em `swagger-ui`/`buildApp()` é suportada por
+  timing observado, não é ainda um fato arquitetural.
+
+**Sete perguntas de investigação futura, nenhuma respondida aqui, nenhuma
+por suposição:**
+
+1. Por que `buildApp()` ultrapassa 30s apenas sob carga paralela de
+   suites, não isoladamente?
+2. O registro do Swagger/OpenAPI é o custo dominante ou apenas
+   correlacionado?
+3. Inicialização de DB/bootstrap/módulo contribui de forma relevante?
+4. A construção repetida da aplicação entre workers do Jest é
+   desnecessária?
+5. O CI reproduz a mesma distribuição de tempo observada localmente?
+6. Uma fronteira de bootstrap exclusiva para testes reduziria a
+   contenção sem mascarar um custo real de inicialização?
+7. A correção correta é de implementação, de configuração do harness,
+   ou de arquitetura de testes?
+
+**Fix recomendado (propriedade, não mecanismo):** nenhum prescrito
+aqui — as 7 perguntas acima precisam de investigação dedicada antes de
+qualquer decisão de implementação. Explicitamente NÃO autorizado por
+este registro: aumentar o timeout do Jest às cegas, reduzir workers às
+cegas, desabilitar suites, pular testes, remover o Swagger, adicionar
+retries, mudar a topologia de CI, ou criar um novo framework de teste.
+
+**Não corrigido por este registro. Nenhum mecanismo criado. Nenhuma
+mudança de configuração de Jest/CI feita ou autorizada por este
+registro.**
 
 ## Ações Recomendadas por Prioridade
 
