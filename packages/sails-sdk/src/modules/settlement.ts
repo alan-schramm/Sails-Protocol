@@ -211,14 +211,15 @@ export interface ReleaseApprovalsResult {
   readyToRelease: boolean;
 }
 
-export interface CreateEscrowInput {
-  tradeId: string;
-  type?: EscrowType;
-  lockedAmount: string;
-  asset: AssetType;
-  network?: string;
-  timelockHours?: number;
-}
+// F5 (docs/TECHNICAL_DEBT_AUDIT.md #52) — the canonical escrow-creation
+// structural contract, shared with the backend
+// (src/modules/open-settlement/escrow.service.ts, settlement.routes.ts's
+// createEscrowSchema), all three of which now import the SAME
+// type/enum-value source instead of each redeclaring their own copy.
+// See packages/sails-p2p-schemas/src/escrow.ts for the full rationale
+// and scope.
+export type { CreateEscrowInput } from "@satsails/p2p-schemas";
+import type { CreateEscrowInput } from "@satsails/p2p-schemas";
 
 /**
  * SAFE_GUARD_EVM's real bundle shape (server-side `SafeGuardBundle`,

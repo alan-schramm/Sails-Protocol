@@ -10,6 +10,7 @@
  */
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { ESCROW_TYPE_VALUES, ASSET_TYPE_VALUES } from '@satsails/p2p-schemas'
 import { escrowService } from './escrow.service'
 import { getDisputeService } from './dispute.service'
 import { loadDisputeRulingRecord } from './dispute-outcome'
@@ -47,18 +48,28 @@ const criticalRateLimit = createSharedRateLimit({
 // failed on (the same shape `src/app.ts`'s setErrorHandler turns into a 400
 // VALIDATION_ERROR).
 
-const createEscrowSchema = z.object({
+// F5 (docs/TECHNICAL_DEBT_AUDIT.md #52) — type/asset enum values now come
+// from @satsails/p2p-schemas's ESCROW_TYPE_VALUES/ASSET_TYPE_VALUES, the
+// same canonical arrays packages/sails-sdk's CreateEscrowInput and this
+// file's own escrow.service.ts import — a future addition/removal only
+// needs to happen in that one shared file. WDK_USDT_EVM and SAFE_GUARD_EVM
+// were both real, registered providers (escrow.service.ts's PROVIDERS map)
+// once missing from this validator before that consolidation (RFC-020) —
+// the exact drift class this shared source now structurally prevents.
+// Exported (unlike every other schema in this file) so
+// tests/escrowCreationSchemaParity.test.ts can inspect the REAL schema
+// object directly — proving parity against the canonical source, not a
+// reconstruction of it. No behavior change; visibility only.
+export const createEscrowSchema = z.object({
   tradeId: z.string().min(1),
-  // WDK_USDT_EVM and SAFE_GUARD_EVM were both real, registered providers
-  // (escrow.service.ts's PROVIDERS map) missing from this validator —
-  // WDK_USDT_EVM was a pre-existing gap found while adding SAFE_GUARD_EVM
-  // (RFC-020), fixed here rather than left alongside the new one.
-  type: z.enum(['MULTISIG', 'LIGHTNING_HODL', 'LIQUID_COVENANT', 'WDK_USDT_EVM', 'SAFE_GUARD_EVM', 'MOCK']).optional(),
+  type: z.enum(ESCROW_TYPE_VALUES).optional(),
   // 2026-08-15 security review — was z.string().min(1) (non-empty only,
   // no positive/finite check); see common/validation.ts's own header
-  // comment for why that's the exact Bisq-incident bug class.
+  // comment for why that's the exact Bisq-incident bug class. Positivity
+  // is a business rule, not part of the shared structural contract — see
+  // packages/sails-p2p-schemas/src/escrow.ts's own header.
   lockedAmount: positiveDecimalString('lockedAmount'),
-  asset: z.enum(['BTC', 'USDT_ERC20', 'USDT_TRC20', 'USDT_LIQUID', 'USDT_LIGHTNING', 'LN_BTC', 'LIQUID_BTC', 'SPARK', 'STACKS', 'RSK_BTC']),
+  asset: z.enum(ASSET_TYPE_VALUES),
   network: z.string().optional(),
   timelockHours: z.number().optional(),
 })
@@ -218,9 +229,14 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-settlement'], body: createEscrowSchema }),
   }, async (request, reply) => {
+    // F5 (docs/TECHNICAL_DEBT_AUDIT.md #52) — no cast: `body`'s inferred
+    // type must structurally satisfy createEscrow()'s CreateEscrowInput
+    // parameter, both sourced from @satsails/p2p-schemas. If the two
+    // ever diverge, this line fails to compile — the parity proof this
+    // fix exists for, not a new mechanism.
     const body = createEscrowSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
-    const escrow = await escrowService.createEscrow(body as any, participantId)
+    const escrow = await escrowService.createEscrow(body, participantId)
     return reply.code(201).send(success(escrow))
   })
 
