@@ -1477,11 +1477,34 @@ independente, textualmente quase idêntica — exatamente a mesma lógica
 de verificação de fundos que `lockFunds()` já executa (mesmo padrão em
 MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM, WDK_USDT_EVM); `MOCK`'s
 `verifyLock()` era um `return true` incondicional, sem propriedade
-alguma. A transição CREATED→FUNDS_LOCKED já é atômica e já verifica
-fundos externos de verdade dentro de `lockFunds()` — confirmado lendo
-`escrow.service.ts`'s `lockFunds()` diretamente (claim atômico via
-Postgres ANTES de chamar o provider; reversão em caso de falha,
-retry seguro). A reconciliação de reorg do MULTISIG (`multisig-funding-reorg-sweep.ts`)
+alguma.
+
+**Correção de precisão (CTO Gate, 2026-09-07).** Uma versão anterior
+deste registro afirmava que "a transição CREATED→FUNDS_LOCKED já
+verifica fundos externos de verdade" — formulação forte demais.
+Confirmado lendo `escrow.service.ts`'s `lockFunds()` diretamente: o
+claim atômico via Postgres acontece PRIMEIRO, de forma PROVISÓRIA,
+ANTES de chamar `provider.lockFunds()` — a verificação real
+específica de cada rail (ou o movimento de fundos, para providers
+custodiais) acontece DEPOIS, dentro da própria chamada ao provider.
+Logo, o status `FUNDS_LOCKED` pode existir no banco enquanto
+`provider.lockFunds()` ainda está em execução. A propriedade real,
+precisa, que esta remoção preserva inalterada é: **uma operação de
+lock só é finalizada/evidenciada depois que `provider.lockFunds()` tem
+sucesso** — o resultado do lock é persistido, evidência de funding é
+gravada quando aplicável, e `settlement.escrow.locked` só é emitido
+então; uma falha do provider reverte o claim provisório
+(`revertEscrowStatus`, retorno a CREATED, retry seguro). Reivindicação
+de estado ≠ fato externo verificado — o status provisório
+`FUNDS_LOCKED` em si não é evidência durável de settlement nem é o
+evento de lock emitido; ambos continuam dependendo do sucesso da
+chamada ao provider. Esta ordenação de controle de concorrência
+(claim-depois-chamada, reversão em falha) permanece inalterada por
+esta remoção — existe para prevenir efeitos colaterais duplicados em
+chamadas concorrentes de `lockFunds()`, não para servir de gate de
+verificação, e está fora do escopo desta missão.
+
+A reconciliação de reorg do MULTISIG (`multisig-funding-reorg-sweep.ts`)
 já usa seu próprio método dedicado, mais rico (`rescanFunding()` —
 outpoint, profundidade, alturas), nunca `verifyLock()`. Nenhuma rota
 HTTP, método de SDK, ou RFC normativo jamais expôs ou exigiu

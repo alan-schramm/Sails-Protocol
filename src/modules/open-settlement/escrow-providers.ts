@@ -105,6 +105,18 @@ export type EscrowRecord = {
 //     separately-verifiable external fact
 // No public route, SDK method, or normative RFC ever exposed or required
 // `verifyLock()` — confirmed by repository-wide search before removal.
+//
+// Precision note (CTO Gate, 2026-09-07): `escrow.service.ts`'s
+// `lockFunds()` claims the CREATED->FUNDS_LOCKED status PROVISIONALLY,
+// atomically, BEFORE calling `provider.lockFunds()` below — the real
+// verification (or fund movement) happens AFTER that claim, inside the
+// provider call itself, and a failed provider call reverts the claim.
+// `FUNDS_LOCKED` can therefore exist in the database while the provider
+// call is still executing; it is not itself durable settlement
+// evidence. The real, unchanged property is: a lock is only
+// finalized/evidenced (result persisted, funding evidence recorded,
+// `settlement.escrow.locked` emitted) once `provider.lockFunds()`
+// succeeds.
 export interface SettlementProvider {
   name: string
   // Missão 10 — vout is optional and additive: only providers with a
