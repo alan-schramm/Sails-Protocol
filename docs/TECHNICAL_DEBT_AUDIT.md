@@ -1715,7 +1715,40 @@ desde Missão 05.7, preservando a explicação da distinção
 durável/não-durável (que continua genuinamente relevante caso um
 deployment configure explicitamente `InMemoryEventStore`).
 
-**Não corrigido por este registro.**
+**CLOSED (F7, 2026-09-07).** Comentário de `proof.service.ts` corrigido
+diretamente no código-fonte (não é um ledger versionado como este
+documento, então a correção foi aplicada in-place, não anexada como
+bloco datado). Confirmado por leitura direta do código, não assumido:
+`event-bus.ts:463`'s `constructor(private readonly store: EventStore =
+new PostgresEventStore())` mais `event-bus.ts:542`'s `export const
+eventBus = new SailsEventBus()` — nenhum argumento passado, nenhuma
+outra construção de `SailsEventBus`/`PostgresEventStore`/
+`InMemoryEventStore` existe em `src/` fora de testes, nenhuma seleção
+de store via `config/index.ts` ou variável de ambiente — confirmam que
+o default real e único caminho de produção é `PostgresEventStore`
+(`storeName='postgres'`, `durable=true`, `event-store.ts:219-221`).
+`InMemoryEventStore` (`storeName='in-memory'`, `durable=false`,
+`event-store.ts:120-122`) e `RedisStreamsEventStore`
+(`storeName='redis-streams'`, `durable=true`, `event-store.ts:518-519`)
+continuam existindo como classes importáveis — nenhuma seleção
+silenciosa entre elas foi encontrada. `tests/evidenceBundleDurability.test.ts`
+já prova isso contra o `eventBus` real, não mockado
+(`expect(eventBus.durable).toBe(true)`,
+`expect(eventBus.storeName).toBe('postgres')`) — nenhum teste novo
+necessário. O comentário corrigido preserva: (1) que
+claims/proofs/verifications/externalReferences são Postgres-backed;
+(2) que `timeline` é lido através do `EventStore` de fato configurado,
+não uma suposição hardcoded; (3) que o default atual é
+`PostgresEventStore`; (4) que `timelineDurable`/`timelineStore`
+reportam o store real em tempo de leitura; (5) que um `InMemoryEventStore`
+explicitamente configurado continua possível; (6) que, se configurado
+assim, um restart/redeploy pode perder o histórico do timeline e por
+isso ausência não pode ser inferida de um timeline vazio; (7) que a
+evidência de violação (hash chain, RFC-008 D2) é uma propriedade
+distinta de durabilidade. Nenhum comportamento em runtime alterado.
+Nenhuma nova obrigação técnica. **BACKLOG DELTA: ZERO** — nenhuma
+contradição encontrada entre o entendimento registrado neste item #55
+e o comportamento real do código.
 
 ### 56. `WDK_USDT_EVM`'s `lockFunds()` — resultado desconhecido/segurança de retry não demonstrada (CTO Gate #2 sobre F6, 2026-09-07)
 
