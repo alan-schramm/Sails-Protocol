@@ -31,7 +31,7 @@
  * independently via standalone scripts run directly under Node (not
  * Jest) before this file was written — same "verify outside Jest,
  * confirmed Jest-specific not a real runtime problem" discipline this
- * file's own git history already established for lockFunds/verifyLock.
+ * file's own git history already established for lockFunds().
  */
 function makeFakeTx(tag: string, signers: string[] = []) {
   return {

@@ -368,7 +368,11 @@ describe('SafeGuardEvmProvider.finalizeRelease — real signature combination + 
   })
 })
 
-describe('SafeGuardEvmProvider.lockFunds() / verifyLock() — real on-chain balance checks', () => {
+// F6 (docs/TECHNICAL_DEBT_AUDIT.md #53, 2026-09-07) — verifyLock() has
+// been removed from the interface entirely (it duplicated lockFunds()'s
+// own balance check below with no real caller anywhere); this describe
+// block's title and tests are trimmed accordingly, not merely renamed.
+describe('SafeGuardEvmProvider.lockFunds() — real on-chain balance checks', () => {
   it('lockFunds succeeds once the Safe holds at least lockedAmount', async () => {
     mockGetBalance.mockResolvedValue(1_500_000_000_000_000_000n) // exactly 1.5 ETH
     const provider = new SafeGuardEvmProvider()
@@ -383,20 +387,10 @@ describe('SafeGuardEvmProvider.lockFunds() / verifyLock() — real on-chain bala
     await expect(provider.lockFunds(baseEscrow({ lockedAmount: '1.5' }))).rejects.toThrow(/non-custodial/)
   })
 
-  it('verifyLock reflects the real on-chain balance', async () => {
-    mockGetBalance.mockResolvedValue(1_500_000_000_000_000_000n)
-    const provider = new SafeGuardEvmProvider()
-    await expect(provider.verifyLock(baseEscrow({ lockedAmount: '1.5' }))).resolves.toBe(true)
-
-    mockGetBalance.mockResolvedValue(0n)
-    await expect(provider.verifyLock(baseEscrow({ lockedAmount: '1.5' }))).resolves.toBe(false)
-  })
-
-  it('lockFunds/verifyLock throw the same "submit pubkeys first" error as buildUnsignedRelease when no Safe address is recorded yet', async () => {
+  it('lockFunds throws the same "submit pubkeys first" error as buildUnsignedRelease when no Safe address is recorded yet', async () => {
     const provider = new SafeGuardEvmProvider()
     const escrow = baseEscrow({ multisigAddr: null })
     await expect(provider.lockFunds(escrow)).rejects.toThrow(/submit both buyer and seller pubkeys first/)
-    await expect(provider.verifyLock(escrow)).rejects.toThrow(/submit both buyer and seller pubkeys first/)
   })
 })
 

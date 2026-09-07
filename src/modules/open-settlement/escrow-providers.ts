@@ -84,6 +84,39 @@ export type EscrowRecord = {
 }
 
 // ─── SettlementProvider — the protocol interface (Sails Protocol Spec) ────────
+//
+// F6 (docs/TECHNICAL_DEBT_AUDIT.md #53) — `verifyLock(escrow): Promise<boolean>`
+// was removed from this interface (2026-09-07). It had no real caller
+// anywhere in src/ — every real implementation (MULTISIG, LIGHTNING_HODL,
+// SAFE_GUARD_EVM, WDK_USDT_EVM) duplicated the exact same funding-check
+// logic `lockFunds()` below already performs (and, for MULTISIG,
+// duplicated it with a WEAKER confirmation-depth guarantee at one point —
+// see that file's own git history), and MOCK's own implementation was a
+// bare `return true`, contributing no property at all. The real funding
+// condition for each rail is established, and re-verified where recovery
+// exists, entirely through the methods already below:
+//   - MULTISIG: `lockFunds()` (initial lock) and `rescanFunding()`
+//     (multisig-funding-reorg-sweep.ts's own re-verification path)
+//   - LIGHTNING_HODL / SAFE_GUARD_EVM: `lockFunds()` only — no reorg-sweep
+//     equivalent exists for these rails today (a real, disclosed,
+//     pre-existing gap, unrelated to this removal and not created by it)
+//   - WDK_USDT_EVM: `lockFunds()` itself moves the funds (custodial); the
+//     resulting balance is a direct consequence of that same call, not a
+//     separately-verifiable external fact
+// No public route, SDK method, or normative RFC ever exposed or required
+// `verifyLock()` — confirmed by repository-wide search before removal.
+//
+// Precision note (CTO Gate, 2026-09-07): `escrow.service.ts`'s
+// `lockFunds()` claims the CREATED->FUNDS_LOCKED status PROVISIONALLY,
+// atomically, BEFORE calling `provider.lockFunds()` below — the real
+// verification (or fund movement) happens AFTER that claim, inside the
+// provider call itself, and a failed provider call reverts the claim.
+// `FUNDS_LOCKED` can therefore exist in the database while the provider
+// call is still executing; it is not itself durable settlement
+// evidence. The real, unchanged property is: a lock is only
+// finalized/evidenced (result persisted, funding evidence recorded,
+// `settlement.escrow.locked` emitted) once `provider.lockFunds()`
+// succeeds.
 export interface SettlementProvider {
   name: string
   // Missão 10 — vout is optional and additive: only providers with a
@@ -109,7 +142,6 @@ export interface SettlementProvider {
   }>
   releaseFunds(escrow: EscrowRecord, toAddress: string): Promise<{ txId: string }>
   refundFunds(escrow: EscrowRecord): Promise<{ txId: string }>
-  verifyLock(escrow: EscrowRecord): Promise<boolean>
   // RFC-021 D9 — optional: only the providers where a partial payout is
   // actually representable implement this (MOCK, WDK_USDT_EVM this pass).
   // buyerBps is the buyer's share in basis points out of 10000 (the
@@ -133,9 +165,6 @@ class MockSettlementProvider implements SettlementProvider {
   async refundFunds(_escrow: EscrowRecord) {
     await new Promise((r) => setTimeout(r, 100))
     return { txId: `mock-refund-${uuidv4()}` }
-  }
-  async verifyLock(_escrow: EscrowRecord) {
-    return true
   }
   async splitFunds(_escrow: EscrowRecord, buyerAddress: string, sellerAddress: string) {
     await new Promise((r) => setTimeout(r, 100))
@@ -171,8 +200,10 @@ export const PROVIDERS: Record<string, SettlementProvider> = {
   // safe-guard-evm.provider.ts's own doc comment has the full
   // custody-model caveat (client-held buyer/seller keys, KMS-backed
   // arbiter co-signer, and the real-but-not-yet-deployable boundary:
-  // lockFunds/verifyLock/broadcast all require live EVM RPC +
-  // ERC-4337 bundler infrastructure this environment doesn't have).
+  // lockFunds/broadcast all require live EVM RPC + ERC-4337 bundler
+  // infrastructure this environment doesn't have; F6, 2026-09-07 —
+  // verifyLock() has since been removed from the interface entirely,
+  // see this file's own SettlementProvider header comment).
   SAFE_GUARD_EVM: safeGuardEvmProvider,
 }
 
@@ -300,8 +331,10 @@ export const PUBKEY_HEX_PATTERN = /^0[23][0-9a-fA-F]{64}$/
 // (client-held-keys, 2-of-3) providers; USDT_ERC20 maps to WDK_USDT_EVM,
 // the best REAL option today even though its own header discloses it's
 // single-seed, not multisig (SAFE_GUARD_EVM would be the right answer but
-// its lockFunds/verifyLock/broadcast are still throw-only — routing USDT
-// there would just fail every trade). Every other AssetType has no real
+// its lockFunds/broadcast were still throw-only at the time this was
+// written — routing USDT there would just fail every trade; F6,
+// 2026-09-07 — verifyLock() has since been removed from the interface
+// entirely). Every other AssetType has no real
 // provider at all yet (LIQUID_COVENANT/SPARK/STACKS/etc. — see
 // BACKLOG.md's asset x custody coverage note) and intentionally has no
 // entry here, so createEscrow() throws instead of guessing.

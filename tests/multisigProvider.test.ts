@@ -292,7 +292,7 @@ describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift dete
   })
 })
 
-describe('MultisigProvider — lock/verify against a mocked explorer API', () => {
+describe('MultisigProvider — lockFunds() against a mocked explorer API', () => {
   const fetchMock = jest.fn()
 
   beforeEach(() => {
@@ -351,65 +351,18 @@ describe('MultisigProvider — lock/verify against a mocked explorer API', () =>
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('verifyLock is true only for a confirmed UTXO meeting the expected amount', async () => {
-    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [{ txid: 'b'.repeat(64), vout: 0, value: 100_000, status: { confirmed: false } }],
-    })
-    const unconfirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
-    expect(unconfirmed).toBe(false)
-
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => [{ txid: 'b'.repeat(64), vout: 0, value: 100_000, status: { confirmed: true } }],
-    })
-    // Missão 11 Fase 8.1 LB-02 — verifyLock() now also re-verifies real
-    // confirmation depth once the listing itself reports confirmed:true
-    // (same two extra explorer calls as lockFunds() above).
-    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 200 }) })
-    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '200' })
-    const confirmed = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
-    expect(confirmed).toBe(true)
-  })
-
-  it('propagates a clear error when the explorer API itself fails — F1: bounded safe retry (3 attempts) on a persistent transient error, same final error as before', async () => {
-    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
-    // F1 (docs/TECHNICAL_DEBT_AUDIT.md #51) — a 503 is retryable on this
-    // read-only call; all 3 bounded attempts must be exhausted before the
-    // same "explorer API returned 503" error the caller always threw
-    // resurfaces — retry never invents a different failure mode.
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
-    await expect(
-      multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
-    ).rejects.toThrow('503')
-    expect(fetchMock).toHaveBeenCalledTimes(3)
-  })
-
-  it('a transient explorer error that clears on the second attempt succeeds without ever surfacing to the caller — F1 bounded safe retry', async () => {
-    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 }) // attempt 1: transient
-    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid: 'ab'.repeat(32), vout: 0, value: 50_000, status: { confirmed: true } }] }) // attempt 2: succeeds
-    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 100 }) })
-    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '105' })
-    const result = await multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
-    expect(result).toBe(true)
-  })
-
-  it('a deterministic client error (404) is never retried — F1', async () => {
-    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
-    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 404 })
-    await expect(
-      multisigProvider.verifyLock({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
-    ).rejects.toThrow('404')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
+  // F6 (docs/TECHNICAL_DEBT_AUDIT.md #53, 2026-09-07) — the 4 tests
+  // previously here exercised verifyLock() directly (a "confirmed UTXO
+  // meeting expected amount" check, plus 3 F1 bounded-retry proofs).
+  // verifyLock() has been removed from the interface entirely — it
+  // duplicated findFundingCandidate()/confirmationDepth() (lockFunds()'s
+  // own logic, exercised by this describe block's other tests above)
+  // with no real caller anywhere. The F1 bounded-retry/timeout property
+  // those 3 tests proved is not lost: it's a property of boundedFetch()
+  // itself (tests/boundedRpc.test.ts, provider-agnostic), not something
+  // specific to verifyLock() — fetchUtxos() (used by both lockFunds()
+  // and the now-removed verifyLock()) calls the identical shared helper
+  // either way.
 })
 
 describe('MultisigProvider — releaseFunds()/refundFunds() are not directly callable (superseded by Phase 2 signature collection)', () => {

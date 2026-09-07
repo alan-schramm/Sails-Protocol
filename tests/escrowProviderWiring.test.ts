@@ -88,7 +88,6 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     lockFunds: jest.fn(),
     releaseFunds: jest.fn(),
     refundFunds: jest.fn(),
-    verifyLock: jest.fn(),
     buildUnsignedRelease: (...args: unknown[]) => mockBuildUnsignedRelease(...args),
     buildUnsignedRefund: (...args: unknown[]) => mockBuildUnsignedRefund(...args),
     finalizeRelease: (...args: unknown[]) => mockFinalizeRelease(...args),

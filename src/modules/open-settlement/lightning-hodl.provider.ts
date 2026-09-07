@@ -309,15 +309,6 @@ export class LightningHodlProvider implements SettlementProvider {
     return { txId: funding.txid, address: address.encode() }
   }
 
-  async verifyLock(escrow: ArkEscrowInput): Promise<boolean> {
-    const parties = this.partiesFor(escrow)
-    const { vtxoScript } = await this.buildScript(parties)
-    const expected = this.expectedSats(escrow.lockedAmount)
-    const scriptHex = Buffer.from(vtxoScript.pkScript).toString('hex')
-    const { vtxos } = await this.getIndexer().getVtxos({ scripts: [scriptHex], spendableOnly: true })
-    return vtxos.some((v) => v.value >= expected)
-  }
-
   // Shared by buildUnsignedRelease()/buildUnsignedRefund() below — fetches
   // the escrow's recorded funding VTXO and builds (does not sign) the Ark
   // offchain tx spending it to toScript via the given leaf.
@@ -367,8 +358,8 @@ export class LightningHodlProvider implements SettlementProvider {
   // recordObligationForEscrowSettlement() call in escrow-pending-tx.ts
   // still fires for any LIGHTNING_HODL escrow), but this method's actual
   // transaction construction is deliberately UNCHANGED — a policy-aware
-  // LIGHTNING_HODL escrow would need the same lockFunds()/verifyLock()
-  // exact-funding treatment and output-construction extension MULTISIG
+  // LIGHTNING_HODL escrow would need the same lockFunds() exact-funding
+  // treatment and output-construction extension MULTISIG
   // received, not yet built. Disclosed here rather than silently
   // assumed identical.
   async buildUnsignedRelease(escrow: ArkEscrowInput, toAddress: string): Promise<{ psbtBase64: string; requiredSigners: string[] }> {

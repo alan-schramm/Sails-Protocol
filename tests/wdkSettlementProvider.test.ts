@@ -1,7 +1,7 @@
 /**
  * WdkSettlementProvider — the pure, deterministic helpers.
  *
- * The real wallet calls (lockFunds/releaseFunds/refundFunds/verifyLock)
+ * The real wallet calls (lockFunds/releaseFunds/refundFunds)
  * need a live testnet + a funded seed to verify for real — the same
  * "cannot be verified without live infrastructure" limitation this
  * codebase already declines to fake for PearsTransportProvider and

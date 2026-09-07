@@ -49,6 +49,16 @@ Drift**, não dívida técnica — um comentário desatualizado em
 antes se aplica: os itens novos não são forçados na escala Crítico/
 Alto/Médio/Baixo da tabela original.
 
+**Nota — 2026-09-07 (Bounded Remediation F6, CTO Gate #2).** Um sexto
+item novo foi adicionado, **#56**, sequencial (agora até #56, sem
+lacunas). Diferente de #51-#55, não veio da auditoria original — foi
+encontrado durante a própria revisão do fechamento do F6 (#53): um gap
+de evidência sobre segurança de retry do `lockFunds()` do
+`WDK_USDT_EVM` após uma falha externa ambígua. Classificado como novo
+delta de backlog/obrigação de evidência de segurança de produção, não
+como débito técnico da mesma família dos itens #51-#54 — mesma
+ressalva, não forçado na escala Crítico/Alto/Médio/Baixo.
+
 ---
 
 ## CRÍTICO — Bloqueia Evolução do Sistema
@@ -1470,6 +1480,100 @@ apenas nomeia a decisão pendente.
 
 **Não corrigido por este registro. Nenhum mecanismo criado.**
 
+**Status — CLOSED, Decisão B (Bounded Remediation F6, 2026-09-07).**
+Investigação exaustiva do call-graph real (não apenas grep) confirmou:
+em todos os 4 providers reais, `verifyLock()` reimplementa — de forma
+independente, textualmente quase idêntica — exatamente a mesma lógica
+de verificação de fundos que `lockFunds()` já executa (mesmo padrão em
+MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM, WDK_USDT_EVM); `MOCK`'s
+`verifyLock()` era um `return true` incondicional, sem propriedade
+alguma.
+
+**Correção de precisão (CTO Gate, 2026-09-07).** Uma versão anterior
+deste registro afirmava que "a transição CREATED→FUNDS_LOCKED já
+verifica fundos externos de verdade" — formulação forte demais.
+Confirmado lendo `escrow.service.ts`'s `lockFunds()` diretamente: o
+claim atômico via Postgres acontece PRIMEIRO, de forma PROVISÓRIA,
+ANTES de chamar `provider.lockFunds()` — a verificação real
+específica de cada rail (ou o movimento de fundos, para providers
+custodiais) acontece DEPOIS, dentro da própria chamada ao provider.
+Logo, o status `FUNDS_LOCKED` pode existir no banco enquanto
+`provider.lockFunds()` ainda está em execução. A propriedade real,
+precisa, que esta remoção preserva inalterada é: **uma operação de
+lock só é finalizada/evidenciada depois que `provider.lockFunds()` tem
+sucesso** — o resultado do lock é persistido, evidência de funding é
+gravada quando aplicável, e `settlement.escrow.locked` só é emitido
+então; uma falha do provider reverte o claim provisório
+(`revertEscrowStatus`, retorno a CREATED, retry no nível de aplicação).
+Reivindicação de estado ≠ fato externo verificado — o status provisório
+`FUNDS_LOCKED` em si não é evidência durável de settlement nem é o
+evento de lock emitido; ambos continuam dependendo do sucesso da
+chamada ao provider. Esta ordenação de controle de concorrência (claim
+→ chamada ao provider → finalização/evidência, ou reversão em erro
+lançado) permanece inalterada por esta remoção — existe para prevenir
+efeitos colaterais duplicados em chamadas concorrentes de
+`lockFunds()`, não para servir de gate de verificação, e está fora do
+escopo desta missão.
+
+**Correção adicional (CTO Gate #2, 2026-09-07) — "retry seguro" era
+forte demais.** A reversão acima torna o estado INTERNO (no banco)
+retentável — não prova, por si só, que os efeitos colaterais EXTERNOS
+de todo provider são seguros para retry, ou inexistentes, após uma
+falha ambígua. Para MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM,
+`lockFunds()` é uma verificação somente-leitura contra um funding já
+externo — um erro lançado ali genuinamente não implica um novo efeito
+colateral daquela chamada. Para `WDK_USDT_EVM`, `lockFunds()` chama
+`treasury.transfer(...)` — um movimento de fundos com efeito colateral
+externo real — então um erro lançado depois dessa chamada NÃO prova,
+por si só, que a transferência nunca foi efetivada; segurança de retry
+nesse caso específico NÃO é demonstrada por este mecanismo de reversão
+isoladamente. Não se afirma que este cenário seja explorável na
+prática, nem que `WDK_USDT_EVM` de fato duplique transferências — ver
+o novo item de backlog registrado logo abaixo, que nomeia a lacuna de
+evidência sem respondê-la.
+
+A reconciliação de reorg do MULTISIG (`multisig-funding-reorg-sweep.ts`)
+já usa seu próprio método dedicado, mais rico (`rescanFunding()` —
+outpoint, profundidade, alturas), nunca `verifyLock()`. Nenhuma rota
+HTTP, método de SDK, ou RFC normativo jamais expôs ou exigiu
+`verifyLock()` como capacidade chamável — confirmado por busca
+completa no repositório antes da remoção.
+
+**Ataque à Opção A (conectar) — rejeitada.** Toda tentativa de wiring
+revelou "uso pelo uso": duplicaria uma chamada de rede já realizada por
+`lockFunds()`; criaria ambiguidade TOCTOU (o estado da chain pode mudar
+entre um "pre-check" e o `lockFunds()` real); sugeriria falsamente
+garantias de segurança uniformes entre rails que não compartilham o
+mesmo modelo (MULTISIG verifica profundidade de confirmação; LIGHTNING_HODL
+verifica apenas VTXO gasto; SAFE_GUARD_EVM verifica saldo nativo;
+WDK_USDT_EVM é custodial — o saldo é consequência direta do próprio
+`lockFunds()`); e qualquer wiring que realmente "significasse algo"
+exigiria alterar semântica da máquina de estados, o que esta missão
+foi explicitamente instruída a não fazer.
+
+**Ataque à Opção B (remover) — sobreviveu.** Nenhum tipo público/SDK
+depende dele; nenhum teste prova uma propriedade de produção real (só
+a correção interna do próprio método, isolado); a verificação real
+continua exatamente onde sempre esteve (`lockFunds()`, e para MULTISIG,
+`rescanFunding()`); impacto de compatibilidade pública é zero.
+
+**Implementação:** `verifyLock(escrow): Promise<boolean>` removido de
+`SettlementProvider` (`escrow-providers.ts`) e das 5 implementações
+(`MockSettlementProvider`, `MultisigProvider`, `LightningHodlProvider`,
+`SafeGuardEvmProvider`, `WdkSettlementProvider`). Nenhuma lógica real de
+verificação de fundos foi removida — `lockFunds()`/`rescanFunding()`
+permanecem inalterados. Comentários que descreviam `verifyLock()` como
+capacidade viva (código-fonte, testes, whitepaper) corrigidos para
+refletir a verdade atual. `tests/multisigProvider.test.ts`/
+`tests/safeGuardEvmProvider.test.ts` tiveram seus testes específicos de
+`verifyLock()` removidos — a propriedade de bounded-retry/timeout (F1)
+que 3 desses testes também provavam permanece coberta de forma
+genérica e independente de provider em `tests/boundedRpc.test.ts`.
+Nenhuma claim de "todos os locks são verificados de forma independente"
+ou "verificação uniforme entre rails" é feita — pelo contrário, este
+registro documenta explicitamente que as garantias diferem por rail.
+Evidência completa: PR (branch `fix/f6-verifylock-decision`).
+
 ### 54. Caminhos de detecção baseados em QVAC degradam silenciosamente (log-only) em falha de inferência (Independent Code Quality & Production Reality Audit, 2026-09-06)
 
 **Classificação: P2 — débito técnico novo, observabilidade / sinal de segurança.**
@@ -1521,6 +1625,67 @@ durável/não-durável (que continua genuinamente relevante caso um
 deployment configure explicitamente `InMemoryEventStore`).
 
 **Não corrigido por este registro.**
+
+### 56. `WDK_USDT_EVM`'s `lockFunds()` — resultado desconhecido/segurança de retry não demonstrada (CTO Gate #2 sobre F6, 2026-09-07)
+
+**Classificação: novo delta de backlog / obrigação de evidência de segurança de produção. Não é causado pela remoção de `verifyLock()` (F6/#53) nem invalida a Decisão B — descoberto durante a revisão do F6, mas é um achado independente sobre `lockFunds()`, não sobre `verifyLock()`.**
+
+**Propriedade em risco:** uma ação de movimentação de fundos com efeito
+colateral externo não deve ser repetida apenas porque o chamador não
+conseguiu determinar o resultado da primeira tentativa.
+
+**Achado (fato atual, sem sobre-afirmar em nenhuma direção):**
+`escrow.service.ts`'s `lockFunds()` reverte o claim provisório de
+estado para `CREATED` sempre que `provider.lockFunds()` lança um erro
+(`revertEscrowStatus`). Isso torna o estado INTERNO (no banco)
+retentável. Para MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM, o
+`lockFunds()` de cada provider é uma verificação somente-leitura contra
+funding já externo — um erro lançado ali genuinamente não implica
+efeito colateral novo. Para `WDK_USDT_EVM` especificamente,
+`wdk-settlement.provider.ts`'s `lockFunds()` chama
+`treasury.transfer(...)` — um movimento real de fundos, com efeito
+colateral externo — ANTES de retornar. Se essa chamada lançar um erro
+depois que a transferência já tiver sido transmitida/aceita pela rede
+(timeout, resposta perdida, etc.), a sequência reversão-depois-retry
+poderia, em princípio, solicitar uma segunda transferência real.
+
+**Não se afirma:** que este cenário seja comprovadamente explorável na
+prática, nem que `WDK_USDT_EVM` de fato duplique transferências hoje.
+Este é um GAP DE EVIDÊNCIA, não um defeito demonstrado.
+
+**Perguntas para uma futura missão de evidência dedicada (não
+respondidas aqui, não devem ser respondidas por suposição):**
+1. O que exatamente `transfer()` do WDK garante quando rejeita?
+2. Uma transação pode ser transmitida/aceita pela rede antes de uma
+   resposta de rejeição/timeout chegar ao chamador?
+3. Existe um hash de transação / nonce / identidade de operação
+   determinística recuperável que `lockFunds()` poderia usar para
+   checar "minha última tentativa já foi efetivada" antes de tentar de
+   novo?
+4. A operação pode ser reconciliada antes do retry, da mesma forma que
+   o reorg-sweep do MULTISIG reconcilia estado de funding?
+5. A submissão duplicada é naturalmente idempotente na camada de
+   transação/nonce da EVM, e sob quais condições exatas de falha isso
+   vale ou não vale?
+6. O atual revert-para-`CREATED` do `escrowService` colapsa
+   incorretamente um resultado externo DESCONHECIDO em FALHOU (a mesma
+   distinção DESCONHECIDO-vs-FALHOU que o próprio trabalho de
+   broadcast/timeout do F1 já estabeleceu para outros rails)?
+7. Isso já está totalmente contido pela classificação existente de
+   `WDK_USDT_EVM` como `PRODUCTION-INELIGIBLE`/custodial-de-servidor
+   (`docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md`), ou exige
+   remediação independente antes de qualquer autorização de produção
+   futura para este rail?
+
+**Fix recomendado (propriedade, não mecanismo):** nenhum prescrito
+aqui — as 7 perguntas acima precisam de uma investigação real e
+dedicada antes de qualquer decisão de implementação. Não criar um
+mecanismo de idempotência, deduplicação, ou reconciliação por
+suposição.
+
+**Não corrigido por este registro. Nenhum mecanismo criado. Nenhuma
+mudança de comportamento em `lockFunds()`/`escrow.service.ts` feita ou
+autorizada por este registro.**
 
 ## Ações Recomendadas por Prioridade
 
