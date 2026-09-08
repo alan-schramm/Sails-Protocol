@@ -285,13 +285,25 @@ document:
 > combined value by providing the missing economic coordination layer
 > between them."**
 
-### Why this increases adoption of WDK/Pears/QVAC (the causal argument)
+### Why this grows the Sails network and the underlying ecosystem
 
-- Every wallet that integrates Sails becomes, by necessity, a WDK integrator.
-- Every module deployed on the network grows the number of active peers on
-  the Pears/HyperDHT network.
-- Every Sails OpenAgents module built drives direct QVAC SDK usage — the
-  module literally cannot function without QVAC underneath it.
+**Current-truth correction (2026-09-07):** an earlier sentence in this
+section said every wallet integrating Sails would necessarily become a WDK
+integrator. That is too strong and conflicts with the already-shipped,
+chain-agnostic `WalletAdapter` boundary in RFC-013. WDK is a strategic
+first-party integration target and important reference stack, not a mandatory
+wallet dependency of the protocol.
+
+- Every wallet that integrates Sails expands the reachable Sails P2P network
+  without being required to replace its existing wallet-development stack.
+- WDK-based wallets should receive a first-party integration path, while BDK,
+  Breez SDK, Spark SDK, LDK, major EVM wallet-development stacks, and other
+  relevant kits should be able to integrate through equally explicit
+  first-party adapter paths as those adapters are implemented and evidenced.
+- Every module deployed on the network can grow the number of active peers on
+  the Pears/HyperDHT network when that transport is used by the implementation.
+- Every Sails OpenAgents module using QVAC drives direct QVAC SDK usage, while
+  QVAC remains advisory and does not become protocol authority.
 
 This is part of why external funding conversations are worth having —
 specifics are intentionally not disclosed in this public document (see
@@ -372,6 +384,118 @@ infrastructure → protocol → modules → SDK → your wallet), or top-to-bott
 for "what do I integrate" (your wallet → one SDK call → the protocol
 coordinates everything below it). Both readings are intentional — that's
 the point of the shape.
+
+### First-party wallet-kit adapters and multi-rail distribution strategy
+
+> **Sails P2P Trading SDK should ship with first-party integration paths for the major wallet development kits and the major settlement-capable networks relevant to P2P markets.**
+
+Canonical adoption principle:
+
+> **Keep your wallet stack. Plug into Sails.**
+
+The protocol/Core remains wallet-kit agnostic. The SDK's existing
+`WalletAdapter` boundary is the generic contract; first-party adapters reduce
+integration cost for the stacks wallets already use. Initial visible adapter
+targets are:
+
+- `@sails/adapter-bdk` — BDK / Bitcoin wallet stacks
+- `@sails/adapter-wdk` — Tether WDK wallet stacks
+- `@sails/adapter-breez` — Breez SDK wallet stacks
+- `@sails/adapter-spark` — Spark SDK wallet stacks
+- `@sails/adapter-ldk` — LDK / Lightning wallet stacks
+- `@sails/adapter-ethers` — major EVM wallet stacks using ethers-compatible flows, including Ethereum and BNB Smart Chain
+- `@sails/adapter-tron` — TRON wallet stacks
+- `@sails/adapter-solana` — Solana wallet stacks
+- `@sails/adapter-ton` — TON wallet stacks
+
+**Status discipline:** these names are first-party **planned adapter targets**,
+not published packages and not evidence of current support. Package namespace
+availability and exact implementation shape must be verified before release.
+The list is intentionally extensible as other wallet-development kits earn
+support through ecosystem relevance and real integration demand.
+
+**Do not collapse wallet adapters and settlement rails.** A wallet-kit adapter
+answers "how does this wallet sign, derive addresses, inspect balances and
+expose capabilities?" A settlement provider answers "can this rail actually
+satisfy Sails' escrow/conditional-settlement, authority, evidence,
+refund/dispute, recovery and reconciliation properties?" A wallet may use one
+kit while settling over several eligible rails.
+
+The network-effect goal is therefore two-dimensional:
+
+1. **wallet-stack reach** — reduce the cost for major wallet SDK ecosystems to
+   join Sails, including the main Bitcoin/Lightning stacks and the major
+   stablecoin environments; and
+2. **settlement-rail reach** — support economically relevant networks when
+   their primitives can demonstrate the required Sails properties.
+
+For stablecoin distribution, the initial explicit wallet-stack coverage target
+is **EVM (including BNB Smart Chain), TRON, Solana and TON**. This is an
+integration/distribution target, not a claim that every one of those networks
+already has a Sails escrow implementation.
+
+No vendor SDK, including WDK, becomes protocol truth or a mandatory dependency
+for all integrators.
+
+### External Design Reference — WDK Building Blocks
+
+WDK demonstrates a useful model of composable wallet and protocol
+capabilities. **Sails adopts the composability principle, not the
+dependency.** Three principles govern how this reference is used:
+
+1. **Adopt the composability principle, not the dependency.** WDK is a
+   design inspiration and a first-party integration target (see above) —
+   it is never architecture Sails copies wholesale or a package Sails Core
+   requires.
+2. **Normalize by capability family, not through one universal generic
+   interface.** The same reasoning that keeps `WalletAdapter` and
+   `SettlementProvider` as two distinct axes (above) applies here: a
+   single all-purpose interface trying to cover every wallet/protocol
+   capability tends to either under-specify or over-generalize. Capability
+   families (signing, address derivation, balance/query, settlement) are
+   normalized independently.
+3. **Third-party extensions may eventually exist, but conformance and
+   evidence determine support status** — never package existence alone
+   (the same discipline the coverage matrix and the First-Party Supported
+   Criteria above already apply to Sails' own first-party adapters).
+
+The distinction that matters most: **WDK makes wallet capabilities
+composable. Sails aims to make economic coordination composable across
+wallets and rails.** These are related but not identical goals — WDK's
+own internal architecture is not treated as Sails' architecture.
+
+### Satsails Wallet — first reference implementation and showcase
+
+**Satsails Wallet is intended to serve as the first reference
+implementation, first production distribution surface, and first
+multi-rail showcase of Sails Protocol composability.** This repository
+already documents this relationship (`README.md`'s own "This repository is
+the Reference Wallet implementation" framing) — this section makes the
+showcase role explicit for the multi-rail strategy specifically.
+
+**Satsails Wallet is a reference implementation, not protocol truth.**
+Nothing about Satsails' own product decisions, UI, or roadmap becomes a
+Sails Core requirement merely because Satsails is the first integrator.
+
+Satsails is the environment where Sails Protocol proves integration with,
+as each rail's own real status allows (see "Rail readiness," `README.md`):
+
+- Bitcoin on-chain (✅ Proven, `MULTISIG`)
+- Spark (📋 Future — not yet implemented)
+- Liquid (📋 Designed — zero implementation)
+- WDK-backed stablecoin stacks (🏗️ Implemented, testnet, server-custodial reference — `WDK_USDT_EVM`)
+- Tether Gold (📋 Future — not yet implemented)
+- future Arkade (🏗️ Lightning/Arkade path implemented testnet-only today; a dedicated Arkade settlement path beyond that is 📋 Future)
+- future RGB (📋 Future — not yet implemented)
+
+No rail listed here as future/planned is claimed as already implemented —
+each carries the same status legend used throughout this document (§4).
+
+**A successful Satsails production integration proves the reference
+implementation and real integration viability. It does not by itself
+prove independent cross-wallet interoperability** — a second, genuinely
+independent wallet integrating Sails (not built or operated by Satsails)
+is what would demonstrate that, and none has yet.
 
 ### The Named-SDK Rule (hardened after "this still sounds generic" feedback)
 

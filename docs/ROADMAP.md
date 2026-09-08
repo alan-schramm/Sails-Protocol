@@ -19,6 +19,32 @@
 
 ---
 
+## Standing Network-Effect Commitment — Wallet Kits + Settlement Rails
+
+The Sails P2P Trading SDK should ship with first-party integration paths for
+the major wallet development kits and the major settlement-capable networks
+relevant to P2P markets. The objective is not to make every integrator adopt
+the Reference Wallet's stack; it is to let existing wallets join the Sails
+network with minimal replacement cost.
+
+Initial **planned** first-party adapter targets:
+
+- `@sails/adapter-bdk`
+- `@sails/adapter-wdk`
+- `@sails/adapter-breez`
+- `@sails/adapter-spark`
+- `@sails/adapter-ldk`
+- `@sails/adapter-ethers` — EVM family, including BNB Smart Chain
+- `@sails/adapter-tron`
+- `@sails/adapter-solana`
+- `@sails/adapter-ton`
+
+These package names are roadmap targets, not published/support claims yet.
+Additional adapters are added by ecosystem relevance and integrator demand.
+Settlement-network expansion remains property-gated: a network is eligible
+because its primitives can satisfy the required Sails settlement semantics,
+not merely because an SDK or smart-contract platform exists.
+
 ## Months 1-3 — Foundation (Commitment)
 
 - `@sails/protocol-spec` v0.1 published to npm (interfaces + event contracts only)
@@ -39,6 +65,10 @@
 - All 8 modules documented (spec + integration guide)
 - Public sandbox testnet, no signup required
 - First 10 wallet integrations using the SDK
+- First-party adapter program underway for BDK, WDK, Breez SDK, Spark SDK,
+  LDK, major EVM wallet-development stacks (including BNB Smart Chain), TRON,
+  Solana, and TON; each adapter must be backed by real integration evidence
+  before it is labeled supported
 - Third-party security audit, scoped to Sails OpenP2P + Sails OpenSettlement
   (the two modules with real code as of this handoff)
 - Sails OpenP2P module spec reaches v1.0 stability
@@ -71,6 +101,43 @@
   Written down now as a vision document, not built now — see that file
   for exactly what's real today vs. what this phase would need to build
   first (the Policy Engine's governed-rule system, most notably).
+- **Third-Party Sails Modules & Developer Extension Ecosystem** —
+  inspired by WDK Building Blocks and `create-wdk-module`
+  (`PROJECT_CONTEXT.md`'s own "External Design Reference — WDK Building
+  Blocks" section), Sails should eventually provide tooling for third
+  parties to build Sails-compatible wallet adapters, settlement providers,
+  and economic modules without requiring those technologies to become
+  Core dependencies. Conceptually, not yet planned in implementation
+  detail: `create-sails-adapter`, `create-sails-module`, scaffolding, a
+  conformance harness, module templates, capability manifests,
+  documentation templates, third-party wallet adapters, third-party
+  settlement providers, and future third-party economic modules.
+  **Package existence does not imply Sails support; conformance and
+  evidence determine maturity** — the same discipline this document's own
+  coverage matrix and First-Party Supported Criteria already apply to
+  Sails' own first-party adapters (`README.md`). Named here as a future
+  direction only — no scaffolding, registry, manifest schema, or tooling
+  code exists yet, and none is authorized by this entry.
+- **Third-Party Liquidity & Economic Modules** — a future track built on
+  top of the extension ecosystem above, not a separate mechanism. External
+  providers may contribute liquidity, RFQ, OTC, lending, swap, bridge,
+  routing, and pricing capabilities through Sails-compatible modules.
+  **Sails remains the coordination layer, does not own underlying capital
+  or inventory, and may collect protocol fees from confirmed economic
+  outcomes** subject to published policy and conformance — never from a
+  module's mere existence or registration. `Sails OpenLiquidity` is a
+  natural candidate for the first multi-provider third-party economic
+  module ecosystem, since it already separates the coordination layer
+  (`LiquidityProvider` interface, `InternalOrderBook`) from any specific
+  liquidity source. **Integration should remain open. Economic
+  coordination may be monetized. Module existence alone does not imply
+  Sails support or production readiness** — the same
+  package/module-existence ≠ supported ≠ production-ready rule the
+  extension-ecosystem entry above and this document's own coverage matrix
+  (`README.md`) already apply everywhere else. Named here as a future
+  direction only — no module, provider registry, fee-collection mechanism,
+  or conformance rule for third-party economic modules exists yet, and
+  none is authorized by this entry.
 
 ---
 
