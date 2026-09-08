@@ -19,6 +19,29 @@
 
 ---
 
+## Standing Network-Effect Commitment — Wallet Kits + Settlement Rails
+
+The Sails P2P Trading SDK should ship with first-party integration paths for
+the major wallet development kits and the major settlement-capable networks
+relevant to P2P markets. The objective is not to make every integrator adopt
+the Reference Wallet's stack; it is to let existing wallets join the Sails
+network with minimal replacement cost.
+
+Initial **planned** first-party adapter targets:
+
+- `@sails/adapter-bdk`
+- `@sails/adapter-wdk`
+- `@sails/adapter-breez`
+- `@sails/adapter-spark`
+- `@sails/adapter-ldk`
+- `@sails/adapter-ethers`
+
+These package names are roadmap targets, not published/support claims yet.
+Additional adapters are added by ecosystem relevance and integrator demand.
+Settlement-network expansion remains property-gated: a network is eligible
+because its primitives can satisfy the required Sails settlement semantics,
+not merely because an SDK or smart-contract platform exists.
+
 ## Months 1-3 — Foundation (Commitment)
 
 - `@sails/protocol-spec` v0.1 published to npm (interfaces + event contracts only)
@@ -39,6 +62,9 @@
 - All 8 modules documented (spec + integration guide)
 - Public sandbox testnet, no signup required
 - First 10 wallet integrations using the SDK
+- First-party adapter program underway for BDK, WDK, Breez SDK, Spark SDK,
+  LDK, and major EVM wallet-development stacks; each adapter must be backed by
+  real integration evidence before it is labeled supported
 - Third-party security audit, scoped to Sails OpenP2P + Sails OpenSettlement
   (the two modules with real code as of this handoff)
 - Sails OpenP2P module spec reaches v1.0 stability
