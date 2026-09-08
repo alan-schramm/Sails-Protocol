@@ -1962,9 +1962,13 @@ pré/pós-submissão permanece conservadora (todo throw após `PREPARED` vira
 `SUBMISSION_UNKNOWN` não tem reconciliação automática (requer operador);
 apenas 1 confirmação, não profundidade N; janela de poll de recibo
 limitada (~30s por padrão); `chainId` não populado; **migração Prisma
-(`prisma/migrations/20260908000000_wdk_transfer_attempt`) validada apenas
-via `prisma validate`/`prisma generate` — não aplicada contra um Postgres
-real nesta sessão (nenhum estava acessível)**. `WDK_USDT_EVM` permanece
+(`prisma/migrations/20260908000000_wdk_transfer_attempt`) validada
+localmente apenas via `prisma validate`/`prisma generate` (nenhum Postgres
+acessível nesta sessão) — mas o próprio workflow de CI (`build`/`test`,
+Postgres efêmero real) rodou `prisma migrate deploy` contra esta migração
+exata e passou, DEMONSTRANDO que ela aplica corretamente contra um
+Postgres real** (nenhum teste ainda exercita as próprias queries de
+`WdkTransferAttempt` contra esses dados reais). `WDK_USDT_EVM` permanece
 `PRODUCTION-INELIGIBLE`, inalterado — esta remediação fecha um bloqueador
 de propriedade, não constitui uma revisão de elegibilidade de produção.
 Evidência completa: `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.

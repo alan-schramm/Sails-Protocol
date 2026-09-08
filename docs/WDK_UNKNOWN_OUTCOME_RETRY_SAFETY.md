@@ -1013,13 +1013,21 @@ lives one level lower, inside the real provider.
   reaching into a private field; not implemented in this pass.
 - **The new Prisma migration
   (`prisma/migrations/20260908000000_wdk_transfer_attempt`) was hand-authored
-  to match this repository's own established migration format and
-  validated via `npx prisma validate`/`npx prisma generate` only — it was
-  NOT applied against, or tested with, a live Postgres instance in this
-  session, because none was reachable (`localhost:5432` connection
-  refused).** This is a real, disclosed gap — the migration's correctness
-  against an actual database has not been demonstrated, only its syntax
-  and its consistency with `schema.prisma`.
+  to match this repository's own established migration format.** Locally,
+  it could only be validated via `npx prisma validate`/`npx prisma
+  generate` — no live Postgres was reachable in this session
+  (`localhost:5432` connection refused). **Update: CI's own `build`/`test`
+  workflow (`.github/workflows/ci.yml`) provisions a real, ephemeral
+  Postgres 16 service and runs `npm run db:migrate` (`prisma migrate
+  deploy`) against this exact migration before running any tests — both
+  checks PASSED on this PR's HEAD, DEMONSTRATING (not merely validated
+  offline) that the migration applies cleanly to a real Postgres instance
+  and is consistent with `schema.prisma`.** Residual, still real: no test
+  in this pass exercises `WdkTransferAttempt`'s own read/write behavior
+  against that live database directly (every unit test still mocks
+  `common/database`) — CI's green result proves the migration *applies*
+  and the schema *compiles*, not that the table's own query shapes have
+  been exercised against real Postgres data.
 
 **Production eligibility: unchanged.** `WDK_USDT_EVM` remains
 `PRODUCTION-INELIGIBLE` (RFC-019) — this remediation closes the retry-safety
