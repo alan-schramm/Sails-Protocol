@@ -71,6 +71,17 @@ como débito técnico da mesma família dos itens #51-#54, e explicitamente
 NÃO uma regressão causada pelo F8. Mesma ressalva, não forçado na escala
 Crítico/Alto/Médio/Baixo.
 
+**Nota — 2026-09-08 (WDK Fund-Moving Operations Safety Sweep).** Um oitavo
+item novo foi adicionado, **#58**, sequencial (agora até #58, sem
+lacunas). Mesma categoria de #56/#57 (obrigação de investigação, não
+achado da auditoria original): estende #56 (que cobriu apenas
+`lockFunds()` do `WDK_USDT_EVM`) às três outras chamadas de fund-moving
+do mesmo provider (`releaseFunds()`, `refundFunds()`, `splitFunds()`),
+com veredito por método (não forçado uniforme) — os três demonstrados
+como gap estrutural (C), `splitFunds()` carregando um achado adicional de
+execução parcial multi-leg. Mesma ressalva, não forçado na escala
+Crítico/Alto/Médio/Baixo.
+
 ---
 
 ## CRÍTICO — Bloqueia Evolução do Sistema
@@ -1992,6 +2003,76 @@ retries, mudar a topologia de CI, ou criar um novo framework de teste.
 
 **Não corrigido por este registro. Nenhum mecanismo criado. Nenhuma
 mudança de configuração de Jest/CI feita ou autorizada por este
+registro.**
+
+### 58. `WDK_USDT_EVM`'s `releaseFunds()`/`refundFunds()`/`splitFunds()` — sweep de segurança de fund-moving operations, veredito por método (2026-09-08)
+
+**Classificação: investigação de produção-safety, obrigação derivada de
+#56 (`docs/BACKLOG.md`'s "WDK Fund-Moving Operations Safety Sweep",
+registrada 2026-09-08). Estende #56 (que cobriu apenas `lockFunds()`) às
+três outras chamadas auto-iniciadas de `transfer()` real do mesmo
+provider.**
+
+**Achado, com evidência real (não suposição):** as três chamadas
+compartilham exatamente a mesma forma estrutural de `escrow.service.ts`
+que `lockFunds()` já tinha (claim atômico antes da chamada ao provider,
+`catch` que reverte incondicionalmente o status em qualquer falha). Um
+novo teste adversarial real (`tests/wdkFundMovingOperationsSafety.test.ts`,
+7 testes, orquestração real e não-mockada, efeito colateral externo
+sempre SIMULADO — nenhuma chamada de rede real em lugar nenhum) demonstra,
+para `releaseFunds()` e `refundFunds()`, o mesmo padrão exato de
+"submit then throw" que #56 já demonstrou para `lockFunds()`.
+`splitFunds()` carrega um achado adicional e independente: seu provider
+(`wdk-settlement.provider.ts`) faz DUAS chamadas `transfer()` sequenciais
+e não-atômicas, sem canal de resultado parcial — um teste demonstra que
+o sucesso (simulado) da perna 1 seguido de uma falha na perna 2 nunca
+persiste nada (nem a perna 1), e um retry subsequente repete o efeito
+colateral (simulado) da perna 1 uma segunda vez; um segundo teste
+demonstra que a perna 2 também ter seu próprio efeito colateral simulado
+antes de lançar erro produz o EXATO MESMO resultado observável para
+`escrow.service.ts` — ou seja, **o Sails não consegue distinguir "a perna
+2 nunca foi tentada" de "a perna 2 foi tentada e seu resultado se
+perdeu."**
+
+**Vereditos por método, não forçados a um resultado uniforme:**
+- `releaseFunds()`: **C — gap estrutural demonstrado**
+- `refundFunds()`: **C — gap estrutural demonstrado**
+- `splitFunds()`: **C — gap estrutural demonstrado**, estritamente maior
+  que os outros dois (carrega também o gap de execução parcial multi-leg)
+- Receipt/confirmação (Property C, transversal às quatro chamadas
+  incluindo `lockFunds()`): **C — gap estrutural demonstrado** — nenhuma
+  das quatro chamadas espera ou verifica um recibo on-chain
+
+**Nova superfície de retry registrada:** `dispute.service.ts`'s
+`applyRuling()` reverte `ruling`/`resolvedAt` para `null` em qualquer
+falha de release/refund/split, com seu próprio comentário afirmando "the
+arbiter must re-submit" — um "dispute resolution replay" real e
+documentado, distinto das superfícies HTTP/auto-settle que #56 já havia
+registrado (`splitFunds()` não tem rota HTTP direta — só é alcançável via
+ruling de disputa).
+
+**Não se afirma:** "fundos definitivamente duplicados", "double payment
+real", ou "perda parcial real" — nenhum teste ao vivo foi executado.
+Claim permitido e demonstrado: "Sails orchestration permits a repeated
+provider invocation after a simulated post-submission unknown outcome"
+e, para `splitFunds()`, "Sails orchestration permits partial simulated
+multi-leg execution without durable knowledge sufficient to safely
+resume."
+
+**Fix recomendado (propriedade, não mecanismo):** nenhum prescrito aqui —
+nenhum mecanismo de idempotência, journal de operação, polling de recibo,
+reserva de nonce, motor de reconciliação, máquina de estados por perna,
+transação de compensação, bundler, multicall, split atômico via
+smart-contract, middleware de retry, ou framework genérico de operação
+econômica foi criado ou autorizado. Propriedade primeiro, mecanismo
+depois — mesma disciplina de #56.
+
+`WDK_USDT_EVM` permanece `PRODUCTION-INELIGIBLE`, inalterado. Evidência
+completa: `docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md`.
+
+**Não corrigido por este registro. Nenhum mecanismo criado. Nenhuma
+mudança de comportamento em `releaseFunds()`/`refundFunds()`/
+`splitFunds()`/`escrow.service.ts` feita ou autorizada por este
 registro.**
 
 ## Ações Recomendadas por Prioridade
