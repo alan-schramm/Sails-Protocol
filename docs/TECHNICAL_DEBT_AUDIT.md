@@ -82,6 +82,19 @@ como gap estrutural (C), `splitFunds()` carregando um achado adicional de
 execução parcial multi-leg. Mesma ressalva, não forçado na escala
 Crítico/Alto/Médio/Baixo.
 
+**Nota — 2026-09-08 (Test-Harness Reliability).** Um nono item novo foi
+adicionado, **#59**, sequencial (agora até #59, sem lacunas) — **CLOSED**,
+diferente de todos os itens anteriores desta família (#56-#58, ainda
+abertos/investigação). Colisão de Haste module map do Jest causada por
+`.claude/worktrees/` (checkouts locais deixados por invocações
+anteriores da Agent tool) — demonstrada por experimento controlado,
+corrigida com uma única entrada em `modulePathIgnorePatterns` já
+existente em `jest.config.js`, evidenciada antes/depois (`npm run
+test:unit`: 742 suítes/442 falhas → 154 suítes/0 falhas, nenhuma
+cobertura real perdida). Genuinamente distinto do item #57 (contenção de
+`buildApp()` sob carga paralela), que permanece aberto — ver a nota de
+desambiguação no próprio #57.
+
 ---
 
 ## CRÍTICO — Bloqueia Evolução do Sistema
@@ -2054,6 +2067,21 @@ retries, mudar a topologia de CI, ou criar um novo framework de teste.
 mudança de configuração de Jest/CI feita ou autorizada por este
 registro.**
 
+**Nota de desambiguação (2026-09-08).** Uma missão CTO rotulada
+"Test-Harness Reliability #57" investigou e fechou um achado
+GENUINAMENTE DIFERENTE — a colisão de Haste module map causada por
+`.claude/worktrees/` (registrada como item **#59** abaixo, novo, não
+uma correção deste item). As 7 perguntas acima sobre contenção
+`buildApp()`/Swagger sob carga paralela permanecem inteiramente
+abertas, não respondidas por esta nota nem pela missão que a originou.
+Nesta sessão específica, ao re-executar `npm run test:unit` durante a
+investigação de #59, nenhuma das 10 suites historicamente citadas
+falhou pelo sintoma deste item (dado observacional de uma única
+execução, não uma prova de que a causa raiz deste item deixou de
+existir — timing sob paralelismo é, pela própria natureza deste
+achado, não-determinístico). Full evidence do achado #59:
+`docs/TEST_HARNESS_RELIABILITY.md`.
+
 ### 58. `WDK_USDT_EVM`'s `releaseFunds()`/`refundFunds()`/`splitFunds()` — sweep de segurança de fund-moving operations, veredito por método (2026-09-08)
 
 **Classificação: investigação de produção-safety, obrigação derivada de
@@ -2159,6 +2187,78 @@ incluindo cada perna de `splitFunds()`. Detalhe completo:
 `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.1,
 `docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` §15.1. Nenhum novo BACKLOG
 DELTA.
+
+### 59. Colisão de Haste module map do Jest via `.claude/worktrees/` — CLOSED (2026-09-08)
+
+**Classificação: confiabilidade de sistema de engenharia / harness de
+testes — não é uma regressão de código de produto, e não é o mesmo
+achado do item #57 (contenção de `buildApp()` sob carga paralela) —
+achados genuinamente distintos, ver nota de desambiguação em #57 acima.**
+
+**Propriedade em risco:** uma execução completa da suíte de testes deve
+falhar porque código está errado, não porque worktrees locais não
+relacionados ou artefatos de descoberta de testes colidem.
+
+**Achado, DEMONSTRADO por experimento controlado, não suposto:**
+`.claude/worktrees/agent-*` (worktrees git reais e vinculados, deixados
+por invocações anteriores da feature `isolation: "worktree"` da Agent
+tool que fizeram alterações) contêm cada um um checkout completo,
+incluindo seu próprio `packages/sails-sdk/package.json` — declarando o
+mesmo `"name": "@satsails/p2p-trading-sdk"` do arquivo real. O
+`jest-haste-map` do Jest indexa todo `package.json` sob `roots` por seu
+campo `"name"`; `jest.config.js`'s `modulePathIgnorePatterns` excluía
+apenas `<rootDir>/dist/` (adicionado antes para a MESMA classe exata de
+problema). Confirmado por experimento direto: excluir 3 dos 4 worktrees
+via flag de CLI e deixar apenas 1 ainda reproduz a colisão idêntica com
+exatamente 2 candidatos — um único worktree remanescente já é
+suficiente. Um segundo efeito, também confirmado por contagem direta:
+cada worktree contém sua própria cópia (mais antiga) de `tests/*.test.ts`
+(148 arquivos cada), que o `testMatch` do Jest também descobria como
+suítes adicionais fantasmas — explicando por que o total pré-correção
+era ~742 suítes (154-155 reais + 4×148 duplicatas de worktree) em vez
+das 154-155 suítes reais.
+
+**Por que o CI nunca reproduziu:** `.claude/worktrees/` é um artefato
+puramente local desta máquina (nunca commitado, nunca listado em
+`.gitignore` mas simplesmente nunca adicionado por ninguém) — um
+checkout limpo do CI (`actions/checkout`) nunca o possui.
+
+**Fix implementado, mínimo, localizado:** um item adicionado ao array
+`modulePathIgnorePatterns` já existente em `jest.config.js`, ao lado da
+entrada `dist/` pré-existente, reaproveitando o mesmo mecanismo já
+estabelecido e comentado neste arquivo para a mesma classe de problema.
+Nenhuma nova chave de configuração, nenhum framework novo, nenhum
+worktree apagado ou movido (toda a investigação usou apenas flags de
+CLI, nunca mutação do sistema de arquivos).
+
+**Evidência antes/depois:** `npm run test:unit` antes: `442 failed, 300
+passed, 742 total` suítes. Depois: **`154 passed, 154 total` suítes;
+`1923 passed, 1923 total` testes — zero falhas.** Nenhuma cobertura real
+perdida (Cobra Check): as 154 suítes finais correspondem quase
+exatamente à contagem real de arquivos `tests/*.test.ts` (155,
+verificado por busca direta no filesystem) — a redução de 742 para 154
+é inteiramente explicada pelo desaparecimento das quatro duplicatas de
+worktree (742 − 154 = 588 ≈ 4×148), não pela remoção de nenhum teste
+real.
+
+**Residual, não corrigido:** a razão interna exata pela qual o
+`moduleNameMapper` de `jest.config.js` (que já mapeia
+`@satsails/p2p-trading-sdk` explicitamente) não previne esta colisão
+específica é INFERIDA, não rastreada até o código-fonte do
+`jest-resolve`/`jest-haste-map` — não enfraquece a correção (que remove
+os provedores duplicados independentemente da ordem interna do
+resolver), mas é um detalhe de mecanismo não totalmente compreendido,
+registrado como tal. `.claude/` ainda não está em `.gitignore` (achado
+lateral, não corrigido neste registro, fora do escopo desta
+investigação). Um checkout limpo em outro local não foi reproduzido
+(julgado sem necessidade dado o próprio CI já servir como evidência
+real repetida de "zero worktrees presentes").
+
+**Não é o item #57.** As 7 perguntas de #57 sobre contenção
+`buildApp()`/Swagger sob carga paralela permanecem totalmente abertas,
+não respondidas por este item.
+
+Evidência completa: `docs/TEST_HARNESS_RELIABILITY.md`.
 
 ## Ações Recomendadas por Prioridade
 
