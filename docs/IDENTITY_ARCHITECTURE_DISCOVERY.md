@@ -609,6 +609,105 @@ than implicitly.
 | Dependency coupling | High — every derived identity's security assumptions become entangled with the wallet-seed KDF choice | Medium — Sails Identity Root is the only thing coupled to the wallet seed; per-protocol conventions couple to *that*, not directly to the wallet | Low — no protocol depends on another's derivation | Low for independent arms, Medium for the derived arm |
 | Vendor/protocol lock-in | Low (BIP-32 is an open standard) | Low, same reasoning | Low — nothing here is protocol-specific | Low |
 
+### 5.1 External precedent — Breez `passkey-login` spec (addendum, 2026-09-08)
+
+**Source directly fetched and verified** (not taken on the CTO's summary
+alone, per this repository's own discipline of checking pasted claims
+against the primary source before building on them):
+[`github.com/breez/passkey-login/blob/main/spec.md`](https://github.com/breez/passkey-login/blob/main/spec.md).
+**OFFICIAL SPEC** — a real, published specification document, not a
+blog post or inferred behavior.
+
+**Confirmed architecture, quoted from the spec:**
+
+```
+account_master = PRF(passkey, 0x4e594f415354525453414f594e)
+nostr_account  = Nostr keys derived from account_master at account 55,
+                  BIP39/BIP32/NIP-06 path (m/44'/1237'/55'/0/0)
+
+root_key = PRF(passkey, salt_string)
+mnemonic = BIP39(root_key)
+wallet/app keys = BIP32/BIP44(mnemonic)
+```
+
+- `account_master` comes from a WebAuthn **PRF extension** (not a
+  BIP-39 mnemonic itself) evaluated against the passkey, using a fixed
+  challenge (the hex encoding of a chosen "magic string", explicitly
+  picked "to prevent collision with any salt values") — user
+  verification required at the authenticator.
+- The Nostr account is derived via **exactly NIP-06's own standardized
+  path** (confirmed §3.4/§5's own finding — this spec doesn't invent a
+  new Nostr derivation, it reuses the existing one, at a dedicated
+  account index `55'`).
+- For each `salt_string`, a separate `root_key` → BIP-39 `mnemonic` →
+  BIP-32/44 wallet/app keys chain is produced. The spec states this
+  explicitly enables reuse beyond one wallet: *"BIP39/BIP32 is applied
+  to create... deterministic key hierarchies that can be used in
+  wallets and compatible apps."*
+- **Nostr's role in this spec is salt/metadata discovery, not wallet
+  authority** — confirmed directly: salts are published as ordinary
+  kind-1 Nostr events for recoverability, while "the passkey and PRF
+  remain the sole cryptographic trust anchor. Relay compromise has no
+  effect on key security." This is a real, concrete, spec-level example
+  of the property named in §7 of this document: **recovery
+  metadata/discovery ≠ wallet authority.**
+
+**What this is evidence of, precisely (interpretation, not overclaim):**
+
+1. **A wallet-level recovery root (here, a passkey via WebAuthn PRF, not
+   a BIP-39 mnemonic itself) can deterministically reconstruct more than
+   one cryptographic domain** — both a NIP-06-standard Nostr identity
+   and arbitrary BIP-32/44 wallet/app key hierarchies, from the same
+   underlying secret, via distinct, salted derivation contexts. This is
+   real, shipped, spec-level design — the strongest concrete precedent
+   for "one root, several domains" found in this entire investigation,
+   stronger than NIP-06 alone because it demonstrates the pattern
+   composed across *two* different derivation stages (PRF → per-salt
+   root → BIP-39 → BIP-32/44), not just one HD tree.
+2. **This does not make Passkey or Breez a Sails Protocol dependency.**
+   Nothing in this document proposes adopting WebAuthn/passkeys as a
+   Sails requirement — it is cited purely as evidence that the
+   architectural *pattern* (root → multiple salted/derived domains) is
+   real and shipping elsewhere, independent of whether Sails ever
+   adopts this specific mechanism.
+3. **This does not prove every chain/wallet stack supports identical
+   BIP-32/44 derivation semantics.** The spec's own "wallets and
+   compatible apps" wording is exactly that — compatible ones. It says
+   nothing about Pears, Iroh, or Pubky, none of which use a BIP-32/44
+   derivation scheme at all today (confirmed §3.3/§3.5/§3.7) — this
+   evidence does not close those gaps.
+4. **Wallet recovery mechanism vs. Sails identity architecture, kept
+   separate:** this spec is about how *a wallet* recovers its own key
+   material (Breez/Spark's own concern); it says nothing about how a
+   `ParticipantIdentity` should be structured, bound, or recovered at
+   the Sails protocol level. Cited as external precedent for the
+   *pattern*, not as a design Sails should inherit wholesale.
+
+**Effect on Models A/B/D:** this is real, additional, spec-grade
+evidence that the *general shape* of Models A and B (one root
+deterministically producing several domain-separated identities) is
+achievable in production, not merely theoretical — strengthening the
+*plausibility* of A/B's mechanism specifically for domains that already
+have (or could adopt) a NIP-06-style standardized path. It does **not**
+change this document's Model D-leaning, B/STOP recommendation (§13/§15):
+Breez's spec is one more confirmed example of the *pattern* working
+where a domain has a real derivation standard (here: WebAuthn PRF +
+NIP-06 for Nostr, plus arbitrary BIP-32/44 for wallet keys) — it does
+not resolve the still-open, load-bearing unknowns for Pears, Iroh, or
+Pubky (§14), which is what actually blocks a confident A/B-over-D
+choice today. One additional implementation demonstrating the pattern
+for protocols that already support it does not, by itself, justify
+extending the same treatment to protocols that don't yet.
+
+**Preserved throughout:** same recovery root ≠ same private key across
+domains (confirmed again here — `account_master`, each salted
+`root_key`, and the Nostr key are all distinct values, never the same
+secret reused); recovery relationship ≠ public identity relationship
+(salts are Nostr-published, deliberately deterministic and
+non-random, but this is metadata *for finding* the recovery material,
+not a claim that the derived wallet keys themselves become publicly
+correlatable to each other through that metadata).
+
 ---
 
 ## 6. Domain separation
