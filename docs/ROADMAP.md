@@ -118,6 +118,26 @@ not merely because an SDK or smart-contract platform exists.
   Sails' own first-party adapters (`README.md`). Named here as a future
   direction only — no scaffolding, registry, manifest schema, or tooling
   code exists yet, and none is authorized by this entry.
+- **Third-Party Liquidity & Economic Modules** — a future track built on
+  top of the extension ecosystem above, not a separate mechanism. External
+  providers may contribute liquidity, RFQ, OTC, lending, swap, bridge,
+  routing, and pricing capabilities through Sails-compatible modules.
+  **Sails remains the coordination layer, does not own underlying capital
+  or inventory, and may collect protocol fees from confirmed economic
+  outcomes** subject to published policy and conformance — never from a
+  module's mere existence or registration. `Sails OpenLiquidity` is a
+  natural candidate for the first multi-provider third-party economic
+  module ecosystem, since it already separates the coordination layer
+  (`LiquidityProvider` interface, `InternalOrderBook`) from any specific
+  liquidity source. **Integration should remain open. Economic
+  coordination may be monetized. Module existence alone does not imply
+  Sails support or production readiness** — the same
+  package/module-existence ≠ supported ≠ production-ready rule the
+  extension-ecosystem entry above and this document's own coverage matrix
+  (`README.md`) already apply everywhere else. Named here as a future
+  direction only — no module, provider registry, fee-collection mechanism,
+  or conformance rule for third-party economic modules exists yet, and
+  none is authorized by this entry.
 
 ---
 
