@@ -10,6 +10,21 @@ obligation exists; this document investigates *what is actually true*
 about each protocol involved, so a future ADR has real evidence instead
 of assumption.
 
+**CTO Correction Pass (2026-09-08).** The original pass of this
+document overstated NIP-06's standing — describing it as an "official,
+merged NIP" and "correlation-resistant by design" without checking its
+own status tags. Directly re-verified against
+`nostr-protocol/nips/06.md`, `26.md`, and `46.md`: **NIP-06 and NIP-26
+are both `draft`/`unrecommended`/`optional`** (NIP-06 explicitly warns
+"prefer a single nsec"; NIP-26 warns "adds unnecessary burden for
+little gain"); **NIP-46 carries no such marker** (verified active,
+non-deprecated). Every affected passage below (§3.4, §4's matrix, §5's
+model comparison and assessment table, §5.1's Breez addendum, §6-§7,
+§13, §15) has been corrected in place, preserving the underlying
+technical facts (the derivation scheme is real and technically sound)
+while removing the overclaimed endorsement/correlation-resistance
+language. This does not change the document's B/STOP verdict.
+
 ---
 
 ## 1. Scope
@@ -240,65 +255,90 @@ overclaimed as "handled."
 - **Key type:** secp256k1 (Schnorr signatures, same curve family as
   Bitcoin/Taproot). **OFFICIAL SPEC** (NIP-01).
 - **Seed/mnemonic native?** Not required by the core protocol (a bare
-  32-byte secp256k1 key suffices), but **NIP-06 (official, merged NIP)
-  explicitly standardizes** BIP-39 mnemonic → BIP-32 derivation at path
-  `m/44'/1237'/<account>'/0/0` — coin type `1237`, registered in
-  SLIP-44, giving Nostr its own reserved namespace inside the exact
-  same BIP-32 tree Bitcoin uses. **OFFICIAL SPEC**, confirmed via direct
-  fetch of `nostr-protocol/nips/06.md`.
-- **Deterministic derivation:** yes, per NIP-06, and explicitly
-  **interoperable with a Bitcoin-style BIP-39 mnemonic** — the same
-  mnemonic that seeds a Bitcoin wallet can, via a different, reserved
-  derivation path, also seed a Nostr identity, without exposing or
-  reusing the same private key material (different `coin_type'` branch
-  of the same HD tree). This is the single strongest, most
-  standards-backed data point in this entire investigation for Model
-  A/B's core premise.
-- **HD derivation support:** yes, natively, via NIP-06's own path;
-  supports multiple accounts (`<account>'` index) for the same
-  mnemonic.
+  32-byte secp256k1 key suffices). **NIP-06 defines a deterministic
+  BIP-39/BIP-32 derivation scheme for Nostr** (path
+  `m/44'/1237'/<account>'/0/0`, coin type `1237` registered in SLIP-44)
+  — **but NIP-06 is currently marked, in its own document header,
+  `draft` `unrecommended` `optional`, with an explicit warning:
+  "unrecommended: prefer a single nsec."** Confirmed by direct fetch of
+  `nostr-protocol/nips/06.md` (2026-09-08 correction — the original
+  pass of this document cited NIP-06 as simply "official, merged NIP"
+  without checking its status tags, an error corrected here). NIP-06
+  remains real, technically valid, and still describes an actual
+  deterministic scheme some wallets do implement (e.g. the Breez
+  precedent in §5.1) — but it is not the Nostr project's own
+  recommended path today, and this document must not present it as
+  such.
+- **Deterministic derivation:** the scheme exists and is technically
+  sound (a distinct, SLIP-44-registered coin-type branch, safely
+  isolable from a Bitcoin-derived root by BIP-32 hardened derivation) —
+  but **it is the Nostr project's own currently-unrecommended
+  mechanism**, not an endorsed standard. Treat as: a real, demonstrated,
+  implementable pattern (evidence for "this kind of derivation is
+  technically possible and shipped"), not evidence that Nostr
+  recommends composing identities this way.
+- **HD derivation support:** yes, mechanically, via NIP-06's own path
+  (multiple accounts via the `<account>'` index) — same status caveat
+  as above.
 - **Identity stability:** an `npub` is meant to be long-lived
   (analogous to an email address in Nostr's own framing), not
-  session-ephemeral.
-- **Device-specific keys:** not addressed by NIP-06 itself — a user
-  typically uses the *same* Nostr secret key across devices (via
-  `NIP-46`/remote signers or manual key copy), which is a real
-  **privacy/security tension**, not a solved problem — copying one hot
-  key to every device is the common current practice, explicitly
-  *not* recommended security hygiene.
-- **Multi-device:** `NIP-46` ("Nostr Connect") allows a remote signer to
-  hold the secret key while multiple client devices request signatures
-  from it — an existing, official mitigation for the "same key on every
-  device" problem, but adds a dependency on a signer service being
-  reachable. **OFFICIAL SPEC** (NIP-46 exists; not independently
-  fetched/verified in this pass beyond its name being a known,
-  documented NIP — flagged as **INFERENCE** pending direct verification
-  if this becomes load-bearing for a future design).
-- **Rotation:** no formal, protocol-enforced key-rotation mechanism
-  in NIP-01/06 — the informal convention is "publish a note from the
-  old key pointing to the new key," which is social-convention-based,
-  not cryptographically enforced continuity. **OBSERVED IMPLEMENTATION
-  norm, not OFFICIAL SPEC guarantee.**
+  session-ephemeral — independent of the NIP-06 status question, which
+  concerns *how* the key is generated, not whether the resulting
+  identity is meant to persist.
+- **Device-specific keys:** not addressed by NIP-06 (nor would it be,
+  given its own unrecommended status) — a user typically uses the
+  *same* Nostr secret key across devices (via `NIP-46`/remote signers
+  or manual key copy), which is a real **privacy/security tension**, not
+  a solved problem — copying one hot key to every device is the common
+  current practice, explicitly *not* recommended security hygiene.
+- **Multi-device:** `NIP-46` ("Nostr Remote Signing") allows a remote
+  signer to hold the secret key while multiple client devices request
+  signatures from it. **Directly verified in this correction pass**
+  (2026-09-08, fetched `nostr-protocol/nips/46.md` directly): NIP-46
+  carries **no `unrecommended`/`deprecated` status marker** — unlike
+  NIP-06/NIP-26, it appears to be an active, maintained NIP. Upgraded
+  from this document's original **INFERENCE** classification to
+  **OFFICIAL SPEC** for "the mechanism exists and is not deprecated."
+  Kept **contextual, not load-bearing** for this document's model
+  comparison either way — it informs the multi-device discussion (§8)
+  but does not change §5/§13's model ranking, which does not depend on
+  NIP-46's status.
+- **Rotation:** no formal, protocol-enforced key-rotation mechanism in
+  NIP-01, and NIP-06 (were it recommended) would not provide one either
+  — the informal convention is "publish a note from the old key
+  pointing to the new key," social-convention-based, not
+  cryptographically enforced. **OBSERVED IMPLEMENTATION norm, not
+  OFFICIAL SPEC guarantee.**
 - **Revocation:** same informal-convention caveat — no native
   revocation primitive.
 - **Delegation:** `NIP-26` ("Delegated Event Signing") exists by name
-  for this exact purpose — **not independently verified in this pass**,
-  flagged **UNKNOWN** pending direct confirmation before any design
-  relies on it.
+  for this exact purpose. **Directly verified in this correction pass**
+  (fetched `nostr-protocol/nips/26.md`): also carries status tags
+  `draft` `unrecommended` `optional` `relay`, with its own explicit
+  warning — "unrecommended: adds unnecessary burden for little gain."
+  Corrected from this document's original "UNKNOWN, not independently
+  verified" to: **verified, and itself unrecommended by the Nostr
+  project** — not a primitive this document should treat as a
+  recommended delegation mechanism for any future design.
 - **Public key = identity?** Yes, directly (`npub`).
-- **Accepts external root?** Yes — NIP-06 *is* exactly this: deriving
-  from an externally-shared BIP-39 root.
-- **Official spec existing?** Yes, NIP-01 (core) and NIP-06 (mnemonic
-  derivation), both official, merged NIPs.
-- **Derivation-incompatibility risk:** **low** — NIP-06's whole design
-  intent is safe coexistence with a Bitcoin-derived root via a
-  dedicated, registered coin-type branch. This is the one protocol in
-  this investigation with an *official* answer to "can I derive this
-  from the same root as my Bitcoin wallet, safely."
+- **Accepts external root?** Mechanically yes, via NIP-06's scheme —
+  with the status caveat above: this is a real, implementable pattern,
+  not a currently-endorsed one.
+- **Official spec existing?** NIP-01 (core) is a stable, foundational
+  spec. NIP-06 and NIP-26 are real, merged NIPs — but both are
+  currently `draft`/`unrecommended`/`optional`, not endorsed defaults.
+  NIP-46 is a real, non-deprecated, actively-specified NIP.
+- **Derivation-incompatibility risk:** low *if* NIP-06 were adopted (its
+  design intent is safe coexistence with a Bitcoin-derived root via a
+  dedicated, registered coin-type branch) — but this document must not
+  present that low-risk property as evidence Nostr currently recommends
+  this path; it recommends the opposite (a single `nsec`).
 - **Import/export of secret:** `nsec` export is standard practice
-  across Nostr clients.
+  across Nostr clients — this is, per the NIP-06 warning itself, the
+  Nostr project's own preferred approach over mnemonic derivation.
 - **Recovery on another device:** mnemonic (if NIP-06 was used to
-  generate the key) or raw `nsec` re-entry.
+  generate the key, despite its unrecommended status) or raw `nsec`
+  re-entry (the Nostr project's own preferred path).
 - **Dependency on external metadata:** relays are needed to actually
   *use* a Nostr identity (publish/discover), but the key itself has no
   metadata dependency.
@@ -495,7 +535,7 @@ disclosed, not guessed.
 | **Bitcoin/Wallet** | BIP-39 mnemonic → BIP-32 HD tree | secp256k1 | Yes (OFFICIAL SPEC) | Root xprv | Via separate accounts/paths (convention) | Address rotation native; root rotation = migration | None native | Watch-only xpub (OFFICIAL SPEC) | Low if paths not reused/linked publicly | Yes (mnemonic, standard UX) | The interoperability anchor other protocols (Nostr) explicitly build on |
 | **Sails Identity** | None native — client-generated Ed25519 keypair | Ed25519 | No (no protocol-level derivation scheme) | `publicKey` | N/A (not modeled) | Not specified anywhere in the protocol (real gap, confirmed by search) | Not specified | Not specified | Low (no external protocol reuses this key today) | Not specified/UX-defined by Reference Implementation | `docs/PROTOCOL_SPECIFICATION.md` §1.1 is deliberately technology-neutral here |
 | **Pears** | Optional raw seed (`HyperDHT.keyPair([seed])`); Sails passes none today | Ed25519 | Mechanically yes; **Sails' own usage is ephemeral, not derived** (confirmed, §3.3) | N/A today (session-only) | N/A today | Trivial mechanically; no continuity/announcement mechanism | None native | Not modeled by HyperDHT | Unknown byte-contract for seed makes cross-tool correlation unclear either way | Not applicable (no persisted key today) | **Sails' current implementation discards this key every session — the biggest gap between "what Pears could do" and "what Sails does with it"** |
-| **Nostr** | BIP-39 mnemonic → NIP-06's own reserved BIP-32 path (`m/44'/1237'/…`) | secp256k1 | Yes (OFFICIAL SPEC, NIP-06) | `nsec` | Not addressed by NIP-06 (shared-key-across-devices is common practice, a real weakness) | Informal convention only (no enforced continuity) | None native (informal only) | NIP-46 remote signer (named, not independently verified this pass) | **Low by design** — NIP-06's separate, registered coin-type branch is explicitly meant to avoid correlation with the Bitcoin branch of the same mnemonic | Yes (`nsec`, standard) | **The single strongest same-root precedent found in this investigation** |
+| **Nostr** | BIP-39 mnemonic → NIP-06's own reserved BIP-32 path (`m/44'/1237'/…`) — **NIP-06 itself is `draft`/`unrecommended`/`optional`, warns to prefer a single `nsec`** | secp256k1 | Mechanically yes, via NIP-06's scheme, but that scheme is not the Nostr project's recommended path | `nsec` (the Nostr project's own preferred approach) | Not addressed by NIP-06 (shared-key-across-devices is common practice, a real weakness) | Informal convention only (no enforced continuity) | None native (informal only) | NIP-46 (verified active/non-deprecated this pass; contextual, not load-bearing for the model comparison) | Hardened, domain-separated derivation reduces direct private-key reuse, but this alone does not prove broader unlinkability or metadata-correlation resistance | Yes (`nsec`, standard) | **The strongest same-root derivation *pattern* found in this investigation (technically), but not currently the Nostr project's own recommended mechanism** |
 | **Pubky** | BIP-39 mnemonic (confirmed) OR encrypted `.pkarr` recovery file | Ed25519 | Confirmed as an input; HD-tree-vs-single-key **UNKNOWN** | The public key itself (identity = key) | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN (identity=key means any correlation is maximal by construction if the same key is reused) | Yes (recovery file, and/or mnemonic) | Identity and naming are the same object — no separable "signing key vs. identity" layer found |
 | **PKARR** | Same as Pubky (§3.5/§3.6 — not a separate identity layer) | Ed25519 | Same as Pubky | Same key as Pubky identity | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | Same as Pubky | Same as Pubky | Losing the key loses DNS-record-publication ability too — single point of failure for both identity and naming |
 | **Iroh** | Raw 32-byte seed; no mnemonic layer confirmed | Ed25519 | Mechanically yes (seed→key); no HD tree found | `SecretKey` | Implied device-scoped by default framing | Not addressed (FROST avoids rather than performs rotation) | Closest analog: FROST co-sign-server shutdown (experimental) | **FROST threshold-signature prototype exists, explicitly experimental/non-production** | Low mechanically (raw seed), unknown standardization | `SecretKey` persistence documented; no mnemonic format found | Design intent is persistent, device-tied identity — opposite of Sails' current ephemeral Pears usage |
@@ -516,17 +556,24 @@ wallet seed
 ```
 
 **What the evidence says:** only **one** of the four non-Bitcoin
-protocols investigated (Nostr, via NIP-06) has an *official,
-standardized* answer for "derive me from the same BIP-39 root, safely
-domain-separated." Pears and Iroh accept *a* seed but define no
-standard derivation path from an external root — Sails would have to
-invent and own that convention entirely, with zero portability to any
-other Pears/Iroh-based application that didn't adopt the identical
-scheme. Pubky's HD-tree capability is unconfirmed (**UNKNOWN**). This
-means Model A, taken literally as "derive everything from one seed
-today," is achievable for at most 2 of 7 matrix rows (Bitcoin, Nostr)
-without Sails inventing and unilaterally owning non-standard derivation
-conventions for the rest.
+protocols investigated (Nostr, via NIP-06) has a *published,
+technically standardized* answer for "derive me from the same BIP-39
+root, safely domain-separated" — but **NIP-06 is itself currently
+`draft`/`unrecommended`/`optional` in the Nostr project's own NIP
+index, which explicitly recommends a single `nsec` instead.** This
+weakens, without eliminating, Model A's strongest evidence point: the
+derivation *mechanism* is real, technically sound, and demonstrably
+implementable (confirmed independently by the Breez precedent, §5.1),
+but it is not a mechanism the Nostr project itself currently endorses
+using. Pears and Iroh accept *a* seed but define no standard derivation
+path from an external root at all — Sails would have to invent and own
+that convention entirely, with zero portability to any other
+Pears/Iroh-based application that didn't adopt the identical scheme.
+Pubky's HD-tree capability is unconfirmed (**UNKNOWN**). This means
+Model A, taken literally as "derive everything from one seed today,"
+is achievable for at most 2 of 7 matrix rows (Bitcoin, Nostr) — and
+even the Nostr row rests on a mechanism its own protocol currently
+marks unrecommended, not a clean, endorsed standard.
 
 ### Model B — Wallet Seed → Sails Identity Root
 
@@ -544,8 +591,10 @@ Sails Identity Root
 Sails-specific intermediate root) between the wallet seed and each
 protocol identity, which does not change the underlying per-protocol
 derivation-standard gap Model A has — Pears/Iroh/Pubky still have no
-official external-derivation convention regardless of what sits one
-level above them in the tree. What it *does* change: it isolates a
+standardized external-derivation convention (endorsed or otherwise)
+regardless of what sits one level above them in the tree, and Nostr's
+own NIP-06 mechanism, even one layer removed, remains a currently
+unrecommended path per the Nostr project itself (§3.4). What it *does* change: it isolates a
 wallet-seed compromise from directly exposing the derivation path to
 every protocol identity in one step, and it gives Sails one place
 (`Sails Identity Root`) to own protocol-specific derivation conventions
@@ -577,19 +626,23 @@ here).
 
 ### Model D — Hybrid
 
-Some identities derived from the root (where an official standard
-exists — Nostr today), others kept independent (where none does —
-Pears, Pubky, Iroh, until/unless they gain one, or until Sails
-deliberately builds and documents its own convention for them).
+Some identities derived from the root (where a published, technically
+standardized derivation scheme exists — Nostr's NIP-06 today, despite
+its own unrecommended status), others kept independent (where no
+derivation scheme of any kind exists — Pears, Pubky, Iroh, until/unless
+one is published, or until Sails deliberately builds and documents its
+own convention for them).
 
 **What the evidence says:** this is the model the *evidence itself*,
 not a preference, points toward — because the four protocols
-investigated do not have uniform derivation capability today. Treating
-them uniformly (Model A or a naive Model B) would mean either (a)
-overclaiming derivation support that isn't standardized for
-Pears/Iroh/Pubky, or (b) inventing Sails-only conventions for them
-anyway, which is what Model D does explicitly and disclosed, rather
-than implicitly.
+investigated do not have uniform derivation capability today, and even
+the one that does (Nostr) offers it through a mechanism its own project
+does not currently recommend. Treating them uniformly (Model A or a
+naive Model B) would mean either (a) overclaiming derivation support
+that isn't standardized for Pears/Iroh/Pubky, or presenting Nostr's
+NIP-06 as more endorsed than it currently is, or (b) inventing
+Sails-only conventions for the unstandardized protocols anyway, which
+is what Model D does explicitly and disclosed, rather than implicitly.
 
 ### Assessment table
 
@@ -601,8 +654,8 @@ than implicitly.
 | Compromise isolation | Weak for non-standardized protocols (Sails would own an ad hoc path) | Same weakness, contained to the Sails Identity Root layer | Strong, by construction | Strong for independent arms; same as A/B for the derived arm |
 | Recovery UX | Best (one phrase) | Best (one phrase) | Worst without the bundle abstraction; bundle itself becomes a new single point of recovery | Middle — one phrase covers some identities, others still need separate backup unless bundled |
 | Device migration | Simple if the derivation convention is well-documented | Same | Requires restoring/decrypting the bundle, or each seed individually | Mixed, matching the recovery-UX row |
-| Protocol compatibility | Best where an official standard exists (Nostr); weakest where none does (Pears/Iroh/Pubky) | Same underlying compatibility ceiling as A | Best — never depends on any protocol supporting external derivation | Matches evidence exactly: good where standards exist, independent where they don't |
-| Correlation risk | Depends entirely on each protocol's own domain separation once derived (Nostr: low, by design; Pears/Iroh: unconfirmed) | Same, one layer removed | Lowest — independent seeds have no mathematical relationship to correlate | Same as A/B for the derived arm; same as C for the independent arm |
+| Protocol compatibility | Best where a published derivation scheme exists (Nostr, though currently unrecommended by the Nostr project itself); weakest where none does at all (Pears/Iroh/Pubky) | Same underlying compatibility ceiling as A | Best — never depends on any protocol supporting external derivation | Matches evidence exactly: good where a derivation scheme exists (with Nostr's status caveat noted), independent where none does |
+| Correlation risk | Depends entirely on each protocol's own domain separation once derived — hardened, domain-separated paths reduce direct private-key reuse (Nostr's NIP-06 branch is built this way), but this does not by itself prove broader unlinkability/metadata-correlation resistance; Pears/Iroh: unconfirmed | Same, one layer removed | Lowest — independent seeds have no mathematical relationship to correlate | Same as A/B for the derived arm; same as C for the independent arm |
 | Backup complexity | Lowest (one phrase) | Lowest (one phrase) | Highest without a bundle; the bundle itself must still be backed up as one artifact | Medium — fewer independent backups than full-C, but not zero either |
 | Rotation/revocation | Inherits each protocol's own (in)ability — none of the seven rows has a real revocation primitive | Same | Same per-protocol ceiling; independence doesn't grant a revocation capability that doesn't exist upstream | Same per-protocol ceiling |
 | Forward compatibility | Weak — adding a protocol with no derivation standard means Sails invents one anyway, undermining "just derive it" | Same, contained to the Sails Identity Root's own registry of conventions | Strong — a new protocol just adds one more independent seed to back up | Strong — this is explicitly what Model D already expects to do for new protocols |
@@ -635,10 +688,15 @@ wallet/app keys = BIP32/BIP44(mnemonic)
   challenge (the hex encoding of a chosen "magic string", explicitly
   picked "to prevent collision with any salt values") — user
   verification required at the authenticator.
-- The Nostr account is derived via **exactly NIP-06's own standardized
-  path** (confirmed §3.4/§5's own finding — this spec doesn't invent a
-  new Nostr derivation, it reuses the existing one, at a dedicated
-  account index `55'`).
+- The Nostr account is derived via **exactly NIP-06's own published
+  derivation path** (this spec doesn't invent a new Nostr derivation, it
+  reuses the existing one, at a dedicated account index `55'`) — **not
+  evidence that NIP-06 is currently the Nostr project's preferred
+  recovery standard** (§3.4's correction: NIP-06 itself is
+  `draft`/`unrecommended`/`optional`). Breez adopting it is evidence the
+  *deterministic derivation pattern* is implementable and shipped in a
+  real spec, independent of whether the Nostr project itself currently
+  endorses that specific mechanism.
 - For each `salt_string`, a separate `root_key` → BIP-39 `mnemonic` →
   BIP-32/44 wallet/app keys chain is produced. The spec states this
   explicitly enables reuse beyond one wallet: *"BIP39/BIP32 is applied
@@ -688,16 +746,21 @@ evidence that the *general shape* of Models A and B (one root
 deterministically producing several domain-separated identities) is
 achievable in production, not merely theoretical — strengthening the
 *plausibility* of A/B's mechanism specifically for domains that already
-have (or could adopt) a NIP-06-style standardized path. It does **not**
-change this document's Model D-leaning, B/STOP recommendation (§13/§15):
-Breez's spec is one more confirmed example of the *pattern* working
-where a domain has a real derivation standard (here: WebAuthn PRF +
+have (or could adopt) a published derivation scheme. **Breez using
+NIP-06-like derivation is evidence that the deterministic pattern is
+implementable, not evidence that NIP-06 is currently the preferred
+Nostr recovery standard** — that remains a single `nsec`, per the Nostr
+project's own NIP-06 warning (§3.4). It does **not** change this
+document's Model D-leaning, B/STOP recommendation (§13/§15): Breez's
+spec is one more confirmed example of the *pattern* working where a
+domain has a real, published derivation scheme (here: WebAuthn PRF +
 NIP-06 for Nostr, plus arbitrary BIP-32/44 for wallet keys) — it does
 not resolve the still-open, load-bearing unknowns for Pears, Iroh, or
 Pubky (§14), which is what actually blocks a confident A/B-over-D
-choice today. One additional implementation demonstrating the pattern
-for protocols that already support it does not, by itself, justify
-extending the same treatment to protocols that don't yet.
+choice today, and it does not upgrade NIP-06's own unrecommended status
+within the Nostr project. One additional implementation demonstrating
+the pattern for protocols that already support it does not, by itself,
+justify extending the same treatment to protocols that don't yet.
 
 **Preserved throughout:** same recovery root ≠ same private key across
 domains (confirmed again here — `account_master`, each salted
@@ -751,13 +814,21 @@ become public identity relationship.*
 
 Findings:
 
-- **Nostr via NIP-06 is the strongest evidence-backed example of
-  correlation resistance by design** — its whole purpose is letting the
-  same mnemonic seed both a Bitcoin wallet and a Nostr identity without
-  the two public keys being mathematically derivable from one another
-  in a way an outside observer could exploit (hardened derivation means
-  neither child key reveals the other, and neither reveals the shared
-  parent).
+- **Nostr's NIP-06 branch is the clearest evidence-backed example, in
+  this investigation, of hardened, domain-separated derivation applied
+  to let the same mnemonic seed both a Bitcoin wallet and a Nostr
+  identity.** Corrected 2026-09-08: the original pass of this document
+  claimed this made NIP-06 "correlation-resistant by design," without a
+  formally demonstrated property to back that broader claim. The
+  narrower, evidence-backed statement is: **hardened, domain-separated
+  derivation paths reduce direct private-key reuse between the Bitcoin
+  and Nostr branches (neither child key reveals the other, nor the
+  shared parent, per BIP-32's own hardened-derivation guarantee) — but
+  this alone does not prove broader unlinkability or resistance to
+  metadata-level correlation** (e.g. timing, usage-pattern, or
+  out-of-band correlation are untouched by the derivation math itself).
+  This is also, independently, not the Nostr project's currently
+  recommended mechanism (§3.4).
 - **Pubky's identity-is-the-key design is the opposite extreme** — since
   the public key *is* the identity/domain name directly (no separable
   signing-vs-identity layer found), any reuse of that exact key anywhere
@@ -941,7 +1012,7 @@ generically.
 | Stolen device | Whatever key(s) live unencrypted on that device | Device-scoped if device-specific keys exist (only Bitcoin/watch-only and experimental Iroh FROST have this); **total, if the same hot key is shared across devices** (the common Nostr practice, §8) | User-driven (noticing the device is missing) | Depends entirely on whether a multi-device/revocation scheme exists — confirmed absent for Pears/Pubky/PKARR, experimental-only for Iroh | Real, current, unmitigated risk for any protocol used in "same key on every device" mode |
 | Malicious device | Any key ever entered on it | Same as stolen device, potentially worse (active exfiltration, not just physical loss) | None native | Same as above | Same gap |
 | Protocol-key leak (one protocol's secret exposed, e.g. via a bug in a client) | That protocol's identity only, if domain separation held (§6); otherwise, potentially the shared root | Model-dependent, same as "derived key compromise" row | Depends on the leaking application, not the protocol | Domain-specific | Confirms §6's requirement that domain separation must actually be verified, not assumed |
-| Correlation attack (linking identities across protocols via key/derivation-path analysis) | Privacy, not funds directly — but can deanonymize a user across contexts | Every protocol identity derivable from the same observable root, if derivation isn't properly hardened/separated | Passive, hard to detect (an outside analyst correlating public keys) | Not "recoverable" — once correlated, the link is public knowledge | NIP-06 is the only protocol here with a design explicitly built to resist this; the rest are unconfirmed or (Pubky) inherently correlatable if key material is ever reused |
+| Correlation attack (linking identities across protocols via key/derivation-path analysis) | Privacy, not funds directly — but can deanonymize a user across contexts | Every protocol identity derivable from the same observable root, if derivation isn't properly hardened/separated | Passive, hard to detect (an outside analyst correlating public keys) | Not "recoverable" — once correlated, the link is public knowledge | Nostr's NIP-06 branch is the only mechanism here with hardened, domain-separated derivation reducing direct private-key-reuse risk (not a formally demonstrated broader correlation-resistance guarantee, §7); the rest are unconfirmed or (Pubky) inherently correlatable if key material is ever reused |
 | Backup exfiltration (recovery bundle/mnemonic stolen, not the live device) | Everything the bundle/mnemonic can derive or recover | Full, for whatever that bundle covers (Model C's "encrypted recovery bundle" concentrates this risk into one artifact) | None native — depends on Sails-built bundle design (out of scope here) | None once exfiltrated and decrypted | Direct argument for why Model C's bundle-encryption design (not addressed in this document) matters as much as the derivation model itself |
 | Malicious recovery app | Whatever the app has access to during "recovery" | Total, for a user who trusts a malicious recovery tool with their seed/mnemonic | None native to any protocol | Move everything reachable to a new root | A generic wallet-industry risk, not specific to any protocol investigated here |
 | Derivation downgrade (tricking a user/client into a weaker derivation path) | Whatever domain uses the downgraded path | Domain-scoped, but could re-expose correlation risk (§7) if the downgrade removes hardened-derivation protection | Requires explicit path verification by the client — not investigated as implemented anywhere in this codebase | Re-derive correctly and migrate | Real risk category for any future Sails-built derivation scheme; not yet applicable since none exists today |
@@ -964,13 +1035,19 @@ Restore Wallet → one recovery experience → identities restored/re-associated
 **What the evidence supports and doesn't:**
 
 - **"One backup experience" is achievable today only for the protocols
-  with an official, standardized external-derivation mechanism** — in
-  this investigation, that's Bitcoin and Nostr (via NIP-06). Pears,
-  Iroh, and Pubky (pending its HD-tree confirmation) do not have this
-  today, meaning "one backup phrase transparently provisions all of
-  them" is **not yet achievable as literally stated** without either
-  Sails building non-standard derivation for them (Model A/D's known
-  gap) or those protocols gaining their own standard later.
+  with a published external-derivation mechanism** — in this
+  investigation, that's Bitcoin (fully standardized and recommended)
+  and Nostr (NIP-06 exists and is technically sound, but is currently
+  `draft`/`unrecommended`/`optional` per the Nostr project itself,
+  which recommends a single `nsec` instead). Pears, Iroh, and Pubky
+  (pending its HD-tree confirmation) have no derivation mechanism of
+  any kind, standardized or otherwise, today. This means "one backup
+  phrase transparently provisions all of them" is **not yet achievable
+  as literally stated**, and even the Nostr piece of it would mean
+  building on a currently-unrecommended mechanism, not an endorsed one
+  — without either Sails building non-standard derivation for
+  Pears/Iroh/Pubky (Model A/D's known gap) or those protocols
+  publishing/endorsing their own standard later.
 - **"Device-specific material regenerated" on restore** is well-precedented
   only for Bitcoin (watch-only/multi-account patterns) and, if used,
   experimentally for Iroh (FROST). It has no evidence-backed mechanism
@@ -1007,13 +1084,18 @@ Per §5's assessment table, ranked by criterion (1 = strongest):
 to** — not because it scores highest on every single criterion (Model C
 is simpler and more private today), but because Models A and B both
 require *treating protocols uniformly that are not, in fact, uniform*:
-only Bitcoin and Nostr have official, standardized, correlation-resistant
-external derivation today; Pears (as Sails uses it), Iroh, Pubky, and
-PKARR do not. Model D is simply the honest name for "derive where a real
-standard exists (Nostr), keep independent where none does yet
-(Pears/Iroh/Pubky), revisit per-protocol as each one's own capability
-matures" — which is what the evidence in §3-§4 actually supports, not
-a preference imposed on top of it.
+only Bitcoin has a fully standardized, currently-recommended external
+derivation mechanism today; Nostr has a *published, technically sound*
+one (NIP-06) that reduces direct private-key reuse via hardened,
+domain-separated derivation, but is itself currently unrecommended by
+the Nostr project, and that narrower derivation property does not by
+itself establish broader correlation resistance (§7). Pears (as Sails
+uses it), Iroh, Pubky, and PKARR have no derivation mechanism of any
+kind. Model D is simply the honest name for "derive where a published
+scheme exists (Nostr, with its status caveat noted), keep independent
+where none does yet (Pears/Iroh/Pubky), revisit per-protocol as each
+one's own capability matures" — which is what the evidence in §3-§4
+actually supports, not a preference imposed on top of it.
 
 This is **not** a recommendation to build Model D now. Per the CTO's own
 instruction, if evidence doesn't cleanly support a single final choice,
@@ -1038,9 +1120,14 @@ Every `UNKNOWN` cell above, consolidated:
    parameter to `keyPair(seed)` — confirmed to exist, not confirmed in
    detail.
 4. Iroh: exact node-discovery-service metadata dependency shape.
-5. Nostr `NIP-46` (remote signer) and `NIP-26` (delegated signing) —
+5. ~~Nostr `NIP-46` (remote signer) and `NIP-26` (delegated signing) —
    named as existing NIPs, not independently fetched/verified in this
-   pass.
+   pass.~~ **Resolved 2026-09-08 (CTO correction pass):** both directly
+   fetched and verified. `NIP-46` carries no unrecommended/deprecated
+   marker (active, non-deprecated). `NIP-26` carries the same
+   `draft`/`unrecommended`/`optional` status as `NIP-06`, with its own
+   explicit warning ("adds unnecessary burden for little gain") — see
+   §3.4. No longer an open unknown.
 6. Whether any of Pears/Iroh/Pubky's raw `seed → key` mapping could
    safely support hardened, BIP-32-style derivation if Sails built one
    — mechanically plausible (they accept arbitrary seed bytes) but not
@@ -1056,20 +1143,28 @@ Every `UNKNOWN` cell above, consolidated:
 
 **B/STOP — evidence does not yet cleanly support committing to a single
 final model.** The evidence leans toward Model D's *shape* (derive where
-official, standardized support exists — Nostr today — keep independent
-where it doesn't yet — Pears/Iroh/Pubky), but §14's unresolved unknowns
-(especially Pubky's HD-tree question, which materially changes whether
-Pubky belongs in the "can derive" or "must stay independent" bucket) mean
-a confident final ADR should not be written from this evidence alone.
+a published derivation scheme exists — Nostr today, with its own
+unrecommended-status caveat noted — keep independent where none exists
+at all — Pears/Iroh/Pubky), but §14's unresolved unknowns (especially
+Pubky's HD-tree question, which materially changes whether Pubky
+belongs in the "can derive" or "must stay independent" bucket) mean a
+confident final ADR should not be written from this evidence alone.
+NIP-06 itself being merely published-but-unrecommended, rather than
+Nostr-endorsed, is a real reason for additional caution before treating
+"Nostr today" as a settled anchor for any model, not just a technical
+footnote.
 
 **What would need to happen before an ADR is ready** (§16, restated
 directly per the mission's own required structure):
 
 1. Directly verify Pubky's exact key-derivation source (not
    search-summary-inferred) to resolve the HD-tree question.
-2. Directly verify NIP-46/NIP-26 rather than relying on their names
-   existing, if multi-device/delegation becomes load-bearing for the
-   decision.
+2. ~~Directly verify NIP-46/NIP-26~~ **Done in this correction pass**
+   (§3.4/§14) — both verified directly against the official
+   `nostr-protocol/nips` repository. Remaining open question, if
+   NIP-06/NIP-26 ever become load-bearing for a design: whether Sails
+   would adopt a currently-unrecommended NIP anyway, and if so, why —
+   a product/security decision, not a further verification task.
 3. Decide, as a genuinely separate product/security question (not
    something this discovery document should pre-empt): does Sails want
    to be in the business of inventing a non-standard derivation
