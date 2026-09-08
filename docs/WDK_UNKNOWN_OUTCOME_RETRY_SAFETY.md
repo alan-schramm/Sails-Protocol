@@ -330,13 +330,13 @@ REPOSITORY OBSERVED (`grep -rniE "retry|queue|redelivery|BullMQ"` across `src/`)
 
 | Surface | Classification | Applies to `lockFunds()`? |
 |---|---|---|
-| `bounded-rpc.ts`'s `withBoundedRetry()` | Automatic, opt-in per call site | **No** — `wdk-settlement.provider.ts` never imports or uses `bounded-rpc.ts` at all. This file's own header comment already states the exact governing principle ("a mutating/broadcast/submission call must never request it... retrying could duplicate an already-accepted economic action") but `WdkSettlementProvider.lockFunds()` isn't wired through this module either way — it has no retry AND no bound |
+| `bounded-rpc.ts`'s `withBoundedRetry()` | Automatic, opt-in per call site | **No** — `wdk-settlement.provider.ts` never imports or uses `bounded-rpc.ts` at all. This file's own header comment already states the exact governing principle ("a mutating/broadcast/submission call must never request it... retrying could duplicate an already-accepted economic action") but `WdkSettlementProvider.lockFunds()` isn't wired through this module either way — **it has no automatic retry and no Sails-configured timeout; the underlying `ethers` transport remains bounded by its own inherited default timeout** (NO SAILS-SPECIFIC TIMEOUT CONFIGURED — see §5) |
 | `multisig.provider.ts`'s `EXPLORER_READ_RETRY` | Automatic, but explicitly scoped to read-only explorer calls (F1) | No — different provider, read-only calls only |
 | `RedisStreamsEventStore.subscribe()`'s XCLAIM-based redelivery | Automatic, at-least-once, **but this store is a documented Reference implementation** (`event-store.ts`'s own header: "Redis Streams, BullMQ, a Postgres outbox table... is a Reference") | **Not connected today** — `SailsEventBus`'s default/active store is `PostgresEventStore` (confirmed, Missão 05.7), whose own `subscribe()` is "deliberately unchanged from `InMemoryEventStore`'s own [approach]" (event-store.ts:210-219) — a plain in-process listener list, no ack/redelivery. See §9 |
 | `POST /v1/settlement/escrow/:id/lock` (HTTP) | Manual/client-driven | **Yes** — no idempotency-key header, no request-identity mechanism, nothing beyond `escrowService.lockFunds(id, participantId)`. A client that times out and resubmits reaches this exact code path again |
 | `executeSettlement()` (`settlement-orchestrator.ts:134`), invoked from `eventBus.on('openp2p.trade.created', ...)` (`handlers.ts:553-562`, gated by `config.features.autoSettleOnMatch`, off by default) | Event-driven | **Yes, in principle** — see §9 for whether this event can actually be redelivered under the active store |
 | Operator/API replay (a human resubmitting the same HTTP request, or a script retrying on a 5xx/timeout) | Manual | **Yes** — nothing in this path (route, service, repository) rejects a semantically-duplicate request beyond the atomic status claim, which only protects CONCURRENT attempts, not sequential ones after a completed-and-reverted attempt |
-| Process-restart replay of a stuck escrow (an operator manually re-triggering `lockFunds()` for an escrow found stuck at `CREATED` after a crash) | Manual | **Yes** |
+| Process-restart/operator replay after a caught failure reverted the escrow to `CREATED` (Scenario J-B, §7 — NOT a crash: a caught exception ran `revertEscrowStatus()` and returned the escrow to `CREATED` before or after the restart) | Manual | **Yes** |
 
 **No automatic retry library, queue, or job-redelivery mechanism is wired to
 `WdkSettlementProvider.lockFunds()` today.** The exposure is entirely
@@ -402,12 +402,13 @@ app.post('/v1/settlement/escrow/:id/lock', {
 })
 ```
 
-- No request body at all — nothing for an idempotency-key header/field to
-  attach to today.
-- No `Idempotency-Key` header handling anywhere in this route or in
-  `requireAuth`/the shared route middleware (checked: no repository-wide
-  match for `idempotency` outside this document and the mission brief that
-  produced it).
+- The route has no request body and therefore no operation-id field in its
+  payload. Separately, it does not inspect, accept as protocol semantics,
+  or persist an `Idempotency-Key` header — checked repository-wide: no
+  match for `idempotency` anywhere in `requireAuth`, the shared route
+  middleware, or this route itself, outside this document and the mission
+  brief that produced it. **No request identity / idempotency mechanism
+  currently protects sequential retry of this economic action.**
 - The ONLY guard against a duplicate request is `claimEscrowTransition`'s
   atomic status claim — which, as established throughout this document,
   protects CONCURRENT duplicate requests (both racing against the same
