@@ -95,6 +95,20 @@ cobertura real perdida). Genuinamente distinto do item #57 (contenção de
 `buildApp()` sob carga paralela), que permanece aberto — ver a nota de
 desambiguação no próprio #57.
 
+**Nota — 2026-09-08 (Identity Architecture Discovery).** Um décimo item
+novo foi adicionado, **#60**, sequencial (agora até #60, sem lacunas) —
+current-truth documentation drift encontrado de passagem durante a
+missão Identity Architecture Discovery
+(`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`), não relacionado a nenhum
+item anterior desta família: `docs/CRYPTOGRAPHIC_MODEL.md` §1 ainda
+afirma que a identidade Pears/HyperDHT é "o mesmo primitivo" da
+identidade econômica do participante — desatualizado desde o fix de
+custódia de chave de `pear.service.ts` (2026-08-09), já corrigido em
+`docs/TRUST_BOUNDARY.md`/`docs/BACKLOG.md` mas nunca propagado de volta
+para o documento que originou a afirmação. Não corrigido por este
+registro (fora do escopo de uma missão de discovery) — ver #60 para o
+achado completo.
+
 ---
 
 ## CRÍTICO — Bloqueia Evolução do Sistema
@@ -2259,6 +2273,50 @@ real repetida de "zero worktrees presentes").
 não respondidas por este item.
 
 Evidência completa: `docs/TEST_HARNESS_RELIABILITY.md`.
+
+### 60. `docs/CRYPTOGRAPHIC_MODEL.md` §1 — claim desatualizada sobre identidade Pears/HyperDHT (encontrado 2026-09-08, Identity Architecture Discovery)
+
+**Classificação: current-truth documentation drift, não uma nova
+vulnerabilidade de segurança.** Descoberto de passagem durante a
+missão Identity Architecture Discovery (`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`
+§2) — não era o objetivo da investigação, mas apareceu diretamente ao
+verificar o modelo de identidade atual do Sails contra o código real.
+
+**Achado:** `docs/CRYPTOGRAPHIC_MODEL.md` §1 (escrito 2026-07-19) ainda
+afirma: *"the same keypair IS the node's HyperDHT/Hyperswarm identity
+(`infrastructure/p2p/pear.service.ts`'s `PearNode.start(secretKeyHex)`;
+the derived `peerId` is literally `publicKey.toString('hex')`). There
+is no separate 'network key' — this is one primitive, not two,
+confirmed by grep."` Isso não é mais verdade. O fix de custódia de
+chave de `pear.service.ts` (2026-08-09), já corretamente divulgado em
+`docs/TRUST_BOUNDARY.md` Boundary 1b e em `docs/BACKLOG.md` (entrada de
+2026-09-06), mudou `PearNode.start()` para não receber nenhuma chave do
+caller — `async start(): Promise<string>` (verificado diretamente,
+`src/infrastructure/p2p/pear.service.ts:119-123`) não tem argumentos e
+chama `HyperDHT.keyPair()` sem seed, gerando um par de chaves novo e
+efêmero a cada sessão, nunca persistido. Consequência dupla, confirmada:
+(1) `User.peerId` é hoje criptograficamente independente de
+`User.publicKey` — não é mais "um primitivo, não dois", é literalmente
+dois; (2) `peerId` nem sequer é estável entre sessões hoje — é
+regenerado a cada `start()`.
+
+**Por que isso não foi pego antes:** `docs/TRUST_BOUNDARY.md` e
+`docs/BACKLOG.md` já corrigiram a mesma informação em seus próprios
+contextos (2026-09-06) — mas `docs/CRYPTOGRAPHIC_MODEL.md` §1, o
+documento que originalmente fez a afirmação "one primitive, not two",
+nunca recebeu a correção correspondente. Um exemplo real de uma
+correção não se propagar para todos os documentos que repetem a mesma
+claim.
+
+**Não corrigido por este registro** — fora do escopo de uma missão de
+discovery (sem implementação/edição de documentos além do próprio
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`). Correção recomendada: uma
+nota "Corrigido/Atualizado [data]" em `docs/CRYPTOGRAPHIC_MODEL.md` §1,
+preservando o texto original, apontando para `docs/TRUST_BOUNDARY.md`
+Boundary 1b como a fonte já corrigida — mesmo padrão de correção datada
+usado em todo este arquivo.
+
+Evidência completa: `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §2.
 
 ## Ações Recomendadas por Prioridade
 
