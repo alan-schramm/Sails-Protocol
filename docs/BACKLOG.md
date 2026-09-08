@@ -282,7 +282,10 @@ Initial visible **planned adapter targets**:
 - `@sails/adapter-breez` — Breez SDK wallet stacks
 - `@sails/adapter-spark` — Spark SDK wallet stacks
 - `@sails/adapter-ldk` — LDK / Lightning wallet stacks
-- `@sails/adapter-ethers` — major EVM wallet stacks using ethers-compatible flows
+- `@sails/adapter-ethers` — major EVM wallet stacks using ethers-compatible flows, including Ethereum and BNB Smart Chain
+- `@sails/adapter-tron` — TRON wallet stacks
+- `@sails/adapter-solana` — Solana wallet stacks
+- `@sails/adapter-ton` — TON wallet stacks
 - additional wallet-development kits when ecosystem relevance and real
   integrator demand earn first-party support
 
