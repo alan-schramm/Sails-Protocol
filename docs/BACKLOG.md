@@ -258,3 +258,65 @@ Every commit implementing an item above must cite its RFC or spec section
 in the commit message or code comment. Any implementation work that
 doesn't map to a row in this backlog needs a new RFC (`RFC-006` onward)
 before it starts, not after.
+
+---
+
+## Update — Multi-Wallet-Kit + Multi-Rail Network-Effect Strategy (2026-09-07)
+
+**BACKLOG DELTA DETECTED — strategic adoption obligation registered.**
+
+The Sails P2P Trading SDK should ship with first-party integration paths for
+the major wallet development kits and the major settlement-capable networks
+relevant to P2P markets.
+
+**Property / distribution objective:** a wallet should be able to adopt Sails
+without being forced to replace its existing wallet-development, key,
+signing, or settlement stack. The already-shipped RFC-013 `WalletAdapter`
+boundary is structurally compatible with this objective, but first-party
+named adapter coverage is not yet implemented or demonstrated.
+
+Initial visible **planned adapter targets**:
+
+- `@sails/adapter-bdk` — BDK / Bitcoin wallet stacks
+- `@sails/adapter-wdk` — Tether WDK wallet stacks
+- `@sails/adapter-breez` — Breez SDK wallet stacks
+- `@sails/adapter-spark` — Spark SDK wallet stacks
+- `@sails/adapter-ldk` — LDK / Lightning wallet stacks
+- `@sails/adapter-ethers` — major EVM wallet stacks using ethers-compatible flows
+- additional wallet-development kits when ecosystem relevance and real
+  integrator demand earn first-party support
+
+**Current truth / claim discipline:** none of the six named adapter packages
+above is claimed as published or supported today by this registration. Exact
+package namespace availability and implementation shape must be verified
+before release. Existing `WalletAdapter` examples using bitcoinjs-lib and
+ethers demonstrate the generic integration boundary, not BDK/Breez/Spark/LDK
+first-party support.
+
+**Settlement-network principle:** support is open to economically relevant
+networks that can demonstrate Sails' required settlement properties
+(escrow/conditional settlement, authority, evidence, release/refund/dispute,
+recovery and reconciliation). "Has smart contracts" or "has an SDK" is not a
+sufficient acceptance criterion.
+
+**Architecture boundary:** Wallet-kit Adapter != SettlementProvider.
+Core semantics remain vendor-neutral. WDK remains an important reference and
+first-party adapter target, but **WDK is not a mandatory dependency for every
+wallet integrating Sails**.
+
+**Network-effect rationale:** OpenP2P becomes more valuable as wallets using
+different development stacks and settlement rails can join the same shared
+economic coordination layer with lower integration cost. Wallet-stack reach
+and settlement-rail reach are therefore explicit distribution concerns, not
+reasons to move vendor-specific complexity into Core.
+
+Classification:
+- prior "every wallet becomes, by necessity, a WDK integrator" wording:
+  **DOCUMENTATION DRIFT / STRATEGIC CONTRADICTION**
+- first-party adapter coverage:
+  **NEW BACKLOG DELTA / PRODUCTIZATION + ECOSYSTEM DISTRIBUTION**
+- no adapter implementation is authorized by this registration alone
+- no new Core primitive, registry, or generic abstraction authorized
+- Norte macrofront count remains unchanged; this refines Productization /
+  Ecosystem Composition rather than creating a new macrofront
+
