@@ -378,3 +378,89 @@ any of these gaps.
   full-suite run, exactly accounting for this pass's one new test file
   hitting the same collision). Registered exactly as observed — `jest.config.js`
   not modified, no timeout raised, no worker count reduced.
+
+---
+
+## 15. Remediation (Bounded Remediation, WDK Fund-Moving Safety, 2026-09-08)
+
+**Finding demonstrated → remediation implemented → evidence → residual.**
+Every finding above (§12's per-method verdicts, all `C — structural gap
+demonstrated`) is preserved verbatim, unmodified — this section records
+what was subsequently built against them, not a rewrite of the findings.
+
+**Remediation implemented:** the same provider-local execution-truth
+layer described in `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22
+(`wdk-execution-truth.ts` + `wdk-transfer-attempt-repository.ts` + the
+new `WdkTransferAttempt` Prisma model) now wraps `releaseFunds()` and
+`refundFunds()` identically to `lockFunds()`, and `splitFunds()`
+specifically was redesigned around it for Property B (Multi-Leg Partial
+Execution): the buyer and seller legs are now tracked as two entirely
+independent logical operations (`SPLIT_BUYER`/`SPLIT_SELLER`, separate
+`WdkTransferAttempt` rows), each going through the identical
+attempt-then-transfer-then-confirm sequence. The seller leg is never
+attempted until the buyer leg has a real, receipt-confirmed `txHash` —
+resuming (skipping the `transfer()` call entirely) whenever a prior
+attempt already reached `CONFIRMED`.
+
+**§5's four named scenarios, now resolved by design (not merely
+documented):**
+1. Buyer `CONFIRMED` + seller not started → resumes at seller only
+   (buyer leg's `ensureAttempt()` call returns `RESUME_CONFIRMED`
+   without ever calling `transfer()` again).
+2. Buyer `CONFIRMED` + seller `SUBMISSION_UNKNOWN` → the seller leg's own
+   `ensureAttempt()` call blocks until reconciled; the buyer leg is
+   untouched.
+3. Buyer `SUBMISSION_UNKNOWN` → blocked before the seller leg is ever
+   reached at all (the buyer leg's own `ensureAttempt()` call throws
+   first).
+4. Buyer `CONFIRMED` + a prior seller leg `REVERTED` → the seller leg's
+   `ensureAttempt()` call safely starts a fresh seller attempt (a
+   definitively reverted transfer proves no funds moved); the buyer leg
+   is never touched again.
+
+**Evidence:** `tests/wdkExecutionTruth.test.ts` (new, 11 tests, shared
+with the `#56` remediation) includes three `splitFunds()`-specific
+adversarial tests demonstrating scenarios 1-2 combined (leg 1 confirmed +
+leg 2 failure → leg 1 never replayed on retry, and a further retry
+replays neither leg) and scenario 4 (buyer confirmed + prior seller
+`REVERTED` → seller retries safely, buyer untouched) directly against the
+real, unmocked `WdkSettlementProvider.splitFunds()` — no live network
+call anywhere. Full regression: `#58`'s own pre-existing test file
+(`tests/wdkFundMovingOperationsSafety.test.ts`, which mocks
+`wdkSettlementProvider` entirely to test `escrow.service.ts`'s
+orchestration layer) still passes unchanged — see
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22 for why that remains true
+and correct.
+
+**Residuals:** identical to `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`
+§22's own residuals list — not repeated verbatim here to avoid drift
+between two copies; that section (and its own §22.1 correction, below)
+is the canonical statement of every residual, since the mechanism is
+identical code shared by all four methods.
+
+**Production eligibility: unchanged.** `WDK_USDT_EVM` remains
+`PRODUCTION-INELIGIBLE` (RFC-019) — this remediation closes the
+retry-safety, receipt-verification, and multi-leg partial-execution
+blockers this document demonstrated; it does not by itself constitute a
+production-eligibility review, and no such review is claimed or
+authorized by this section.
+
+### 15.1 CTO Gate Correction (2026-09-08)
+
+A real gap in §15's remediation — the `PREPARED → transfer() →
+SUBMITTED` crash window — was found and closed. Full account:
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.1 (canonical; the fix is
+one shared mechanism, `executeTransfer()`, used identically by
+`lockFunds()` and all three fund-moving methods this document covers).
+Summary: a durable pre-submission commit (`markSubmissionAttempted()`,
+reusing the existing `SUBMISSION_UNKNOWN` status — no new status value)
+is now written immediately before every `transfer()` call, closing the
+window down to the single synchronous write between `ensureAttempt()`
+returning and that commit. `splitFunds()`'s per-leg protection inherits
+this automatically via the shared helper. The floating-point amount
+comparison (`Number(a) !== Number(b)`) in the reused-attempt integrity
+guard was also replaced with an exact decimal-string comparison. Two new
+adversarial tests plus an extension to the existing `REVERTED` test in
+`tests/wdkExecutionTruth.test.ts` (13 tests total). No new `BACKLOG
+DELTA` — a correction to an already-registered remediation, not a new
+finding.

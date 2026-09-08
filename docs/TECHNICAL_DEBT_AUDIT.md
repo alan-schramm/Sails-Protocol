@@ -1935,6 +1935,55 @@ ou autorizado. Nenhuma das correções altera o veredito final: **C —
 STRUCTURAL GAP**, confirmado pelo CTO. Evidência completa corrigida:
 `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`.**
 
+**Remediation (Bounded Remediation, WDK Fund-Moving Safety, 2026-09-08).**
+O achado acima permanece verbatim — esta nota registra o que foi
+construído contra ele, não uma reescrita. Uma nova camada de execution
+truth local ao provider (`wdk-execution-truth.ts` +
+`wdk-transfer-attempt-repository.ts`, novo modelo Prisma
+`WdkTransferAttempt`) agora envolve `lockFunds()` (e, no mesmo pass,
+`releaseFunds()`/`refundFunds()`/`splitFunds()` — ver #58's própria nota
+paralela): antes de cada `transfer()` real, identidade durável é
+persistida (Property A); um outcome `SUBMITTED`/`SUBMISSION_UNKNOWN`
+anterior bloqueia uma nova submissão até reconciliação real via
+`getTransactionReceipt()` (Property B); sucesso econômico só é declarado
+após um recibo real com `status===1`, nunca por um hash apenas retornado
+(Property C). Evidência: `tests/wdkExecutionTruth.test.ts` (11 testes,
+provider real, apenas conta WDK e banco mockados) demonstra bloqueio de
+retry cego, recibo revertido nunca vira sucesso, e reuso durável de um
+attempt travado em `PREPARED` após um crash simulado — sem depender de
+estado em memória. Suíte de regressão completa (9 suites, 197 testes)
+passa sem alteração, incluindo o teste original de #56
+(`tests/wdkLockFundsRetrySafety.test.ts`), que permanece válido como
+descrição do comportamento de `escrow.service.ts` (camada não alterada) —
+a nova proteção vive uma camada abaixo, dentro do provider real.
+Residuais explicitamente registrados, não corrigidos: classificação
+pré/pós-submissão permanece conservadora (todo throw após `PREPARED` vira
+`SUBMISSION_UNKNOWN`, mesmo quando genuinamente pré-submissão);
+`SUBMISSION_UNKNOWN` não tem reconciliação automática (requer operador);
+apenas 1 confirmação, não profundidade N; janela de poll de recibo
+limitada (~30s por padrão); `chainId` não populado; **migração Prisma
+(`prisma/migrations/20260908000000_wdk_transfer_attempt`) validada
+localmente apenas via `prisma validate`/`prisma generate` (nenhum Postgres
+acessível nesta sessão) — mas o próprio workflow de CI (`build`/`test`,
+Postgres efêmero real) rodou `prisma migrate deploy` contra esta migração
+exata e passou, DEMONSTRANDO que ela aplica corretamente contra um
+Postgres real** (nenhum teste ainda exercita as próprias queries de
+`WdkTransferAttempt` contra esses dados reais). `WDK_USDT_EVM` permanece
+`PRODUCTION-INELIGIBLE`, inalterado — esta remediação fecha um bloqueador
+de propriedade, não constitui uma revisão de elegibilidade de produção.
+Evidência completa: `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.
+
+**CTO Gate Correction (2026-09-08).** Um gap real na remediação acima — a
+janela de crash `PREPARED → transfer() → SUBMITTED` — foi encontrado e
+fechado (`markSubmissionAttempted()`, reaproveitando o status
+`SUBMISSION_UNKNOWN` existente, escrito de forma durável imediatamente
+antes de cada `transfer()`, sem novo status/schema/worker). Comparação de
+amount corrigida de ponto-flutuante para string decimal exata. 2 novos
+testes adversariais + extensão do teste `REVERTED` existente
+(`tests/wdkExecutionTruth.test.ts`, 13 testes). Detalhe completo:
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.1. Nenhum novo BACKLOG
+DELTA — correção de uma remediação já registrada, não um achado novo.
+
 ### 57. Falhas de `buildApp()` sob carga paralela do Jest — evidência de confiabilidade do harness de testes não conclusiva (CTO Gate Follow-up sobre F8, 2026-09-07)
 
 **Classificação: novo delta de backlog / confiabilidade de sistema de
@@ -2074,6 +2123,42 @@ completa: `docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md`.
 mudança de comportamento em `releaseFunds()`/`refundFunds()`/
 `splitFunds()`/`escrow.service.ts` feita ou autorizada por este
 registro.**
+
+**Remediation (Bounded Remediation, WDK Fund-Moving Safety, 2026-09-08).**
+Os vereditos acima permanecem verbatim. A mesma camada de execution truth
+descrita na nota de remediação de #56 agora envolve `releaseFunds()` e
+`refundFunds()` identicamente, e `splitFunds()` foi redesenhado ao redor
+dela para Property D (Safe Multi-Leg Resume): as pernas buyer/seller são
+rastreadas como duas operações lógicas independentes
+(`SPLIT_BUYER`/`SPLIT_SELLER`, linhas `WdkTransferAttempt` separadas) — a
+perna seller nunca é tentada até a perna buyer ter um `txHash`
+confirmado por recibo real; um `CONFIRMED` anterior faz a operação
+retomar (resume) sem repetir a chamada `transfer()`; um `REVERTED`
+anterior permite uma nova tentativa segura da MESMA perna, sem tocar a
+outra. Os 4 casos nomeados na missão original (buyer CONFIRMED + seller
+não iniciado; buyer CONFIRMED + seller UNKNOWN; buyer UNKNOWN; buyer
+CONFIRMED + seller REVERTED anterior) estão todos resolvidos por design,
+não apenas documentados. Evidência:
+`tests/wdkExecutionTruth.test.ts` (11 testes, incluindo 3 específicos de
+`splitFunds()`) contra o provider real, não-mockado. Suíte de regressão
+completa (9 suites, 197 testes) passa sem alteração, incluindo o teste
+original de #58 (`tests/wdkFundMovingOperationsSafety.test.ts`), que
+permanece válido como descrição de `escrow.service.ts` (camada não
+alterada). Residuais idênticos aos registrados na nota de remediação de
+#56 (não repetidos aqui para evitar duplicação/desvio entre duas cópias —
+o mecanismo é o mesmo código compartilhado pelos quatro métodos).
+`WDK_USDT_EVM` permanece `PRODUCTION-INELIGIBLE`, inalterado. Evidência
+completa: `docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` §15,
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.
+
+**CTO Gate Correction (2026-09-08).** A mesma correção da janela de crash
+`PREPARED → transfer() → SUBMITTED` registrada na nota de remediação de
+#56 se aplica identicamente aqui — `executeTransfer()` é o mecanismo
+compartilhado por `lockFunds()` e pelas três chamadas deste item,
+incluindo cada perna de `splitFunds()`. Detalhe completo:
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.1,
+`docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` §15.1. Nenhum novo BACKLOG
+DELTA.
 
 ## Ações Recomendadas por Prioridade
 

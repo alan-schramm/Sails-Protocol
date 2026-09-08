@@ -27,12 +27,25 @@
  * an honest step between `MOCK` (fakes everything) and a genuine
  * trustless multisig (nobody has built yet), not a claim to have closed
  * that gap.
+ *
+ * Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — every method
+ * below that self-initiates a real transfer (`lockFunds`/`releaseFunds`/
+ * `refundFunds`/`splitFunds`) now runs through `wdk-execution-truth.ts`'s
+ * `ensureAttempt()`/`waitForReceiptOutcome()`, closing the DEMONSTRATED
+ * retry-safety and receipt-verification gaps
+ * `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` (#56) and
+ * `docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` (#58) found. See that
+ * module's own header comment for the full design. This does NOT change
+ * `WDK_USDT_EVM`'s `PRODUCTION-INELIGIBLE` status (RFC-019) — it closes
+ * one class of blocker, not all of them.
  */
 import WalletManagerEvm, { type WalletAccountEvm } from '@tetherto/wdk-wallet-evm'
 import { createHash } from 'crypto'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
+import { ensureAttempt, markSubmissionAttempted, waitForReceiptOutcome } from './wdk-execution-truth'
+import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 
 // USDT's real, historically-fixed decimal precision on every EVM chain
 // it's deployed on — deliberately not read from the token contract at
@@ -50,6 +63,20 @@ export function toBaseUnits(decimalAmount: string, decimals: number): bigint {
   const [whole, fraction = ''] = decimalAmount.split('.')
   const truncatedFraction = fraction.slice(0, decimals).padEnd(decimals, '0')
   return BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(truncatedFraction || '0')
+}
+
+// The exact inverse of toBaseUnits() above — used only to give
+// WdkTransferAttempt's own `amount` column a human-readable decimal
+// record for a split leg's own computed base-unit amount (buyerAmount/
+// sellerAmount below never round-trip through this for the actual
+// transfer() call itself, which always uses the exact bigint).
+export function fromBaseUnits(baseUnits: bigint, decimals: number): string {
+  const negative = baseUnits < 0n
+  const abs = negative ? -baseUnits : baseUnits
+  const divisor = 10n ** BigInt(decimals)
+  const whole = abs / divisor
+  const fractionDigits = (abs % divisor).toString().padStart(decimals, '0')
+  return `${negative ? '-' : ''}${whole}.${fractionDigits}`
 }
 
 // Deterministic per-trade escrow account index — a BIP-44 non-hardened
@@ -132,13 +159,90 @@ export class WdkSettlementProvider implements SettlementProvider {
     const escrowAddress = await escrowAcct.getAddress()
     const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
 
-    const result = await treasury.transfer({
-      token: config.wdk.usdtContract,
-      recipient: escrowAddress,
-      amount,
-    })
+    const txId = await this.executeTransfer(escrow.id, 'LOCK', treasury, escrowAddress, escrow.lockedAmount, amount)
+    return { txId, address: escrowAddress }
+  }
 
-    return { txId: result.hash, address: escrowAddress }
+  // Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — the one
+  // shared, provider-local execution path every self-initiated transfer
+  // below (lock/release/refund, and each of splitFunds()'s two legs)
+  // goes through: ensureAttempt() (durable identity before the side
+  // effect, Property A; blocks an unsafe blind retry, Property B) ->
+  // the real transfer() call -> waitForReceiptOutcome() (never declares
+  // success on a bare hash, Property C). Kept as one method rather than
+  // duplicated per caller — the exact same sequence, same error
+  // semantics, same durable bookkeeping, for every WDK_USDT_EVM
+  // operation type. See wdk-execution-truth.ts's own header comment for
+  // the full design and docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md §13 for
+  // why this is the minimum mechanism chosen (a single shared helper
+  // inside this ONE provider file, not a generic cross-provider
+  // abstraction).
+  private async executeTransfer(
+    escrowId: string,
+    operationType: 'LOCK' | 'RELEASE' | 'REFUND' | 'SPLIT_BUYER' | 'SPLIT_SELLER',
+    sourceAccount: WalletAccountEvm,
+    destination: string,
+    decimalAmount: string,
+    baseUnitsAmount: bigint
+  ): Promise<string> {
+    const outcome = await ensureAttempt(escrowId, operationType, destination, decimalAmount, sourceAccount)
+    if (outcome.action === 'RESUME_CONFIRMED') {
+      return outcome.txHash
+    }
+
+    const attemptId = outcome.attemptId
+
+    // CTO Gate Correction (2026-09-08) — the durable pre-submission
+    // commit, written BEFORE transfer() is ever called (not after
+    // catching a throw). Closes the PREPARED -> transfer() -> SUBMITTED
+    // crash window: a crash at ANY point from here on — including
+    // mid-transfer(), after a real broadcast already succeeded, before
+    // the JS promise ever settles — now leaves this attempt durably at
+    // SUBMISSION_UNKNOWN, which wdk-execution-truth.ts's ensureAttempt()
+    // already blocks unconditionally on the next call. See that file's
+    // own header comment and markSubmissionAttempted()'s own doc comment
+    // for the full reasoning.
+    await markSubmissionAttempted(attemptId)
+
+    let hash: string
+    try {
+      const result = await sourceAccount.transfer({ token: config.wdk.usdtContract, recipient: destination, amount: baseUnitsAmount })
+      hash = result.hash
+    } catch (err) {
+      // Already SUBMISSION_UNKNOWN from the pre-commit above — this call
+      // cannot distinguish "never reached the network" from "reached it
+      // and the response was lost" either way
+      // (docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md's own central finding
+      // about this exact WDK API), so nothing further needs writing;
+      // re-asserting the same status here is a harmless, idempotent
+      // safety net, not the primary mechanism.
+      await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMISSION_UNKNOWN')
+      throw err
+    }
+
+    // If THIS write itself fails (e.g. a transient DB error), the attempt
+    // simply remains at whatever the pre-commit above set —
+    // SUBMISSION_UNKNOWN — which is exactly correct: Sails has a real
+    // hash in local memory that was never durably recorded, so a retry
+    // must be blocked exactly as if the outcome were genuinely unknown,
+    // never silently reverted to retryable. No try/catch needed here —
+    // the thrown error already propagates correctly, and the row's last
+    // successfully-written state already blocks the next attempt.
+    await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMITTED', { txHash: hash })
+
+    const receiptOutcome = await waitForReceiptOutcome(sourceAccount, hash)
+    if (receiptOutcome === 'CONFIRMED') {
+      await wdkTransferAttemptRepository.updateStatus(attemptId, 'CONFIRMED')
+      return hash
+    }
+    if (receiptOutcome === 'REVERTED') {
+      await wdkTransferAttemptRepository.updateStatus(attemptId, 'REVERTED')
+      throw new EscrowError(`WDK_USDT_EVM ${operationType} transfer ${hash} for escrow ${escrowId} reverted on-chain — no funds were delivered.`)
+    }
+    // PENDING — the bounded wait elapsed with no receipt yet. Stays
+    // SUBMITTED; a subsequent call (retry) will re-check this exact
+    // hash's receipt via ensureAttempt() before ever broadcasting again.
+    throw new EscrowError(`WDK_USDT_EVM ${operationType} transfer ${hash} for escrow ${escrowId} was submitted but is not yet confirmed on-chain within the bounded wait — this is not a failure; retry will reconcile automatically once the transaction is mined.`)
   }
 
   // Missão 11 Fase 4 — rail-parity audit: NOT extended with fee-aware
@@ -155,13 +259,8 @@ export class WdkSettlementProvider implements SettlementProvider {
     const escrowAcct = await this.escrowAccount(escrow.tradeId)
     const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
 
-    const result = await escrowAcct.transfer({
-      token: config.wdk.usdtContract,
-      recipient: toAddress,
-      amount,
-    })
-
-    return { txId: result.hash }
+    const txId = await this.executeTransfer(escrow.id, 'RELEASE', escrowAcct, toAddress, escrow.lockedAmount, amount)
+    return { txId }
   }
 
   async refundFunds(escrow: { id: string; tradeId: string; lockedAmount: string }): Promise<{ txId: string }> {
@@ -170,13 +269,8 @@ export class WdkSettlementProvider implements SettlementProvider {
     const escrowAcct = await this.escrowAccount(escrow.tradeId)
     const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
 
-    const result = await escrowAcct.transfer({
-      token: config.wdk.usdtContract,
-      recipient: treasuryAddress,
-      amount,
-    })
-
-    return { txId: result.hash }
+    const txId = await this.executeTransfer(escrow.id, 'REFUND', escrowAcct, treasuryAddress, escrow.lockedAmount, amount)
+    return { txId }
   }
 
   // RFC-021 D9 (2026-08-02) — real, two separate on-chain transfers (no
@@ -186,16 +280,41 @@ export class WdkSettlementProvider implements SettlementProvider {
   // (computed from what's left over, not a second independent
   // percentage) so the two legs always sum to the full lockedAmount with
   // no truncation dust unaccounted for.
+  // Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — Property D
+  // (Safe Multi-Leg Resume), closing docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md
+  // §5's DEMONSTRATED partial-execution gap. The two legs are tracked as
+  // two entirely independent logical operations (SPLIT_BUYER,
+  // SPLIT_SELLER — separate WdkTransferAttempt rows), each going through
+  // the exact same executeTransfer() every other method above uses. The
+  // seller leg is never attempted until the buyer leg has a real,
+  // receipt-confirmed txHash — resuming (skipping the transfer() call
+  // entirely) whenever a prior attempt already reached CONFIRMED, exactly
+  // satisfying the mission's own four named cases: buyer CONFIRMED +
+  // seller not started -> resumes at seller only; buyer CONFIRMED +
+  // seller UNKNOWN -> executeTransfer()'s own ensureAttempt() call for
+  // the seller leg blocks until reconciled; buyer UNKNOWN -> blocked
+  // before ever reaching the seller leg (buyer never repeated); buyer
+  // CONFIRMED + a prior seller REVERTED -> the seller leg's own
+  // ensureAttempt() call safely starts a fresh seller attempt (a
+  // definitively reverted transfer proves no funds moved), the buyer leg
+  // is never touched again.
   async splitFunds(escrow: { id: string; tradeId: string; lockedAmount: string }, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ txIds: string[] }> {
     const escrowAcct = await this.escrowAccount(escrow.tradeId)
     const total = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
     const buyerAmount = (total * BigInt(buyerBps)) / 10000n
     const sellerAmount = total - buyerAmount
 
-    const buyerResult = await escrowAcct.transfer({ token: config.wdk.usdtContract, recipient: buyerAddress, amount: buyerAmount })
-    const sellerResult = await escrowAcct.transfer({ token: config.wdk.usdtContract, recipient: sellerAddress, amount: sellerAmount })
+    const buyerTxId = await this.executeTransfer(escrow.id, 'SPLIT_BUYER', escrowAcct, buyerAddress, fromBaseUnits(buyerAmount, USDT_DECIMALS), buyerAmount)
+    // The seller leg is only ever attempted once the buyer leg above has
+    // returned — executeTransfer() either resumed a real, confirmed prior
+    // txHash or genuinely reached CONFIRMED just now; either way, by this
+    // line, the buyer leg is durably CONFIRMED. If it wasn't, the line
+    // above already threw and this code is never reached — the seller
+    // leg's transfer() is never even attempted, let alone the buyer leg
+    // repeated.
+    const sellerTxId = await this.executeTransfer(escrow.id, 'SPLIT_SELLER', escrowAcct, sellerAddress, fromBaseUnits(sellerAmount, USDT_DECIMALS), sellerAmount)
 
-    return { txIds: [buyerResult.hash, sellerResult.hash] }
+    return { txIds: [buyerTxId, sellerTxId] }
   }
 
 }

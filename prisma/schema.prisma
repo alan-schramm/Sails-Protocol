@@ -346,6 +346,10 @@ model Escrow {
   // Sails Core Implementation Program M9-F — the durable release-leg
   // reorg-evidence trail (see that model's own header comment).
   releaseEvidence    EscrowReleaseEvidence[]
+  // Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — WDK_USDT_EVM's
+  // durable pre-submission execution-boundary truth (see that model's own
+  // header comment). Empty for every non-WDK_USDT_EVM escrow.
+  wdkTransferAttempts WdkTransferAttempt[]
 
   // Missão 10 — cross-escrow double-claim protection for a funding
   // outpoint. Deliberately a plain (non-partial) unique constraint: see
@@ -491,6 +495,91 @@ enum EscrowFundingEvidenceKind {
   // multiple candidate UTXOs) it cannot safely auto-classify. Recorded,
   // logged loudly, never auto-resolved.
   AMBIGUOUS
+}
+
+// Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — the four
+// self-initiated WDK_USDT_EVM transfer()-shaped calls a WdkTransferAttempt
+// row can represent. SPLIT_BUYER/SPLIT_SELLER are two independent rows
+// for the same escrow (splitFunds()'s two non-atomic legs), never one
+// combined row — see WdkTransferAttempt's own header comment.
+enum WdkTransferOperationType {
+  LOCK
+  RELEASE
+  REFUND
+  SPLIT_BUYER
+  SPLIT_SELLER
+}
+
+// The execution-boundary states WdkTransferAttempt tracks — deliberately
+// narrower than a generic transaction-lifecycle enum (docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md
+// §3's own analytical state model, now made durable for exactly this one
+// provider). PREPARED means "identity recorded, transfer() not yet
+// called." SUBMITTED means a txHash was returned. SUBMISSION_UNKNOWN
+// means transfer() threw with no txHash ever obtained — the caller
+// cannot distinguish "never reached the network" from "reached it and
+// the response was lost," so this state is conservative-by-design and
+// blocks retry pending manual reconciliation (docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md's
+// own disclosed residual explains why a finer distinction isn't made).
+// CONFIRMED/REVERTED are only ever reached from SUBMITTED, via a real
+// receipt query (wdk-execution-truth.ts).
+enum WdkTransferAttemptStatus {
+  PREPARED
+  SUBMITTED
+  SUBMISSION_UNKNOWN
+  CONFIRMED
+  REVERTED
+  FAILED_BEFORE_SUBMISSION
+}
+
+// Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — durable
+// operation truth for WDK_USDT_EVM's self-initiated transfer() calls
+// (lockFunds/releaseFunds/refundFunds/splitFunds), closing the
+// retry-safety gaps docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md (#56) and
+// docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md (#58) demonstrated. Durably
+// records, BEFORE the external side effect, that a specific logical
+// operation (this escrow + this operation type, with SPLIT_BUYER/
+// SPLIT_SELLER as separate rows) is about to attempt a real transfer —
+// so a crash, timeout, or lost response can be reconciled against real
+// persisted state instead of Escrow.status alone.
+//
+// Deliberately WDK-specific, not a generic cross-rail/cross-provider
+// primitive — MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM's own release/
+// refund/split paths are client-signature-collection or read-only
+// verification, not self-initiated custodial transfers, so they have no
+// equivalent need (docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md §10).
+// Escrow semantic state (Escrow.status) is deliberately NOT replaced or
+// duplicated here — this table is the execution-boundary truth layer
+// underneath it, a separate concern (see this file's own header comment
+// on WdkTransferAttemptStatus).
+//
+// One row per attempt generation, append-only (never overwritten) — a
+// fresh row for the same (escrowId, operationType) is only ever created
+// once a PRIOR row reached a state proven safe to retry
+// (FAILED_BEFORE_SUBMISSION, or REVERTED for a split leg specifically —
+// wdk-execution-truth.ts's own state machine has the full reasoning),
+// preserving full history rather than overwriting it — the same
+// append-only evidence-table convention EscrowFundingEvidence/
+// EscrowReleaseEvidence already established in this file.
+model WdkTransferAttempt {
+  id            String                   @id @default(uuid())
+  escrowId      String
+  escrow        Escrow                   @relation(fields: [escrowId], references: [id])
+  operationType WdkTransferOperationType
+  status        WdkTransferAttemptStatus @default(PREPARED)
+  destination   String
+  amount        Decimal                  @db.Decimal(24, 8)
+  chainId       Int?
+  txHash        String?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  // The durable-identity query this table exists to answer: "is there
+  // already an active (non-safely-retryable) attempt for this exact
+  // logical operation?" — wdk-execution-truth.ts's ensureAttempt() always
+  // reads the most recent row for (escrowId, operationType) ordered by
+  // createdAt.
+  @@index([escrowId, operationType, createdAt])
+  @@map("wdk_transfer_attempts")
 }
 
 // One immutable-once-published policy per (railScope, label). Economic

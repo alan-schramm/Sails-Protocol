@@ -936,3 +936,182 @@ implying "unbounded RPC" or as automatically warranting future remediation.
 None of these items authorize or imply any implementation. All are evidence
 obligations, observations, or disclosed conditions for a future, separately
 authorized mission.
+
+---
+
+## 22. Remediation (Bounded Remediation, WDK Fund-Moving Safety, 2026-09-08)
+
+**Finding demonstrated → remediation implemented → evidence → residual.**
+The original finding above (§18's DEMONSTRATED RETRY-SAFETY GAP for
+`lockFunds()`) is preserved verbatim, unmodified — this section records
+what was subsequently built against it, not a rewrite of the finding
+itself.
+
+**Remediation implemented:** a new provider-local execution-truth layer
+(`src/modules/open-settlement/wdk-execution-truth.ts` +
+`wdk-transfer-attempt-repository.ts`, backed by a new `WdkTransferAttempt`
+Prisma model) now sits inside `WdkSettlementProvider.lockFunds()` (and,
+in the same pass, `releaseFunds()`/`refundFunds()`/`splitFunds()` —
+`docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` §14 has that document's own
+parallel remediation section). Before every real `transfer()` call,
+`ensureAttempt()` persists durable identity for the logical operation and
+refuses a second submission when a prior attempt's outcome is
+`SUBMITTED` (reconciled via a real `getTransactionReceipt()` query) or
+`SUBMISSION_UNKNOWN` (no hash was ever obtained — blocked pending manual
+reconciliation, no automatic resolution invented). After a fresh
+broadcast, `waitForReceiptOutcome()` polls for a real receipt (bounded,
+not a background worker) before the caller is ever told the operation
+succeeded — a bare returned hash is never treated as economic success.
+
+**Evidence:** `tests/wdkExecutionTruth.test.ts` (new, 11 tests) exercises
+the real, unmocked `WdkSettlementProvider`/`wdk-execution-truth.ts`
+directly (only the WDK account object and the database are mocked — no
+live network call anywhere) and DEMONSTRATES: an unknown-outcome attempt
+blocks a second `transfer()` call; a receipt confirming `REVERTED` never
+resolves as success; a receipt confirming `CONFIRMED` is the only path to
+a returned `txId`; a stale `PREPARED` row (simulating a crashed prior
+process) is durably reused rather than duplicated, without relying on any
+in-memory state; a `CONFIRMED` operation is idempotently protected —
+resumed without ever calling `transfer()` again. Full regression: the
+pre-existing `#56` test file (`tests/wdkLockFundsRetrySafety.test.ts`,
+which mocks `wdkSettlementProvider` entirely to test `escrow.service.ts`'s
+own orchestration layer) still passes unchanged — that layer was not
+modified, and its own findings about `escrow.service.ts`'s claim/revert
+behavior remain true statements about that layer; the new protection
+lives one level lower, inside the real provider.
+
+**Residuals, disclosed, not fixed by this pass:**
+- **Pre-submission vs. post-submission classification is conservative,
+  not precise.** The installed WDK's `transfer()` is an opaque call (gas
+  quote + broadcast bundled); this remediation cannot cheaply distinguish
+  "failed before ever reaching the network" from "reached it and the
+  response was lost" from outside that call. Every throw after an attempt
+  is marked `PREPARED` is conservatively classified `SUBMISSION_UNKNOWN`
+  — this is SAFE (never permits a blind duplicate) but has a real
+  operational cost: a genuinely pre-submission failure (e.g. a bad gas
+  quote) now also requires manual reconciliation rather than being
+  auto-retryable, which was not true before this remediation.
+- **`SUBMISSION_UNKNOWN` has no automated reconciliation path.** With no
+  `txHash` to query, this state can only be resolved by an operator
+  manually correcting the durable row after external investigation (e.g.
+  checking the deterministic escrow/treasury address's on-chain history)
+  — no operator-facing API/endpoint for this was built in this pass (out
+  of scope: no new module, no new RFC).
+- **Confirmation depth is 1 receipt, not N.** `waitForReceiptOutcome()`
+  accepts the first real receipt it observes — no guard against a shallow
+  reorg reversing a very-recently-mined block. Disclosed as future
+  hardening per this mission's own explicit instruction, not built now.
+- **The bounded receipt-poll window (default ~30s,
+  `WDK_RECEIPT_POLL_ATTEMPTS`/`WDK_RECEIPT_POLL_INTERVAL_MS`) means a
+  transaction that eventually mines outside that window is reported to
+  the caller as "submitted but not yet confirmed," not as success** —
+  correct, not a bug, but a real behavior a caller must be prepared to
+  retry/reconcile against, including for transfers that ultimately
+  succeed.
+- **`chainId` is left unpopulated** on every `WdkTransferAttempt` row —
+  the installed WDK package exposes no public method to read it without
+  reaching into a private field; not implemented in this pass.
+- **The new Prisma migration
+  (`prisma/migrations/20260908000000_wdk_transfer_attempt`) was hand-authored
+  to match this repository's own established migration format.** Locally,
+  it could only be validated via `npx prisma validate`/`npx prisma
+  generate` — no live Postgres was reachable in this session
+  (`localhost:5432` connection refused). **Update: CI's own `build`/`test`
+  workflow (`.github/workflows/ci.yml`) provisions a real, ephemeral
+  Postgres 16 service and runs `npm run db:migrate` (`prisma migrate
+  deploy`) against this exact migration before running any tests — both
+  checks PASSED on this PR's HEAD, DEMONSTRATING (not merely validated
+  offline) that the migration applies cleanly to a real Postgres instance
+  and is consistent with `schema.prisma`.** Residual, still real: no test
+  in this pass exercises `WdkTransferAttempt`'s own read/write behavior
+  against that live database directly (every unit test still mocks
+  `common/database`) — CI's green result proves the migration *applies*
+  and the schema *compiles*, not that the table's own query shapes have
+  been exercised against real Postgres data.
+
+**Production eligibility: unchanged.** `WDK_USDT_EVM` remains
+`PRODUCTION-INELIGIBLE` (RFC-019) — this remediation closes the retry-safety
+and receipt-verification blockers this document and
+`docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` demonstrated; it does not by
+itself constitute a production-eligibility review, and no such review is
+claimed or authorized by this section.
+
+### 22.1 CTO Gate Correction (2026-09-08) — closing the `PREPARED → transfer() → SUBMITTED` crash window
+
+The remediation above (§22) is preserved verbatim — this is a correction
+to a real gap found in it during CTO Gate review, not a rewrite.
+
+**The gap:** the original `ensureAttempt()` only wrote `SUBMISSION_UNKNOWN`
+from inside a `catch` block, *after* `transfer()` had already thrown. A
+crash *during* the `transfer()` call itself — after a real broadcast may
+already have occurred, before the JS promise ever settled either way —
+left the attempt row at `PREPARED`, and the original code treated
+`PREPARED` as unconditionally safe to reuse, reasoning (wrongly) that
+`SUBMITTED`/`SUBMISSION_UNKNOWN` are "always written synchronously,
+immediately following the one and only `transfer()` call attempt." That
+reasoning silently assumed the function invocation completed at all — it
+said nothing about a crash mid-`await`. `PREPARED` alone never actually
+proved `transfer()` hadn't been called; it only proved the row's *last
+write* was "identity recorded."
+
+**The fix:** `wdk-execution-truth.ts` now exports
+`markSubmissionAttempted()` — a durable, conservative pre-commit to
+`SUBMISSION_UNKNOWN`, called by `wdk-settlement.provider.ts`'s
+`executeTransfer()` **immediately before** `transfer()` is ever invoked
+(no other `await` in between). Reusing the existing `SUBMISSION_UNKNOWN`
+value rather than inventing a new status is deliberate: "the outcome of
+any submission is unknown" is exactly true both before the call (nothing
+has happened yet) and during/after a crash mid-call (the real outcome is
+genuinely unknown) — the caller overwrites it to `SUBMITTED` with the
+real hash the instant `transfer()` actually resolves. A crash at any
+point from that pre-commit onward — including mid-`transfer()`, after a
+real broadcast, or even during the *subsequent* `SUBMITTED` write itself
+— now leaves the row durably at `SUBMISSION_UNKNOWN`, which
+`ensureAttempt()`'s existing `SUBMISSION_UNKNOWN` branch already blocked
+unconditionally; no change was needed there for this to become safe. No
+new status value, no schema/migration change, no worker, no generic
+`EconomicOperation`/cross-rail journal — the smallest change that closes
+the window (Fase 2's own minimal-mechanism discipline, honored again).
+
+**`PREPARED` now means something narrower, honestly stated:** a row can
+only still be found at `PREPARED` if the crash happened strictly between
+`ensureAttempt()` returning and that immediately-next, synchronous
+pre-commit write — a real, disclosed, but now minimal residual window,
+not eliminated by construction (that would require a distributed/2PC
+mechanism this mission does not authorize). `ensureAttempt()`'s own
+`PREPARED` case comment was corrected to state this precisely instead of
+the original overclaim.
+
+**Exact decimal comparison:** the integrity guard comparing a reused
+attempt row's `destination`/`amount` against the current call's own
+computed values used `Number(a) !== Number(b)` — a floating-point
+comparison on values that must be compared exactly, since this check
+exists specifically to catch a real anomaly on money. Replaced with
+`decimalAmountsEqual()`, a pure string-normalization comparison (strips
+leading zeros from the whole part, trailing zeros from the fraction) that
+never parses through a float — `"5"`, `"5.0"`, and `"5.00000000"` all
+normalize identically.
+
+**New adversarial evidence:** `tests/wdkExecutionTruth.test.ts` gained 2
+new tests (13 total, all passing) plus an extension to the existing
+`REVERTED` test:
+- A row already at `SUBMISSION_UNKNOWN` (standing in for a prior process
+  that reached the pre-commit and then crashed mid-`transfer()`, with no
+  "first call that threw" anywhere in the test itself) blocks a retry —
+  `transfer()` is never called at all.
+- `transfer()` genuinely resolves with a real hash, but the subsequent
+  `SUBMITTED` write itself fails (a simulated DB error) — the row remains
+  at the pre-commit's `SUBMISSION_UNKNOWN`, and a further retry still
+  blocks — `transfer()` is invoked exactly once, ever, across both calls.
+- The existing `REVERTED` test was extended to prove a fresh retry
+  *after* a definitively reverted receipt is genuinely safe and succeeds
+  (not merely that the first attempt fails correctly).
+- `splitFunds()`'s per-leg protection inherits this same fix
+  automatically, since both legs go through the identical, shared
+  `executeTransfer()` — already covered by the 3 existing split tests
+  (their assertions target `transfer()` call counts, unaffected by the
+  extra pre-commit write).
+
+Full regression (13 suites, 248 tests) passes unchanged otherwise. No new
+`BACKLOG DELTA` — this is a correction to an already-registered
+remediation, not a new finding.

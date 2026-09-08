@@ -534,6 +534,17 @@ export const config = {
     seedPhrase: process.env.WDK_SEED_PHRASE ?? '',
     rpcUrl: process.env.WDK_RPC_URL ?? 'https://sepolia.drpc.org',
     usdtContract: process.env.WDK_USDT_CONTRACT ?? '',
+    // Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) —
+    // wdk-execution-truth.ts's bounded receipt-confirmation wait after a
+    // fresh broadcast: attempts * intervalMs = ~30s default, well inside
+    // Sepolia's own ~12s block time for at least one real chance to
+    // observe inclusion within a single request/response cycle, without
+    // an unbounded or background poll (no worker authorized). Not a
+    // confirmation-DEPTH guarantee (1 confirmation, not N) — see that
+    // file's own header comment and docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md
+    // for the explicit residual this leaves for future hardening.
+    receiptPollAttempts: Number(process.env.WDK_RECEIPT_POLL_ATTEMPTS ?? 10),
+    receiptPollIntervalMs: Number(process.env.WDK_RECEIPT_POLL_INTERVAL_MS ?? 3000),
   },
 
   // MULTISIG SettlementProvider (multisig.provider.ts) — real 2-of-3
