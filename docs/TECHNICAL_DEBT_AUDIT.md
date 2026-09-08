@@ -1838,6 +1838,46 @@ suposição.
 mudança de comportamento em `lockFunds()`/`escrow.service.ts` feita ou
 autorizada por este registro.**
 
+**Update (Mission #56 — Unknown-Outcome / Retry-Safety Investigation,
+2026-09-07).** As 7 perguntas acima foram investigadas de verdade — leitura
+direta do código real (`escrow.service.ts`, `escrow-lifecycle.ts`,
+`wdk-settlement.provider.ts`) e do pacote `@tetherto/wdk-wallet-evm`
+instalado (`1.0.0-beta.16`), mais um teste adversarial real
+(`tests/wdkLockFundsRetrySafety.test.ts`) exercitando a orquestração real
+e não-mockada. Resultado, no nível de confiança correto — não mais um gap
+de evidência, agora um achado DEMONSTRADO: `provider.lockFunds()`'s
+`transfer()` retorna assim que `eth_sendRawTransaction` é aceito pelo nó
+(não espera confirmação); nonce é sempre lido fresco via
+`getTransactionCount(from, 'pending')`, nunca cacheado; nenhuma chave de
+idempotência existe em nenhuma camada (WDK, provider, rota HTTP). Um teste
+real contra a orquestração não-mockada demonstra: uma transferência externa
+genuinamente bem-sucedida seguida por UMA FALHA LOCAL POSTERIOR (ex:
+`updateLockResult()` falhando por um problema comum de conexão com o
+Postgres — não algo exótico) reverte o escrow para `CREATED` sem persistir
+o `txId` real em lugar nenhum, e um retry subsequente invoca o provider
+uma SEGUNDA vez. Não se afirma "fundos definitivamente drenáveis" — a
+descoberta precisa é: **DEMONSTRATED RETRY-SAFETY GAP**, delimitado
+exatamente à janela entre "a chamada ao provider resolveu" e "o estado
+resultante foi persistido de forma durável" — a janela de concorrência
+(dois chamadores simultâneos) já era e continua protegida pelo
+`claimEscrowTransition` atômico existente (2026-07-20). Duas descobertas
+novas e independentes também registradas, fora do escopo original das 7
+perguntas: (a) `WDK_USDT_EVM` não tem NENHUM timeout configurado no seu
+provider RPC (diferente de `SAFE_GUARD_EVM`, já remediado pelo F1) — o F1
+nunca cobriu este arquivo; (b) `lockFunds()` nunca verifica um
+recibo/confirmação on-chain — uma transferência que reverte on-chain mas é
+aceita pelo nó (`eth_sendRawTransaction` bem-sucedido) seria hoje
+registrada como um lock bem-sucedido, com um `txLockId` real, mesmo que
+nenhum USDT tenha de fato se movido. Nenhuma das três descobertas foi
+corrigida — nenhum mecanismo de idempotência, estado UNKNOWN, ou
+verificação de recibo foi implementado ou autorizado por esta missão.
+`WDK_USDT_EVM` permanece `PRODUCTION-INELIGIBLE`, inalterado. Evidência
+completa, incluindo a matriz de janelas de falha (10 cenários), a análise
+de nonce EVM, a árvore de chamada real rastreada linha a linha, e os
+candidatos de mecanismo (não autorizados, apenas registrados para uma
+futura missão): `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`. BACKLOG DELTA:
+DETECTED AND SYNCED (ver `docs/BACKLOG.md`'s próprio registro correspondente).**
+
 ### 57. Falhas de `buildApp()` sob carga paralela do Jest — evidência de confiabilidade do harness de testes não conclusiva (CTO Gate Follow-up sobre F8, 2026-09-07)
 
 **Classificação: novo delta de backlog / confiabilidade de sistema de
