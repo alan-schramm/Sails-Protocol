@@ -11,7 +11,29 @@ module.exports = {
   // has been built locally. dist/ should never be scanned by Jest at all
   // regardless — this is the correct general exclusion, not a workaround
   // specific to that one file.
-  modulePathIgnorePatterns: ['<rootDir>/dist/'],
+  //
+  // docs/TEST_HARNESS_RELIABILITY.md (#57, 2026-09-08) — the same class of
+  // failure, a different source: the Agent tool's `isolation: "worktree"`
+  // feature (and any other tool that runs `git worktree add`) leaves a
+  // full checkout, including its own `packages/sails-sdk/package.json`,
+  // under `.claude/worktrees/<name>/` whenever a spawned agent makes
+  // changes (its worktree is only auto-removed when it makes none).
+  // Jest's own haste-map has no concept of "this directory is a git
+  // worktree, not product source" — it indexes every package.json under
+  // `roots` by its declared `name` field, so as few as ONE stray worktree
+  // (confirmed empirically: excluding 3 of 4 present at investigation
+  // time still reproduced the identical failure with the remaining one)
+  // reintroduces the exact `@satsails/p2p-trading-sdk` name collision
+  // `dist/`'s own exclusion above was written to prevent, breaking any
+  // suite whose import graph reaches `safe-guard-evm.provider.ts`
+  // (`escrow.service.ts` → `escrow-providers.ts` → that file's own
+  // `@satsails/p2p-trading-sdk` import). This directory is never part of
+  // this repository's own product source or test surface regardless of
+  // whether a worktree currently happens to exist under it — it should
+  // never be scanned by Jest at all, the same "correct general exclusion"
+  // reasoning as `dist/` above, not a workaround specific to today's
+  // leftover worktrees.
+  modulePathIgnorePatterns: ['<rootDir>/dist/', '<rootDir>/.claude/worktrees/'],
   // @noble/curves v2.x (forced into packages/sails-sdk/node_modules by
   // @arkade-os/sdk's own transitive tree — verified via `npm ls
   // @noble/curves -w @satsails/p2p-trading-sdk --all`, npm cannot place a separate 1.x
