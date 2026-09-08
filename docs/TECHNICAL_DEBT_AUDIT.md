@@ -1973,6 +1973,17 @@ Postgres real** (nenhum teste ainda exercita as próprias queries de
 de propriedade, não constitui uma revisão de elegibilidade de produção.
 Evidência completa: `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.
 
+**CTO Gate Correction (2026-09-08).** Um gap real na remediação acima — a
+janela de crash `PREPARED → transfer() → SUBMITTED` — foi encontrado e
+fechado (`markSubmissionAttempted()`, reaproveitando o status
+`SUBMISSION_UNKNOWN` existente, escrito de forma durável imediatamente
+antes de cada `transfer()`, sem novo status/schema/worker). Comparação de
+amount corrigida de ponto-flutuante para string decimal exata. 2 novos
+testes adversariais + extensão do teste `REVERTED` existente
+(`tests/wdkExecutionTruth.test.ts`, 13 testes). Detalhe completo:
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.1. Nenhum novo BACKLOG
+DELTA — correção de uma remediação já registrada, não um achado novo.
+
 ### 57. Falhas de `buildApp()` sob carga paralela do Jest — evidência de confiabilidade do harness de testes não conclusiva (CTO Gate Follow-up sobre F8, 2026-09-07)
 
 **Classificação: novo delta de backlog / confiabilidade de sistema de
@@ -2139,6 +2150,15 @@ o mecanismo é o mesmo código compartilhado pelos quatro métodos).
 `WDK_USDT_EVM` permanece `PRODUCTION-INELIGIBLE`, inalterado. Evidência
 completa: `docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` §15,
 `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.
+
+**CTO Gate Correction (2026-09-08).** A mesma correção da janela de crash
+`PREPARED → transfer() → SUBMITTED` registrada na nota de remediação de
+#56 se aplica identicamente aqui — `executeTransfer()` é o mecanismo
+compartilhado por `lockFunds()` e pelas três chamadas deste item,
+incluindo cada perna de `splitFunds()`. Detalhe completo:
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.1,
+`docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` §15.1. Nenhum novo BACKLOG
+DELTA.
 
 ## Ações Recomendadas por Prioridade
 

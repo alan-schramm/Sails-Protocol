@@ -1035,3 +1035,83 @@ and receipt-verification blockers this document and
 `docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` demonstrated; it does not by
 itself constitute a production-eligibility review, and no such review is
 claimed or authorized by this section.
+
+### 22.1 CTO Gate Correction (2026-09-08) — closing the `PREPARED → transfer() → SUBMITTED` crash window
+
+The remediation above (§22) is preserved verbatim — this is a correction
+to a real gap found in it during CTO Gate review, not a rewrite.
+
+**The gap:** the original `ensureAttempt()` only wrote `SUBMISSION_UNKNOWN`
+from inside a `catch` block, *after* `transfer()` had already thrown. A
+crash *during* the `transfer()` call itself — after a real broadcast may
+already have occurred, before the JS promise ever settled either way —
+left the attempt row at `PREPARED`, and the original code treated
+`PREPARED` as unconditionally safe to reuse, reasoning (wrongly) that
+`SUBMITTED`/`SUBMISSION_UNKNOWN` are "always written synchronously,
+immediately following the one and only `transfer()` call attempt." That
+reasoning silently assumed the function invocation completed at all — it
+said nothing about a crash mid-`await`. `PREPARED` alone never actually
+proved `transfer()` hadn't been called; it only proved the row's *last
+write* was "identity recorded."
+
+**The fix:** `wdk-execution-truth.ts` now exports
+`markSubmissionAttempted()` — a durable, conservative pre-commit to
+`SUBMISSION_UNKNOWN`, called by `wdk-settlement.provider.ts`'s
+`executeTransfer()` **immediately before** `transfer()` is ever invoked
+(no other `await` in between). Reusing the existing `SUBMISSION_UNKNOWN`
+value rather than inventing a new status is deliberate: "the outcome of
+any submission is unknown" is exactly true both before the call (nothing
+has happened yet) and during/after a crash mid-call (the real outcome is
+genuinely unknown) — the caller overwrites it to `SUBMITTED` with the
+real hash the instant `transfer()` actually resolves. A crash at any
+point from that pre-commit onward — including mid-`transfer()`, after a
+real broadcast, or even during the *subsequent* `SUBMITTED` write itself
+— now leaves the row durably at `SUBMISSION_UNKNOWN`, which
+`ensureAttempt()`'s existing `SUBMISSION_UNKNOWN` branch already blocked
+unconditionally; no change was needed there for this to become safe. No
+new status value, no schema/migration change, no worker, no generic
+`EconomicOperation`/cross-rail journal — the smallest change that closes
+the window (Fase 2's own minimal-mechanism discipline, honored again).
+
+**`PREPARED` now means something narrower, honestly stated:** a row can
+only still be found at `PREPARED` if the crash happened strictly between
+`ensureAttempt()` returning and that immediately-next, synchronous
+pre-commit write — a real, disclosed, but now minimal residual window,
+not eliminated by construction (that would require a distributed/2PC
+mechanism this mission does not authorize). `ensureAttempt()`'s own
+`PREPARED` case comment was corrected to state this precisely instead of
+the original overclaim.
+
+**Exact decimal comparison:** the integrity guard comparing a reused
+attempt row's `destination`/`amount` against the current call's own
+computed values used `Number(a) !== Number(b)` — a floating-point
+comparison on values that must be compared exactly, since this check
+exists specifically to catch a real anomaly on money. Replaced with
+`decimalAmountsEqual()`, a pure string-normalization comparison (strips
+leading zeros from the whole part, trailing zeros from the fraction) that
+never parses through a float — `"5"`, `"5.0"`, and `"5.00000000"` all
+normalize identically.
+
+**New adversarial evidence:** `tests/wdkExecutionTruth.test.ts` gained 2
+new tests (13 total, all passing) plus an extension to the existing
+`REVERTED` test:
+- A row already at `SUBMISSION_UNKNOWN` (standing in for a prior process
+  that reached the pre-commit and then crashed mid-`transfer()`, with no
+  "first call that threw" anywhere in the test itself) blocks a retry —
+  `transfer()` is never called at all.
+- `transfer()` genuinely resolves with a real hash, but the subsequent
+  `SUBMITTED` write itself fails (a simulated DB error) — the row remains
+  at the pre-commit's `SUBMISSION_UNKNOWN`, and a further retry still
+  blocks — `transfer()` is invoked exactly once, ever, across both calls.
+- The existing `REVERTED` test was extended to prove a fresh retry
+  *after* a definitively reverted receipt is genuinely safe and succeeds
+  (not merely that the first attempt fails correctly).
+- `splitFunds()`'s per-leg protection inherits this same fix
+  automatically, since both legs go through the identical, shared
+  `executeTransfer()` — already covered by the 3 existing split tests
+  (their assertions target `transfer()` call counts, unaffected by the
+  extra pre-commit write).
+
+Full regression (13 suites, 248 tests) passes unchanged otherwise. No new
+`BACKLOG DELTA` — this is a correction to an already-registered
+remediation, not a new finding.

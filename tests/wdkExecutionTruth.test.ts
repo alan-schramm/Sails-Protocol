@@ -105,13 +105,24 @@ describe('lockFunds() — durable operation truth', () => {
     expect(mockTransfer).toHaveBeenCalledTimes(1)
   })
 
-  it('a receipt confirming REVERTED is not economic success, and the txId is never returned', async () => {
+  it('a receipt confirming REVERTED is not economic success, and the txId is never returned — but a fresh retry is genuinely safe afterward', async () => {
     mockAttemptFindFirst.mockResolvedValueOnce(null)
     mockTransfer.mockResolvedValueOnce({ hash: '0xSIMULATED_TX', fee: 1n })
     mockGetTransactionReceipt.mockResolvedValueOnce({ status: 0 })
 
     await expect(provider.lockFunds(escrow)).rejects.toThrow(/reverted on-chain/)
     expect(mockAttemptUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
+
+    // A definitively reverted transfer proves no funds moved — a fresh
+    // retry for the same logical operation is genuinely safe, unlike the
+    // SUBMISSION_UNKNOWN case above.
+    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-1', status: 'REVERTED', destination: '0xEscrowAddr', amount: '5.00000000', txHash: '0xSIMULATED_TX' }))
+    mockTransfer.mockResolvedValueOnce({ hash: '0xSIMULATED_TX_2', fee: 1n })
+    mockGetTransactionReceipt.mockResolvedValueOnce({ status: 1 })
+
+    const retried = await provider.lockFunds(escrow)
+    expect(retried.txId).toBe('0xSIMULATED_TX_2')
+    expect(mockTransfer).toHaveBeenCalledTimes(2)
   })
 
   it('a receipt confirming CONFIRMED (status 1) is the only path to a returned txId', async () => {
@@ -143,7 +154,7 @@ describe('lockFunds() — durable operation truth', () => {
     expect(mockTransfer).not.toHaveBeenCalled()
   })
 
-  it('a stale PREPARED row (process crashed before transfer() was ever called) is durably reused, not duplicated — crash/restart survives on persisted state alone', async () => {
+  it('a stale PREPARED row (process crashed before the pre-submission commit was ever written) is durably reused, not duplicated — crash/restart survives on persisted state alone', async () => {
     mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-stale', status: 'PREPARED', destination: '0xEscrowAddr', amount: '5.00000000' }))
     mockTransfer.mockResolvedValueOnce({ hash: '0xSIMULATED_TX', fee: 1n })
     mockGetTransactionReceipt.mockResolvedValueOnce({ status: 1 })
@@ -157,6 +168,50 @@ describe('lockFunds() — durable operation truth', () => {
     // correctly.
     expect(mockAttemptCreate).not.toHaveBeenCalled()
     expect(mockAttemptUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'attempt-stale' }, data: expect.objectContaining({ status: 'SUBMITTED' }) }))
+  })
+
+  // ─── CTO Gate Correction (2026-09-08) — closing the PREPARED ->
+  // transfer() -> SUBMITTED crash window ────────────────────────────────
+  it('a durable pre-submission-boundary commit (SUBMISSION_UNKNOWN, written BEFORE transfer() is ever called) blocks a retry even when no first call in THIS test ever threw — simulating a crash mid-transfer() on a prior process', async () => {
+    // No "first call that threw" happens in this test at all — the row
+    // simply already exists at SUBMISSION_UNKNOWN, exactly as it would if
+    // a PRIOR process had reached the pre-commit and then crashed before
+    // transfer() ever resolved or rejected (a hash may or may not have
+    // actually been broadcast — Sails cannot tell, which is the whole
+    // point). The retry after that simulated crash/restart must never
+    // reach transfer() at all.
+    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-crashed', status: 'SUBMISSION_UNKNOWN', destination: '0xEscrowAddr', amount: '5.00000000' }))
+
+    await expect(provider.lockFunds(escrow)).rejects.toThrow(/outcome is UNKNOWN/)
+    expect(mockTransfer).not.toHaveBeenCalled()
+  })
+
+  it('transfer() returns a real hash, but persisting SUBMITTED itself fails — a subsequent retry still blocks, transfer() is never called again', async () => {
+    mockAttemptFindFirst.mockResolvedValueOnce(null) // fresh attempt
+    mockTransfer.mockResolvedValueOnce({ hash: '0xSIMULATED_TX_LOST_ON_WRITE', fee: 1n })
+    // First update() call is the pre-submission commit (SUBMISSION_UNKNOWN)
+    // — succeeds normally. Second update() call is the SUBMITTED write
+    // with the real hash — simulates a DB failure recording it (e.g. a
+    // dropped Postgres connection right after the transfer succeeded).
+    mockAttemptUpdate
+      .mockImplementationOnce(async (args: { where: { id: string }; data: Record<string, unknown> }) => row({ id: args.where.id, ...args.data } as any))
+      .mockRejectedValueOnce(new Error('simulated: DB write failure recording SUBMITTED'))
+
+    await expect(provider.lockFunds(escrow)).rejects.toThrow('simulated: DB write failure recording SUBMITTED')
+    // transfer() genuinely ran and returned a real hash — but it was
+    // never durably recorded. The row's last SUCCESSFUL write is still
+    // the pre-commit's SUBMISSION_UNKNOWN.
+    expect(mockTransfer).toHaveBeenCalledTimes(1)
+
+    // Retry: the row is found exactly where the failed write left it —
+    // SUBMISSION_UNKNOWN, with no txHash ever durably recorded, even
+    // though transfer() itself genuinely succeeded once already.
+    mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-new', status: 'SUBMISSION_UNKNOWN', destination: '0xEscrowAddr', amount: '5.00000000', txHash: null }))
+
+    await expect(provider.lockFunds(escrow)).rejects.toThrow(/outcome is UNKNOWN/)
+    // Dispositive: transfer() was invoked exactly once, ever, across both
+    // calls — the DB write failure did not cause a second real transfer.
+    expect(mockTransfer).toHaveBeenCalledTimes(1)
   })
 })
 

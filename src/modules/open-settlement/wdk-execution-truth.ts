@@ -34,6 +34,30 @@
  * as before — the real safety property (no second on-chain transfer for
  * one logical operation) is enforced HERE, before WalletAccountEvm.transfer()
  * is ever called again, regardless of what Escrow.status says.
+ *
+ * CTO Gate Correction (2026-09-08) — closing the PREPARED -> transfer() ->
+ * SUBMITTED crash window. The original version of this file only wrote
+ * SUBMISSION_UNKNOWN from inside a catch block, AFTER transfer() had
+ * already thrown — meaning a crash DURING the transfer() call itself
+ * (after a real broadcast may already have occurred, before the JS
+ * promise ever settles) left the row at PREPARED, and the original
+ * ensureAttempt() treated PREPARED as unconditionally safe to reuse. That
+ * was wrong: PREPARED alone never proved transfer() hadn't been called —
+ * it only proved the LAST write this row received was "identity
+ * recorded." markSubmissionAttempted() below is now called by
+ * wdk-settlement.provider.ts's executeTransfer() immediately BEFORE
+ * transfer() — a durable, conservative pre-commit that the submission
+ * boundary may be crossed. A crash at any point from that write onward
+ * (including mid-transfer(), after a real broadcast) now leaves the row
+ * at SUBMISSION_UNKNOWN, which this file's own SUBMISSION_UNKNOWN branch
+ * already blocks unconditionally — no further change was needed there.
+ * PREPARED now only persists if the crash happened strictly between
+ * ensureAttempt() returning and that immediately-next, synchronous
+ * pre-commit write (no intervening `await` in between other than the
+ * pre-commit call itself) — a real, disclosed, but now minimal residual
+ * window (see docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md §22's own updated
+ * residual list), not eliminated by construction (that would require a
+ * distributed/2PC mechanism this mission does not authorize).
  */
 import { config } from '../../config'
 import { EscrowError } from '../../common/errors'
@@ -51,6 +75,27 @@ export type ReceiptCapableAccount = Pick<WalletAccountEvm, 'getTransactionReceip
 export type EnsureAttemptResult =
   | { action: 'RESUME_CONFIRMED'; txHash: string }
   | { action: 'PROCEED'; attemptId: string }
+
+// CTO Gate Correction (2026-09-08) — the integrity guard below used to
+// compare amounts via Number(a) !== Number(b), a floating-point
+// comparison on values that must be compared exactly (a real duplicate-
+// attempt check on money, per this file's own governing property). Pure
+// string normalization instead: strips leading zeros from the whole part
+// and trailing zeros from the fraction, so "5", "5.0", and "5.00000000"
+// all normalize identically without ever parsing through a float. Not a
+// general-purpose decimal library — this codebase's own amounts are
+// always non-negative decimal strings (toBaseUnits()/fromBaseUnits()'s
+// own domain), so signs are deliberately not handled.
+function normalizeDecimalString(value: string): string {
+  const [wholeRaw, fractionRaw = ''] = value.trim().split('.')
+  const whole = wholeRaw.replace(/^0+(?=\d)/, '') || '0'
+  const fraction = fractionRaw.replace(/0+$/, '')
+  return fraction ? `${whole}.${fraction}` : whole
+}
+
+function decimalAmountsEqual(a: string, b: string): boolean {
+  return normalizeDecimalString(a) === normalizeDecimalString(b)
+}
 
 /**
  * Called BEFORE every real transfer() attempt. Persists durable identity
@@ -79,9 +124,11 @@ export async function ensureAttempt(
   // genuinely differ from this call's own computed values indicates a
   // real anomaly (a bug upstream, or a genuinely different logical
   // operation reusing the same discriminator) — loud failure, not a
-  // silent reuse of mismatched state. Amount compared numerically since
-  // Decimal's own string formatting need not match the caller's exactly.
-  if (latest.destination !== destination || Number(latest.amount.toString()) !== Number(amount)) {
+  // silent reuse of mismatched state. Amount compared via exact decimal
+  // string normalization (decimalAmountsEqual, above) — never floating
+  // point — since Decimal's own string formatting need not match the
+  // caller's exactly (e.g. "5" vs "5.00000000").
+  if (latest.destination !== destination || !decimalAmountsEqual(latest.amount.toString(), amount)) {
     throw new EscrowError(
       `WdkTransferAttempt ${latest.id} for escrow ${escrowId}/${operationType} recorded destination=${latest.destination} amount=${latest.amount.toString()}, but this call computed destination=${destination} amount=${amount} — refusing to reconcile against a mismatched prior attempt.`
     )
@@ -130,19 +177,26 @@ export async function ensureAttempt(
       )
 
     case 'PREPARED':
-      // A prior attempt row exists but never reached SUBMITTED or
-      // SUBMISSION_UNKNOWN — the process crashed strictly between
-      // recording this row and ever calling transfer()
-      // (docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md's own analytical
-      // "Window I" crash window, now durable instead of merely
-      // hypothetical). transfer() is provably never invoked for THIS row
-      // — SUBMITTED/SUBMISSION_UNKNOWN are always written synchronously,
-      // immediately following the one and only transfer() call attempt,
-      // in the same function invocation (wdk-settlement.provider.ts) — so
-      // it is safe to reuse this exact row rather than creating a new
-      // one (concurrent duplicate callers are already excluded before
-      // this function is ever reached, by escrow.service.ts's own
-      // pre-existing atomic claimEscrowTransition()).
+      // CTO Gate Correction (2026-09-08) — corrected reasoning; PREPARED
+      // is NOT proof that transfer() was never invoked in general (that
+      // was the original, wrong justification here). It is safe to reuse
+      // ONLY because of this file's own header-comment fix:
+      // wdk-settlement.provider.ts's executeTransfer() now calls
+      // markSubmissionAttempted() (below) — a durable, conservative
+      // pre-commit to SUBMISSION_UNKNOWN — immediately before transfer()
+      // is ever called, with no other `await` in between. A row can only
+      // still be found at PREPARED here if the crash happened strictly
+      // between ensureAttempt() returning and that immediately-next
+      // synchronous write — a real but now minimal residual window, not
+      // the entire transfer() network round-trip. Any crash from that
+      // pre-commit onward (including mid-transfer(), after a real
+      // broadcast) leaves the row at SUBMISSION_UNKNOWN instead, which
+      // this function's own SUBMISSION_UNKNOWN branch already blocks
+      // unconditionally. (Concurrent duplicate callers are separately
+      // excluded before this function is ever reached, by
+      // escrow.service.ts's own pre-existing atomic
+      // claimEscrowTransition() — unrelated to this sequential-crash
+      // concern.)
       return { action: 'PROCEED', attemptId: latest.id }
 
     case 'FAILED_BEFORE_SUBMISSION': {
@@ -166,6 +220,23 @@ export async function ensureAttempt(
       throw new EscrowError(`WdkTransferAttempt ${latest.id} has an unrecognized status: ${String(exhaustive)}`)
     }
   }
+}
+
+/**
+ * CTO Gate Correction (2026-09-08) — the durable pre-submission commit.
+ * MUST be called by the caller (wdk-settlement.provider.ts's
+ * executeTransfer()) immediately before invoking transfer(), with no
+ * other `await` in between. Writes SUBMISSION_UNKNOWN — not a new status
+ * value: "the outcome of any submission is unknown" is exactly true both
+ * before the call (nothing has happened yet) and during/after a crash
+ * mid-call (the real outcome is unknown), and the caller overwrites it to
+ * SUBMITTED with the real hash the instant transfer() actually resolves.
+ * This is what closes the PREPARED -> transfer() -> SUBMITTED crash
+ * window: see this file's own header comment and ensureAttempt()'s
+ * PREPARED case for the full reasoning.
+ */
+export async function markSubmissionAttempted(attemptId: string): Promise<void> {
+  await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMISSION_UNKNOWN')
 }
 
 export type ReceiptOutcome = 'CONFIRMED' | 'REVERTED' | 'PENDING'

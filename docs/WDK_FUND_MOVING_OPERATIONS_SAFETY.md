@@ -433,12 +433,9 @@ orchestration layer) still passes unchanged — see
 and correct.
 
 **Residuals:** identical to `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`
-§22's own residuals list (conservative pre/post-submission
-classification, no automated `SUBMISSION_UNKNOWN` reconciliation, 1
-confirmation not N, bounded receipt-poll window, unpopulated `chainId`,
-migration not applied against a live Postgres in this session) — not
-repeated verbatim here to avoid drift between two copies; that section is
-the canonical statement of every residual, since the mechanism is
+§22's own residuals list — not repeated verbatim here to avoid drift
+between two copies; that section (and its own §22.1 correction, below)
+is the canonical statement of every residual, since the mechanism is
 identical code shared by all four methods.
 
 **Production eligibility: unchanged.** `WDK_USDT_EVM` remains
@@ -447,3 +444,23 @@ retry-safety, receipt-verification, and multi-leg partial-execution
 blockers this document demonstrated; it does not by itself constitute a
 production-eligibility review, and no such review is claimed or
 authorized by this section.
+
+### 15.1 CTO Gate Correction (2026-09-08)
+
+A real gap in §15's remediation — the `PREPARED → transfer() →
+SUBMITTED` crash window — was found and closed. Full account:
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.1 (canonical; the fix is
+one shared mechanism, `executeTransfer()`, used identically by
+`lockFunds()` and all three fund-moving methods this document covers).
+Summary: a durable pre-submission commit (`markSubmissionAttempted()`,
+reusing the existing `SUBMISSION_UNKNOWN` status — no new status value)
+is now written immediately before every `transfer()` call, closing the
+window down to the single synchronous write between `ensureAttempt()`
+returning and that commit. `splitFunds()`'s per-leg protection inherits
+this automatically via the shared helper. The floating-point amount
+comparison (`Number(a) !== Number(b)`) in the reused-attempt integrity
+guard was also replaced with an exact decimal-string comparison. Two new
+adversarial tests plus an extension to the existing `REVERTED` test in
+`tests/wdkExecutionTruth.test.ts` (13 tests total). No new `BACKLOG
+DELTA` — a correction to an already-registered remediation, not a new
+finding.

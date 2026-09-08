@@ -44,7 +44,7 @@ import { createHash } from 'crypto'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
-import { ensureAttempt, waitForReceiptOutcome } from './wdk-execution-truth'
+import { ensureAttempt, markSubmissionAttempted, waitForReceiptOutcome } from './wdk-execution-truth'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 
 // USDT's real, historically-fixed decimal precision on every EVM chain
@@ -191,20 +191,43 @@ export class WdkSettlementProvider implements SettlementProvider {
     }
 
     const attemptId = outcome.attemptId
+
+    // CTO Gate Correction (2026-09-08) — the durable pre-submission
+    // commit, written BEFORE transfer() is ever called (not after
+    // catching a throw). Closes the PREPARED -> transfer() -> SUBMITTED
+    // crash window: a crash at ANY point from here on — including
+    // mid-transfer(), after a real broadcast already succeeded, before
+    // the JS promise ever settles — now leaves this attempt durably at
+    // SUBMISSION_UNKNOWN, which wdk-execution-truth.ts's ensureAttempt()
+    // already blocks unconditionally on the next call. See that file's
+    // own header comment and markSubmissionAttempted()'s own doc comment
+    // for the full reasoning.
+    await markSubmissionAttempted(attemptId)
+
     let hash: string
     try {
       const result = await sourceAccount.transfer({ token: config.wdk.usdtContract, recipient: destination, amount: baseUnitsAmount })
       hash = result.hash
     } catch (err) {
-      // No hash was ever obtained — this call cannot distinguish "never
-      // reached the network" from "reached it and the response was
-      // lost" (docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md's own central
-      // finding about this exact WDK API). Conservative-by-design:
-      // SUBMISSION_UNKNOWN, not a revert-to-retryable.
+      // Already SUBMISSION_UNKNOWN from the pre-commit above — this call
+      // cannot distinguish "never reached the network" from "reached it
+      // and the response was lost" either way
+      // (docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md's own central finding
+      // about this exact WDK API), so nothing further needs writing;
+      // re-asserting the same status here is a harmless, idempotent
+      // safety net, not the primary mechanism.
       await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMISSION_UNKNOWN')
       throw err
     }
 
+    // If THIS write itself fails (e.g. a transient DB error), the attempt
+    // simply remains at whatever the pre-commit above set —
+    // SUBMISSION_UNKNOWN — which is exactly correct: Sails has a real
+    // hash in local memory that was never durably recorded, so a retry
+    // must be blocked exactly as if the outcome were genuinely unknown,
+    // never silently reverted to retryable. No try/catch needed here —
+    // the thrown error already propagates correctly, and the row's last
+    // successfully-written state already blocks the next attempt.
     await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMITTED', { txHash: hash })
 
     const receiptOutcome = await waitForReceiptOutcome(sourceAccount, hash)
