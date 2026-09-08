@@ -347,3 +347,186 @@ Classification:
 - Norte macrofront count remains unchanged; this refines Productization /
   Ecosystem Composition rather than creating a new macrofront
 
+---
+
+## Identity Root & Multi-Protocol Identity UX (registered 2026-09-08)
+
+**Type:** architecture + product UX obligation. **Backlog/design
+registration only — no implementation, no new Core primitive, no
+derivation scheme, no schema change authorized by this entry.**
+
+### Where this comes from — investigated before registering, not assumed
+
+A repository-wide search (not a guess) for every representation of this
+space, done before writing anything below:
+
+- **Pears/HyperDHT identity** — the only one with a *real, shipped*
+  partial implementation: `prisma/schema.prisma`'s `User.peerId` (a
+  single, independent, nullable field — no derivation relationship to
+  `User.publicKey` enforced or even modeled), `identity.service.ts`'s
+  `PublicParticipantIdentity` (peerId disclosed as "their P2P transport
+  identity"), and `pear.service.ts`'s 2026-08-09 fix (`PearNode.start()`
+  generates its own `HyperDHT.keyPair()`, taking no caller-supplied key
+  at all). **This exact gap is already disclosed, not new**:
+  `docs/BACKLOG.md`'s own "Current Truth P1+ set extended by one
+  instance" entry (2026-09-06) and `docs/TRUST_BOUNDARY.md` Boundary 1b
+  already state plainly: *"economic participant identity and transport
+  identity are demonstrably different keys today, but their association
+  remains server-mediated/database-associated (`User.peerId`, checked by
+  `verifyHandshakeIdentity()`), not independently cryptographically
+  bound."* This entry generalizes that already-disclosed, Pears-specific
+  finding to every other protocol identity the wallet composes — it does
+  not re-discover or duplicate it.
+- **`rfcs/RFC-013-capability-registry-and-wallet-adapter.md`** — titled
+  "...and Portable Identity via `peerId`," but this is a *narrower and
+  different* concept than what this entry registers: RFC-013's
+  "portability" means reputation stays addressable by the same `peerId`
+  across different wallet apps (a lookup-key convenience), not a
+  recovery root deriving multiple domain-separated protocol identities.
+  Not to be conflated — cited here precisely so it isn't.
+- **`docs/PROTOCOL_SPECIFICATION.md` §1.1's "Portable Identity Layer"**
+  (Level-0 Keys → DID/Portable-Identity → Credentials → Trust Graph) —
+  also a *different* portability axis: an established identity usable
+  across wallets/apps without re-registering, explicitly technology-
+  neutral ("W3C DID, a Nostr keypair/NIP-05 identifier, a bare Ed25519
+  key... the protocol has no opinion"). This is about one identity's
+  portability, not about deriving several independent protocol
+  identities from one recovery root. Cited, not duplicated.
+- **Nostr** — appears only in three unrelated framings: (1) design
+  inspiration for `EvidenceProvider`'s pointer-and-hash pattern
+  (`rfcs/RFC-007`, `rfcs/RFC-008` — explicitly critiqued there as
+  under-specifying non-repudiation for a financial protocol, RFC-008's
+  entire reason to exist), (2) an evidence-media hosting adapter
+  (`Nostr.build`, alongside S3/R2/IPFS/Arweave, `docs/PROTOCOL_SPECIFICATION.md`
+  §1.8, `docs/ECOSYSTEM_INTEGRATIONS.md`), and (3) one illustrative,
+  non-committal example of a Portable-Identity-Layer format (previous
+  bullet). **None of these is about Nostr key *recovery* or derivation.**
+  The only place "Nostr as transport" is named as its own front at all
+  is `docs/GITHUB_PROJECT.md` §D's flat "named only, not elaborated"
+  list (also cross-referenced from `docs/ENGINEERING_GOVERNANCE.md`
+  §13) — a name with zero scope, zero design, zero commitment.
+- **Pubky / PKARR** — appear *only* in that same `docs/GITHUB_PROJECT.md`
+  §D flat list and its `ENGINEERING_GOVERNANCE.md` cross-reference.
+  Nowhere else in the repository. No design, no scope, no prior
+  discussion beyond the name.
+- **Iroh** — a targeted search of every `.md` file and `src/` found
+  **zero mentions anywhere in this repository.** Not previously named,
+  not previously discussed, not previously registered in any form. A
+  genuinely new addition to the ecosystem-technology list, not a gap in
+  an existing registration.
+- **`ParticipantIdentity`** (the conceptual name for the `User` Prisma
+  model) — its Core contract (`docs/PROTOCOL_SPECIFICATION.md` §1.1) is
+  silent on multi-protocol derivation entirely; it defines Level-0 Keys
+  → optional Portable-Identity-Layer → Credentials → Trust Graph, none
+  of which models "one root, several domain-separated protocol
+  identities."
+- **"multi-device"**, **"seed-derived identity"**, **"reputation
+  portability"** (as a dedicated architectural treatment, distinct from
+  RFC-013's narrower `peerId`-lookup sense) — zero hits anywhere in
+  `docs/` or `rfcs/`. Missing obligations, not overlooked existing text.
+
+### Classification of what already exists
+
+- **Current architecture:** `User.publicKey` (economic/funds identity)
+  and `User.peerId` (Pears transport identity) as two independent,
+  caller-supplied fields with a server-mediated, not cryptographically
+  bound, association. This is the *only* protocol identity beyond the
+  core keypair with any real, shipped representation today.
+- **Historical discussion, named only:** Nostr (as transport), Pubky,
+  PKARR — `docs/GITHUB_PROJECT.md` §D. No scope, no design.
+- **Partial implementation:** none beyond the Pears/`peerId` case above.
+- **Future direction:** the Portable Identity Layer (`docs/PROTOCOL_SPECIFICATION.md`
+  §1.1) — a different axis (portability of one identity), not multi-
+  protocol derivation.
+- **Missing obligation (this entry):** a single user recovery root
+  deriving or recovering multiple protocol-specific identities with
+  domain separation, independent rotation/revocation, and no implied
+  cross-protocol correlation — not represented anywhere in this
+  repository before this registration. Iroh as an ecosystem technology
+  is likewise entirely new.
+
+### Architectural direction registered
+
+A single user recovery root may derive or recover multiple
+protocol-specific identities while preserving domain separation,
+independent key material, independent protocol dependencies, and
+independent rotation/revocation semantics. Preserved distinctions:
+
+- **Funds Authority ≠ Economic Identity ≠ Transport/Communication
+  Identity** — three conceptually distinct roles that must not be
+  silently collapsed into "the wallet's one key."
+- **Same recovery seed/root ≠ same private key across protocols** — a
+  single backup recovering multiple identities does not mean those
+  identities share, or are trivially derivable from, one another's key
+  material in a way that breaks domain separation.
+
+Obligations this direction must eventually cover (registered as scope,
+not scheduled or designed): one-backup recovery UX; protocol-specific
+domain-separated derivation; Nostr identity recovery; Pears/P2P identity
+recovery; Pubky/PKARR identity recovery; Iroh/device identity where
+relevant; device-specific keys where the underlying protocol requires
+them; rotation/revocation; wallet migration; compromise isolation;
+multi-device; binding external identities to Sails `ParticipantIdentity`
+(building on, not replacing, the existing `User.peerId` precedent above);
+reputation/history continuity; export/import boundaries; privacy/
+correlation resistance; no implication that external transport
+identities become Sails Core identity.
+
+### Privacy property (registered)
+
+**Deterministic recoverability must not imply publicly correlatable
+identities across protocols.** A wallet must not accidentally expose
+
+```
+Nostr pubkey ↔ Pears pubkey ↔ Pubky key ↔ wallet addresses
+```
+
+as trivially provable siblings unless the user or protocol intentionally
+creates that binding.
+
+### UX property (registered)
+
+**The user should not need to understand or separately back up every
+protocol-specific key merely because the wallet composes multiple
+decentralized protocols.** But: **UX simplification must not collapse
+cryptographic trust domains.**
+
+### Conflict check against current `OpenIdentity`
+
+No conflict found. `docs/PROTOCOL_SPECIFICATION.md` §1.1's `Identity`
+Core contract is additive-by-design (each layer optional, Level-0 keys
+always remain valid) and explicitly technology-neutral on the Portable
+Identity Layer — this entry's direction fits inside that contract as a
+possible future OpenIdentity-module-level (or dedicated
+Transport/Interoperability-level) elaboration, not a change to it. The
+one existing concrete data point (`User.peerId`) is treated here as a
+precedent to build on, not a design to unwind.
+
+### Not authorized by this entry
+
+KDF choice, derivation paths, NIP-specific derivation, Pubky key scheme,
+Pears identity changes, Iroh integration, a new `OpenIdentity` schema, a
+new `ParticipantIdentity` primitive, a device-key registry, recovery UI,
+key escrow, cloud backup, or a cross-protocol identity registry. Backlog/
+design obligation only.
+
+### Norte placement
+
+No new Norte macrofront. Represented within the existing macrofronts
+whose scope it composes: **9. OpenIdentity**, **13. Transport/
+Interoperability**, **17. Protocol UX**, **19. Privacy Architecture**.
+Macrofront count remains 38.
+
+### Project sync
+
+**No new Project card.** Same posture already established immediately
+above in this file for the Cross-Rail Guard-Maturity Disclosure entry:
+Backlog representation is sufficient while no execution mission is
+authorized; this is one composed architectural obligation, not four
+independent per-technology initiatives.
+
+Classification: **BACKLOG DELTA DETECTED AND SYNCED** — the obligation
+was not explicitly represented before this entry (only its Pears-scoped
+special case was, and only Nostr/Pubky/PKARR's bare names, and Iroh not
+at all).
+
