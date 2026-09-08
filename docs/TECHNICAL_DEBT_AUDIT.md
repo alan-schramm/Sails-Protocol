@@ -1838,6 +1838,92 @@ suposição.
 mudança de comportamento em `lockFunds()`/`escrow.service.ts` feita ou
 autorizada por este registro.**
 
+**Update (Mission #56 — Unknown-Outcome / Retry-Safety Investigation,
+2026-09-07).** As 7 perguntas acima foram investigadas de verdade — leitura
+direta do código real (`escrow.service.ts`, `escrow-lifecycle.ts`,
+`wdk-settlement.provider.ts`) e do pacote `@tetherto/wdk-wallet-evm`
+instalado (`1.0.0-beta.16`), mais um teste adversarial real
+(`tests/wdkLockFundsRetrySafety.test.ts`) exercitando a orquestração real
+e não-mockada. Resultado, no nível de confiança correto — não mais um gap
+de evidência, agora um achado DEMONSTRADO: `provider.lockFunds()`'s
+`transfer()` retorna assim que `eth_sendRawTransaction` é aceito pelo nó
+(não espera confirmação); nonce é sempre lido fresco via
+`getTransactionCount(from, 'pending')`, nunca cacheado; nenhuma chave de
+idempotência existe em nenhuma camada (WDK, provider, rota HTTP). Um teste
+real contra a orquestração não-mockada demonstra: uma transferência externa
+genuinamente bem-sucedida seguida por UMA FALHA LOCAL POSTERIOR (ex:
+`updateLockResult()` falhando por um problema comum de conexão com o
+Postgres — não algo exótico) reverte o escrow para `CREATED` sem persistir
+o `txId` real em lugar nenhum, e um retry subsequente invoca o provider
+uma SEGUNDA vez. Não se afirma "fundos definitivamente drenáveis" — a
+descoberta precisa é: **DEMONSTRATED RETRY-SAFETY GAP**, delimitado
+exatamente à janela entre "a chamada ao provider resolveu" e "o estado
+resultante foi persistido de forma durável" — a janela de concorrência
+(dois chamadores simultâneos) já era e continua protegida pelo
+`claimEscrowTransition` atômico existente (2026-07-20). Duas descobertas
+novas e independentes também registradas, fora do escopo original das 7
+perguntas: (a) `WDK_USDT_EVM` não tem NENHUM timeout configurado no seu
+provider RPC (diferente de `SAFE_GUARD_EVM`, já remediado pelo F1) — o F1
+nunca cobriu este arquivo; (b) `lockFunds()` nunca verifica um
+recibo/confirmação on-chain — uma transferência que reverte on-chain mas é
+aceita pelo nó (`eth_sendRawTransaction` bem-sucedido) seria hoje
+registrada como um lock bem-sucedido, com um `txLockId` real, mesmo que
+nenhum USDT tenha de fato se movido. Nenhuma das três descobertas foi
+corrigida — nenhum mecanismo de idempotência, estado UNKNOWN, ou
+verificação de recibo foi implementado ou autorizado por esta missão.
+`WDK_USDT_EVM` permanece `PRODUCTION-INELIGIBLE`, inalterado. Evidência
+completa, incluindo a matriz de janelas de falha (10 cenários), a análise
+de nonce EVM, a árvore de chamada real rastreada linha a linha, e os
+candidatos de mecanismo (não autorizados, apenas registrados para uma
+futura missão): `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`. BACKLOG DELTA:
+DETECTED AND SYNCED (ver `docs/BACKLOG.md`'s próprio registro correspondente).**
+
+**CTO Gate Correction (mesmo dia, 2026-09-07) — 5 imprecisões corrigidas,
+achado central preservado.** (1) O texto acima descreveu o teste como "uma
+transferência externa genuinamente bem-sucedida" — impreciso: o provider foi
+mockado no teste, nenhuma chamada de rede real ocorreu. Corrigido: a
+orquestração real do Sails (`claimEscrowTransition` → chamada ao provider →
+catch → `revertEscrowStatus` → retry) é DEMONSTRADA de verdade, não-mockada;
+o efeito colateral externo em si é SIMULADO. Um segundo teste adversarial foi
+adicionado (`tests/wdkLockFundsRetrySafety.test.ts`, agora 4 testes) modelando
+o cenário exato de "submit then throw"/lost-response pedido pela missão: o
+provider fake registra que seu efeito colateral (simulado) ocorreu e SÓ
+DEPOIS lança um erro, nunca retornando um `txId` ao chamador — provando que a
+mesma operação lógica alcança o provider uma segunda vez mesmo quando o
+provider nunca retorna sucesso algum. Claim permitido: "Sails orchestration
+demonstrates retry after a simulated post-submission unknown outcome."
+Claim proibido, não feito: "real on-chain duplicate transfer" — nenhuma rede
+real foi usada em nenhum teste. (2) A afirmação "`WDK_USDT_EVM` não tem
+NENHUM timeout configurado" foi corrigida — o `ethers@6.17.0` instalado
+define um timeout padrão de `FetchRequest` de 300000ms (5 minutos)
+(confirmado por leitura direta de `node_modules/ethers/lib.commonjs/utils/fetch.js:402`),
+herdado sem override específico do Sails. Classificação correta: **NO
+SAILS-SPECIFIC TIMEOUT CONFIGURED**, não **UNBOUNDED RPC**. Rebaixado de
+"nova descoberta independente" para observação — não abre por si só um novo
+gap de produção sem uma propriedade concreta demonstrada. (3) A janela de
+falha "claim FUNDS_LOCKED persistido mas o provider nunca é chamado" havia
+sido tratada como impossível — incorreto: um crash pode ocorrer entre
+QUAISQUER dois `await`s sequenciais, inclusive os dois dentro do próprio
+corpo de `lockFunds()`; reclassificada como REPOSITORY-OBSERVED CRASH
+WINDOW (raciocinada a partir da estrutura do código, não reproduzida via
+kill de processo real). (4) Um restart seguido de nova chamada a
+`POST .../lock` NÃO causa automaticamente uma segunda transferência quando o
+escrow ficou em `FUNDS_LOCKED` sem `txLockId` — `assertEscrowTransition`
+bloqueia essa chamada (agora comprovado por um teste dedicado). Dois cenários
+distintos foram separados: Cenário A (crash deixa `FUNDS_LOCKED`, travado,
+não retryable pelo fluxo normal) vs. Cenário B (exceção capturada + revert
+para `CREATED`, genuinamente retryable — é aqui, e só aqui, que a segunda
+invocação do provider pode ocorrer). (5) A afirmação de que o endereço do
+escrow re-derivável mais uma janela de tempo aproximada seria "suficiente"
+para reconciliação manual foi corrigida — é apenas material de correlação/
+pista de busca, não uma identidade de operação durável. Estado correto:
+**Durable operation identity: ABSENT / NOT DEMONSTRATED**. Candidatos
+analíticos (hash de transação, `(sender, nonce, chainId)`, um
+`logicalOperationId` próprio do Sails) apenas registrados, nenhum escolhido
+ou autorizado. Nenhuma das correções altera o veredito final: **C —
+STRUCTURAL GAP**, confirmado pelo CTO. Evidência completa corrigida:
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`.**
+
 ### 57. Falhas de `buildApp()` sob carga paralela do Jest — evidência de confiabilidade do harness de testes não conclusiva (CTO Gate Follow-up sobre F8, 2026-09-07)
 
 **Classificação: novo delta de backlog / confiabilidade de sistema de
