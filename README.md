@@ -37,6 +37,47 @@ for the full disclosure behind each claim):
 - **Liquid** — DESIGNED only; `LiquidCovenantProvider` has zero
   implementation.
 
+## Wallet-kit and settlement-network integration strategy
+
+> **Sails P2P Trading SDK should ship with first-party integration paths for the major wallet development kits and the major settlement-capable networks relevant to P2P markets.**
+
+The adoption rule is simple: **keep your wallet stack; plug into Sails.**
+Sails Core must not require a wallet to replace its existing key-management,
+signing, wallet SDK, or settlement stack in order to join the shared P2P
+network. WDK is an important first-party integration target and reference
+implementation dependency today, **not** a mandatory architectural dependency
+for every wallet integrating Sails.
+
+**Planned first-party wallet-kit adapter targets** *(visible roadmap names,
+not published packages and not claims of current support yet)*:
+
+| Planned adapter | Target integration family | Current status |
+|---|---|---|
+| `@sails/adapter-bdk` | BDK / Bitcoin wallet stacks | 📋 Planned |
+| `@sails/adapter-wdk` | Tether WDK wallet stacks | 📋 Planned |
+| `@sails/adapter-breez` | Breez SDK wallet stacks | 📋 Planned |
+| `@sails/adapter-spark` | Spark SDK wallet stacks | 📋 Planned |
+| `@sails/adapter-ldk` | LDK / Lightning wallet stacks | 📋 Planned |
+| `@sails/adapter-ethers` | EVM wallet stacks using ethers-compatible signing/provider flows | 📋 Planned |
+
+These are the initial named targets, not a closed list. Additional wallet
+development kits should be added when ecosystem relevance and real integrator
+demand justify them.
+
+**Wallet-kit adapters and settlement providers are different axes.** A wallet
+adapter connects the wallet's existing key/signing/balance/address stack to
+the Sails SDK. A `SettlementProvider` proves that a specific rail can satisfy
+the required settlement properties. Sails should expand to economically
+relevant networks whose primitives can actually demonstrate the required
+escrow/conditional-settlement, authority, evidence, refund/dispute, recovery,
+and reconciliation properties — not claim support merely because a network
+has smart contracts.
+
+This is a network-effect requirement for OpenP2P: the easier it is for wallets
+using different stacks and rails to join the same economic coordination layer,
+the stronger the shared liquidity, counterparty reach, reputation surface, and
+distribution of the Sails network become.
+
 **New here? `docs/GETTING_STARTED.md`** — copy-paste commands, the
 trade flow in 8 steps with no file names, and a "which endpoint for
 which action" lookup table. Everything below is the fuller picture.
