@@ -285,13 +285,25 @@ document:
 > combined value by providing the missing economic coordination layer
 > between them."**
 
-### Why this increases adoption of WDK/Pears/QVAC (the causal argument)
+### Why this grows the Sails network and the underlying ecosystem
 
-- Every wallet that integrates Sails becomes, by necessity, a WDK integrator.
-- Every module deployed on the network grows the number of active peers on
-  the Pears/HyperDHT network.
-- Every Sails OpenAgents module built drives direct QVAC SDK usage — the
-  module literally cannot function without QVAC underneath it.
+**Current-truth correction (2026-09-07):** an earlier sentence in this
+section said every wallet integrating Sails would necessarily become a WDK
+integrator. That is too strong and conflicts with the already-shipped,
+chain-agnostic `WalletAdapter` boundary in RFC-013. WDK is a strategic
+first-party integration target and important reference stack, not a mandatory
+wallet dependency of the protocol.
+
+- Every wallet that integrates Sails expands the reachable Sails P2P network
+  without being required to replace its existing wallet-development stack.
+- WDK-based wallets should receive a first-party integration path, while BDK,
+  Breez SDK, Spark SDK, LDK, major EVM wallet-development stacks, and other
+  relevant kits should be able to integrate through equally explicit
+  first-party adapter paths as those adapters are implemented and evidenced.
+- Every module deployed on the network can grow the number of active peers on
+  the Pears/HyperDHT network when that transport is used by the implementation.
+- Every Sails OpenAgents module using QVAC drives direct QVAC SDK usage, while
+  QVAC remains advisory and does not become protocol authority.
 
 This is part of why external funding conversations are worth having —
 specifics are intentionally not disclosed in this public document (see
@@ -372,6 +384,49 @@ infrastructure → protocol → modules → SDK → your wallet), or top-to-bott
 for "what do I integrate" (your wallet → one SDK call → the protocol
 coordinates everything below it). Both readings are intentional — that's
 the point of the shape.
+
+### First-party wallet-kit adapters and multi-rail distribution strategy
+
+> **Sails P2P Trading SDK should ship with first-party integration paths for the major wallet development kits and the major settlement-capable networks relevant to P2P markets.**
+
+Canonical adoption principle:
+
+> **Keep your wallet stack. Plug into Sails.**
+
+The protocol/Core remains wallet-kit agnostic. The SDK's existing
+`WalletAdapter` boundary is the generic contract; first-party adapters reduce
+integration cost for the stacks wallets already use. Initial visible adapter
+targets are:
+
+- `@sails/adapter-bdk` — BDK / Bitcoin wallet stacks
+- `@sails/adapter-wdk` — Tether WDK wallet stacks
+- `@sails/adapter-breez` — Breez SDK wallet stacks
+- `@sails/adapter-spark` — Spark SDK wallet stacks
+- `@sails/adapter-ldk` — LDK / Lightning wallet stacks
+- `@sails/adapter-ethers` — major EVM wallet stacks using ethers-compatible flows
+
+**Status discipline:** these names are first-party **planned adapter targets**,
+not published packages and not evidence of current support. Package namespace
+availability and exact implementation shape must be verified before release.
+The list is intentionally extensible as other wallet-development kits earn
+support through ecosystem relevance and real integration demand.
+
+**Do not collapse wallet adapters and settlement rails.** A wallet-kit adapter
+answers "how does this wallet sign, derive addresses, inspect balances and
+expose capabilities?" A settlement provider answers "can this rail actually
+satisfy Sails' escrow/conditional-settlement, authority, evidence,
+refund/dispute, recovery and reconciliation properties?" A wallet may use one
+kit while settling over several eligible rails.
+
+The network-effect goal is therefore two-dimensional:
+
+1. **wallet-stack reach** — reduce the cost for major wallet SDK ecosystems to
+   join Sails; and
+2. **settlement-rail reach** — support economically relevant networks when
+   their primitives can demonstrate the required Sails properties.
+
+No vendor SDK, including WDK, becomes protocol truth or a mandatory dependency
+for all integrators.
 
 ### The Named-SDK Rule (hardened after "this still sounds generic" feedback)
 
