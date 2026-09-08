@@ -58,7 +58,10 @@ not published packages and not claims of current support yet)*:
 | `@sails/adapter-breez` | Breez SDK wallet stacks | 📋 Planned |
 | `@sails/adapter-spark` | Spark SDK wallet stacks | 📋 Planned |
 | `@sails/adapter-ldk` | LDK / Lightning wallet stacks | 📋 Planned |
-| `@sails/adapter-ethers` | EVM wallet stacks using ethers-compatible signing/provider flows | 📋 Planned |
+| `@sails/adapter-ethers` | EVM wallet stacks using ethers-compatible flows, including Ethereum and BNB Smart Chain | 📋 Planned |
+| `@sails/adapter-tron` | TRON wallet stacks, especially USDT-focused integrations | 📋 Planned |
+| `@sails/adapter-solana` | Solana wallet stacks, including USDT/USDC flows | 📋 Planned |
+| `@sails/adapter-ton` | TON wallet stacks, including USDT flows | 📋 Planned |
 
 These are the initial named targets, not a closed list. Additional wallet
 development kits should be added when ecosystem relevance and real integrator
