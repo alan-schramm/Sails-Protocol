@@ -38,6 +38,40 @@ should ever store a raw secret key. See `TRUST_BOUNDARY.md`'s boundary
 all (`/v1/peers/start`, held only in memory, never persisted) — a known
 gap against this ideal, not the intended shape.
 
+**Corrected/Current-truth update (2026-09-08, `TECHNICAL_DEBT_AUDIT.md`
+item 60).** Point 2 above (`PearNode.start(secretKeyHex)`, "one
+primitive, not two") was accurate on 2026-07-19 but is **no longer
+true**. `pear.service.ts`'s 2026-08-09 key-custody fix changed
+`PearNode.start()` to take **no caller-supplied key at all** — verified
+directly, `src/infrastructure/p2p/pear.service.ts:119-123`:
+`async start(): Promise<string>` has zero arguments, and calls
+`HyperDHT.keyPair()` with no seed, generating a fresh, unpersisted
+keypair every session. The correct current-truth statement, already
+disclosed in `docs/TRUST_BOUNDARY.md` Boundary 1b and
+`docs/BACKLOG.md`'s 2026-09-06 entry but never propagated back here
+until now:
+
+- **Economic identity** = `User.publicKey` (the Ed25519 key this
+  section otherwise describes — signing/authentication, unchanged).
+- **Transport identity** = a **separate**, ephemeral Ed25519 keypair
+  (`User.peerId`), generated fresh by `HyperDHT.keyPair()` on every
+  `PearNode.start()` call, cryptographically unrelated to
+  `User.publicKey`.
+- **The association between the two is server-mediated** — a database
+  row (`User.peerId`), checked at connection time by
+  `verifyHandshakeIdentity()` — **not an independent cryptographic
+  binding.**
+- Today, the Pears transport key is **not cryptographically bound to
+  participant identity** — this is one real primitive, not the "one
+  primitive, not two" this section originally claimed.
+
+This is a documentation-accuracy correction only — it does not change
+any code, does not resolve the underlying gap (a future direction is
+tracked separately in `docs/BACKLOG.md`'s "Identity Root &
+Multi-Protocol Identity UX" entry and
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`), and preserves the original
+2026-07-19 text above verbatim rather than silently editing it.
+
 ---
 
 ## 2. Authentication: Challenge-Response (Replay Protection)
