@@ -403,7 +403,10 @@ targets are:
 - `@sails/adapter-breez` — Breez SDK wallet stacks
 - `@sails/adapter-spark` — Spark SDK wallet stacks
 - `@sails/adapter-ldk` — LDK / Lightning wallet stacks
-- `@sails/adapter-ethers` — major EVM wallet stacks using ethers-compatible flows
+- `@sails/adapter-ethers` — major EVM wallet stacks using ethers-compatible flows, including Ethereum and BNB Smart Chain
+- `@sails/adapter-tron` — TRON wallet stacks
+- `@sails/adapter-solana` — Solana wallet stacks
+- `@sails/adapter-ton` — TON wallet stacks
 
 **Status discipline:** these names are first-party **planned adapter targets**,
 not published packages and not evidence of current support. Package namespace
@@ -421,9 +424,15 @@ kit while settling over several eligible rails.
 The network-effect goal is therefore two-dimensional:
 
 1. **wallet-stack reach** — reduce the cost for major wallet SDK ecosystems to
-   join Sails; and
+   join Sails, including the main Bitcoin/Lightning stacks and the major
+   stablecoin environments; and
 2. **settlement-rail reach** — support economically relevant networks when
    their primitives can demonstrate the required Sails properties.
+
+For stablecoin distribution, the initial explicit wallet-stack coverage target
+is **EVM (including BNB Smart Chain), TRON, Solana and TON**. This is an
+integration/distribution target, not a claim that every one of those networks
+already has a Sails escrow implementation.
 
 No vendor SDK, including WDK, becomes protocol truth or a mandatory dependency
 for all integrators.
