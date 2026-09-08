@@ -11,13 +11,32 @@ or implemented. `WDK_USDT_EVM` remains `PRODUCTION-INELIGIBLE`
 unchanged by this document.
 
 **Evidence-status legend (used throughout):** DEMONSTRATED (proven by reading
-the real, unmodified source and/or by a test exercising the real,
-unmocked orchestration code) / UPSTREAM DOCUMENTED (confirmed directly in the
-installed `@tetherto/wdk-wallet-evm` package source) / REPOSITORY OBSERVED
+the real, unmodified source and/or by a test exercising the real, unmocked
+**Sails orchestration** code — `escrow.service.ts`/`escrow-lifecycle.ts`) /
+SIMULATED (a test double stands in for the external, side-effecting call
+itself — the orchestration around it is real and unmocked, but the external
+economic side effect is a fake recorded in-memory, never a real network
+call) / UPSTREAM DOCUMENTED (confirmed directly in the installed
+`@tetherto/wdk-wallet-evm` or `ethers` package source) / REPOSITORY OBSERVED
 (confirmed directly in this repository's own source) / INFERRED (a reasoned
 conclusion from the above, not itself directly observed) / UNKNOWN (not
 determinable from the evidence available in this environment) / NOT TESTED
-(a scenario this mission did not execute).
+(a scenario this mission did not execute, including any real network/live
+RPC scenario).
+
+**CTO Gate Correction (2026-09-07, this pass):** this document's original
+text used "real external transfer"/"genuinely successful external
+transfer" language for scenarios that were, in fact, produced by a mocked
+`wdkSettlementProvider` inside a Jest test — no real network call was ever
+made. Every such phrase below has been corrected to explicitly say
+SIMULATED. **DEMONSTRATED remains true and unweakened for what it always
+actually meant: the real Sails orchestration code (`claimEscrowTransition`
+→ provider call → catch → `revertEscrowStatus` → retry) genuinely runs,
+unmocked, in every test in this document — it is only the external
+economic side effect itself that is, and always was, simulated.** This
+correction narrows wording, not conclusions: no claim in this document ever
+required a real network call to be true, and none is weakened by stating
+plainly that none was made.
 
 ---
 
@@ -173,26 +192,39 @@ about any other release):
   request may have been accepted but the response was lost."** This is the
   single most direct piece of evidence for this mission's central question:
   the WDK wrapper itself provides no signal to distinguish these two cases.
-- **Timeout behavior:** `WalletManagerEvm`'s provider is constructed as
-  `new JsonRpcProvider(rpcUrl)` (a bare URL string — `wallet-manager-evm.js:97/107`)
+- **Timeout behavior (CTO Gate Correction, 2026-09-07 — the original text
+  here overclaimed "no timeout at all"/"hang indefinitely," corrected
+  below):** `WalletManagerEvm`'s provider is constructed as `new
+  JsonRpcProvider(rpcUrl)` (a bare URL string — `wallet-manager-evm.js:97/107`)
   — REPOSITORY+UPSTREAM OBSERVED. Unlike `safe-guard-evm.provider.ts` (F1,
   `docs/TECHNICAL_DEBT_AUDIT.md` #51), which explicitly constructs its
-  `ethers` provider with a configured `FetchRequest.timeout`,
-  **`wdk-settlement.provider.ts`/`config.wdk` configure no timeout at all**
-  (`src/config/index.ts:533-537`: `wdk: { seedPhrase, rpcUrl, usdtContract }`
-  — three plain strings, no `FetchRequest`/timeout option). This is a new,
-  directly observed finding, not previously covered by F1 (F1's own scope
-  named only `multisig.provider.ts`/`safe-guard-evm.provider.ts`). It does
-  not change this mission's conclusion, but it does mean the "unknown
-  outcome" window for `WDK_USDT_EVM` specifically has **no caller-side
-  bound at all** today — an RPC call that never responds would hang the
-  request indefinitely rather than fail within a bounded time. **This is
-  registered as a related, unresolved evidence gap in §16, not fixed here**
-  — fixing it is exactly the kind of "make the provider production-ready"
-  change this mission is not authorized to perform, and bounding a call's
-  wait time would not, by itself, resolve the retry-safety property this
-  mission investigates (a bounded timeout still produces an UNKNOWN outcome,
-  just sooner).
+  `ethers` provider with an EXPLICIT, Sails-configured `FetchRequest.timeout`,
+  **`wdk-settlement.provider.ts`/`config.wdk` configure no Sails-specific
+  RPC timeout** (`src/config/index.ts:533-537`: `wdk: { seedPhrase, rpcUrl,
+  usdtContract }` — three plain strings, no `FetchRequest`/timeout option).
+  Correct, precise classification: `WDK_USDT_EVM` **does not configure a
+  Sails-specific RPC timeout and inherits `ethers`' own default
+  `FetchRequest` timeout behavior instead.** This is NOT "unbounded" —
+  UPSTREAM DOCUMENTED, confirmed by direct reading of the installed
+  `ethers@6.17.0` source (`node_modules/ethers/lib.commonjs/utils/fetch.js:402`):
+  `FetchRequest`'s own constructor sets a default `#timeout = 300000`
+  (300,000ms = 5 minutes) whenever no explicit override is supplied. So the
+  actual, correct fact is: an RPC call here is bounded by `ethers`' own
+  ~5-minute default, not zero and not infinite. This is a new, directly
+  observed finding, not previously covered by F1 (F1's own scope named
+  only `multisig.provider.ts`/`safe-guard-evm.provider.ts`, and both use an
+  EXPLICIT, shorter, Sails-chosen bound instead of this default). **Not
+  automatically registered as its own production-safety backlog delta**
+  (removed from §21 in this correction pass) — a ~5-minute inherited default
+  is not, by itself, evidence of a concrete property violation; it would
+  only become a corrective priority if a future mission demonstrates a
+  concrete reason the inherited default is inadequate for this call site
+  (e.g., a measured operational impact of a 5-minute-bounded hang). Correct
+  classification for any future reference: **NO SAILS-SPECIFIC TIMEOUT
+  CONFIGURED**, not **UNBOUNDED RPC**. Regardless of the exact bound, a
+  bounded timeout does not, by itself, resolve the retry-safety property
+  this mission investigates — it only determines how soon an UNKNOWN
+  outcome is reached, not whether Sails can safely act on it once reached.
 - **Request identity / idempotency key:** UPSTREAM DOCUMENTED — none exists
   anywhere in `@tetherto/wdk-wallet-evm@1.0.0-beta.16`'s `transfer()`/
   `sendTransaction()` API surface.
@@ -201,8 +233,12 @@ about any other release):
 
 ## 6. EVM Nonce Analysis — Does It Provide Effective Idempotence Here?
 
-**No — not as this specific caller uses it.** DEMONSTRATED by direct reading
-of `tx-populator-evm.js:107`:
+**No — not as this specific caller uses it.** Central conclusion preserved
+from the original pass; epistemic labels tightened below per CTO Gate
+Correction (2026-09-07) so an inferred behavior is never read as a
+live-demonstrated fact.
+
+**UPSTREAM/SOURCE OBSERVED** (direct reading of `tx-populator-evm.js:107`):
 
 ```js
 nonce: (tx.nonce != null) ? Number(tx.nonce) : Number(await provider.getTransactionCount(from, 'pending'))
@@ -211,62 +247,80 @@ nonce: (tx.nonce != null) ? Number(tx.nonce) : Number(await provider.getTransact
 - Nonce is **automatically managed**, freely queried fresh from the RPC node
   on every call — never cached client-side, never explicitly supplied by
   `WdkSettlementProvider`.
-- **If the first transfer was genuinely broadcast and the RPC node the
-  second call reaches has that transaction in its own mempool view**, the
-  second call's `getTransactionCount(from, 'pending')` returns a nonce ONE
-  HIGHER than the first — the second call becomes a fully independent,
-  valid transaction. **Both can confirm. This is a real duplicate-transfer
-  pathway, not a hypothetical one** — it requires no adversarial timing,
-  only "the first transfer's response was lost, and the node's mempool
-  state is visible when the retry happens" (the common case, not an edge
-  case, for a lost HTTP/RPC response over an otherwise-healthy connection).
-- **If the second call reaches the RPC node BEFORE the first transaction has
-  propagated into that node's mempool view** (a narrower race — same node
-  processed the first request but the response never reached this process
-  before the second attempt started), the second call could receive the
-  SAME nonce. Ethereum nodes generally require a **strictly higher fee** to
-  accept a same-nonce replacement (informally ~10%+ bump on most clients);
-  `WdkSettlementProvider` never bumps a fee for a retry — it re-quotes fresh
-  fee data every call, which is not a guaranteed increase. In this branch,
-  the second call is more likely to be **rejected outright** ("replacement
-  transaction underpriced" or equivalent) — but the FIRST transaction may
-  still confirm normally, meaning the escrow is left at `CREATED` locally
-  while the treasury has, in fact, already sent the funds. **This is a
-  distinct risk from the duplicate-transfer case: a false-negative state
-  divergence**, not a double-spend, but still a real Sails-state-vs-chain
-  divergence with the identical root cause.
-- **Does WDK cache nonce state across process restart?** No — REPOSITORY+UPSTREAM
+- **Does WDK cache nonce state across process restart?** No — SOURCE
   OBSERVED: there is no persisted nonce anywhere in this integration; every
   call queries the RPC node fresh. A process restart changes nothing about
   this (nothing was cached to lose).
 
+**INFERRED** (a reasoned consequence of the observed code, not itself
+directly observed or live-tested against a real node):
+
+- **If the first transfer was genuinely broadcast and the RPC node the
+  second call reaches has that transaction in its own mempool view**, the
+  second call's `getTransactionCount(from, 'pending')` would return a nonce
+  ONE HIGHER than the first — the second call would become a fully
+  independent, valid transaction, and both could confirm. This is a
+  plausible duplicate-transfer pathway given the observed code — it is
+  **INFERRED**, not itself demonstrated against a live node in this
+  mission (see NOT LIVE TESTED below).
+- **If the second call reaches the RPC node BEFORE the first transaction has
+  propagated into that node's mempool view** (a narrower race), the second
+  call could receive the SAME nonce. Ethereum nodes generally require a
+  strictly higher fee to accept a same-nonce replacement (informally
+  ~10%+ bump on most clients, a general EVM-ecosystem fact — not this
+  repository's code); `WdkSettlementProvider` never bumps a fee for a
+  retry — it re-quotes fresh fee data every call, which is not a
+  guaranteed increase. In this branch, the second call is more likely to
+  be rejected outright ("replacement transaction underpriced" or
+  equivalent) — but the FIRST transaction may still confirm normally,
+  meaning the escrow is left at `CREATED` locally while the treasury has,
+  in fact, already sent the funds. This is a distinct risk from the
+  duplicate-transfer case — a false-negative state divergence, not a
+  double-spend — but still **INFERRED**, not live-tested.
+
+**NOT LIVE TESTED:** the exact mempool-visibility timing of any real RPC
+node under Sails' actual infrastructure, and whether a real duplicate
+confirmation would actually occur in practice, were not tested against a
+live network in this mission (see §11's own disclosure). The two bullets
+above describe plausible, code-consistent outcomes — they are not claimed
+as observed facts from a live run.
+
 **Conclusion, stated at the correct level of confidence:** EVM nonce
-semantics do **not** make retrying `lockFunds()` safe for this specific
-caller. Depending on the RPC node's own mempool-visibility timing at the
-moment of retry, the outcome ranges from "two independent, both-confirmable
-transfers" to "the retry is rejected but the original still confirms
-unrecorded" — **neither branch is safe**, and this integration has no
-mechanism to detect or steer toward either outcome. **Semantic Idempotence
-≠ Operational Identicalness**, as the mission brief itself states: nothing
-about "the EVM has nonces" makes THIS caller's specific, cache-free,
-identity-free usage of them safe.
+semantics do **not** provide retry idempotence for the current
+`WDK_USDT_EVM` caller. This conclusion rests on SOURCE-OBSERVED facts (no
+caching, fresh query every call, no client-supplied identity) — the
+specific branch of outcomes that would follow from that (double-confirm
+vs. rejected-but-original-confirms) is INFERRED and NOT LIVE TESTED, not
+itself demonstrated. **Semantic Idempotence ≠ Operational Identicalness**,
+as the mission brief itself states: nothing about "the EVM has nonces"
+makes THIS caller's specific, cache-free, identity-free usage of them
+safe — but the exact real-world failure mode this produces remains
+INFERRED, not demonstrated against a live node.
 
 ---
 
 ## 7. Failure Window Matrix
 
+**CTO Gate Correction (2026-09-07):** rows I and J below were corrected —
+the original text incorrectly treated row I as impossible and conflated
+two distinct scenarios in row J. Rows A/D/H's evidence pointers were also
+corrected (they cited a nonexistent "§13, test N" — the actual test
+evidence lives in §11).
+
 | # | Window | External funds moved? | Local state after | Retry safe? | Reconciliation possible? | Evidence |
 |---|---|---|---|---|---|---|
-| A | Failure before signing (config error, gas quote failure) | No | Reverted to pre-claim status | **Yes** | N/A — nothing to reconcile | DEMONSTRATED (§13, test 2; also `tests/escrowReleaseControls.test.ts`'s existing "provider lock failure... Retry" test, for a different provider) |
+| A | Failure before signing (config error, gas quote failure) | No | Reverted to pre-claim status | **Yes** | N/A — nothing to reconcile | DEMONSTRATED (§11, Test 3; also `tests/escrowReleaseControls.test.ts`'s existing "provider lock failure... Retry" test, for a different provider) |
 | B | Failure after signing, before RPC send (a Node-local exception, e.g. `_provider` undefined) | No | Reverted | **Yes** | N/A | INFERRED from source structure — not independently tested; behaviorally identical to A from `escrow.service.ts`'s point of view |
 | C | RPC rejects before accepting into mempool (invalid nonce far out of range, insufficient balance the node checks pre-admission, malformed tx) | No | Reverted | **Yes** | N/A | INFERRED — a clean RPC-level rejection with no side effect; not distinguished from D by the current code, but genuinely safe if the rejection is real |
-| D | RPC accepts the tx into its mempool but the response to `eth_sendRawTransaction` is lost (network drop, timeout, proxy/load-balancer failure) | **Unknown at call time — likely yes** | Reverted (identical code path to A) | **No — DEMONSTRATED unsafe** (§13, test 1) | Only externally: the escrow address is deterministically re-derivable (`escrowIndexFor(tradeId)`, no persisted secret needed) so an operator *could* query that address's on-chain history — but Sails itself persists no txId/nonce to automate this | This is the mission's "submit then throw" scenario — DEMONSTRATED directly via the real orchestration code, §13 |
-| E | Tx enters mempool, local process dies before the JS-level response is even processed | Yes | Escrow durably `FUNDS_LOCKED` (claim already committed) with **no** `txLockId`/`lockedAt`/`expiresAt` | **No further "retry" is even offered by `assertEscrowTransition`** — a `FUNDS_LOCKED` escrow with no lock evidence is stuck, not retryable, and not automatically flagged as anomalous | Same as D — external re-derivation only | REPOSITORY OBSERVED (§4) — not independently tested (would require an actual process-kill against a live RPC, out of this mission's safe-testing scope) |
-| F | Tx confirms but the caller (HTTP client) times out first | Yes | Depends entirely on whether the SERVER-SIDE `lockFunds()` call itself also times out or completes — if it completes, state is correct (full success path); if the server-side call ALSO times out (e.g., waiting on a slow but eventually-successful RPC round trip), same as D | Same as D if the server-side call also errored; otherwise **N/A — this window resolves to full success**, only the HTTP client is confused | Client could `GET /v1/settlement/escrow/:id` to check current status rather than blindly retrying — REPOSITORY OBSERVED that route exists (`settlement.routes.ts`) and is a safe, non-mutating way to check; **nothing forces a client to do this**, and the route (§9) has no idempotency-key protection if it doesn't | INFERRED from route structure |
-| G | Tx reverts on-chain (e.g., insufficient token balance in the treasury account, a real ERC-20-level failure) | No net funds moved (revert), but gas was spent | `WdkSettlementProvider` has **no receipt check at all** — a reverted transaction still returns a hash from `eth_sendRawTransaction` (the RPC accepted the tx; on-chain execution failure is a separate, later fact this code never queries) — **Sails would record this as a SUCCESSFUL lock, `FUNDS_LOCKED`, with a real txLockId, when in fact no USDT ever moved to the escrow address.** | N/A — this is a silent-success-that-was-actually-a-failure, not a retry question | Only externally (checking the tx's on-chain receipt status) | DEMONSTRATED by source reading — `lockFunds()` uses only `result.hash`, never checks `result.status`/a receipt. **This is a separate, arguably more severe finding than the retry-safety question this mission was scoped to** — flagged in §16 as its own new backlog delta, not conflated with the retry-safety property, and not fixed here |
-| H | Provider returns tx hash, but the subsequent DB write (`updateLockResult`) fails | Yes | Reverted to pre-claim status, txId discarded | **No — DEMONSTRATED unsafe** (§13, test 1 — this is the exact scenario tested) | Same as D | DEMONSTRATED |
-| I | DB writes provisional `FUNDS_LOCKED` claim but the provider call never actually happens (impossible in the current code — the claim and the provider call are sequential in the same function, not concurrent/queued) | No | N/A — REPOSITORY OBSERVED this window does not exist in the current implementation; `claimEscrowTransition` and `provider.lockFunds()` are directly sequential `await`s in one function body, not decoupled by a queue | N/A | N/A | REPOSITORY OBSERVED (ruled out, not merely assumed safe) |
-| J | Duplicated logical request after restart (an operator, or a script, re-issues the same `POST .../lock` after a crash left the escrow in the state described in E) | Yes (again) | A second real transfer for the same escrow | **No — DEMONSTRATED unsafe by the same mechanism as D/H** | Same as D | Same underlying mechanism as D; not independently re-tested as its own scenario (would be the same code path) |
+| D | RPC accepts the tx into its mempool but the response to `eth_sendRawTransaction` is lost (network drop, timeout, proxy/load-balancer failure) | **Unknown at call time — likely yes (INFERRED, NOT LIVE TESTED — see §6)** | Reverted (identical code path to A) | **No — DEMONSTRATED unsafe for the Sails orchestration, SIMULATED side effect** (§11, Test 2) | Correlation hint only, not durable operation identity — see §12 | This is the mission's "submit then throw" scenario — DEMONSTRATED for Sails' orchestration via a SIMULATED provider side effect, §11 Test 2. No live network duplicate was produced or claimed |
+| E | Tx enters mempool, local process dies before the JS-level response is even processed | Yes | Escrow durably `FUNDS_LOCKED` (claim already committed) with **no** `txLockId`/`lockedAt`/`expiresAt` | **No further "retry" is even offered by `assertEscrowTransition`** — a `FUNDS_LOCKED` escrow with no lock evidence is stuck, not retryable via the normal `lockFunds()` route, and not automatically flagged as anomalous | Correlation hint only — see §12 | REPOSITORY OBSERVED (§4) — not independently tested (would require an actual process-kill against a live RPC, out of this mission's safe-testing scope) |
+| F | Tx confirms but the caller (HTTP client) times out first | Yes | Depends entirely on whether the SERVER-SIDE `lockFunds()` call itself also times out or completes — if it completes, state is correct (full success path); if the server-side call ALSO times out (e.g., waiting on a slow but eventually-successful RPC round trip), same as D | Same as D if the server-side call also errored; otherwise **N/A — this window resolves to full success**, only the HTTP client is confused | Client could `GET /v1/settlement/escrow/:id` to check current status rather than blindly retrying — REPOSITORY OBSERVED that route exists (`settlement.routes.ts`) and is a safe, non-mutating way to check; **nothing forces a client to do this**, and the route (§10) has no idempotency-key protection if it doesn't | INFERRED from route structure |
+| G | Tx reverts on-chain (e.g., insufficient token balance in the treasury account, a real ERC-20-level failure) | No net funds moved (revert), but gas was spent | `WdkSettlementProvider` has **no receipt check at all** — a reverted transaction still returns a hash from `eth_sendRawTransaction` (the RPC accepted the tx; on-chain execution failure is a separate, later fact this code never queries) — **Sails would record this as a SUCCESSFUL lock, `FUNDS_LOCKED`, with a real txLockId, when in fact no USDT ever moved to the escrow address.** | N/A — this is a silent-success-that-was-actually-a-failure, not a retry question | Only externally (checking the tx's on-chain receipt status) | DEMONSTRATED by source reading — `lockFunds()` uses only `result.hash`, never checks `result.status`/a receipt. **This is a separate, independent finding from the retry-safety question this mission was scoped to** — flagged in §21 as its own backlog delta, not conflated with the retry-safety property, and not fixed here |
+| H | Provider returns tx hash, but the subsequent DB write (`updateLockResult`) fails | Yes | Reverted to pre-claim status, txId discarded | **No — DEMONSTRATED unsafe for the Sails orchestration, SIMULATED side effect** (§11, Test 1 — this is the exact scenario tested) | Same as D — correlation hint only, see §12 | DEMONSTRATED (Sails orchestration) / SIMULATED (the side effect itself) |
+| I | `claimEscrowTransition` commits the provisional `FUNDS_LOCKED` claim, then the process crashes BEFORE `provider.lockFunds()` even begins (e.g., between the two sequential `await`s in `lockFunds()`'s own function body — a GC pause, an OOM kill, any interruption at that exact point) | **No** | `FUNDS_LOCKED` with `txLockId: null`, `lockedAt: null`, `expiresAt: null` — **the same resulting DB shape as row E, where funds WERE moved**, meaning this window is indistinguishable from E by looking at the database alone | Not retryable via the normal `lockFunds()` route (same reasoning as E — `assertEscrowTransition` blocks a second `lockFunds()` call once status is already `FUNDS_LOCKED`) | Correlation hint only — see §12 | **REPOSITORY-OBSERVED CRASH WINDOW.** CTO Gate Correction (2026-09-07): the original text called this window "impossible" because the claim and the provider call are sequential `await`s in one function body rather than decoupled by a queue — that reasoning was wrong. A process crash can occur between ANY two sequential statements, in-process or not; sequential code does not itself rule out a crash window. This window is REPOSITORY OBSERVED (reasoned directly from the code's structure — a genuine gap between two awaits exists), **not reproduced via an actual process kill** in this mission. §4's own text already described this correctly ("the opposite divergence") — only this table's row was previously wrong, now corrected to match |
+| J | Two genuinely distinct scenarios previously conflated — **corrected, CTO Gate, 2026-09-07:** | | | | | |
+| J-A | **Scenario A — crash after claim, before/during the provider call, escrow left at `FUNDS_LOCKED`** (rows E/I above) | Uncertain — could be either | `FUNDS_LOCKED`, no `txLockId` | **A further `lockFunds()` call is BLOCKED by `assertEscrowTransition`** (DEMONSTRATED, §11 Test 4 proves this rejection for an already-`FUNDS_LOCKED` escrow) — this is stuck/requires reconciliation, not silently retryable, and NOT where a duplicate provider invocation can occur via the normal route | Correlation hint only — see §12 | DEMONSTRATED (the block) + REPOSITORY OBSERVED (the stuck state, rows E/I) |
+| J-B | **Scenario B — the provider call itself resolved or threw AFTER its side effect, and the catch block reverted the escrow to `CREATED`** (rows D/H above) | Uncertain — could be either | `CREATED` — genuinely retryable | **No — DEMONSTRATED unsafe for the Sails orchestration, SIMULATED side effect** (§11, Tests 1 and 2 — this is exactly the scenario those tests exercise, including the case of a restart followed by an operator or script reissuing `POST .../lock` against an escrow correctly observed to be `CREATED`) | Correlation hint only — see §12 | DEMONSTRATED (Sails orchestration) / SIMULATED (the side effect) |
 
 ---
 
@@ -375,7 +429,7 @@ external idempotence" instruction.
 
 ---
 
-## 11. Adversarial Tests — Real, Against the Unmocked Orchestration Code
+## 11. Adversarial Tests — Real Orchestration, Simulated Side Effect
 
 New file: `tests/wdkLockFundsRetrySafety.test.ts`. Only the provider boundary
 (`wdkSettlementProvider`) and the database (`../src/common/database`) are
@@ -383,12 +437,16 @@ mocked — `escrow.service.ts`, `escrow-lifecycle.ts`, and `escrow-repository.ts
 run for real, unmocked, matching this repository's own established
 "mock the boundary, test what's actually new" convention
 (`tests/escrowProviderWiring.test.ts`, `tests/escrowReleaseControls.test.ts`).
+**DEMONSTRATED**, throughout this section, refers to the real, unmocked Sails
+orchestration's behavior. The provider's external economic side effect
+itself is always **SIMULATED** — an in-memory test double, never a real
+network/RPC call. See §0's legend correction for why this distinction is
+stated explicitly rather than left implicit.
 
-**Test 1 — the critical "submit then throw" scenario — DEMONSTRATED RETRY-SAFETY GAP:**
+**Test 1 — provider call resolves, a LATER step fails — DEMONSTRATED RETRY-SAFETY GAP (variant: post-success local failure):**
 
-1. The mocked provider resolves successfully with a real-looking txId
-   (`0xREAL_EXTERNAL_TRANSFER_1`) — standing in for a genuinely completed
-   external transfer.
+1. The mocked provider resolves successfully with a txId
+   (`0xSIMULATED_TX_1`) — a SIMULATED side effect, not a real transfer.
 2. The following `prisma.escrow.update()` call (the real `updateLockResult()`
    persistence write) is made to reject, simulating an ordinary operational
    fault (a dropped DB connection) — deliberately NOT a provider-specific or
@@ -396,28 +454,59 @@ run for real, unmocked, matching this repository's own established
 3. `escrowService.lockFunds()` is confirmed to reject with that exact
    simulated error.
 4. Confirmed: the provider was called exactly once. The first `update()` call
-   did attempt to persist `txLockId: '0xREAL_EXTERNAL_TRANSFER_1'` (proving
-   the attempt was genuinely made) — and that exact call is the one that
-   rejected, so the value it attempted to carry was never durably written.
-   The second `update()` call (`revertEscrowStatus`) reverts `status` to
-   `CREATED` with no `txLockId` field at all — confirmed by direct inspection
-   of its call arguments.
+   did attempt to persist `txLockId: '0xSIMULATED_TX_1'` (proving the attempt
+   was genuinely made) — and that exact call is the one that rejected, so the
+   value it attempted to carry was never durably written. The second
+   `update()` call (`revertEscrowStatus`) reverts `status` to `CREATED` with
+   no `txLockId` field at all — confirmed by direct inspection of its call
+   arguments.
 5. A subsequent, independent call to `escrowService.lockFunds()` for the
-   SAME escrow (simulating a retry against the now-`CREATED` status) is
-   confirmed to succeed, and — the dispositive assertion — **the mocked
-   provider is confirmed called a SECOND time**, with a second, different
-   simulated txId (`0xREAL_EXTERNAL_TRANSFER_2`).
+   SAME escrow (a retry against the now-`CREATED` status) is confirmed to
+   succeed, and — the dispositive assertion — **the mocked provider is
+   confirmed called a SECOND time**, with a second, different simulated txId
+   (`0xSIMULATED_TX_2`).
 
-**Result: DEMONSTRATED RETRY-SAFETY GAP.** Not "funds can definitely be
-drained" and not "an exploitable double-spend" — precisely: a caller-visible
-failure that occurs after a real external side effect is observationally
-identical, in this code, to a failure that occurred before one, and the
-current design's own retry path (revert-then-retry) invokes the real
-provider a second time without any check for whether the first attempt's
-external effect already occurred.
+**Test 2 — the true "submit then throw" / lost-response scenario — DEMONSTRATED RETRY-SAFETY GAP (variant: provider call itself rejects after its side effect):**
 
-**Test 2 — contrast case, the scenario the existing design DOES handle safely:**
-a provider failure that occurs before any external side effect (a
+Unlike Test 1 (where the provider call *resolves* and a later step fails),
+this models the provider's own call *rejecting* after its side effect
+already occurred — the lost-response case this mission specifically asks
+for.
+
+1. A fake provider implementation records that its (simulated) side effect
+   happened — pushed to an in-memory `externalEffects` array visible only
+   to the test, standing in for "a real RPC node accepted the broadcast" —
+   and THEN throws, before ever returning a txId to the caller.
+2. `escrowService.lockFunds()` is confirmed to reject with that exact
+   simulated error. Confirmed: `externalEffects` has exactly one entry (the
+   side effect happened), and `prisma.escrow.update()` was called exactly
+   once — the revert to `CREATED` — because the provider call itself threw
+   before `updateLockResult()` was ever reached.
+3. A retry of the same logical operation is issued. The fake provider
+   records a second side effect and succeeds this time.
+4. **The dispositive assertion: `externalEffects.length === 2` for the same
+   `escrowId`** — the same logical operation caused the (simulated) side
+   effect twice.
+
+**Permitted claim (both tests):** Sails orchestration demonstrates retry
+after a simulated post-submission unknown outcome — the real, unmocked
+`claimEscrowTransition` → provider call → catch → `revertEscrowStatus` →
+retry path genuinely allows a second invocation to reach the provider for
+one logical operation.
+
+**Forbidden claim, NOT made:** neither test demonstrates "a real on-chain
+duplicate transfer" or that "real funds were duplicated in live
+infrastructure" — no network call occurs anywhere in this test file.
+
+**Precise result, both tests together:** Sails cannot currently distinguish
+all definitely-failed attempts from post-submission unknown outcomes for
+`WDK_USDT_EVM`, and its current revert-to-retryable behavior can permit the
+same logical funding operation to reach the provider again. This is a
+property of the real, unmocked orchestration code — not an inference from
+reading it, and not a live-network finding.
+
+**Test 3 — contrast case, the scenario the existing design DOES handle safely:**
+a provider failure that occurs before any side effect at all (a
 configuration error) is confirmed safe to retry — the provider is called
 once for the failure, once for the successful retry, never twice
 successfully. This mirrors `tests/escrowReleaseControls.test.ts`'s own
@@ -426,15 +515,15 @@ Retry" test (written for a different provider) — included here in the same
 file specifically so the boundary between "safe" and "not yet proven safe"
 is explicit in one place, not just asserted in prose.
 
-**Test 3 — the boundary that IS already protected:** once an escrow has
+**Test 4 — the boundary that IS already protected:** once an escrow has
 genuinely, durably reached `FUNDS_LOCKED` (persisted, not merely claimed), a
 further `lockFunds()` call is correctly rejected by `assertEscrowTransition`
 before the provider is ever touched. This is not in question, and this
 document does not claim otherwise — the gap is bounded strictly to the
-window between "the provider call resolved" and "the resulting state was
-durably persisted," not the whole lifecycle.
+window between "the provider call resolved or threw after its side effect"
+and "the resulting state was durably persisted," not the whole lifecycle.
 
-All three tests pass against the real, unmodified orchestration code as it
+All four tests pass against the real, unmodified orchestration code as it
 exists on this branch today (see §17 for the exact validation run).
 
 **Not executed in this mission (disclosed, not silently skipped):**
@@ -447,12 +536,13 @@ exists on this branch today (see §17 for the exact validation run).
   Sepolia transaction, then simulating a lost RPC response, then observing a
   real second broadcast) — NOT TESTED. This mission's own scope explicitly
   forbids sending real (even testnet) transactions as new infrastructure
-  build-out beyond what's minimally needed, and the mocked-boundary test
-  above already demonstrates the exact code-level mechanism without that
+  build-out beyond what's minimally needed, and the mocked-boundary tests
+  above already demonstrate the exact code-level mechanism without that
   infrastructure cost. If a future mission wants ground-truth confirmation
   against a real Sepolia node's actual mempool-visibility timing, that is a
   distinct, larger piece of evidence this document does not claim to have
-  produced.
+  produced — real duplicate confirmation on a live network remains
+  entirely NOT TESTED and NOT DEMONSTRATED by this document.
 - **A literal process-kill mid-flight** (failure window E) — NOT TESTED, for
   the same reason; the DB-write-ordering analysis in §4 is REPOSITORY
   OBSERVED (read directly from the code's lack of a spanning transaction),
@@ -462,19 +552,59 @@ exists on this branch today (see §17 for the exact validation run).
 
 ## 12. Reconciliation — What Would Let Sails Check Before Retrying?
 
-**Minimum external identity needed to reconcile the original action:**
-the escrow's destination address (`escrowIndexFor(tradeId)` — deterministic,
-re-derivable from `tradeId` alone, no persisted secret required) plus a time
-window (roughly "since this escrow was created") would let an external chain
-query (e.g., `eth_getLogs` for `Transfer` events into that address, or a
-block-explorer API call) determine whether a transfer already arrived.
+**CTO Gate Correction (2026-09-07):** the original text here claimed the
+escrow's re-derivable destination address plus an approximate time window
+was "sufficient" for manual/external reconciliation. That overclaimed —
+what actually survives is *correlation material*, not a *durable operation
+identity*. Corrected below.
+
+**Durable operation identity: ABSENT / NOT DEMONSTRATED.** DEMONSTRATED
+(§4): no `txLockId`, no nonce, no request timestamp, no operation
+identifier of any kind survives a reverted attempt. Nothing in the current
+schema or code produces or persists a value that would let a future
+reconciliation step say, with certainty, "this specific attempt either did
+or did not land on-chain."
+
+**Correlation material available (a search aid, not a durable identity):**
+- the escrow's destination address (`escrowIndexFor(tradeId)` —
+  deterministic, re-derivable from `tradeId` alone, no persisted secret
+  required);
+- the chain id (`config.wdk.rpcUrl`'s configured network, REPOSITORY
+  OBSERVED, static per deployment);
+- the sender address (`treasuryAccount()`'s account 0, also
+  deterministically re-derivable);
+- the intended amount (`Escrow.lockedAmount`, already persisted regardless
+  of outcome);
+- an approximate time window (roughly "since this escrow was created").
+
+Together, these could let an operator manually query external chain data
+(e.g., `eth_getLogs` for `Transfer` events into that address, or a
+block-explorer API call) to NARROW a search — but this is a **search
+aid / correlation hint**, not proof of correspondence to one specific
+attempt. If the same escrow generated two SIMULATED (or, in a live
+deployment, real) side effects for the same amount to the same address in
+close succession (exactly the scenario §11's tests demonstrate for Sails'
+own orchestration), the correlation material above cannot by itself
+distinguish which of two matching transfers corresponds to which logical
+attempt — that distinction would require a genuine deterministic operation
+identity (candidates named, not authorized, below), which does not exist
+today.
+
+**Analytical candidates for a deterministic operation identity (NOT
+authorized, NOT chosen, recorded for a future mission only):** a
+transaction hash persisted before the caller could lose it; the
+`(sender, nonce, chainId)` triple, persisted before broadcast; a
+`logicalOperationId` generated by Sails itself before calling the
+provider; a `providerOperationId` if the provider ever exposed one; or an
+equivalent combination. Selecting or implementing any of these is
+explicitly out of this mission's scope (§19).
 
 **Does Sails persist enough to reconcile automatically today? No.**
-DEMONSTRATED (§4): no `txLockId`, no nonce, no request timestamp survives a
-reverted attempt. The ONLY thing that survives is the escrow row itself
-(`tradeId`, hence the re-derivable address) — sufficient for a MANUAL,
-EXTERNAL reconciliation an operator could perform, but nothing this codebase
-currently automates.
+DEMONSTRATED (§4): the ONLY thing that survives a reverted attempt is the
+escrow row itself (hence the re-derivable correlation material above) —
+useful for a MANUAL, EXTERNAL, human-driven search, but not sufficient for
+an automated reconciliation step to draw a certain conclusion, and nothing
+this codebase currently automates.
 
 **Does current rollback/failure handling overwrite uncertainty as FAILED?**
 **Yes — DEMONSTRATED.** `revertEscrowStatus()` is unconditional; there is no
@@ -491,13 +621,19 @@ pre-claim status, exactly as if nothing had happened.
 **Analytical conclusion only — no enum/state change authorized or made.**
 
 Yes: the evidence above supports that a genuine distinction exists between
-at least `DEFINITELY_FAILED` (windows A/B/C — no external effect, safe to
-retry as-is today) and `UNKNOWN_OUTCOME` (windows D/H/J — an external effect
-may have occurred, current code cannot tell, and retrying is not proven
-safe). `CONFIRMED_SUCCESS` and `CONFIRMED_REVERT` (window G) are a related
-but distinct gap — this integration never checks a transaction receipt at
-all, so it cannot today distinguish "confirmed and succeeded" from
-"confirmed and reverted on-chain," independent of the retry-safety question.
+at least `DEFINITELY_FAILED` (windows A/B/C — no side effect, safe to
+retry as-is today), `UNKNOWN_OUTCOME` reached via a caught-and-reverted
+attempt (windows D/H/J-B — a side effect may have occurred, current code
+cannot tell, and retrying is not proven safe — DEMONSTRATED for Sails'
+orchestration, SIMULATED for the side effect itself), and a distinct,
+non-retryable stuck state (windows E/I/J-A — the escrow is left at
+`FUNDS_LOCKED` with no lock evidence, and the normal `lockFunds()` route
+correctly refuses a further attempt, but nothing reconciles the stuck
+state either). `CONFIRMED_SUCCESS` and `CONFIRMED_REVERT` (window G) are a
+related but distinct gap — this integration never checks a transaction
+receipt at all, so it cannot today distinguish "confirmed and succeeded"
+from "confirmed and reverted on-chain," independent of the retry-safety
+question.
 
 ---
 
@@ -562,35 +698,57 @@ or soften this finding — it is registered in full, as the mission requires.
 - No production source file changed. Only additions: this document, one new
   test file (`tests/wdkLockFundsRetrySafety.test.ts`), and the BACKLOG/audit
   sync described in §19.
-- Targeted run: `tests/wdkLockFundsRetrySafety.test.ts`,
+- Isolated run (`--runInBand`) of `tests/wdkLockFundsRetrySafety.test.ts`
+  alone (now 4 tests, after this correction pass added the true
+  submit-then-throw/lost-response test): **4/4 passed.**
+- Targeted run (`--runInBand`): `tests/wdkLockFundsRetrySafety.test.ts`,
   `tests/wdkSettlementProvider.test.ts`, `tests/escrowProviderWiring.test.ts`,
   `tests/escrowReleaseControls.test.ts`, `tests/escrowCircuitBreaker.test.ts`,
-  `tests/escrowEventHashChain.test.ts` — **6 suites, 129 tests, 0 failures.**
-- `npx tsc --noEmit` (root): clean.
+  `tests/escrowEventHashChain.test.ts` — **6 suites, 130 tests, 0 failures.**
+- `npx tsc --noEmit` (root): clean (re-run after this correction pass).
 - **Disclosed environmental condition, not caused by this mission's
   changes:** this local machine currently has multiple stale
   `.claude/worktrees/agent-*` directories (full repository copies, including
   `packages/sails-sdk`) left behind by unrelated parallel Agent-tool
   sessions on this same host. Their presence collides with Jest's Haste
   module map (`@satsails/p2p-trading-sdk` resolves to 5 different
-  `package.json` files) and prevents a plain `npx jest` from starting at
-  all, independent of anything in this mission's own diff. Every test run
-  in this document was performed with a **local, non-committed** CLI
-  override (`--modulePathIgnorePatterns='<rootDir>/.claude/worktrees/'` in
-  addition to the repository's own existing `<rootDir>/dist/` entry) to work
-  around this — `jest.config.js` itself was not modified, since permanently
-  fixing this collision is unrelated to WDK retry-safety and belongs to
-  whoever owns those other sessions' worktree cleanup. The full, untargeted
-  suite (`npx jest` with no path filter) could not be run to completion on
-  this machine in this state; the targeted run above is what this
-  environment allows, and is reported as such rather than a full-suite
-  result being fabricated.
+  `package.json` files) and breaks any test file that transitively imports
+  anything touching that package, independent of anything in this
+  mission's own diff. Every targeted/isolated run in this document was
+  performed with a **local, non-committed** CLI override
+  (`--modulePathIgnorePatterns='<rootDir>/.claude/worktrees/'` in addition
+  to the repository's own existing `<rootDir>/dist/` entry) to work around
+  this — `jest.config.js` itself was not modified, since permanently fixing
+  this collision is unrelated to WDK retry-safety and belongs to whoever
+  owns those other sessions' worktree cleanup.
+- **`npm test` (plain, no workaround) was run once in this correction pass
+  to confirm the condition at full-suite scale, per the mission's own
+  instruction to try it "if the environment allows."** It ran to
+  completion (not merely errored immediately) in ~193s:
+  `Test Suites: 441 failed, 299 passed, 740 total` /
+  `Tests: 933 failed, 2692 passed, 3625 total`. Every observed failure
+  carried the identical symptom (`ModuleMap._assertNoDuplicates`, the same
+  `@satsails/p2p-trading-sdk` collision) — the 299 passing suites are
+  exactly those that never import anything touching that package. This
+  result is reported as direct confirmation of the disclosed environmental
+  condition, not as this branch's real test outcome — the targeted,
+  workaround-enabled run above (6 suites, 130 tests, 0 failures) is the
+  actual evidence for this mission's own changes. `jest.config.js` remains
+  unmodified; this condition is not fixed here.
 
 ---
 
 ## 18. Property Verdict
 
 **Claude recommendation: C — STRUCTURAL GAP.**
+
+**Precise scope statement (the claim this document actually supports, no
+more and no less):** Sails cannot currently distinguish all
+definitely-failed attempts from post-submission unknown outcomes for
+`WDK_USDT_EVM`, and its current revert-to-retryable behavior can permit the
+same logical funding operation to reach the provider again. This is NOT a
+claim that real funds were duplicated in live infrastructure — that was
+never tested and is not asserted.
 
 The current `WdkSettlementProvider`/`escrow.service.ts` design cannot safely
 distinguish an unknown outcome from a definite failure, and cannot
@@ -606,26 +764,42 @@ between.
 This verdict is **Claude's recommendation only.** The CTO decides final
 disposition, per the mission's own governing rule.
 
-**Demonstrated vs. inferred vs. unknown, summarized:**
-- **DEMONSTRATED** (by a real test against the unmocked orchestration code):
-  the exact "submit then throw" retry-safety gap (§11, Test 1); the
-  contrast safe case (§11, Test 2); the already-protected concurrent-claim
-  boundary (§11, Test 3).
+**Demonstrated vs. simulated vs. inferred vs. unknown, summarized (CTO Gate
+Correction, 2026-09-07 — this breakdown replaces the prior version, which
+did not separate DEMONSTRATED from SIMULATED):**
+- **DEMONSTRATED** (the real, unmocked Sails orchestration's behavior,
+  proven by a real test): the claim/provider-call/catch/revert/retry
+  sequence genuinely allows a second provider invocation for one logical
+  operation, in two distinct variants (§11, Tests 1 and 2); the contrast
+  safe case, where a pre-side-effect failure is genuinely safe to retry
+  (§11, Test 3); the already-protected concurrent-claim boundary, and the
+  fact that an escrow stuck at `FUNDS_LOCKED` is correctly blocked from a
+  further `lockFunds()` call (§11, Test 4).
+- **SIMULATED** (a test double stands in for the external side effect — no
+  real network call was ever made): the specific "provider call resolves
+  successfully" and "provider call performs its effect then throws"
+  scenarios in §11's Tests 1 and 2. The Sails orchestration around them is
+  real and DEMONSTRATED; the side effect itself is not.
 - **REPOSITORY/UPSTREAM OBSERVED** (direct source reading, no test needed):
-  the full call path (§2); the DB-write ordering and crash windows (§4);
-  the WDK API's hash-timing and no-idempotency-key contract (§5); the nonce
-  auto-management with no caching (§6); the retry-surface inventory (§8);
-  the event-delivery semantics under the active store (§9); the API route's
-  lack of any idempotency mechanism (§10); the missing receipt/confirmation
-  check (§7, window G — a related but separate finding).
+  the full call path (§2); the DB-write ordering and crash windows,
+  including the corrected Window I crash scenario (§4, §7); the WDK API's
+  hash-timing and no-idempotency-key contract (§5); `ethers@6.17.0`'s own
+  ~5-minute default `FetchRequest` timeout, inherited by `WDK_USDT_EVM`
+  with no Sails-specific override (§5); the nonce auto-management with no
+  caching (§6); the retry-surface inventory (§8); the event-delivery
+  semantics under the active store (§9); the API route's lack of any
+  idempotency mechanism (§10); the missing receipt/confirmation check (§7,
+  window G — a related but separate finding).
 - **INFERRED**: the qualitative outcome ranges in §6's nonce analysis
   (which exact branch occurs depends on RPC-node-internal timing this
   environment cannot directly observe); windows B/C/F's classification.
-- **UNKNOWN**: whether any currently-configured deployment uses
-  `RedisStreamsEventStore` instead of `PostgresEventStore` (this document
-  confirms the default/observed configuration, not every possible one);
-  real-world RPC-node mempool-visibility timing under Sails' actual
-  infrastructure (NOT TESTED — no live adversarial network test was run).
+- **UNKNOWN / NOT TESTED**: whether any currently-configured deployment
+  uses `RedisStreamsEventStore` instead of `PostgresEventStore` (this
+  document confirms the default/observed configuration, not every possible
+  one); real-world RPC-node mempool-visibility timing under Sails' actual
+  infrastructure; whether a real duplicate confirmation would actually
+  occur on a live network — no live adversarial network test was run, and
+  none is claimed.
 
 ---
 
@@ -657,7 +831,7 @@ re-derive this from scratch:
     close window G (§7) — a related, not identical, property.
 - **Alternatives considered and why they are not proposed:** a generic
   cross-provider `IdempotencyManager`/transaction registry (rejected by
-  this document's own COBRA/Rube Goldberg check, §21 — no second provider
+  this document's own COBRA/Rube Goldberg check, §20 — no second provider
   has this exact problem today, since MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM's
   `lockFunds()` calls are read-only verifications, not self-initiated
   transfers).
@@ -709,29 +883,55 @@ or needed to describe this finding.
 
 ## 21. New Backlog Deltas Registered By This Mission
 
-1. **The retry-safety gap itself — now DEMONSTRATED, not merely a
-   hypothesis.** Supersedes (does not delete) the original 7-open-question
-   framing in `docs/TECHNICAL_DEBT_AUDIT.md` #56 — that entry is preserved
-   verbatim below its original text, with a dated pointer to this document.
-2. **New, independent finding: no timeout is configured for `WDK_USDT_EVM`'s
-   RPC provider** (§5) — unlike `SAFE_GUARD_EVM`'s F1-remediated explicit
-   bound. Not previously covered by F1 (F1's own scope named only
-   `multisig.provider.ts`/`safe-guard-evm.provider.ts`). EVIDENCE
-   OBLIGATION for a future mission, not fixed here.
-3. **New, independent finding: no on-chain receipt/confirmation check
-   exists** — a reverted (but RPC-accepted) transfer would be recorded as a
-   successful lock with a real `txLockId`, even though no USDT actually
-   moved (§7, window G). Related to, but analytically distinct from, the
-   retry-safety property this mission was scoped to investigate. EVIDENCE
-   OBLIGATION / IMPLEMENTATION DEFECT candidate for a future mission — not
-   fixed here.
-4. **Environmental/infrastructure finding, not a code defect:** stale
-   `.claude/worktrees/` directories from unrelated parallel sessions
-   currently break a plain `npx jest` on this machine via a Haste
-   module-map collision (§17). Not this mission's to fix (ownership
-   ambiguous, out of WDK-retry-safety scope) — disclosed so it is not
-   mistaken for a regression introduced by this branch.
+**CTO Gate Correction (2026-09-07):** item 2 below (the RPC timeout finding)
+is downgraded from a standalone backlog delta to an OBSERVATION, per CTO
+direction — a ~5-minute inherited `ethers` default is not, by itself,
+evidence of a concrete property violation, and item 2 must not be read as
+implying "unbounded RPC" or as automatically warranting future remediation.
 
-None of these four items authorize or imply any implementation. All are
-evidence obligations or disclosed conditions for a future, separately
+1. **The retry-safety gap itself — now DEMONSTRATED (for the real Sails
+   orchestration; SIMULATED for the external side effect itself), not
+   merely a hypothesis.** Supersedes (does not delete) the original
+   7-open-question framing in `docs/TECHNICAL_DEBT_AUDIT.md` #56 — that
+   entry is preserved verbatim below its original text, with a dated
+   pointer to this document. Precise scope: Sails cannot currently
+   distinguish all definitely-failed attempts from post-submission unknown
+   outcomes for `WDK_USDT_EVM`, and its current revert-to-retryable
+   behavior can permit the same logical funding operation to reach the
+   provider again — NOT a claim that real funds were duplicated in live
+   infrastructure, which was never tested.
+2. **OBSERVATION, not a registered backlog delta:** `WDK_USDT_EVM` does not
+   configure a Sails-specific RPC timeout and inherits `ethers@6.17.0`'s
+   own default `FetchRequest` timeout (~5 minutes, UPSTREAM DOCUMENTED —
+   §5). Correct classification: **NO SAILS-SPECIFIC TIMEOUT CONFIGURED**,
+   not **UNBOUNDED RPC**. Not registered as its own evidence obligation —
+   would only become one if a future mission demonstrates a concrete
+   property violation the inherited default actually causes.
+3. **New, independent finding, registered as its own backlog item: no
+   on-chain receipt/confirmation check exists** — a reverted (but
+   RPC-accepted) transfer would be recorded as a successful lock with a
+   real `txLockId`, even though no USDT actually moved (§7, window G).
+   Related to, but analytically distinct from, the retry-safety property
+   this mission was scoped to investigate. EVIDENCE OBLIGATION /
+   IMPLEMENTATION DEFECT candidate for a future mission — not fixed here.
+4. **New, independent finding, registered as its own backlog item: durable
+   operation identity is ABSENT / NOT DEMONSTRATED** (§12) — only
+   correlation material (re-derivable address, chain id, sender, amount,
+   approximate time) survives a reverted attempt, which is a search aid,
+   not a mechanism that could reliably distinguish two matching side
+   effects for the same escrow. EVIDENCE OBLIGATION for a future mission
+   choosing among §19's named (not authorized) candidates.
+5. **Environmental/infrastructure finding, not a code defect:** stale
+   `.claude/worktrees/` directories from unrelated parallel sessions
+   currently break both a plain `npx jest` AND a plain `npm test` on this
+   machine via a Haste module-map collision (§17) — confirmed at full-suite
+   scale in this correction pass (`npm test` ran to completion in ~193s
+   with 441/740 suites failing, all with the identical Haste-collision
+   symptom; the 299 suites that never import anything touching
+   `@satsails/p2p-trading-sdk` passed normally). Not this mission's to fix
+   (ownership ambiguous, out of WDK-retry-safety scope) — disclosed in full
+   so it is never mistaken for a regression introduced by this branch.
+
+None of these items authorize or imply any implementation. All are evidence
+obligations, observations, or disclosed conditions for a future, separately
 authorized mission.
