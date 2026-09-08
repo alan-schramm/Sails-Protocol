@@ -34,7 +34,10 @@ Initial **planned** first-party adapter targets:
 - `@sails/adapter-breez`
 - `@sails/adapter-spark`
 - `@sails/adapter-ldk`
-- `@sails/adapter-ethers`
+- `@sails/adapter-ethers` — EVM family, including BNB Smart Chain
+- `@sails/adapter-tron`
+- `@sails/adapter-solana`
+- `@sails/adapter-ton`
 
 These package names are roadmap targets, not published/support claims yet.
 Additional adapters are added by ecosystem relevance and integrator demand.
@@ -63,8 +66,9 @@ not merely because an SDK or smart-contract platform exists.
 - Public sandbox testnet, no signup required
 - First 10 wallet integrations using the SDK
 - First-party adapter program underway for BDK, WDK, Breez SDK, Spark SDK,
-  LDK, and major EVM wallet-development stacks; each adapter must be backed by
-  real integration evidence before it is labeled supported
+  LDK, major EVM wallet-development stacks (including BNB Smart Chain), TRON,
+  Solana, and TON; each adapter must be backed by real integration evidence
+  before it is labeled supported
 - Third-party security audit, scoped to Sails OpenP2P + Sails OpenSettlement
   (the two modules with real code as of this handoff)
 - Sails OpenP2P module spec reaches v1.0 stability
