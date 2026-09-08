@@ -723,6 +723,25 @@ status; Red Team status; network simulation; deployment assumptions;
 incident/recovery procedures; claim boundaries; reference-wallet
 production evidence; independent integration evidence.
 
+**Updated 2026-09-08 (Day-0 Multi-Operator Sails Network addendum) —
+seven categories added**, surfaced by
+`docs/PARTNER_BETA_INTEGRATION_REALITY.md`'s network-topology finding
+and the "Day-0 Multi-Operator Sails Network / Node Independence"
+obligation registered below: **multi-operator node readiness; node
+independence; shared-market cross-node behavior; bootstrap/discovery;
+failover/migration; node economic attribution; single-operator
+dependency check.**
+
+**Updated again 2026-09-08 (Day-0 Network Property Correction) — one
+category added**, not semantically covered by the seven above:
+**market fragmentation test** — "three conformant APIs serving three
+isolated marketplaces" (this file's own Day-0 entry, Fragmentation
+property) is a specific, falsifiable failure mode distinct from the
+broader "shared-market cross-node behavior" category; named separately
+so it cannot be satisfied by conformance testing alone. Same discipline
+as the original 25 categories —
+named, not checklisted; evidence required, no automated score.
+
 **Core requirement:** passing this Gate must require **evidence, not
 accumulation of completed tickets** — the number of closed BACKLOG/
 TECHNICAL_DEBT_AUDIT items is not itself a production-readiness signal.
@@ -785,4 +804,394 @@ Readiness Consolidated Gate and Independent Implementation Conformance
 were materially under-represented (no prior Master Backlog entry
 existed for either); Issue #75's own reconciliation requirement is now
 satisfied. No new Norte macrofront. Norte remains 38.
+
+---
+
+## Partner Beta / Integration Reality (2026-09-08)
+
+**Source:** `docs/PARTNER_BETA_INTEGRATION_REALITY.md`, a discovery
+mission investigating whether a stranger developer/partner could
+actually integrate the Sails P2P Trading SDK using only public
+material. Four distinct deltas registered below, grouped from 18
+individual findings per the mission's own rule against creating one
+issue per finding.
+
+### 1. Shared economic network topology (most severe finding)
+
+**Property:** `docs/PROJECT_CONTEXT.md` states "a wallet that
+integrates Sails becomes a participant in one shared, interoperable
+network, not the operator of its own isolated instance." **Confirmed,
+directly, that the current documented integration path does the
+opposite** — every example (`README.md`, `docs/GETTING_STARTED.md`,
+`docs/SDK_GUIDE.md`) points `SailsClient` at a self-hosted
+`docker compose up` instance with its own empty Postgres database.
+`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §4 confirmed no publicly
+reachable, Sails-operated endpoint is documented anywhere, and that
+existing "cross-instance" mechanisms
+(`sails:cross-instance-events`, `docs/DATABASE.md`) are horizontal
+scaling for *one* operator's own deployment, not federation between
+independently-operated nodes. A partner following the documented path
+today gets an isolated economic island: no shared offers, identity, or
+reputation with Satsails' own users or any other operator.
+
+**Not the same as** Issue #75 (multi-implementation/platform/interface
+horizon) or Issue #86 (wallet-kit distribution) — both are adjacent,
+neither addresses cross-operator network topology. Genuinely distinct,
+kept distinct.
+
+**Classification: NEW BACKLOG DELTA — the most consequential precondition
+for any real Partner Beta.** No architecture chosen here (Discovery
+only, per that document's own scope) — a future, separately CTO-gated
+mission must design how a second real operator joins the same economic
+network as Satsails, or the "shared network" positioning claim needs an
+explicit, honest revision if that is not the near-term plan. Cross-links
+Production Readiness Consolidated Gate's "deployment assumptions" and
+"independent integration evidence" categories (already registered
+above) — not duplicating either.
+
+### 2. Professional liquidity provider primitives
+
+**Gap, confirmed directly against `prisma/schema.prisma`'s `Offer`
+model and `trade.service.ts`'s `createTrade()`:** no quote-expiry field
+on `Offer`; no inventory/partial-fill tracking beyond per-trade
+`minAmount`/`maxAmount`; no pre-commit review/accept gate for offer
+owners (`createTrade()` always transitions straight to `ACTIVE`, no
+manual-acceptance option exists); no outbound webhook delivery
+mechanism (only a WebSocket channel, which assumes a persistent client
+connection — a poor fit for a backend/OTC-desk integrator).
+`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §6 confirmed the trade
+*settlement* lifecycle itself already works for a professional
+provider (same primitives a wallet's own users get) — the gap is
+narrowly in the market-making layer (quote/inventory/review/push),
+not evidence of needing a second, provider-specific marketplace.
+
+**Classification: NEW BACKLOG DELTA.** Cross-links Production
+Readiness Consolidated Gate's "provider production eligibility"
+category (registered above) with new, narrower detail — not a
+duplicate category. No new Core primitive proposed; reads as `Offer`/
+`Trade` extensions plus a genuinely new webhook-delivery mechanism.
+
+### 3. Live capability/rail discovery
+
+**Gap:** `GET /v1/settlement/escrow/:id`'s `data.custodyModel`
+(confirmed real and working, 2026-08-24) only discloses custody
+topology *after* an escrow already exists with a chosen `type` — there
+is no live, runtime API a partner's own code can query *before*
+choosing a settlement type to ask "what does this specific deployment
+currently support, at what maturity?" Today that information exists
+only as static documentation (`README.md`'s coverage matrix,
+`docs/GETTING_STARTED.md`'s provider table), which describes this
+repository's own capabilities, not necessarily a given partner-operated
+deployment's actual configuration.
+
+**Classification: NEW BACKLOG DELTA**, narrow. Cross-links the
+already-real `custodyModel` precedent as the pattern a future live
+discovery surface should extend, not replace. Preserves `WalletAdapter
+≠ SettlementProvider`, `wallet support ≠ network support ≠ asset
+support ≠ settlement support`, `provider implementation ≠ provider
+maturity ≠ production eligibility` throughout — no
+`supportedCapabilities()` method is proposed merely because it was
+discussed conceptually elsewhere; the finding is narrower than that.
+
+### 4. Client-side session recovery + non-wallet integration example
+
+**Two small, bounded gaps grouped together:** (a) no automatic
+client-side session-expiry recovery exists anywhere in
+`packages/sails-sdk` — a developer must manually catch `401` and
+re-call `identity.authenticate()`, per `docs/GETTING_STARTED.md`'s own
+error table; (b) `WalletAdapter` is confirmed genuinely optional
+(`client.ts`'s `wallet?: WalletAdapter`, `requireWallet()` only gates
+wallet-specific methods) — a real, already-existing, good property —
+but no example anywhere in this repository demonstrates a non-wallet
+(service/backend) integration end-to-end, so a stranger reading only
+the examples would reasonably (if incorrectly) conclude a wallet is
+required.
+
+**Classification: NEW BACKLOG DELTA**, small. Cross-links Issue #75
+(DX/interfaces horizon) for the missing-example half; the session-
+recovery half has no existing representation and is registered fresh.
+
+### Explicitly not registered as new deltas
+
+Findings that confirmed already-closed work or positive properties
+needing no new entry: liquidity discovery's real pagination/filtering
+mechanism (already implemented, only the `examples/simple-wallet`
+README and its own hardcoded low-price workaround are stale —
+a documentation-maintenance item, not a Backlog delta); the fund-moving
+restart/resume safety property (already substantially closed by this
+session's own #56/#58/#59 remediation chain, confirmed not
+re-litigated); `WalletAdapter` optionality and `custodyModel`
+disclosure themselves (both already real, cited above as precedents,
+not gaps); `IntentFacade.negotiate()`'s intentional, correctly-disclosed
+non-implementation (`docs/BACKLOG.md`'s existing SDK Core entry already
+covers this). The stranger-integration-test and independent-partner-
+evidence findings map directly to the Production Readiness Consolidated
+Gate's own "independent integration evidence" category (registered
+above) — `docs/PARTNER_BETA_INTEGRATION_REALITY.md` itself is the
+evidence trail for that category, not a reason for a fifth delta.
+
+Classification: **BACKLOG DELTA DETECTED AND SYNCED** — four new
+deltas, none duplicating an existing entry, none escalated into a new
+Issue (per the mission's own rule that a Backlog entry is sufficient
+while no execution mission is authorized). No new Norte macrofront.
+Norte remains 38.
+
+---
+
+## Day-0 Multi-Operator Sails Network / Node Independence (2026-09-08)
+
+**Type:** Architecture + Production Readiness + Network Distribution +
+Economic Infrastructure. **This is a launch requirement, not a Months
+10-12 aspiration.** No architecture selected, no federation/P2P
+mechanism chosen, no implementation authorized by this entry — an
+architecture-discovery obligation, elevated to Day-0 priority by
+explicit CTO addendum on the "Shared economic network topology" finding
+already registered above (`docs/PARTNER_BETA_INTEGRATION_REALITY.md`
+§4, this file's own delta 1 in the section above). Tracked for
+traceability, given the Day-0 elevation, as
+[Issue #95](https://github.com/alan-schramm/Sails-Protocol/issues/95)
+("[Architecture Discovery] Day-0 Multi-Operator Sails Network & Shared
+Market") — this Backlog entry is the full registration; the issue
+cross-links back here rather than duplicating content.
+
+### Central property
+
+> Satsails may operate the first/default Sails Node, but no Sails
+> participant or integrator must depend architecturally on Satsails
+> operating the unique coordination node.
+
+Preserved, verbatim:
+
+- **Sails Protocol ≠ Satsails server.**
+- **Node choice must not define market membership.**
+- **Changing node must not inherently change participant economic
+  identity, reputation or historical rights.**
+- **Running a node must not grant authority over settlement truth,
+  participant funds, or protocol semantics.**
+
+### Day-0 operational target
+
+At launch, the architecture must support the intended model:
+
+```
+Sails Node A — Satsails
+Sails Node B — partner wallet
+Sails Node C — liquidity/service provider
+        ↓
+shared Sails economic network
+```
+
+**Corrected 2026-09-08 (Day-0 Network Property Correction) — the
+original wording below read as a future aspiration; it is a Day-0
+launch requirement, restated explicitly:**
+
+> At launch, an integrator must be able either to use an existing
+> conformant Sails Node or operate an independent conformant Sails
+> Node without becoming economically isolated merely because of that
+> node choice.
+
+**This is a launch requirement, not a Months 10-12 aspiration** —
+restated here verbatim from this entry's own opening classification,
+because the property immediately above it is the one place that
+distinction most needs to be unambiguous. No federation/P2P mechanism
+is selected here — property first, mechanism second (§10).
+
+### Shared Market Universe (strengthened 2026-09-08)
+
+> **Node choice must not partition the economic market.**
+
+> All conformant Sails Nodes must be able to participate in the same
+> protocol-level liquidity universe. Node choice alone must not isolate
+> offers, counterparties, or market access.
+
+**Consistency qualifier — not promising impossible strong
+consistency:**
+
+> Shared liquidity does not require byte-for-byte instantaneous global
+> state. Different nodes may observe bounded propagation delay,
+> explicit provider/user filters, availability differences, or policy
+> constraints. Those differences must not arise merely because
+> operators run independent Sails Nodes.
+
+Distinctions preserved, verbatim:
+
+- **Shared Market Universe ≠ Instantaneous Identical View.**
+- **Eventual propagation ≠ Economic fragmentation.**
+
+### Properties requiring evidence before any production claim
+
+Registered as investigation targets, **none of them claimed as
+demonstrated by this registration**: cross-node offer discovery;
+cross-node trade coordination; node discovery/bootstrap; node
+capability advertisement; identity portability; reputation portability;
+evidence/history portability or re-verifiability; protocol-version
+compatibility; node failover; node migration; malicious-node
+containment; spam/Sybil implications; node availability assumptions; no
+single-node semantic authority; no single-node settlement authority; no
+mandatory Satsails-operated infrastructure; economic attribution for
+node participation.
+
+### Node economics — Day-0-capable, nothing frozen (corrected 2026-09-08)
+
+The repository already contains the real, shipped chain this direction
+builds on: `FeeCollectionEvidence` (kind: `CONFIRMED`) →
+`FeeObligation` → `DistributionPolicyVersion` →
+`EntitlementLedgerEntry` (verified directly, `prisma/schema.prisma`).
+It also already contains real prior art on node-operator incentives:
+`docs/PROTOCOL_ECONOMY.md` §4.2 ("Node Operators — Bootstrap nodes,
+Reputation nodes, future relay nodes") names a phased *rollout*
+narrative (voluntary bootstrap nodes today; a fee-funded "Node Operator
+Pool" for reputation nodes at Months 7-9; relay/routing-node payment at
+Months 10-12) — that rollout narrative is preserved, but §4.2 itself
+now carries a dated current-truth correction (2026-09-08): **node
+economic *capability* is a Day-0 property, per the CTO/Product Owner
+decision this entry registers**, not something architecturally gated
+until Months 7-9.
+
+> Node economic participation must be Day-0-capable. Exact
+> percentages, attribution formula, and incentive weights remain
+> policy-versioned and must earn separate evidence.
+
+> A node does not earn fees merely by existing or registering. Economic
+> entitlement must follow confirmed contribution to an economic outcome
+> under the applicable frozen `DistributionPolicyVersion`.
+
+**Not frozen by this entry:** any percentage; a 50% node share; an
+exact attribution formula; a proof-of-relay/proof-of-coordination
+mechanism; fee-routing implementation. **Mostro's 50% is reference
+evidence only, not Sails policy — not adopted.**
+
+### Fragmentation property (explicit architectural failure case, strengthened 2026-09-08)
+
+Registered as a failure case to design against, not solved here:
+
+```
+Node A → isolated liquidity A
+Node B → isolated liquidity B
+Node C → isolated liquidity C
+```
+
+**= FAIL, even if all three implement the identical, fully conformant
+API.** Conformance to the same interface is not the property being
+tested — economic reachability across nodes is. This is functionally
+the same isolated-island outcome `docs/PARTNER_BETA_INTEGRATION_REALITY.md`
+§4 already found for the current (single-operator) reality, generalized
+to the N-operator case.
+
+> Independent node operation should not inherently fragment shared
+> economic discovery into isolated marketplaces.
+
+> Three conformant APIs serving three isolated marketplaces do not
+> constitute one Sails economic network.
+
+If closing this requires an additional mechanism beyond what any single
+node already does, that mechanism is itself a discovery target for a
+future mission — not designed or selected here.
+
+### Anti-fragmentation incentive (economic/architectural principle, added 2026-09-08)
+
+> A Sails Node should compete on service quality, not by capturing
+> users into isolated liquidity.
+
+Possible competition dimensions, named only as rationale for why this
+principle is plausible, **not scored, weighted, or ranked here**:
+uptime, latency, fee, privacy, operational quality, support,
+routing/service quality. **No scoring mechanism is authorized or
+implied by naming these** — this is a design-north-star statement, not
+a specification. No node marketplace is created by this entry.
+
+### Node authority (reaffirmed 2026-09-08)
+
+Preserved, verbatim, and extended with one further distinction the
+node-economics direction above makes newly relevant:
+
+> Operating a Sails Node does not grant authority over protocol
+> semantics, participant funds, settlement truth, or participant
+> identity.
+
+> Liquidity propagation authority ≠ Settlement authority ≠ Protocol
+> authority.
+
+A node that helps discovery/coordination reach more counterparties
+(liquidity propagation) gains no claim over what a trade's outcome
+*means* (settlement authority) or over the protocol's own rules
+(protocol authority) merely by having propagated it — these remain
+three separate authorities today, and this entry does not blur them
+even while registering that a node may earn economic entitlement for
+the first one.
+
+### Existing architecture overlap — checked before registering, not assumed new
+
+- **OpenP2P / OpenLiquidity:** `Offer`/`Trade` are per-node Postgres
+  rows today (confirmed throughout
+  `docs/PARTNER_BETA_INTEGRATION_REALITY.md`) — no cross-node query
+  path exists. Directly relevant, not yet solved by either module.
+- **Pears/transport:** already genuinely serverless at the connection
+  layer (HyperDHT/Hyperswarm peer discovery needs no central server) —
+  the gap is entirely at the *application* layer (offers/trades/
+  identity), which has no cross-node protocol today, confirmed
+  `docs/PARTNER_BETA_INTEGRATION_REALITY.md` §4. Pears itself is not
+  the blocker.
+- **OpenIdentity:** `User.publicKey` is portable in principle (it's
+  just a keypair a participant controls), but nothing today associates
+  one identity across two independently-deployed nodes' separate
+  databases — same gap `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`
+  already investigates for cross-*protocol* identity, now shown to
+  apply equally to cross-*node* identity within the same protocol.
+  Cross-linked, not duplicated.
+- **OpenReputation:** `User.reputationScore` is a per-node running
+  total (confirmed, `prisma/schema.prisma`) — reputation earned on Node
+  A has no defined meaning or portability to Node B today. Directly
+  relevant, unresolved.
+- **Durable Protocol Truth** (`docs/DURABLE_PROTOCOL_TRUTH_EVIDENCE.md`):
+  establishes what "true" means *within* one node's own event/escrow
+  history — does not yet address what happens when two nodes' separate
+  histories need to be reconciled or cross-verified. A real, adjacent
+  precedent for evidence/history re-verifiability across nodes, not a
+  solution to it.
+- **Recovery/Reconciliation:** this session's own #56/#58/#59
+  remediation closed *intra-node* fund-moving safety — genuinely
+  unrelated to *inter-node* failover/migration, which remains fully
+  open.
+- **Production Readiness Consolidated Gate:** updated above with the
+  seven new categories this obligation requires.
+- **Issue #75** (multi-implementation/platform horizon): adjacent
+  (different implementations of the *same* node), not the same as
+  multiple *independently-operated* nodes of any implementation.
+  Genuinely distinct, kept distinct.
+- **Issue #77** (Final Red Team Horizon): its own "Sails semantic
+  divergence" case (cross-*implementation* agreement) is a narrower,
+  different question than cross-*node* economic fragmentation —
+  related in spirit, not duplicated.
+- **Issue #78** (Sandbox/Playground): a future consumer of this
+  obligation's eventual solution (a sandbox could exercise multi-node
+  behavior once it exists), not a substitute for registering it.
+- **Protocol economics:** covered above — `docs/PROTOCOL_ECONOMY.md`
+  §4.2's existing phasing preserved untouched.
+
+**Genuinely new obligations, not covered by any of the above before
+this entry:** the central property itself (node choice must not
+determine market membership); the Day-0 operational target diagram;
+the fragmentation-property naming; and the explicit list of 16
+evidence-required properties, none previously enumerated together
+anywhere in this repository.
+
+### Claim boundary — explicitly NOT claimed by this registration
+
+Federation exists; multiple Sails nodes interoperate today; shared
+liquidity across nodes is demonstrated; node failover exists;
+partner-operated nodes work; decentralized operation is implemented.
+**All of the above are evidence obligations, not current facts.**
+
+### Norte placement
+
+No new macrofront — this composes existing fronts (7. OpenP2P, 9.
+OpenIdentity, 10. OpenReputation, 11. OpenLiquidity, 13. Transport/
+Interoperability, 6. Economics/Fees, 27. Security) the same way the
+Production Readiness Consolidated Gate itself does. Norte remains 38.
+
+Classification: **BACKLOG DELTA DETECTED AND SYNCED** — a real,
+previously-unregistered Day-0 obligation, distinguished explicitly from
+every adjacent existing entry above rather than merged into any of
+them.
 

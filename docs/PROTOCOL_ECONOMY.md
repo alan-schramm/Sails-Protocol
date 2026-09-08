@@ -392,6 +392,35 @@ Three tiers of answer, matched to the roadmap:
   traffic earns a tiny, protocol-defined routing fee denominated in the
   settlement asset, paid by whoever benefits from the routed message.
 
+**Corrected/Current-truth update (2026-09-08, Day-0 Network Property
+Correction).** The three-tier text above (preserved verbatim) reads as
+if node economic *capability* itself only exists starting Months 7-9 —
+that is no longer the governing decision. `docs/BACKLOG.md`'s "Day-0
+Multi-Operator Sails Network / Node Independence" entry registers
+independent node operation as a **Day-0 launch property**, not a
+Months 10-12 aspiration. Consequently:
+
+> Node economic participation must be Day-0-capable. Exact
+> percentages, attribution formula, and incentive weights remain
+> policy-versioned and must earn separate evidence.
+
+> A node does not earn fees merely by existing or registering. Economic
+> entitlement must follow confirmed contribution to an economic outcome
+> under the applicable frozen `DistributionPolicyVersion`.
+
+This corrects the *capability timeline* only — the mechanism (already
+real: `FeeCollectionEvidence(CONFIRMED)` → `FeeObligation` →
+`DistributionPolicyVersion` → `EntitlementLedgerEntry`,
+`prisma/schema.prisma`) must not be architecturally blocked until
+Months 7-9. It does **not** change the three tiers' own *rollout*
+narrative above (bootstrap nodes still run voluntarily today; the
+Reputation-node Pool and Lightning-style routing fee above remain
+real, phased product decisions, not frozen by this correction) and it
+does **not** adopt any percentage, formula, or proof-of-relay/
+coordination mechanism — none of those is decided here or anywhere
+else in this repository yet. See `docs/BACKLOG.md`'s entry for the
+full registration.
+
 ### 4.3 Developers (protocol-spec, SDK, and module contributors)
 
 - **Open-source contribution model** — the same non-monetary incentive
