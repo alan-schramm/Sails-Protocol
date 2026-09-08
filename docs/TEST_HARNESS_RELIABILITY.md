@@ -1,4 +1,12 @@
-# Test-Harness Reliability — `.claude/worktrees/` Haste Module-Map Collision (#57)
+# Test-Harness Reliability — `.claude/worktrees/` Haste Module-Map Collision (TECHNICAL_DEBT_AUDIT.md #59)
+
+**Numbering note:** this investigation was labeled "#57" in the mission
+brief that opened it, but `docs/TECHNICAL_DEBT_AUDIT.md`'s own,
+pre-existing `#57` is a genuinely different, still-open finding
+(`buildApp()` timeout/contention under parallel Jest load, 10 named
+suites, 7 open questions — unrelated to and not addressed by this
+document). The finding below is registered as **new item #59**; `#57`
+itself is untouched and remains open.
 
 **Property investigated:** the full test suite should fail because the
 code is wrong, not because unrelated local worktrees or test-discovery
@@ -306,7 +314,7 @@ problem. No timeout changes, no worker-count changes, no `--runInBand`
 reliance, no framework change, no test skipped, no real coverage lost
 (§5's exact accounting).
 
-**Claude recommendation: CLOSE #57.** The property this mission was
+**Claude recommendation: CLOSE #59.** The property this mission was
 scoped to investigate — "the full test suite should fail because the
 code is wrong, not because of unrelated local artifacts" — now holds:
 `npm run test:unit` passes 100% locally, matching CI's own long-standing

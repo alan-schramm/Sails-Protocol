@@ -12,8 +12,11 @@ module.exports = {
   // regardless — this is the correct general exclusion, not a workaround
   // specific to that one file.
   //
-  // docs/TEST_HARNESS_RELIABILITY.md (#57, 2026-09-08) — the same class of
-  // failure, a different source: the Agent tool's `isolation: "worktree"`
+  // docs/TEST_HARNESS_RELIABILITY.md (TECHNICAL_DEBT_AUDIT.md #59,
+  // 2026-09-08 — distinct from item #57, which is a different, still-open
+  // finding about buildApp() timeout contention under parallel Jest load)
+  // — the same class of failure, a different source: the Agent tool's
+  // `isolation: "worktree"`
   // feature (and any other tool that runs `git worktree add`) leaves a
   // full checkout, including its own `packages/sails-sdk/package.json`,
   // under `.claude/worktrees/<name>/` whenever a spawned agent makes
