@@ -299,6 +299,12 @@ signing, or settlement stack. The already-shipped RFC-013 `WalletAdapter`
 boundary is structurally compatible with this objective, but first-party
 named adapter coverage is not yet implemented or demonstrated.
 
+**Cross-link (added 2026-09-08, Institutional Cold Sweep):** this entry
+corresponds to [Issue #86](https://github.com/alan-schramm/Sails-Protocol/issues/86)
+("[Strategy] First-party wallet-kit adapters + multi-rail OpenP2P
+distribution") — same adapter-target list, same architecture boundary.
+Cross-referenced here rather than duplicated as a separate entry.
+
 Initial visible **planned adapter targets**:
 
 - `@sails/adapter-bdk` — BDK / Bitcoin wallet stacks
@@ -532,7 +538,7 @@ at all).
 
 ---
 
-## `docs/CRYPTOGRAPHIC_MODEL.md` §1 documentation drift (found 2026-09-08, Identity Architecture Discovery)
+## `docs/CRYPTOGRAPHIC_MODEL.md` §1 documentation drift (found 2026-09-08, Identity Architecture Discovery) — CLOSED (corrected 2026-09-08, Institutional Cold Sweep)
 
 **Type:** current-truth documentation drift, found in passing while
 verifying Sails' current identity model against real code for
@@ -554,16 +560,229 @@ entry — it was simply never propagated back to
 `docs/CRYPTOGRAPHIC_MODEL.md` itself, the document that originated the
 now-false claim.
 
-Not corrected here (out of scope for a discovery-only mission — no
-document besides `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` was
-authorized for edits). Recommended fix: a dated "Corrigido/Atualizado"
-note in `docs/CRYPTOGRAPHIC_MODEL.md` §1, preserving the original text,
-pointing to `docs/TRUST_BOUNDARY.md` Boundary 1b as the already-correct
-source — same dated-correction convention used throughout this
-repository. Full evidence: `docs/TECHNICAL_DEBT_AUDIT.md` item 60,
-`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §2.
+Not corrected by the original registration (out of scope for a
+discovery-only mission — no document besides
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` was authorized for edits
+there).
+
+**Corrected 2026-09-08 (Institutional Cold Sweep / Production
+Readiness).** `docs/CRYPTOGRAPHIC_MODEL.md` §1 now carries a dated
+"Corrigido/Current-truth update (2026-09-08)" note, preserving the
+original 2026-07-19 text verbatim above it, stating plainly: economic
+identity = `User.publicKey`; transport identity = a separate, ephemeral
+`User.peerId`; the association is server-mediated, not cryptographically
+bound; the Pears key is not today cryptographically bound to
+participant identity. Points to `docs/TRUST_BOUNDARY.md` Boundary 1b as
+the already-correct source — same dated-correction convention used
+throughout this repository. Does not resolve the underlying identity
+architecture (tracked separately, see the entry above and
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`) — documentation-accuracy fix
+only.
+
+**Status: CLOSED.** Full evidence: `docs/TECHNICAL_DEBT_AUDIT.md` item
+60, `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §2, correction in
+`docs/CRYPTOGRAPHIC_MODEL.md` §1.
 
 Classification: **BACKLOG DELTA DETECTED AND SYNCED** — genuinely
 distinct from the Identity Root & Multi-Protocol Identity UX entry
 above; not a duplicate.
+
+---
+
+## Institutional Cold Sweep / Production Readiness (2026-09-08)
+
+**Type:** institutional reconciliation — closing a real gap where the
+CTO had already recognized several obligations (via GitHub Issues,
+prior sessions' framing) that had not yet been reflected as explicit
+Master Backlog entries. No product implementation, no new Core
+primitive, no new Norte macrofront. Three obligations registered below.
+
+### 1. Issue #75 reconciliation — multi-implementation / platform / agent-interface horizon
+
+**Source:** [Issue #75](https://github.com/alan-schramm/Sails-Protocol/issues/75)
+("Horizon: multi-implementation, application platforms & agent
+interfaces"), read in full before this registration. The issue's own
+closing line — *"Master Backlog operational representation: needs
+reconciliation"* — is what this entry resolves.
+
+**Obligation registered:**
+
+> **TypeScript is first, not authoritative.** Different implementations
+> and interfaces must preserve the same economic semantics.
+
+Three distinct tiers, preserved exactly as Issue #75 structures them —
+**not collapsed into one undifferentiated "implementation" bucket**:
+
+- **Protocol implementations** (semantics-bearing, must conform):
+  TypeScript (first, already real), Rust, Go. Rust/Go, if/when adopted,
+  must be evaluated as independent implementations against canonical
+  Sails semantics and conformance evidence — never assumed equivalent
+  as "mere translations." No cross-language equivalence claim without
+  implementation *and* conformance evidence.
+- **Application/platform targets** (consume a protocol implementation,
+  not necessarily full implementations themselves): Web, React Native,
+  iOS, Android.
+- **Native/developer surfaces** (integration surface, smallest-correct
+  mechanism per platform — native SDK, client, binding, generated
+  client, WASM, or direct API, decided per surface, not assumed):
+  Swift, Kotlin, plus agent interfaces API, CLI, MCP, WebMCP. Interfaces
+  may multiply; protocol semantics must not. Agent access must not
+  imply agent authority.
+
+**Explicitly not authorized by this registration:** building Rust, Go,
+Swift, or Kotlin SDKs; MCP/WebMCP integration; any implementation work
+at all. This is horizon preservation + Master Backlog reconciliation,
+exactly as Issue #75 itself scopes it ("Implementation authorization:
+NO", "Research / horizon preservation: YES").
+
+**Norte placement:** no new macrofront. Existing fronts 16 (Agent & Tool
+Interfaces), 21 (SDK/DX), 22 (Developer Docs/Mintlify), 26 (Conformance),
+30 (Productization/Ecosystem Composition) — matching Issue #75's own
+"Current classification" section exactly.
+
+### 2. Independent Implementation Conformance
+
+**Sources, cross-referenced rather than merged silently:** the
+conformance obligation is currently fragmented across this file (no
+prior explicit entry), Issue #75 ("No cross-language equivalence claim
+without implementation + conformance evidence"), and
+[Issue #77](https://github.com/alan-schramm/Sails-Protocol/issues/77)
+("Final Red Team Horizon")'s own second registered case, **"Sails
+semantic divergence"** — which states, nearly verbatim, the same
+property this entry now registers formally. This entry is the single
+Master Backlog anchor both issues should point back to; it does not
+duplicate Issue #77's Red-Team-specific framing (a future adversarial
+test case) or Issue #75's broader multi-language horizon (§1 above) —
+it registers the underlying *property* both already assume.
+
+**Obligation registered:**
+
+> A TypeScript implementation conforming with itself is not sufficient
+> evidence of implementation-independent protocol semantics.
+
+Future property (not implemented, not scheduled):
+
+```
+canonical input
+→ implementation A
+→ implementation B
+→ same valid economic interpretation / Outcome
+```
+
+Preserved distinctions, verbatim:
+
+- **TypeScript implementation ≠ protocol truth.**
+- **Conformance ≠ interoperability.**
+- **Same canonical inputs must not produce different valid economic
+  meaning across conformant implementations.**
+
+**Relation to the historical "Participant Model" debt — checked,
+found distinct, kept distinct, not merged silently.** This file's own
+P0-status table (`docs/BACKLOG.md`, row "Participant Model", RFC-001
+§1.1) tracks a *structural* gap: whether a specific Core interface
+primitive exists in code at all ("🔲 Not started — interface not yet in
+code anywhere"). Independent Implementation Conformance is a *semantic*
+question: whether two implementations that both claim to satisfy that
+(or any other) primitive's contract actually agree on economic meaning
+for the same input. These are genuinely different failure modes — a
+single, complete TypeScript implementation could satisfy "Participant
+Model: done" while conformance remains entirely unestablished (no
+second implementation exists to conform against), and conversely a
+future second implementation could exist yet still diverge from
+TypeScript's own interpretation regardless of Participant Model's own
+completeness. Registered as two separate obligations; neither is a
+subset or a rename of the other.
+
+**Explicitly not authorized by this registration:** building a Rust or
+Go implementation now; building any conformance harness/engine now.
+Classified as a **future / core-hardening obligation** — evidence
+requirement, not a scheduled deliverable.
+
+### 3. Production Readiness Consolidated Gate
+
+**Purpose:** prevent "several things look ready" from being read as
+"Sails is ready for production" — a real, observed risk in a repository
+where individual providers, migrations, and hardening passes each
+carry their own, real, honestly-earned "done" status, but no single
+gate has ever asked whether they compose into an actual production-
+ready system.
+
+**Obligation registered:** a single, named **Production Readiness
+Consolidated Gate**, not yet defined as a detailed checklist or
+automated score (explicitly not authorized below), that must eventually
+consolidate, at minimum:
+
+provider production eligibility; settlement rail maturity; real
+migrations applied; DB/Postgres readiness; Redis/runtime readiness;
+secrets and key custody; environment/configuration; recovery/
+reconciliation; unknown-outcome handling; finality/reorg assumptions;
+observability; operational runbooks; dependency readiness; external SDK
+maturity; protocol economics activation; fee policy activation;
+capability enforcement posture; real-value evidence; security audit
+status; Red Team status; network simulation; deployment assumptions;
+incident/recovery procedures; claim boundaries; reference-wallet
+production evidence; independent integration evidence.
+
+**Core requirement:** passing this Gate must require **evidence, not
+accumulation of completed tickets** — the number of closed BACKLOG/
+TECHNICAL_DEBT_AUDIT items is not itself a production-readiness signal.
+
+Preserved distinctions, verbatim:
+
+- **Provider implementation ≠ provider maturity ≠ production
+  eligibility.**
+- **Reference implementation success ≠ independent interoperability
+  proof.**
+
+**Explicitly not authorized by this registration:** a detailed,
+itemized checklist beyond the category list above; any automated
+"production readiness percentage"/scoring mechanism; a CI scoring
+system; a production-readiness checker; deployment automation;
+provider-eligibility code. This entry names the Gate and its required
+categories — it does not build it.
+
+### Roadmap check (item 5 of the mission) — no contradiction found
+
+Verified each named front's current positioning; none required
+correction:
+
+- **Third-Party Sails Modules & Developer Extension Ecosystem**,
+  `create-sails-adapter`, `create-sails-module`, **Third-Party Liquidity
+  & Economic Modules** — already correctly placed in `docs/ROADMAP.md`
+  under Months 10-12, framed as future tracks, not executable backlog.
+- **Sandbox / Playground** (Issue #78) — correctly **not yet mentioned
+  anywhere in `docs/ROADMAP.md`** (confirmed by direct search) — Issue
+  #78 itself scopes this as "Implementation now: NO," so its absence
+  from the Roadmap is the correct state, not an omission needing a fix.
+- **External security audit** — `docs/DEPLOYMENT.md` already states
+  plainly "no external security audit of this codebase has happened,"
+  correctly undisclosed as complete anywhere.
+- **RC1** — `docs/BACKLOG.md`'s own status table already shows
+  "🔲 Not started — blocked on Implementation Review," correctly
+  unpromoted.
+
+No file required a correction for this check.
+
+### Issue check (item 6 of the mission)
+
+Read in full, classified, no new Issues created:
+
+| Issue | Properly represented? | Needs Backlog link? | Future-only? | Execution-ready? | Duplicated? |
+|---|---|---|---|---|---|
+| **#75** | Now yes — reconciled by §1 above | Yes, added | Yes | No | No |
+| **#77** | Yes, as its own Red-Team horizon marker | Yes, cross-linked by §2 above for its conformance sub-case only | Yes | No | No — distinct from §2, which registers the underlying property #77's second case assumes |
+| **#78** | Yes, self-contained and already correctly scoped (see Roadmap check above) | No — appropriately Issue-only until a later execution mission | Yes | No | No |
+| **#84** | Yes, a well-scoped watch/re-open trigger with its own explicit re-entry checks | No — status is self-contained (`WATCH / DEFERRED`), already cross-references `docs/BACKLOG.md`'s QVAC entry and PR #83 | N/A (deferred, not a future horizon) | No | No |
+| **#86** | Yes — its adapter-target list matches `docs/BACKLOG.md`'s existing wallet-adapter entry verbatim (registered via the earlier PR #87 strategy pass), but that entry never cited the issue number | Yes — cross-link added | Partially (planned targets are future; the `WalletAdapter` boundary itself is already real) | Partially (the boundary exists; adapters themselves are not built) | No — confirmed the same content, added the missing cross-reference rather than creating a duplicate entry |
+
+Cross-link added to the existing wallet-adapter entry in this file (the
+one with the `@sails/adapter-*` bullet list) noting it corresponds to
+Issue #86, rather than creating a new entry for already-registered
+content.
+
+Classification: **BACKLOG DELTA DETECTED AND SYNCED** — Production
+Readiness Consolidated Gate and Independent Implementation Conformance
+were materially under-represented (no prior Master Backlog entry
+existed for either); Issue #75's own reconciliation requirement is now
+satisfied. No new Norte macrofront. Norte remains 38.
 

@@ -105,9 +105,10 @@ afirma que a identidade Pears/HyperDHT é "o mesmo primitivo" da
 identidade econômica do participante — desatualizado desde o fix de
 custódia de chave de `pear.service.ts` (2026-08-09), já corrigido em
 `docs/TRUST_BOUNDARY.md`/`docs/BACKLOG.md` mas nunca propagado de volta
-para o documento que originou a afirmação. Não corrigido por este
-registro (fora do escopo de uma missão de discovery) — ver #60 para o
-achado completo.
+para o documento que originou a afirmação. Não corrigido pelo registro
+original (fora do escopo de uma missão de discovery) — **corrigido e
+fechado em 2026-09-08 (Institutional Cold Sweep)**, ver #60 para o
+achado completo e a correção aplicada.
 
 ---
 
@@ -2274,7 +2275,7 @@ não respondidas por este item.
 
 Evidência completa: `docs/TEST_HARNESS_RELIABILITY.md`.
 
-### 60. `docs/CRYPTOGRAPHIC_MODEL.md` §1 — claim desatualizada sobre identidade Pears/HyperDHT (encontrado 2026-09-08, Identity Architecture Discovery)
+### 60. `docs/CRYPTOGRAPHIC_MODEL.md` §1 — claim desatualizada sobre identidade Pears/HyperDHT — CLOSED (encontrado 2026-09-08, Identity Architecture Discovery; corrigido 2026-09-08, Institutional Cold Sweep)
 
 **Classificação: current-truth documentation drift, não uma nova
 vulnerabilidade de segurança.** Descoberto de passagem durante a
@@ -2308,15 +2309,33 @@ nunca recebeu a correção correspondente. Um exemplo real de uma
 correção não se propagar para todos os documentos que repetem a mesma
 claim.
 
-**Não corrigido por este registro** — fora do escopo de uma missão de
-discovery (sem implementação/edição de documentos além do próprio
-`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`). Correção recomendada: uma
-nota "Corrigido/Atualizado [data]" em `docs/CRYPTOGRAPHIC_MODEL.md` §1,
-preservando o texto original, apontando para `docs/TRUST_BOUNDARY.md`
-Boundary 1b como a fonte já corrigida — mesmo padrão de correção datada
-usado em todo este arquivo.
+**Não corrigido pelo registro original** — fora do escopo daquela
+missão de discovery (sem implementação/edição de documentos além do
+próprio `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`).
 
-Evidência completa: `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §2.
+**Correção aplicada (2026-09-08, Institutional Cold Sweep / Production
+Readiness).** `docs/CRYPTOGRAPHIC_MODEL.md` §1 recebeu uma nota
+"Corrigido/Current-truth update (2026-09-08)" datada, preservando o
+texto original de 2026-07-19 verbatim acima dela — não uma edição
+silenciosa. A nota declara corretamente o estado atual: identidade
+econômica = `User.publicKey`; identidade de transporte = `User.peerId`,
+uma chave Ed25519 separada e efêmera; a associação entre as duas é
+server-mediated (linha de banco de dados, verificada por
+`verifyHandshakeIdentity()`), não um vínculo criptográfico
+independente; a chave Pears não está hoje criptograficamente vinculada
+à identidade do participante. Aponta para `docs/TRUST_BOUNDARY.md`
+Boundary 1b como a fonte já corrigida. Não resolve a arquitetura de
+identidade em si (isso permanece rastreado separadamente em
+`docs/BACKLOG.md`'s "Identity Root & Multi-Protocol Identity UX" e
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`) — apenas corrige o drift de
+documentação.
+
+**Status: CLOSED.** A documentação está consistente entre
+`docs/CRYPTOGRAPHIC_MODEL.md`, `docs/TRUST_BOUNDARY.md`, e
+`docs/BACKLOG.md`.
+
+Evidência completa: `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §2;
+correção em `docs/CRYPTOGRAPHIC_MODEL.md` §1.
 
 ## Ações Recomendadas por Prioridade
 
