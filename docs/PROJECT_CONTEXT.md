@@ -437,6 +437,66 @@ already has a Sails escrow implementation.
 No vendor SDK, including WDK, becomes protocol truth or a mandatory dependency
 for all integrators.
 
+### External Design Reference — WDK Building Blocks
+
+WDK demonstrates a useful model of composable wallet and protocol
+capabilities. **Sails adopts the composability principle, not the
+dependency.** Three principles govern how this reference is used:
+
+1. **Adopt the composability principle, not the dependency.** WDK is a
+   design inspiration and a first-party integration target (see above) —
+   it is never architecture Sails copies wholesale or a package Sails Core
+   requires.
+2. **Normalize by capability family, not through one universal generic
+   interface.** The same reasoning that keeps `WalletAdapter` and
+   `SettlementProvider` as two distinct axes (above) applies here: a
+   single all-purpose interface trying to cover every wallet/protocol
+   capability tends to either under-specify or over-generalize. Capability
+   families (signing, address derivation, balance/query, settlement) are
+   normalized independently.
+3. **Third-party extensions may eventually exist, but conformance and
+   evidence determine support status** — never package existence alone
+   (the same discipline the coverage matrix and the First-Party Supported
+   Criteria above already apply to Sails' own first-party adapters).
+
+The distinction that matters most: **WDK makes wallet capabilities
+composable. Sails aims to make economic coordination composable across
+wallets and rails.** These are related but not identical goals — WDK's
+own internal architecture is not treated as Sails' architecture.
+
+### Satsails Wallet — first reference implementation and showcase
+
+**Satsails Wallet is intended to serve as the first reference
+implementation, first production distribution surface, and first
+multi-rail showcase of Sails Protocol composability.** This repository
+already documents this relationship (`README.md`'s own "This repository is
+the Reference Wallet implementation" framing) — this section makes the
+showcase role explicit for the multi-rail strategy specifically.
+
+**Satsails Wallet is a reference implementation, not protocol truth.**
+Nothing about Satsails' own product decisions, UI, or roadmap becomes a
+Sails Core requirement merely because Satsails is the first integrator.
+
+Satsails is the environment where Sails Protocol proves integration with,
+as each rail's own real status allows (see "Rail readiness," `README.md`):
+
+- Bitcoin on-chain (✅ Proven, `MULTISIG`)
+- Spark (📋 Future — not yet implemented)
+- Liquid (📋 Designed — zero implementation)
+- WDK-backed stablecoin stacks (🏗️ Implemented, testnet, server-custodial reference — `WDK_USDT_EVM`)
+- Tether Gold (📋 Future — not yet implemented)
+- future Arkade (🏗️ Lightning/Arkade path implemented testnet-only today; a dedicated Arkade settlement path beyond that is 📋 Future)
+- future RGB (📋 Future — not yet implemented)
+
+No rail listed here as future/planned is claimed as already implemented —
+each carries the same status legend used throughout this document (§4).
+
+**A successful Satsails production integration proves the reference
+implementation and real integration viability. It does not by itself
+prove independent cross-wallet interoperability** — a second, genuinely
+independent wallet integrating Sails (not built or operated by Satsails)
+is what would demonstrate that, and none has yet.
+
 ### The Named-SDK Rule (hardened after "this still sounds generic" feedback)
 
 **"Sails SDK" is a family name — never, itself, something a developer is

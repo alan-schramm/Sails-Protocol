@@ -48,24 +48,57 @@ network. WDK is an important first-party integration target and reference
 implementation dependency today, **not** a mandatory architectural dependency
 for every wallet integrating Sails.
 
-**Planned first-party wallet-kit adapter targets** *(visible roadmap names,
-not published packages and not claims of current support yet)*:
+### Coverage matrix
 
-| Planned adapter | Target integration family | Current status |
-|---|---|---|
-| `@sails/adapter-bdk` | BDK / Bitcoin wallet stacks | 📋 Planned |
-| `@sails/adapter-wdk` | Tether WDK wallet stacks | 📋 Planned |
-| `@sails/adapter-breez` | Breez SDK wallet stacks | 📋 Planned |
-| `@sails/adapter-spark` | Spark SDK wallet stacks | 📋 Planned |
-| `@sails/adapter-ldk` | LDK / Lightning wallet stacks | 📋 Planned |
-| `@sails/adapter-ethers` | EVM wallet stacks using ethers-compatible flows, including Ethereum and BNB Smart Chain | 📋 Planned |
-| `@sails/adapter-tron` | TRON wallet stacks, especially USDT-focused integrations | 📋 Planned |
-| `@sails/adapter-solana` | Solana wallet stacks, including USDT/USDC flows | 📋 Planned |
-| `@sails/adapter-ton` | TON wallet stacks, including USDT flows | 📋 Planned |
+**Presence in the coverage matrix means strategic integration target, not
+demonstrated support.** Wallet-stack support, network support, asset
+support, and settlement support are four separate claims — none is implied
+by another, and each must be evidenced independently (a published adapter
+package does not prove a working settlement rail; a working settlement
+rail for one asset does not prove it for another).
+
+Two different axes are deliberately kept in two different tables — a
+wallet-kit adapter and a settlement-capable network are not the same kind
+of thing (see "Wallet-kit adapters and settlement providers are different
+axes" below).
+
+**Wallet Stack / SDK targets** *(visible roadmap names, not published
+packages and not claims of current support yet)*:
+
+| Target | Category | Typical environment | Sails role | Current maturity |
+|---|---|---|---|---|
+| BDK (`@sails/adapter-bdk`) | Wallet stack | Bitcoin | Wallet integration | 📋 Planned |
+| WDK (`@sails/adapter-wdk`) | Wallet stack | EVM / TRON / Solana / TON | Wallet integration + provider-specific paths | 📋 Planned / reference usage (`WDK_USDT_EVM` `SettlementProvider`, testnet — see "Rail readiness" above) |
+| Breez SDK (`@sails/adapter-breez`) | Wallet stack | Lightning / supported Breez rails | Wallet integration | 📋 Planned |
+| Spark SDK (`@sails/adapter-spark`) | Wallet / settlement stack | Spark | Wallet + settlement integration | 📋 Planned |
+| LDK (`@sails/adapter-ldk`) | Wallet stack | Lightning | Wallet / node integration | 📋 Planned |
+| ethers (`@sails/adapter-ethers`) | Wallet interaction stack | Ethereum, BNB Smart Chain, EVM | Wallet integration | 📋 Planned |
+| TRON wallet stack (`@sails/adapter-tron`) | Wallet stack | TRON | Stablecoin wallet + settlement target | 📋 Planned |
+| Solana wallet stack (`@sails/adapter-solana`) | Wallet stack | Solana | Stablecoin wallet + settlement target | 📋 Planned |
+| TON wallet stack (`@sails/adapter-ton`) | Wallet stack | TON | Stablecoin wallet + settlement target | 📋 Planned |
 
 These are the initial named targets, not a closed list. Additional wallet
 development kits should be added when ecosystem relevance and real integrator
 demand justify them.
+
+**Network / Protocol / Settlement targets** *(a network appearing here is
+an integration/distribution target — see "Rail readiness" above for which
+of these already has a real, evidenced `SettlementProvider`)*:
+
+| Target | Category | Typical environment | Sails role | Current maturity |
+|---|---|---|---|---|
+| Bitcoin | Bitcoin base layer | Bitcoin | Settlement target | ✅ Proven (`MULTISIG`) |
+| Lightning | Bitcoin L2 | Lightning / Arkade | Settlement target | 🏗️ Implemented, testnet-only (`LIGHTNING_HODL`) |
+| Spark | Bitcoin-adjacent settlement environment | Spark | Settlement target | 📋 Future |
+| Liquid | Bitcoin sidechain | Liquid | Asset + settlement target | 📋 Designed, zero implementation |
+| RGB | Bitcoin asset/protocol layer | Bitcoin / RGB | Asset + settlement target | 📋 Future |
+| Arkade | Bitcoin settlement environment | Bitcoin / Ark | Settlement target | 📋 Future |
+| Stacks | Bitcoin-adjacent smart-contract network | Stacks | Settlement target | 📋 Roadmap (Months 7-9, `docs/ROADMAP.md`) |
+| RSK / Rootstock | Bitcoin sidechain / EVM | Rootstock | Settlement target | 📋 Roadmap (Months 7-9, `docs/ROADMAP.md`) |
+| EVM-family networks | Smart-contract network family | Ethereum, BNB Smart Chain | Settlement target | ✅ Proven for USDT on EVM (`WDK_USDT_EVM`, testnet — see "Rail readiness" above); not proven for other EVM chains or assets |
+| TRON | Smart-contract network | TRON | Stablecoin wallet + settlement target | 📋 Planned |
+| Solana | Smart-contract network | Solana | Stablecoin wallet + settlement target | 📋 Planned |
+| TON | Smart-contract network | TON | Stablecoin wallet + settlement target | 📋 Planned |
 
 **Wallet-kit adapters and settlement providers are different axes.** A wallet
 adapter connects the wallet's existing key/signing/balance/address stack to
@@ -75,6 +108,39 @@ relevant networks whose primitives can actually demonstrate the required
 escrow/conditional-settlement, authority, evidence, refund/dispute, recovery,
 and reconciliation properties — not claim support merely because a network
 has smart contracts.
+
+**The asset dimension.** The coverage matrix above is two-dimensional
+(stack/network × maturity); the fuller picture this should eventually grow
+into is **Adapter/Stack × Network/Protocol × Asset × Settlement Capability ×
+Maturity** — because "this network is a settlement target" does not mean
+every asset on it is. Relevant assets already in view, none claimed as
+finally supported where evidence does not yet exist: **USDT, USDC, BTC,
+LBTC, L-USDT, DePix, Tether Gold, RGB assets.** `WDK_USDT_EVM`'s own
+"Rail readiness" entry above is the only one of these with a real,
+evidenced (testnet) settlement path today.
+
+**First-party supported criteria.** A wallet-kit adapter is not
+"first-party supported" merely because the npm package exists. Depending
+on what the adapter is for, first-party support means demonstrating, as
+applicable:
+- address derivation / retrieval
+- signing
+- balance / query
+- network identification
+- capability declaration
+- understood error semantics
+- real integration-boundary tests
+- documented custody / key model
+- documented limitations
+
+**First-party wallet adapter support does not imply settlement-provider
+maturity or production eligibility.** A wallet can be fully, genuinely
+adapter-supported while the rail it settles over remains
+`PRODUCTION-INELIGIBLE` (`WDK_USDT_EVM` today is exactly this case — see
+"Rail readiness" above). **Interface compatibility does not imply security
+compatibility** — implementing an interface correctly says nothing about
+whether the underlying custody, signing, or trust model meets Sails'
+settlement-property bar.
 
 This is a network-effect requirement for OpenP2P: the easier it is for wallets
 using different stacks and rails to join the same economic coordination layer,

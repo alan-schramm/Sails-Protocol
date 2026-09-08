@@ -101,6 +101,23 @@ not merely because an SDK or smart-contract platform exists.
   Written down now as a vision document, not built now — see that file
   for exactly what's real today vs. what this phase would need to build
   first (the Policy Engine's governed-rule system, most notably).
+- **Third-Party Sails Modules & Developer Extension Ecosystem** —
+  inspired by WDK Building Blocks and `create-wdk-module`
+  (`PROJECT_CONTEXT.md`'s own "External Design Reference — WDK Building
+  Blocks" section), Sails should eventually provide tooling for third
+  parties to build Sails-compatible wallet adapters, settlement providers,
+  and economic modules without requiring those technologies to become
+  Core dependencies. Conceptually, not yet planned in implementation
+  detail: `create-sails-adapter`, `create-sails-module`, scaffolding, a
+  conformance harness, module templates, capability manifests,
+  documentation templates, third-party wallet adapters, third-party
+  settlement providers, and future third-party economic modules.
+  **Package existence does not imply Sails support; conformance and
+  evidence determine maturity** — the same discipline this document's own
+  coverage matrix and First-Party Supported Criteria already apply to
+  Sails' own first-party adapters (`README.md`). Named here as a future
+  direction only — no scaffolding, registry, manifest schema, or tooling
+  code exists yet, and none is authorized by this entry.
 
 ---
 
