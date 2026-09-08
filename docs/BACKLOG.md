@@ -730,7 +730,16 @@ and the "Day-0 Multi-Operator Sails Network / Node Independence"
 obligation registered below: **multi-operator node readiness; node
 independence; shared-market cross-node behavior; bootstrap/discovery;
 failover/migration; node economic attribution; single-operator
-dependency check.** Same discipline as the original 25 categories —
+dependency check.**
+
+**Updated again 2026-09-08 (Day-0 Network Property Correction) — one
+category added**, not semantically covered by the seven above:
+**market fragmentation test** — "three conformant APIs serving three
+isolated marketplaces" (this file's own Day-0 entry, Fragmentation
+property) is a specific, falsifiable failure mode distinct from the
+broader "shared-market cross-node behavior" category; named separately
+so it cannot be satisfied by conformance testing alone. Same discipline
+as the original 25 categories —
 named, not checklisted; evidence required, no automated score.
 
 **Core requirement:** passing this Gate must require **evidence, not
@@ -972,10 +981,42 @@ Sails Node C — liquidity/service provider
 shared Sails economic network
 ```
 
-An integrator should eventually be able to (A) use an existing Sails
-Node, or (B) operate its own Sails Node, without becoming economically
-isolated merely because of that choice. No federation/P2P mechanism is
-selected here.
+**Corrected 2026-09-08 (Day-0 Network Property Correction) — the
+original wording below read as a future aspiration; it is a Day-0
+launch requirement, restated explicitly:**
+
+> At launch, an integrator must be able either to use an existing
+> conformant Sails Node or operate an independent conformant Sails
+> Node without becoming economically isolated merely because of that
+> node choice.
+
+**This is a launch requirement, not a Months 10-12 aspiration** —
+restated here verbatim from this entry's own opening classification,
+because the property immediately above it is the one place that
+distinction most needs to be unambiguous. No federation/P2P mechanism
+is selected here — property first, mechanism second (§10).
+
+### Shared Market Universe (strengthened 2026-09-08)
+
+> **Node choice must not partition the economic market.**
+
+> All conformant Sails Nodes must be able to participate in the same
+> protocol-level liquidity universe. Node choice alone must not isolate
+> offers, counterparties, or market access.
+
+**Consistency qualifier — not promising impossible strong
+consistency:**
+
+> Shared liquidity does not require byte-for-byte instantaneous global
+> state. Different nodes may observe bounded propagation delay,
+> explicit provider/user filters, availability differences, or policy
+> constraints. Those differences must not arise merely because
+> operators run independent Sails Nodes.
+
+Distinctions preserved, verbatim:
+
+- **Shared Market Universe ≠ Instantaneous Identical View.**
+- **Eventual propagation ≠ Economic fragmentation.**
 
 ### Properties requiring evidence before any production claim
 
@@ -990,7 +1031,7 @@ single-node semantic authority; no single-node settlement authority; no
 mandatory Satsails-operated infrastructure; economic attribution for
 node participation.
 
-### Node economics — direction registered, nothing frozen
+### Node economics — Day-0-capable, nothing frozen (corrected 2026-09-08)
 
 The repository already contains the real, shipped chain this direction
 builds on: `FeeCollectionEvidence` (kind: `CONFIRMED`) →
@@ -998,45 +1039,86 @@ builds on: `FeeCollectionEvidence` (kind: `CONFIRMED`) →
 `EntitlementLedgerEntry` (verified directly, `prisma/schema.prisma`).
 It also already contains real prior art on node-operator incentives:
 `docs/PROTOCOL_ECONOMY.md` §4.2 ("Node Operators — Bootstrap nodes,
-Reputation nodes, future relay nodes") already names a phased plan
-(voluntary bootstrap nodes today; a fee-funded "Node Operator Pool" for
-reputation nodes at Months 7-9; relay/routing-node payment at Months
-10-12). **This entry does not override or accelerate §4.2's own
-payout timeline** — that phasing is untouched. What this entry adds is
-the narrower, Day-0-relevant architectural direction:
+Reputation nodes, future relay nodes") names a phased *rollout*
+narrative (voluntary bootstrap nodes today; a fee-funded "Node Operator
+Pool" for reputation nodes at Months 7-9; relay/routing-node payment at
+Months 10-12) — that rollout narrative is preserved, but §4.2 itself
+now carries a dated current-truth correction (2026-09-08): **node
+economic *capability* is a Day-0 property, per the CTO/Product Owner
+decision this entry registers**, not something architecturally gated
+until Months 7-9.
 
-> Sails Node operators may receive economic entitlement from confirmed
-> outcomes they help coordinate, subject to the frozen
-> `DistributionPolicyVersion` applicable to that outcome.
+> Node economic participation must be Day-0-capable. Exact
+> percentages, attribution formula, and incentive weights remain
+> policy-versioned and must earn separate evidence.
+
+> A node does not earn fees merely by existing or registering. Economic
+> entitlement must follow confirmed contribution to an economic outcome
+> under the applicable frozen `DistributionPolicyVersion`.
 
 **Not frozen by this entry:** any percentage; a 50% node share; an
 exact attribution formula; a proof-of-relay/proof-of-coordination
-mechanism; fee-routing implementation. **Mostro's 50% (if ever cited in
-comparison material) is reference evidence only, not Sails policy** —
-no percentage is adopted here.
+mechanism; fee-routing implementation. **Mostro's 50% is reference
+evidence only, not Sails policy — not adopted.**
 
-### Fragmentation property (explicit architectural failure case)
+### Fragmentation property (explicit architectural failure case, strengthened 2026-09-08)
 
 Registered as a failure case to design against, not solved here:
 
 ```
-Node A marketplace
-Node B marketplace
-Node C marketplace
+Node A → isolated liquidity A
+Node B → isolated liquidity B
+Node C → isolated liquidity C
 ```
 
-with isolated liquidity is **not sufficient** to satisfy the Sails
-network-effect objective — this is functionally the same isolated-
-island outcome `docs/PARTNER_BETA_INTEGRATION_REALITY.md` §4 already
-found for the current (single-operator) reality, generalized to the
-N-operator case.
+**= FAIL, even if all three implement the identical, fully conformant
+API.** Conformance to the same interface is not the property being
+tested — economic reachability across nodes is. This is functionally
+the same isolated-island outcome `docs/PARTNER_BETA_INTEGRATION_REALITY.md`
+§4 already found for the current (single-operator) reality, generalized
+to the N-operator case.
 
 > Independent node operation should not inherently fragment shared
 > economic discovery into isolated marketplaces.
 
+> Three conformant APIs serving three isolated marketplaces do not
+> constitute one Sails economic network.
+
 If closing this requires an additional mechanism beyond what any single
 node already does, that mechanism is itself a discovery target for a
 future mission — not designed or selected here.
+
+### Anti-fragmentation incentive (economic/architectural principle, added 2026-09-08)
+
+> A Sails Node should compete on service quality, not by capturing
+> users into isolated liquidity.
+
+Possible competition dimensions, named only as rationale for why this
+principle is plausible, **not scored, weighted, or ranked here**:
+uptime, latency, fee, privacy, operational quality, support,
+routing/service quality. **No scoring mechanism is authorized or
+implied by naming these** — this is a design-north-star statement, not
+a specification. No node marketplace is created by this entry.
+
+### Node authority (reaffirmed 2026-09-08)
+
+Preserved, verbatim, and extended with one further distinction the
+node-economics direction above makes newly relevant:
+
+> Operating a Sails Node does not grant authority over protocol
+> semantics, participant funds, settlement truth, or participant
+> identity.
+
+> Liquidity propagation authority ≠ Settlement authority ≠ Protocol
+> authority.
+
+A node that helps discovery/coordination reach more counterparties
+(liquidity propagation) gains no claim over what a trade's outcome
+*means* (settlement authority) or over the protocol's own rules
+(protocol authority) merely by having propagated it — these remain
+three separate authorities today, and this entry does not blur them
+even while registering that a node may earn economic entitlement for
+the first one.
 
 ### Existing architecture overlap — checked before registering, not assumed new
 
