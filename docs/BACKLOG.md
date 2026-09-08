@@ -786,3 +786,134 @@ were materially under-represented (no prior Master Backlog entry
 existed for either); Issue #75's own reconciliation requirement is now
 satisfied. No new Norte macrofront. Norte remains 38.
 
+---
+
+## Partner Beta / Integration Reality (2026-09-08)
+
+**Source:** `docs/PARTNER_BETA_INTEGRATION_REALITY.md`, a discovery
+mission investigating whether a stranger developer/partner could
+actually integrate the Sails P2P Trading SDK using only public
+material. Four distinct deltas registered below, grouped from 18
+individual findings per the mission's own rule against creating one
+issue per finding.
+
+### 1. Shared economic network topology (most severe finding)
+
+**Property:** `docs/PROJECT_CONTEXT.md` states "a wallet that
+integrates Sails becomes a participant in one shared, interoperable
+network, not the operator of its own isolated instance." **Confirmed,
+directly, that the current documented integration path does the
+opposite** — every example (`README.md`, `docs/GETTING_STARTED.md`,
+`docs/SDK_GUIDE.md`) points `SailsClient` at a self-hosted
+`docker compose up` instance with its own empty Postgres database.
+`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §4 confirmed no publicly
+reachable, Sails-operated endpoint is documented anywhere, and that
+existing "cross-instance" mechanisms
+(`sails:cross-instance-events`, `docs/DATABASE.md`) are horizontal
+scaling for *one* operator's own deployment, not federation between
+independently-operated nodes. A partner following the documented path
+today gets an isolated economic island: no shared offers, identity, or
+reputation with Satsails' own users or any other operator.
+
+**Not the same as** Issue #75 (multi-implementation/platform/interface
+horizon) or Issue #86 (wallet-kit distribution) — both are adjacent,
+neither addresses cross-operator network topology. Genuinely distinct,
+kept distinct.
+
+**Classification: NEW BACKLOG DELTA — the most consequential precondition
+for any real Partner Beta.** No architecture chosen here (Discovery
+only, per that document's own scope) — a future, separately CTO-gated
+mission must design how a second real operator joins the same economic
+network as Satsails, or the "shared network" positioning claim needs an
+explicit, honest revision if that is not the near-term plan. Cross-links
+Production Readiness Consolidated Gate's "deployment assumptions" and
+"independent integration evidence" categories (already registered
+above) — not duplicating either.
+
+### 2. Professional liquidity provider primitives
+
+**Gap, confirmed directly against `prisma/schema.prisma`'s `Offer`
+model and `trade.service.ts`'s `createTrade()`:** no quote-expiry field
+on `Offer`; no inventory/partial-fill tracking beyond per-trade
+`minAmount`/`maxAmount`; no pre-commit review/accept gate for offer
+owners (`createTrade()` always transitions straight to `ACTIVE`, no
+manual-acceptance option exists); no outbound webhook delivery
+mechanism (only a WebSocket channel, which assumes a persistent client
+connection — a poor fit for a backend/OTC-desk integrator).
+`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §6 confirmed the trade
+*settlement* lifecycle itself already works for a professional
+provider (same primitives a wallet's own users get) — the gap is
+narrowly in the market-making layer (quote/inventory/review/push),
+not evidence of needing a second, provider-specific marketplace.
+
+**Classification: NEW BACKLOG DELTA.** Cross-links Production
+Readiness Consolidated Gate's "provider production eligibility"
+category (registered above) with new, narrower detail — not a
+duplicate category. No new Core primitive proposed; reads as `Offer`/
+`Trade` extensions plus a genuinely new webhook-delivery mechanism.
+
+### 3. Live capability/rail discovery
+
+**Gap:** `GET /v1/settlement/escrow/:id`'s `data.custodyModel`
+(confirmed real and working, 2026-08-24) only discloses custody
+topology *after* an escrow already exists with a chosen `type` — there
+is no live, runtime API a partner's own code can query *before*
+choosing a settlement type to ask "what does this specific deployment
+currently support, at what maturity?" Today that information exists
+only as static documentation (`README.md`'s coverage matrix,
+`docs/GETTING_STARTED.md`'s provider table), which describes this
+repository's own capabilities, not necessarily a given partner-operated
+deployment's actual configuration.
+
+**Classification: NEW BACKLOG DELTA**, narrow. Cross-links the
+already-real `custodyModel` precedent as the pattern a future live
+discovery surface should extend, not replace. Preserves `WalletAdapter
+≠ SettlementProvider`, `wallet support ≠ network support ≠ asset
+support ≠ settlement support`, `provider implementation ≠ provider
+maturity ≠ production eligibility` throughout — no
+`supportedCapabilities()` method is proposed merely because it was
+discussed conceptually elsewhere; the finding is narrower than that.
+
+### 4. Client-side session recovery + non-wallet integration example
+
+**Two small, bounded gaps grouped together:** (a) no automatic
+client-side session-expiry recovery exists anywhere in
+`packages/sails-sdk` — a developer must manually catch `401` and
+re-call `identity.authenticate()`, per `docs/GETTING_STARTED.md`'s own
+error table; (b) `WalletAdapter` is confirmed genuinely optional
+(`client.ts`'s `wallet?: WalletAdapter`, `requireWallet()` only gates
+wallet-specific methods) — a real, already-existing, good property —
+but no example anywhere in this repository demonstrates a non-wallet
+(service/backend) integration end-to-end, so a stranger reading only
+the examples would reasonably (if incorrectly) conclude a wallet is
+required.
+
+**Classification: NEW BACKLOG DELTA**, small. Cross-links Issue #75
+(DX/interfaces horizon) for the missing-example half; the session-
+recovery half has no existing representation and is registered fresh.
+
+### Explicitly not registered as new deltas
+
+Findings that confirmed already-closed work or positive properties
+needing no new entry: liquidity discovery's real pagination/filtering
+mechanism (already implemented, only the `examples/simple-wallet`
+README and its own hardcoded low-price workaround are stale —
+a documentation-maintenance item, not a Backlog delta); the fund-moving
+restart/resume safety property (already substantially closed by this
+session's own #56/#58/#59 remediation chain, confirmed not
+re-litigated); `WalletAdapter` optionality and `custodyModel`
+disclosure themselves (both already real, cited above as precedents,
+not gaps); `IntentFacade.negotiate()`'s intentional, correctly-disclosed
+non-implementation (`docs/BACKLOG.md`'s existing SDK Core entry already
+covers this). The stranger-integration-test and independent-partner-
+evidence findings map directly to the Production Readiness Consolidated
+Gate's own "independent integration evidence" category (registered
+above) — `docs/PARTNER_BETA_INTEGRATION_REALITY.md` itself is the
+evidence trail for that category, not a reason for a fifth delta.
+
+Classification: **BACKLOG DELTA DETECTED AND SYNCED** — four new
+deltas, none duplicating an existing entry, none escalated into a new
+Issue (per the mission's own rule that a Backlog entry is sufficient
+while no execution mission is authorized). No new Norte macrofront.
+Norte remains 38.
+
