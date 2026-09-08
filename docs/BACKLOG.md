@@ -530,3 +530,40 @@ was not explicitly represented before this entry (only its Pears-scoped
 special case was, and only Nostr/Pubky/PKARR's bare names, and Iroh not
 at all).
 
+---
+
+## `docs/CRYPTOGRAPHIC_MODEL.md` §1 documentation drift (found 2026-09-08, Identity Architecture Discovery)
+
+**Type:** current-truth documentation drift, found in passing while
+verifying Sails' current identity model against real code for
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §2 — not the target of that
+investigation, and genuinely distinct from the Identity Root &
+Multi-Protocol Identity UX obligation immediately above.
+
+`docs/CRYPTOGRAPHIC_MODEL.md` §1 (2026-07-19) still claims Sails'
+economic identity keypair and the Pears/HyperDHT transport keypair are
+"one primitive, not two." Confirmed false today: `pear.service.ts`'s
+2026-08-09 key-custody fix changed `PearNode.start()` to take no
+caller-supplied key at all (`async start(): Promise<string>`, verified
+directly, `src/infrastructure/p2p/pear.service.ts:119-123`) — it calls
+`HyperDHT.keyPair()` with no seed, generating a fresh, unpersisted
+keypair every session, cryptographically unrelated to
+`User.publicKey`. This exact correction already landed in
+`docs/TRUST_BOUNDARY.md` Boundary 1b and this file's own 2026-09-06
+entry — it was simply never propagated back to
+`docs/CRYPTOGRAPHIC_MODEL.md` itself, the document that originated the
+now-false claim.
+
+Not corrected here (out of scope for a discovery-only mission — no
+document besides `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` was
+authorized for edits). Recommended fix: a dated "Corrigido/Atualizado"
+note in `docs/CRYPTOGRAPHIC_MODEL.md` §1, preserving the original text,
+pointing to `docs/TRUST_BOUNDARY.md` Boundary 1b as the already-correct
+source — same dated-correction convention used throughout this
+repository. Full evidence: `docs/TECHNICAL_DEBT_AUDIT.md` item 60,
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §2.
+
+Classification: **BACKLOG DELTA DETECTED AND SYNCED** — genuinely
+distinct from the Identity Root & Multi-Protocol Identity UX entry
+above; not a duplicate.
+
