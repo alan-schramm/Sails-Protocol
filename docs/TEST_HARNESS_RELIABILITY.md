@@ -8,9 +8,12 @@ suites, 7 open questions — unrelated to and not addressed by this
 document). The finding below is registered as **new item #59**; `#57`
 itself is untouched and remains open.
 
-**Property investigated:** the full test suite should fail because the
-code is wrong, not because unrelated local worktrees or test-discovery
-artifacts collide.
+**Property investigated:** the unit-test discovery/execution harness
+must not fail or duplicate suites because tooling-generated
+`.claude/worktrees/` are scanned as product source. (Narrower than "the
+full test suite" — the separate, pre-existing integration-test phase and
+its own Postgres-availability policy are untouched by and out of scope
+for this property; see §8.)
 
 **Status: ROOT CAUSE DEMONSTRATED, MINIMUM FIX IMPLEMENTED AND VERIFIED.**
 This closes the long-standing, repeatedly-disclosed "`.claude/worktrees/`
@@ -315,8 +318,11 @@ reliance, no framework change, no test skipped, no real coverage lost
 (§5's exact accounting).
 
 **Claude recommendation: CLOSE #59.** The property this mission was
-scoped to investigate — "the full test suite should fail because the
-code is wrong, not because of unrelated local artifacts" — now holds:
+scoped to investigate — "the unit-test discovery/execution harness must
+not fail or duplicate suites because tooling-generated
+`.claude/worktrees/` are scanned as product source" — now holds:
 `npm run test:unit` passes 100% locally, matching CI's own long-standing
 result exactly, for the first time this session without any ad-hoc CLI
-workaround.
+workaround. This says nothing about the separate integration-test
+phase, which remains gated by its own, unrelated Postgres-availability
+policy (§8).
