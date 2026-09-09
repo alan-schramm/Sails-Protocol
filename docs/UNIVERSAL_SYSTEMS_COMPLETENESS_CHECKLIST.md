@@ -1010,6 +1010,398 @@ A future dedicated **Sails Arbitration Adversarial Sweep** must confront these q
 
 ---
 
+
+## 3.23 Day-0 Non-Negotiables / Bitcoin-Like Conservative Core
+
+This section captures properties that should be confronted before Sails
+earns the right to call itself a serious open financial coordination protocol.
+
+The analogy to Bitcoin is about engineering posture, not copying Bitcoin's
+consensus mechanism, proof-of-work, UTXO model or network topology.
+
+Bitcoin's history shows that catastrophic classes include consensus divergence,
+inflation/double-spend bugs, remotely-triggerable denial of service, memory/
+CPU exhaustion, unsafe dependency behavior, and upgrade incompatibility.
+Sails must extract the violated property from those classes rather than copy
+their implementation-specific fixes.
+
+### 1. Semantic core minimization
+
+> **The smaller the protocol-authoritative semantic core, the smaller the blast radius of a bug.**
+
+Questions:
+
+- What absolutely must every conformant implementation agree on?
+- What can remain local policy?
+- What can remain provider-specific?
+- What can remain UI-only?
+- What can remain adapter-specific?
+- Does any convenience feature accidentally enter protocol truth?
+- Can a bug in an edge component redefine economic meaning?
+
+Preserve:
+
+> **Stable semantics, replaceable edges.**
+
+> **Interfaces can multiply. Semantics should not.**
+
+### 2. No implicit majority authority
+
+Sails must not accidentally create a hidden "majority of nodes = truth"
+assumption.
+
+Questions:
+
+- Does node count ever determine economic validity?
+- Does relay count affect truth?
+- Does popularity/ranking affect authority?
+- Can a Sybil majority reinterpret signed participant facts?
+- Can multiple nodes make one operator's economic claim stronger?
+
+Desired property:
+
+> **Economic truth follows explicit authority and signed evidence, not node count.**
+
+### 3. Deterministic validation / split resistance
+
+Bitcoin's history demonstrates that implementation disagreement on validation
+can split a network.
+
+Sails must ask:
+
+- Can two conformant implementations receive the same economic object and
+  disagree on validity?
+- Can language/runtime differences change canonical serialization,
+  signature verification, numeric precision, timestamp interpretation,
+  enum handling, Unicode/string normalization, or overflow behavior?
+- Can one version accept what another rejects?
+- Can database or platform limits create divergent interpretation?
+
+Desired property:
+
+> **Same authoritative facts + same protocol version → same validity result.**
+
+This does not imply identical local policy or identical market projection.
+
+### 4. Upgrade and downgrade safety
+
+Questions:
+
+- Can a protocol upgrade reinterpret already-signed historical facts?
+- Can old nodes and new nodes safely coexist?
+- When must incompatible versions refuse interaction?
+- Can an attacker downgrade negotiation to weaker semantics?
+- Can a rollout create two economic universes?
+- Is there a rollback path that does not corrupt open economic state?
+
+Preserve:
+
+> **Upgrade safety ≠ backward compatibility at any cost.**
+
+> **Failing closed is preferable to silently disagreeing on economic meaning.**
+
+### 5. Economic invariant protection
+
+For every value-moving or commitment-making flow ask:
+
+- Can value be created, duplicated, counted twice, released twice, or
+  economically committed twice?
+- Can fees be applied twice?
+- Can one accepted Offer produce conflicting mutually-exclusive commitments?
+- Can replay create another valid economic action?
+- Can a bug turn advisory metadata into economic authority?
+- Can accounting create entitlement without verifiable contribution?
+
+Desired property:
+
+> **No implementation defect may manufacture economic authority or economic value.**
+
+### 6. State-machine totality
+
+Questions:
+
+- Is every externally reachable state transition either valid or explicitly rejected?
+- What happens for every invalid transition?
+- Can an object become permanently stuck in an impossible intermediate state?
+- Can a crash occur between two side effects and leave ambiguous truth?
+- Can an unknown outcome be retried into double execution?
+- Can cancellation race completion?
+- Can dispute race settlement?
+
+Desired property:
+
+> **Every economically meaningful state transition must have explicit authority, preconditions and recovery semantics.**
+
+### 7. Fail-closed ambiguity
+
+Where economic meaning is ambiguous:
+
+- unknown provider outcome;
+- incompatible version;
+- equivocation;
+- corrupted evidence;
+- unknown identity binding;
+- conflicting policy;
+- incomplete payment commitment;
+- conflicting ruling;
+
+the system should not invent certainty.
+
+Preserve:
+
+> **Unknown ≠ Failed.**
+
+> **Ambiguous ≠ Authorized.**
+
+> **Unable to prove safe continuation → do not silently continue.**
+
+### 8. Cryptographic domain separation
+
+Questions:
+
+- Is every signature bound to its purpose/domain?
+- Can a signature valid for one object be replayed as another object type?
+- Are protocol/version/context identifiers bound where required?
+- Are identity keys reused across transport/economic/recovery roles?
+- Can cross-protocol signature confusion occur?
+- Is canonical encoding unambiguous?
+
+Desired property:
+
+> **A valid signature proves only the exact statement and authority domain it was created for.**
+
+### 9. Key lifecycle is part of the protocol threat model
+
+Questions:
+
+- How are keys created?
+- Where are secrets held?
+- What happens if generation is weak?
+- What happens if keys are lost?
+- What happens if keys are compromised?
+- What happens when keys rotate?
+- How are superseded keys distrusted?
+- What signed history remains valid after rotation?
+- Can recovery create identity-linkage or privilege escalation?
+
+Important lesson from wallet incidents:
+
+> **An update can fix future key generation without repairing already-compromised key material.**
+
+Therefore remediation semantics must distinguish:
+software fixed
+≠
+existing secret safe.
+
+### 10. Dependency compromise containment
+
+Questions:
+
+- If Pears, WDK, QVAC, a settlement provider, DB driver, crypto library,
+  HTTP framework, package manager dependency, CI runner or build chain is
+  compromised, what authority can it gain?
+- Can one compromised edge dependency forge protocol authority?
+- Are dangerous capabilities isolated?
+- Can dependencies be upgraded/replaced without semantic redesign?
+- Are transitive dependencies part of threat review?
+
+Desired property:
+
+> **Dependency compromise should be contained to the minimum authority that dependency actually needs.**
+
+### 11. Build / release / supply-chain integrity
+
+Questions:
+
+- Who can publish SDK/package releases?
+- Can CI secrets be used to impersonate maintainers?
+- Are release artifacts reproducible or independently verifiable where justified?
+- Can a compromised dependency enter unnoticed?
+- Are lockfiles/pinned versions/verification procedures appropriate?
+- Are emergency releases distinguishable from normal releases?
+- Can users/operators verify what they are running?
+
+### 12. Resource asymmetry
+
+A tiny attacker input must not trigger unbounded defender work.
+
+Attack surfaces include:
+
+- signature verification;
+- parsing;
+- decompression;
+- database lookups;
+- gossip fan-out;
+- tombstone/history growth;
+- evidence upload;
+- dispute evidence;
+- connection setup;
+- retries;
+- AI/agent invocation if ever exposed.
+
+Desired property:
+
+> **Attacker cost and defender cost must not have catastrophic asymmetry.**
+
+### 13. Local policy must not become global truth
+
+Nodes may differ in:
+
+- score calculation;
+- fees;
+- presentation;
+- preferred providers;
+- local risk tolerance;
+- local caching;
+- routing preference.
+
+But local policy must not redefine signed economic facts.
+
+Preserve:
+
+> **Local policy ≠ Protocol truth.**
+
+### 14. Recovery without authority escalation
+
+Questions:
+
+- Can a new device recover identity without learning unrelated protocol keys?
+- Can node failover recover open trades without changing historical authority?
+- Can backups restore stale/cancelled state?
+- Can recovery credentials authorize more than recovery?
+- Can operator recovery become participant custody?
+
+### 15. Incident response is part of production architecture
+
+Before production Sails must define:
+
+- private vulnerability reporting path;
+- severity classification;
+- emergency triage;
+- coordinated disclosure;
+- patch/release process;
+- key/credential rotation guidance;
+- operator notification;
+- partner notification;
+- evidence preservation;
+- postmortem;
+- regression tests;
+- institutional-memory update.
+
+Preserve:
+
+> **Fixing the code is not the end of an incident.**
+
+### 16. Security regression permanence
+
+Every confirmed vulnerability class must become a durable adversarial regression
+or durable evidence obligation where executable regression is impossible.
+
+Desired flow:
+
+```
+incident / vulnerability
+→ root violated property
+→ fix
+→ adversarial regression
+→ institutional memory
+→ future release gate
+```
+
+### 17. Cross-role collusion
+
+Do not test roles only independently.
+
+Attack combinations include:
+
+- participant + node;
+- node + arbiter;
+- node + settlement provider;
+- liquidity provider + arbiter;
+- integrator + participant;
+- two nodes under one hidden operator;
+- multiple Sybil participants under one operator;
+- compromised provider + malicious counterparty.
+
+Question:
+
+> **What authority appears only when two individually-limited roles collude?**
+
+### 18. Graceful degradation
+
+Questions:
+
+- What still works when a provider is unavailable?
+- What becomes read-only?
+- What must halt?
+- What can safely retry?
+- What must reconcile later?
+- Can degraded mode accidentally weaken validation or privacy?
+- Is degraded state visible to user/operator/integrator?
+
+### 19. Safe defaults
+
+Questions:
+
+- Does the default deployment expose dangerous ports?
+- Are insecure optional modes clearly non-default?
+- Are production-ineligible providers disabled by default?
+- Are debug endpoints disabled?
+- Are secrets required explicitly?
+- Does missing configuration fail safely rather than silently falling back?
+
+### 20. No irreversible trust shortcut
+
+Temporary beta conveniences must not become permanent protocol dependencies.
+
+Questions:
+
+- Is any Satsails-operated server becoming de facto mandatory?
+- Is any private allowlist becoming membership authority?
+- Is any temporary centralized database becoming protocol truth?
+- Is any "only for beta" key becoming permanent root authority?
+- Can every temporary trust assumption be removed without changing economic semantics?
+
+Preserve:
+
+> **Temporary infrastructure must not become permanent protocol authority by inertia.**
+
+---
+
+### Day-0 security posture
+
+The desired posture is:
+
+```
+small authoritative core
++ explicit authority
++ deterministic validation
++ bounded resources
++ fail-closed ambiguity
++ replaceable dependencies
++ adversarial evidence
++ safe upgrades
++ permanent red team
+```
+
+No claim is made that Sails already satisfies all properties above.
+
+This section is a **Day-0 completeness question framework**, not automatic backlog.
+A dedicated confrontation pass must classify each item as:
+
+- already proven;
+- already represented but unproven;
+- current implementation defect;
+- Day-0 blocker;
+- Partner Beta blocker;
+- Production Readiness requirement;
+- future hardening;
+- not applicable.
+
+**BACKLOG DELTA: NOT YET DETERMINED by this checklist entry.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
