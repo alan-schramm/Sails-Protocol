@@ -614,3 +614,85 @@ This pass closes a class of blind spots that sit *after* discovery but
 obligation.** These properties were not explicit enough in ADR-001's
 original happy-path sequence and are required before first real-value
 multi-operator testing.
+
+
+## 13. Loop 4 — current privacy-surface audit (2026-09-09)
+
+A fourth pass stopped reasoning about future architecture and inspected
+the **current public HTTP surface** that a partner would actually use.
+
+A concrete implementation defect was found.
+
+### 13.1 Public single-Offer read returns the raw persisted Offer
+
+Current truth:
+
+- `GET /v1/liquidity/offers/:id` has no authentication requirement;
+- its handler calls `liquidityRouter.getOffer(id)`;
+- `getOffer()` returns the raw Prisma `Offer` row plus a broad
+  `User` projection;
+- the raw Offer includes `paymentDetails`;
+- the included User currently contains `id`, `publicKey`,
+  `displayName`, `peerId`, `reputationScore`, `totalTrades`,
+  `disputeCount`, `totalVolumeBtc`, `verified`, and `createdAt`.
+
+This is materially different from the aggregate discovery surface,
+whose `LiquidityOffer` deliberately excludes `paymentDetails`.
+
+The repository's own security/privacy discipline has already fixed the
+same class of bug on other public endpoints by introducing purpose-built
+public projections (`PublicPaymentAccountView`,
+`PublicPayoutAddressView`, public participant view). The OfferDetail
+route has not received that correction.
+
+**Classification: CURRENT IMPLEMENTATION PRIVACY DEFECT / PARTNER-BETA
+BLOCKER.**
+
+### 13.2 Required property
+
+> A public Offer lookup must reveal only the information required to
+> discover and evaluate advertised liquidity; it must not disclose raw
+> private payment instructions or unrelated participant bookkeeping merely
+> because the caller knows an Offer id.
+
+At minimum:
+
+> **Public Offer View ≠ Raw Offer Row.**
+
+> **Offer Discovery Data ≠ Payment Execution Data.**
+
+> **Payment Destination Commitment ≠ Public Payment Destination.**
+
+The current `paymentDetails` field must not be exposed unauthenticated
+as a side effect of fetching an Offer.
+
+The future route should use an explicit public projection, exactly as
+the repository already does for other privacy-sensitive public reads.
+Which participant/profile fields belong in that projection must be
+justified field-by-field rather than copied from the database model.
+
+### 13.3 Multi-node consequence
+
+This defect becomes more severe under ADR-001 if a future implementation
+naively signs/gossips the existing raw Offer row.
+
+ADR-001 correctly omitted `paymentDetails` from the signed public
+OfferEnvelope. That omission is now explicitly **required**, not
+accidental:
+
+> Raw payment instructions remain pairwise/private even while their
+> authenticated commitment can become part of the exact trade agreement.
+
+### 13.4 Required evidence
+
+Add:
+
+21. Public Offer Projection Privacy Test.
+22. Unauthenticated Payment-Details Non-Disclosure Test.
+23. Gossip Envelope Private-Field Exclusion Test.
+24. Trade-Party Payment-Instruction Availability Test — proves the two
+    actual counterparties still receive the instruction through the
+    authorized pairwise trade path after public disclosure is removed.
+
+**BACKLOG DELTA DETECTED:** this is a current code defect, not merely a
+future network-design obligation.
