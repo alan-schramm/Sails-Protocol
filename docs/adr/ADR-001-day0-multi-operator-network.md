@@ -1129,3 +1129,84 @@ These are implementation/evidence consequences of the already-accepted
 architecture, not a new topology model.
 
 **BACKLOG DELTA:** DETECTED AND SYNCED in `docs/BACKLOG.md`.
+
+
+## 27. Exact economic binding correction (2026-09-09)
+
+This correction **does not change the topology decision**. It tightens
+what the already-selected signed Offer + jointly-signed trade-open model
+must cryptographically bind.
+
+### 27.1 OfferEnvelope rail/network completeness
+
+The original §3 minimum field table listed `asset` but omitted the
+existing `Offer.network` semantic dimension. For a multi-rail protocol,
+that is too weak.
+
+Correction:
+
+> A signed OfferEnvelope must commit to the canonical network/rail
+> semantics whenever `asset` alone does not uniquely identify the
+> economic settlement domain.
+
+Preserved:
+
+> **Asset identity ≠ Network identity ≠ Settlement-provider identity.**
+
+The exact future identifier vocabulary is not selected by this
+correction. The requirement is only that two conformant implementations
+cannot verify the same Offer signature while silently interpreting the
+rail differently.
+
+### 27.2 Trade-open anchor must commit to the accepted revision/terms
+
+The original §8 shorthand described the jointly-signed trade-open
+handshake as `logicalOfferId + mutually-derived tradeId`. Read
+literally, that is insufficient: two parties could know the same logical
+offer while holding different revisions/terms.
+
+Correction:
+
+> A trade-open anchor must cryptographically commit both parties to one
+> exact economic proposal.
+
+Directly or by committing to the canonical OfferEnvelope hash, the
+joint signature must bind:
+- `logicalOfferId`;
+- exact accepted revision / OfferEnvelope hash;
+- trade amount;
+- agreed price/quote;
+- asset;
+- network/rail semantics;
+- payment-method/fiat-side semantics required for the deal;
+- mutually-derived `tradeId`;
+- replay/idempotency context sufficient to prevent one acceptance from
+  producing multiple logical trades.
+
+Preserved:
+
+> **Offer Discovery ≠ Trade Acceptance.**
+
+> **Offer Identity ≠ Accepted Offer Revision.**
+
+> **Trade ID ≠ Economic Terms.**
+
+No global Trade replication or central lock service is introduced.
+
+### 27.3 Concurrent acceptance
+
+§13/§21(h)'s local inventory-reservation obligation must be evidenced in
+the cross-node case as well: two buyers racing a single-fill or
+capacity-limited Offer through different nodes/devices must not commit
+the seller beyond the owner's signed availability.
+
+The future evidence set must include:
+- competing trade opens against one Offer;
+- stale-revision acceptance attempt;
+- duplicate/replayed trade-open handshake;
+- owner-node migration/reconnect during the race.
+
+The owner remains the authority over acceptance. This correction does
+not select a global lock mechanism.
+
+**BACKLOG DELTA:** DETECTED AND SYNCED.
