@@ -281,7 +281,105 @@ describe('OfferEnvelope — persistence round-trip against real Postgres (Proper
 
     const aliceLatest = await repo.getLatest(alice.publicKeyHex, logicalOfferId)
     const malloryLatest = await repo.getLatest(mallory.publicKeyHex, logicalOfferId)
-    expect(aliceLatest?.ownerPublicKey).toBe(alice.publicKeyHex)
-    expect(malloryLatest?.ownerPublicKey).toBe(mallory.publicKeyHex)
+    expect(aliceLatest.status).toBe('RESOLVED')
+    expect(malloryLatest.status).toBe('RESOLVED')
+    expect((aliceLatest as { row: { ownerPublicKey: string } }).row.ownerPublicKey).toBe(alice.publicKeyHex)
+    expect((malloryLatest as { row: { ownerPublicKey: string } }).row.ownerPublicKey).toBe(mallory.publicKeyHex)
+  })
+
+  it('Property J (real DB): two genuinely different signed envelopes from the same owner at the identical revision both persist without a unique-constraint violation, and getLatest() reports EQUIVOCATED against real Postgres', async () => {
+    requirePostgres('Property J composite uniqueness (incl. signature) against real Postgres')
+    const alice = makeKeypair()
+    const logicalOfferId = `${TEST_LOGICAL_ID_PREFIX}${Date.now()}-equivocation`
+
+    const e1Content: OfferEnvelopeContent = {
+      logicalOfferId,
+      ownerPublicKey: alice.publicKeyHex,
+      asset: 'BTC',
+      side: 'SELL',
+      priceUsd: '65000.00000000',
+      minAmount: '0.00100000',
+      maxAmount: '0.50000000',
+      paymentMethod: 'PIX',
+      revision: 0,
+      createdAt: '2026-09-09T00:00:00.000Z',
+      revisedAt: '2026-09-09T00:00:00.000Z',
+      expiresAt: '2026-09-10T00:00:00.000Z',
+      status: 'ACTIVE',
+    }
+    // Same identity, same revision, deliberately different price —
+    // owner equivocation. `signature` necessarily differs (Ed25519
+    // signing is deterministic; different content always produces a
+    // different signature), which is exactly what the corrected
+    // 4-column unique constraint (prisma/schema.prisma) allows to
+    // coexist — the old 3-column constraint would have rejected this
+    // node from ever storing E2 at all.
+    const e2Content: OfferEnvelopeContent = { ...e1Content, priceUsd: '70000.00000000' }
+    const e1 = { ...e1Content, signature: signOfferEnvelope(e1Content, alice.secretKeyHex) }
+    const e2 = { ...e2Content, signature: signOfferEnvelope(e2Content, alice.secretKeyHex) }
+
+    const r1 = await repo.ingest(e1)
+    const r2 = await repo.ingest(e2)
+    expect(r1.accepted).toBe(true)
+    expect(r2).toEqual(expect.objectContaining({ accepted: true, equivocationDetected: true }))
+
+    const latest = await repo.getLatest(alice.publicKeyHex, logicalOfferId)
+    expect(latest.status).toBe('EQUIVOCATED')
+    const prices = new Set((latest as { rows: { priceUsd: { toString(): string } }[] }).rows.map((row) => row.priceUsd.toString()))
+    expect(prices).toEqual(new Set(['65000', '70000']))
+  })
+
+  it('CONVERGENCE TEST (real DB): two arrival orders of the identical equivocating facts, plus a resolving higher revision, converge to the identical final state against real Postgres', async () => {
+    requirePostgres('Property J/L convergence against real Postgres')
+    const alice = makeKeypair()
+
+    function makeContent(logicalOfferId: string, revision: number, priceUsd: string): OfferEnvelopeContent {
+      return {
+        logicalOfferId,
+        ownerPublicKey: alice.publicKeyHex,
+        asset: 'BTC',
+        side: 'SELL',
+        priceUsd,
+        minAmount: '0.00100000',
+        maxAmount: '0.50000000',
+        paymentMethod: 'PIX',
+        revision,
+        createdAt: '2026-09-09T00:00:00.000Z',
+        revisedAt: '2026-09-09T00:00:00.000Z',
+        expiresAt: '2026-09-10T00:00:00.000Z',
+        status: 'ACTIVE',
+      }
+    }
+
+    // History A: E1, E2, rev6 (a different logicalOfferId than History B, so the two histories don't interfere with each other in the shared real database).
+    const idA = `${TEST_LOGICAL_ID_PREFIX}${Date.now()}-converge-a`
+    const e1A = { ...makeContent(idA, 5, '65000.00000000') }
+    const e2A = { ...makeContent(idA, 5, '70000.00000000') }
+    const rev6A = { ...makeContent(idA, 6, '68000.00000000') }
+    const signedE1A = { ...e1A, signature: signOfferEnvelope(e1A, alice.secretKeyHex) }
+    const signedE2A = { ...e2A, signature: signOfferEnvelope(e2A, alice.secretKeyHex) }
+    const signedRev6A = { ...rev6A, signature: signOfferEnvelope(rev6A, alice.secretKeyHex) }
+    await repo.ingest(signedE1A)
+    await repo.ingest(signedE2A)
+    await repo.ingest(signedRev6A)
+    const finalA = await repo.getLatest(alice.publicKeyHex, idA)
+
+    // History B: the SAME facts (same logicalOfferId content this time, different id so it's an independent real row-set), opposite arrival order for the equivocating pair.
+    const idB = `${TEST_LOGICAL_ID_PREFIX}${Date.now()}-converge-b`
+    const e1B = { ...makeContent(idB, 5, '65000.00000000') }
+    const e2B = { ...makeContent(idB, 5, '70000.00000000') }
+    const rev6B = { ...makeContent(idB, 6, '68000.00000000') }
+    const signedE1B = { ...e1B, signature: signOfferEnvelope(e1B, alice.secretKeyHex) }
+    const signedE2B = { ...e2B, signature: signOfferEnvelope(e2B, alice.secretKeyHex) }
+    const signedRev6B = { ...rev6B, signature: signOfferEnvelope(rev6B, alice.secretKeyHex) }
+    await repo.ingest(signedE2B)
+    await repo.ingest(signedE1B)
+    await repo.ingest(signedRev6B)
+    const finalB = await repo.getLatest(alice.publicKeyHex, idB)
+
+    expect(finalA.status).toBe('RESOLVED')
+    expect(finalB.status).toBe('RESOLVED')
+    expect((finalA as { row: { priceUsd: { toString(): string } } }).row.priceUsd.toString()).toBe('68000')
+    expect((finalB as { row: { priceUsd: { toString(): string } } }).row.priceUsd.toString()).toBe('68000')
   })
 })

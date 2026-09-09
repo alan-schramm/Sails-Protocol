@@ -209,9 +209,13 @@ model OfferEnvelope {
   minAmount      Decimal             @db.Decimal(24, 8)
   maxAmount      Decimal             @db.Decimal(24, 8)
   paymentMethod  PaymentMethod
-  // Strictly increasing per `logicalOfferId`, chosen by the owner —
-  // both the convergence rule (highest revision wins, no central
-  // arbiter needed) and replay protection in one field (ADR-001 §3/§5).
+  // Strictly increasing per offer identity (ownerPublicKey +
+  // logicalOfferId, CTO Gate correction 2026-09-09 Property H), chosen
+  // by the owner — both the convergence rule (highest revision wins, no
+  // central arbiter needed) and replay protection in one field
+  // (ADR-001 §3/§5). See Property J below: two DIFFERENT rows may
+  // legitimately share the same (ownerPublicKey, logicalOfferId,
+  // revision) — that is owner equivocation, not a schema bug.
   revision       Int
   // Owner-supplied, advisory only — never used for cross-node ordering
   // (that's `revision`'s job, precisely because wall-clock time isn't
@@ -242,12 +246,33 @@ model OfferEnvelope {
   // `logicalOfferId` alone. `logicalOfferId` is only ever creator-local
   // — two different owners choosing the identical string are two
   // completely distinct economic objects, not competing claims over
-  // one. The uniqueness constraint below is what makes this true at
-  // the storage layer: revision uniqueness (and therefore "highest
-  // revision wins" convergence) is scoped to the owner+logicalOfferId
-  // pair, so two owners can never race over, block, or supersede each
-  // other's offer regardless of which one this node observes first.
-  @@unique([ownerPublicKey, logicalOfferId, revision])
+  // one. Revision uniqueness (and therefore "highest revision wins"
+  // convergence) is scoped to the owner+logicalOfferId pair, so two
+  // owners can never race over, block, or supersede each other's offer
+  // regardless of which one this node observes first.
+  //
+  // CTO Gate correction (2026-09-09), Property J: `signature` is part
+  // of this uniqueness key, not just the three identity/ordering
+  // fields above. This is deliberate, not an oversight — it is what
+  // makes owner EQUIVOCATION observable rather than silently
+  // discarded: if the same owner signs two genuinely different
+  // envelopes at the identical (ownerPublicKey, logicalOfferId,
+  // revision) — a real, if adversarial, possibility this schema does
+  // not prevent at the crypto layer — both are durably stored as two
+  // distinct rows (their `signature`s necessarily differ, since Ed25519
+  // signing is deterministic and different signed content always
+  // produces a different signature). A uniqueness constraint on the
+  // three identity/ordering columns ALONE would silently make "the
+  // second conflicting fact cannot be stored" into "the second
+  // conflicting fact did not exist" — exactly the failure mode this
+  // correction closes. `OfferEnvelopeRepository.getLatest()` is what
+  // detects and surfaces this state as EQUIVOCATED; this table itself
+  // makes no attempt to pick a winner.
+  // Named explicitly (`map:`) — Prisma's auto-generated name for this
+  // four-column constraint (69 chars) exceeds Postgres's 63-byte
+  // identifier limit (NAMEDATALEN) and would be silently truncated,
+  // risking a name Prisma's own migration tooling doesn't recognize.
+  @@unique([ownerPublicKey, logicalOfferId, revision, signature], map: "offer_envelopes_identity_revision_signature_key")
   @@index([logicalOfferId])
   @@index([ownerPublicKey])
   @@map("offer_envelopes")

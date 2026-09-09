@@ -30,10 +30,19 @@ CREATE TABLE "offer_envelopes" (
 -- pair (ownerPublicKey, logicalOfferId) — revision uniqueness (and
 -- convergence) is scoped to that pair, not to logicalOfferId alone, so
 -- two distinct owners can never collide over the same creator-local id.
+-- CTO Gate correction (2026-09-09), Property J: `signature` is also
+-- part of this key — two DIFFERENT signed envelopes from the SAME owner
+-- at the identical (ownerPublicKey, logicalOfferId, revision) is owner
+-- equivocation, not a duplicate; both must be durably storable as
+-- evidence, never silenced by a uniqueness constraint that only knows
+-- about the first three columns.
 -- This migration is corrected in place (not superseded by a new one)
 -- because PR #100 has not yet merged and this table has never existed
 -- in any shared environment.
-CREATE UNIQUE INDEX "offer_envelopes_ownerPublicKey_logicalOfferId_revision_key" ON "offer_envelopes"("ownerPublicKey", "logicalOfferId", "revision");
+-- Explicitly named (see prisma/schema.prisma's `map:`) — the
+-- auto-generated four-column name exceeds Postgres's 63-byte
+-- NAMEDATALEN limit and would otherwise be silently truncated.
+CREATE UNIQUE INDEX "offer_envelopes_identity_revision_signature_key" ON "offer_envelopes"("ownerPublicKey", "logicalOfferId", "revision", "signature");
 
 -- CreateIndex
 CREATE INDEX "offer_envelopes_logicalOfferId_idx" ON "offer_envelopes"("logicalOfferId");
