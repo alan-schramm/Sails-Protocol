@@ -696,3 +696,92 @@ Add:
 
 **BACKLOG DELTA DETECTED:** this is a current code defect, not merely a
 future network-design obligation.
+
+
+## 14. Loop 5 — partner-beta asset/rail reality sweep (2026-09-09)
+
+A fifth pass compared the concrete partner scenarios discussed for the
+first tests — wallet integrations plus web buy/sell services for BTC,
+USDT and potentially DePix — against the actual public type system.
+
+### 14.1 Strategic coverage ≠ current representability
+
+The README correctly lists **USDT, USDC, BTC, LBTC, L-USDT, DePix,
+Tether Gold and RGB assets** as relevant assets “in view,” explicitly
+without claiming final support.
+
+The current persisted `AssetType`, however, is narrower:
+
+- BTC
+- USDT_ERC20
+- USDT_TRC20
+- USDT_LIQUID
+- USDT_LIGHTNING
+- LN_BTC
+- LIQUID_BTC
+- SPARK
+- STACKS
+- RSK_BTC
+
+There is currently no `AssetType` for DePix, USDC or Tether Gold.
+
+This is not an architectural contradiction. It is a launch-scope fact
+that must be impossible to miss when talking to partner integrators.
+
+### 14.2 Partner Beta Asset/Rail Scope Gate
+
+**Property:**
+
+> The first partner beta must publish an explicit
+> Asset × Network/Rail × Wallet Adapter × Settlement Capability ×
+> Maturity matrix, and every advertised beta flow must be representable
+> end-to-end by the actual SDK/schema/provider combination used in that
+> beta.
+
+Preserved:
+
+> **Roadmap Asset ≠ SDK-Representable Asset ≠ Settlement-Supported Asset ≠ Beta-Enabled Asset.**
+
+If DePix is included in the first partner beta promise, its current
+absence from `AssetType` and the absence of a production-eligible
+Liquid/DePix settlement path are **beta blockers to be resolved before
+that claim**.
+
+If the first beta is intentionally BTC-only or BTC+USDT on a bounded
+rail, DePix remains a later beta-scope item rather than blocking the
+narrower test. The scope must be explicit; silence is not acceptable.
+
+The same rule applies to USDC, Tether Gold and every future asset.
+
+### 14.3 Quote-currency / market-pair discoverability
+
+The current aggregate `LiquidityOffer` public discovery shape exposes
+`priceUsd` but not a canonical quote-currency/fiat-obligation field.
+The persisted Offer has optional `priceBrl`; `TradeIntentPayload`
+has optional `currency`; the public aggregated discovery surface does
+not unify those into one explicit market-pair contract.
+
+This reinforces Loop 3's exact-fiat obligation:
+
+> A participant must not have to infer the fiat denomination from
+> geography, payment method, UI locale, or which node returned the
+> Offer.
+
+For any beta that supports more than one fiat quote currency, canonical
+quote-currency semantics are a Day-0 requirement.
+
+### 14.4 Required partner-beta evidence
+
+Add:
+
+25. Beta Asset/Rail Matrix Truth Test — advertised matrix checked against
+    runtime capability discovery and real type/provider support.
+26. Unsupported Asset Fail-Closed Test.
+27. DePix End-to-End Representability Test, **only if DePix is declared
+    in beta scope**.
+28. Multi-Fiat Quote-Currency Disambiguation Test, when more than one
+    fiat quote currency is enabled.
+
+**BACKLOG DELTA DETECTED:** the strategic coverage matrix already
+existed, but an explicit Partner Beta scope gate tying marketing/
+partner promises to actual representability did not.
