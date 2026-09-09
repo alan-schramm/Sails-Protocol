@@ -1689,3 +1689,72 @@ These are sub-obligations of the same Day-0 completeness sweep, not new
 macrofronts.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+
+### Cold Sweep Loop 3 — real-money agreement + dispute authority (2026-09-09)
+
+A third pass traced a cross-node trade through fiat payment, settlement
+selection, fee binding and dispute resolution. Four further Day-0
+properties are now explicit:
+
+15. **Exact fiat obligation + payment-destination commitment — Day-0.**
+    Before fiat payment becomes binding, both parties must be able to
+    verify the exact fiat amount, fiat currency, payment method and
+    committed payment-destination identity/reference. Raw PIX/bank
+    details must not need to become public gossip merely to be
+    verifiable. Any post-commit instruction change requires explicit
+    authenticated amendment; chat text alone cannot redefine the
+    obligation.
+
+    Preserve:
+    **Payment destination commitment ≠ Public payment destination.**
+    **Chat Instruction ≠ Economic Authority.**
+    **Payment Method ≠ Payment Destination.**
+
+16. **Settlement contract / custody semantics binding — Day-0.**
+    The trade/escrow agreement must bind the actual settlement mechanism
+    accepted by the parties: selected EscrowType/provider capability,
+    network/rail, asset, custody posture, signer/approval requirements,
+    relevant finality/confirmation policy and required refund/dispute
+    semantics. A node may not silently substitute a different settlement
+    mechanism after economic commitment.
+
+    Preserve:
+    **Interface uniformity ≠ Security uniformity.**
+
+17. **Fee/policy commitment before economic commitment — Day-0.**
+    Every participant-facing fee obligation must be disclosed and frozen
+    before commitment, including payer, economic basis and applicable
+    policy/version. Policy/node rotation after trade-open must not
+    retroactively change the agreed obligation.
+
+    Preserve:
+    **Fee discovery ≠ Fee obligation.**
+    **Verified contribution ≠ Fee entitlement.**
+
+18. **Cross-node dispute/arbitration authority — Day-0 blocker.**
+    Current dispute/arbitration selection is deployment-local. In a
+    multi-operator trade, whichever node receives `raiseDispute()` must
+    not gain authority to choose the governing arbiter/policy after the
+    fact. Arbitration authority, applicable policy and appeal semantics
+    must be established by the trade/settlement agreement and be
+    independently verifiable by both sides. Evidence/rulings must remain
+    usable if one party's node disappears.
+
+    Preserve:
+    **Dispute Hosting Node ≠ Arbitration Authority.**
+    **Arbitration Policy ≠ Node Local Configuration once a trade is committed.**
+    **Ruling Attribution ≠ Funds Authority.**
+
+New evidence cases:
+Fiat Amount/Currency Binding; Payment-Destination Substitution;
+Post-Commit Payment-Instruction Change; Settlement-Provider
+Substitution; Fee-Policy Rotation/Hidden Fee; Cross-Node Arbitration
+Policy Mismatch; Dispute Hosting-Node Failover; Appeal-Round Cross-Node
+Consistency.
+
+These are sub-obligations of the existing Day-0 Completion Gate / Issue
+#105 and must not be split into parallel marketplaces, node-local truth,
+or hidden operational conventions.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
