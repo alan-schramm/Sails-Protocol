@@ -1790,6 +1790,427 @@ Production Readiness.
 
 ---
 
+
+## 3.25 Blind-Spot Attack Vectors / Adversarial Use of Valid Features
+
+This section exists to hunt attack classes that are easy to miss because
+the attacker may use valid identities, valid messages, valid protocol states,
+valid incentives, or legitimate operational features.
+
+Core principle:
+
+> **The most dangerous attacker may be protocol-conformant.**
+
+> **Valid use ≠ benign use.**
+
+> **Protocol correctness ≠ economic safety ≠ operational safety.**
+
+The purpose is to search for blind spots outside ordinary exploit classes.
+
+### 1. Economic griefing
+
+Questions:
+
+- Can an attacker impose cost without seeking direct profit?
+- Can they lock counterparties' capital cheaply?
+- Can they force repeated disputes?
+- Can they create offers they never intend to settle?
+- Can they repeatedly start and abandon trades?
+- Can they create asymmetric operational cost for honest nodes/providers?
+- Can cancellation/retry fees be weaponized?
+- Can a wealthy attacker rationally burn money just to damage the market?
+
+Desired property:
+
+> **Attacker cost should not be tiny while honest-party cost is large or irreversible.**
+
+### 2. Liquidity poisoning / fake market depth
+
+Questions:
+
+- Can valid offers create the appearance of liquidity that is not realistically executable?
+- Can one actor publish fragmented offers across many identities/nodes to fake depth?
+- Can quote expiry be manipulated to keep stale liquidity visible?
+- Can repeated cancellations manipulate perceived market quality?
+- Can low-quality offers crowd out honest discovery?
+- Can an operator bias sorting/ranking toward affiliated liquidity?
+
+Preserve:
+
+> **Visible liquidity ≠ executable liquidity.**
+
+> **Advertised capacity ≠ committed capacity.**
+
+### 3. Reputation laundering / reputation poisoning
+
+Questions:
+
+- Can colluding identities manufacture positive history?
+- Can one identity transfer reputation to another illegitimately?
+- Can reputation evidence be selectively disclosed?
+- Can attackers generate cheap successful trades to farm reputation?
+- Can adversaries poison another participant with misleading or unverifiable claims?
+- Can node-local scoring become de facto censorship?
+- Can one operator's scoring policy create hidden market partition?
+
+Preserve:
+
+> **Reputation Evidence ≠ Reputation Score.**
+
+### 4. Identity farming / identity churn
+
+Questions:
+
+- Can an attacker discard bad history by creating a new identity cheaply?
+- Can rotation that exists for security become a reputation reset?
+- Can recovery be abused to fork identity?
+- Can multiple identities be presented as independent counterparties?
+- Can anti-abuse logic accidentally create permanent surveillance identity?
+
+Goal:
+
+> **Security rotation must not automatically erase accountability, and accountability must not require global identity surveillance.**
+
+### 5. Cross-market / cross-rail semantic arbitrage
+
+Questions:
+
+- Can the same asset symbol mean materially different risk across rails?
+- Can users be tricked by identical-looking assets on different networks?
+- Can price feeds or quote currencies mismatch across providers?
+- Can settlement finality differences be exploited between rails?
+- Can an attacker intentionally route toward the weakest custody/finality model?
+- Can a bridge/wrapper asset be mistaken for the native asset?
+
+Preserve:
+
+> **Asset identity ≠ Network identity ≠ Settlement-provider identity.**
+
+### 6. Transaction / fee manipulation
+
+Questions:
+
+- Can fee estimation be manipulated?
+- Can an attacker force expensive settlement paths?
+- Can fee spikes make already-committed trades uneconomic?
+- Can replacement/fee-bumping semantics conflict with trade state?
+- Can a provider hide or rotate fees after commitment?
+- Can dust/minimum-value edge cases become DoS vectors?
+
+### 7. Oracle / price-source attacks
+
+If any price reference, FX source, market index, or provider quote becomes economically relevant:
+
+- Can stale price data be accepted?
+- Can one provider become hidden oracle authority?
+- Can a thin market be manipulated?
+- Can local currency conversion create rounding asymmetry?
+- Can timestamp skew make stale quotes appear fresh?
+- Can two parties bind different price-source versions?
+
+Preserve:
+
+> **Price source ≠ economic authority unless explicitly committed.**
+
+### 8. Rounding / precision / denomination attacks
+
+Questions:
+
+- Are decimals canonical?
+- Can float usage create divergent economic values?
+- Can truncation benefit one side?
+- Can repeated small rounding differences be farmed?
+- Are minimum units defined per rail?
+- Can currency conversions overflow or underflow?
+- Can locale formatting alter parsed amounts?
+
+Desired property:
+
+> **Economic quantities must be represented deterministically and exactly enough for the rail.**
+
+### 9. Race-to-authority / first-seen manipulation
+
+Questions:
+
+- Does "first node to observe" ever gain authority?
+- Does arrival order affect ownership, ranking, arbitration, or entitlement?
+- Can faster infrastructure gain semantic advantage?
+- Can a malicious relay delay one fact to create temporary authority for another?
+- Can front-running exist in offer acceptance, arbitration selection, or policy binding?
+
+Preserve:
+
+> **Arrival order must not create authority unless explicitly part of the protocol.**
+
+### 10. Front-running / information leakage
+
+Questions:
+
+- Can observing an intent before commitment let another participant exploit it?
+- Can nodes see trade interest and race to alter offers?
+- Can payment-method or amount metadata reveal profitable information?
+- Can an operator trade against users based on private order flow?
+- Can a gossip layer leak economically sensitive intentions before necessary?
+
+### 11. Censorship by quality degradation
+
+An attacker may not fully block the network; they may make it unreliable enough that users leave.
+
+Questions:
+
+- Can selective delay make honest offers look stale?
+- Can targeted packet loss cause one participant to appear unreliable?
+- Can nodes selectively degrade certain assets/providers/users?
+- Can attackers increase timeout/dispute frequency without obvious censorship?
+- Can degraded service be attributed/evidenced?
+
+### 12. Strategic partition / market fragmentation
+
+Questions:
+
+- Can different operator clusters see systematically different liquidity?
+- Can regional bootstrap lists create semi-permanent markets?
+- Can policy defaults fragment the market even if protocol allows interoperability?
+- Can incompatible versions create accidental liquidity islands?
+- Can one operator make "its" market better enough that users never leave, recreating enclosure economically rather than technically?
+
+### 13. Dependency fallback attacks
+
+Questions:
+
+- Can an attacker force the preferred provider to fail so Sails falls back to a weaker one?
+- Is fallback security-equivalent?
+- Can fallback silently change custody, fees, privacy, or finality?
+- Can repeated induced failures steer users to attacker-controlled infrastructure?
+
+Preserve:
+
+> **Availability fallback ≠ security-equivalent fallback.**
+
+### 14. Recovery-path attacks
+
+Attackers often target recovery because controls are intentionally weaker.
+
+Questions:
+
+- Can recovery bypass normal authorization?
+- Can social/account recovery hijack economic identity?
+- Can old backups resurrect revoked keys?
+- Can recovery create two simultaneously-valid identities?
+- Can operator recovery expose participant secrets?
+- Can emergency recovery procedures be socially engineered?
+
+### 15. Emergency-mode abuse
+
+Questions:
+
+- Is there any emergency flag, kill switch, pause, maintenance mode, admin bypass, migration shortcut, or incident-only permission?
+- Who can activate it?
+- Can it become permanent?
+- Can it alter economic facts?
+- Can a compromised operator abuse it?
+- Does emergency operation preserve verifiable evidence?
+
+Desired property:
+
+> **Emergency authority must be narrower, not broader, than ordinary economic authority.**
+
+### 16. Governance capture / maintainer compromise
+
+Questions:
+
+- Can one maintainer merge consensus-critical semantics unilaterally?
+- Can GitHub/admin compromise redefine protocol truth?
+- Can release signing keys be abused?
+- Can maintainers be socially engineered into emergency shortcuts?
+- Can governance process be DoS'd or captured?
+- Are frozen properties protected from casual rewrite?
+
+Preserve:
+
+> **Repository write authority ≠ protocol economic authority.**
+
+### 17. Documentation / specification attacks
+
+Questions:
+
+- Can ambiguous docs cause independent implementations to diverge?
+- Can examples contradict normative semantics?
+- Can stale documentation become de facto API truth?
+- Can generated docs omit critical security caveats?
+- Can attackers exploit the difference between spec and implementation?
+
+Desired property:
+
+> **Ambiguous specification is a security defect when independent economic interpretation depends on it.**
+
+### 18. Test-suite blind spots / test gaming
+
+Questions:
+
+- Can implementation special-case known tests?
+- Are tests overfitted to fixtures?
+- Are property tests broad enough?
+- Are adversarial states reachable outside tests?
+- Does CI success hide environment-specific failure?
+- Can mocks falsely prove provider behavior?
+- Are real concurrency/network/DB conditions represented?
+
+Preserve:
+
+> **Passing known tests ≠ surviving unknown adversarial states.**
+
+### 19. Monitoring and alert manipulation
+
+Questions:
+
+- Can attackers generate alert fatigue?
+- Can logs be flooded to hide meaningful events?
+- Can metrics be manipulated?
+- Can cardinality explosions break observability?
+- Can attackers trigger false incident responses?
+- Can a compromised node falsify health status?
+
+### 20. Abuse of optionality
+
+Every optional feature can create combinatorial state space.
+
+Questions:
+
+- Can optional rails/providers/policies interact in unsafe combinations?
+- Are unsupported combinations rejected?
+- Can "optional" become implicitly required by another feature?
+- Does feature negotiation prevent invalid combinations?
+
+### 21. Dormant / rarely-used code paths
+
+Questions:
+
+- Which branches execute only during recovery, dispute, migration, upgrade, or failure?
+- Are they tested under real conditions?
+- Can old compatibility paths contain stale assumptions?
+- Are dead features still reachable?
+- Can deprecated APIs bypass newer controls?
+
+### 22. Long-horizon state attacks
+
+Questions:
+
+- What happens after months/years of accumulated offers, tombstones, evidence, identities and policy versions?
+- Can storage growth become attack leverage?
+- Can ancient signed data become unexpectedly valid again?
+- Can old keys/policies create ambiguity?
+- Does compaction preserve all required monotonic knowledge?
+
+### 23. Multi-party collusion beyond pairs
+
+Do not stop at two-role collusion.
+
+Questions:
+
+- buyer + seller + arbiter;
+- node + provider + integrator;
+- several nodes under one hidden operator;
+- liquidity cartel;
+- many Sybil participants + one honest victim;
+- maintainer + compromised dependency;
+- provider + oracle/price source.
+
+Core question:
+
+> **What attack becomes possible only when several individually-limited actors coordinate?**
+
+### 24. Legal/operational coercion as a technical attack surface
+
+Without making legal policy protocol authority, ask:
+
+- Can one operator be compelled to censor?
+- Can one provider freeze a rail?
+- Can one jurisdiction-dependent dependency become a global choke point?
+- Can private legal requests silently change node behavior?
+- Can architecture route around operator/provider disappearance without redefining truth?
+
+### 25. Human-interface deception
+
+Questions:
+
+- Can a UI display a different asset/network/provider than the signed object actually commits to?
+- Can truncation hide destination identifiers?
+- Can Unicode/lookalike strings deceive users?
+- Can "success" be shown before authoritative settlement?
+- Can users be tricked into approving a different economic statement than displayed?
+
+Preserve:
+
+> **What the user sees must correspond to what the cryptographic/economic commitment actually authorizes.**
+
+### 26. AI-agent / autonomous-tool escalation
+
+Beyond ordinary model hallucination:
+
+- Can an AI repeatedly call valid APIs until it finds an exploitable state?
+- Can it autonomously create Sybil identities?
+- Can it learn local rate limits?
+- Can prompt injection from counterparty-controlled data alter tool use?
+- Can a model be induced to sign/approve beyond intent?
+- Can agents collude or recursively delegate authority?
+- Can an AI-generated "explanation" override machine-verifiable truth in UX?
+
+### 27. Attack-surface emergence
+
+Every new capability must trigger a delta question:
+
+> **What new authority, state, data, timing dependency, resource cost, or trust edge did this feature introduce?**
+
+This must run for:
+- new asset;
+- new rail;
+- new provider;
+- new transport;
+- new identity mechanism;
+- new arbitration model;
+- new agent;
+- new API;
+- new SDK language;
+- new node economics;
+- new recovery mechanism.
+
+---
+
+### Blind-spot sweep method
+
+A dedicated future sweep should use several attacker mindsets:
+
+1. **Profit attacker** — wants money.
+2. **Griefer** — accepts financial loss to damage users/network.
+3. **Censor** — wants specific participants/assets hidden.
+4. **Cartel** — wants market control.
+5. **Insider** — has legitimate operational access.
+6. **Compromised dependency** — trusted edge behaves maliciously.
+7. **Protocol-conformant adversary** — never sends invalid messages.
+8. **AI-scale adversary** — automates search and chaining of weaknesses.
+9. **Long-horizon adversary** — exploits state accumulated over months/years.
+10. **Unknown-unknown hunter** — attacks assumptions rather than features.
+
+For every finding classify:
+
+- protocol semantic flaw;
+- implementation defect;
+- economic design flaw;
+- privacy flaw;
+- resource-abuse flaw;
+- operational flaw;
+- governance/process flaw;
+- evidence gap;
+- production-readiness gap;
+- not applicable.
+
+No mitigation is authorized merely by this checklist.
+
+**BACKLOG DELTA: NOT YET DETERMINED by this checklist entry.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
