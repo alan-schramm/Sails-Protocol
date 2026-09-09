@@ -9,12 +9,28 @@ other in-flight branch's own files.
 
 **Isolation note:** this branch was created from the exact commit PR
 #92 merged into `main` (`f7119aea8e21a9dae4b4f51360e8a90a65dec993`), as
-instructed, specifically so this discovery does not depend on or
+instructed, specifically so this discovery did not depend on or
 conflict with concurrent institutional-document work happening on
-`main` past that point. Only this one file is created; no institutional
+`main` past that point. Only this one file was created; no institutional
 document (`BACKLOG.md`, `ROADMAP.md`, `NORTE_FIXO.md`,
 `TECHNICAL_DEBT_AUDIT.md`, `CRYPTOGRAPHIC_MODEL.md`), Project, or Issue
-is touched.
+was touched by the original discovery pass. Rebased onto current `main`
+(2026-09-09) for merge, per CTO instruction — no content changed by the
+rebase itself.
+
+**Institutional standing, stated explicitly (2026-09-09, CTO
+instruction):** **this document is a historical/research/evidence
+artifact.** `ADR-001-day0-multi-operator-network.md`
+(`docs/adr/ADR-001-day0-multi-operator-network.md`) is the architecture
+decision authority for the Day-0 Multi-Operator Sails Network — where
+this document's own findings informed or were reconciled into that
+ADR, the ADR's own text governs. **Model-letter naming is local to each
+document and is not shared vocabulary** — this document's own Models
+A-E (§7) describe a different set of topology shapes than ADR-001's own
+A-E (Central Index / Federation / Signed Gossip / DHT Discovery /
+Hybrid); compare the underlying topology descriptions across documents,
+never the letter names alone, exactly as ADR-001's own disambiguation
+note (added the same day) also states.
 
 ---
 
