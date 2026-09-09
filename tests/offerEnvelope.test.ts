@@ -890,33 +890,25 @@ describe('OfferEnvelope — signature malleability / signed-fact identity (Prope
     return Buffer.concat([R, Buffer.from(malleatedS)]).toString('hex')
   }
 
-  it('CONFIRMED: a malleated signature over identical content is still accepted by the real verifier (Ed25519 signature malleability, no secret key required)', () => {
+  it('RAW tweetnacl (bypassing Sails verification): a malleated signature over identical content is still accepted by the real verifier — Ed25519 signature malleability, no secret key required, confirmed directly against the library Property O originally investigated', () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
     const content = baseContent({}, publicKeyHex)
     const original = signedEnvelope(content, secretKeyHex)
     const malleated = { ...original, signature: malleateSignature(original.signature) }
-
     expect(malleated.signature).not.toBe(original.signature)
-    expect(verifyOfferEnvelope(malleated as any)).toEqual({ valid: true })
-  })
 
-  it('a malleated resend of an already-known fact is idempotent, NOT equivocation — contentDigest (not signature) is the identity ingest() dedupes on', async () => {
-    useInMemoryOfferEnvelopeStore()
-    const repo = new OfferEnvelopeRepository()
-    const alice = makeKeypair()
-    const content = baseContent({ revision: 0 }, alice.publicKeyHex)
-    const original = signedEnvelope(content, alice.secretKeyHex)
-    const malleated = { ...original, signature: malleateSignature(original.signature) }
-
-    const r1 = await repo.ingest(original as any)
-    const r2 = await repo.ingest(malleated as any)
-
-    expect(r1.accepted).toBe(true)
-    expect(r2.accepted).toBe(true)
-    expect((r2 as any).equivocationDetected).toBeUndefined()
-
-    const latest = await repo.getLatest(alice.publicKeyHex, content.logicalOfferId)
-    expect(latest.status).toBe('RESOLVED')
+    // Bypasses Sails's own canonical-encoding gate (Property Q, below)
+    // to directly demonstrate the underlying tweetnacl behavior this
+    // investigation is based on — the exact call verifyOfferEnvelope()
+    // used to make unconditionally, before this pass added a check in
+    // front of it.
+    const digest = hashOfferEnvelope(content as any)
+    const rawAccepted = nacl.sign.detached.verify(
+      new Uint8Array(digest),
+      new Uint8Array(Buffer.from(malleated.signature, 'hex')),
+      new Uint8Array(Buffer.from(publicKeyHex, 'hex'))
+    )
+    expect(rawAccepted).toBe(true)
   })
 
   it('contentDigest is computed over content only, independent of signature — two envelopes with the identical content but different (malleated) signatures produce the identical contentDigest', () => {
@@ -926,6 +918,144 @@ describe('OfferEnvelope — signature malleability / signed-fact identity (Prope
     const malleated = { ...original, signature: malleateSignature(original.signature) }
 
     expect(hashOfferEnvelope(original as any).toString('hex')).toBe(hashOfferEnvelope(malleated as any).toString('hex'))
+  })
+})
+
+describe('OfferEnvelope — canonical Ed25519 signature acceptance (Property Q, CTO Gate correction 2026-09-09, Seventh Pass)', () => {
+  // Two conformant Sails implementations receiving the same signature
+  // bytes must not disagree on validity merely because their underlying
+  // Ed25519 libraries enforce different canonical-encoding rules.
+  // RFC 8032 §5.1.7 requires decoding S "as an integer, in the range
+  // 0 <= s < L" and treats S being out of that range as a decoding
+  // failure (an invalid signature) — confirmed directly (fetched, not
+  // recalled from memory) against the RFC's own text. `tweetnacl`
+  // itself never enforces this (confirmed by reading its source,
+  // `crypto_sign_open` in nacl-fast.js: it feeds S straight into
+  // scalarbase() with no bounds check at all), which is exactly why the
+  // malleated (R, S+L) signature in the block above still verifies
+  // under raw tweetnacl. Sails's own verifyOfferEnvelope() now adds this
+  // check in front of tweetnacl's call — closing the cross-implementation
+  // divergence risk without patching or reimplementing tweetnacl itself.
+  const L = 2n ** 252n + 27742317777372353535851937790883648493n
+  function bytesToBigIntLE(bytes: Uint8Array): bigint {
+    let n = 0n
+    for (let i = bytes.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(bytes[i])
+    return n
+  }
+  function bigIntToBytesLE(n: bigint, len: number): Uint8Array {
+    const out = new Uint8Array(len)
+    for (let i = 0; i < len; i++) {
+      out[i] = Number(n & 0xffn)
+      n >>= 8n
+    }
+    return out
+  }
+  function malleateSignature(signatureHex: string): string {
+    const sigBytes = Buffer.from(signatureHex, 'hex')
+    const R = sigBytes.subarray(0, 32)
+    const S = bytesToBigIntLE(sigBytes.subarray(32, 64))
+    const malleatedS = bigIntToBytesLE(S + L, 32)
+    return Buffer.concat([R, Buffer.from(malleatedS)]).toString('hex')
+  }
+
+  beforeEach(() => {
+    mockFindFirst.mockReset()
+    mockFindMany.mockReset()
+    mockCreate.mockReset()
+  })
+
+  it('1. an original, canonically-encoded signature is VALID', () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const envelope = signedEnvelope(baseContent({}, publicKeyHex), secretKeyHex)
+    expect(verifyOfferEnvelope(envelope as any)).toEqual({ valid: true })
+  })
+
+  it('2. CONFIRMED FIX: (R, S+L) — accepted by raw tweetnacl, but rejected by Sails verification as non-canonical', () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const content = baseContent({}, publicKeyHex)
+    const original = signedEnvelope(content, secretKeyHex)
+    const malleated = { ...original, signature: malleateSignature(original.signature) }
+
+    // Raw tweetnacl still accepts it (unchanged, confirmed in the
+    // Property O block above) — Sails's own verifier does not.
+    const verdict = verifyOfferEnvelope(malleated as any)
+    expect(verdict.valid).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/not canonically encoded/)
+  })
+
+  it('3. the same content still produces the same contentDigest regardless of which signature (canonical or malleated) is attached', () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const content = baseContent({}, publicKeyHex)
+    const original = signedEnvelope(content, secretKeyHex)
+    const malleated = { ...original, signature: malleateSignature(original.signature) }
+    expect(hashOfferEnvelope(original as any).toString('hex')).toBe(hashOfferEnvelope(malleated as any).toString('hex'))
+  })
+
+  it('4. a non-canonical signature never enters the repository — ingest() rejects it before any database call', async () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const content = baseContent({ revision: 0 }, publicKeyHex)
+    const original = signedEnvelope(content, secretKeyHex)
+    const malleated = { ...original, signature: malleateSignature(original.signature) }
+
+    const repo = new OfferEnvelopeRepository()
+    const result = await repo.ingest(malleated as any)
+
+    expect(result.accepted).toBe(false)
+    expect(mockFindMany).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it('5. existing valid (canonical) signatures continue to verify and to be accepted by ingest()', async () => {
+    useInMemoryOfferEnvelopeStore()
+    const repo = new OfferEnvelopeRepository()
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const envelope = signedEnvelope(baseContent({ revision: 0 }, publicKeyHex), secretKeyHex)
+
+    expect(verifyOfferEnvelope(envelope as any)).toEqual({ valid: true })
+    const result = await repo.ingest(envelope as any)
+    expect(result.accepted).toBe(true)
+  })
+
+  it('6. the hardcoded deterministic digest test vector (test 15b) is unaffected — this fix only touches signature/key encoding, never the canonical content serialization or its digest', () => {
+    const content = {
+      logicalOfferId: 'offer-vector-0001',
+      ownerPublicKey: '0'.repeat(64),
+      asset: 'BTC',
+      side: 'SELL',
+      priceUsd: '65000.00000000',
+      minAmount: '0.00100000',
+      maxAmount: '0.50000000',
+      paymentMethod: 'PIX',
+      revision: 1,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      revisedAt: '2026-01-01T00:00:00.000Z',
+      expiresAt: '2026-01-02T00:00:00.000Z',
+      status: 'ACTIVE',
+    }
+    const digestHex = hashOfferEnvelope(content as any).toString('hex')
+    expect(digestHex).toBe('634577a0f860f90d84d5e957fd688ad081b8b9b5e1b922924faf29636e227ff7')
+  })
+
+  it('a public key encoded with a non-canonical y-coordinate (y >= P, the Curve25519/Ed25519 field prime) is rejected specifically as non-canonical, before any signature comparison', () => {
+    const P = 2n ** 255n - 19n
+    // A synthetic 32-byte value whose low-255-bit y-coordinate is
+    // exactly P (the smallest non-canonical value: canonical range is
+    // 0 <= y < P) and whose sign bit is 0 — deliberately not derived
+    // from any real keypair, since the point of this test is purely
+    // "does the RANGE check fire," independent of whether the bytes
+    // also happen to decode to a valid curve point.
+    const nonCanonicalPublicKey = Buffer.from(bigIntToBytesLE(P, 32)).toString('hex')
+    const { secretKeyHex } = makeKeypair()
+    const content = baseContent({ ownerPublicKey: nonCanonicalPublicKey }, nonCanonicalPublicKey)
+    // Signed by an unrelated key on purpose — this envelope was never
+    // going to verify either way; the assertion is specifically that
+    // the REASON names non-canonical encoding, proving the check fires
+    // before (and independent of) the underlying signature comparison.
+    const envelope = signedEnvelope(content, secretKeyHex)
+
+    const verdict = verifyOfferEnvelope(envelope as any)
+    expect(verdict.valid).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/not canonically encoded/)
   })
 })
 
@@ -1032,6 +1162,77 @@ describe('OfferEnvelopeRepository — historical evidence convergence (Property 
     expect(pricesInOrderE1First).toEqual(pricesInOrderE2First)
     // And the array is genuinely sorted, not incidentally matching.
     expect([...digestsE1First].sort()).toEqual(digestsE1First)
+  })
+})
+
+describe('OfferEnvelopeRepository.ingest() — equivocationDetected is advisory, not authoritative (Property S, CTO Gate correction 2026-09-09, Seventh Pass)', () => {
+  beforeEach(() => {
+    mockFindFirst.mockReset()
+    mockFindMany.mockReset()
+    mockCreate.mockReset()
+  })
+
+  it('CONFIRMED (mocked reproduction of the real-Postgres race): two concurrent ingest() calls for distinct content at the same revision can BOTH miss equivocationDetected, while the stored fact set and getLatest() remain correct', async () => {
+    useInMemoryOfferEnvelopeStore()
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+    const e1 = signedEnvelope(baseContent({ revision: 5, priceUsd: '65000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
+    const e2 = signedEnvelope(baseContent({ revision: 5, priceUsd: '70000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
+
+    // Real concurrency, per the mission's own instruction — both calls
+    // are in flight before either resolves, reproducing the exact
+    // TOCTOU window confirmed against real Postgres (both ingest()
+    // calls' findMany() pre-read can observe "no siblings yet"
+    // simultaneously, since neither has committed via create() yet).
+    const [r1, r2] = await Promise.all([repo.ingest(e1 as any), repo.ingest(e2 as any)])
+
+    // The two DISTINCT facts are always both accepted and both stored —
+    // this part is never in question (Property M/O's own uniqueness
+    // constraint, keyed on contentDigest, has no reason to collide here).
+    expect(r1.accepted).toBe(true)
+    expect(r2.accepted).toBe(true)
+
+    // The actual property under test: whether `equivocationDetected` was
+    // set on EITHER response is a race-dependent implementation detail
+    // — this test does not assert a specific outcome for it (that would
+    // be asserting a coin flip), it asserts that regardless of what the
+    // flag says, the AUTHORITATIVE state is correct.
+    const latest = await repo.getLatest(alice.publicKeyHex, e1.logicalOfferId)
+    expect(latest.status).toBe('EQUIVOCATED')
+    if (latest.status === 'EQUIVOCATED') {
+      expect(new Set(latest.rows.map((r: any) => r.priceUsd))).toEqual(new Set(['65000.00000000', '70000.00000000']))
+    }
+  })
+
+  it('documents the advisory contract directly: a stored equivocating fact is reachable and correct via getLatest() even when constructed to simulate a missed equivocationDetected flag', async () => {
+    // Explicitly simulates the exact miss the race can produce (both
+    // calls seeing zero siblings) without relying on true engine-level
+    // concurrency timing, to keep this specific test deterministic.
+    useInMemoryOfferEnvelopeStore()
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+    const e1 = signedEnvelope(baseContent({ revision: 5, priceUsd: '65000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
+    const e2 = signedEnvelope(baseContent({ revision: 5, priceUsd: '70000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
+
+    // Force the pre-read to return empty for the SECOND ingest too, as
+    // if it had raced with the first (mockFindMany overridden AFTER the
+    // in-memory store already wired up create()/findFirst normally).
+    const originalFindMany = mockFindMany.getMockImplementation()
+    mockFindMany.mockImplementationOnce(async () => [])
+    const r1 = await repo.ingest(e1 as any)
+    mockFindMany.mockImplementationOnce(async () => [])
+    const r2 = await repo.ingest(e2 as any)
+    if (originalFindMany) mockFindMany.mockImplementation(originalFindMany)
+
+    expect(r1.accepted).toBe(true)
+    expect(r2.accepted).toBe(true)
+    expect((r1 as any).equivocationDetected).toBeUndefined()
+    expect((r2 as any).equivocationDetected).toBeUndefined()
+
+    // Despite BOTH responses missing the hint, getLatest() — the actual
+    // authority — still correctly reports EQUIVOCATED.
+    const latest = await repo.getLatest(alice.publicKeyHex, e1.logicalOfferId)
+    expect(latest.status).toBe('EQUIVOCATED')
   })
 })
 

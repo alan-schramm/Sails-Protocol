@@ -24,6 +24,30 @@ import {
   type OfferEnvelopeContent,
 } from './offer-envelope'
 
+/**
+ * CTO Gate correction (2026-09-09, Seventh Pass, Property S):
+ * `equivocationDetected` is **advisory / best-effort only** — it is
+ * NOT reliable equivocation detection and must never be treated as
+ * authoritative. Reproduced directly against real Postgres:
+ * `Promise.all([ingest(E1 rev5), ingest(E2 rev5)])` — E1/E2 distinct
+ * content, same owner, same identity, same revision — can result in
+ * BOTH callers receiving `equivocationDetected: undefined` (confirmed,
+ * reproducibly: `findMany()`'s pre-insert read in each concurrent call
+ * can both observe "no siblings yet," since neither write has landed at
+ * read time — a genuine TOCTOU window, not a hypothesis). The database
+ * itself is NEVER wrong in this race: both distinct facts are still
+ * durably stored (Property M's own uniqueness constraint keys on
+ * `contentDigest`, so two genuinely different facts never collide), and
+ * a subsequent `getLatest()` call correctly reports `EQUIVOCATED`
+ * naming both, confirmed in the identical reproduction. **Authority for
+ * "did this identity equivocate" is `getLatest()` (or the stored fact
+ * set directly), never this return value.** `equivocationDetected` is
+ * kept only as a same-call convenience hint for the common, non-racing
+ * case — deliberately NOT hardened into a reliable signal (no
+ * transaction-level serialization, no global lock, no retry loop), per
+ * explicit instruction not to add complexity purely to preserve a
+ * convenience flag's accuracy.
+ */
 export type IngestResult =
   | { accepted: true; id: string; equivocationDetected?: true }
   | { accepted: false; reason: string }
@@ -154,26 +178,44 @@ export class OfferEnvelopeRepository {
    * evidence proves nothing) because: reputation/abuse/dispute evidence
    * is a named ADR-001 concern this protocol already cares about, and
    * losing it purely as an artifact of arrival order undermines that for
-   * free; storage/bandwidth cost is bounded by the number of genuinely
-   * DISTINCT valid facts the true owner ever signed (an attacker without
-   * the owner's key cannot manufacture new ones — cryptography, not
-   * storage policy, is what already bounds this; Property O's own
-   * content-digest-based idempotency separately bounds REPLAY of an
-   * already-known fact to zero additional storage); replay-abuse
-   * resistance is unaffected either way (replaying an already-stored
-   * fact is idempotent under both options); this remains local
-   * persistence only (no gossip/bandwidth relaying implemented in step
-   * (a) at all); and implementing Option B costs LESS code than Option
-   * A here, not more — it is the absence of a special case ("if this
-   * revision is lower than the current highest, reject before storing"),
-   * not an added one. Implemented as the minimum step (a) requires: the
-   * `revision < highest → reject` branch is removed; storage and
-   * equivocation-detection apply uniformly to every valid envelope
-   * regardless of its revision relative to whatever else is already
-   * known. `getLatest()`'s CURRENT-STATE semantics are completely
-   * unchanged by this — it already only ever looks at the actual
-   * highest revision present in storage, independent of insertion
-   * order.
+   * free; Property O's own content-digest-based idempotency bounds
+   * REPLAY of an already-known fact to zero additional storage — that
+   * part genuinely is a cryptographic guarantee (an attacker cannot make
+   * the SAME fact cost more than one row). **Corrected (2026-09-09,
+   * Seventh Pass, Property R):** this decision's own reasoning
+   * originally over-claimed "storage/bandwidth cost is bounded by
+   * cryptography" for GENUINELY NEW facts too — that is false.
+   * Cryptographic authenticity limits WHO can produce a valid fact for a
+   * given offer identity; it does NOT bound HOW MANY distinct valid
+   * facts that same authorized owner chooses to sign, nor how many
+   * separate offer identities (Sybil `logicalOfferId`s, or Sybil
+   * `ownerPublicKey`s entirely) a single real-world operator controls.
+   * **Authenticity ≠ resource boundedness.** This is a genuine,
+   * disclosed residual of Option B, not solved here: an owner's own
+   * signed history can grow without a cryptographic quantity bound;
+   * many Sybil identities can amplify storage/gossip pressure further
+   * still; step (a) has no propagation, so network-bandwidth mitigation
+   * is not designed here at all; propagation/storage resource-abuse
+   * controls (rate limiting, stake/bond, proof-of-work, quotas,
+   * reputation penalties, or any gossip-layer control) belong to their
+   * own later CTO Gate — none is authorized or implemented here. Pruning
+   * is deliberately NOT used to paper over this residual: pruning could
+   * silently destroy exactly the equivocation/history evidence Option B
+   * exists to preserve, trading a disclosed residual for a hidden one.
+   * replay-abuse resistance (of an already-known fact specifically) is
+   * unaffected either way (idempotent under both options); this remains
+   * local persistence only (no gossip/bandwidth relaying implemented in
+   * step (a) at all); and implementing Option B costs LESS code than
+   * Option A here, not more — it is the absence of a special case ("if
+   * this revision is lower than the current highest, reject before
+   * storing"), not an added one. Implemented as the minimum step (a)
+   * requires: the `revision < highest → reject` branch is removed;
+   * storage and equivocation-detection apply uniformly to every valid
+   * envelope regardless of its revision relative to whatever else is
+   * already known. `getLatest()`'s CURRENT-STATE semantics are
+   * completely unchanged by this — it already only ever looks at the
+   * actual highest revision present in storage, independent of
+   * insertion order.
    */
   async ingest(envelope: SignedOfferEnvelope): Promise<IngestResult> {
     const verdict = verifyOfferEnvelope(envelope)
@@ -187,7 +229,11 @@ export class OfferEnvelopeRepository {
     // revision happens to be the identity's current highest (Property P)
     // — checked before the insert purely to label the *response*
     // accurately; the insert itself (and its own atomic uniqueness
-    // guard, Property M) is what actually decides storage.
+    // guard, Property M) is what actually decides storage. This
+    // pre-read is a genuine TOCTOU window under real concurrency —
+    // Property S, `IngestResult`'s own doc comment above — so the
+    // resulting `equivocationDetected` flag is advisory only, never
+    // authoritative; `getLatest()` is.
     const siblingsAtThisRevision = await prisma.offerEnvelope.findMany({
       where: {
         ownerPublicKey: envelope.ownerPublicKey,

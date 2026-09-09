@@ -454,8 +454,8 @@ describe('OfferEnvelope — persistence round-trip against real Postgres (Proper
     expect(rows).toHaveLength(1)
   })
 
-  it('Property O (real DB): a malleated signature over identical content is idempotent, not equivocation, against real Postgres', async () => {
-    requirePostgres('Property O malleability against real Postgres')
+  it('Property O/Q (real DB): a malleated signature is rejected by Sails verification as non-canonical, and never reaches the repository, against real Postgres', async () => {
+    requirePostgres('Property O/Q malleability against real Postgres')
     const alice = makeKeypair()
     const logicalOfferId = `${TEST_LOGICAL_ID_PREFIX}${Date.now()}-malleated`
     const content: OfferEnvelopeContent = {
@@ -475,9 +475,10 @@ describe('OfferEnvelope — persistence round-trip against real Postgres (Proper
     }
     const signature = signOfferEnvelope(content, alice.secretKeyHex)
 
-    // Ed25519 group order L — confirmed directly (Property O) that
-    // (R, S + L) verifies successfully alongside the original (R, S),
-    // with no secret key required.
+    // Ed25519 group order L — confirmed directly (Property O) that raw
+    // tweetnacl accepts (R, S + L) alongside the original (R, S), with
+    // no secret key required. Property Q (Seventh Pass) closes this at
+    // the Sails verification layer specifically.
     const L = 2n ** 252n + 27742317777372353535851937790883648493n
     const sigBytes = Buffer.from(signature, 'hex')
     const R = sigBytes.subarray(0, 32)
@@ -492,17 +493,70 @@ describe('OfferEnvelope — persistence round-trip against real Postgres (Proper
     }
     const malleatedSignature = Buffer.concat([R, malleatedSBytes]).toString('hex')
     expect(malleatedSignature).not.toBe(signature)
-    expect(verifyOfferEnvelope({ ...content, signature: malleatedSignature })).toEqual({ valid: true })
+
+    // Sails's own verifier rejects it (Property Q) — the underlying
+    // tweetnacl behavior (still accepting it) is unchanged and is not
+    // asserted again here; tests/offerEnvelope.test.ts's own Property Q
+    // block already proves that directly.
+    const verdict = verifyOfferEnvelope({ ...content, signature: malleatedSignature })
+    expect(verdict.valid).toBe(false)
 
     const r1 = await repo.ingest({ ...content, signature })
     const r2 = await repo.ingest({ ...content, signature: malleatedSignature })
     expect(r1.accepted).toBe(true)
-    expect(r2.accepted).toBe(true)
-    expect((r2 as { equivocationDetected?: true }).equivocationDetected).toBeUndefined()
+    expect(r2.accepted).toBe(false)
 
     const rows = await prisma.offerEnvelope.findMany({ where: { logicalOfferId } })
     expect(rows).toHaveLength(1)
     const latest = await repo.getLatest(alice.publicKeyHex, logicalOfferId)
     expect(latest.status).toBe('RESOLVED')
+  })
+
+  it('Property S (real DB): two concurrent ingest() calls for distinct content at the same revision always store both facts correctly and getLatest() always reports EQUIVOCATED, regardless of what equivocationDetected says on either response', async () => {
+    requirePostgres('Property S real concurrency against real Postgres')
+    const alice = makeKeypair()
+    const logicalOfferId = `${TEST_LOGICAL_ID_PREFIX}${Date.now()}-property-s`
+
+    function makeContent(priceUsd: string): OfferEnvelopeContent {
+      return {
+        logicalOfferId,
+        ownerPublicKey: alice.publicKeyHex,
+        asset: 'BTC',
+        side: 'SELL',
+        priceUsd,
+        minAmount: '0.00100000',
+        maxAmount: '0.50000000',
+        paymentMethod: 'PIX',
+        revision: 5,
+        createdAt: '2026-09-09T00:00:00.000Z',
+        revisedAt: '2026-09-09T00:00:00.000Z',
+        expiresAt: '2026-09-10T00:00:00.000Z',
+        status: 'ACTIVE',
+      }
+    }
+    const e1Content = makeContent('65000.00000000')
+    const e2Content = makeContent('70000.00000000')
+    const e1 = { ...e1Content, signature: signOfferEnvelope(e1Content, alice.secretKeyHex) }
+    const e2 = { ...e2Content, signature: signOfferEnvelope(e2Content, alice.secretKeyHex) }
+
+    // Real concurrency — genuinely in flight together against the real
+    // connection pool, the exact reproduction confirmed directly before
+    // this correction pass (see docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md's
+    // Seventh Pass, Property S: reproduced across 5 real runs, at least
+    // one of which showed BOTH responses missing `equivocationDetected`
+    // entirely while the stored state and getLatest() stayed correct
+    // every time).
+    const [r1, r2] = await Promise.all([repo.ingest(e1), repo.ingest(e2)])
+    expect(r1.accepted).toBe(true)
+    expect(r2.accepted).toBe(true)
+
+    const rows = await prisma.offerEnvelope.findMany({ where: { logicalOfferId } })
+    expect(rows).toHaveLength(2)
+
+    const latest = await repo.getLatest(alice.publicKeyHex, logicalOfferId)
+    expect(latest.status).toBe('EQUIVOCATED')
+    if (latest.status === 'EQUIVOCATED') {
+      expect(new Set(latest.rows.map((r) => r.priceUsd.toString()))).toEqual(new Set(['65000', '70000']))
+    }
   })
 })

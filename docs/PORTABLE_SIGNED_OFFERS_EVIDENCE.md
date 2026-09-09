@@ -1,6 +1,6 @@
 # Portable Signed Offers — Evidence
 
-> **Status: CORRECTED, Sixth Pass (2026-09-09).** A Third-Pass CTO Gate
+> **Status: CORRECTED, Seventh Pass (2026-09-09).** A Third-Pass CTO Gate
 > correction found a real, confirmed owner-takeover vulnerability plus
 > six related correctness gaps (Properties A-G) in the implementation
 > this document originally described as closed. A Fourth-Pass
@@ -34,19 +34,33 @@
 > Option B, evaluated explicitly against reputation/storage/bandwidth/
 > replay/privacy/simplicity). **Property N** corrected every ADR
 > statement conflating fact-identity deduplication with revision-number
-> comparison (documentation only, no code change). Sixteen properties
-> total across four passes (A-P, with I explicitly **retracted** rather
-> than fixed) are now in their evidenced final state — see **"CTO Gate
-> Correction (2026-09-09, Third Pass — Properties A-G)"**, **"...Fourth
-> Pass — Properties H, I)"**, **"...Fifth Pass — Properties J, K, L)"**,
-> and **"...Sixth Pass — Properties M, N, O, P)"** below, the last being
-> the authoritative current state. The sections above them describe the
-> implementation as it stood at earlier closures and are preserved
-> verbatim as history; where a number or claim has since changed again,
-> the latest correction section states the corrected value — treat this
-> document's own
+> comparison (documentation only, no code change). A Seventh-Pass
+> correction then closed the cross-implementation signature-semantics
+> question directly: **Property Q** (RFC 8032 requires `0 <= S < L`;
+> `tweetnacl` never enforces it, confirmed by reading its source — Sails
+> now rejects a non-canonical `(R, S+L)` signature outright, before it
+> ever reaches `contentDigest`-based fact-identity logic), **Property R**
+> (corrected an over-claim that storage cost was "bounded by
+> cryptography" — authenticity bounds WHO can sign, never HOW MANY
+> facts; the Sybil/history-growth residual is now named, not silently
+> claimed away), and **Property S** (confirmed by direct real-Postgres
+> reproduction that `ingest()`'s own `equivocationDetected` hint can be
+> missed by both callers under a genuine concurrent-equivocation race,
+> while `getLatest()`/the stored fact set are always correct — documented
+> explicitly as advisory, not authoritative, rather than hardened with
+> new locking machinery). Nineteen properties total across five passes
+> (A-S, with I explicitly **retracted** rather than fixed) are now in
+> their evidenced final state — see **"CTO Gate Correction (2026-09-09,
+> Third Pass — Properties A-G)"**, **"...Fourth Pass — Properties H, I)"**,
+> **"...Fifth Pass — Properties J, K, L)"**, **"...Sixth Pass —
+> Properties M, N, O, P)"**, and **"...Seventh Pass — Properties Q, R,
+> S)"** below, the last being the authoritative current state. The
+> sections above them describe the implementation as it stood at earlier
+> closures and are preserved verbatim as history; where a number or
+> claim has since changed again, the latest correction section states
+> the corrected value — treat this document's own
 > internal cross-references as pointing there for anything in scope of
-> Properties A-P. This document does not, and has never, claimed general
+> Properties A-S. This document does not, and has never, claimed general
 > distributed consensus — see the Fifth Pass's own "Claim correction —
 > scope of convergence" for the precise, bounded property actually
 > demonstrated.
@@ -1239,13 +1253,27 @@ generic "signed-object identity" abstraction — this reuses the exact
 digest this module already computes for signing, applied to a second
 purpose (identity) it was already structurally suited for.
 
-**Consequence, confirmed directly (both mocked and real Postgres):** a
-malleated signature over IDENTICAL content is now recognized as the
-SAME fact (idempotent, `equivocationDetected` is `undefined`), not
+**Consequence at the time of this pass:** a malleated signature over
+IDENTICAL content was recognized as the SAME fact (idempotent), not
 equivocation — closing the griefing vector Property O's answer to
 question 1 makes possible. `contentDigest` is identical for the original
 and malleated signature pair (confirmed directly: `hashOfferEnvelope()`
-never reads the `signature` field at all).
+never reads the `signature` field at all — this specific finding is
+still current truth, unaffected by later passes).
+
+> **Superseded (2026-09-09, Seventh Pass, Property Q).** The claim above
+> that a malleated signature is "recognized as the same fact
+> (idempotent)" described the behavior BEFORE Property Q. As of Property
+> Q, a malleated signature is now rejected outright by
+> `verifyOfferEnvelope()` as **non-canonical** — it never reaches
+> `ingest()`'s idempotency logic at all, because RFC 8032 requires
+> `0 <= S < L` and Sails now enforces this explicitly (`tweetnacl` itself
+> still doesn't). `contentDigest` remains the correct fact identity
+> mechanism for the cases that DO reach it (byte-identical resends,
+> genuine equivocation) — Property Q does not reverse Property O's own
+> conclusion that `signature` is unsound as an identity; it closes the
+> malleability gap one layer earlier, at admission. See "CTO Gate
+> Correction (2026-09-09, Seventh Pass — Properties Q, R, S)" below.
 
 **Database change:** `prisma/schema.prisma`'s `OfferEnvelope` model
 gained one column, `contentDigest String`; the unique constraint is now
@@ -1257,13 +1285,14 @@ constitutes "identity." The still-unmerged migration was corrected in
 place (new column + replaced index), not superseded by a second one.
 
 **Tests added:** `tests/offerEnvelope.test.ts`, describe block "signature
-malleability / signed-fact identity (Property O...)" — the exact
-malleation confirmed directly and independently of `ingest()`; a
-malleated resend proven idempotent, not equivocation; `contentDigest`
+malleability / signed-fact identity (Property O...)" — the malleation
+confirmed directly (via raw `tweetnacl`, bypassing Sails verification,
+after Property Q) and independently of `ingest()`; `contentDigest`
 proven identical for original vs. malleated signature. Real-Postgres:
 `tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`'s
-"Property O (real DB)" test proves the identical property against an
-actual database.
+"Property O/Q (real DB)" test proves the malleated signature is rejected
+end-to-end against an actual database (updated in the Seventh Pass — see
+below for what changed and why).
 
 ### Property P — Historical evidence convergence
 
@@ -1299,7 +1328,7 @@ first, mechanism second):**
 |---|---|
 | Reputation/abuse evidence | Favors Option B strongly — losing equivocation evidence purely as an artifact of arrival order undermines exactly the kind of accountability ADR-001 already cares about. |
 | Disputes | Favors Option B — a dispute over historical offer terms benefits from the fullest available signed record. |
-| Storage amplification | Bounded either way by cryptography, not policy: an attacker without the owner's private key cannot manufacture new distinct valid facts (only replay/malleate existing ones, and Property M/O's own contentDigest-based idempotency makes replay free — zero additional storage). Option B's cost is bounded by however many genuinely distinct facts the TRUE owner ever signed. |
+| Storage amplification | **Corrected (2026-09-09, Seventh Pass, Property R):** originally claimed "bounded either way by cryptography, not policy" — false as a general claim; see Property R below. What IS a genuine cryptographic guarantee: an attacker without the owner's private key cannot manufacture a NEW distinct valid fact (only replay/malleate an existing one, and Property M/O's own contentDigest-based idempotency makes replay free — zero additional storage). What is NOT bounded by cryptography: how many genuinely distinct facts the TRUE owner chooses to sign, or how many separate Sybil offer identities a single real-world operator controls — both are real, disclosed, unsolved residuals of Option B (Property R). |
 | Gossip bandwidth | Not yet applicable — step (a) has no propagation/relaying of any kind; this is a future step (d) sizing question, not a reason to lose local evidence today. |
 | Replay abuse | Unaffected by the choice between A and B — replaying an already-stored fact is idempotent under both. |
 | Future node economics | No direct bearing either way. |
@@ -1436,6 +1465,288 @@ registered in `docs/BACKLOG.md`.
 
 ---
 
+## CTO Gate Correction (2026-09-09, Seventh Pass — Properties Q, R, S)
+
+### Property Q — Canonical Ed25519 Signature Acceptance
+
+**Central property:** two conformant Sails implementations receiving
+the same signature bytes must not disagree on validity merely because
+their Ed25519 libraries enforce different canonical-encoding rules.
+
+**1. Confirmed precisely why `tweetnacl` accepts `S + L`.** Read
+`tweetnacl`'s own source directly (`node_modules/tweetnacl/nacl-fast.js`,
+`crypto_sign_open`): it decodes the public key as a point
+(`unpackneg`), then computes `scalarbase(q, sm.subarray(32))` — feeding
+the raw 32-byte `S` straight into scalar multiplication with **no bounds
+check performed on `S` at all** before doing so. Because the base point
+`B` has order `L`, `S·B` and `(S + L)·B` are mathematically the
+identical point regardless of `S`'s raw byte value — this is why a
+byte-different, non-canonical `S` still verifies: the missing check, not
+a deliberate design choice, is the root cause.
+
+**2. Verified the canonical/expected Ed25519 behavior for `S`.**
+Fetched RFC 8032 §5.1.7 directly (not recalled from memory): the
+verification procedure decodes the signature's second half "as an
+integer S, in the range 0 <= s < L," and states "if any of the decodings
+fail (including S being out of range), the signature is invalid." `S`
+being outside `[0, L)` is, per the spec itself, a **decoding failure** —
+an invalid signature, not a valid-but-differently-encoded one.
+
+**3. Minimal Sails rule for canonical signature encoding, defined and
+implemented:** `isCanonicalEd25519Encoding()` (`offer-envelope.ts`)
+requires `0 <= S < L` for the signature's scalar component, and
+`0 <= y < P` (`P = 2^255 - 19`, the Curve25519/Ed25519 field prime) for
+the y-coordinate encoded in both `R` (the signature's point component)
+and `ownerPublicKey` (`A`) — investigated proportionally alongside `S`,
+using the identical technique (decode 32 little-endian bytes as an
+integer, compare against a constant), since the marginal cost of
+checking all three was near-zero once one was implemented correctly.
+`R` was investigated and found NOT independently exploitable via this
+specific codebase's own verification path: `tweetnacl`'s
+`crypto_sign_open` never decodes `R` as a point at all — it recomputes
+`S·B + H(R,A,M)·A`, re-encodes that computed point with `pack()` (always
+canonical), and compares the resulting bytes against the signature's own
+`R` bytes verbatim; a non-canonically-encoded `R` therefore already
+fails that byte comparison with no separate check needed. The `R` range
+check was still added, for defense against a *different* future verifier
+implementation that might decode `R` independently (the actual
+cross-implementation-divergence property this pass exists to protect),
+not because it closes a gap in `tweetnacl` itself. `ownerPublicKey` (`A`)
+has no such structural protection in `tweetnacl` (confirmed: its
+`unpack25519()` also performs no bound check) — checked explicitly for
+the same reason `S` is.
+
+**4. `tweetnacl`-specific behavior did not become protocol semantics by
+accident:** the fix is a validation layer Sails adds IN FRONT OF
+`tweetnacl`'s own call, not a patch to `tweetnacl` and not a claim that
+`tweetnacl`'s current behavior is "the" Sails semantics — the canonical
+rule is stated and implemented independently, sourced directly from RFC
+8032 itself, so a future non-`tweetnacl` implementation (Rust, Go, or a
+different JS library) has an explicit, spec-sourced rule to match rather
+than an implicit "whatever this one library happens to accept."
+
+**Result:**
+```
+raw tweetnacl verifier → still accepts (R, S+L)      [unchanged, confirmed]
+Sails verifyOfferEnvelope() → rejects (R, S+L) as non-canonical  [Property Q fix]
+```
+
+**Preserved, explicitly:** `contentDigest` remains the signed-fact
+identity (Property O) — Property Q does not reintroduce `signature` as
+identity, even though canonical signatures are now enforced; it closes a
+different, earlier gap (admission), not the identity question (already
+closed correctly by Property O).
+
+**No new cryptographic implementation was written.** `isCanonicalEd25519Encoding()`
+is pure range-check arithmetic on already-decoded integers (plain
+JavaScript `BigInt`), layered in front of the existing, completely
+unmodified `nacl.sign.detached.verify()` call — no curve arithmetic, no
+point decompression, no reimplementation of any part of Ed25519 itself.
+
+**Tests added** (`tests/offerEnvelope.test.ts`, describe block "canonical
+Ed25519 signature acceptance (Property Q...)"): (1) an original
+canonical signature is VALID; (2) `(R, S+L)` is rejected by Sails
+verification (confirmed still accepted by raw `tweetnacl` in the
+adjacent Property O block, so the contrast is direct and explicit, not
+assumed); (3) the same content still produces the same `contentDigest`
+regardless of which signature is attached; (4) a non-canonical signature
+never reaches `ingest()`'s database calls; (5) existing valid signatures
+continue to verify and to be accepted by `ingest()`; (6) the hardcoded
+deterministic digest test vector (test 15b) is unchanged — this fix only
+touches signature/key encoding validation, never canonical content
+serialization; plus a dedicated test for the `ownerPublicKey`
+non-canonical-y-coordinate case. Real-Postgres:
+`tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`'s "Property
+O/Q (real DB)" test (updated in place) proves the malleated signature is
+rejected end-to-end against an actual database — `ingest()` for the
+malleated variant now returns `accepted: false` and the table retains
+exactly the one row from the original, canonical signature.
+
+### Property R — Authentication Does Not Bound Resource Consumption
+
+**Corrected claim.** The Sixth Pass's own Property P decision reasoning
+stated storage cost was "bounded by cryptography, not policy." **That is
+false as a general claim, corrected here:**
+
+> Cryptographic authenticity limits WHO can produce valid facts for an
+> identity; it does not bound HOW MANY valid facts an authorized owner —
+> or many Sybil identities — can produce. **Authenticity ≠ resource
+> boundedness.**
+
+What IS a genuine cryptographic guarantee, preserved and restated
+precisely: an attacker without the owner's private key cannot
+manufacture a **new, distinct** valid fact (only replay or malleate an
+existing one), and Property M/O's own `contentDigest`-based idempotency
+makes REPLAY of an already-known fact free (zero additional storage).
+What is NOT bounded: how many genuinely distinct facts the TRUE owner
+chooses to sign over time, and how many separate offer identities
+(Sybil `logicalOfferId`s, or entirely separate Sybil `ownerPublicKey`s) a
+single real-world operator controls.
+
+**Residuals, registered explicitly, not solved here:**
+- Owner-generated history can grow without a cryptographic quantity
+  bound.
+- Sybil identities can amplify storage/gossip pressure beyond what a
+  single honest owner would produce.
+- Step (a) has no propagation of any kind — network-bandwidth mitigation
+  is not designed here at all; it is a step (d) concern.
+- Propagation/storage resource-abuse controls (rate limiting, stake/
+  bond, proof-of-work, quotas, reputation penalties, or any gossip-layer
+  control) belong to their own later, separately-gated CTO Gate — **none
+  is authorized or implemented in this pass.**
+- Pruning is deliberately NOT used to paper over this residual: it could
+  silently destroy the exact equivocation/history evidence Option B
+  (Property P) exists to preserve — that would trade a disclosed
+  residual for a hidden, worse one.
+
+**Decision to preserve all historical signed facts (Option B, Property
+P) is unchanged by this correction** — Property R does not reopen that
+decision, it corrects the REASONING offered for one line of that
+decision's own evaluation table, and registers the residual precisely
+instead of over-claiming it away.
+
+**Not implemented, per explicit instruction:** rate limiting, stake,
+proof-of-work, quotas, pruning, reputation penalties, gossip controls.
+
+### Property S — Concurrent Distinct Same-Revision Equivocation Signal
+
+**Investigated:** could two concurrent `ingest()` calls for genuinely
+DISTINCT content at the identical revision (both validly signed by the
+same owner) both miss the `equivocationDetected` response flag, due to
+`ingest()`'s own pre-insert `findMany()` read happening before either
+call's `create()` has landed?
+
+**Reproduced directly against real Postgres, before deciding anything**
+(5 runs, real `Promise.all([ingest(E1), ingest(E2)])`): **confirmed —
+in 2 of 5 runs, BOTH responses came back with `equivocationDetected:
+undefined`.** In every one of the 5 runs, regardless of what either
+response said, the database correctly ended up containing both distinct
+facts, and a subsequent `getLatest()` call correctly reported
+`EQUIVOCATED`, naming both prices.
+
+**Question answered: is `equivocationDetected` advisory or load-bearing?**
+**Advisory / best-effort only — confirmed by direct reproduction, not
+assumed.** Documented explicitly as such in `IngestResult`'s own type
+comment (`offer-envelope-repository.ts`). **Authority for "did this
+identity equivocate" is `getLatest()` (equivalently, the stored fact set
+itself), never the `ingest()` response.** This matches the architectural
+preference stated going into the investigation — confirmed by evidence
+before being adopted, not assumed first.
+
+**No complex mechanism was built to make the flag reliable** — no
+transaction-level serialization, no global lock, no retry loop, exactly
+per explicit instruction not to add complexity purely to preserve a
+convenience flag's accuracy. The flag remains exactly what it always
+structurally was: a same-call convenience hint for the common,
+non-racing case.
+
+**Tests added** (`tests/offerEnvelope.test.ts`, describe block
+"equivocationDetected is advisory, not authoritative (Property S...)"):
+a `Promise.all` reproduction proving the stored fact set and
+`getLatest()` are always correct regardless of what either response's
+flag says; a deterministic (non-racy) test simulating the exact miss
+directly, proving `getLatest()` still resolves correctly even when BOTH
+responses omit the flag. Real-Postgres:
+`tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`'s new
+"Property S (real DB)" test proves the identical property against an
+actual database.
+
+### Source current-truth cleanup
+
+Corrected two comments in `offer-envelope.ts` (the file header and
+`verifyOfferEnvelope()`'s own doc comment) that still described Property
+A's superseded model — "owner continuity is enforced one layer up, in
+`OfferEnvelopeRepository.ingest()`" — which stopped being true the
+moment Property H (Fourth Pass) made offer identity the pair
+`(ownerPublicKey, logicalOfferId)`; there has been no separate
+"continuity" check in `ingest()` since then, and none should be
+reintroduced. Both comments now state current truth directly: offer
+identity is `(ownerPublicKey, logicalOfferId)`; `logicalOfferId` reuse
+across different owners is not an error; "first owner wins" was a
+confirmed, retracted defect, not a rule to preserve or restate.
+
+### Claim discipline, restated
+
+Preserved: `contentDigest` = fact identity; `signature` = authorization
+evidence (Property O). Added by this pass: **canonical signature
+encoding ≠ fact identity** (Property Q closes a DIFFERENT gap —
+admission of malformed signatures — not the identity question, which
+stays `contentDigest`'s). Already true, restated for completeness:
+**signature validity ≠ current economic activity** (an envelope can be
+genuinely, canonically, validly signed and still be expired/cancelled —
+`isOfferEnvelopeEconomicallyActive()`/`isOfferStateEconomicallyActive()`
+are separate checks, unchanged by this pass). Added by this pass:
+**authenticity ≠ resource boundedness** (Property R).
+
+### Updated counts (Seventh Pass)
+
+`tests/offerEnvelope.test.ts`: **80 tests** (up from 72 — the Property O
+block's malleation test was reframed to test raw `tweetnacl` directly
+(bypassing Sails verification) rather than `verifyOfferEnvelope()`
+itself, since that outcome changed; a new Property Q block added 7
+tests; a new Property S block added 2 tests; net +8, with the Property O
+block's own test count dropping by 1 as its "idempotent resend" test was
+removed — the scenario it tested no longer occurs, since Property Q now
+rejects the malleated signature before `ingest()` ever sees it).
+`tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`: **9
+tests** (up from 8 — the Property O real-DB test's assertions were
+updated in place for Property Q's rejection behavior; one new Property S
+real-DB test added). `npx tsc --noEmit`: clean. `git diff --check`:
+clean.
+
+### SDK compatibility / OpenLiquidity regression / new dependencies
+
+Unchanged: `packages/sails-sdk` untouched, no route changes;
+`liquidity.service.ts`/`Offer`/`liquidity.routes.ts` untouched; no new
+dependencies — the Ed25519 range-check arithmetic uses plain JavaScript
+`BigInt`, a language built-in, exactly as Property O's own malleation
+demonstration already did; `tweetnacl` itself is unmodified and
+unpatched.
+
+### COBRA Check (Seventh Pass)
+
+Property Q: no new crypto library, no reimplementation of Ed25519 — a
+pure range-check layer in front of the existing, unmodified verifier
+call, sourced directly from the published spec. Property R: no rate
+limiting, stake, PoW, quotas, pruning, reputation penalty, or gossip
+control was implemented — the residual is named and registered, not
+silently solved with a mechanism that could itself destroy equivocation
+evidence. Property S: no global lock, no distributed lock, no
+serialization added to preserve a convenience flag; authority stays with
+the already-correct, already-tested `getLatest()`/stored-fact-set path.
+
+### Rube Goldberg Check (Seventh Pass)
+
+Property Q's entire fix is one small pure function (three range
+comparisons on already-decoded integers) called once, before an
+otherwise-untouched existing verification call. Property R added zero
+code — it corrected documentation/reasoning and registered a residual.
+Property S added zero new production logic — it corrected a doc comment
+and added tests proving an existing, already-correct fallback
+(`getLatest()`) is what matters. Total code footprint for three
+properties: one new function (~15 lines) plus doc corrections.
+
+### ADR-001 step (a) status (Seventh Pass)
+
+Reverted to **CORRECTION REQUIRED** at the start of this pass (from the
+Sixth Pass's fourth re-close); **re-closed as CLOSED (2026-09-09,
+corrected — Seventh Pass)** now that Properties Q, R (residual
+registered), and S (advisory semantics confirmed and documented) are in
+their evidenced final state. See
+`docs/adr/ADR-001-day0-multi-operator-network.md` §21(a).
+
+### BACKLOG DELTA (Seventh Pass)
+
+**ZERO.** Property Q is a correctness fix to the already-authorized
+step (a)'s signature verification. Property R registers a residual of
+an already-authorized decision (Option B) without changing that
+decision or authorizing new mitigation work. Property S is a
+documentation/test clarification of already-existing, already-correct
+behavior. None are new architecture fronts. No new obligation is
+registered in `docs/BACKLOG.md`.
+
+---
+
 ## Residuals
 
 - No HTTP route exposes `OfferEnvelope` ingestion/query yet — deferred
@@ -1466,6 +1777,24 @@ registered in `docs/BACKLOG.md`.
   or transfer a `logicalOfferId`. Named, not solved: a future
   signed-transition rotation design is a separate, not-yet-authorized
   obligation if this is ever needed.
+- **(Added 2026-09-09, Seventh Pass, Property R.)** Storage/resource
+  consumption is NOT bounded by cryptography — only WHO can produce a
+  valid fact is bounded, not HOW MANY. An owner's own signed history can
+  grow without a cryptographic quantity limit; many Sybil identities can
+  amplify this further. Step (a) has no propagation, so bandwidth
+  mitigation is not designed here. Resource-abuse controls (rate
+  limiting, stake/bond, PoW, quotas, reputation penalties, gossip
+  controls) are explicitly deferred to a later, separately-gated CTO
+  Gate — not implemented, not designed, not silently solved via pruning
+  (which would risk destroying equivocation/history evidence). See the
+  Seventh Pass's own Property R section above for the full reasoning.
+- **(Added 2026-09-09, Seventh Pass, Property S.)** `equivocationDetected`
+  on `ingest()`'s return value is advisory/best-effort only, confirmed
+  by direct reproduction against real Postgres — it can be `undefined`
+  on both responses to a genuine concurrent-equivocation race even
+  though the stored fact set and `getLatest()` are always correct. Any
+  future consumer of `ingest()`'s return value must treat this flag as a
+  hint, never as authoritative equivocation detection.
 
 ---
 

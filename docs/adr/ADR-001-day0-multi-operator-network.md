@@ -185,12 +185,14 @@ History B would then hold zero evidence the owner ever equivocated,
 while History A held both. Decided explicitly, property first mechanism
 second: **Option B** — every validly-signed fact is retained regardless
 of its revision relative to anything already known (reputation/dispute/
-abuse-evidence value outweighs a storage cost that is itself bounded by
-cryptography, not policy — an attacker without the owner's key cannot
-manufacture new distinct facts, and replay of a known fact is already
-free under Property M/O's own idempotency). `ingest()`'s
-revision-comparison rejection is removed entirely; `getLatest()`'s
-CURRENT-STATE semantics are completely unaffected. **Property N
+abuse-evidence value outweighs the storage cost; replay of an already-
+known fact specifically is free under Property M/O's own idempotency —
+**corrected 2026-09-09, Seventh Pass, Property R:** this paragraph
+originally also claimed that cost was "bounded by cryptography, not
+policy" for genuinely NEW facts, which is false — see Property R below,
+"authenticity ≠ resource boundedness"). `ingest()`'s revision-comparison
+rejection is removed entirely; `getLatest()`'s CURRENT-STATE semantics
+are completely unaffected. **Property N
 (gossip-dedup semantic contradiction):** audited §3/§4/§21/§22 for every
 statement conflating fact identity with revision-number dedup
 ("discards any envelope whose revision is ≤ the highest," "a node never
@@ -203,6 +205,45 @@ authorized gossip data structure itself. §21(a)'s status was reverted to
 prior pass, this changes no architecture decision in this document —
 Model C is unchanged; all four properties are corrections to step (a)'s
 own implementation and specification, not to the network model itself.
+
+**Seventh CTO Gate Correction Pass (2026-09-09, cross-implementation
+signature semantics + resource-claim precision).** Before freezing step
+(a), this pass closed the more fundamental property behind Property O's
+own malleability finding: **two conformant Sails implementations
+receiving the same signature bytes must not disagree on validity merely
+because their Ed25519 libraries enforce different canonical-encoding
+rules.** Confirmed directly, by reading `tweetnacl`'s source, that it
+never checks RFC 8032 §5.1.7's own required `0 <= S < L` bound (fetched
+and quoted directly from the RFC, not recalled) — this, not a
+`tweetnacl`-specific design choice, is exactly why `(R, S+L)` verifies
+under raw `tweetnacl`. **Property Q:** Sails's own `verifyOfferEnvelope()`
+now enforces this canonical range (plus the analogous `y < P` check for
+`R`/`ownerPublicKey`'s point encoding) BEFORE calling `tweetnacl` at all
+— the malleated signature Property O demonstrated is now rejected by
+Sails outright, while `contentDigest` (Property O's own fix) remains the
+fact identity for every case that legitimately reaches it; no new crypto
+library, no reimplementation of Ed25519, a pure range-check layer in
+front of the existing, unmodified verifier call. **Property R:**
+corrected an over-claim, introduced in the Sixth Pass's own Property P
+reasoning, that storage cost was "bounded by cryptography" — false;
+cryptographic authenticity bounds WHO can sign, never HOW MANY facts an
+authorized owner (or many Sybil identities) can produce. The residual
+(owner-history growth, Sybil amplification, no bandwidth mitigation
+since step (a) has no propagation) is now named explicitly, deferred to
+a later CTO Gate, and deliberately NOT papered over with pruning (which
+could destroy the equivocation evidence Option B exists to preserve).
+**Property S:** reproduced directly against real Postgres that
+`ingest()`'s own `equivocationDetected` response hint can be missed by
+BOTH callers under a genuine concurrent-equivocation race, while
+`getLatest()`/the stored fact set are always correct regardless —
+confirmed advisory, not load-bearing, and documented as such rather than
+hardened with new locking machinery. Two stale source comments
+describing Property A's superseded "owner continuity" model (retracted
+since Property H) were also corrected. §21(a)'s status was reverted to
+`CORRECTION REQUIRED` and re-closed below. Full narrative:
+`docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s "CTO Gate Correction
+(2026-09-09, Seventh Pass — Properties Q, R, S)" section. Like every
+prior pass, this changes no architecture decision in this document.
 
 ---
 
@@ -1054,7 +1095,8 @@ serialization, Ed25519 signature, `revision`/`expiresAt`/tombstone
 semantics (§3). ~~CLOSED (2026-09-09)~~ ~~CORRECTED AND RE-CLOSED
 (2026-09-09, Third Pass)~~ ~~CORRECTED AND RE-CLOSED AGAIN (2026-09-09,
 Fourth Pass)~~ ~~CORRECTED AND RE-CLOSED A THIRD TIME (2026-09-09, Fifth
-Pass)~~ **CORRECTED AND RE-CLOSED A FOURTH TIME (2026-09-09, Sixth
+Pass)~~ ~~CORRECTED AND RE-CLOSED A FOURTH TIME (2026-09-09, Sixth
+Pass)~~ **CORRECTED AND RE-CLOSED A FIFTH TIME (2026-09-09, Seventh
 Pass).** The Third Pass found and fixed a real, confirmed owner-takeover
 vulnerability plus six related correctness gaps (Properties A-G). The
 Fourth Pass found that the Third Pass's own Property A fix ("first
@@ -1096,13 +1138,28 @@ revision-comparison rejection from `ingest()` entirely (this changes
 nothing about `getLatest()`'s own CURRENT-STATE selection). **Property
 N** — corrected every ADR statement conflating fact-identity
 deduplication with revision-number comparison (§3/§4/§21/§22), without
-designing the not-yet-authorized gossip mechanism itself. All sixteen
-properties named across four correction passes (A-P, with I retracted
-rather than fixed) are now in their evidenced final state — tested (72
-unit tests, 8 real-Postgres integration tests, including real
-`Promise.all` concurrency evidence), zero regression. Full evidence,
-including every prior pass preserved as history:
-`docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`. Still proves Offer
+designing the not-yet-authorized gossip mechanism itself. The Seventh
+Pass then closed the cross-implementation signature-semantics question
+directly: **Property Q** — confirmed, by reading `tweetnacl`'s source
+and RFC 8032 §5.1.7's own text, that `tweetnacl` never enforces the
+spec's required `0 <= S < L` bound; fixed by having Sails's own
+`verifyOfferEnvelope()` reject a non-canonical `(R, S)` or public key
+outright, before `contentDigest`-based identity logic ever runs — no new
+crypto library, a pure range check in front of the unmodified verifier.
+**Property R** — corrected an over-claim that storage cost was "bounded
+by cryptography"; authenticity bounds WHO can sign, never HOW MANY
+facts — the owner-history-growth/Sybil-amplification residual is now
+named and deferred to a later Gate, not solved or hidden. **Property S**
+— confirmed by direct real-Postgres reproduction that `ingest()`'s own
+`equivocationDetected` hint can be missed by both concurrent callers in
+a genuine race, while `getLatest()`/the stored fact set remain always
+correct; documented as advisory, not hardened with new locking. All
+nineteen properties named across five correction passes (A-S, with I
+retracted rather than fixed) are now in their evidenced final state —
+tested (80 unit tests, 9 real-Postgres integration tests, including real
+`Promise.all` concurrency evidence for both Property M and Property S),
+zero regression. Full evidence, including every prior pass preserved as
+history: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`. Still proves Offer
 portability/authenticity only — no propagation, no second node, no
 network claim of any kind, and NOT general distributed consensus: the
 convergence property demonstrated here is "the same eventual facts

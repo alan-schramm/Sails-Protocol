@@ -29,11 +29,16 @@
  * (Property G). Every signed field has exactly one accepted canonical
  * lexical form (Properties B/C/D) — non-canonical input is REJECTED,
  * never silently renormalized after the fact, so the bytes that get
- * signed are always the bytes a verifier reconstructs. Owner
- * continuity (Property A) is enforced one layer up, in
- * `offer-envelope-repository.ts`'s `ingest()` — this module has no
- * notion of "history," only of "is this one envelope internally
- * well-formed and validly signed."
+ * signed are always the bytes a verifier reconstructs. This module has
+ * no notion of "history" — offer identity, revision ordering, and
+ * equivocation are all `offer-envelope-repository.ts`'s concern, not
+ * this file's; **current truth (corrected 2026-09-09, Seventh Pass):**
+ * offer identity is the pair `(ownerPublicKey, logicalOfferId)`
+ * (Property H) — there is no "owner continuity" check anywhere in this
+ * codebase, and none should be reintroduced ("first owner wins" was a
+ * confirmed defect, retracted). This file's own scope is exactly: is
+ * this one envelope internally well-formed and validly, canonically
+ * signed (Property Q)?
  */
 import nacl from 'tweetnacl'
 import { createHash } from 'crypto'
@@ -66,6 +71,84 @@ const FIELD_SEPARATOR = '\x1f'
 /** Ed25519 public key / signature hex-encoding, matching `User.publicKey`'s own existing format elsewhere in this schema. */
 const HEX_64_BYTES = /^[0-9a-f]{64}$/ // 32-byte Ed25519 public key
 const HEX_128_BYTES = /^[0-9a-f]{128}$/ // 64-byte Ed25519 signature
+
+/**
+ * CTO Gate correction (2026-09-09, Seventh Pass, Property Q). RFC 8032
+ * §5.1.7's Ed25519 verification procedure decodes a signature's second
+ * half "as an integer S, in the range 0 <= s < L" and requires that "if
+ * any of the decodings fail (including S being out of range), the
+ * signature is invalid." `L` is the order of the Ed25519 base point.
+ * Confirmed directly, by reading `tweetnacl`'s own source
+ * (`node_modules/tweetnacl/nacl-fast.js`'s `crypto_sign_open`): it never
+ * checks this — it feeds the raw 32-byte `S` straight into
+ * `scalarbase()`, which only performs a scalar multiplication (`S·B`);
+ * because `B` has order `L`, `S·B` and `(S + L)·B` are the identical
+ * curve point regardless of the 256-bit byte value of `S`, so a
+ * byte-different, non-canonical `(R, S + L)` signature verifies
+ * successfully. This is the exact mechanism Property O demonstrated —
+ * this section names precisely *why*, against the actual spec text, not
+ * merely *that* it happens.
+ */
+const ED25519_L = 2n ** 252n + 27742317777372353535851937790883648493n // Ed25519 base-point order
+
+/**
+ * RFC 8032's field prime for Curve25519/Ed25519 (`2^255 - 19`) — the
+ * bound a point's y-coordinate (the low 255 bits of its 32-byte
+ * encoding; the top bit separately encodes the sign of x) must satisfy
+ * for the encoding to be canonical. Investigated proportionally
+ * alongside Property Q's own `S < L` finding (same investigation,
+ * same-shaped fix): confirmed, by reading `unpack25519()` in the same
+ * `tweetnacl` source file, that it also performs no such bound check
+ * when decoding a public key — a public key encoded with `y >= P` would
+ * still be treated as a nominally "valid" point. Ruled out as
+ * exploitable via `R` specifically for this codebase's own signing
+ * path: `tweetnacl`'s `crypto_sign_open` never independently decodes
+ * `R` as a point at all — it recomputes `S·B + H(R,A,M)·A`, re-encodes
+ * that computed point with `pack()` (which always emits the canonical
+ * form), and compares the resulting bytes against the signature's own
+ * `R` bytes verbatim; a non-canonical `R` byte string therefore simply
+ * fails that byte comparison already, with no separate check needed.
+ * `ownerPublicKey` (`A`) has no such structural protection — checked
+ * explicitly below for the identical reason `S` is.
+ */
+const ED25519_P = 2n ** 255n - 19n // Curve25519/Ed25519 field prime
+
+function bytesToBigIntLE(bytes: Uint8Array): bigint {
+  let n = 0n
+  for (let i = bytes.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(bytes[i])
+  return n
+}
+
+/**
+ * The minimal Sails rule for canonical Ed25519 signature/key encoding
+ * (Property Q): `S` must satisfy `0 <= S < L`, and the y-coordinate
+ * encoded in `R` and in `ownerPublicKey` (`A`) must each satisfy
+ * `0 <= y < P` (the top bit of each, the sign bit, is excluded from
+ * this comparison — it is not part of `y`). Any envelope failing this
+ * is rejected as **non-canonical**, before the underlying
+ * `tweetnacl` verification call ever runs — this is the actual fix:
+ * `tweetnacl`'s own accept/reject behavior for a non-canonical `(R, S)`
+ * never changes (it still accepts `S + L`, confirmed above), Sails
+ * simply refuses to ask it about an encoding this protocol has already
+ * decided is invalid. This does not reimplement any curve arithmetic —
+ * it is a pure range check on already-decoded integers, layered in
+ * front of the existing, unmodified `nacl.sign.detached.verify()` call.
+ */
+function isCanonicalEd25519Encoding(signatureBytes: Uint8Array, publicKeyBytes: Uint8Array): boolean {
+  if (signatureBytes.length !== 64 || publicKeyBytes.length !== 32) return false
+  const yMask = (1n << 255n) - 1n // clears the sign bit (bit 255), leaving only the y-coordinate bits
+
+  const s = bytesToBigIntLE(signatureBytes.subarray(32, 64))
+  if (s >= ED25519_L) return false
+
+  const rY = bytesToBigIntLE(signatureBytes.subarray(0, 32)) & yMask
+  if (rY >= ED25519_P) return false
+
+  const aY = bytesToBigIntLE(publicKeyBytes) & yMask
+  if (aY >= ED25519_P) return false
+
+  return true
+}
 
 /**
  * Property C: exactly one accepted lexical form for a decimal amount —
@@ -322,16 +405,33 @@ export type OfferEnvelopeVerdict = { valid: true } | { valid: false; reason: str
  * reason distinct from "signature does not verify," and never reaches
  * the cryptographic check or any database call.
  *
- * **Note on scope (Property A):** this function checks only that the
- * envelope is internally well-formed and validly signed by whichever
- * key it itself claims as `ownerPublicKey`. It has no notion of
- * *prior* history — whether that claimed owner is the *same* owner
- * already accepted for this `logicalOfferId` is a continuity question
- * checked one layer up, by `OfferEnvelopeRepository.ingest()`, not
- * here. A malicious actor's own envelope, self-signed by their own
- * key, passes this function's checks every time — that is expected and
- * correct; it is `ingest()`'s job to then reject it for lacking
- * continuity with the accepted owner.
+ * **Note on scope, corrected (2026-09-09, Seventh Pass — source
+ * current-truth cleanup).** This paragraph previously described a
+ * "continuity" check "one layer up, by `OfferEnvelopeRepository.ingest()`"
+ * — that described Property A's fix (2026-09-09, Third Pass), which
+ * Property H (2026-09-09, Fourth Pass) superseded: `ingest()` no longer
+ * contains any separate owner-continuity check at all, because offer
+ * identity is the pair `(ownerPublicKey, logicalOfferId)` — every row
+ * `ingest()`/`getLatest()` can ever return for a given identity already
+ * carries that identity's own `ownerPublicKey` by construction of the
+ * query itself; there is no "first owner wins" rule to violate and none
+ * should ever be reintroduced. Current truth: this function checks only
+ * that the envelope is internally well-formed and validly, canonically
+ * signed by whichever key it itself claims as `ownerPublicKey` — it has
+ * no notion of history, offer identity, or any other envelope. A
+ * malicious actor's own envelope, self-signed by their own key, passes
+ * this function's checks every time — that is expected and correct;
+ * `logicalOfferId` reuse across different owners is not an error (see
+ * Property H).
+ *
+ * **CTO Gate correction (2026-09-09, Seventh Pass, Property Q):** a
+ * canonical-encoding check (`isCanonicalEd25519Encoding()`) now runs
+ * before the underlying `tweetnacl` verification call — see that
+ * function's own comment for the exact rule and why it's needed (two
+ * conformant Sails implementations must not disagree on a signature's
+ * validity merely because their underlying Ed25519 libraries enforce
+ * different canonical-encoding rules; `tweetnacl` itself does not
+ * enforce RFC 8032's `S < L` requirement, confirmed directly).
  */
 export function verifyOfferEnvelope(envelope: SignedOfferEnvelope): OfferEnvelopeVerdict {
   const shapeVerdict = validateOfferEnvelopeFields(envelope)
@@ -339,14 +439,26 @@ export function verifyOfferEnvelope(envelope: SignedOfferEnvelope): OfferEnvelop
     return shapeVerdict
   }
 
+  let signatureBytes: Uint8Array
+  let publicKeyBytes: Uint8Array
+  try {
+    signatureBytes = new Uint8Array(Buffer.from(envelope.signature, 'hex'))
+    publicKeyBytes = new Uint8Array(Buffer.from(envelope.ownerPublicKey, 'hex'))
+  } catch {
+    return { valid: false, reason: 'malformed signature or public key encoding' }
+  }
+
+  if (!isCanonicalEd25519Encoding(signatureBytes, publicKeyBytes)) {
+    return {
+      valid: false,
+      reason: 'signature or public key is not canonically encoded (RFC 8032 §5.1.7: S must satisfy 0 <= S < L, and the y-coordinate in R/ownerPublicKey must satisfy 0 <= y < P) — rejected before verification, not merely non-preferred',
+    }
+  }
+
   let signatureValid = false
   try {
     const digest = hashOfferEnvelope(envelope)
-    signatureValid = nacl.sign.detached.verify(
-      new Uint8Array(digest),
-      new Uint8Array(Buffer.from(envelope.signature, 'hex')),
-      new Uint8Array(Buffer.from(envelope.ownerPublicKey, 'hex'))
-    )
+    signatureValid = nacl.sign.detached.verify(new Uint8Array(digest), signatureBytes, publicKeyBytes)
   } catch {
     return { valid: false, reason: 'malformed signature or public key encoding' }
   }
