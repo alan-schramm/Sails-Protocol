@@ -13,6 +13,23 @@ adoption, a node registry, node-reward code, gossip code, or new
 schemas/APIs. Property first, mechanism second — every decision below
 states the property it satisfies before naming the mechanism.
 
+**CTO Gate Correction Pass (2026-09-09).** The original pass overclaimed
+that Pears connections are already "keyed by participant public key" —
+false; see the new §7.1 for the corrected current truth (economic
+identity and transport identity are separate, unbound today) and the
+new Day-0 requirement this creates. Also corrected in this pass: §10's
+reputation claim (narrowed to evidence/facts, not the score itself),
+§11's settlement-authorization precision (attribution ≠ funds
+authority), §16's node-economics framing (reconciling "Day-0-capable"
+with "not activated," adding a full verifiability classification), §6's
+bootstrap independence from any Satsails default list, §7's persistent-
+node-identity gap now classified as a Day-0 implementation obligation,
+§12's privacy review of the new binding requirement, and the model-
+naming ambiguity against the independent, parallel
+`docs/SAILS_NODE_SHARED_LIQUIDITY_DISCOVERY.md` (PR #98) discovery
+document. All corrections preserve the original decision (Model C,
+signed gossip) — none reverses it.
+
 ---
 
 ## Decision
@@ -33,21 +50,32 @@ does not depend on paying anyone.
 
 ## Alternatives — why they lost
 
+**Model naming reconciliation (2026-09-09, CTO Gate):** the isolated,
+parallel discovery document
+(`docs/SAILS_NODE_SHARED_LIQUIDITY_DISCOVERY.md`) uses its own A-E
+lettering for a *different* set of topology descriptions than this
+ADR's own A-E letters — the letters are **local to each document, not
+a shared vocabulary**. Compare the underlying topology descriptions
+across documents, never the letter names alone. This ADR's own letters,
+named descriptively from here on to prevent exactly this ambiguity:
+**A = Central Index, B = Federation, C = Signed Gossip, D = DHT
+Discovery, (C/D) = Hybrid.**
+
 Reusing `docs/DAY0_MULTI_OPERATOR_NETWORK_ARCHITECTURE_DISCOVERY.md`
 §15/§22's own comparison, resolved to a final decision here:
 
-- **Model A (centralized shared index):** rejected outright — directly
+- **Model A — Central Index (centralized shared index):** rejected outright — directly
   violates the frozen invariant that no Satsails-operated node may be a
   mandatory authority for membership or truth (§1 below). Not a close
   call.
-- **Model B (federated replication):** rejected for Day-0 — requires
+- **Model B — Federation (federated replication):** rejected for Day-0 — requires
   replica-set membership and conflict resolution machinery
   (operational complexity: High) with no natural relationship to any
   capability already proven in this codebase, for a property (§5's
   convergence rule) that signed-gossip already satisfies more simply.
   Not ruled out forever; revisit only if gossip's own scaling limits
   are hit in practice.
-- **Model D (DHT/content-addressed discovery):** the real runner-up —
+- **Model D — DHT Discovery (DHT/content-addressed discovery):** the real runner-up —
   HyperDHT is a genuine, already-used dependency. Rejected **for Day-0
   specifically**, not on principle, because: (a) storing structured
   Offer records in a DHT designed for peer-lookup key→address mappings
@@ -63,11 +91,12 @@ Reusing `docs/DAY0_MULTI_OPERATOR_NETWORK_ARCHITECTURE_DISCOVERY.md`
   connections) does not yet justify its added dependency and unverified
   capacity — Rube Goldberg Check: fails (a heavier mechanism than the
   problem currently requires).
-- **Hybrid C/D:** not adopted now for the same reason D alone isn't —
-  named as the most likely *next* evolution if/when gossip fan-out
-  alone stops scaling, not designed further here.
+- **Hybrid (Signed Gossip + DHT Discovery, "C/D"):** not adopted now for
+  the same reason D alone isn't — named as the most likely *next*
+  evolution if/when gossip fan-out alone stops scaling, not designed
+  further here.
 
-**Model C (signed gossip) wins** because it is the only option that
+**Model C — Signed Gossip wins** because it is the only option that
 simultaneously satisfies the sovereignty invariant, builds on an
 already-proven capability in this exact codebase (Hyperswarm/HyperDHT
 peer discovery and direct connections, `pear.service.ts`), and requires
@@ -201,18 +230,37 @@ who is "allowed" to join — there is no admission list at all. Any node
 that can establish a connection and speak the gossip protocol (§4) is a
 de facto participant.
 
+**Confirmed, 2026-09-09 (CTO Gate):** a Satsails-published default list
+is **not necessary for the network to function** — an operator may
+configure zero Satsails-provided peers and still join the network via
+any independently published bootstrap list, a direct peer address
+obtained out-of-band, or transitive peer-exchange from any single
+already-connected node. Day-0 architecture permits multiple,
+independent, operator-defined bootstrap configurations simultaneously —
+no central bootstrap registry exists or is proposed.
+
 ## 7. Node identity and Sybil
 
-**Node identity ≠ participant identity**, kept separate deliberately:
-a node's own keypair (today: HyperDHT's per-session, ephemeral
-`peerId`, confirmed this session, `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`)
-signs only gossip-relay/transport-level metadata — never an Offer's
-economic terms, which are signed solely by the participant (§2/§3).
-**Decision, made persistent for this ADR's own beta sequence (§21b):**
-a node's transport keypair should become *persistent* (a real seed,
-stored, not regenerated every session) so that peer relationships and
-gossip reputation (if any is ever built) survive restarts — a small,
-concrete, already-identified change (§21 item b), not a new primitive.
+**Property, frozen 2026-09-09:**
+
+> A Sails Node participating in network discovery must have a stable
+> operational identity across ordinary restarts.
+
+> **Node Identity ≠ Participant Identity.** Never transform node
+> identity into economic authority — a node's own key signs only
+> gossip-relay/transport-level metadata, never an Offer's economic
+> terms (§2/§3 remain participant-signed, exclusively).
+
+**Current implementation gap, classified explicitly against the
+accepted Day-0 architecture (not a future nicety):** today's node-level
+keypair is HyperDHT's per-session, ephemeral `peerId` (confirmed,
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`) — regenerated on every
+restart, satisfying neither the frozen property above nor this ADR's
+own reliance (§4, gossip relay/dedup) on stable peer relationships
+surviving ordinary restarts. **This is registered as a Day-0
+implementation obligation (§21), not a beta-hardening nicety** — a
+node whose peer identity changes on every restart cannot maintain the
+gossip peer relationships §4's own propagation model depends on.
 
 **Sybil resistance: explicitly not promised, per instruction.** No
 strong Sybil-resistance mechanism is designed here, because none is
@@ -225,6 +273,52 @@ chase either. Sybil resistance becomes a real, separate requirement
 only if/when node-economic attribution (§16) is ever activated, and is
 named there as an explicit precondition, not solved now.
 
+## 7.1 Economic Identity ↔ Transport Identity Binding (correction, 2026-09-09, CTO Gate)
+
+**Correction — the original §8 below overclaimed that Pears connections
+are already "keyed by participant public key." False, confirmed
+directly against this session's own prior work
+(`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §2/§3.3):**
+
+> **Economic participant identity = `User.publicKey`.**
+> **Transport identity = Pears/HyperDHT `peerId`.**
+> **Today: no cryptographic binding exists between them.** `peerId` is
+> generated fresh by `HyperDHT.keyPair()` with no seed on every
+> `PearNode.start()` call — cryptographically unrelated to
+> `User.publicKey`, and not even stable across sessions.
+
+**Preserved:** `Economic Identity ≠ Transport Identity` — this was
+already true before this correction and remains true after; what
+changes here is that the ADR stops *assuming* a binding exists and
+instead names the gap explicitly.
+
+**Day-0 requirement, frozen:**
+
+> A participant must be able to prove an authorized binding between its
+> economic identity and the transport identity used to establish direct
+> trade communication.
+
+**Explicitly not decided here:** the final binding format (e.g., a
+signed statement — "economic key X authorizes transport key Y for
+session/interaction Z" — or a session-scoped derivation) is a real
+cryptographic design decision this ADR does not make. **Explicitly
+forbidden:** reusing `User.publicKey` directly *as* the Pears transport
+key — collapsing the two would defeat the domain-separation reasoning
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` already established (economic
+key compromise must not equal transport key compromise, and vice
+versa). Whatever binding mechanism is eventually chosen must produce a
+*separate*, transport-scoped key, cryptographically *linked* to the
+economic identity by a verifiable statement — not identical to it.
+
+**Effect on §8 below:** every place §8 says a buyer "connects directly
+to the seller's own public key," read as: *the buyer connects to
+whatever transport identity the seller has authorized-bound to their
+economic identity, verified via that binding* — not a literal claim
+that Pears already resolves participant public keys today. §8's own
+architectural conclusion (pairwise coordination, no globalized Trade
+state) is unaffected by this correction; only the mechanism-level claim
+about *how* the connection is keyed changes.
+
 ## 8. Trade ownership / handoff
 
 **Property:** the trade must not require a "home node" whose
@@ -235,10 +329,13 @@ keys today, confirmed `docs/DAY0_...md` §12) must never become the
 **Decision: pairwise coordination, no globalized Trade state.** When
 Buyer (on Node B) discovers Seller's gossiped Offer (originally signed
 by Seller, who happens to be connected via Node A), Buyer's client
-connects **directly to Seller's own public key** via Pears — exactly
-how Pears connections already work today (keyed by participant public
-key, not by node). Node A is not an intermediary in this connection at
-all. Each party's own node persists its own local `Trade` row
+connects to **Seller's own transport identity, verified via the
+Economic Identity ↔ Transport Identity Binding (§7.1)** — *not*
+directly to `User.publicKey` itself, which corrects this section's own
+prior overclaim that Pears connections are "already keyed by
+participant public key" (§7.1 demonstrates this is false today). Node A
+is not an intermediary in this connection at all. Each party's own node
+persists its own local `Trade` row
 (`buyerId`/`sellerId` remain valid as *that node's own bookkeeping*
 references into its own `User` table) — the two rows are tied together
 by a **jointly-signed trade-open handshake**: both parties countersign
@@ -277,6 +374,28 @@ device/identity-recovery gap (`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`)
 — named as a dependency, not re-solved here.
 
 ## 10. Reputation portability
+
+**Correction, 2026-09-09 (CTO Gate).** The broad frozen claim carried
+from `docs/BACKLOG.md` ("changing node must not inherently change
+participant economic identity, reputation or historical rights") reads
+as a guarantee over the *number* itself. Narrowed to what this ADR can
+actually support:
+
+> Changing nodes must not inherently erase or invalidate portable
+> reputation evidence, participant identity, historical economic
+> facts, or historical rights.
+
+> **Reputation Evidence ≠ Reputation Score.** A node or application may
+> compute a different score from the same evidence, under its own
+> local policy, provided it does not invent or erase the underlying
+> verifiable economic facts.
+
+This is not a weaker property, only a more precise one: it protects the
+*facts* a participant can prove (a completed trade, a signed receipt),
+not any particular node's own arithmetic over those facts — the
+distinction §10 below already draws between Evidence and Score
+Calculation, now stated as the frozen property itself rather than left
+implicit.
 
 **Three things kept explicit and distinct, per instruction:**
 
@@ -318,6 +437,33 @@ change closes the gap between "this node's DB says the release was
 authorized" and "any stranger node can verify the release was
 authorized," for the ordinary (non-dispute) path.
 
+**Precision, added 2026-09-09 (CTO Gate) — what this signature does and
+does not prove:**
+
+> **Participant-signed authorization proves authorization attribution;
+> it does not by itself prove custody or funds authority.**
+
+> **Authorization Evidence ≠ Funds Authority.**
+
+A signature over "I authorize this release" is evidence of *who
+decided*, verifiable by any stranger node — it is not evidence that the
+signer *controlled the funds* being released, which is a separate,
+rail-specific fact. **Evaluated per rail, not assumed uniform:**
+`WDK_USDT_EVM` is server-custodial (one operator-held seed actually
+moves funds; the participant's authorization signature and the
+provider's own custody are two different things, confirmed
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`); `MULTISIG`/
+`LIGHTNING_HODL` are client-held-key rails where the authorizing
+signature is closer to, but still not identical to, funds authority
+(the actual PSBT/HTLC signature is the funds-authority artifact; the
+authorization-decision signature this ADR adds is a separate, simpler
+attestation of intent, useful for cross-node verification even where
+it doesn't itself move funds). This ADR closes the *attribution*
+gap (§11's own decision above); it does not claim to have unified or
+simplified each rail's own, already-disclosed custody model
+(`README.md`'s "Rail readiness" table remains the authoritative source
+on that).
+
 ## 12. Privacy
 
 **Preserved: `Shared market ≠ shared private state`.** Only signed
@@ -336,6 +482,42 @@ Network-metadata correlation (which node relayed which offer, IP-level
 observation) inherits HyperDHT/Hyperswarm's own known trade-offs,
 already accepted for today's pairwise Pears usage — not a new risk this
 ADR introduces.
+
+**Reviewed specifically, 2026-09-09 (CTO Gate), following §7.1's own
+new binding requirement:**
+
+- **Offer-signer correlation:** every gossiped `OfferEnvelope` carries
+  `ownerPublicKey` (§3) — an offer owner's economic identity is
+  inherently, permanently correlatable across every offer they ever
+  sign, by construction of the discovery mechanism itself. Not a new
+  cost introduced by this ADR beyond what any signed-advertisement
+  system requires.
+- **Node-relay metadata correlation:** unchanged from the general
+  finding above — which nodes relay which offers is observable to
+  anyone watching enough of the network, an inherent property of any
+  gossip/relay mechanism, not specific to signed offers.
+- **Economic identity ↔ transport identity binding privacy — the
+  genuinely new question §7.1 raises:** if the binding statement
+  itself (economic key → transport key) is gossiped or stored the same
+  way an Offer is, it becomes a **permanent, public link** between a
+  participant's economic identity and every transport session they've
+  ever bound to it — a materially worse correlation surface than the
+  offer-signer correlation above, since it could deanonymize *all* of
+  a participant's transport-layer activity, not just their offers.
+- **Whether the binding must be public, selectively disclosed, or
+  interaction-specific — not decided here, evidence insufficient.**
+  Three shapes are plausible and not evaluated in enough depth to
+  choose: (a) a public, offer-attached binding (simplest, worst
+  privacy — every discoverer of an offer also learns the owner's
+  current transport identity); (b) a selectively-disclosed binding
+  (shared only with the specific counterparty once a trade begins,
+  better privacy, requires an extra disclosure step in the trade-open
+  flow, §8); (c) an interaction-specific, rotating binding (a fresh
+  transport identity bound per trade/session, best privacy, most
+  mechanism complexity). **This ADR does not choose among them** — §7.1
+  registers the requirement; this section registers that its privacy
+  shape is a real, undecided design question for whatever mechanism
+  closes §21(c), not an oversight.
 
 ## 13. Professional liquidity provider
 
@@ -410,29 +592,56 @@ confirmed economic outcome, under the applicable frozen
 `DistributionPolicyVersion` (unchanged from `docs/BACKLOG.md`'s own
 prior registration).
 
-**Contribution types evaluated separately, per instruction:**
-- **Coordination** — naturally verifiable once §8's jointly-signed
-  trade handshake exists (it directly names which node each party used,
-  if that even matters — arguably coordination credit should attach to
-  *participants*, not nodes, since coordination in this ADR's own
-  design is pairwise, not node-mediated). **This is the only
-  contribution type with a plausible verification path today.**
-- **Discovery, propagation, routing** — **no verification mechanism
-  exists or is designed here.** Explicitly, **no payment is authorized
-  for gossip relaying** in this ADR — a naive "pay per message relayed"
-  design is **rejected outright** (not merely deferred) because it
-  trivially incentivizes spam and self-relay loops (relay your own
-  garbage to yourself for a stipend). Any future design for these
-  contribution types must solve that problem before activation, not
-  after.
-- **Availability** — no attestation mechanism exists; unaddressed,
-  consistent with `docs/PROTOCOL_ECONOMY.md` §4.2's own,
-  now-Day-0-capability-corrected (not Day-0-*activated*) timeline.
+**Precision added, 2026-09-09 (CTO Gate) — a third term, not two:**
+
+> **Coordination Attempt ≠ Verified Contribution ≠ Fee Entitlement.**
+
+An attempt (a node tries to relay, tries to coordinate) is not itself a
+contribution; a verified contribution (something independently checkable
+actually happened) is not itself an entitlement (the applicable
+`DistributionPolicyVersion` must still name it as eligible and specify
+its share — a policy decision, never automatic from verification
+alone).
+
+**Reconciling "Day-0-capable" with "not activated" — both true,
+explicitly not in tension:** the Product Owner's decision, already
+registered (`docs/PROTOCOL_ECONOMY.md` §4.2's own correction), is that
+independent Sails Nodes must be **economically viable participants
+from Day 0** — meaning the *architecture* must not structurally
+preclude compensation until some later phase. This ADR satisfies that
+by ensuring the one contribution type with a real verification path
+today (Coordination, below) requires no new primitive to attribute —
+it is Day-0-**capable** the moment §8/§21's own sequence lands. **This
+ADR still activates zero payment** — capability and activation are
+different decisions, and only the latter is deferred here, by design,
+not by oversight.
+
+**Contribution types evaluated separately, classified by verifiability
+today, not assumed legitimate:**
+
+| Contribution | Verifiability today | Basis |
+|---|---|---|
+| **Participant-facing coordination** (a node was genuinely used by a real participant to reach a real, confirmed trade) | **Verifiable** | Directly derivable from the already-durable `Trade`/`Escrow` rows plus §8's jointly-signed trade-open handshake — no new proof primitive needed. **The only contribution type with a plausible verification path today.** |
+| **Trade-serving node** (as above, viewed from the node's own operational side — did serving this participant actually produce a confirmed outcome) | **Verifiable**, same basis as above — arguably the same fact from the node-operator's own accounting perspective, not a separate contribution type requiring separate proof. |
+| **Discovery / propagation** (a node helped an offer be found/relayed) | **Potentially verifiable** — *only if* the propagation mechanism itself is signed/versioned (§9's own revision requirement); even then, no design here proves *which specific hop* mattered to a specific outcome. Not verifiable with any mechanism that exists today. |
+| **Routing** | **Not currently verifiable** — same gap as discovery/propagation, no proof mechanism proposed. |
+| **Settlement contribution** (a node's own settlement-provider infrastructure processed a release/refund) | **Potentially verifiable** — the transaction hash and (once §11 lands) the signed release authorization are both real, checkable artifacts; attributing them to a specific *node's own infrastructure* rather than the settlement provider itself is not yet designed. |
+
+**Explicitly, no payment is authorized for gossip relaying in this
+ADR** — a naive "pay per message relayed" design is **rejected
+outright** (not merely deferred) because it trivially incentivizes
+spam and self-relay loops (relay your own garbage to yourself for a
+stipend). Any future design for the "potentially verifiable" and "not
+currently verifiable" rows must close that gap before activation, not
+after. **Availability** — no attestation mechanism exists; unaddressed,
+consistent with `docs/PROTOCOL_ECONOMY.md` §4.2's own,
+now-Day-0-capability-corrected (not Day-0-*activated*) timeline.
 
 **No node economics are activated by this ADR.** This is a deliberate,
 load-bearing choice, not an oversight: it is what makes §7's Sybil-
 resistance deferral and §17's incentive test both hold cleanly at
-Day-0.
+Day-0, while leaving the architecture itself Day-0-capable per the
+reconciliation above.
 
 ## 17. No-cannibalization incentive test
 
@@ -495,27 +704,38 @@ two items in this entire ADR granted that status):
 **(a) Portable signed Offers** — `logicalOfferId`, canonical
 serialization, Ed25519 signature, `revision`/`expiresAt`/tombstone
 semantics (§3).
-**(b) Propagation/bootstrap** — persistent node transport keypair
-(§7), bootstrap peer list, flood-gossip with revision-dedup (§4/§6).
-**(c) Multi-node discovery/convergence** — highest-revision-wins
+**(b) Persistent node identity** — a stable operational node keypair
+across ordinary restarts (§7), closing the confirmed current gap
+(ephemeral, per-session `peerId`) this ADR's own gossip model (§4)
+depends on.
+**(c) Economic Identity ↔ Transport Identity Binding** — the
+participant-signed statement binding `User.publicKey` to a
+session/interaction-scoped transport identity (§7.1) — **added
+2026-09-09, a genuinely new Day-0 sequence item**, since without it
+step (e) below has no real mechanism to connect the discovering buyer
+to the actual offer owner.
+**(d) Propagation/bootstrap** — bootstrap peer list, flood-gossip with
+revision-dedup (§4/§6), building on (b)'s now-stable node identity.
+**(e) Multi-node discovery/convergence** — highest-revision-wins
 verification at the receiving node (§5), feeding into the existing
 local `Offer` table.
-**(d) Cross-node trade coordination** — jointly-signed trade-open
-handshake, pairwise Pears connection keyed by participant public key,
-not node (§8).
-**(e) Pagination/discovery scaling** — fix the stale
+**(f) Cross-node trade coordination** — jointly-signed trade-open
+handshake, pairwise Pears connection to the seller's transport
+identity as authorized by (c)'s binding, not a claimed direct
+public-key connection (§7.1/§8).
+**(g) Pagination/discovery scaling** — fix the stale
 `examples/simple-wallet` documentation, verify existing pagination/
 filter code against a multi-source local offer table, add the
 capability/rail pre-creation discovery surface (§14/§15).
-**(f) Professional provider flow** — inventory reservation/optimistic
+**(h) Professional provider flow** — inventory reservation/optimistic
 locking on the offer owner's own node (§13); quote expiry and min/max
 already covered by (a).
-**(g) Restart/offline/resume** — extend existing intra-node durability
+**(i) Restart/offline/resume** — extend existing intra-node durability
 with the jointly-signed trade handshake as the cross-node re-anchor
 point (§9).
-**(h) Stranger-node test** (§18).
-**(i) Stranger-developer test** (§19).
-**(j) First independent partner-wallet beta** (§20).
+**(j) Stranger-node test** (§18).
+**(k) Stranger-developer test** (§19).
+**(l) First independent partner-wallet beta** (§20).
 
 **Deferred past Day-0 beta, named explicitly, not silently dropped:**
 partial fill (§13); outbound webhook delivery (§13); any node-economic
@@ -600,3 +820,14 @@ update for the itemized new delta (the §21 implementation sequence
 itself, registered as the executable form of the existing obligation,
 plus the settlement-release-signature requirement from §11, which is a
 genuinely new, previously-unregistered obligation on its own).
+
+**Updated 2026-09-09 (CTO Gate correction pass) — two further genuinely
+new obligations**, surfaced by this correction and by reconciling
+`docs/SAILS_NODE_SHARED_LIQUIDITY_DISCOVERY.md`'s (PR #98) independent
+findings: **Economic Identity ↔ Transport Identity Binding** (§7.1) and
+**Persistent Node Identity** (§7) — both now registered as Day-0
+implementation-sequence items (§21 (b)/(c)), both genuinely new (neither
+was represented anywhere in this repository before this pass), neither
+duplicating an existing entry. See `docs/BACKLOG.md`'s own updated
+entry for the full registration and the explicit check against
+duplication with PR #98's own candidate list.

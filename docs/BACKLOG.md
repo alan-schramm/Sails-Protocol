@@ -1379,22 +1379,67 @@ surfaced:
    not previously named anywhere in this file, `docs/TODO.md`, or any
    Issue. No new primitive — reuses the exact existing signature/
    verification mechanism.
-2. **The Implementation Sequence itself (ADR-001 §21)** — (a) portable
-   signed Offers, (b) propagation/bootstrap, (c) multi-node discovery/
-   convergence, (d) cross-node trade coordination, (e) pagination/
-   discovery-scaling wiring, (f) professional-provider inventory
-   locking, (g) cross-node restart/resume, (h) stranger-node test, (i)
-   stranger-developer test, (j) first independent partner-wallet beta —
+2. **The Implementation Sequence itself (ADR-001 §21, updated 2026-09-09
+   to insert two new Day-0 items)** — (a) portable signed Offers, (b)
+   persistent node identity, (c) Economic Identity ↔ Transport Identity
+   Binding, (d) propagation/bootstrap, (e) multi-node discovery/
+   convergence, (f) cross-node trade coordination, (g) pagination/
+   discovery-scaling wiring, (h) professional-provider inventory
+   locking, (i) cross-node restart/resume, (j) stranger-node test, (k)
+   stranger-developer test, (l) first independent partner-wallet beta —
    registered as the concrete, ordered obligation that supersedes this
    file's own prior "16 evidence-required properties" framing (still
    accurate as *scope*, now given an actual build order). Explicitly
    **not** authorized for implementation by the ADR or this entry —
    requires its own separate CTO Gate before any step begins.
 
+**Updated 2026-09-09 (CTO Gate correction + PR #98 reconciliation) —
+two further genuinely new obligations**, neither previously
+represented anywhere in this repository:
+
+3. **Economic Identity ↔ Transport Identity Binding (ADR-001 §7.1).**
+   Correction: the ADR originally overclaimed Pears connections are
+   "already keyed by participant public key" — confirmed false against
+   this session's own prior work (`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`
+   §2/§3.3: `User.publicKey` and Pears' `peerId` are today
+   cryptographically unrelated and `peerId` isn't even session-stable).
+   Registered: `"A participant must be able to prove an authorized
+   binding between its economic identity and the transport identity
+   used to establish direct trade communication."` Final binding format
+   explicitly not chosen (a real cryptographic design decision);
+   explicitly forbidden: reusing `User.publicKey` directly as the Pears
+   transport key.
+4. **Persistent Node Identity (ADR-001 §7).** `"A Sails Node
+   participating in network discovery must have a stable operational
+   identity across ordinary restarts."` Today's node-level identity
+   (HyperDHT's ephemeral, per-session `peerId`) is classified as a
+   **current implementation gap against the accepted Day-0
+   architecture**, not a future nicety — the ADR's own gossip model
+   (§4) depends on stable peer relationships surviving restarts.
+
+**Reconciled against PR #98's (`docs/SAILS_NODE_SHARED_LIQUIDITY_DISCOVERY.md`)
+own 9 backlog-delta candidates, checked before registering, per its own
+explicit isolation instruction not to duplicate:** professional-provider
+flow, liquidity-discovery scaling, Partner Beta Readiness, privacy
+minimization, Sybil resistance, and node economics are **all already
+represented** in this file's own Partner Beta and Day-0 entries above —
+**not re-registered here.** PR #98's remaining three candidates
+(signed Offer envelope, jointly-signed trade-open handshake, signed
+ordinary-release authorization) were **already registered** by this
+same ADR-001 entry (items 1/2 above) before PR #98 was even opened —
+confirmed, not assumed, by direct comparison. **Only the
+`reputation@NodeA`/`NodeB` demonstrated-identity-split candidate and
+the two items above (3/4) were genuinely new** — the identity-split
+fact is not separately re-registered as its own delta, since it is
+exactly what item 3's binding requirement exists to eventually close;
+registering both would be the same obligation counted twice.
+
 **Explicitly deferred past Day-0 beta, named not dropped** (ADR-001
 §21's own residual list): partial fill; outbound webhook delivery; any
-node-economic payment activation (§16 of the ADR activates none); a
-formal Sybil-resistance mechanism; Model D/hybrid propagation.
+node-economic payment activation (§16 of the ADR activates none — the
+architecture is Day-0-*capable*, per `docs/PROTOCOL_ECONOMY.md` §4.2's
+own correction, without any payment being *activated* here); a formal
+Sybil-resistance mechanism; Model D/hybrid propagation.
 
 **Not registered as new deltas** — already covered by existing
 representation: the professional-provider quote-expiry/min-max gaps
