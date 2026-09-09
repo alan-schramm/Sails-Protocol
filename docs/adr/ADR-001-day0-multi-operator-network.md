@@ -975,3 +975,157 @@ sequence" obligation twice. Checked against `docs/PROTOCOL_ECONOMY.md`
 §4.2 — no duplication: that section's own Node Operator Pool/routing-
 fee content is the future payout-*rollout* layer; §21(j)/(k) are the
 Day-0 accounting/entitlement-*capability* layer underneath it.
+
+
+## 26. Day-0 Completeness Cold Sweep — implementation consequence (2026-09-09)
+
+**This section does not change the accepted topology decision.** Signed
+Offer envelopes + direct node-to-node gossip remain the Day-0
+architecture. It corrects a completeness omission in §21: a clean
+happy-path propagation flow is not enough to demonstrate one durable
+economic market across time, failure and adversarial network
+conditions.
+
+Full evidence/registration:
+`docs/DAY0_COMPLETENESS_COLD_SWEEP.md`.
+
+The §21 implementation sequence is therefore interpreted as requiring
+the following additional properties before the corresponding evidence
+gates can pass:
+
+### 26.1 Propagation completeness
+
+§21(d)/(e) **Propagation/bootstrap + discovery/convergence** are not
+complete until they also demonstrate:
+
+- late-joining-node catch-up / anti-entropy;
+- partition healing;
+- delivery of revisions/tombstones created while a node was offline;
+- stale-resurrection prevention after local compaction/garbage
+  collection.
+
+> **New-event gossip ≠ Network convergence over time.**
+
+### 26.2 Node discoverability and compatibility
+
+§21(b)/(d)/(g) are not complete until a peer can self-authenticate the
+minimum information required to decide whether interaction is safe:
+
+- persistent node identity;
+- reachable endpoint/transport information;
+- compatible protocol/wire version;
+- relevant enabled capabilities;
+- relevant settlement rails with disclosed maturity/custody posture;
+- applicable node fee/policy disclosure;
+- freshness/expiry of that advertisement.
+
+No central node registry is authorized.
+
+> **Node discoverability ≠ Node authority.**
+
+### 26.3 Node identity lifecycle
+
+§21(b)'s “persistent node identity” means more than “write a private key
+to disk.” Before production it must define bounded behavior for backup,
+loss, compromise, rotation/replacement and superseded-key distrust.
+
+Preserved and strengthened:
+
+> **Node Identity ≠ Participant Identity ≠ Operator Economic Recipient.**
+
+This section does not authorize a new operator-identity primitive.
+
+### 26.4 Network-view resilience
+
+§21(d)/(e) and §21(k)'s no-cannibalization evidence must include
+adversarial topology, not only honest topology:
+
+- selective forwarding;
+- one malicious bootstrap/relay peer;
+- attempted eclipse/isolation;
+- alternate honest paths;
+- peer diversity/rotation sufficient to avoid one operator defining a
+  node's entire market view.
+
+No perfect censorship-resistance claim is created.
+
+### 26.5 Resource safety
+
+A valid signature proves authorship, not economic relevance. Gossip
+implementation must have explicit, testable resource bounds for message
+size, ingress rate, duplicate/revision cache growth, tombstone
+retention, malformed messages, signature-verification amplification,
+peer count and backpressure.
+
+Formal Sybil resistance remains separately tracked exactly as §7
+already states.
+
+### 26.6 Clock-dependent expiry
+
+`revision` ordering remains clock-independent as already frozen.
+`expiresAt`, however, is evaluated against local time. Production node
+operation must therefore define a bounded clock-health expectation and
+visible degraded/fail behavior for materially incorrect clocks.
+
+No global clock or consensus-time mechanism is introduced.
+
+### 26.7 Node switching / operator independence evidence
+
+§21(i)/(l)/(n) are not complete if a wallet can technically connect to
+another node but loses its economic continuity when doing so.
+
+Evidence must establish that node switching does not inherently erase
+or redefine:
+
+- participant identity;
+- signed trade-open anchors;
+- portable evidence;
+- historical economic rights;
+- access to the same reachable liquidity universe.
+
+Local policy and locally-computed reputation scores may differ.
+
+### 26.8 Independent node-operator test
+
+Add an operator-side evidence gate alongside Stranger Node and Stranger
+Developer:
+
+> A competent independent operator, with no private Satsails assistance,
+> can deploy, configure, join, observe, upgrade, back up, recover and
+> safely stop a conformant Sails Node using only public supported
+> artifacts.
+
+This is a **Day-0 operational decentralization property**, not merely
+documentation polish.
+
+### 26.9 Production service event consumption
+
+§13's outbound-webhook deferral remains valid for the first partner beta,
+but it is not a production waiver. Before public production, a
+backend/service integrator must have a documented recoverable way to
+consume economically relevant state changes without relying on a
+best-effort WebSocket session that can lose continuity.
+
+No delivery mechanism is selected by this ADR correction.
+
+### 26.10 Added evidence cases
+
+The evidence program must now explicitly include:
+
+1. Late Join Test.
+2. Partition Heal Test.
+3. Tombstone Resurrection Test.
+4. Malicious Selective Forwarding Test.
+5. Eclipse / Bootstrap Diversity Test.
+6. Node Descriptor Authenticity / Staleness Test.
+7. Wire-Version Mismatch Test.
+8. Node-Key Rotation / Compromise Test.
+9. Node Switch / Economic Continuity Test.
+10. Gossip Resource-Exhaustion Test.
+11. Clock-Skew / Offer-Expiry Test.
+12. Independent Node Operator No-Assistance Test.
+
+These are implementation/evidence consequences of the already-accepted
+architecture, not a new topology model.
+
+**BACKLOG DELTA:** DETECTED AND SYNCED in `docs/BACKLOG.md`.
