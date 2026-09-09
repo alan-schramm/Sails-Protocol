@@ -253,8 +253,15 @@ Sails adopts a **signed-offer, pairwise-gossip** network model:
 economic advertisements (`Offer`s) become self-authenticating, signed
 envelopes with a creator-assigned logical identity, propagated between
 nodes over direct Hyperswarm/HyperDHT connections (already a proven
-capability in this codebase) using flood-gossip with revision-based
-deduplication — **not** a DHT-stored, content-addressed advertisement
+capability in this codebase) using flood-gossip with signed-fact/
+content-derived deduplication (`contentDigest` — dedup key = signed
+fact identity, not revision; revision determines ordering and
+current-state selection only, §3/§5; a lower or equal revision is not,
+by itself, sufficient reason to discard a previously-unseen valid fact,
+§21(a) Property P — **corrected 2026-09-09, Eighth Pass**: this
+paragraph previously read "revision-based deduplication," directly
+contradicting §3/§4's own Sixth Pass corrections and Property N) —
+**not** a DHT-stored, content-addressed advertisement
 system, and **not** a federated/replicated shared database. Trade
 coordination remains pairwise between the two actual counterparties;
 no Trade, Escrow, or reputation state is globally replicated. No node
@@ -370,7 +377,7 @@ shape.
 | `logicalOfferId` | Creator-assigned UUID, signed, **creator-local only** — it names an offer within one owner's own numbering, never a globally-unique object by itself. **Corrected (2026-09-09, Fourth Pass):** the canonical offer identity is the *pair* `(ownerPublicKey, logicalOfferId)`, not `logicalOfferId` alone — see §5's correction below for why treating a bare `logicalOfferId` as the identity was itself a confirmed defect. Still the key architectural move relative to `Offer.id` (a node-local DB primary key): the pair decouples "this is the same offer" from "which node's row it happens to be" — any node can recognize the same offer regardless of local storage. |
 | `ownerPublicKey` | The existing `User.publicKey` — no new identity concept. Also, as of the Fourth Pass correction above, half of the canonical offer identity itself, not merely a field on it. |
 | `asset`, `side`, `priceUsd`, `minAmount`, `maxAmount`, `paymentMethod` | The existing economic terms (`Offer` model, unchanged shape). |
-| `revision` | Strictly increasing integer per **offer identity** `(ownerPublicKey, logicalOfferId)` — corrected from an earlier "per `logicalOfferId`" phrasing, same reason as above — chosen by the owner. Both the convergence mechanism (§5) and replay protection. |
+| `revision` | Strictly increasing integer per **offer identity** `(ownerPublicKey, logicalOfferId)` — corrected from an earlier "per `logicalOfferId`" phrasing, same reason as above — chosen by the owner. The convergence/current-state-selection mechanism (§5). **Corrected (2026-09-09, Eighth Pass):** this row previously also called `revision` itself the "replay protection" — imprecise; replay protection (deduplication) is by signed-fact identity (`contentDigest`), not `revision` (§3's own "Replay protection" paragraph, Property N/O). |
 | `createdAt` | Owner-supplied, signed (tamper-evident — no relay can alter it without invalidating the signature), advisory only — never used for cross-node ordering (§5 uses `revision`, not wall-clock time, precisely because clocks aren't trusted across nodes). **Corrected (2026-09-09, Fifth Pass):** this row previously also said "immutable across revisions" as an enforced rule. Reproduced directly that enforcing this against a node's own locally-first-observed value is itself order-dependent and non-convergent — retracted as an enforced protocol rule, narrowed to what it always structurally was: signed and advisory, nothing more. |
 | `revisedAt` | Owner-supplied per revision, signed, same advisory status. |
 | `expiresAt` | Owner-supplied, signed. Self-enforcing (§2). |
@@ -437,9 +444,13 @@ already does today.
 
 **Rule, already stated in §3/§4: highest verified `revision` wins,
 scoped to one offer identity `(ownerPublicKey, logicalOfferId)`.** A
-node that has verified revision N for an offer identity ignores any
+node that has verified revision N for an offer identity treats any
 later-arriving envelope for that identity with revision strictly below
-N, and adopts any verified envelope with revision > N. This requires no
+N as **not current** (this is a CURRENT-STATE / convergence question,
+answered independently of whether that envelope is also retained as
+historical/equivocation evidence — §3's own replay-protection paragraph
+and §21(a) Property P), and adopts any verified envelope with revision
+> N as the new current state. This requires no
 central tie-breaker because only the owner's own key can ever produce a
 valid signature at any revision *for that identity* — there is
 structurally no cross-owner conflict to arbitrate within one offer
