@@ -71,6 +71,53 @@ function signedEnvelope(content: ReturnType<typeof baseContent>, secretKeyHex: s
   return { ...content, signature: signOfferEnvelope(content as any, secretKeyHex) }
 }
 
+/**
+ * A small in-memory fake standing in for `prisma.offerEnvelope`, shared
+ * by every describe block below that needs to prove behavior across
+ * MULTIPLE `ingest()`/`getLatest()` calls (a bare `mockResolvedValue`
+ * can't express "what a real database would actually contain after
+ * these prior writes"). Module-scoped (not redefined per describe
+ * block, CTO Gate correction 2026-09-09, Sixth Pass) so every caller
+ * gets the identical, single source of truth for this behavior.
+ *
+ * **Simulates the real DB's own unique constraint**
+ * (`@@unique([ownerPublicKey, logicalOfferId, revision, contentDigest])`,
+ * `prisma/schema.prisma`) on `create()`: inserting a row whose four key
+ * fields already match an existing row throws a shape-accurate
+ * `{code: 'P2002'}` error — the exact real error `ingest()`'s own
+ * `catch` block is written to handle (Property M) — rather than
+ * silently allowing a duplicate the real database would have rejected.
+ */
+function useInMemoryOfferEnvelopeStore(): void {
+  const rows: any[] = []
+  mockFindFirst.mockImplementation(async ({ where, orderBy }: any) => {
+    const matches = rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v))
+    if (matches.length === 0) return null
+    matches.sort((a: any, b: any) => (orderBy?.revision === 'desc' ? b.revision - a.revision : a.revision - b.revision))
+    return matches[0]
+  })
+  mockFindMany.mockImplementation(async ({ where }: any) => {
+    return rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v))
+  })
+  mockCreate.mockImplementation(async ({ data }: any) => {
+    const duplicate = rows.find(
+      (r: any) =>
+        r.ownerPublicKey === data.ownerPublicKey &&
+        r.logicalOfferId === data.logicalOfferId &&
+        r.revision === data.revision &&
+        r.contentDigest === data.contentDigest
+    )
+    if (duplicate) {
+      const err: any = new Error('Unique constraint failed on the fields: (`ownerPublicKey`,`logicalOfferId`,`revision`,`contentDigest`)')
+      err.code = 'P2002'
+      throw err
+    }
+    const row = { id: `row-${rows.length}`, ...data }
+    rows.push(row)
+    return row
+  })
+}
+
 describe('OfferEnvelope — canonical serialization (deterministic vectors)', () => {
   it('15. produces byte-identical canonical output for identical input, twice', () => {
     const { publicKeyHex } = makeKeypair()
@@ -231,7 +278,19 @@ describe('OfferEnvelope — signature verification (adversarial)', () => {
   })
 })
 
-describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, tombstones', () => {
+describe('OfferEnvelopeRepository.ingest() — storage, tombstones, idempotency (CTO Gate correction 2026-09-09, Sixth Pass, Property P: Option B)', () => {
+  // CTO Gate correction (2026-09-09, Sixth Pass, Property P): `ingest()`
+  // no longer calls `findFirst` to compare against a "highest" revision
+  // at all — revision-based rejection is gone entirely (Option B: every
+  // validly-signed envelope is retained, regardless of whether its
+  // revision is higher, equal to, or LOWER than anything already known,
+  // since a lower revision may still be genuine historical/equivocation
+  // evidence this node has simply never seen before). `ingest()` now
+  // only ever calls `findMany` (to label equivocation in its own return
+  // value) and `create()` (relying on the DB's own atomic uniqueness
+  // constraint for idempotency, Property M). `findFirst` is used only
+  // by `getLatest()`, a separate method answering a separate question
+  // (CURRENT state, not "should this be stored").
   let repo: InstanceType<typeof OfferEnvelopeRepository>
 
   beforeEach(() => {
@@ -247,13 +306,12 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
     const envelope = { ...baseContent({}, publicKeyHex), signature: 'ff'.repeat(64) }
     const result = await repo.ingest(envelope as any)
     expect(result.accepted).toBe(false)
-    expect(mockFindFirst).not.toHaveBeenCalled()
+    expect(mockFindMany).not.toHaveBeenCalled()
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
-  it('9. a higher revision supersedes a previously-stored one and is accepted', async () => {
+  it('9. a higher revision than anything previously known is accepted', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex, createdAt: new Date('2026-09-09T00:00:00.000Z') })
     mockCreate.mockResolvedValue({ id: 'row-2' })
 
     const envelope = signedEnvelope(baseContent({ revision: 2 }, publicKeyHex), secretKeyHex)
@@ -263,26 +321,27 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
     expect(mockCreate).toHaveBeenCalledTimes(1)
   })
 
-  it('10. a lower revision does not overwrite the newer stored one', async () => {
-    // CTO Gate correction (2026-09-09), Property J: the EQUAL-revision
-    // case is no longer part of this test — a revision equal to the
-    // current highest is now either an idempotent resend or owner
-    // equivocation (see the dedicated Property J describe block below),
-    // never a blanket rejection. This test covers only the unambiguous
-    // case: a genuinely STALE, lower revision.
+  it('10. REVERSED (Property P, Option B): a revision lower than one already known is now ACCEPTED and stored as historical/equivocation evidence, not rejected as stale', async () => {
+    // Pre-Sixth-Pass, this exact scenario was named "an equal-or-lower
+    // revision does not overwrite the newer stored one" and asserted
+    // `accepted: false`. Reproduced directly (Property P): rejecting a
+    // late-arriving lower revision purely because a higher one is
+    // already known makes a node's retained EVIDENCE depend on arrival
+    // order, even though CURRENT-STATE selection does not. This test
+    // now proves the corrected behavior — the opposite assertion,
+    // deliberately.
     const { publicKeyHex, secretKeyHex } = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 5, ownerPublicKey: publicKeyHex, createdAt: new Date('2026-09-09T00:00:00.000Z') })
+    mockCreate.mockResolvedValue({ id: 'row-historical' })
 
     const lowerRevision = signedEnvelope(baseContent({ revision: 3 }, publicKeyHex), secretKeyHex)
-    const resultLower = await repo.ingest(lowerRevision as any)
+    const result = await repo.ingest(lowerRevision as any)
 
-    expect(resultLower.accepted).toBe(false)
-    expect(mockCreate).not.toHaveBeenCalled()
+    expect(result).toEqual({ accepted: true, id: 'row-historical' })
+    expect(mockCreate).toHaveBeenCalledTimes(1)
   })
 
-  it('11. a validly-signed tombstone (CANCELLED at a higher revision) is accepted', async () => {
+  it('11. a validly-signed tombstone (CANCELLED) is accepted', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex, createdAt: new Date('2026-09-09T00:00:00.000Z') })
     mockCreate.mockResolvedValue({ id: 'row-cancel' })
 
     const tombstone = signedEnvelope(baseContent({ revision: 2, status: 'CANCELLED' }, publicKeyHex), secretKeyHex)
@@ -297,7 +356,6 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
   it('12. a tombstone with a forged/invalid signature is rejected, never stored', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
     const attacker = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex, createdAt: new Date('2026-09-09T00:00:00.000Z') })
 
     const real = signedEnvelope(baseContent({ revision: 2, status: 'CANCELLED' }, publicKeyHex), secretKeyHex)
     const forged = { ...real, signature: signOfferEnvelope(real as any, attacker.secretKeyHex) }
@@ -307,9 +365,8 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
-  it('COBRA check: the stored row carries the real signature, never a bare "trusted" boolean', async () => {
+  it('COBRA check: the stored row carries the real signature AND a re-derivable contentDigest, never a bare "trusted" boolean', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
-    mockFindFirst.mockResolvedValue(null)
     mockCreate.mockResolvedValue({ id: 'row-1' })
 
     const envelope = signedEnvelope(baseContent({}, publicKeyHex), secretKeyHex)
@@ -317,6 +374,7 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
 
     const createCall = mockCreate.mock.calls[0][0]
     expect(createCall.data.signature).toBe(envelope.signature)
+    expect(createCall.data.contentDigest).toBe(hashOfferEnvelope(envelope as any).toString('hex'))
     expect(createCall.data).not.toHaveProperty('trusted')
     expect(createCall.data).not.toHaveProperty('verified')
   })
@@ -334,30 +392,12 @@ describe('OfferEnvelopeRepository.ingest() — offer identity is order-independe
   // different owners choosing the same string were never making a
   // competing claim over one object.
   //
-  // These tests use a small in-memory fake in place of the jest.fn()
-  // mocks used elsewhere in this file, because proving order-independence
-  // genuinely requires persisted state across multiple ingest() calls
-  // (a bare mockResolvedValue can't express "what a real database would
-  // actually contain after these prior writes"). Exported at module
-  // scope-ish via closure so the Property J/L describe blocks below reuse
-  // the identical helper rather than a slightly-different copy.
-  function useInMemoryStore(): void {
-    const rows: any[] = []
-    mockFindFirst.mockImplementation(async ({ where, orderBy }: any) => {
-      const matches = rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v))
-      if (matches.length === 0) return null
-      matches.sort((a: any, b: any) => (orderBy?.revision === 'desc' ? b.revision - a.revision : a.revision - b.revision))
-      return matches[0]
-    })
-    mockFindMany.mockImplementation(async ({ where }: any) => {
-      return rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v))
-    })
-    mockCreate.mockImplementation(async ({ data }: any) => {
-      const row = { id: `row-${rows.length}`, ...data }
-      rows.push(row)
-      return row
-    })
-  }
+  // Uses the shared `useInMemoryOfferEnvelopeStore()` (module scope,
+  // above) in place of the jest.fn() mocks used elsewhere in this file,
+  // because proving order-independence genuinely requires persisted
+  // state across multiple ingest() calls (a bare mockResolvedValue can't
+  // express "what a real database would actually contain after these
+  // prior writes").
 
   beforeEach(() => {
     mockFindFirst.mockReset()
@@ -378,7 +418,7 @@ describe('OfferEnvelopeRepository.ingest() — offer identity is order-independe
     const malloryEnvelope = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, mallory.publicKeyHex), mallory.secretKeyHex)
 
     // "Node A": Alice arrives first, Mallory second.
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repoA = new OfferEnvelopeRepository()
     const rA1 = await repoA.ingest(aliceEnvelope as any)
     const rA2 = await repoA.ingest(malloryEnvelope as any)
@@ -386,7 +426,7 @@ describe('OfferEnvelopeRepository.ingest() — offer identity is order-independe
     const malloryLatestOnA = await repoA.getLatest(mallory.publicKeyHex, 'X')
 
     // "Node B": Mallory arrives first, Alice second — same two facts, opposite order.
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repoB = new OfferEnvelopeRepository()
     const rB1 = await repoB.ingest(malloryEnvelope as any)
     const rB2 = await repoB.ingest(aliceEnvelope as any)
@@ -407,7 +447,7 @@ describe('OfferEnvelopeRepository.ingest() — offer identity is order-independe
   })
 
   it('cross-owner collision test: two owners using the identical creator-local logicalOfferId are both independently valid — neither is rejected, blocked, or superseded by the other', async () => {
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repo = new OfferEnvelopeRepository()
     const alice = makeKeypair()
     const mallory = makeKeypair()
@@ -428,7 +468,7 @@ describe('OfferEnvelopeRepository.ingest() — offer identity is order-independe
   })
 
   it('cross-owner cancellation test: one owner cancelling their offer has zero effect on a different owner\'s offer at the identical logicalOfferId', async () => {
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repo = new OfferEnvelopeRepository()
     const alice = makeKeypair()
     const mallory = makeKeypair()
@@ -449,7 +489,7 @@ describe('OfferEnvelopeRepository.ingest() — offer identity is order-independe
   })
 
   it('same-owner revision test: a legitimate higher revision supersedes only that owner\'s own prior revision, with zero effect on a different owner\'s offer at the identical logicalOfferId', async () => {
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repo = new OfferEnvelopeRepository()
     const alice = makeKeypair()
     const mallory = makeKeypair()
@@ -475,7 +515,7 @@ describe('OfferEnvelopeRepository.ingest() — offer identity is order-independe
     const aliceRev1 = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 1 }, alice.publicKeyHex), alice.secretKeyHex)
 
     // History A: Alice/X/0, Mallory/X/0, Alice/X/1
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repoA = new OfferEnvelopeRepository()
     await repoA.ingest(aliceRev0 as any)
     await repoA.ingest(malloryRev0 as any)
@@ -484,7 +524,7 @@ describe('OfferEnvelopeRepository.ingest() — offer identity is order-independe
     const malloryFinalA = expectResolved(await repoA.getLatest(mallory.publicKeyHex, 'X'))
 
     // History B: Mallory/X/0, Alice/X/0, Alice/X/1 — same facts, different order.
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repoB = new OfferEnvelopeRepository()
     await repoB.ingest(malloryRev0 as any)
     await repoB.ingest(aliceRev0 as any)
@@ -499,7 +539,7 @@ describe('OfferEnvelopeRepository.ingest() — offer identity is order-independe
   })
 
   it('the first envelope for a new offer identity is accepted with no prior history to check — not "first-writer-wins" over a shared namespace, simply the first fact about THIS owner\'s THIS logicalOfferId', async () => {
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repo = new OfferEnvelopeRepository()
     const alice = makeKeypair()
 
@@ -582,31 +622,15 @@ describe('OfferEnvelope — createdAt is advisory only, not enforced (Property K
     const rev0 = signedEnvelope(rev0Content, alice.secretKeyHex)
     const rev2 = signedEnvelope(rev2Content, alice.secretKeyHex)
 
-    function useInMemoryStore(): void {
-      const rows: any[] = []
-      mockFindFirst.mockImplementation(async ({ where, orderBy }: any) => {
-        const matches = rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v))
-        if (matches.length === 0) return null
-        matches.sort((a: any, b: any) => (orderBy?.revision === 'desc' ? b.revision - a.revision : a.revision - b.revision))
-        return matches[0]
-      })
-      mockFindMany.mockImplementation(async ({ where }: any) => rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v)))
-      mockCreate.mockImplementation(async ({ data }: any) => {
-        const row = { id: `row-${rows.length}`, ...data }
-        rows.push(row)
-        return row
-      })
-    }
-
     // Node A: rev0 → rev2 (the true historical order).
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repoA = new OfferEnvelopeRepository()
     await repoA.ingest(rev0 as any)
     await repoA.ingest(rev2 as any)
     const finalA = await repoA.getLatest(alice.publicKeyHex, rev0Content.logicalOfferId)
 
     // Node B: rev2 → rev0 — same two facts, opposite order.
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repoB = new OfferEnvelopeRepository()
     await repoB.ingest(rev2 as any)
     await repoB.ingest(rev0 as any)
@@ -620,22 +644,6 @@ describe('OfferEnvelope — createdAt is advisory only, not enforced (Property K
 })
 
 describe('OfferEnvelopeRepository.ingest() — owner equivocation (Property J, CTO Gate correction 2026-09-09)', () => {
-  function useInMemoryStore(): void {
-    const rows: any[] = []
-    mockFindFirst.mockImplementation(async ({ where, orderBy }: any) => {
-      const matches = rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v))
-      if (matches.length === 0) return null
-      matches.sort((a: any, b: any) => (orderBy?.revision === 'desc' ? b.revision - a.revision : a.revision - b.revision))
-      return matches[0]
-    })
-    mockFindMany.mockImplementation(async ({ where }: any) => rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v)))
-    mockCreate.mockImplementation(async ({ data }: any) => {
-      const row = { id: `row-${rows.length}`, ...data }
-      rows.push(row)
-      return row
-    })
-  }
-
   beforeEach(() => {
     mockFindFirst.mockReset()
     mockFindMany.mockReset()
@@ -650,14 +658,14 @@ describe('OfferEnvelopeRepository.ingest() — owner equivocation (Property J, C
     const e2 = signedEnvelope(e2Content, alice.secretKeyHex)
 
     // "Node A": E1 arrives first, E2 second.
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repoA = new OfferEnvelopeRepository()
     const rA1 = await repoA.ingest(e1 as any)
     const rA2 = await repoA.ingest(e2 as any)
     const finalA = await repoA.getLatest(alice.publicKeyHex, e1Content.logicalOfferId)
 
     // "Node B": E2 arrives first, E1 second — same two facts, opposite order.
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repoB = new OfferEnvelopeRepository()
     const rB1 = await repoB.ingest(e2 as any)
     const rB2 = await repoB.ingest(e1 as any)
@@ -684,7 +692,7 @@ describe('OfferEnvelopeRepository.ingest() — owner equivocation (Property J, C
   })
 
   it('a byte-identical resend of an already-stored fact at the same revision is idempotent, not equivocation', async () => {
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repo = new OfferEnvelopeRepository()
     const alice = makeKeypair()
     const envelope = signedEnvelope(baseContent({ revision: 0 }, alice.publicKeyHex), alice.secretKeyHex)
@@ -702,7 +710,7 @@ describe('OfferEnvelopeRepository.ingest() — owner equivocation (Property J, C
 
   it('equivocation is fail-closed: an EQUIVOCATED offer state is never economically active, regardless of expiresAt on either conflicting envelope', async () => {
     const { isOfferStateEconomicallyActive } = require('../src/modules/open-liquidity/offer-envelope-repository')
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repo = new OfferEnvelopeRepository()
     const alice = makeKeypair()
 
@@ -723,22 +731,6 @@ describe('OfferEnvelopeRepository.ingest() — owner equivocation (Property J, C
 })
 
 describe('OfferEnvelopeRepository.ingest() — higher revision after equivocation (Property L, CTO Gate correction 2026-09-09)', () => {
-  function useInMemoryStore(): void {
-    const rows: any[] = []
-    mockFindFirst.mockImplementation(async ({ where, orderBy }: any) => {
-      const matches = rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v))
-      if (matches.length === 0) return null
-      matches.sort((a: any, b: any) => (orderBy?.revision === 'desc' ? b.revision - a.revision : a.revision - b.revision))
-      return matches[0]
-    })
-    mockFindMany.mockImplementation(async ({ where }: any) => rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v)))
-    mockCreate.mockImplementation(async ({ data }: any) => {
-      const row = { id: `row-${rows.length}`, ...data }
-      rows.push(row)
-      return row
-    })
-  }
-
   beforeEach(() => {
     mockFindFirst.mockReset()
     mockFindMany.mockReset()
@@ -746,7 +738,7 @@ describe('OfferEnvelopeRepository.ingest() — higher revision after equivocatio
   })
 
   it('a correctly-signed higher revision deterministically resolves the CURRENT state, while the equivocation evidence at the lower revision remains preserved, never erased', async () => {
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repo = new OfferEnvelopeRepository()
     const alice = makeKeypair()
 
@@ -784,14 +776,14 @@ describe('OfferEnvelopeRepository.ingest() — higher revision after equivocatio
     const e2 = signedEnvelope(baseContent({ revision: 5, priceUsd: '70000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
     const rev6 = signedEnvelope(baseContent({ revision: 6, priceUsd: '68000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
 
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repoA = new OfferEnvelopeRepository()
     await repoA.ingest(e1 as any)
     await repoA.ingest(e2 as any)
     await repoA.ingest(rev6 as any)
     const finalA = await repoA.getLatest(alice.publicKeyHex, e1.logicalOfferId)
 
-    useInMemoryStore()
+    useInMemoryOfferEnvelopeStore()
     const repoB = new OfferEnvelopeRepository()
     await repoB.ingest(e2 as any)
     await repoB.ingest(e1 as any)
@@ -802,6 +794,244 @@ describe('OfferEnvelopeRepository.ingest() — higher revision after equivocatio
     expect(finalB.status).toBe('RESOLVED')
     expect((finalA as any).row.priceUsd).toBe('68000.00000000')
     expect((finalB as any).row.priceUsd).toBe('68000.00000000')
+  })
+})
+
+describe('OfferEnvelopeRepository.ingest() — concurrent identical-fact ingestion (Property M, CTO Gate correction 2026-09-09, Sixth Pass)', () => {
+  beforeEach(() => {
+    mockFindFirst.mockReset()
+    mockFindMany.mockReset()
+    mockCreate.mockReset()
+  })
+
+  it('CONFIRMED FORBIDDEN OUTCOME (pre-fix reproduction, real Postgres): two concurrent ingest(E1) calls for the exact same signed envelope used to let one caller succeed while the other leaked a raw, uncaught PrismaClientKnownRequestError (P2002) — reproduced directly against a real local Postgres instance before writing this fix (not shown in this mocked suite; real evidence lives in the Sixth Pass CTO Gate Correction narrative in docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md). This test proves the corrected behavior.', async () => {
+    useInMemoryOfferEnvelopeStore()
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+    const e1 = signedEnvelope(baseContent({ revision: 0 }, alice.publicKeyHex), alice.secretKeyHex)
+
+    // Real concurrency, per the mission's own instruction — both calls
+    // are in flight before either resolves.
+    const results = await Promise.all([repo.ingest(e1 as any), repo.ingest(e1 as any)])
+
+    expect(results[0].accepted).toBe(true)
+    expect(results[1].accepted).toBe(true)
+    expect((results[0] as any).id).toBe((results[1] as any).id)
+
+    const stored = await mockFindMany({ where: { ownerPublicKey: alice.publicKeyHex, logicalOfferId: e1.logicalOfferId, revision: 0 } })
+    expect(stored).toHaveLength(1)
+  })
+
+  it('three concurrent ingest() calls for the identical fact all resolve successfully to the same stored row', async () => {
+    useInMemoryOfferEnvelopeStore()
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+    const e1 = signedEnvelope(baseContent({ revision: 0 }, alice.publicKeyHex), alice.secretKeyHex)
+
+    const results = await Promise.all([repo.ingest(e1 as any), repo.ingest(e1 as any), repo.ingest(e1 as any)])
+
+    expect(results.every((r) => r.accepted === true)).toBe(true)
+    const ids = new Set(results.map((r: any) => r.id))
+    expect(ids.size).toBe(1)
+  })
+
+  it('a sequential resend of an identical fact is idempotent, not an error, via the same P2002-handling path', async () => {
+    useInMemoryOfferEnvelopeStore()
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+    const e1 = signedEnvelope(baseContent({ revision: 0 }, alice.publicKeyHex), alice.secretKeyHex)
+
+    const first = await repo.ingest(e1 as any)
+    const second = await repo.ingest(e1 as any)
+
+    expect(first.accepted).toBe(true)
+    expect(second).toEqual({ accepted: true, id: (first as any).id })
+  })
+
+  it('an unrelated database error (not a unique-constraint violation) is NOT swallowed — it propagates', async () => {
+    mockFindMany.mockResolvedValue([])
+    mockCreate.mockRejectedValue(new Error('connection terminated unexpectedly'))
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+    const e1 = signedEnvelope(baseContent({ revision: 0 }, alice.publicKeyHex), alice.secretKeyHex)
+
+    await expect(repo.ingest(e1 as any)).rejects.toThrow('connection terminated unexpectedly')
+  })
+})
+
+describe('OfferEnvelope — signature malleability / signed-fact identity (Property O, CTO Gate correction 2026-09-09, Sixth Pass)', () => {
+  beforeEach(() => {
+    mockFindFirst.mockReset()
+    mockFindMany.mockReset()
+    mockCreate.mockReset()
+  })
+
+  // Ed25519 group order L = 2^252 + 27742317777372353535851937790883648493.
+  const L = 2n ** 252n + 27742317777372353535851937790883648493n
+  function bytesToBigIntLE(bytes: Uint8Array): bigint {
+    let n = 0n
+    for (let i = bytes.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(bytes[i])
+    return n
+  }
+  function bigIntToBytesLE(n: bigint, len: number): Uint8Array {
+    const out = new Uint8Array(len)
+    for (let i = 0; i < len; i++) {
+      out[i] = Number(n & 0xffn)
+      n >>= 8n
+    }
+    return out
+  }
+  /** Derives a byte-different, still-valid Ed25519 signature over the identical message — no secret key required. This is the actual, controlled, real test this file's evidence doc's "Property O" investigation is based on (confirmed once, directly, with plain `tweetnacl`, before writing any fix). */
+  function malleateSignature(signatureHex: string): string {
+    const sigBytes = Buffer.from(signatureHex, 'hex')
+    const R = sigBytes.subarray(0, 32)
+    const S = bytesToBigIntLE(sigBytes.subarray(32, 64))
+    const malleatedS = bigIntToBytesLE(S + L, 32)
+    return Buffer.concat([R, Buffer.from(malleatedS)]).toString('hex')
+  }
+
+  it('CONFIRMED: a malleated signature over identical content is still accepted by the real verifier (Ed25519 signature malleability, no secret key required)', () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const content = baseContent({}, publicKeyHex)
+    const original = signedEnvelope(content, secretKeyHex)
+    const malleated = { ...original, signature: malleateSignature(original.signature) }
+
+    expect(malleated.signature).not.toBe(original.signature)
+    expect(verifyOfferEnvelope(malleated as any)).toEqual({ valid: true })
+  })
+
+  it('a malleated resend of an already-known fact is idempotent, NOT equivocation — contentDigest (not signature) is the identity ingest() dedupes on', async () => {
+    useInMemoryOfferEnvelopeStore()
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+    const content = baseContent({ revision: 0 }, alice.publicKeyHex)
+    const original = signedEnvelope(content, alice.secretKeyHex)
+    const malleated = { ...original, signature: malleateSignature(original.signature) }
+
+    const r1 = await repo.ingest(original as any)
+    const r2 = await repo.ingest(malleated as any)
+
+    expect(r1.accepted).toBe(true)
+    expect(r2.accepted).toBe(true)
+    expect((r2 as any).equivocationDetected).toBeUndefined()
+
+    const latest = await repo.getLatest(alice.publicKeyHex, content.logicalOfferId)
+    expect(latest.status).toBe('RESOLVED')
+  })
+
+  it('contentDigest is computed over content only, independent of signature — two envelopes with the identical content but different (malleated) signatures produce the identical contentDigest', () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const content = baseContent({}, publicKeyHex)
+    const original = signedEnvelope(content, secretKeyHex)
+    const malleated = { ...original, signature: malleateSignature(original.signature) }
+
+    expect(hashOfferEnvelope(original as any).toString('hex')).toBe(hashOfferEnvelope(malleated as any).toString('hex'))
+  })
+})
+
+describe('OfferEnvelopeRepository — historical evidence convergence (Property P, CTO Gate correction 2026-09-09, Sixth Pass)', () => {
+  beforeEach(() => {
+    mockFindFirst.mockReset()
+    mockFindMany.mockReset()
+    mockCreate.mockReset()
+  })
+
+  it('CONVERGENCE TEST: History A (E1, E2, rev6) and History B (rev6 FIRST, then E1, E2) — structurally equivalent histories in opposite arrival order — converge to the identical current state AND the identical retained historical/equivocation evidence', async () => {
+    const alice = makeKeypair()
+    function makeHistory(logicalOfferId: string) {
+      const e1 = signedEnvelope(baseContent({ logicalOfferId, revision: 5, priceUsd: '65000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
+      const e2 = signedEnvelope(baseContent({ logicalOfferId, revision: 5, priceUsd: '70000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
+      const rev6 = signedEnvelope(baseContent({ logicalOfferId, revision: 6, priceUsd: '68000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
+      return { e1, e2, rev6 }
+    }
+
+    // History A: E1, E2, rev6 (rev6 arrives last, after the equivocation).
+    const idA = 'property-p-history-a'
+    const { e1: e1A, e2: e2A, rev6: rev6A } = makeHistory(idA)
+    useInMemoryOfferEnvelopeStore()
+    const repoA = new OfferEnvelopeRepository()
+    await repoA.ingest(e1A as any)
+    await repoA.ingest(e2A as any)
+    await repoA.ingest(rev6A as any)
+    const finalA = await repoA.getLatest(alice.publicKeyHex, idA)
+    const rev5RowsA = await mockFindMany({ where: { ownerPublicKey: alice.publicKeyHex, logicalOfferId: idA, revision: 5 } })
+
+    // History B: rev6 arrives FIRST, then the equivocating pair —
+    // structurally equivalent facts (identical content, a different
+    // logicalOfferId so this in-memory store instance keeps the two
+    // histories in separate row-sets, the same isolation technique the
+    // real-Postgres evidence uses), opposite arrival order.
+    const idB = 'property-p-history-b'
+    const { e1: e1B, e2: e2B, rev6: rev6B } = makeHistory(idB)
+    useInMemoryOfferEnvelopeStore()
+    const repoB = new OfferEnvelopeRepository()
+    await repoB.ingest(rev6B as any)
+    await repoB.ingest(e1B as any)
+    await repoB.ingest(e2B as any)
+    const finalB = await repoB.getLatest(alice.publicKeyHex, idB)
+    const rev5RowsB = await mockFindMany({ where: { ownerPublicKey: alice.publicKeyHex, logicalOfferId: idB, revision: 5 } })
+
+    // Current-state convergence (unaffected by this pass — re-confirmed).
+    expect(finalA.status).toBe('RESOLVED')
+    expect(finalB.status).toBe('RESOLVED')
+    expect((finalA as any).row.priceUsd).toBe('68000.00000000')
+    expect((finalB as any).row.priceUsd).toBe('68000.00000000')
+
+    // Historical-evidence convergence (the actual Property P fix): under
+    // the pre-fix "revision < highest is stale, reject" rule, History
+    // B's own E1/E2 rev5 facts (arriving AFTER rev6 was already known)
+    // would have been rejected outright and never stored — History B
+    // would then hold ZERO evidence of the equivocation while History A
+    // held both. Both now retain the identical evidence regardless of
+    // arrival order.
+    expect(rev5RowsA).toHaveLength(2)
+    expect(rev5RowsB).toHaveLength(2)
+    expect(new Set(rev5RowsA.map((r: any) => r.priceUsd))).toEqual(new Set(['65000.00000000', '70000.00000000']))
+    expect(new Set(rev5RowsB.map((r: any) => r.priceUsd))).toEqual(new Set(['65000.00000000', '70000.00000000']))
+  })
+
+  it('deterministic EQUIVOCATED ordering: getLatest().rows is sorted by contentDigest, independent of insertion order', async () => {
+    const alice = makeKeypair()
+    // Both orderings use the IDENTICAL logicalOfferId (and therefore the
+    // IDENTICAL two envelopes / contentDigests) — `logicalOfferId` is
+    // itself part of what `contentDigest` hashes, so two DIFFERENT
+    // logicalOfferIds would produce two unrelated digest sets with no
+    // reason to sort into the same relative order (a real bug this test
+    // originally had, caught by a genuine, non-flaky test failure: two
+    // independent in-memory stores below keep the identical facts from
+    // colliding across the two ingestion orders, the same repoA/repoB
+    // pattern the Property H/J/P convergence tests already establish).
+    const logicalOfferId = 'property-p-deterministic-order'
+    const e1 = signedEnvelope(baseContent({ logicalOfferId, revision: 0, priceUsd: '65000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
+    const e2 = signedEnvelope(baseContent({ logicalOfferId, revision: 0, priceUsd: '70000.00000000' }, alice.publicKeyHex), alice.secretKeyHex)
+
+    useInMemoryOfferEnvelopeStore()
+    const repoE1First = new OfferEnvelopeRepository()
+    await repoE1First.ingest(e1 as any)
+    await repoE1First.ingest(e2 as any)
+    const resultE1First = await repoE1First.getLatest(alice.publicKeyHex, logicalOfferId)
+
+    useInMemoryOfferEnvelopeStore()
+    const repoE2First = new OfferEnvelopeRepository()
+    await repoE2First.ingest(e2 as any)
+    await repoE2First.ingest(e1 as any)
+    const resultE2First = await repoE2First.getLatest(alice.publicKeyHex, logicalOfferId)
+
+    expect(resultE1First.status).toBe('EQUIVOCATED')
+    expect(resultE2First.status).toBe('EQUIVOCATED')
+    // Identical underlying set of contentDigests in both cases (the
+    // exact same two envelope objects, `e1`/`e2`, just ingested in
+    // opposite order) — the RETURNED ARRAY ORDER must be identical
+    // regardless of which one was ingested first.
+    const digestsE1First = (resultE1First as any).rows.map((r: any) => r.contentDigest.slice(0, 8))
+    const digestsE2First = (resultE2First as any).rows.map((r: any) => r.contentDigest.slice(0, 8))
+    const pricesInOrderE1First = (resultE1First as any).rows.map((r: any) => r.priceUsd)
+    const pricesInOrderE2First = (resultE2First as any).rows.map((r: any) => r.priceUsd)
+    // Both orderings must agree on WHICH price comes first, purely as a
+    // function of contentDigest — never as a function of arrival order.
+    expect(pricesInOrderE1First).toEqual(pricesInOrderE2First)
+    // And the array is genuinely sorted, not incidentally matching.
+    expect([...digestsE1First].sort()).toEqual(digestsE1First)
   })
 })
 

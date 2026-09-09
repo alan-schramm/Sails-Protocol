@@ -143,6 +143,67 @@ below is corrected accordingly. §21(a)'s status was reverted to
 and Fourth passes, this changes no architecture decision in this
 document — Model C is unchanged.
 
+**Sixth CTO Gate Correction Pass (2026-09-09, distributed correctness
+foundations).** Before freezing step (a), a review established that
+fact identity, revision ordering, current-state convergence, and
+historical-evidence semantics were three different questions this
+document and its implementation had been conflating, and found two more
+real defects plus one real vulnerability in the Fifth Pass's own
+equivocation mechanism.
+**Property M (concurrent identical-fact ingestion):** reproduced
+directly against a real local Postgres instance — two truly concurrent
+`ingest()` calls (`Promise.all`) for the identical signed envelope let
+one caller succeed while the other's promise rejected with a raw,
+uncaught `PrismaClientKnownRequestError` (P2002), a real unhandled
+exception, not the forbidden-outcome hypothesis. Fixed by relying on the
+database's own atomic uniqueness check as the actual concurrency
+control (no lock, no serialization): `create()` is attempted directly
+and a P2002 is caught and converted into the same graceful result a
+non-racing caller would receive.
+**Property O (signature is not a sound identity):** confirmed directly,
+via a controlled test against the real `tweetnacl` verifier (not a
+guess) — Ed25519 signatures are malleable; given one valid signature
+`(R, S)`, the byte-different `(R, S + L)` (`L` = the Ed25519 group
+order) also verifies, with no secret key required. The Fifth Pass's own
+"different signature at the same revision means equivocation" rule was
+therefore exploitable by a mere OBSERVER, not even the offer's owner, as
+a griefing vector — falsely triggering the fail-closed `EQUIVOCATED`
+state against an offer that was never actually double-signed. Fixed:
+fact identity is now `contentDigest` (`hashOfferEnvelope()`'s digest of
+the canonical content, excluding `signature`), used for both the DB
+uniqueness constraint and `getLatest()`'s distinctness check;
+`signature` remains stored in full as authorization evidence, demoted
+from "identity."
+**Property P (historical-evidence convergence):** reproduced directly —
+"History A" (an owner's equivocating pair at revision 5, then a
+resolving revision 6) and "History B" (the identical facts, with
+revision 6 arriving FIRST) converged on the identical CURRENT state
+either way, but under the prior "revision below the current highest is
+stale, reject" rule, History B's own revision-5 facts (arriving after
+revision 6 was already known) would never have been stored at all —
+History B would then hold zero evidence the owner ever equivocated,
+while History A held both. Decided explicitly, property first mechanism
+second: **Option B** — every validly-signed fact is retained regardless
+of its revision relative to anything already known (reputation/dispute/
+abuse-evidence value outweighs a storage cost that is itself bounded by
+cryptography, not policy — an attacker without the owner's key cannot
+manufacture new distinct facts, and replay of a known fact is already
+free under Property M/O's own idempotency). `ingest()`'s
+revision-comparison rejection is removed entirely; `getLatest()`'s
+CURRENT-STATE semantics are completely unaffected. **Property N
+(gossip-dedup semantic contradiction):** audited §3/§4/§21/§22 for every
+statement conflating fact identity with revision-number dedup
+("discards any envelope whose revision is ≤ the highest," "a node never
+relays the same revision twice") — corrected throughout to state the
+actual property (fact-identity dedup) without designing the not-yet-
+authorized gossip data structure itself. §21(a)'s status was reverted to
+`CORRECTION REQUIRED` and re-closed below. Full narrative:
+`docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s "CTO Gate Correction
+(2026-09-09, Sixth Pass — Properties M, N, O, P)" section. Like every
+prior pass, this changes no architecture decision in this document —
+Model C is unchanged; all four properties are corrections to step (a)'s
+own implementation and specification, not to the network model itself.
+
 ---
 
 ## Decision
@@ -283,21 +344,45 @@ canonical form exist and be re-derivable identically by any conformant
 implementation (TypeScript today, any future implementation per Issue
 #75) is frozen.
 
-**Replay protection:** a verifier discards any envelope whose
-`revision` is ≤ the highest one it has already verified for that
-offer identity `(ownerPublicKey, logicalOfferId)`. This single rule
-also *is* the convergence rule (§5) — no second mechanism needed.
+**Replay protection:** a verifier never re-processes a signed fact it
+has already accepted. **Corrected (2026-09-09, Sixth Pass, Property N):**
+this paragraph originally read "a verifier discards any envelope whose
+`revision` is ≤ the highest one it has already verified for that offer
+identity," conflating two different questions — **fact identity ≠
+revision ordering.** `revision` determines ordering and CURRENT-STATE
+selection (§5) only; it is not the deduplication key, and a lower or
+equal revision number is not, by itself, a reason to discard an
+envelope this node has never seen before (§21(a)'s own Property P
+closes exactly this gap: a genuinely new signed fact at a
+previously-seen revision is retained as evidence, not discarded).
+Deduplication is by **signed-fact identity** — a content-derived digest
+of the envelope, not the raw `signature` (Property O: Ed25519
+signatures are malleable — a second, different-byte signature can exist
+over identical content without the signing key, so `signature` itself
+is not a sound identity to dedup on) and not `revision` alone. A
+byte-identical or content-identical resend of an already-known fact is
+a no-op; a genuinely new distinct fact is retained regardless of its
+revision relative to whatever this node has already seen.
 
 ## 4. Propagation model
 
 **Decision: Model C — signed gossip over direct Hyperswarm/HyperDHT
 peer connections.** Each node maintains connections to a bounded set of
 known peer nodes (from bootstrap, §6, plus peer-exchange). A node
-relays any newly-received, signature-valid, higher-revision envelope to
-its own connected peers exactly once (standard flood-gossip with
-per-`logicalOfferId` dedup by highest-seen `revision` — the same
-counter already required for §3's replay protection, no second data
-structure). **HyperDHT is used only for its already-proven capability**
+relays any newly-received, signature-valid envelope it has not already
+relayed to its own connected peers exactly once. **Corrected (2026-09-09,
+Sixth Pass, Property N):** this paragraph originally described the
+relay-dedup rule as "per-`logicalOfferId` dedup by highest-seen
+`revision`" — the same conflation as §3's correction above. The property
+this ADR actually freezes for a future gossip design (§21(d), not
+designed here): **a node must never suppress relay of a genuinely new,
+distinct signed fact merely because that revision number was already
+seen for that offer identity** — including a fact whose revision is
+lower than one already relayed (Property P). The exact relay-dedup data
+structure (a revision counter, a fact-identity set, a Bloom filter,
+etc.) is an implementation detail for step (d)'s own CTO Gate, not
+frozen here — only the property is frozen. **HyperDHT is used only for
+its already-proven capability**
 (peer discovery, direct connections) — **not** as a generic key-value
 store for offer records (that would be Model D, rejected above).
 `Pears capability ≠ mandatory architecture`: if a future implementation
@@ -968,7 +1053,8 @@ two items in this entire ADR granted that status):
 serialization, Ed25519 signature, `revision`/`expiresAt`/tombstone
 semantics (§3). ~~CLOSED (2026-09-09)~~ ~~CORRECTED AND RE-CLOSED
 (2026-09-09, Third Pass)~~ ~~CORRECTED AND RE-CLOSED AGAIN (2026-09-09,
-Fourth Pass)~~ **CORRECTED AND RE-CLOSED A THIRD TIME (2026-09-09, Fifth
+Fourth Pass)~~ ~~CORRECTED AND RE-CLOSED A THIRD TIME (2026-09-09, Fifth
+Pass)~~ **CORRECTED AND RE-CLOSED A FOURTH TIME (2026-09-09, Sixth
 Pass).** The Third Pass found and fixed a real, confirmed owner-takeover
 vulnerability plus six related correctness gaps (Properties A-G). The
 Fourth Pass found that the Third Pass's own Property A fix ("first
@@ -981,22 +1067,41 @@ the central distributed-convergence question directly and found two
 more real gaps: **Property J (owner equivocation)** — the same owner
 signing two different envelopes at the identical revision let arrival
 order determine WHICH conflicting economic terms a node accepted;
-fixed, fail-closed, by storing both as durable evidence
-(`@@unique([ownerPublicKey, logicalOfferId, revision, signature])`) and
-having `getLatest()` report an explicit, order-independent
-`EQUIVOCATED` state that is never economically active — a subsequent
-higher revision deterministically resolves it going forward without
-erasing the evidence (**Property L**). **Property K** — the Fourth
-Pass's own `createdAt`-immutability enforcement was found to be itself
-order-dependent (reproduced: two nodes given the same eventual facts
-converged on different *accepted revisions entirely*) and was
-**retracted**, not repaired — no order-independent mechanism exists for
-it without full-history replication, and it is not load-bearing for any
-of §3's seven frozen properties. All twelve properties named across
-three correction passes (A-L, with I retracted rather than fixed) are
-now in their evidenced final state — tested (63 unit tests, 6 real-
-Postgres integration tests), zero regression (155/155 suites, 1986/1986
-tests). Full evidence, including every prior pass preserved as history:
+fixed, fail-closed, by storing both as durable evidence and having
+`getLatest()` report an explicit, order-independent `EQUIVOCATED` state
+that is never economically active — a subsequent higher revision
+deterministically resolves it going forward without erasing the
+evidence (**Property L**). **Property K** — the Fourth Pass's own
+`createdAt`-immutability enforcement was found to be itself
+order-dependent and was **retracted**, not repaired. The Sixth Pass then
+found the Fifth Pass's own equivocation mechanism itself carried a real
+vulnerability plus two more convergence gaps: **Property O** — Ed25519
+signatures are malleable (confirmed via a controlled test against the
+real verifier), so the Fifth Pass's `signature`-keyed uniqueness
+constraint (`@@unique([ownerPublicKey, logicalOfferId, revision,
+signature])`) let a mere OBSERVER manufacture a false `EQUIVOCATED`
+state against an offer that was never actually double-signed — fixed by
+re-keying on `contentDigest` (a content-derived hash, not `signature`)
+instead. **Property M** — reproduced directly against real Postgres:
+concurrent identical-fact ingestion used to leak a raw, uncaught
+`PrismaClientKnownRequestError`; fixed by relying on the database's own
+atomic uniqueness check (no lock, no serialization) rather than a racy
+application-level pre-check. **Property P** — reproduced directly: a
+node that observes a lower revision AFTER a higher one was itself
+rejecting that lower revision as "stale," silently losing equivocation
+evidence a node observing the same facts in a different order would
+have retained; decided explicitly (Option B) that all valid signed
+facts are retained regardless of arrival order, removing the
+revision-comparison rejection from `ingest()` entirely (this changes
+nothing about `getLatest()`'s own CURRENT-STATE selection). **Property
+N** — corrected every ADR statement conflating fact-identity
+deduplication with revision-number comparison (§3/§4/§21/§22), without
+designing the not-yet-authorized gossip mechanism itself. All sixteen
+properties named across four correction passes (A-P, with I retracted
+rather than fixed) are now in their evidenced final state — tested (72
+unit tests, 8 real-Postgres integration tests, including real
+`Promise.all` concurrency evidence), zero regression. Full evidence,
+including every prior pass preserved as history:
 `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`. Still proves Offer
 portability/authenticity only — no propagation, no second node, no
 network claim of any kind, and NOT general distributed consensus: the
@@ -1016,7 +1121,8 @@ session/interaction-scoped transport identity (§7.1) — **added
 step (e) below has no real mechanism to connect the discovering buyer
 to the actual offer owner.
 **(d) Propagation/bootstrap** — bootstrap peer list, flood-gossip with
-revision-dedup (§4/§6), building on (b)'s now-stable node identity.
+fact-identity dedup, not revision-number dedup (§4/§6, corrected
+2026-09-09 Sixth Pass), building on (b)'s now-stable node identity.
 **(e) Multi-node discovery/convergence** — highest-revision-wins
 verification at the receiving node (§5), feeding into the existing
 local `Offer` table.
@@ -1093,8 +1199,11 @@ D/hybrid propagation (Alternatives section).
 - *Coupling:* couples node operation to maintaining peer connections —
   already true today for Pears' existing chat/negotiation use, not a
   new class of coupling.
-- *Operational cost:* bandwidth for relaying (bounded by revision-
-  dedup, §4 — a node never relays the same revision twice).
+- *Operational cost:* bandwidth for relaying (bounded by fact-identity
+  dedup, §4 — corrected 2026-09-09, Sixth Pass: a node never re-relays
+  the same signed fact twice; it is not bounded by revision number
+  alone, since a genuinely new fact at a previously-seen revision must
+  still be relayed, Property P).
 - *Privacy cost:* addressed in §12 (offer visibility broadens, private
   trade content does not).
 - *Attack surface:* flooding/spam (named, §14 threat table, not solved
@@ -1102,9 +1211,9 @@ D/hybrid propagation (Alternatives section).
   only waste bandwidth).
 - **COBRA Check:** does not touch settlement/escrow/authority — a
   discovery-layer mechanism only.
-- **Rube Goldberg Check:** passes — flood-gossip with revision-dedup is
-  a standard, minimal pattern for this exact problem class, not a
-  bespoke invention.
+- **Rube Goldberg Check:** passes — flood-gossip with fact-identity
+  dedup is a standard, minimal pattern for this exact problem class, not
+  a bespoke invention.
 
 ## 23. Claims not yet demonstrated (discipline, restated)
 

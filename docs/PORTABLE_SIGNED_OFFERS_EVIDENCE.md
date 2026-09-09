@@ -1,6 +1,6 @@
 # Portable Signed Offers — Evidence
 
-> **Status: CORRECTED, Fifth Pass (2026-09-09).** A Third-Pass CTO Gate
+> **Status: CORRECTED, Sixth Pass (2026-09-09).** A Third-Pass CTO Gate
 > correction found a real, confirmed owner-takeover vulnerability plus
 > six related correctness gaps (Properties A-G) in the implementation
 > this document originally described as closed. A Fourth-Pass
@@ -18,19 +18,35 @@
 > (the Fourth Pass's own `createdAt`-immutability enforcement was itself
 > order-dependent and is **retracted**, not repaired). **Property L**
 > (a higher revision deterministically resolves post-equivocation state
-> without erasing the evidence) was verified alongside J. Twelve
-> properties total across three passes (A-L, with I explicitly
-> **retracted** rather than fixed) are now in their evidenced final
-> state — see **"CTO Gate Correction (2026-09-09, Third Pass —
-> Properties A-G)"**, **"...Fourth Pass — Properties H, I)"**, and
-> **"...Fifth Pass — Properties J, K, L)"** below, the last being the
-> authoritative current state. The sections above them describe the
+> without erasing the evidence) was verified alongside J. A Sixth-Pass
+> correction then found the Fifth Pass's own equivocation mechanism
+> itself carried a real vulnerability plus two more gaps: **Property O**
+> (Ed25519 signatures are malleable, confirmed via a controlled test —
+> the Fifth Pass's `signature`-keyed identity let a mere OBSERVER, not
+> the owner, manufacture a false `EQUIVOCATED` state; fixed by re-keying
+> on a content-derived `contentDigest` instead), **Property M**
+> (concurrent identical-fact ingestion leaked a raw, uncaught Prisma
+> exception, reproduced against real Postgres; fixed by relying on the
+> database's own atomic uniqueness check), and **Property P** (a node
+> observing a lower revision after a higher one was itself discarding
+> that fact as "stale," losing equivocation evidence order-dependently;
+> fixed by retaining all valid signed facts regardless of arrival order,
+> Option B, evaluated explicitly against reputation/storage/bandwidth/
+> replay/privacy/simplicity). **Property N** corrected every ADR
+> statement conflating fact-identity deduplication with revision-number
+> comparison (documentation only, no code change). Sixteen properties
+> total across four passes (A-P, with I explicitly **retracted** rather
+> than fixed) are now in their evidenced final state — see **"CTO Gate
+> Correction (2026-09-09, Third Pass — Properties A-G)"**, **"...Fourth
+> Pass — Properties H, I)"**, **"...Fifth Pass — Properties J, K, L)"**,
+> and **"...Sixth Pass — Properties M, N, O, P)"** below, the last being
+> the authoritative current state. The sections above them describe the
 > implementation as it stood at earlier closures and are preserved
 > verbatim as history; where a number or claim has since changed again,
 > the latest correction section states the corrected value — treat this
 > document's own
 > internal cross-references as pointing there for anything in scope of
-> Properties A-L. This document does not, and has never, claimed general
+> Properties A-P. This document does not, and has never, claimed general
 > distributed consensus — see the Fifth Pass's own "Claim correction —
 > scope of convergence" for the precise, bounded property actually
 > demonstrated.
@@ -915,6 +931,22 @@ active. Real-Postgres version:
 itself (not just mocked logic) permits two different signed envelopes
 at the identical revision.
 
+> **Superseded in part (2026-09-09, Sixth Pass, Property O below).**
+> This section's own identity mechanism — "a different `signature`
+> means different signed content, there is no ambiguity" — is FALSE as a
+> general claim: confirmed directly that Ed25519 signatures are
+> malleable, so a byte-different `signature` can exist over IDENTICAL
+> content, with no secret key required. The `@@unique([...,
+> signature])` constraint described here was itself a vulnerability — a
+> mere observer, not the offer's owner, could manufacture a malleated
+> signature and falsely trigger `EQUIVOCATED` against an offer that was
+> never actually double-signed. The equivocation PROPERTY itself
+> (Property J, above) is unchanged and remains correct; only the
+> mechanism for detecting "is this genuinely different content" changed
+> — from comparing `signature` to comparing `contentDigest` (a hash of
+> the content, excluding `signature`). See "CTO Gate Correction
+> (2026-09-09, Sixth Pass — Properties M, N, O, P)" below.
+
 ### Property K — `createdAt` immutability, retracted
 
 **Reproduced against the real, pre-fix repository logic (the Fourth
@@ -1074,6 +1106,333 @@ Fourth Pass's `CORRECTED AND RE-CLOSED AGAIN`); **re-closed as CLOSED
 over-claim) in the implementation and specification of the
 already-authorized step (a) — not new architecture fronts. No new
 obligation is registered in `docs/BACKLOG.md`.
+
+---
+
+## CTO Gate Correction (2026-09-09, Sixth Pass — Properties M, N, O, P)
+
+Before freezing step (a), this pass established that **fact identity,
+revision ordering, current-state convergence, and historical-evidence
+semantics** are four different questions this document and its
+implementation had been conflating, and required that a delivery race
+or gossip dedup rule must never suppress a valid signed fact needed to
+detect equivocation. Two real defects, one real vulnerability, and one
+documentation-only conflation were found.
+
+### Property M — Concurrent identical-fact ingestion
+
+**Reproduced against a real local Postgres instance before writing any
+fix**, per explicit instruction. Setup: two genuinely concurrent calls,
+`Promise.all([ingest(E1), ingest(E1)])`, for the exact same signed
+envelope, against a real, running Postgres database (not mocked).
+
+**Result before this fix:** one call succeeded (`{accepted: true, id:
+...}`); the other's promise **rejected** with a raw
+`PrismaClientKnownRequestError` (`code: 'P2002'`) — an unhandled
+exception propagating out of `ingest()`, confirmed via Postgres's own
+query log showing the real `UniqueConstraintViolation`. Exactly the
+forbidden outcome named by the mission ("one caller succeeds, one leaks
+a Prisma unique-constraint exception"), not a hypothesis.
+
+**Fix:** `ingest()` no longer performs a separate pre-check-then-insert
+sequence for idempotency (which is itself race-prone — a classic TOCTOU
+gap: the pre-check and the insert are two separate round-trips, and two
+concurrent callers can both pass the check before either writes).
+Instead, `create()` is attempted directly, and a `P2002` on this table's
+one uniqueness constraint is caught (`catch (err: any) { if (err?.code
+=== 'P2002') { ... } }`, the exact convention already established
+elsewhere in this codebase — `dispute.service.ts`, `reputation.service.ts`,
+`escrow-repository.ts`) and converted into the identical graceful
+"already known, here is its id" result. The database's own atomic
+uniqueness check IS the concurrency control — no application-level
+lock, no serialization, nothing added beyond a `try`/`catch` and one
+follow-up `findFirst` inside the `catch` branch.
+
+**Real Postgres evidence (post-fix):** re-ran the identical
+`Promise.all([ingest(E1), ingest(E1)])` reproduction against the same
+real database — both promises now resolve successfully (`fulfilled`)
+with `accepted: true` and the identical `id`; exactly one row exists in
+the table afterward. Also verified with three concurrent identical
+calls (all three resolve to the same id) and with a genuinely unrelated
+database error (a plain `Error`, not P2002) — confirmed it is NOT
+swallowed and still propagates, so this fix narrowly targets the one
+specific, real error class it was written for. Formalized as
+`tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`'s
+"Property M (real DB)" test (real `Promise.allSettled` against real
+Postgres) plus four mocked unit tests
+(`tests/offerEnvelope.test.ts`, describe block "concurrent
+identical-fact ingestion (Property M...)").
+
+**Not implemented, per explicit instruction:** no global lock, no
+distributed lock, no serialization of `ingest()` calls.
+
+### Property N — Gossip-dedup semantic contradiction (documentation only)
+
+**No gossip mechanism exists or was designed in this pass** — this is a
+documentation audit of ADR-001's own prose, not a code change. Found and
+corrected every statement conflating **fact identity** with **revision-
+number deduplication**:
+- §3's "Replay protection: a verifier discards any envelope whose
+  `revision` is ≤ the highest one it has already verified" — corrected
+  to state deduplication is by signed-fact identity (now
+  `contentDigest`, Property O below), not by revision comparison; a
+  lower-or-equal revision is not, by itself, a reason to discard an
+  envelope this node has never seen (Property P).
+- §4's "a node relays any newly-received, signature-valid, higher-
+  revision envelope... per-`logicalOfferId` dedup by highest-seen
+  `revision`" — corrected to freeze only the PROPERTY a future gossip
+  design (§21(d), not designed here) must satisfy: a node must never
+  suppress relay of a genuinely new, distinct signed fact merely because
+  that revision number was already seen. The exact relay-dedup data
+  structure remains explicitly undesigned, per the mission's own "freeze
+  only the property, not the eventual gossip data structure" instruction.
+- §22's complexity-test bandwidth/Rube-Goldberg bullets ("bounded by
+  revision-dedup... a node never relays the same revision twice",
+  "flood-gossip with revision-dedup") — corrected to "fact-identity
+  dedup" throughout.
+- §21(d)'s one-line sequence-item description — corrected similarly.
+
+**Required distinction, now stated explicitly wherever these claims
+appear:** revision determines ordering and CURRENT-STATE selection only;
+signed-fact identity (`contentDigest`) determines deduplication. A
+second, different valid fact at the same revision must never be
+suppressed merely because that revision number was already observed.
+
+### Property O — Signed-fact identity
+
+Three questions, answered directly against real, controlled evidence,
+not assumption:
+
+**1. Can two valid Ed25519 signatures accepted by the exact current
+verifier exist for identical canonical content?** **Yes — confirmed.**
+A real, controlled test (plain `tweetnacl`, no mocking): sign a message,
+parse the resulting signature into its `(R, S)` components, compute
+`S' = S + L` where `L = 2^252 + 27742317777372353535851937790883648493`
+is the Ed25519 group order, and re-encode `(R, S')` as a new 64-byte
+signature. This new signature is BYTE-DIFFERENT from the original (`S'
+≠ S` as a byte string) yet `nacl.sign.detached.verify()` accepts it
+against the identical message and public key — because scalar
+multiplication by `S` is already implicitly reduced mod `L`
+(`S'·B = (S + L)·B = S·B + L·B = S·B`, since `L·B` is the identity —
+`B` has order `L`). No knowledge of the secret key was used or required
+— this is a purely public, structural property of the Ed25519 group,
+not a bug specific to `tweetnacl`; `tweetnacl`'s verifier simply doesn't
+additionally reject non-canonical `S` values, which is common among
+Ed25519 implementations that don't specifically add that check.
+
+**2. Is signature uniqueness a property Sails should depend on?** **No.**
+Answer 1 directly implies it: anyone who has observed one valid signed
+envelope (which is the entire point of it being *portable* — ADR-001's
+own core property) can derive a second, byte-different, still-valid
+signature over the identical content, without the owner's key. Any
+mechanism that treats `signature` as an identity — deduplication,
+equivocation detection, or otherwise — is exploitable by a mere
+observer, not even the offer's owner.
+
+**3. Should fact identity instead be `hash(canonical content)` while
+signature remains authorization evidence?** **Yes — implemented exactly
+this way.** `contentDigest` is `hashOfferEnvelope()`'s existing sha256
+hex digest of the canonical serialization (the same function already
+used to compute what gets signed) — a pure function of the CONTENT
+fields only, excluding `signature` itself. No new hash function, no new
+generic "signed-object identity" abstraction — this reuses the exact
+digest this module already computes for signing, applied to a second
+purpose (identity) it was already structurally suited for.
+
+**Consequence, confirmed directly (both mocked and real Postgres):** a
+malleated signature over IDENTICAL content is now recognized as the
+SAME fact (idempotent, `equivocationDetected` is `undefined`), not
+equivocation — closing the griefing vector Property O's answer to
+question 1 makes possible. `contentDigest` is identical for the original
+and malleated signature pair (confirmed directly: `hashOfferEnvelope()`
+never reads the `signature` field at all).
+
+**Database change:** `prisma/schema.prisma`'s `OfferEnvelope` model
+gained one column, `contentDigest String`; the unique constraint is now
+`@@unique([ownerPublicKey, logicalOfferId, revision, contentDigest],
+map: "offer_envelopes_identity_revision_digest_key")`, replacing the
+Fifth Pass's `signature`-keyed constraint. `signature` remains stored in
+full — nothing about authorization evidence changed, only what
+constitutes "identity." The still-unmerged migration was corrected in
+place (new column + replaced index), not superseded by a second one.
+
+**Tests added:** `tests/offerEnvelope.test.ts`, describe block "signature
+malleability / signed-fact identity (Property O...)" — the exact
+malleation confirmed directly and independently of `ingest()`; a
+malleated resend proven idempotent, not equivocation; `contentDigest`
+proven identical for original vs. malleated signature. Real-Postgres:
+`tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`'s
+"Property O (real DB)" test proves the identical property against an
+actual database.
+
+### Property P — Historical evidence convergence
+
+**Reproduced directly, both against a mocked in-memory store and a real
+Postgres database, before writing any fix.** "History A": E1 (rev 5,
+price 65000), E2 (rev 5, price 70000), then a resolving rev 6 (price
+68000) — arriving in that order. "History B": the identical set of
+facts, with rev 6 arriving FIRST, before E1/E2.
+
+**Answered separately, not forced into one verdict, per explicit
+instruction:**
+- **Current economic state:** both histories converge to the identical
+  `RESOLVED` state (revision 6, price 68000) — this held true even
+  BEFORE this fix, since `getLatest()` only ever examines the actual
+  highest revision present in storage.
+- **Historical signed-fact set:** before this fix, History A retained
+  all 3 rows (E1, E2, rev6); History B retained only 1 row (rev6) — its
+  own E1/E2 were rejected outright as "stale" (a revision below the
+  already-known rev6), because the ingest-time rejection ran before this
+  node had any chance to recognize them as genuinely new facts it had
+  simply never seen. **Order-dependent, confirmed.**
+- **Equivocation evidence:** as a direct consequence, History A could
+  prove the owner equivocated at revision 5; History B could not — it
+  never even stored the second fact needed to detect the conflict.
+  **Absence of local equivocation evidence proved nothing about whether
+  equivocation occurred**, and this absence depended purely on arrival
+  order.
+
+**Decision, evaluated explicitly against every named criterion (property
+first, mechanism second):**
+
+| Criterion | Evaluation |
+|---|---|
+| Reputation/abuse evidence | Favors Option B strongly — losing equivocation evidence purely as an artifact of arrival order undermines exactly the kind of accountability ADR-001 already cares about. |
+| Disputes | Favors Option B — a dispute over historical offer terms benefits from the fullest available signed record. |
+| Storage amplification | Bounded either way by cryptography, not policy: an attacker without the owner's private key cannot manufacture new distinct valid facts (only replay/malleate existing ones, and Property M/O's own contentDigest-based idempotency makes replay free — zero additional storage). Option B's cost is bounded by however many genuinely distinct facts the TRUE owner ever signed. |
+| Gossip bandwidth | Not yet applicable — step (a) has no propagation/relaying of any kind; this is a future step (d) sizing question, not a reason to lose local evidence today. |
+| Replay abuse | Unaffected by the choice between A and B — replaying an already-stored fact is idempotent under both. |
+| Future node economics | No direct bearing either way. |
+| Privacy | No material difference — both options store the same category of data (signed economic facts); Option B simply doesn't discard some of it based on timing. |
+| Simplicity | **Option B is the simpler implementation** — it is the ABSENCE of a special case ("if this revision is lower than the current highest, reject before storing"), not an added one. `ingest()` shed a whole rejection branch. |
+
+**Decision: Option B.** All valid signed facts are retained as
+historical/equivocation evidence, regardless of whether their revision
+is lower than one already known. Implemented as the minimum step (a)
+requires: `ingest()`'s `revision < highest → reject` branch is removed
+entirely; storage and equivocation-detection now apply uniformly to
+every validly-signed envelope. `getLatest()`'s CURRENT-STATE semantics
+are completely unaffected — it already only ever examines the actual
+highest revision present in storage, independent of insertion order.
+
+**Rejected: Option A** (drop stale facts; document that local absence of
+equivocation evidence proves nothing) — not chosen because Option B costs
+less code, not more, and the reputation/dispute value of retained
+evidence is real and already named by this ADR, with no countervailing
+cost identified in the table above.
+
+**Real Postgres evidence (post-fix):** re-ran History A and History B
+against real Postgres (two different `logicalOfferId`s, since changing
+`logicalOfferId` changes the signed bytes — these are **structurally
+equivalent (isomorphic) histories**, not literally identical envelopes;
+worded precisely as such throughout, per explicit instruction) — both
+retained exactly 2 rows at revision 5 with both prices present, and both
+converged to `RESOLVED`/revision 6/price 68000.
+
+### Deterministic `EQUIVOCATED` representation
+
+`getLatest()`'s own `findMany()` call carries no `orderBy` — Postgres
+does not guarantee row order without one, so returning rows in whatever
+order the database happened to hand them back would make `EQUIVOCATED.rows`'
+array order an accident of storage engine behavior, not a property of
+the actual facts. Checked: nothing in this codebase relied on any
+particular `rows` order before this pass (step (a) has no HTTP route or
+other consumer yet). Fixed anyway, because a deterministic
+representation IS part of what this correction pass's own tests need to
+assert reliably (`toEqual` on an array is order-sensitive) and because a
+future audit/evidence consumer comparing two nodes' `EQUIVOCATED`
+results benefits from not needing to sort them itself: `rows` is now
+sorted by `contentDigest` (ascending, lexicographic) before being
+returned — the one stable, content-derived identity every conformant
+node can compute independently, with no dependency on insertion order or
+database-internal row order. Confirmed by test: two histories that
+equivocate in opposite insertion order (E1-then-E2 vs. E2-then-E1)
+produce `rows` arrays in the identical order.
+
+### Real DB evidence, summarized
+
+All four items the mission required, each executed against a real,
+running local Postgres instance before this correction, not simulated:
+1. **Concurrent identical resend** — `Promise.allSettled([ingest(E1),
+   ingest(E1)])`, real concurrency: both fulfilled, one row, identical
+   id.
+2. **Same-revision distinct facts** — `ingest(E1)` then `ingest(E2)`
+   (same identity/revision, different price): both accepted, second
+   flagged `equivocationDetected`, `getLatest()` reports `EQUIVOCATED`
+   naming both prices.
+3. **History A vs. History B** — structurally equivalent histories
+   (see Property P above), opposite arrival order: identical current
+   state AND identical retained historical evidence in both.
+4. **Post-equivocation higher-revision recovery** — a resolving revision
+   6 after the rev-5 equivocation: `getLatest()` resolves to `RESOLVED`/
+   revision 6 in both histories; the rev-5 evidence rows remain queryable
+   and unmodified afterward.
+
+Formalized as `tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`'s
+four new/extended tests ("Property J (real DB)", the extended
+"CONVERGENCE TEST (real DB, Property P)", "Property M (real DB)",
+"Property O (real DB)") — **8 real-Postgres integration tests total**,
+up from 4.
+
+### Updated counts (Sixth Pass)
+
+`tests/offerEnvelope.test.ts`: **72 tests** (up from 63 — 4 new Property
+M tests, 3 new Property O tests, 2 new Property P tests, plus test 10's
+assertion deliberately reversed for Option B).
+`tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`: **8
+tests** (up from 6 — new Property M and Property O real-DB tests, the
+existing convergence test extended in place for Property P's historical-
+evidence check rather than duplicated). **Full `npm run test:unit`:
+155/155 suites, 1995/1995 tests, zero failures.** `npx tsc --noEmit`:
+clean. `npx prisma validate`: schema valid; `npx prisma generate`:
+regenerated, no type errors. `git diff --check`: clean.
+
+### SDK compatibility / OpenLiquidity regression / new dependencies
+
+Unchanged: `packages/sails-sdk` untouched, no route changes;
+`liquidity.service.ts`/`Offer`/`liquidity.routes.ts` untouched; no new
+dependencies (`tweetnacl`, Node's built-in `crypto`, and
+`@prisma/client` — all already in use; the Ed25519 group-order arithmetic
+for Property O's malleation test uses plain JavaScript `BigInt`, a
+language built-in, not a library).
+
+### COBRA Check (Sixth Pass)
+
+Property M: no global lock, no distributed lock, no serialization of
+`ingest()` — concurrency control is the database's own atomic
+constraint, already there. Property O: no new generic signed-object
+identity framework — reuses the exact existing `hashOfferEnvelope()`
+digest for a second purpose. Property P: no central registry, no
+trusted authority, no consensus — retained facts are exactly the signed
+facts this node has independently verified, nothing synthesized. No
+cached "verified" flags introduced anywhere in this pass.
+
+### Rube Goldberg Check (Sixth Pass)
+
+Property M's fix is a `try`/`catch` around an existing `create()` call
+plus one follow-up lookup — smaller than the pre-check it replaced.
+Property O's fix is one column, one constraint change, one already-
+existing hash function reused for a second purpose. Property P's fix
+REMOVES a branch (`revision < highest → reject`) rather than adding one
+— net negative code. Property N is a documentation correction with zero
+code. Total footprint across all four properties is smaller than any
+single property from the Third or Fourth pass.
+
+### ADR-001 step (a) status (Sixth Pass)
+
+Reverted to **CORRECTION REQUIRED** at the start of this pass (from the
+Fifth Pass's `CORRECTED AND RE-CLOSED A THIRD TIME`); **re-closed as
+CLOSED (2026-09-09, corrected — Sixth Pass)** now that Properties M, N,
+O, and P are fixed/resolved, tested (including real Postgres concurrency
+evidence), and evidenced. See
+`docs/adr/ADR-001-day0-multi-operator-network.md` §21(a).
+
+### BACKLOG DELTA (Sixth Pass)
+
+**ZERO.** Properties M, O, and P are defects in the implementation of
+the already-authorized step (a); Property N is a documentation-only
+correction. None are new architecture fronts. No new obligation is
+registered in `docs/BACKLOG.md`.
 
 ---
 

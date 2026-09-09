@@ -16,6 +16,7 @@
 import { prisma } from '../../common/database'
 import {
   verifyOfferEnvelope,
+  hashOfferEnvelope,
   formatCanonicalDecimal,
   formatCanonicalTimestamp,
   isOfferEnvelopeEconomicallyActive,
@@ -44,20 +45,34 @@ export interface OfferEnvelopeRow {
   expiresAt: Date
   status: OfferEnvelopeContent['status']
   signature: string
+  contentDigest: string
 }
 
 /**
- * The result of asking "what is this offer identity's current state?"
- * (CTO Gate correction 2026-09-09, Property J.) Deliberately NOT just
- * "a row or null" — a single, unconditionally-winning "latest" row
- * cannot express owner equivocation without either (a) silently picking
- * an arbitrary winner (the exact defect this correction closes) or
- * (b) hiding that a conflict exists. `RESOLVED` is the normal case;
- * `EQUIVOCATED` means the owner produced two-or-more genuinely
- * different signed envelopes at the identical, currently-highest
- * revision for this identity — every conflicting row is returned, and
- * NONE of them should be treated as economically authoritative until a
- * later, unambiguous revision arrives (see `getLatest()` below).
+ * The result of asking "what is this offer identity's CURRENT
+ * economic state?" (CTO Gate correction 2026-09-09, Property J.)
+ * Deliberately NOT just "a row or null" — a single, unconditionally-
+ * winning "latest" row cannot express owner equivocation without either
+ * (a) silently picking an arbitrary winner (the exact defect this
+ * correction closes) or (b) hiding that a conflict exists. `RESOLVED` is
+ * the normal case; `EQUIVOCATED` means the owner produced two-or-more
+ * genuinely different signed envelopes at the identical, currently-
+ * highest revision for this identity — every conflicting row is
+ * returned, and NONE of them should be treated as economically
+ * authoritative until a later, unambiguous revision arrives (see
+ * `getLatest()` below).
+ *
+ * **Scope, precise (CTO Gate correction 2026-09-09, Sixth Pass):** this
+ * answers the CURRENT-STATE question only — "what is economically
+ * active right now." It is NOT the historical signed-fact set (that is
+ * simply every row this table holds for the identity, queried directly
+ * — see Property P) and it is NOT a complete equivocation-history
+ * report (a past, superseded revision can also have been equivocated;
+ * `getLatest()` only surfaces equivocation at the CURRENT highest
+ * revision, since only that revision affects current economic state).
+ * These three questions are answered separately on purpose, per the
+ * Sixth Pass mission's own instruction not to force them into one
+ * verdict.
  */
 export type LatestOfferState =
   | { status: 'NOT_FOUND' }
@@ -66,77 +81,99 @@ export type LatestOfferState =
 
 export class OfferEnvelopeRepository {
   /**
-   * Verify, then apply the convergence rule (ADR-001 §5): the highest
-   * verified `revision` for an **offer identity** `(ownerPublicKey,
-   * logicalOfferId)` wins (Property H, CTO Gate correction 2026-09-09).
-   * An envelope whose revision is strictly lower than the highest one
-   * already stored for that identity is rejected outright — this is
-   * also the replay-protection mechanism (ADR-001 §3), not a separate
-   * check.
+   * Verify, then store. CURRENT-STATE selection (ADR-001 §5: highest
+   * `revision` wins, scoped to the offer identity `(ownerPublicKey,
+   * logicalOfferId)`, Property H) is entirely `getLatest()`'s job, not
+   * this method's — `ingest()` no longer rejects an envelope merely for
+   * carrying a revision lower than one already stored (see Property P
+   * below). What `ingest()` still guards against: malformed/invalid
+   * envelopes (`verifyOfferEnvelope()`), and duplicate storage of a fact
+   * this node already has (Properties M/O below).
    *
-   * **CTO Gate correction (2026-09-09), Property J — owner
-   * equivocation.** The same owner can sign two genuinely different
-   * envelopes at the identical `(ownerPublicKey, logicalOfferId,
-   * revision)` — nothing in the crypto layer prevents an owner (buggy
-   * or malicious) from doing this. Reproduced directly, before this
-   * fix: given Alice's two independently-valid envelopes E1 (price A)
-   * and E2 (price B), both at revision 5 for the same `logicalOfferId`,
-   * a node ingesting E1-then-E2 ended up with price A as "the" offer;
-   * a node ingesting E2-then-E1 ended up with price B. **Two nodes,
-   * given the identical two facts, disagreed about the offer's actual
-   * economic terms — purely because of arrival order.** The prior
-   * behavior (treat "revision does not strictly exceed the highest
-   * already stored" as a uniform rejection) was itself the bug: it
-   * silently discarded whichever of the two equally-valid, conflicting
-   * envelopes happened to arrive second, which is exactly
-   * "arrival-order-determines-truth" restated for revisions instead of
-   * for ownership (Property H's original defect, one layer up).
+   * **CTO Gate correction (2026-09-09), Sixth Pass, Property M —
+   * concurrent identical-fact ingestion.** Reproduced directly against
+   * real Postgres, before this fix: two concurrent `ingest(E1)` calls
+   * (`Promise.all`) for the exact same signed envelope — both read
+   * "no existing row" (a real TOCTOU race: neither write had landed yet
+   * when either read happened), both attempted `create()`; the DB's own
+   * unique constraint let exactly one succeed and threw a raw, uncaught
+   * `PrismaClientKnownRequestError` (P2002) out of the SECOND caller's
+   * `ingest()` call — an unhandled exception, not a graceful result.
+   * Forbidden outcome, confirmed exactly as named. Fixed by relying on
+   * the database's own ATOMIC uniqueness check as the actual
+   * concurrency control (no global lock, no serialization — both
+   * explicitly out of scope): `create()` is attempted directly, and a
+   * P2002 on this table's own uniqueness constraint is caught and
+   * converted into the identical graceful "already known, here is its
+   * id" result the non-racing caller would have received from a
+   * pre-check. Concurrent identical-fact ingestion is now idempotent:
+   * one stored row, both callers receive an `accepted: true` result.
    *
-   * The fix, deliberately fail-CLOSED rather than another
-   * first-writer-wins race: an envelope whose revision exactly equals
-   * the current highest is either (a) a byte-identical resend of an
-   * already-stored fact (its `signature` matches exactly — idempotent,
-   * a no-op, not stored again), or (b) genuinely different signed
-   * content at that revision — equivocation. Case (b) is stored as a
-   * SECOND row (the DB's own `@@unique([ownerPublicKey, logicalOfferId,
-   * revision, signature])` constraint, `prisma/schema.prisma`,
-   * deliberately includes `signature` so this is possible) — never
-   * silently dropped, never used to overwrite the first. `getLatest()`
-   * below is what surfaces this as `EQUIVOCATED`, order-independently:
-   * regardless of whether E1 or E2 was stored first, once BOTH have
-   * been ingested, both nodes' `getLatest()` returns the identical
-   * `EQUIVOCATED` verdict naming both rows — this is the actual
-   * convergence property: not "the same one wins everywhere," but "the
-   * same TRUTH (including the fact of a conflict) is visible
-   * everywhere once the same facts have arrived."
+   * **CTO Gate correction (2026-09-09), Sixth Pass, Property O —
+   * `signature` is not a sound identity.** Confirmed directly (a
+   * controlled test against the real `tweetnacl` verifier, not a guess):
+   * given one valid Ed25519 signature `(R, S)` over a message, the
+   * byte-different signature `(R, S + L)` (where `L` is the Ed25519
+   * group order, `2^252 + 27742317777372353535851937790883648493`) also
+   * verifies successfully against the identical message and public key
+   * — with NO knowledge of the secret key required (classic Ed25519
+   * signature malleability; `tweetnacl`'s verifier does not reject a
+   * non-canonical `S`). Consequence: the Fifth Pass's own "different
+   * signature at the same revision means equivocation" rule was
+   * exploitable by a mere OBSERVER (not even the offer's owner) —
+   * anyone who has seen one valid envelope can derive a second, valid,
+   * byte-different signature over the IDENTICAL content and inject it,
+   * falsely triggering `EQUIVOCATED` (a fail-closed, economically-inert
+   * state) as a griefing vector against an offer the owner never
+   * actually double-signed. Fixed: fact identity is now `contentDigest`
+   * — `hashOfferEnvelope()`'s sha256 hex digest of the canonical
+   * serialization, a pure function of the signed CONTENT fields only,
+   * excluding `signature` — used both for the DB uniqueness constraint
+   * (`prisma/schema.prisma`) and for `getLatest()`'s distinctness check
+   * below. `signature` remains stored in full and is still what
+   * `verifyOfferEnvelope()` re-checks on every call — it is demoted from
+   * "identity" to "authorization evidence," never removed.
    *
-   * **`createdAt` immutability — retracted (CTO Gate correction
-   * 2026-09-09, Property K).** An earlier pass (Property I) rejected
-   * any new revision whose `createdAt` didn't match the previously
-   * -*observed* `highest` row's `createdAt`. Reproduced directly, this
-   * was itself order-dependent and non-convergent: a node that happens
-   * to observe revision 2 before ever seeing revision 0 has no
-   * `createdAt` to compare against and accepts revision 2 unconditionally
-   * — such a node would then *reject* a later-arriving, genuinely
-   * legitimate revision 0 (or a further revision carrying the TRUE
-   * original `createdAt`) purely because its own locally-first-observed
-   * value differs from what a node that saw the facts in the true
-   * historical order would have used as the baseline. Two nodes given
-   * the same eventual set of facts converged on different accepted
-   * histories — a second, independent instance of the exact defect this
-   * whole correction pass exists to close. There is no order-independent
-   * mechanism to enforce `createdAt` immutability using only a node's
-   * own locally-first-observed reference point, and step (a) does not
-   * replicate full history between nodes (that is a later, unauthorized
-   * step). Rather than invent additional machinery (a global minimum,
-   * a required full-history replay) to preserve a claim that isn't
-   * load-bearing for any of the seven frozen ADR-001 §3 properties,
-   * `createdAt` immutability is **retracted as an enforced protocol
-   * rule** and narrowed to what it always structurally was: signed
-   * (tamper-evident — no relay can alter it without invalidating the
-   * signature) and advisory (never used for ordering, already true).
-   * Property first, mechanism second: no correct order-independent
-   * mechanism exists, so the property is narrowed, not forced.
+   * **CTO Gate correction (2026-09-09, Sixth Pass, Property P —
+   * historical-evidence convergence).** Reproduced directly: "History A"
+   * (E1 rev5, E2 rev5, then rev6) and "History B" (rev6 arrives FIRST,
+   * then E1 rev5, then E2 rev5) both eventually see the identical three
+   * signed facts, and both converge on the identical CURRENT state
+   * (rev6) — but, under the Fifth Pass's own "revision < highest is
+   * stale, reject" rule, History B's own E1/E2 (arriving after rev6 was
+   * already known) would have been rejected outright as stale, so
+   * History B would end up with ZERO evidence that this owner ever
+   * equivocated, while History A retains both rev5 rows — **the
+   * historical-fact set and equivocation evidence a node ends up
+   * holding depended on arrival order**, even though current-state
+   * selection did not. Decision, evaluated explicitly (property first,
+   * mechanism second): **Option B — all valid signed facts are
+   * retained as historical/equivocation evidence, regardless of whether
+   * their revision is lower than one already known.** Rejected Option A
+   * (drop stale facts, document that absence of local equivocation
+   * evidence proves nothing) because: reputation/abuse/dispute evidence
+   * is a named ADR-001 concern this protocol already cares about, and
+   * losing it purely as an artifact of arrival order undermines that for
+   * free; storage/bandwidth cost is bounded by the number of genuinely
+   * DISTINCT valid facts the true owner ever signed (an attacker without
+   * the owner's key cannot manufacture new ones — cryptography, not
+   * storage policy, is what already bounds this; Property O's own
+   * content-digest-based idempotency separately bounds REPLAY of an
+   * already-known fact to zero additional storage); replay-abuse
+   * resistance is unaffected either way (replaying an already-stored
+   * fact is idempotent under both options); this remains local
+   * persistence only (no gossip/bandwidth relaying implemented in step
+   * (a) at all); and implementing Option B costs LESS code than Option
+   * A here, not more — it is the absence of a special case ("if this
+   * revision is lower than the current highest, reject before storing"),
+   * not an added one. Implemented as the minimum step (a) requires: the
+   * `revision < highest → reject` branch is removed; storage and
+   * equivocation-detection apply uniformly to every valid envelope
+   * regardless of its revision relative to whatever else is already
+   * known. `getLatest()`'s CURRENT-STATE semantics are completely
+   * unchanged by this — it already only ever looks at the actual
+   * highest revision present in storage, independent of insertion
+   * order.
    */
   async ingest(envelope: SignedOfferEnvelope): Promise<IngestResult> {
     const verdict = verifyOfferEnvelope(envelope)
@@ -144,49 +181,51 @@ export class OfferEnvelopeRepository {
       return { accepted: false, reason: verdict.reason }
     }
 
-    const highest = await prisma.offerEnvelope.findFirst({
-      where: { ownerPublicKey: envelope.ownerPublicKey, logicalOfferId: envelope.logicalOfferId },
-      orderBy: { revision: 'desc' },
+    const contentDigest = hashOfferEnvelope(envelope).toString('hex')
+
+    // Equivocation is a per-revision fact, independent of whether this
+    // revision happens to be the identity's current highest (Property P)
+    // — checked before the insert purely to label the *response*
+    // accurately; the insert itself (and its own atomic uniqueness
+    // guard, Property M) is what actually decides storage.
+    const siblingsAtThisRevision = await prisma.offerEnvelope.findMany({
+      where: {
+        ownerPublicKey: envelope.ownerPublicKey,
+        logicalOfferId: envelope.logicalOfferId,
+        revision: envelope.revision,
+      },
     })
+    const isNewDistinctFactAtThisRevision =
+      siblingsAtThisRevision.length > 0 && !siblingsAtThisRevision.some((row) => row.contentDigest === contentDigest)
 
-    if (highest && envelope.revision < highest.revision) {
-      return {
-        accepted: false,
-        reason: `revision ${envelope.revision} is stale — already-stored revision ${highest.revision} exists for offer (${envelope.ownerPublicKey}, ${envelope.logicalOfferId})`,
+    try {
+      const created = await prisma.offerEnvelope.create({ data: this.toRowData(envelope, contentDigest) })
+      return isNewDistinctFactAtThisRevision
+        ? { accepted: true, id: created.id, equivocationDetected: true }
+        : { accepted: true, id: created.id }
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        // Property M: a concurrent caller (or a plain resend, malleated
+        // signature included per Property O) already stored this exact
+        // (ownerPublicKey, logicalOfferId, revision, contentDigest) —
+        // idempotent, not an error.
+        const existing = await prisma.offerEnvelope.findFirst({
+          where: {
+            ownerPublicKey: envelope.ownerPublicKey,
+            logicalOfferId: envelope.logicalOfferId,
+            revision: envelope.revision,
+            contentDigest,
+          },
+        })
+        if (existing) {
+          return { accepted: true, id: existing.id }
+        }
       }
+      throw err
     }
-
-    if (highest && envelope.revision === highest.revision) {
-      const rowsAtThisRevision = await prisma.offerEnvelope.findMany({
-        where: {
-          ownerPublicKey: envelope.ownerPublicKey,
-          logicalOfferId: envelope.logicalOfferId,
-          revision: envelope.revision,
-        },
-      })
-      const identicalExisting = rowsAtThisRevision.find((row) => row.signature === envelope.signature)
-      if (identicalExisting) {
-        // Byte-identical resend of an already-known fact (e.g. a relay
-        // retransmit) — idempotent, not stored again, not equivocation.
-        return { accepted: true, id: identicalExisting.id }
-      }
-
-      // A different, genuinely valid signature at the identical
-      // (ownerPublicKey, logicalOfferId, revision) — Ed25519 signing is
-      // deterministic, so a different signature necessarily means
-      // different signed content. Stored as durable equivocation
-      // evidence; never silently discarded, never used to overwrite
-      // what is already stored.
-      const created = await prisma.offerEnvelope.create({ data: this.toRowData(envelope) })
-      return { accepted: true, id: created.id, equivocationDetected: true }
-    }
-
-    // envelope.revision > highest.revision (or no highest exists at all).
-    const created = await prisma.offerEnvelope.create({ data: this.toRowData(envelope) })
-    return { accepted: true, id: created.id }
   }
 
-  private toRowData(envelope: SignedOfferEnvelope) {
+  private toRowData(envelope: SignedOfferEnvelope, contentDigest: string) {
     return {
       logicalOfferId: envelope.logicalOfferId,
       ownerPublicKey: envelope.ownerPublicKey,
@@ -202,22 +241,39 @@ export class OfferEnvelopeRepository {
       expiresAt: new Date(envelope.expiresAt),
       status: envelope.status,
       signature: envelope.signature,
+      contentDigest,
     }
   }
 
   /**
-   * The current state of a given offer identity `(ownerPublicKey,
-   * logicalOfferId)` — `Property H` (2026-09-09) explains why both
-   * parameters are required (`logicalOfferId` alone does not name a
-   * unique offer). As of `Property J` (2026-09-09), this can no longer
-   * be a single row-or-null: if the owner equivocated at the current
-   * highest revision, EVERY conflicting row is returned, tagged
-   * `EQUIVOCATED` — a caller MUST treat that state as economically
-   * inactive (fail-closed), never pick one of the rows arbitrarily.
-   * This verdict is order-independent by construction: it is computed
-   * fresh from whatever the identity's full stored history currently
-   * contains, not from which fact happened to be ingested most
-   * recently.
+   * The CURRENT economic state of a given offer identity
+   * `(ownerPublicKey, logicalOfferId)` — `Property H` (2026-09-09)
+   * explains why both parameters are required (`logicalOfferId` alone
+   * does not name a unique offer). As of `Property J` (2026-09-09), this
+   * can no longer be a single row-or-null: if the owner equivocated at
+   * the current highest revision, EVERY conflicting row is returned,
+   * tagged `EQUIVOCATED` — a caller MUST treat that state as
+   * economically inactive (fail-closed), never pick one of the rows
+   * arbitrarily. This verdict is order-independent by construction: it
+   * is computed fresh, every call, from whatever this identity's
+   * currently-stored rows are — never cached from whichever fact
+   * happened to be ingested most recently.
+   *
+   * **CTO Gate correction (2026-09-09, Sixth Pass, Property O):**
+   * distinctness among rows at the highest revision is now judged by
+   * `contentDigest`, not `signature` — see `ingest()`'s own comment for
+   * why `signature` is not sound for this.
+   *
+   * **CTO Gate correction (2026-09-09, Sixth Pass — deterministic
+   * `EQUIVOCATED` representation):** `rows` is sorted by `contentDigest`
+   * (ascending, lexicographic) before being returned. This is not
+   * cosmetic — `contentDigest` is the one stable, content-derived
+   * identity every conformant node can compute independently, so a
+   * deterministic ordering means two nodes comparing an `EQUIVOCATED`
+   * result (e.g. in a test, or a future evidence/audit consumer) can
+   * rely on array order matching whenever the underlying row SET
+   * matches — no accidental dependency on the database's own unordered
+   * row-return order, and no dependency on insertion order.
    */
   async getLatest(ownerPublicKey: string, logicalOfferId: string): Promise<LatestOfferState> {
     const highest = await prisma.offerEnvelope.findFirst({
@@ -231,12 +287,13 @@ export class OfferEnvelopeRepository {
     const rowsAtHighestRevision = await prisma.offerEnvelope.findMany({
       where: { ownerPublicKey, logicalOfferId, revision: highest.revision },
     })
-    const distinctBySignature = new Map(rowsAtHighestRevision.map((row) => [row.signature, row]))
+    const distinctByContentDigest = new Map(rowsAtHighestRevision.map((row) => [row.contentDigest, row]))
+    const sortedRows = [...distinctByContentDigest.values()].sort((a, b) => a.contentDigest.localeCompare(b.contentDigest))
 
-    if (distinctBySignature.size > 1) {
-      return { status: 'EQUIVOCATED', revision: highest.revision, rows: [...distinctBySignature.values()] }
+    if (sortedRows.length > 1) {
+      return { status: 'EQUIVOCATED', revision: highest.revision, rows: sortedRows }
     }
-    return { status: 'RESOLVED', row: [...distinctBySignature.values()][0] }
+    return { status: 'RESOLVED', row: sortedRows[0] }
   }
 
   /**
