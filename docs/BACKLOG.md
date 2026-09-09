@@ -1784,3 +1784,44 @@ or hidden operational conventions.
     raw DB row by convenience.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+
+### Cold Sweep Loop 5 — Partner Beta Asset/Rail Scope Gate (2026-09-09)
+
+20. **Partner Beta Asset/Rail Scope Gate — beta-launch obligation.**
+    README strategic coverage already names USDT, USDC, BTC, LBTC,
+    L-USDT, DePix, Tether Gold and RGB assets as “in view,” correctly
+    without claiming support. Current `AssetType` is materially
+    narrower and does not contain DePix, USDC or Tether Gold.
+
+    Required property:
+    the first partner beta must publish an explicit
+    **Asset × Network/Rail × Wallet Adapter × Settlement Capability ×
+    Maturity** matrix, and every advertised beta flow must be
+    representable end-to-end by the real SDK/schema/provider combination.
+
+    Preserve:
+    **Roadmap Asset ≠ SDK-Representable Asset ≠ Settlement-Supported Asset
+    ≠ Beta-Enabled Asset.**
+
+    If DePix is promised in the first partner beta, its current absence
+    from `AssetType` and the absence of a production-eligible
+    Liquid/DePix settlement path are blockers to that scope. If the beta
+    is explicitly narrower (for example BTC-only or bounded BTC+USDT),
+    DePix does not block the narrower evidence gate.
+
+21. **Canonical quote-currency discoverability — conditional Day-0
+    blocker for multi-fiat beta.** Aggregate `LiquidityOffer` exposes
+    `priceUsd`; persisted Offer has optional `priceBrl`; Intent has
+    optional `currency`. For any beta supporting more than one fiat
+    quote denomination, the market pair/currency must be explicit and
+    never inferred from node, locale, payment method or geography.
+
+Required evidence:
+Beta Asset/Rail Matrix Truth Test; Unsupported Asset Fail-Closed Test;
+DePix End-to-End Representability Test if DePix is in beta scope;
+Multi-Fiat Quote-Currency Disambiguation Test when multi-fiat is enabled.
+
+Operational tracker remains Issue #105.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
