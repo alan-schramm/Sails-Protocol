@@ -785,3 +785,33 @@ Add:
 **BACKLOG DELTA DETECTED:** the strategic coverage matrix already
 existed, but an explicit Partner Beta scope gate tying marketing/
 partner promises to actual representability did not.
+
+
+## 15. Execution authority after the five-loop sweep
+
+The discoveries above are **not** to be executed in the order they were
+found. Issue **#105 — [Day-0] Multi-Operator Network + Partner Beta
+Completion Gate** contains the canonical CTO sequencing authority,
+organized as Gates A-J.
+
+High-level dependency order:
+
+1. evidence infrastructure (#57) + current privacy blocker (#61);
+2. explicit first-beta asset/rail/fiat scope;
+3. signed portable market objects + node identity/binding;
+4. bootstrap/gossip/catch-up/convergence + adversarial network safety;
+5. exact trade/fiat/payment/settlement/fee/arbitration commitment;
+6. concurrency, restart, node-switch and dispute continuity;
+7. node contribution accounting + no-cannibalization evidence;
+8. stranger node/operator/developer tests;
+9. independent partner-wallet + professional-service beta evidence;
+10. Production Readiness → provider eligibility → Network Simulation /
+    Final Red Team → external audit → RC1 → bounded real-value validation.
+
+> **No “later bucket” exists for an item required by the declared launch
+> scope. Scope may be narrowed explicitly; an obligation may not
+> disappear implicitly.**
+
+This document preserves the *why/properties/evidence*. Issue #105
+preserves the live *execution order*. `docs/BACKLOG.md` preserves the
+institutional obligation even if the Issue is later closed.
