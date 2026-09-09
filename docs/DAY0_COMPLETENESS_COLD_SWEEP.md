@@ -421,3 +421,196 @@ After Loop 2, the institutional sweep has covered:
 **BACKLOG DELTA DETECTED again within the same cold-sweep obligation:**
 signed rail/network semantics and exact accepted-revision/terms binding
 were not previously explicit enough.
+
+
+## 11. Loop 3 — real-money agreement + dispute authority sweep (2026-09-09)
+
+A third pass traced the Day-0 design from “offer discovered” through
+“fiat is actually sent,” “escrow is selected,” “fees become binding,”
+and “the parties disagree.” This surfaced four additional load-bearing
+properties that a clean gossip implementation would not solve by itself.
+
+### 11.1 Exact fiat obligation and payment-instruction binding
+
+Repository truth is currently asymmetric:
+
+- `TradeIntentPayload.currency` exists;
+- the persisted `Offer` has `priceUsd` plus optional `priceBrl`, but
+  no generic quote-currency column;
+- `Trade` persists `priceUsd`/`totalUsd`, not a generic fiat
+  denomination/amount;
+- `Offer.paymentDetails` is mutable application data;
+- a privacy-preserving `PaymentAccount.accountHash` already exists.
+
+For real-world PIX/bank-transfer P2P, “buyer accepted Offer X” is not
+enough. The buyer must know exactly how much of which fiat denomination
+is owed and must not be redirected to a different payment account by an
+unsigned chat message after commitment.
+
+**Day-0 property:**
+
+> Before a fiat-side payment becomes the user's obligation, both parties
+> must be able to verify the exact fiat amount, fiat currency,
+> payment method and committed payment-destination identity/reference
+> that belong to this trade.
+
+Privacy requirement:
+
+> **Payment destination commitment ≠ Public payment destination.**
+
+The raw PIX key/bank account must not be gossiped merely to make the
+commitment verifiable. A hash/reference such as the already-existing
+`PaymentAccount.accountHash`, or an equivalently verifiable
+trade-scoped commitment, can preserve privacy while binding the
+instruction. The exact mechanism requires its own implementation review.
+
+Any post-commit payment-instruction change must be an explicit,
+authenticated amendment accepted by the affected party/parties; a chat
+message alone must not silently redefine the economic obligation.
+
+Preserved:
+
+> **Chat Instruction ≠ Economic Authority.**
+
+> **Payment Method ≠ Payment Destination.**
+
+> **Price Quote ≠ Final Fiat Obligation until denomination and amount are bound.**
+
+### 11.2 Settlement contract / custody semantics must be frozen before commitment
+
+Loop 2 already established:
+
+> **Asset identity ≠ Network identity ≠ Settlement-provider identity.**
+
+This pass makes the consequence explicit. Two nodes may support the same
+asset/network through settlement mechanisms with materially different
+custody, signer, refund, dispute, finality and recovery properties.
+
+**Day-0 property:**
+
+> The trade/escrow agreement must bind the exact settlement mechanism
+> whose authority, custody and recovery semantics the parties accepted;
+> a node may not silently substitute a different SettlementProvider or
+> EscrowType after economic commitment.
+
+The binding must include, directly or through a canonical capability/
+contract reference:
+- selected `EscrowType` / settlement mechanism;
+- network/rail;
+- asset;
+- custody model relevant to user authority;
+- required signer/approval shape;
+- finality/confirmation policy where economically relevant;
+- refund/dispute capability required by the trade;
+- maturity/eligibility disclosure used to permit that mechanism in the
+  environment.
+
+This is not a requirement that every provider share one security model.
+It is the opposite: the user must be bound to the *actual* one.
+
+> **Interface uniformity ≠ Security uniformity.**
+
+### 11.3 Fee / policy commitment before economic commitment
+
+Independent nodes are intended to compete on service quality and may
+participate economically. That creates another Day-0 ambiguity if two
+nodes can apply different fees or policy versions to the same trade.
+
+**Property:**
+
+> Every fee that can become an obligation for a participant must be
+> disclosed and frozen before the participant becomes economically
+> committed, including who pays, the economic basis, the applicable
+> policy/version and the recipient class where relevant.
+
+A node or policy rotation after trade-open must not retroactively change
+the agreed obligation.
+
+Preserved:
+
+> **Fee discovery ≠ Fee obligation.**
+
+> **Verified contribution ≠ Fee entitlement.**
+
+> **Node competition on fees must not permit hidden post-commit fees.**
+
+The existing immutable `FeePolicyVersion` /
+`DistributionPolicyVersion` architecture is useful prior art, but this
+sweep does not assume cross-node fee agreement is already solved merely
+because those tables exist in one node.
+
+### 11.4 Cross-node dispute/arbitration authority is a Day-0 blocker
+
+The current dispute implementation is node-local:
+
+- `Dispute` rows live in one Postgres database;
+- the configured `ArbitrationProvider` is deployment-local
+  (`trusted-list` or market mode);
+- arbiter assignment is performed by the node handling
+  `raiseDispute()`;
+- MULTISIG can have an arbiter cryptographically committed in the
+  settlement script, while other rails have different authority shapes.
+
+In a multi-operator trade, “which node received the dispute request?”
+must never decide who has authority to rule.
+
+**Day-0 property:**
+
+> Dispute authority, applicable arbitration policy and appeal semantics
+> must be established by the trade/settlement agreement — not chosen
+> unilaterally by whichever node processes the dispute first.
+
+Required properties:
+- both parties can verify the same arbitration authority/policy before
+  funds are committed;
+- a node-local config change cannot reinterpret an already-open trade;
+- an assigned/committed arbiter can access the evidence necessary to
+  decide without trusting one operator's private database as truth;
+- the ruling carries independently verifiable authority attribution
+  (existing `authoritySignature` / `DisputeOutcome` are useful prior
+  art);
+- both parties/nodes can verify the same ruling and appeal round;
+- one party's node disappearing must not make an otherwise-valid dispute
+  unresolvable;
+- settlement execution still follows the rail's own funds-authority
+  requirements.
+
+Preserved:
+
+> **Dispute Hosting Node ≠ Arbitration Authority.**
+
+> **Arbitration Policy ≠ Node Local Configuration once a trade is committed.**
+
+> **Ruling Attribution ≠ Funds Authority.**
+
+This does not select one universal arbitration model. It requires the
+chosen model to be frozen and independently checkable for that trade.
+
+### 11.5 New adversarial evidence cases
+
+Add:
+
+13. Fiat Amount/Currency Binding Test.
+14. Payment-Destination Substitution Test.
+15. Post-Commit Payment-Instruction Change Test.
+16. Settlement-Provider Substitution Test.
+17. Fee-Policy Rotation / Hidden-Fee Test.
+18. Cross-Node Arbitration-Policy Mismatch Test.
+19. Dispute Hosting-Node Failover Test.
+20. Appeal-Round Cross-Node Consistency Test.
+
+## 12. Loop 3 status
+
+This pass closes a class of blind spots that sit *after* discovery but
+*before* safe real-world payment:
+
+- what exactly the buyer owes;
+- where the buyer is authorized to pay;
+- which settlement/custody contract the parties accepted;
+- which fees are binding;
+- who may resolve a dispute.
+
+**BACKLOG DELTA DETECTED again within the same Day-0 completeness
+obligation.** These properties were not explicit enough in ADR-001's
+original happy-path sequence and are required before first real-value
+multi-operator testing.
