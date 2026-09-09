@@ -1643,3 +1643,49 @@ censorship resistance, or production-grade decentralized operation.
 Classification: **BACKLOG DELTA DETECTED AND SYNCED.**
 
 Operational tracker: **Issue #105 — [Day-0] Multi-Operator Network + Partner Beta Completion Gate**.
+
+
+### Cold Sweep Loop 2 — exact economic binding (2026-09-09)
+
+A second pass over the already-accepted OfferEnvelope + trade-open design
+found two further Day-0 precision gaps.
+
+12. **Signed rail/network semantics — Day-0.**
+    The portable Offer signature must commit to every field whose value
+    can change economic interpretation. `asset` alone is not sufficient
+    for Sails' multi-rail direction where one asset family may exist on
+    multiple networks. Preserve:
+    **Asset identity ≠ Network identity ≠ Settlement-provider identity.**
+    The signed canonical representation must include the canonical
+    network/rail semantics whenever the asset identifier alone is
+    insufficient. Exact vocabulary remains a separate compatibility
+    decision; no new universal identifier is invented here.
+
+13. **Trade-open exact revision/terms commitment + replay safety —
+    Day-0.** The jointly-signed trade-open anchor must not commit merely
+    to `logicalOfferId + tradeId`; it must prove both parties accepted
+    one exact economic proposal. Directly or through a canonical
+    OfferEnvelope hash, the commitment must bind the accepted revision,
+    amount, price/quote, asset, network/rail semantics, required
+    payment-method semantics, and the mutually-derived tradeId, with
+    replay/idempotency protection sufficient to prevent one acceptance
+    from creating multiple logical trades.
+
+    Preserved:
+    **Offer Identity ≠ Accepted Offer Revision.**
+    **Trade ID ≠ Economic Terms.**
+
+14. **Concurrent acceptance / double-commit evidence — Day-0.**
+    Extend the already-registered professional-provider inventory
+    reservation obligation to the multi-node case: two buyers racing the
+    same single-fill/limited-inventory Offer through different nodes or
+    devices must not create more mutually exclusive commitments than the
+    owner's signed availability permits. Required evidence includes stale
+    revision attempts, duplicate/replayed trade-open handshakes and
+    owner-node migration during a race. No global lock service is
+    authorized.
+
+These are sub-obligations of the same Day-0 completeness sweep, not new
+macrofronts.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
