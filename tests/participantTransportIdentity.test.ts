@@ -1,7 +1,8 @@
 /**
- * ADR-001 §21 step (b) — Persistent Node Identity.
- * docs/PERSISTENT_NODE_IDENTITY_EVIDENCE.md carries the full evidence
- * narrative; this file is the real, executable proof.
+ * ADR-001 §7.2 — Persistent Participant Transport Identity.
+ * Renamed from tests/nodeIdentity.test.ts (2026-09-09, CTO Gate B
+ * correction) — see docs/PARTICIPANT_TRANSPORT_IDENTITY_EVIDENCE.md for
+ * the full evidence narrative; this file is the real, executable proof.
  *
  * Real `hyperdht` (the actual, installed `hyperdht@6.33.2` package) and
  * real Node.js `fs` throughout, against a fresh scratch directory per
@@ -15,16 +16,16 @@ import * as path from 'path'
 import * as os from 'os'
 import HyperDHT from 'hyperdht'
 import {
-  loadOrCreateNodeIdentitySeed,
-  NodeIdentityCorruptedError,
-  NODE_IDENTITY_SEED_BYTES,
-} from '../src/infrastructure/p2p/node-identity'
+  loadOrCreateParticipantTransportIdentitySeed,
+  ParticipantTransportIdentityCorruptedError,
+  PARTICIPANT_TRANSPORT_IDENTITY_SEED_BYTES,
+} from '../src/infrastructure/p2p/participant-transport-identity'
 
 async function makeScratchDir(): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), 'sails-node-identity-test-'))
+  return fs.mkdtemp(path.join(os.tmpdir(), 'sails-participant-transport-identity-test-'))
 }
 
-describe('node-identity — persistent node identity (ADR-001 step (b))', () => {
+describe('participant-transport-identity — persistent transport identity (ADR-001 §7.2)', () => {
   let scratchDir: string
 
   beforeEach(async () => {
@@ -49,9 +50,9 @@ describe('node-identity — persistent node identity (ADR-001 step (b))', () => 
     const entriesBefore = await fs.readdir(scratchDir)
     expect(entriesBefore).toHaveLength(0)
 
-    const seed = await loadOrCreateNodeIdentitySeed(ownerUserId, scratchDir)
+    const seed = await loadOrCreateParticipantTransportIdentitySeed(ownerUserId, scratchDir)
 
-    expect(seed).toHaveLength(NODE_IDENTITY_SEED_BYTES)
+    expect(seed).toHaveLength(PARTICIPANT_TRANSPORT_IDENTITY_SEED_BYTES)
     const persisted = await fs.readFile(seedPath)
     expect(persisted.equals(seed)).toBe(true)
   })
@@ -60,13 +61,13 @@ describe('node-identity — persistent node identity (ADR-001 step (b))', () => 
     const ownerUserId = 'user-restart'
 
     // "Boot #1"
-    const seedA = await loadOrCreateNodeIdentitySeed(ownerUserId, scratchDir)
+    const seedA = await loadOrCreateParticipantTransportIdentitySeed(ownerUserId, scratchDir)
     const peerIdA = HyperDHT.keyPair(seedA).publicKey.toString('hex')
 
     // "Ordinary restart" — a completely fresh call, no in-memory state
     // carried over, exactly like a real process restart against the
     // same on-disk data directory.
-    const seedB = await loadOrCreateNodeIdentitySeed(ownerUserId, scratchDir)
+    const seedB = await loadOrCreateParticipantTransportIdentitySeed(ownerUserId, scratchDir)
     const peerIdB = HyperDHT.keyPair(seedB).publicKey.toString('hex')
 
     expect(seedB.equals(seedA)).toBe(true)
@@ -80,8 +81,8 @@ describe('node-identity — persistent node identity (ADR-001 step (b))', () => 
   })
 
   it('3. independent nodes remain independent: two different ownerUserIds get two different seeds and two different peerIds', async () => {
-    const seedA = await loadOrCreateNodeIdentitySeed('user-a', scratchDir)
-    const seedB = await loadOrCreateNodeIdentitySeed('user-b', scratchDir)
+    const seedA = await loadOrCreateParticipantTransportIdentitySeed('user-a', scratchDir)
+    const seedB = await loadOrCreateParticipantTransportIdentitySeed('user-b', scratchDir)
 
     expect(seedA.equals(seedB)).toBe(false)
     const peerIdA = HyperDHT.keyPair(seedA).publicKey.toString('hex')
@@ -89,14 +90,14 @@ describe('node-identity — persistent node identity (ADR-001 step (b))', () => 
     expect(peerIdA).not.toBe(peerIdB)
   })
 
-  it('4. corrupted material fails safely: a seed file of the wrong length throws NodeIdentityCorruptedError and is never silently regenerated or overwritten', async () => {
+  it('4. corrupted material fails safely: a seed file of the wrong length throws ParticipantTransportIdentityCorruptedError and is never silently regenerated or overwritten', async () => {
     const ownerUserId = 'user-corrupted'
     const seedPath = path.join(scratchDir, `${ownerUserId}.seed`)
     await fs.mkdir(scratchDir, { recursive: true })
     const wrongLengthContent = Buffer.from('not a valid 32-byte seed, too long or too short depending on how you count it')
     await fs.writeFile(seedPath, wrongLengthContent)
 
-    await expect(loadOrCreateNodeIdentitySeed(ownerUserId, scratchDir)).rejects.toThrow(NodeIdentityCorruptedError)
+    await expect(loadOrCreateParticipantTransportIdentitySeed(ownerUserId, scratchDir)).rejects.toThrow(ParticipantTransportIdentityCorruptedError)
 
     // Never silently "fixed" or replaced — the corrupted file is exactly
     // as it was, so a human operator can inspect/restore it.
@@ -110,7 +111,7 @@ describe('node-identity — persistent node identity (ADR-001 step (b))', () => 
     await fs.mkdir(scratchDir, { recursive: true })
     await fs.writeFile(seedPath, Buffer.alloc(0))
 
-    await expect(loadOrCreateNodeIdentitySeed(ownerUserId, scratchDir)).rejects.toThrow(NodeIdentityCorruptedError)
+    await expect(loadOrCreateParticipantTransportIdentitySeed(ownerUserId, scratchDir)).rejects.toThrow(ParticipantTransportIdentityCorruptedError)
   })
 
   it('5. missing previously-expected material does not silently masquerade as the same node: a WARN is logged naming the newly-created identity, distinguishable from an ordinary restart', async () => {
@@ -120,7 +121,7 @@ describe('node-identity — persistent node identity (ADR-001 step (b))', () => 
     }))
     jest.resetModules()
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { loadOrCreateNodeIdentitySeed: freshLoadOrCreate } = require('../src/infrastructure/p2p/node-identity')
+    const { loadOrCreateParticipantTransportIdentitySeed: freshLoadOrCreate } = require('../src/infrastructure/p2p/participant-transport-identity')
 
     const ownerUserId = 'user-missing-material'
     await freshLoadOrCreate(ownerUserId, scratchDir)
@@ -135,14 +136,14 @@ describe('node-identity — persistent node identity (ADR-001 step (b))', () => 
     jest.resetModules()
   })
 
-  it('an ordinary restart (seed already present) does NOT log the "new node identity created" warning', async () => {
+  it('an ordinary restart (seed already present) does NOT log the "new identity" warning', async () => {
     const mockWarn = jest.fn()
     jest.doMock('../src/common/logger', () => ({
       childLogger: () => ({ warn: mockWarn, info: jest.fn(), error: jest.fn(), debug: jest.fn() }),
     }))
     jest.resetModules()
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { loadOrCreateNodeIdentitySeed: freshLoadOrCreate } = require('../src/infrastructure/p2p/node-identity')
+    const { loadOrCreateParticipantTransportIdentitySeed: freshLoadOrCreate } = require('../src/infrastructure/p2p/participant-transport-identity')
 
     const ownerUserId = 'user-quiet-restart'
     await freshLoadOrCreate(ownerUserId, scratchDir) // first boot — warns once
@@ -167,9 +168,46 @@ describe('node-identity — persistent node identity (ADR-001 step (b))', () => 
   it('the persisted seed is never derivable from, or equal to, an unrelated Ed25519 public key (sanity check against accidental key confusion)', async () => {
     const nacl = require('tweetnacl')
     const someOtherKeypair = nacl.sign.keyPair() // stands in for an economic User.publicKey/secretKey pair, generated completely independently
-    const seed = await loadOrCreateNodeIdentitySeed('user-isolation-check', scratchDir)
+    const seed = await loadOrCreateParticipantTransportIdentitySeed('user-isolation-check', scratchDir)
 
     expect(Buffer.from(someOtherKeypair.publicKey).equals(seed)).toBe(false)
     expect(Buffer.from(someOtherKeypair.secretKey.slice(0, 32)).equals(seed)).toBe(false)
+  })
+
+  it('7. concurrent first-initialization for the same ownerUserId converges on one on-disk seed — no caller returns a losing transient identity', async () => {
+    const ownerUserId = 'user-concurrent-init'
+    const seedPath = path.join(scratchDir, `${ownerUserId}.seed`)
+    const CONCURRENT_CALLERS = 12
+
+    // Evidence-boundary note (explicit, per instruction not to overclaim):
+    // this proves same-process concurrent async calls converge correctly
+    // — real interleaving of the exclusive-create attempts within one
+    // Node.js event loop, not simulated sequentially. It does NOT
+    // directly execute true separate-OS-process concurrency. The
+    // underlying primitive (`fs.writeFile(..., {flag:'wx'})`, POSIX
+    // O_CREAT|O_EXCL / Windows CREATE_NEW) is a standard OS/filesystem
+    // guarantee that holds across processes by construction — the same
+    // primitive lockfile implementations universally rely on — but that
+    // cross-process claim rests on the OS's own documented guarantee,
+    // not on separate execution performed by this test.
+    const results = await Promise.all(
+      Array.from({ length: CONCURRENT_CALLERS }, () =>
+        loadOrCreateParticipantTransportIdentitySeed(ownerUserId, scratchDir)
+      )
+    )
+
+    const first = results[0]
+    for (const seed of results) {
+      expect(seed.equals(first)).toBe(true)
+    }
+
+    const entries = await fs.readdir(scratchDir)
+    expect(entries).toEqual([`${ownerUserId}.seed`])
+
+    const persisted = await fs.readFile(seedPath)
+    expect(persisted.equals(first)).toBe(true)
+
+    const peerIds = new Set(results.map((seed) => HyperDHT.keyPair(seed).publicKey.toString('hex')))
+    expect(peerIds.size).toBe(1)
   })
 })

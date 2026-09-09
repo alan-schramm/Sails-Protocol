@@ -1422,13 +1422,43 @@ represented anywhere in this repository:
    explicitly not chosen (a real cryptographic design decision);
    explicitly forbidden: reusing `User.publicKey` directly as the Pears
    transport key.
-4. **Persistent Node Identity (ADR-001 §7).** `"A Sails Node
-   participating in network discovery must have a stable operational
-   identity across ordinary restarts."` Today's node-level identity
-   (HyperDHT's ephemeral, per-session `peerId`) is classified as a
-   **current implementation gap against the accepted Day-0
-   architecture**, not a future nicety — the ADR's own gossip model
-   (§4) depends on stable peer relationships surviving restarts.
+4. **Persistent Participant Transport Identity (ADR-001 §7/§7.1),
+   renamed from "Persistent Node Identity" 2026-09-09 (CTO Gate B
+   correction on PR #108, ADR-001 §7.2).** `"A Sails Node participating
+   in network discovery must have a stable operational identity across
+   ordinary restarts."` Today's participant-scoped transport identity
+   (HyperDHT's ephemeral, per-session `peerId`, tied 1:1 to a `User`
+   row via `PearNode.start()`'s own `prisma.user.update({..., data:
+   {peerId}})`) is classified as a **current implementation gap against
+   the accepted Day-0 architecture**, not a future nicety — the ADR's
+   own gossip model (§4) depends on stable peer relationships surviving
+   restarts. **Closed by PR #108** (`participant-transport-identity.ts`)
+   — narrowly: this closes the participant-scoped gap only, not item 5
+   below.
+
+5. **Sails Node Operator Identity — new, 2026-09-09 (CTO Gate B
+   correction on PR #108, ADR-001 §7.2).** A cryptographic identity for
+   the operator/deployment itself, independent of any single hosted
+   participant, required by §4's gossip-relay peer model ("each node
+   maintains connections to a bounded set of known peer nodes") and
+   §16's node economics ("a node was genuinely used by a real
+   participant to reach a real, confirmed trade" — compensating the
+   infrastructure that served the trade, distinct from the participant
+   who traded). **Confirmed, by direct code and `prisma/schema.prisma`
+   search, not to exist anywhere in this codebase today** — no model, no
+   keypair; the only "node operator" references are
+   `nodeOperatorShare`/`nodeOperatorPct` payout-percentage fields inside
+   distribution-policy models, not an identity. **Not solved or designed
+   in this pass** — no gossip, node-registry protocol, or federation
+   mechanism is proposed. Item 4 above (Participant Transport Identity)
+   does **not** close this — they are structurally distinct, confirmed
+   by the fact that a single operator can host many participants (one
+   `PearNode` per `ownerUserId`), so no per-participant identity can
+   stand in for an operator-level one. Exact placement in ADR-001 §21's
+   ordered sequence is left to CTO classification — §7.2 names (d)
+   Propagation/bootstrap and (j) Node Contribution Accounting as the
+   earliest points it becomes load-bearing, without committing to a
+   letter.
 
 **Updated again, 2026-09-09 (CTO Gate, Fase 2-5/9) — Node Contribution
 Accounting and Incentive Compatibility, classified before registering:**
@@ -1486,5 +1516,16 @@ obligation).
 Classification: **BACKLOG DELTA DETECTED AND SYNCED** — two genuinely
 new obligations (settlement-release signatures; the ordered
 implementation sequence), everything else confirmed already covered.
+
+**Updated again, 2026-09-09 (CTO Gate B correction on PR #108) — one
+further genuinely new obligation: item 5, Sails Node Operator Identity**
+(see above). PR #108 itself was initially returned to CTO claiming
+"BACKLOG DELTA: ZERO" for closing item 4 — that claim is **corrected,
+not retracted for item 4 itself**: item 4, now precisely renamed
+Persistent *Participant* Transport Identity, genuinely is closed by PR
+#108 with zero delta of its own. The zero-delta claim was wrong only in
+implicitly assuming item 4 was the *entire* content of ADR-001 §7; §7.2
+found it was not. **Total: 5** distinct obligations under this ADR
+entry, not 4.
 No new Norte macrofront. Norte remains 38.
 

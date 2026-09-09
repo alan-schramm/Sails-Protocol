@@ -30,7 +30,7 @@ import { eventBus } from '../../common/events/event-bus'
 import { prisma } from '../../common/database'
 import { config } from '../../config'
 import { childLogger } from '../../common/logger'
-import { loadOrCreateNodeIdentitySeed } from './node-identity'
+import { loadOrCreateParticipantTransportIdentitySeed } from './participant-transport-identity'
 
 const log = childLogger('pear')
 
@@ -118,27 +118,31 @@ export class PearNode extends EventEmitter {
   // separate future work — see this same TODO.md item's own note on
   // that larger design.
   //
-  // ADR-001 §21 step (b), Persistent Node Identity (2026-09-09):
-  // previously `HyperDHT.keyPair()` was called with no argument here,
-  // generating a brand-new, unrelated keypair on every call — meaning
-  // every ordinary server restart (this class holds all state in
-  // process memory only) produced a different `peerId`, confirmed
-  // directly to violate ADR-001 §7's own frozen property ("a Sails Node
-  // participating in network discovery must have a stable operational
-  // identity across ordinary restarts"). `loadOrCreateNodeIdentitySeed()`
-  // (`node-identity.ts`) now supplies a persisted 32-byte seed — the
-  // exact input `HyperDHT.keyPair(seed)` uses for its own OFFICIAL,
-  // deterministic Ed25519 derivation (confirmed directly against
-  // `hyperdht`'s real source) — so an ordinary restart reloads the
-  // identical seed and reproduces the identical keypair. This is
-  // strictly additive to this method's own pre-existing custody model:
-  // the secret this now persists is the SAME one this method already
-  // generated and held in server memory before this change; nothing
-  // that wasn't already server-held is newly exposed.
+  // ADR-001 §7.2, Persistent Participant Transport Identity (2026-09-09,
+  // renamed from "Persistent Node Identity" in a CTO Gate B correction —
+  // see `participant-transport-identity.ts`'s own header comment for the
+  // full rationale). Previously `HyperDHT.keyPair()` was called with no
+  // argument here, generating a brand-new, unrelated keypair on every
+  // call — meaning every ordinary server restart (this class holds all
+  // state in process memory only) produced a different `peerId` for this
+  // `ownerUserId`, confirmed directly to violate ADR-001 §7's own frozen
+  // property ("a Sails Node participating in network discovery must have
+  // a stable operational identity across ordinary restarts") as it
+  // applies to this participant's own transport identity.
+  // `loadOrCreateParticipantTransportIdentitySeed()` now supplies a
+  // persisted 32-byte seed — the exact input `HyperDHT.keyPair(seed)`
+  // uses for its own OFFICIAL, deterministic Ed25519 derivation
+  // (confirmed directly against `hyperdht`'s real source) — so an
+  // ordinary restart reloads the identical seed and reproduces the
+  // identical keypair. This is strictly additive to this method's own
+  // pre-existing custody model: the secret this now persists is the SAME
+  // one this method already generated and held in server memory before
+  // this change; nothing that wasn't already server-held is newly
+  // exposed.
   async start(): Promise<string> {
     if (this.isStarted) return this.keyPair!.publicKey.toString('hex')
 
-    const seed = await loadOrCreateNodeIdentitySeed(this.ownerUserId)
+    const seed = await loadOrCreateParticipantTransportIdentitySeed(this.ownerUserId)
     const keyPair = HyperDHT.keyPair(seed)
     this.keyPair = keyPair
 

@@ -618,6 +618,94 @@ architectural conclusion (pairwise coordination, no globalized Trade
 state) is unaffected by this correction; only the mechanism-level claim
 about *how* the connection is keyed changes.
 
+## 7.2 Participant Transport Identity vs. Sails Node Operator Identity (correction, 2026-09-09, CTO Gate B on PR #108)
+
+**Finding:** §7's own text ("today's node-level keypair is HyperDHT's
+per-session, ephemeral `peerId`") and §7.1's definition ("Transport
+identity = Pears/HyperDHT `peerId`") both describe the identical
+underlying artifact, and PR #108 (Implementation Sequence step (b))
+correctly persisted exactly that artifact. What this correction found
+is that this ADR's own prior language never distinguished that artifact
+— always scoped to one economic participant — from a structurally
+different concept §4 and §16 both separately require: an identity for
+the **operator/deployment itself**, independent of any single
+participant, that gossips (§4: "each node maintains connections to a
+bounded set of known peer nodes") and is economically compensated (§16:
+"a node was genuinely used by a real participant to reach a real,
+confirmed trade" — compensating the infrastructure that served the
+trade, not the trading participant). Collapsing these two was never a
+deliberate architectural decision; it was inherited, unexamined,
+imprecise wording.
+
+**Confirmed directly against the real code, not assumed** (`git log`
+`feat/adr001-step-b-node-identity`, `src/infrastructure/p2p/pear.service.ts`):
+
+> `PearNode → one DHT node for ONE user... PearNodeRegistry → owns a
+> Map<userId, PearNode>` (the file's own pre-existing header comment,
+> predating PR #108). `PearNode.start()` writes the derived `peerId`
+> directly onto the `User` row: `prisma.user.update({ where: { id:
+> this.ownerUserId }, data: { peerId } })`.
+
+This is unambiguous: the identity PR #108 made persistent is scoped
+1:1 to a `User` row. There is no code path, Prisma model, or keypair in
+this codebase representing a deployment/operator entity distinct from
+its hosted `User`s — confirmed by searching `prisma/schema.prisma` for
+any `Operator`/`NodeOperator` identity model; the only matches are
+`nodeOperatorShare`/`nodeOperatorPct` `Decimal` fields inside
+distribution-policy models (§16) — a payout-recipient *category* in a
+percentage table, not an identity of any kind.
+
+**Two distinct concepts, named precisely from here forward:**
+
+> **Participant Transport Identity** — one participant's own stable
+> Pears/HyperDHT `peerId`, persisted per `ownerUserId`/`User.id`. This
+> is what §7.1 already calls "Transport identity," and what PR #108
+> actually implemented (renamed `node-identity.ts` →
+> `participant-transport-identity.ts`, `loadOrCreateNodeIdentitySeed()`
+> → `loadOrCreateParticipantTransportIdentitySeed()`, to match).
+
+> **Sails Node Operator Identity** — a cryptographic identity for the
+> operator/deployment itself, independent of any single hosted
+> participant, that would identify it to other Sails Nodes for §4's
+> gossip-relay peer network and §16's trade-serving-node compensation.
+> **Confirmed: this does not exist anywhere in this codebase today.**
+> No mechanism is proposed or invented here — inventing one is
+> explicitly out of this correction's scope (no gossip, no node
+> registry protocol, no federation design). This is registered as a
+> real, previously-unregistered gap in `docs/BACKLOG.md`, classification
+> and exact placement in §21's sequence left to CTO decision — likely
+> relevant no later than (d) Propagation/bootstrap and (j) Node
+> Contribution Accounting, since both depend on an operator-level
+> identity that has never been designed.
+
+**§21(b)'s own text is retroactively accurate, narrowly read:** "a
+stable operational node keypair across ordinary restarts (§7), closing
+the confirmed current gap (ephemeral, per-session `peerId`)" describes
+exactly the Participant Transport Identity artifact and exactly what PR
+#108 closed — §21(b) is not itself wrong, it was just read, by this
+correction's own earlier pass, as implicitly satisfying §4/§16's
+operator-level model too, which it does not and was never designed to.
+
+**Privacy, corrected accordingly:** a persistent Participant Transport
+Identity intentionally makes that *participant's* Pears `peerId`
+linkable across their own connection sessions/restarts — not "the node
+operator" (there is no operator identity here to be linkable). It does
+not automatically make it linkable to their economic identity
+(`User.publicKey`) — that binding is §7.1/step (c)'s own explicit,
+still-undesigned scope — but a network observer who has, through any
+means, previously associated a `peerId` with a real participant can now
+recognize that same participant returning, rather than seeing a fresh,
+unlinkable `peerId` every session.
+
+**Node Identity ≠ Participant Identity, restated precisely:** this
+frozen property (§7) is about economic authority, not database
+association — it forbids a transport key from ever signing an Offer's
+economic terms, not from being tied to a specific `User` row for
+bookkeeping. A Participant Transport Identity being scoped per-user does
+not violate it; the property remains fully intact (§7.1's own
+domain-separation reasoning, and `offer-envelope.ts`'s complete import
+isolation from this module, are unaffected by this correction).
+
 ## 8. Trade ownership / handoff
 
 **Property:** the trade must not require a "home node" whose
@@ -1178,10 +1266,14 @@ produce the same eventual interpretation" for THIS bounded object model,
 not a claim that arbitrary distributed disagreement is solved. Do not
 begin (b) before its
 own CTO Gate.
-**(b) Persistent node identity** — a stable operational node keypair
-across ordinary restarts (§7), closing the confirmed current gap
+**(b) Persistent Participant Transport Identity** — ~~Persistent node
+identity~~ **renamed (2026-09-09, CTO Gate B correction, §7.2)**: a
+stable operational transport keypair, per participant (`ownerUserId`),
+across ordinary restarts (§7/§7.1), closing the confirmed gap
 (ephemeral, per-session `peerId`) this ADR's own gossip model (§4)
-depends on.
+depends on. **Does not** close a separate, still-undesigned Sails Node
+Operator Identity obligation — see §7.2 for the full distinction and the
+newly-registered gap.
 **(c) Economic Identity ↔ Transport Identity Binding** — the
 participant-signed statement binding `User.publicKey` to a
 session/interaction-scoped transport identity (§7.1) — **added
@@ -1339,3 +1431,23 @@ sequence" obligation twice. Checked against `docs/PROTOCOL_ECONOMY.md`
 §4.2 — no duplication: that section's own Node Operator Pool/routing-
 fee content is the future payout-*rollout* layer; §21(j)/(k) are the
 Day-0 accounting/entitlement-*capability* layer underneath it.
+
+**Updated again, 2026-09-09 (CTO Gate B correction, PR #108, §7.2) —
+one further genuinely new obligation: Sails Node Operator Identity.**
+§7's original text conflated two distinct concepts — Participant
+Transport Identity (per-`User` `peerId`, what §21(b) actually closes)
+and a cryptographic identity for the operator/deployment itself,
+independent of any hosted participant, required by §4's gossip-relay
+peer model and §16's trade-serving-node compensation. Confirmed by
+direct code/schema search: **no such operator-level identity exists
+anywhere in this codebase today** — no model, no keypair, nothing
+beyond `nodeOperatorShare`/`nodeOperatorPct` payout-percentage fields.
+This is registered as a fifth top-level obligation, distinct from item
+2's Implementation Sequence (it is a *precondition* some later sequence
+items depend on, not itself a sequence step yet) and distinct from
+items 3/4 (Economic Identity ↔ Transport Identity Binding, Persistent
+[Participant Transport] Identity — both still participant-scoped, not
+operator-scoped). Exact placement in §21's ordered sequence is a CTO
+decision, not made by this correction — §7.2 names (d) and (j) as the
+earliest points it becomes load-bearing, without committing to a letter.
+**Total: 5**, not left implicit.
