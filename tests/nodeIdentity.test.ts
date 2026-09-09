@@ -39,8 +39,15 @@ describe('node-identity — persistent node identity (ADR-001 step (b))', () => 
     const ownerUserId = 'user-first-boot'
     const seedPath = path.join(scratchDir, `${ownerUserId}.seed`)
 
-    const exists = await fs.access(seedPath).then(() => true).catch(() => false)
-    expect(exists).toBe(false)
+    // Asserts genuine first boot by inspecting the scratch directory's own
+    // listing (a fresh `fs.mkdtemp()` dir, guaranteed empty) rather than
+    // probing `seedPath` itself — checking and later reading the identical
+    // path is a check-then-use race pattern (flagged by CodeQL
+    // js/file-system-race on an earlier version of this test); listing the
+    // directory instead asserts the same precondition without creating
+    // that dataflow.
+    const entriesBefore = await fs.readdir(scratchDir)
+    expect(entriesBefore).toHaveLength(0)
 
     const seed = await loadOrCreateNodeIdentitySeed(ownerUserId, scratchDir)
 
