@@ -25,8 +25,13 @@
  *
  * **Central property (unchanged by the rename):** a participant's own
  * Pears/HyperDHT transport identity must remain stable across ordinary
- * restarts, so gossip-relay/direct-connection peer relationships (§4)
- * that depend on it survive a restart.
+ * restarts, so that participant's own direct-connection relationships
+ * (trade communication, reconnection) survive a restart. **Precision
+ * (2026-09-09, CTO Gate B final pass):** this is a
+ * participant-to-participant property only. It does not make, and this
+ * module cannot make, any Sails Node gossip-relay peer relationship
+ * (§4, operator-to-operator) survive a restart — no operator-level
+ * identity for gossip to attach to exists yet (§21(d), §7.2).
  *
  * **Confirmed current gap, before this module existed** (`pear.service.ts`'s
  * `PearNode.start()`): every call to `HyperDHT.keyPair()` with no

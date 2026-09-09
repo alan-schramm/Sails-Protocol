@@ -554,30 +554,57 @@ no central bootstrap registry exists or is proposed.
 
 **Current implementation gap, classified explicitly against the
 accepted Day-0 architecture (not a future nicety):** ~~today's
-node-level keypair is HyperDHT's per-session, ephemeral `peerId`~~
-(confirmed, `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`) — regenerated on
-every restart, satisfying neither the frozen property above nor this
-ADR's own reliance (§4, gossip relay/dedup) on stable peer relationships
-surviving ordinary restarts. **This is registered as a Day-0
-implementation obligation (§21), not a beta-hardening nicety** — a
+node-level keypair is HyperDHT's per-session, ephemeral `peerId`,
+regenerated on every restart, satisfying neither the frozen property
+above nor this ADR's own reliance (§4, gossip relay/dedup) on stable
+peer relationships surviving ordinary restarts. This is registered as a
+Day-0 implementation obligation (§21), not a beta-hardening nicety — a
 node whose peer identity changes on every restart cannot maintain the
-gossip peer relationships §4's own propagation model depends on.
+gossip peer relationships §4's own propagation model depends on.~~
+(confirmed, `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`, at the time this
+paragraph was written)
 
 **Correction (2026-09-09, CTO Gate B, PR #108 final pass) — current
-truth, precisely:** the struck-through sentence above called the
-existing per-user HyperDHT/Pears keypair a "node-level keypair," which
-this correction found imprecise enough to invite reading it as the
-Sails Node operator/runtime identity §4/§16 separately require. It is
-not. **The existing HyperDHT/Pears keypair is participant-scoped
-transport identity, not operator/deployment identity** — one keypair
-per `ownerUserId`/`User.id` (`pear.service.ts`'s own pre-existing
-design: `PearNodeRegistry` owns a `Map<userId, PearNode>`), written
-directly onto that `User` row's `peerId` column. §21(b) (now
-"Persistent Participant Transport Identity," PR #108, closed) made this
-artifact stable across restarts; it did not, and could not, produce a
-Sails Node operator/runtime identity, which remains undesigned and does
-not exist in this codebase — see §7.2 for the full distinction and
-§21(d) for its now-sequenced placement.
+truth, precisely, and two separate conflations fixed:**
+
+**(1) "Node-level keypair" naming, corrected:** the struck-through text
+called the existing per-user HyperDHT/Pears keypair a "node-level
+keypair," which this correction found imprecise enough to invite
+reading it as the Sails Node operator/runtime identity §4/§16
+separately require. It is not. **The existing HyperDHT/Pears keypair is
+participant-scoped transport identity, not operator/deployment
+identity** — one keypair per `ownerUserId`/`User.id`
+(`pear.service.ts`'s own pre-existing design: `PearNodeRegistry` owns a
+`Map<userId, PearNode>`), written directly onto that `User` row's
+`peerId` column.
+
+**(2) Gossip-relay dependency, corrected — participant transport
+persistence ≠ gossip peer relationship persistence:** the struck-through
+text also claimed this artifact's persistence was *what §4's gossip
+model depends on* ("a node whose peer identity changes on every restart
+cannot maintain the gossip peer relationships §4's own propagation
+model depends on"). That conflated two structurally different
+relationships: §4's flood-gossip relay is a **Sails Node
+operator-to-operator** relationship (§21(d), still undesigned, does not
+exist); Participant Transport Identity (§21(b)) is a
+**participant-to-participant** relationship (direct trade
+communication, reconnection). **§21(b)/PR #108 makes ONLY the
+participant-to-participant relationship stable across restarts — it
+does not, and structurally cannot, make any gossip-relay peer
+relationship stable**, since no operator-level identity for gossip to
+even attach to exists yet. Current truth: **Participant Transport
+Identity is now stable across ordinary restarts when the same persisted
+local seed material remains available** (§21(b), closed, narrow claim —
+see §21(b)'s own entry for what this explicitly does not close).
+**Economic Identity ↔ Participant Transport Identity cryptographic
+binding still does not exist** (§7.1/§21(c), unchanged by this PR) —
+persistence of a transport identity is not the same property as binding
+it to an economic identity; this correction does not conflate the two.
+
+§21(d) Sails Node Operator Identity remains undesigned and does not
+exist in this codebase — see §7.2 for the full distinction and §21(d)'s
+own entry for its sequenced placement and its own, still-open
+dependency on §4's gossip model.
 
 **Sybil resistance: explicitly not promised, per instruction.** No
 strong Sybil-resistance mechanism is designed here, because none is
@@ -599,10 +626,25 @@ directly against this session's own prior work
 
 > **Economic participant identity = `User.publicKey`.**
 > **Transport identity = Pears/HyperDHT `peerId`.**
-> **Today: no cryptographic binding exists between them.** `peerId` is
-> generated fresh by `HyperDHT.keyPair()` with no seed on every
+> **Today: no cryptographic binding exists between them.** ~~`peerId`
+> is generated fresh by `HyperDHT.keyPair()` with no seed on every
 > `PearNode.start()` call — cryptographically unrelated to
-> `User.publicKey`, and not even stable across sessions.
+> `User.publicKey`, and not even stable across sessions.~~ (true at the
+> time this paragraph was written)
+
+**Correction (2026-09-09, CTO Gate B, PR #108 final pass) — current
+truth:** the struck-through sentence is now historically false and is
+preserved only as the record of what was true before PR #108.
+**Participant Transport Identity is now stable across ordinary restarts
+when the same persisted local seed material remains available**
+(§21(b), `participant-transport-identity.ts`) — the "generated fresh...
+not even stable across sessions" claim no longer holds. **This does not
+change what stays true above:** the binding itself still does not
+exist. `peerId` remains cryptographically unrelated to `User.publicKey`
+— persistence of a transport identity is not the same property as
+proving it belongs to a given economic identity, and this correction
+does not conflate the two. **Persistence ≠ binding**, stated explicitly
+to close that exact gap.
 
 **Preserved:** `Economic Identity ≠ Transport Identity` — this was
 already true before this correction and remains true after; what
@@ -727,6 +769,91 @@ bookkeeping. A Participant Transport Identity being scoped per-user does
 not violate it; the property remains fully intact (§7.1's own
 domain-separation reasoning, and `offer-envelope.ts`'s complete import
 isolation from this module, are unaffected by this correction).
+
+## 7.3 Node-switch continuity — investigation, 2026-09-09, CTO Gate B final pass (no mechanism authorized)
+
+**Question:** if the same participant moves from Sails Node A to Sails
+Node B, what happens to its Participant Transport Identity today?
+
+**Demonstrated against the actual implementation, not assumed**
+(`tests/participantTransportIdentity.test.ts`, test 8): calling
+`loadOrCreateParticipantTransportIdentitySeed(ownerUserId, storageDir)`
+for the identical `ownerUserId` against two different `storageDir`
+values — modeling two different Sails Nodes' own local storage —
+produces two different seeds and two different `peerId`s:
+
+```
+Node A local storage → seed A → peerId A
+Node B empty local storage → seed B → peerId B
+```
+
+Confirmed empirically (real `HyperDHT.keyPair()`, real filesystem):
+`peerId A ≠ peerId B`. Nothing in `participant-transport-identity.ts` or
+its `pear.service.ts` call site shares seed material across storage
+locations — each Sails Node's own local disk is the entire scope of
+today's persistence mechanism (§6 of `docs/PARTICIPANT_TRANSPORT_IDENTITY_EVIDENCE.md`).
+
+**Property, named, not solved:**
+
+> Changing Sails Node must not silently destroy participant identity
+> continuity.
+
+**Two model families, evaluated without choosing between them (no KDF,
+key path, or identity-root mechanism selected here):**
+
+> **Model P1 — Portable transport identity.** The participant controls
+> and restores the same transport identity across nodes — e.g. via a
+> participant-held recovery root that deterministically re-derives the
+> identical Pears/HyperDHT seed regardless of which node's local storage
+> is in use. This directly matches Model A/B/C's own "Pears" row already
+> surveyed in `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §3.3/§5 — Pears
+> "accepts a seed but define[s] no standard derivation path from an
+> external root," a gap that document already named, not newly
+> discovered here.
+
+> **Model P2 — Rotatable transport identity.** The transport identity
+> may legitimately change when switching nodes, but the participant's
+> Economic Identity (`User.publicKey`) authorizes a new, verifiable
+> binding to the new transport identity, preserving continuity at the
+> economic layer rather than the transport layer. This is not a new
+> mechanism to design — it is exactly what §21(c)'s own binding
+> mechanism (once built) already needs to support, since nothing about
+> §7.1's binding requirement assumes the transport key never changes.
+
+**Relation to `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`, confronted
+directly, not assumed:** that document is evidence-gathering only for a
+possible future "Sails Identity Root" (backlog obligation from PR #91),
+explicitly authorizing no derivation scheme. Its own §3.3 already
+covers Pears/HyperDHT as one of seven surveyed protocol rows, and its
+own preserved invariants — **`Same recovery root ≠ same private key
+across protocols`** and **`Recovery relationship must not automatically
+become public identity relationship`** — apply without modification to
+Model P1: a future Identity Root re-deriving the Pears seed must not
+reuse that seed (or a value trivially related to it) for any other
+protocol's key, and re-deriving the same `peerId` across nodes must not
+by itself make that `peerId` publicly correlated to the participant's
+other protocol identities beyond what already applies today.
+
+**Classification (2026-09-09, CTO Gate B final pass) — reconciliation,
+not a new obligation:** node-switch continuity is **not** a genuinely
+new, previously-unrepresented obligation. It decomposes into two
+obligations already registered:
+- **Model P1** is a refinement/specialization of the existing **Identity
+  Root & Multi-Protocol Identity UX** obligation (`docs/BACKLOG.md`,
+  registered via PR #91, investigated in
+  `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`) — Pears is already one of
+  its surveyed rows; node-switch portability is that same "can Pears
+  identity be re-derived from a shared root" question, not a separate
+  one.
+- **Model P2** is a refinement of the existing **Economic Identity ↔
+  Transport Identity Binding** obligation (§7.1/§21(c), item 3 in
+  `docs/BACKLOG.md`) — a binding mechanism that supports re-binding a
+  new transport key to the same economic identity already covers this
+  case; no additional obligation is needed for P2 to exist as an option.
+
+**No mechanism is chosen between P1 and P2 here — that choice, and any
+derivation/binding design, is future work under the obligations already
+named above, not this correction.**
 
 ## 8. Trade ownership / handoff
 
@@ -1299,9 +1426,17 @@ own CTO Gate.
 identity~~ **renamed (2026-09-09, CTO Gate B correction, §7.2)**: a
 stable operational transport keypair, per participant (`ownerUserId`),
 across ordinary restarts (§7/§7.1), closing the confirmed gap
-(ephemeral, per-session `peerId`) this ADR's own gossip model (§4)
-depends on. **Does not** close a separate, still-undesigned Sails Node
-Operator Identity obligation — see §7.2 and (d) below.
+(ephemeral, per-session `peerId`) for participant-to-participant direct
+communication. **Narrow claim, reclassified 2026-09-09
+(final-precision pass):** "Local participant transport identity
+persistence across ordinary restarts on the same persisted storage."
+**Explicitly does not close** (none of the following are demonstrated
+or claimed): the ADR's own gossip model (§4, operator-to-operator,
+belongs to (d) below, not this step); cross-node portability; node
+migration; recovery; rotation; node gossip identity; participant
+continuity after changing operator (§7.3's node-switch finding). **Does
+not** close a separate, still-undesigned Sails Node Operator Identity
+obligation — see §7.2 and (d) below.
 **(c) Economic Identity ↔ Transport Identity Binding** — the
 participant-signed statement binding `User.publicKey` to a
 session/interaction-scoped transport identity (§7.1) — **added

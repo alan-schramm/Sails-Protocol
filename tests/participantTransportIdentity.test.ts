@@ -210,4 +210,32 @@ describe('participant-transport-identity — persistent transport identity (ADR-
     const peerIds = new Set(results.map((seed) => HyperDHT.keyPair(seed).publicKey.toString('hex')))
     expect(peerIds.size).toBe(1)
   })
+
+  it('8. NODE-SWITCH FINDING (ADR-001 §7.3, investigation only, no mechanism implemented) — the same participant against two different nodes\' local storage gets two DIFFERENT transport identities today', async () => {
+    // Demonstrated, not assumed: `storageDir` models one Sails Node's own
+    // local storage. Two different nodes (e.g. the same participant using
+    // a self-hosted deployment, then switching to a different operator's
+    // deployment) each have their own, unrelated local storage — nothing
+    // in this module, or in `pear.service.ts`'s call site, shares seed
+    // material across storage locations. This test proves today's actual
+    // behavior; it does not propose or implement a fix.
+    const ownerUserId = 'user-switching-nodes'
+    const nodeAStorageDir = scratchDir // "Sails Node A"'s own local storage
+    const nodeBStorageDir = await makeScratchDir() // "Sails Node B"'s own, separate, empty local storage
+
+    try {
+      const seedFromNodeA = await loadOrCreateParticipantTransportIdentitySeed(ownerUserId, nodeAStorageDir)
+      const peerIdFromNodeA = HyperDHT.keyPair(seedFromNodeA).publicKey.toString('hex')
+
+      // The same participant (identical ownerUserId), now served by a
+      // different node whose local storage has never seen this participant.
+      const seedFromNodeB = await loadOrCreateParticipantTransportIdentitySeed(ownerUserId, nodeBStorageDir)
+      const peerIdFromNodeB = HyperDHT.keyPair(seedFromNodeB).publicKey.toString('hex')
+
+      expect(seedFromNodeB.equals(seedFromNodeA)).toBe(false)
+      expect(peerIdFromNodeB).not.toBe(peerIdFromNodeA)
+    } finally {
+      await fs.rm(nodeBStorageDir, { recursive: true, force: true })
+    }
+  })
 })

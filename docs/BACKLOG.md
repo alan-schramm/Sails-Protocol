@@ -1435,11 +1435,25 @@ represented anywhere in this repository:
    (HyperDHT's ephemeral, per-session `peerId`, tied 1:1 to a `User`
    row via `PearNode.start()`'s own `prisma.user.update({..., data:
    {peerId}})`) is classified as a **current implementation gap against
-   the accepted Day-0 architecture**, not a future nicety — the ADR's
-   own gossip model (§4) depends on stable peer relationships surviving
-   restarts. **Closed by PR #108** (`participant-transport-identity.ts`)
-   — narrowly: this closes the participant-scoped gap only, not item 5
-   below.
+   the accepted Day-0 architecture**, not a future nicety — a
+   participant's own direct-connection relationships (trade
+   communication, reconnection) need it to survive ordinary restarts.
+   **Corrected, 2026-09-09 (final-precision pass):** this obligation is
+   **not** the same property as "the ADR's own gossip model (§4)
+   depends on stable peer relationships surviving restarts" — §4's
+   gossip-relay peer network is operator-to-operator (item 5, §21(d)),
+   not participant-to-participant; conflating them here was itself an
+   error, now removed. **Closed by PR #108** (`participant-transport-identity.ts`)
+   — narrowly: this closes ONLY the participant-scoped, direct-connection
+   gap. It does **not** close item 5 below, and it does **not** make any
+   gossip-relay peer relationship stable (no operator-level identity for
+   gossip to attach to exists yet). **Narrow claim (2026-09-09,
+   final-precision pass):** "Local participant transport identity
+   persistence across ordinary restarts on the same persisted storage."
+   **Explicitly does not close**: cross-node portability; node
+   migration; recovery; rotation; node gossip identity; participant
+   continuity after changing operator (see the new node-switch-continuity
+   entry below).
 
 5. **Sails Node Operator Identity — new, 2026-09-09 (CTO Gate B
    correction on PR #108, ADR-001 §7.2).** A cryptographic identity for
@@ -1466,6 +1480,27 @@ represented anywhere in this repository:
    ordered Day-0 prerequisite, not merely "sometime before
    gossip/economics." Propagation/bootstrap (e) must not be implemented
    before this step has its own CTO-approved design and evidence.
+
+**Node-switch continuity — investigated, reconciled, not a sixth
+obligation (2026-09-09, CTO Gate B final-precision pass, ADR-001 §7.3).**
+Question investigated: if the same participant moves from Sails Node A
+to Sails Node B, what happens to its Participant Transport Identity
+today? Demonstrated against the real implementation
+(`tests/participantTransportIdentity.test.ts` test 8): two different
+nodes' local storage produce two different seeds/`peerId`s for the
+identical participant — `Node A local storage → seed A → peerId A`,
+`Node B empty local storage → seed B → peerId B`, confirmed unequal.
+Property named, not solved: `"Changing Sails Node must not silently
+destroy participant identity continuity."` Two model families evaluated
+without choosing (Model P1 — portable, participant-controlled
+re-derivation; Model P2 — rotatable, re-bound via §21(c)'s own
+mechanism). **Classification: this decomposes into two already-registered
+obligations, not a new one.** Model P1 is a refinement of the existing
+Identity Root & Multi-Protocol Identity UX obligation (PR #91,
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`, which already surveys Pears
+as one of its seven protocol rows). Model P2 is a refinement of item 3
+above (§21(c) binding). **Total remains 5 — no sixth obligation
+registered.**
 
 **Updated again, 2026-09-09 (CTO Gate, Fase 2-5/9) — Node Contribution
 Accounting and Incentive Compatibility, classified before registering:**

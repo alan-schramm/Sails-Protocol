@@ -1,30 +1,34 @@
 # Participant Transport Identity — Evidence
 
-> **Status: CORRECTED, Third Pass (2026-09-09, CTO Gate B final-precision
-> pass on PR #108).** Renamed from `PERSISTENT_NODE_IDENTITY_EVIDENCE.md`.
-> The First Pass closed ADR-001 §21 step (b) under the name "Persistent
-> Node Identity" and claimed BACKLOG DELTA: ZERO. The Second Pass found
-> that claim conflated two distinct concepts never previously
-> distinguished in ADR-001's own text: **Participant Transport Identity**
-> (one participant's own stable `peerId`, what this module actually
-> persists — confirmed directly against `pear.service.ts`'s own
-> `prisma.user.update({ where: { id: this.ownerUserId }, data: {peerId}
-> })`) and **Sails Node Operator Identity** (a cryptographic identity
-> for the operator/deployment itself, independent of any hosted
-> participant, required by ADR-001 §4's gossip-relay peer model and
-> §16's trade-serving-node compensation — confirmed, by direct code and
-> schema search, **not to exist anywhere in this codebase**), fixed a
-> real concurrent first-initialization race, and reassessed the privacy
-> wording accordingly. This Third Pass: (1) sequenced Sails Node
-> Operator Identity as **ADR-001 §21(d)**, an ordered Day-0 prerequisite
-> before (e) Propagation/bootstrap, no longer "left to CTO"; (2)
-> corrected an overclaim that exclusive-create persistence was
-> crash/power-loss durable — it is a concurrency-correctness guarantee
-> only, disclosed narrowly (§5, §11 residual 5), not solved with new
-> mechanism. See `docs/adr/ADR-001-day0-multi-operator-network.md` §7.2
-> and §21 for the full correction/sequencing narrative and
-> `docs/BACKLOG.md` item 5. Everything in this document describes the
-> corrected, current state.
+> **Status: CORRECTED, Fourth Pass (2026-09-09, CTO Gate B final
+> architectural precision pass on PR #108).** Renamed from
+> `PERSISTENT_NODE_IDENTITY_EVIDENCE.md`. The First Pass closed ADR-001
+> §21 step (b) under the name "Persistent Node Identity" and claimed
+> BACKLOG DELTA: ZERO. The Second Pass found that claim conflated two
+> distinct concepts never previously distinguished in ADR-001's own
+> text: **Participant Transport Identity** (one participant's own stable
+> `peerId`) and **Sails Node Operator Identity** (independent of any
+> hosted participant, confirmed not to exist anywhere in this codebase),
+> fixed a real concurrent first-initialization race, and reassessed
+> privacy wording. The Third Pass sequenced Sails Node Operator Identity
+> as **ADR-001 §21(d)** and corrected a durability overclaim
+> (exclusive-create is concurrency-correctness only, not
+> crash/power-loss durable). **This Fourth Pass**: (1) removed a
+> remaining conflation — participant transport persistence was still
+> described as what §4's gossip-relay peer model "depends on"; §4 is
+> operator-to-operator (item 5/§21(d)), this PR's own scope is
+> participant-to-participant only, now separated everywhere (ADR §7,
+> this doc's own header quote, `participant-transport-identity.ts`'s own
+> comment, `docs/BACKLOG.md` item 4); (2) narrowed §21(b)'s own claim to
+> "Local participant transport identity persistence across ordinary
+> restarts on the same persisted storage," with explicit negatives
+> (§12a below); (3) investigated (not implemented) node-switch
+> continuity (§14 below) — demonstrated empirically that today, the same
+> participant against two different nodes' local storage gets two
+> different transport identities, classified as a reconciliation of two
+> already-registered obligations (Identity Root, §21(c) binding), not a
+> new one. See `docs/adr/ADR-001-day0-multi-operator-network.md` §7.2,
+> §7.3, and §21 for the full narrative and `docs/BACKLOG.md` items 4/5.
 
 ## 1. Property
 
@@ -258,19 +262,46 @@ operator identity exists (§3).
    performed. Disclosed narrowly as an unproven boundary; no `fsync`,
    transactional storage, new dependency, or additional mechanism was
    added to close it in this pass.
+6. **Node-switch continuity is not solved** (2026-09-09, CTO Gate B
+   final pass). Demonstrated (§14): the same participant against two
+   different nodes' local storage gets two different transport
+   identities today. Classified as a reconciliation of two
+   already-registered obligations (Identity Root; §21(c) binding), not
+   a new one — see §14 for the full investigation, including the two
+   unchosen model families (P1 portable, P2 rotatable).
 
 ## 12. Claims
 
-**Permitted after PASS**: "A Sails Node's participant transport
-identity can remain stable across ordinary restarts." (Narrower than
-the First Pass's "A Sails Node can maintain the same operational node
-identity across ordinary restarts" — that phrasing is retired because it
-invited exactly the operator-identity conflation this correction found.)
+**Permitted after PASS**: "The reference server can persist a
+participant transport seed across ordinary restarts when its local
+storage survives." Equivalently, ADR-001 §21(b)'s own narrow claim:
+"Local participant transport identity persistence across ordinary
+restarts on the same persisted storage." (Narrower than the First
+Pass's "A Sails Node can maintain the same operational node identity
+across ordinary restarts" and the Third Pass's still-participant-scoped
+phrasing — both retired: the First Pass invited the operator-identity
+conflation this correction found, and neither made the "same persisted
+storage" boundary explicit.)
+
+**12a. Explicit negatives — this PASS demonstrates NONE of the
+following** (2026-09-09, Fourth Pass, per instruction not to let a
+narrow PASS imply a broader one):
+- Cross-node portability — §14 demonstrates the opposite: two different
+  nodes' local storage produce two different transport identities for
+  the identical participant.
+- Node migration.
+- Recovery.
+- Rotation (no rotation API exists — residual 2).
+- Node gossip identity (Sails Node Operator Identity — §3, does not
+  exist).
+- Participant continuity after changing operator.
 
 **Forbidden**: decentralized; permissionless; shared liquidity;
 multi-node network demonstrated; censorship resistant; Sybil resistant;
-**Sails Node operator identity demonstrated** (newly forbidden by this
-correction — it does not exist).
+**Sails Node operator identity demonstrated** (does not exist);
+**participant identity is portable**; **participant recovery is
+solved**; **changing Sails Node preserves the same `peerId`** (§14
+demonstrates it does not, today).
 
 ## 13. BACKLOG DELTA
 
@@ -280,4 +311,49 @@ by this PR with zero delta of its own. But §7.2's correction surfaced
 item 5, **Sails Node Operator Identity**, a real, previously-unregistered,
 still-undesigned obligation — see `docs/BACKLOG.md`. The First Pass's
 zero-delta claim was wrong only in assuming item 4 was the entire
-content of ADR-001 §7; it was not.
+content of ADR-001 §7; it was not. **Node-switch continuity (§14) is
+NOT a further, sixth new obligation** — classified as a reconciliation
+of two obligations already registered (Identity Root & Multi-Protocol
+Identity UX; Economic Identity ↔ Transport Identity Binding, item 3),
+not duplicated. Total remains 5.
+
+## 14. Node-switch continuity — investigation only, no mechanism implemented
+
+**Question:** if the same participant moves from Sails Node A to Sails
+Node B, what happens to its Participant Transport Identity today?
+
+**Demonstrated against the real implementation**
+(`tests/participantTransportIdentity.test.ts`, test 8 — real
+`HyperDHT.keyPair()`, real filesystem, two separate scratch directories
+modeling two nodes' own local storage): calling
+`loadOrCreateParticipantTransportIdentitySeed` for the identical
+`ownerUserId` against Node A's storage then Node B's (empty) storage
+produces two different seeds and `peerId`s:
+
+```
+Node A local storage → seed A → peerId A
+Node B empty local storage → seed B → peerId B
+```
+
+Confirmed: `peerId A ≠ peerId B`. Neither this module nor
+`pear.service.ts`'s call site shares seed material across storage
+locations.
+
+**Property, named, not solved:** "Changing Sails Node must not silently
+destroy participant identity continuity."
+
+**Two model families, not chosen between:**
+- **Model P1 — Portable transport identity**: participant-controlled
+  recovery re-derives the identical seed regardless of node. Matches
+  `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §3.3/§5's own already-surveyed
+  "Pears" row (accepts a seed, no standard external-derivation path).
+- **Model P2 — Rotatable transport identity**: the transport identity
+  may change; the participant's Economic Identity authorizes a new
+  binding to it (§21(c)), preserving continuity at the economic layer.
+
+**Classification: reconciliation, not a new obligation.** Model P1 is a
+refinement of the already-registered Identity Root obligation (PR #91).
+Model P2 is a refinement of the already-registered §21(c) binding
+obligation (item 3). No mechanism is chosen here; that choice is future
+work under the obligations already named. Full narrative:
+`docs/adr/ADR-001-day0-multi-operator-network.md` §7.3.
