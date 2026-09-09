@@ -817,7 +817,11 @@ two items in this entire ADR granted that status):
 
 **(a) Portable signed Offers** — `logicalOfferId`, canonical
 serialization, Ed25519 signature, `revision`/`expiresAt`/tombstone
-semantics (§3).
+semantics (§3). **CLOSED (2026-09-09)** — implemented, tested (16/16
+adversarial cases, 20 tests total), zero regression (155/155 suites).
+Full evidence: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`. Proves Offer
+portability/authenticity only — no propagation, no second node, no
+network claim of any kind. Do not begin (b) before its own CTO Gate.
 **(b) Persistent node identity** — a stable operational node keypair
 across ordinary restarts (§7), closing the confirmed current gap
 (ephemeral, per-session `peerId`) this ADR's own gossip model (§4)

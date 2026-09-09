@@ -175,6 +175,74 @@ model Offer {
   @@map("offers")
 }
 
+enum OfferEnvelopeStatus {
+  ACTIVE
+  CANCELLED
+}
+
+// ADR-001 Day-0 Multi-Operator Sails Network, Implementation Sequence
+// step (a) "Portable Signed Offers" (docs/adr/ADR-001-day0-multi-operator-network.md
+// §3/§21, docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md). A signed, portable,
+// independently-verifiable economic advertisement — deliberately
+// separate from `Offer` above, which remains this node's own local
+// OpenLiquidity bookkeeping, completely untouched by this model (zero
+// breaking change to any existing route, service, or SDK surface).
+//
+// Append-only: one row per distinct, independently-verified revision
+// ever received for a given `logicalOfferId` — never updated or
+// overwritten (`offer-envelope-repository.ts`'s `ingest()` only ever
+// creates new rows; the highest stored `revision` for a given
+// `logicalOfferId` is the current truth, `getLatest()`). This table is
+// a local, non-authoritative cache of independently-verified facts —
+// not itself protocol truth. Any conformant node re-derives the exact
+// same accept/reject verdict from the same raw envelope fields
+// (`offer-envelope.ts`'s `verifyOfferEnvelope()`) — this row never
+// stores a bare "trusted" boolean; `signature` is always the real,
+// re-verifiable Ed25519 signature, not a cached verdict.
+model OfferEnvelope {
+  id             String              @id @default(uuid())
+  logicalOfferId String
+  ownerPublicKey String
+  asset          AssetType
+  side           TradeSide
+  priceUsd       Decimal             @db.Decimal(24, 8)
+  minAmount      Decimal             @db.Decimal(24, 8)
+  maxAmount      Decimal             @db.Decimal(24, 8)
+  paymentMethod  PaymentMethod
+  // Strictly increasing per `logicalOfferId`, chosen by the owner —
+  // both the convergence rule (highest revision wins, no central
+  // arbiter needed) and replay protection in one field (ADR-001 §3/§5).
+  revision       Int
+  // Owner-supplied, advisory only — never used for cross-node ordering
+  // (that's `revision`'s job, precisely because wall-clock time isn't
+  // trusted across independently-operated nodes, ADR-001 §3).
+  createdAt      DateTime
+  revisedAt      DateTime
+  // Self-enforcing: any verifier checks this against its own clock:
+  // no action or central authority is needed to "expire" an offer
+  // (ADR-001 §2/§3).
+  expiresAt      DateTime
+  // CANCELLED is a signed tombstone at a higher revision, not a row
+  // deletion — cancellation is portable via the exact same
+  // signature/revision mechanism as any other update (ADR-001 §3).
+  status         OfferEnvelopeStatus @default(ACTIVE)
+  // Ed25519 signature hex, over the sha256 digest of this envelope's
+  // own canonical serialization (`hashOfferEnvelope()`) — verifiable by
+  // any party holding `ownerPublicKey`, independent of this node's own
+  // database integrity.
+  signature      String
+  // Local bookkeeping only — when THIS node first verified and stored
+  // this envelope. Never protocol truth, never used in verification.
+  receivedAt     DateTime            @default(now())
+  moduleId       String              @default("openliquidity")
+  protocolVersion String             @default("0.1")
+
+  @@unique([logicalOfferId, revision])
+  @@index([logicalOfferId])
+  @@index([ownerPublicKey])
+  @@map("offer_envelopes")
+}
+
 model Trade {
   id              String      @id @default(uuid())
   offerId         String
