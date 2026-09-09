@@ -2337,6 +2337,65 @@ documentação.
 Evidência completa: `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §2;
 correção em `docs/CRYPTOGRAPHIC_MODEL.md` §1.
 
+
+### 61. Public OfferDetail returns raw `paymentDetails` + broad participant row — OPEN (found 2026-09-09, Day-0 Completeness Cold Sweep)
+
+**Classification: current implementation privacy defect / Partner Beta
+blocker.** This item was not part of the original 2026-08-07 technical
+debt survey; it was found by inspecting the actual public route during
+the Day-0 institutional cold sweep.
+
+**Repository-observed path:**
+
+`GET /v1/liquidity/offers/:id`
+→ unauthenticated route in `liquidity.routes.ts`
+→ `liquidityRouter.getOffer(id)`
+→ raw Prisma `Offer` row plus a broad `User` projection.
+
+The raw `Offer` contains `paymentDetails`. The included user shape
+contains `id`, `publicKey`, `displayName`, `peerId`,
+`reputationScore`, `totalTrades`, `disputeCount`,
+`totalVolumeBtc`, `verified`, and `createdAt`.
+
+This is a direct privacy-surface inconsistency with the aggregate
+`GET /v1/liquidity/offers` path, whose purpose-built
+`LiquidityOffer` intentionally omits `paymentDetails`, and with the
+repository's already-established pattern of fixing public raw-row leaks
+via purpose-built projections (`PublicPaymentAccountView`,
+`PublicPayoutAddressView`, public participant projection).
+
+**Property:**
+
+> **Public Offer View ≠ Raw Offer Row.**
+
+> **Offer Discovery Data ≠ Payment Execution Data.**
+
+> **Payment Destination Commitment ≠ Public Payment Destination.**
+
+Knowing an Offer id must not be sufficient to retrieve raw PIX/bank
+payment instructions or unrelated participant bookkeeping. Public
+fields must be justified field-by-field. The actual counterparties
+still need an authorized pairwise path to receive the committed payment
+instruction after trade-open — removing public disclosure must not make
+legitimate execution impossible.
+
+**Multi-node significance:** ADR-001's public signed OfferEnvelope
+correctly omits `paymentDetails`. A future gossip implementation must
+not serialize the current raw DB row and thereby turn this local privacy
+defect into network-wide disclosure.
+
+**Required evidence before closure:**
+- unauthenticated OfferDetail response excludes raw payment details;
+- public projection exposes only justified public fields;
+- network OfferEnvelope excludes private payment instructions;
+- actual trade parties can still retrieve/verify the committed payment
+  instruction through the authorized pairwise flow.
+
+Full sweep evidence:
+`docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §13.
+
+**Status: OPEN.**
+
 ## Ações Recomendadas por Prioridade
 
 ### P0 — Antes de qualquer apresentação (1-2 dias)
