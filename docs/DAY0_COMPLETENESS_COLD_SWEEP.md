@@ -26,10 +26,20 @@ Already represented and therefore **not duplicated as new obligations**:
 - shared market universe across independent nodes;
 - no mandatory Satsails-operated membership/truth authority;
 - signed portable Offer envelopes;
-- persistent node identity;
+- persistent **participant transport identity** (the current `peerId`
+  mechanism — scoped to one economic participant, not an operational
+  node/deployment identity; see §3.5 below);
 - Economic Identity ↔ Transport Identity binding;
 - bootstrap + peer exchange;
-- gossip propagation + revision dedup;
+- gossip propagation with fact-identity dedup (**correction, CTO Gate,
+  final institutional precision pass**: originally worded "revision
+  dedup" here — imprecise, and stale relative to ADR-001 §4's own
+  current truth: a node must never suppress relay of a genuinely new,
+  distinct signed fact merely because that revision number was already
+  seen. Fact identity/`contentDigest` ≠ signature bytes ≠ revision
+  ordering ≠ current-state selection ≠ the still-undesigned future
+  gossip relay-dedup mechanism. No dedup mechanism is selected by this
+  correction — only the property is restated correctly);
 - cross-node trade-open handshake;
 - capability/rail pre-creation discovery;
 - professional liquidity-provider flow;
@@ -117,15 +127,51 @@ ADR-001 correctly freezes **Node Identity ≠ Participant Identity**. This sweep
 
 > **Node Identity ≠ Operator Economic Recipient.**
 
+**Taxonomy freeze (2026-09-09, CTO Gate, final institutional precision
+pass) — four cardinalities, not two, must never collapse:**
+
+> **A. Participant Economic Identity** (`User.publicKey`) — the
+> participant's own economic identity; already real, already
+> non-custodial.
+>
+> **B. Participant Transport Identity** (the current `peerId`
+> mechanism) — one participant's own stable Pears/HyperDHT identity,
+> scoped per `ownerUserId`, used for direct participant-to-participant
+> communication. Persistence of this artifact is what "persistent node
+> identity" has, historically and imprecisely, been used to describe
+> elsewhere in this repository's own prior wording (§2 above,
+> corrected) — B is **not** C.
+>
+> **C. Operational Sails Node Identity** — a cryptographic identity for
+> the operator/deployment's own running node instance, used for
+> node-to-node gossip trust and to sign a future Node Descriptor
+> (§3.3). Does not exist in this codebase today. No mechanism is
+> selected or authorized here.
+>
+> **D. Operator Economic Recipient** — the economic entity entitled to
+> Node Contribution Accounting compensation. Distinct from C: one
+> operator may run several nodes (many C, one D); a node's own key (C)
+> may rotate, be rebuilt, or be compromised while the operator's
+> economic entitlement (D) survives. **C and D must not be assumed to
+> use the same key, and no mapping or mechanism between them is
+> selected in this pass.**
+>
+> **A ≠ B ≠ C ≠ D.** No canonical term such as "Sails Node Operator
+> Identity" is adopted for either C or D individually, or for the pair —
+> using one label for both is exactly the collapse this freeze exists to
+> prevent.
+
 One operator may run several nodes. One node may be rebuilt. A node key may be compromised. Economic entitlement must not accidentally turn an operational transport key into permanent financial identity.
 
-Day-0/production obligations:
-- node identity backup/recovery policy;
+Day-0/production obligations (concerning C and D, not B — B's own
+persistence/binding obligations are tracked separately, §2/ADR-001
+§7.1/§7.2):
+- operational node identity (C) backup/recovery policy;
 - compromise response;
 - rotation/replacement semantics;
 - how peers stop trusting a superseded node key;
-- how economic accounting survives legitimate node-key rotation where policy says it should;
-- no node key gains authority over participant funds or protocol semantics.
+- how economic accounting (D) survives legitimate node-key (C) rotation where policy says it should;
+- no node key (C) gains authority over participant funds, D's entitlement, or protocol semantics.
 
 No new operator-identity primitive is authorized here.
 

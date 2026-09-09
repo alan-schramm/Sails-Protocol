@@ -1008,10 +1008,16 @@ complete until they also demonstrate:
 
 ### 26.2 Node discoverability and compatibility
 
-§21(b)/(d)/(g) are not complete until a peer can self-authenticate the
-minimum information required to decide whether interaction is safe:
+§21(d)/(g) are not complete until a peer can self-authenticate the
+minimum information required to decide whether interaction is safe.
+**Precision (2026-09-09, CTO Gate, final institutional precision
+pass):** this is a Node Descriptor, advertised by the operator/
+deployment to other nodes — it concerns **Operational Sails Node
+Identity (C, §26.3)**, which does not exist today, not **Participant
+Transport Identity (B, §21(b))**, which does. §21(b)'s own closure does
+not satisfy this list:
 
-- persistent node identity;
+- Operational Sails Node Identity (C) — not yet designed, see §26.3;
 - reachable endpoint/transport information;
 - compatible protocol/wire version;
 - relevant enabled capabilities;
@@ -1025,15 +1031,29 @@ No central node registry is authorized.
 
 ### 26.3 Node identity lifecycle
 
-§21(b)'s “persistent node identity” means more than “write a private key
-to disk.” Before production it must define bounded behavior for backup,
-loss, compromise, rotation/replacement and superseded-key distrust.
+**Correction (2026-09-09, CTO Gate, final institutional precision
+pass):** §21(b)'s "persistent node identity" describes the current
+`peerId` mechanism, which is scoped per participant (`ownerUserId`) —
+**Participant Transport Identity**, not an operational node/deployment
+identity. Calling it "node-level identity" without that qualification
+invites exactly the collapse this section exists to prevent. See
+`docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5 for the full four-way
+taxonomy freeze (Participant Economic Identity / Participant Transport
+Identity / Operational Sails Node Identity / Operator Economic
+Recipient — A ≠ B ≠ C ≠ D), reproduced here:
 
-Preserved and strengthened:
+> **A ≠ B ≠ C ≠ D.** Participant Transport Identity (B, §21(b)) is a
+> different property from Operational Sails Node Identity (C, this
+> section) — B's persistence does not, and cannot, produce C. One
+> operator may run several nodes; a node's own operational key (C) may
+> rotate while the operator's economic entitlement (D) survives; C and
+> D must not be assumed to use the same key. No canonical single term
+> covering both C and D is adopted.
 
-> **Node Identity ≠ Participant Identity ≠ Operator Economic Recipient.**
-
-This section does not authorize a new operator-identity primitive.
+Before production, C — once it exists — must define bounded behavior
+for backup, loss, compromise, rotation/replacement and superseded-key
+distrust. No mechanism, and no mapping between C and D, is selected or
+authorized here.
 
 ### 26.4 Network-view resilience
 

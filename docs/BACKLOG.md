@@ -1545,13 +1545,23 @@ Preserved:
    Conformance**; both are required and remain distinct.
 
 5. **Node identity lifecycle + operator-recipient separation —
-   Day-0/Production.** Preserve:
-   **Node Identity ≠ Participant Identity ≠ Operator Economic
-   Recipient.** Persistent node keys need backup/recovery,
-   compromise/rotation/replacement semantics, and a way for peers to stop
-   trusting superseded keys. Economic entitlement must not accidentally
-   turn an operational transport key into permanent financial identity.
-   No new operator-identity primitive is authorized by this registration.
+   Day-0/Production.** Preserve, precisely, four cardinalities
+   (**corrected, 2026-09-09, CTO Gate, final institutional precision
+   pass** — full taxonomy: `docs/DAY0_COMPLETENESS_COLD_SWEEP.md`
+   §3.5): **A. Participant Economic Identity** (`User.publicKey`) ≠
+   **B. Participant Transport Identity** (the current per-participant
+   `peerId` mechanism — this is what "persistent node identity"
+   elsewhere in this repository actually refers to; not C) ≠
+   **C. Operational Sails Node Identity** (the operator/deployment's
+   own running-node key, used for gossip trust and a future Node
+   Descriptor; does not exist today) ≠ **D. Operator Economic
+   Recipient** (entitled to Node Contribution Accounting; one operator
+   may run several nodes — many C, one D; C may rotate while D
+   survives). **C and D must not be assumed to use the same key; no
+   mapping between them, and no new operator-identity primitive, is
+   authorized by this registration.** Once C exists, its own lifecycle
+   (backup/recovery, compromise/rotation/replacement, superseded-key
+   distrust) is required before production.
 
 6. **Eclipse / peer-diversity / selective-forwarding resilience —
    Day-0 evidence obligation.** One malicious bootstrap peer, relay set,
@@ -1619,8 +1629,10 @@ stranger-developer and first independent partner-wallet tests.
 ### Explicitly checked and NOT duplicated
 
 Already institutionally represented before this pass:
-shared-market invariant, signed Offers, persistent node identity,
-Economic Identity ↔ Transport Identity binding, bootstrap/peer exchange,
+shared-market invariant, signed Offers, persistent **participant
+transport identity** (scoped per participant — not Operational Sails
+Node Identity, item 5's own precision above), Economic Identity ↔
+Transport Identity binding, bootstrap/peer exchange,
 cross-node trade handshake, capability/rail discovery, professional
 provider flow, restart/resume, node contribution accounting,
 no-cannibalization evidence, node selection UX, privacy separation,
@@ -1823,5 +1835,22 @@ DePix End-to-End Representability Test if DePix is in beta scope;
 Multi-Fiat Quote-Currency Disambiguation Test when multi-fiat is enabled.
 
 Operational tracker remains Issue #105.
+
+**Counting precision (2026-09-09, CTO Gate, final institutional
+precision pass):** the sequential numbering used across this entry
+(items 1-21) and mirrored into Issue #105 (items 1-41 including the
+pre-existing ordered path) is an **operational/sequential item count,
+not a canonical count of distinct institutional obligations.** Several
+numbered items are evidence cases, sub-properties, or required tests
+for the same underlying property rather than independent obligations.
+**Issue item count ≠ distinct institutional obligation count.** BACKLOG
+DELTA is stated qualitatively above, by named property/category
+(anti-entropy, tombstone retention, node descriptor, wire compatibility,
+identity lifecycle, eclipse resilience, resource bounds, clock health,
+node switch, operator self-service, durable event consumption, exact
+economic/fiat/settlement/fee/dispute binding, and the confirmed #61
+privacy defect) — no aggregate numeric total is asserted as a canonical
+count, since no canonical counting model for "one institutional
+obligation" is defined anywhere in this repository.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
