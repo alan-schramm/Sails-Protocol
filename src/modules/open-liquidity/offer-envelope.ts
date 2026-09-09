@@ -9,10 +9,13 @@
  * An `OfferEnvelope` is a self-authenticating, portable economic
  * advertisement — deliberately separate from the existing `Offer`
  * model (liquidity.service.ts), which remains this node's own local
- * OpenLiquidity bookkeeping, completely untouched. `logicalOfferId` is
- * the key move: today's `Offer.id` is a node-local DB primary key;
- * `logicalOfferId` is chosen by the offer's own owner and decouples
- * "this is the same offer" from "which node's row it happens to be."
+ * OpenLiquidity bookkeeping, completely untouched. The key move: today's
+ * `Offer.id` is a node-local DB primary key; the pair
+ * `(ownerPublicKey, logicalOfferId)` — the offer's actual identity,
+ * never `logicalOfferId` alone (`logicalOfferId` is only ever
+ * creator-local — corrected 2026-09-09, Ninth Pass, Property H) —
+ * decouples "this is the same offer" from "which node's row it happens
+ * to be."
  *
  * Object authority (ADR-001 §2): the only entity that may authorize an
  * envelope's creation, update, cancellation, or expiry is whoever holds

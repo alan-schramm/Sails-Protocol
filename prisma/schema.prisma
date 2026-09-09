@@ -188,14 +188,26 @@ enum OfferEnvelopeStatus {
 // OpenLiquidity bookkeeping, completely untouched by this model (zero
 // breaking change to any existing route, service, or SDK surface).
 //
-// Append-only: one row per distinct, independently-verified revision
-// ever received for a given `logicalOfferId` — never updated or
-// overwritten (`offer-envelope-repository.ts`'s `ingest()` only ever
-// creates new rows; the highest stored `revision` for a given
-// `logicalOfferId` is the current truth, `getLatest()`). This table is
-// a local, non-authoritative cache of independently-verified facts —
-// not itself protocol truth. Any conformant node re-derives the exact
-// same accept/reject verdict from the same raw envelope fields
+// Append-only: one row per distinct, independently-verified signed fact
+// ever received — never updated or overwritten
+// (`offer-envelope-repository.ts`'s `ingest()` only ever creates new
+// rows). Rows are scoped to **offer identity**, the pair
+// `(ownerPublicKey, logicalOfferId)` — never a bare `logicalOfferId`,
+// which is only ever creator-local and does not by itself name a unique
+// offer (ADR-001 §3, Property H). Multiple distinct rows MAY legitimately
+// share the identical `(ownerPublicKey, logicalOfferId, revision)` when
+// the owner equivocates (signs two different facts at the same
+// revision) — `contentDigest` (a hash of the canonical content,
+// excluding `signature`) is what distinguishes genuinely distinct signed
+// facts from a mere resend of an already-known one (Property O); `revision`
+// itself determines ordering only, never deduplication (Property N).
+// `getLatest()` determines the CURRENT economic state by finding the
+// highest `revision` for the full offer identity and, if more than one
+// distinct fact exists at that revision, fails CLOSED and reports
+// `EQUIVOCATED` rather than picking one arbitrarily (Property J). This
+// table is a local, non-authoritative cache of independently-verified
+// facts — not itself protocol truth. Any conformant node re-derives the
+// exact same accept/reject verdict from the same raw envelope fields
 // (`offer-envelope.ts`'s `verifyOfferEnvelope()`) — this row never
 // stores a bare "trusted" boolean; `signature` is always the real,
 // re-verifiable Ed25519 signature, not a cached verdict.

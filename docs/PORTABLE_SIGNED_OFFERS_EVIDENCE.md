@@ -82,7 +82,10 @@ Offer portability and authenticity, nothing more.
 An `Offer` must be able to leave the node that originally received it
 and remain:
 
-- identifiable as the same offer (`logicalOfferId`);
+- identifiable as the same offer (`logicalOfferId`, scoped to its
+  owner — offer identity is the pair `(ownerPublicKey, logicalOfferId)`,
+  never a bare `logicalOfferId`; corrected 2026-09-09, Ninth Pass,
+  Property H — `logicalOfferId` alone is only ever creator-local);
 - authenticable (an Ed25519 signature over its own content);
 - independently verifiable (by any party, without trusting the
   delivering node's database);
@@ -115,8 +118,13 @@ node.**
 - `src/modules/open-liquidity/offer-envelope.ts` — canonical
   serialization, signing (reference utility), and verification.
 - `src/modules/open-liquidity/offer-envelope-repository.ts` — local,
-  non-authoritative persistence: `ingest()` (verify → convergence check
-  → store) and `getLatest()`.
+  non-authoritative persistence. **Corrected (2026-09-09, Ninth Pass):**
+  originally described as `ingest()` doing "verify → convergence check →
+  store" — stale since Property P (Sixth Pass): `ingest()` no longer
+  performs any convergence/revision-comparison check at all (verify →
+  store, uniformly, for any validly-signed envelope); CURRENT-STATE
+  convergence is entirely `getLatest()`'s own responsibility, computed
+  fresh from stored rows on every call, never at ingest time.
 - `tests/offerEnvelope.test.ts` — 20 tests, all 16 mission-required
   adversarial cases covered (several required cases map to more than
   one test for precision — see the table below).
@@ -128,18 +136,34 @@ decision, not an oversight — see "Migration compatibility" below.
 
 ### `OfferEnvelope` exact fields
 
+> **Table corrected in place (2026-09-09, Ninth Pass) to state current
+> truth** — this table originally described `logicalOfferId` alone as
+> "the" offer identity, `revision` as scoped to a bare `logicalOfferId`,
+> and `revision` itself as providing replay protection. All three are
+> superseded (Properties H, O; see `docs/adr/ADR-001-day0-multi-operator-network.md`
+> §3) and are corrected directly below rather than left standing with
+> only a pointer to a later correction section, per explicit instruction
+> that current-text descriptions throughout this document — not only its
+> dated correction sections — must consistently reflect current truth.
+
 | Field | Type | Purpose |
 |---|---|---|
 | `id` | UUID (local PK) | This node's own row identifier — never part of the signed content, never sent across a wire, purely local bookkeeping. |
-| `logicalOfferId` | String | Owner-assigned logical identity — the key move that decouples "this is the same offer" from "which node's row it happens to be." |
-| `ownerPublicKey` | String (hex) | The existing `User.publicKey` (Ed25519) — no new identity primitive introduced. |
+| `logicalOfferId` | String | Owner-assigned logical label, creator-local only. **Never** the offer's identity by itself — the offer identity is the pair `(ownerPublicKey, logicalOfferId)` (Property H); two different owners choosing the identical `logicalOfferId` string name two entirely distinct offers, not one. The key move relative to `Offer.id` (a node-local DB primary key) is still real: the pair decouples "this is the same offer" from "which node's row it happens to be." |
+| `ownerPublicKey` | String (hex) | The existing `User.publicKey` (Ed25519) — no new identity primitive introduced. Also the other half of the offer identity itself, not merely a field describing one. |
 | `asset`, `side`, `priceUsd`, `minAmount`, `maxAmount`, `paymentMethod` | Reused existing enums/types | The same economic terms `Offer` already has — reused, not reinvented. |
-| `revision` | Int | Strictly increasing per `logicalOfferId` — convergence rule and replay protection, one field. |
+| `revision` | Int | Strictly increasing per **offer identity** `(ownerPublicKey, logicalOfferId)` — not per bare `logicalOfferId`. Determines ordering and CURRENT-STATE selection only (`getLatest()`, §5) — it is **not** the deduplication or replay-protection mechanism, and multiple distinct rows MAY legitimately share the identical `(ownerPublicKey, logicalOfferId, revision)` when the owner equivocates (Property J) — that is expected, evidenced state, not a schema bug. |
+| `contentDigest` | String (hex, sha256) | The actual signed-fact identity and deduplication key (Property O) — `hashOfferEnvelope()`'s digest of the canonical content, excluding `signature`. Distinguishes a byte-identical/malleated resend of an already-known fact (idempotent, not stored again) from a genuinely new, distinct signed fact (retained, even at a revision already seen — Property P). Not present in this table at step (a)'s original closure; added by the schema change Property O/Sixth Pass introduced. |
 | `createdAt`, `revisedAt` | DateTime | Owner-supplied, advisory only, never used for cross-node ordering. |
 | `expiresAt` | DateTime | Self-enforcing — checked against the verifier's own clock, no action required. |
 | `status` | `ACTIVE` \| `CANCELLED` | `CANCELLED` is a signed tombstone at a higher revision, not a deletion. |
-| `signature` | String (hex) | Ed25519 signature over `hashOfferEnvelope()`'s sha256 digest of the canonical serialization. |
+| `signature` | String (hex) | Ed25519 signature over `hashOfferEnvelope()`'s sha256 digest of the canonical serialization — **authorization evidence**, re-verified on every use; not an identity (Property O found raw Ed25519 signatures malleable) and, since Property Q, only ever accepted in its one canonical encoding. |
 | `receivedAt` | DateTime | Local-only bookkeeping (when this node first verified/stored it) — never part of the signed content, never authoritative. |
+
+**Four distinct concepts, restated explicitly so they are never collapsed
+again:** offer identity = `(ownerPublicKey, logicalOfferId)`; signed-fact
+identity = `contentDigest`; ordering = `revision`; authorization evidence
+= `signature`.
 
 ### Canonical serialization
 
@@ -1762,10 +1786,25 @@ registered in `docs/BACKLOG.md`.
   reference implementation) has not been built to literally exercise
   against this vector. The vector exists precisely so that can happen
   later without depending on this codebase's own internal consistency.
-- `logicalOfferId` uniqueness/collision handling across independent
+- ~~`logicalOfferId` uniqueness/collision handling across independent
   owners choosing the same string is not addressed — plausible
   mitigation (owner-namespaced ids, e.g. prefixed by `ownerPublicKey`)
-  is a step (d)/(e) design question, not resolved here.
+  is a step (d)/(e) design question, not resolved here.~~ **Resolved
+  (2026-09-09, Fourth Pass, Property H — this residual bullet was left
+  stale until the Ninth Pass's own document sweep caught it):**
+  two independent owners choosing the identical `logicalOfferId` string
+  is not a collision at all — offer identity is the pair
+  `(ownerPublicKey, logicalOfferId)`, so `(ownerA, X)` and `(ownerB, X)`
+  are simply two distinct, independently-valid offers that coexist with
+  no special handling needed; the composite key already distinguishes
+  them structurally, confirmed directly by real-Postgres evidence
+  (Property H's own "real DB" test). The genuinely remaining, narrower
+  question — the SAME owner accidentally reusing their own
+  `logicalOfferId` for what they intended to be two unrelated offers —
+  is not a protocol failure: `logicalOfferId` is that owner's own
+  namespace to manage, and reuse is simply interpreted as a further
+  revision of the same offer, which is the owner's own responsibility,
+  not something Sails needs to detect or prevent.
 - **Superseded by the CTO Gate Correction above:** the "Security
   findings" residual note above, about `logicalOfferId`/`ownerPublicKey`
   byte-level encoding not being explicitly validated, is now closed —
