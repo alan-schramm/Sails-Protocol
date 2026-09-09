@@ -43,6 +43,21 @@ the new accounting mechanism. `docs/SAILS_NODE_SHARED_LIQUIDITY_DISCOVERY.md`
 artifact in this same pass — this ADR remains the architecture decision
 authority.
 
+**Third CTO Gate Correction Pass (2026-09-09, implementation).** A
+security/correctness review of step (a)'s implementation (PR #100)
+found a real, confirmed owner-takeover vulnerability — a different key
+could supersede an already-owned `logicalOfferId` by claiming a higher
+revision, reproduced directly against the code before any fix — plus
+six related correctness gaps (canonical-serialization injectivity,
+decimal/timestamp canonical form, persistence round-trip fidelity,
+revision domain bounds, shape-validation ordering). §21(a)'s status was
+reverted from a premature `CLOSED` to `CORRECTION REQUIRED`, all seven
+properties were fixed and re-evidenced, and the status is re-closed
+below. Full narrative: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s own
+"CTO Gate Correction (2026-09-09)" section. This pass changes no
+architecture decision in this document — Model C is unchanged; it
+corrects an implementation defect in an already-authorized step.
+
 ---
 
 ## Decision
@@ -817,11 +832,21 @@ two items in this entire ADR granted that status):
 
 **(a) Portable signed Offers** — `logicalOfferId`, canonical
 serialization, Ed25519 signature, `revision`/`expiresAt`/tombstone
-semantics (§3). **CLOSED (2026-09-09)** — implemented, tested (16/16
-adversarial cases, 20 tests total), zero regression (155/155 suites).
-Full evidence: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`. Proves Offer
-portability/authenticity only — no propagation, no second node, no
-network claim of any kind. Do not begin (b) before its own CTO Gate.
+semantics (§3). ~~CLOSED (2026-09-09)~~ **CORRECTED AND RE-CLOSED
+(2026-09-09).** A CTO Gate correction pass found a real, confirmed
+owner-takeover vulnerability (a different key could supersede an
+already-owned `logicalOfferId` simply by claiming a higher revision —
+reproduced directly against the pre-fix code before any fix was
+written) plus six related correctness gaps (canonical-serialization
+injectivity, decimal/timestamp canonical form, persistence round-trip
+fidelity, revision domain bounds, shape validation ordering). All seven
+are now fixed, tested (53 tests, up from 20, plus 3 new real-Postgres
+integration tests), and re-evidenced — zero regression (155/155
+suites, 1976/1976 tests). Full evidence, including the original closure
+and the full correction: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`.
+Still proves Offer portability/authenticity only — no propagation, no
+second node, no network claim of any kind. Do not begin (b) before its
+own CTO Gate.
 **(b) Persistent node identity** — a stable operational node keypair
 across ordinary restarts (§7), closing the confirmed current gap
 (ephemeral, per-session `peerId`) this ADR's own gossip model (§4)

@@ -1,5 +1,18 @@
 # Portable Signed Offers — Evidence
 
+> **Status: CORRECTED (2026-09-09).** A CTO Gate correction pass found a
+> real, confirmed owner-takeover vulnerability plus six related
+> correctness gaps in the implementation this document originally
+> described as closed. All seven have since been fixed and re-evidenced
+> — see **"CTO Gate Correction (2026-09-09)"** below, which is the
+> authoritative current state. The sections above it describe the
+> implementation as it stood at the *original* step (a) closure and are
+> preserved verbatim as history; where a number or claim below has since
+> changed (test counts, the independent-verifier claim), the correction
+> section states the corrected value — treat this document's own
+> internal cross-references as pointing there for anything in scope of
+> Properties A-G.
+
 **Scope:** ADR-001 Day-0 Multi-Operator Sails Network
 (`docs/adr/ADR-001-day0-multi-operator-network.md`), Implementation
 Sequence step **(a) Portable Signed Offers** — the first authorized
@@ -290,6 +303,227 @@ property, nothing speculative added alongside them.
 
 ---
 
+## CTO Gate Correction (2026-09-09)
+
+The original evidence above proved the seven properties it set out to
+prove (portability, authenticity, revision ordering, tombstones,
+expiry). It did not prove — and did not claim to prove — that the
+implementation was safe against a **different key** claiming authority
+over an **already-owned** `logicalOfferId`, nor that the canonical
+serialization was injective over the full range of inputs a real
+verifier might receive. A CTO Gate correction pass found both gaps for
+real, plus five related correctness properties. All seven are now
+fixed, tested, and evidenced below.
+
+### Property A — Owner continuity (the confirmed vulnerability)
+
+**Reproduced against the real, pre-fix repository logic before writing
+any fix**, per explicit CTO instruction. Setup: Alice's revision-1
+envelope for a `logicalOfferId` is already accepted and stored.
+Attacker "Mallory" — who owns a completely real, valid Ed25519 keypair
+— signs her own revision-2 envelope for that *same* `logicalOfferId`
+with her own key and submits it to `OfferEnvelopeRepository.ingest()`.
+
+**Result before the fix:** `{"accepted":true,"id":"row-2"}` — the
+forged takeover was accepted. Root cause: `ingest()` only checked
+`envelope.revision > highest.revision`, and `verifyOfferEnvelope()`
+only checks that an envelope's signature matches whichever
+`ownerPublicKey` it *itself* claims — neither function ever compared
+that claimed owner against the owner *previously accepted* for that
+`logicalOfferId`. Mallory's envelope was completely valid by every
+check that existed; the missing check was continuity, not validity.
+
+**Fix:** `ingest()` (`src/modules/open-liquidity/offer-envelope-repository.ts`)
+now fetches the highest existing revision for a `logicalOfferId` and,
+if one exists, rejects any envelope whose `ownerPublicKey` differs from
+that row's `ownerPublicKey` — **before** the revision-ordering check,
+and regardless of how much higher the new revision is. Exact rule: once
+a `logicalOfferId` has an accepted owner, every later revision or
+tombstone for it MUST come from that same owner; a higher revision
+number does not, by itself, grant authority. The first accepted
+envelope for a new `logicalOfferId` establishes its owner
+(first-writer-wins) — there is no ownership-rotation mechanism (`v1`:
+owner is immutable for the lifetime of a `logicalOfferId`; a genuine
+future rotation need is an explicitly separate, not-yet-authorized,
+signed-transition design).
+
+**Tests added** (`tests/offerEnvelope.test.ts`, describe block "owner
+continuity (Property A, CTO Gate correction 2026-09-09)"): attacker
+higher ACTIVE revision rejected (the exact reproduction case, now
+proven fixed), attacker higher CANCELLED tombstone rejected, legitimate
+same-owner higher revision still accepted, legitimate same-owner
+cancellation still accepted, first-writer-wins for a brand-new
+`logicalOfferId`.
+
+### Property B — Canonical serialization must be injective
+
+**Reproduced directly**, via a standalone script: two distinct field
+tuples — `{logicalOfferId: 'a\x1fb', ownerPublicKey: 'owner'}` and
+`{logicalOfferId: 'a', ownerPublicKey: 'b\x1fowner'}` — produced
+byte-identical canonical output
+(`sails-offer-envelope-v1abownerBTCSELL111PIX1tttACTIVE`), because
+nothing validated that `FIELD_SEPARATOR` (`\x1f`) was absent from any
+field before joining. The original code's own comment claimed this
+"never happens" — it was never actually enforced.
+
+**Fix:** `validateOfferEnvelopeFields()` (`src/modules/open-liquidity/offer-envelope.ts`)
+now runs before canonicalization on every call path and rejects any
+occurrence of `\x1f` or any other control character (`\x00`-`\x1f`,
+`\x7f`) in `logicalOfferId`. Combined with Properties C/D/F below (every
+other field now has exactly one accepted lexical shape, none of which
+can contain a control character or exceed the enum sets), the specific
+collision demonstrated above is now provably unreachable — both
+half-formed tuples are rejected outright by shape validation, never
+reaching `canonicalizeOfferEnvelope()`.
+
+### Property C — Canonical numeric representation
+
+**Decision: reject non-canonical input outright; never silently
+renormalize after signing.** Exactly one accepted lexical form for
+`priceUsd`/`minAmount`/`maxAmount`: `^(0|[1-9]\d{0,15})\.\d{8}$` (digits
+only, no sign, no exponent, no whitespace, exactly 8 fractional digits
+— matching `@db.Decimal(24, 8)`'s own declared scale), plus an explicit
+additional check that the value is strictly greater than zero. Rejected
+by test: exponent notation, a leading `+`, leading/trailing whitespace,
+wrong fractional-digit count (both too few and too many), negative
+values, exact zero, non-numeric strings, and an integer with no
+fractional part at all.
+
+Persistence round-trip fidelity (Property E) required a matching
+reconstruction helper: `formatCanonicalDecimal()` calls
+`Prisma.Decimal.toFixed(8)`, never bare `.toString()` — confirmed by
+direct execution that `new Prisma.Decimal('1.00000000').toString()`
+returns `"1"` (trailing zeros stripped) while `.toFixed(8)` returns
+`"1.00000000"` (canonical form preserved).
+
+### Property D — Timestamp canonicality
+
+Exactly one accepted lexical form for `createdAt`/`revisedAt`/`expiresAt`:
+`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$` — `Date.prototype.toISOString()`'s
+own exact output shape, always UTC, always millisecond-padded.
+Validated with the regex AND a parse-then-reserialize round-trip check
+(`new Date(value).toISOString() === value`) specifically to reject
+shapes that match the regex's general form but aren't real calendar
+dates (e.g. `2026-13-45T00:00:00.000Z`). A timezone-offset
+representation of the identical instant (`...+00:00`) is a different
+byte string and is rejected, not treated as equivalent. `revision`
+ordering continues to never depend on these fields (unchanged — they
+were already advisory-only); verifier-local clock expiry semantics
+(`isOfferEnvelopeEconomicallyActive()`) are unchanged.
+
+### Property E — Persistence round-trip
+
+New real-Postgres integration test:
+`tests/integration/offerEnvelopePersistenceRoundTrip.test.ts` (added to
+`package.json`'s `test:integration:postgres` script list — **not** a
+mock-only test, per explicit CTO instruction). Three tests, all against
+a real ephemeral Postgres instance (this repository's established
+`SAILS_INTEGRATION_TEST_DB_CONFIRMED` / `postgresTestHarness.ts` gate):
+
+1. A signed envelope with realistic amounts is inserted directly,
+   read back, reconstructed via the repository's new
+   `reconstructSignedEnvelope()`, and its canonical bytes are proven
+   byte-identical to the original signed content — and the original
+   signature still verifies against the reconstructed content.
+2. The specific trailing-zero risk named under Property C is proven
+   real against the actual database (`row.priceUsd.toString()` really
+   does return `"1"` for a stored `"1.00000000"`), and proven fixed
+   (`reconstructSignedEnvelope()` still recovers `"1.00000000"` and the
+   signature still verifies).
+3. `OfferEnvelopeRepository.ingest()` itself, run end-to-end against
+   real Postgres (not mocked), produces a row that reconstructs and
+   re-verifies.
+
+No schema change was needed — `Prisma.Decimal`/`DateTime` storage was
+never lossy; the defect was in a hypothetical *naive* reconstruction
+path (bare `.toString()`) that this correction never allows to exist,
+by only ever exposing the canonical-formatting helpers.
+
+### Property F — Revision domain
+
+`revision` must be an integer in `[0, 2147483647]` (Postgres `INT4`
+range, matching the existing `revision Int` column — no schema change).
+Rejected by test: negative, fractional, one above the `INT4` max, a
+JS-unsafe integer, and `NaN`. Accepted by test: `0` and exactly
+`2147483647`.
+
+### Property G — Shape validation before crypto/DB
+
+`verifyOfferEnvelope()` now calls `validateOfferEnvelopeFields()` first
+and returns its specific, named reason (e.g. `"asset must be one
+of: ..."`, `"revision must be an integer between 0 and ... inclusive"`)
+without ever reaching the cryptographic check — distinguishable by test
+from `"signature does not verify..."`. `ingest()` inherits this for
+free (it calls `verifyOfferEnvelope()` first, unchanged) — a malformed
+envelope never reaches `prisma.offerEnvelope.findFirst()`/`create()`,
+confirmed by a dedicated test asserting neither mock is ever called for
+a malformed input (revision `-1`).
+
+### Independent-verifier claim, narrowed
+
+The original "Independent verifier evidence" section above is
+preserved verbatim, but its underlying claim needs a correction stated
+explicitly: **test 16 proves verification is deterministic and has no
+hidden per-call state — it does not, and never did, prove independent
+Rust/Go implementation conformance.** The hardcoded digest test vector
+(test 15b) remains useful conformance material for a *future*
+independently-built implementation to check itself against, but its
+existence is not itself evidence that such an implementation exists
+today. **TypeScript implementation ≠ protocol truth** — unchanged,
+restated.
+
+### Updated counts
+
+`tests/offerEnvelope.test.ts`: **53 tests**, all passing (up from the
+original 20 — the +33 are the new Property A-G adversarial cases above,
+using `it.each` for the C/D/F boundary sweeps rather than one test per
+value). `tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`:
+**3 new tests** (real Postgres, gated by
+`SAILS_INTEGRATION_TEST_DB_CONFIRMED`, run in CI's `test` job).
+**Full `npm run test:unit`: 155/155 suites, 1976/1976 tests, zero
+failures.** `npx tsc --noEmit`: clean. `npx prisma validate`: schema
+valid, **no schema change was required** for this correction (all
+seven fixes are application-level validation/reconstruction logic, not
+new columns or constraints). `git diff --check`: clean.
+
+### COBRA Check (re-confirmed)
+
+The fix does not: make `logicalOfferId` node-local; trust first-seen
+node metadata as a substitute for signed history; introduce a central
+owner registry; accept a cached "trusted" flag in place of
+re-verification; or hide conflicting revisions instead of rejecting
+them with a stated reason. Owner continuity is derived purely from
+signed portable facts (the previously-accepted envelope's own
+`ownerPublicKey`, itself only ever accepted after signature
+verification) plus the new envelope's own claim — nothing outside that.
+
+### Rube Goldberg Check (re-confirmed)
+
+No blockchain, DID, consensus layer, CRDT framework, Merkle tree,
+distributed database, new identity system, rotation protocol, or
+generic signed-object framework was added. The fix is exactly: one new
+equality check in `ingest()` (Property A), one shape-validation
+function with a fixed field list (Properties B/C/D/F/G), and two
+canonical-formatting helper functions for reconstruction (Property E).
+This remains a bounded OpenLiquidity envelope correction.
+
+### ADR-001 step (a) status
+
+Reverted to **CORRECTION REQUIRED** at the start of this pass (from the
+prior, premature `CLOSED (2026-09-09)`); **re-closed as CLOSED
+(2026-09-09, corrected)** now that all seven properties above are
+fixed, tested, and evidenced. See
+`docs/adr/ADR-001-day0-multi-operator-network.md` §21(a) for the exact
+status line and its own dated correction note.
+
+### BACKLOG DELTA (re-confirmed)
+
+**ZERO.** All seven properties are defects in the implementation of the
+already-authorized step (a), not new architecture fronts — no new
+obligation is registered in `docs/BACKLOG.md` by this correction.
+
+---
+
 ## Residuals
 
 - No HTTP route exposes `OfferEnvelope` ingestion/query yet — deferred
@@ -309,6 +543,17 @@ property, nothing speculative added alongside them.
   owners choosing the same string is not addressed — plausible
   mitigation (owner-namespaced ids, e.g. prefixed by `ownerPublicKey`)
   is a step (d)/(e) design question, not resolved here.
+- **Superseded by the CTO Gate Correction above:** the "Security
+  findings" residual note above, about `logicalOfferId`/`ownerPublicKey`
+  byte-level encoding not being explicitly validated, is now closed —
+  `validateOfferEnvelopeFields()` enforces an explicit hex/shape/charset
+  contract for every field. Left in place above as history of what was
+  true at original closure, not as a currently-open gap.
+- No ownership-rotation mechanism exists (deliberately, per Property A
+  above) — a legitimate owner who loses their key has no way to recover
+  or transfer a `logicalOfferId`. Named, not solved: a future
+  signed-transition rotation design is a separate, not-yet-authorized
+  obligation if this is ever needed.
 
 ---
 

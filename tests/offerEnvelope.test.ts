@@ -249,7 +249,7 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
 
   it('9. a higher revision supersedes a previously-stored one and is accepted', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1 })
+    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex })
     mockCreate.mockResolvedValue({ id: 'row-2' })
 
     const envelope = signedEnvelope(baseContent({ revision: 2 }, publicKeyHex), secretKeyHex)
@@ -261,7 +261,7 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
 
   it('10. an equal-or-lower revision does not overwrite the newer stored one', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 5 })
+    mockFindFirst.mockResolvedValue({ revision: 5, ownerPublicKey: publicKeyHex })
 
     const equalRevision = signedEnvelope(baseContent({ revision: 5 }, publicKeyHex), secretKeyHex)
     const lowerRevision = signedEnvelope(baseContent({ revision: 3 }, publicKeyHex), secretKeyHex)
@@ -276,7 +276,7 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
 
   it('11. a validly-signed tombstone (CANCELLED at a higher revision) is accepted', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1 })
+    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex })
     mockCreate.mockResolvedValue({ id: 'row-cancel' })
 
     const tombstone = signedEnvelope(baseContent({ revision: 2, status: 'CANCELLED' }, publicKeyHex), secretKeyHex)
@@ -291,7 +291,7 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
   it('12. a tombstone with a forged/invalid signature is rejected, never stored', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
     const attacker = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1 })
+    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex })
 
     const real = signedEnvelope(baseContent({ revision: 2, status: 'CANCELLED' }, publicKeyHex), secretKeyHex)
     const forged = { ...real, signature: signOfferEnvelope(real as any, attacker.secretKeyHex) }
@@ -313,5 +313,229 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
     expect(createCall.data.signature).toBe(envelope.signature)
     expect(createCall.data).not.toHaveProperty('trusted')
     expect(createCall.data).not.toHaveProperty('verified')
+  })
+})
+
+describe('OfferEnvelopeRepository.ingest() — owner continuity (Property A, CTO Gate correction 2026-09-09)', () => {
+  let repo: InstanceType<typeof OfferEnvelopeRepository>
+
+  beforeEach(() => {
+    mockFindFirst.mockReset()
+    mockCreate.mockReset()
+    repo = new OfferEnvelopeRepository()
+  })
+
+  it('CONFIRMED VULNERABILITY (pre-fix reproduction): a different key claiming a higher revision for an already-owned logicalOfferId used to be accepted — this test now proves it is rejected', async () => {
+    const alice = makeKeypair()
+    const mallory = makeKeypair()
+    // Alice's revision 1 is already the accepted, stored state for this logicalOfferId.
+    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: alice.publicKeyHex })
+
+    // Mallory owns a completely real keypair and signs her own envelope
+    // correctly — the signature is genuinely valid, it just claims an
+    // logicalOfferId she was never the accepted owner of.
+    const forgedTakeover = signedEnvelope(
+      baseContent({ revision: 2 }, mallory.publicKeyHex),
+      mallory.secretKeyHex
+    )
+
+    // Sanity check: this envelope is internally well-formed and validly
+    // self-signed — verifyOfferEnvelope() alone cannot and should not
+    // catch this; continuity is ingest()'s job.
+    expect(verifyOfferEnvelope(forgedTakeover).valid).toBe(true)
+
+    const result = await repo.ingest(forgedTakeover as any)
+
+    expect(result.accepted).toBe(false)
+    expect((result as { reason: string }).reason).toMatch(/owner continuity/)
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it('an attacker cannot take over via a higher-revision CANCELLED tombstone either', async () => {
+    const alice = makeKeypair()
+    const mallory = makeKeypair()
+    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: alice.publicKeyHex })
+
+    const forgedTombstone = signedEnvelope(
+      baseContent({ revision: 2, status: 'CANCELLED' }, mallory.publicKeyHex),
+      mallory.secretKeyHex
+    )
+    expect(verifyOfferEnvelope(forgedTombstone).valid).toBe(true)
+
+    const result = await repo.ingest(forgedTombstone as any)
+
+    expect(result.accepted).toBe(false)
+    expect((result as { reason: string }).reason).toMatch(/owner continuity/)
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it('the legitimate owner can still supersede their own offer at a higher revision', async () => {
+    const alice = makeKeypair()
+    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: alice.publicKeyHex })
+    mockCreate.mockResolvedValue({ id: 'row-2' })
+
+    const legitimateUpdate = signedEnvelope(baseContent({ revision: 2 }, alice.publicKeyHex), alice.secretKeyHex)
+    const result = await repo.ingest(legitimateUpdate as any)
+
+    expect(result).toEqual({ accepted: true, id: 'row-2' })
+  })
+
+  it('the legitimate owner can still cancel their own offer at a higher revision', async () => {
+    const alice = makeKeypair()
+    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: alice.publicKeyHex })
+    mockCreate.mockResolvedValue({ id: 'row-cancel' })
+
+    const legitimateCancel = signedEnvelope(
+      baseContent({ revision: 2, status: 'CANCELLED' }, alice.publicKeyHex),
+      alice.secretKeyHex
+    )
+    const result = await repo.ingest(legitimateCancel as any)
+
+    expect(result).toEqual({ accepted: true, id: 'row-cancel' })
+  })
+
+  it('the first envelope for a new logicalOfferId establishes its owner (first-writer-wins) with no prior history to check', async () => {
+    const alice = makeKeypair()
+    mockFindFirst.mockResolvedValue(null)
+    mockCreate.mockResolvedValue({ id: 'row-1' })
+
+    const first = signedEnvelope(baseContent({ revision: 1 }, alice.publicKeyHex), alice.secretKeyHex)
+    const result = await repo.ingest(first as any)
+
+    expect(result).toEqual({ accepted: true, id: 'row-1' })
+  })
+})
+
+describe('OfferEnvelope — canonical serialization must be injective (Property B, CTO Gate correction 2026-09-09)', () => {
+  it('CONFIRMED COLLISION (pre-fix): two distinct field tuples that would have produced identical canonical bytes are now both rejected by shape validation before canonicalization ever runs', () => {
+    const { secretKeyHex } = makeKeypair()
+    // Shifting a \x1f across a field boundary used to make
+    // {logicalOfferId: 'a\x1fb', ownerPublicKey: 'owner'} collide with
+    // {logicalOfferId: 'a', ownerPublicKey: 'b\x1fowner'} at the byte
+    // level. Neither 'owner' nor 'b\x1fowner' is a valid ownerPublicKey
+    // (not 64 hex chars) and 'a\x1fb' contains a control character, so
+    // both are now rejected outright by shape validation — the
+    // ambiguous byte collision can never be reached because neither
+    // input is ever canonicalized in the first place.
+    const t1 = signedEnvelope(baseContent({ logicalOfferId: 'a\x1fb' }, 'owner'), secretKeyHex)
+    expect(verifyOfferEnvelope(t1 as any).valid).toBe(false)
+
+    const t2 = signedEnvelope(baseContent({ logicalOfferId: 'a' }, 'b\x1fowner'), secretKeyHex)
+    expect(verifyOfferEnvelope(t2 as any).valid).toBe(false)
+  })
+
+  it('a logicalOfferId containing the field separator is rejected before signature verification', () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const envelope = signedEnvelope(baseContent({ logicalOfferId: 'offer\x1finjected' }, publicKeyHex), secretKeyHex)
+    const verdict = verifyOfferEnvelope(envelope as any)
+    expect(verdict.valid).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/logicalOfferId/)
+  })
+
+  it('an ownerPublicKey that is not exactly 64 lowercase hex characters is rejected', () => {
+    const { secretKeyHex } = makeKeypair()
+    const envelope = signedEnvelope(baseContent({}, 'not-a-valid-hex-public-key'), secretKeyHex)
+    const verdict = verifyOfferEnvelope(envelope as any)
+    expect(verdict.valid).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/ownerPublicKey/)
+  })
+})
+
+describe('OfferEnvelope — canonical numeric representation (Property C)', () => {
+  it.each([
+    ['exponent notation', '6.5e4'],
+    ['plus sign', '+65000.00000000'],
+    ['leading/trailing whitespace', ' 65000.00000000 '],
+    ['wrong scale (too few fractional digits)', '65000.0'],
+    ['wrong scale (too many fractional digits)', '65000.000000001'],
+    ['negative value', '-1.00000000'],
+    ['zero', '0.00000000'],
+    ['NaN-like', 'NaN'],
+    ['not a number at all', 'abc'],
+    ['no fractional part', '65000'],
+  ])('rejects priceUsd with %s: %s', (_label, badPrice) => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const envelope = signedEnvelope(baseContent({ priceUsd: badPrice }, publicKeyHex), secretKeyHex)
+    const verdict = verifyOfferEnvelope(envelope as any)
+    expect(verdict.valid).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/priceUsd/)
+  })
+
+  it('accepts the one canonical decimal form with exactly 8 fractional digits', () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const envelope = signedEnvelope(baseContent({ priceUsd: '65000.00000000' }, publicKeyHex), secretKeyHex)
+    expect(verifyOfferEnvelope(envelope as any)).toEqual({ valid: true })
+  })
+})
+
+describe('OfferEnvelope — canonical timestamp representation (Property D)', () => {
+  it.each([
+    ['timezone offset instead of Z', '2026-09-09T00:00:00.000+00:00'],
+    ['missing milliseconds', '2026-09-09T00:00:00Z'],
+    ['space instead of T', '2026-09-09 00:00:00.000Z'],
+    ['invalid calendar date', '2026-13-45T00:00:00.000Z'],
+    ['not a timestamp at all', 'not-a-date'],
+  ])('rejects expiresAt with %s: %s', (_label, badTimestamp) => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const envelope = signedEnvelope(baseContent({ expiresAt: badTimestamp }, publicKeyHex), secretKeyHex)
+    const verdict = verifyOfferEnvelope(envelope as any)
+    expect(verdict.valid).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/expiresAt/)
+  })
+
+  it('accepts the one canonical UTC ISO-8601 millisecond form', () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const envelope = signedEnvelope(baseContent({}, publicKeyHex), secretKeyHex)
+    expect(verifyOfferEnvelope(envelope as any)).toEqual({ valid: true })
+  })
+})
+
+describe('OfferEnvelope — revision domain bounds (Property F)', () => {
+  it.each([
+    ['negative', -1],
+    ['fractional', 1.5],
+    ['above Postgres INT4 max', 2147483648],
+    ['JS-unsafe integer', Number.MAX_SAFE_INTEGER + 1],
+    ['NaN', NaN],
+  ])('rejects revision that is %s: %s', (_label, badRevision) => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const envelope = signedEnvelope(baseContent({ revision: badRevision }, publicKeyHex), secretKeyHex)
+    const verdict = verifyOfferEnvelope(envelope as any)
+    expect(verdict.valid).toBe(false)
+    expect((verdict as { reason: string }).reason).toMatch(/revision/)
+  })
+
+  it('accepts revision 0 and the Postgres INT4 max', () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const zero = signedEnvelope(baseContent({ revision: 0 }, publicKeyHex), secretKeyHex)
+    expect(verifyOfferEnvelope(zero as any)).toEqual({ valid: true })
+
+    const max = signedEnvelope(baseContent({ revision: 2147483647 }, publicKeyHex), secretKeyHex)
+    expect(verifyOfferEnvelope(max as any)).toEqual({ valid: true })
+  })
+})
+
+describe('OfferEnvelope — shape validation runs before crypto/DB (Property G)', () => {
+  it('a malformed envelope is rejected with a shape-specific reason, distinguishable from "signature does not verify"', () => {
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const malformed = signedEnvelope(baseContent({ asset: 'NOT_A_REAL_ASSET' }, publicKeyHex), secretKeyHex)
+    const verdict = verifyOfferEnvelope(malformed as any)
+    expect(verdict.valid).toBe(false)
+    expect((verdict as { reason: string }).reason).not.toMatch(/signature does not verify/)
+    expect((verdict as { reason: string }).reason).toMatch(/asset/)
+  })
+
+  it('a malformed envelope never reaches the database via ingest()', async () => {
+    mockFindFirst.mockReset()
+    mockCreate.mockReset()
+    const repo = new OfferEnvelopeRepository()
+    const { publicKeyHex, secretKeyHex } = makeKeypair()
+    const malformed = signedEnvelope(baseContent({ revision: -1 }, publicKeyHex), secretKeyHex)
+
+    const result = await repo.ingest(malformed as any)
+
+    expect(result.accepted).toBe(false)
+    expect(mockFindFirst).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
   })
 })
