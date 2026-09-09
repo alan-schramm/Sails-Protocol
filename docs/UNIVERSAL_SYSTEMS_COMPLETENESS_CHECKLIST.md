@@ -461,6 +461,101 @@ Preserve:
 
 ---
 
+
+## 3.20 Sybil / Multiplicity / Influence Without Authority
+
+This domain asks whether multiplying identities, nodes, messages, or infrastructure instances can create power merely through quantity.
+
+Core question:
+
+> **Can an operator increase influence, visibility, economic entitlement, liquidity control, or censorship power merely by multiplying Sails Nodes?**
+
+The desired system property is not necessarily to make Sybil identities impossible. A permissionless system may allow cheap identity creation. The stronger question is whether cheap multiplicity creates cheap authority.
+
+Preserve as candidate properties to confront against Sails:
+
+> **More nodes ≠ more protocol authority.**
+
+> **More messages ≠ more economic entitlement.**
+
+> **More identities ≠ more economic rights.**
+
+> **More relay activity ≠ more reward.**
+
+> **Node multiplicity must not manufacture liquidity.**
+
+> **Topology presence must not become economic authority.**
+
+> **Valid signatures prove authority over facts; they do not prove economic value or justify unbounded resource consumption.**
+
+Questions:
+
+- Can one operator run thousands of nodes without gaining protocol authority merely from node count?
+- Can a node farm increase the probability of surrounding/eclipse-isolating honest nodes?
+- Can one operator dominate bootstrap or peer neighborhoods through cheap multiplicity?
+- Can repeated relay of the same signed fact create additional visibility, weight, ranking, or reward?
+- Can many distinct but low-value validly signed facts exhaust CPU, memory, storage, or bandwidth?
+- Can an operator split one economic actor across many node identities to multiply future contribution accounting or entitlement?
+- Can multiple nodes make one operator's liquidity appear larger than it economically is?
+- Can node count influence market membership, discovery ranking, routing preference, fee entitlement, reputation, or arbitration authority?
+- Can honest peers locally bound the cost imposed by one peer or one apparent operator without requiring central admission control?
+- Does peer diversity actually create operator diversity, or only identity diversity?
+- Does any future node-economic mechanism accidentally reward unverifiable activity?
+- Is withholding competing liquidity ever rationally more profitable than propagating it honestly?
+- Can a Sybil farm gain durable advantage by selective forwarding?
+- Can identity rotation evade local abuse controls without also gaining new protocol rights?
+- Does an anti-Sybil mechanism introduce more centralization, surveillance, token dependence, or architectural weight than the attack it prevents?
+
+Existing Sails properties that already reduce Sybil value must be treated as evidence candidates, not assumed sufficient:
+
+- participant signatures, not node votes, authorize Offer facts;
+- duplicate signed facts must not multiply economic truth;
+- node count is not a voting mechanism;
+- no naive pay-per-relay mechanism is authorized;
+- shared liquidity must not be enclosed by node choice;
+- peer diversity / eclipse / selective-forwarding resilience is already an evidence obligation;
+- gossip resource bounds / backpressure are already a Day-0 completeness concern;
+- Node Contribution Accounting must be based on **verified contribution**, not raw presence or message count;
+- Incentive Compatibility / No-Cannibalization must prove that suppressing competing liquidity does not create durable economic advantage.
+
+Important distinction:
+
+> **Sybil resistance ≠ making identity expensive by default.**
+
+Bitcoin uses proof-of-work to make influence over block production costly, but Sails must not copy PoW, staking, tokens, allowlists, or identity registries merely by analogy. Any mechanism must first answer:
+
+> **What exact power does cheap multiplicity buy in Sails today or in the proposed design?**
+
+Only then may a mitigation be selected.
+
+The preferred architectural direction is to make multiplicity naturally low-value where possible:
+
+```
+cheap node creation
+        ↓
+does not imply
+        ↓
+more authority
+more liquidity
+more reward
+more truth
+more settlement power
+```
+
+A future Sails confrontation pass must classify each discovered multiplicity risk as one of:
+
+- already structurally neutralized;
+- resource-abuse problem;
+- topology/eclipse problem;
+- economic-incentive problem;
+- identity/accounting problem;
+- evidence gap;
+- real architectural gap.
+
+No Sybil mechanism is selected or authorized by this checklist.
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
