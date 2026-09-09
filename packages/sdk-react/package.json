@@ -64,7 +64,7 @@
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.6.6",
     "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.5",
+    "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^4.7.0",
     "@vitest/coverage-v8": "^4.1.11",
     "jsdom": "^25.0.1",
@@ -72,7 +72,7 @@
     "react-dom": "^19.2.7",
     "storybook": "^8.6.14",
     "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   }
 }
