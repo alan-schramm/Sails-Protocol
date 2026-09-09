@@ -1210,3 +1210,94 @@ The owner remains the authority over acceptance. This correction does
 not select a global lock mechanism.
 
 **BACKLOG DELTA:** DETECTED AND SYNCED.
+
+
+## 28. Real-money agreement and dispute-authority correction (2026-09-09)
+
+This correction preserves the accepted signed-gossip / pairwise-trade
+topology and tightens the economic commitment that §27 already began to
+formalize.
+
+### 28.1 Fiat-side obligation
+
+Before a fiat-side payment becomes binding, the jointly-verifiable
+trade agreement must freeze:
+- exact fiat denomination;
+- exact fiat amount;
+- payment method;
+- a verifiable commitment/reference to the payment destination.
+
+Raw payment details remain private/pairwise. The commitment need not
+publish the PIX key or bank account network-wide.
+
+> **Payment destination commitment ≠ Public payment destination.**
+
+> **Chat Instruction ≠ Economic Authority.**
+
+A post-commit payment-instruction change is a new authenticated economic
+amendment, never merely a chat message.
+
+### 28.2 Settlement mechanism binding
+
+§27's exact trade-open commitment must additionally bind the actual
+settlement/custody contract the parties accepted. Where applicable this
+includes the selected EscrowType/provider capability, network/rail,
+custody posture, signer/approval requirements, economically relevant
+finality policy and required refund/dispute capability.
+
+A node may not silently substitute another provider after commitment.
+
+> **Interface uniformity ≠ Security uniformity.**
+
+### 28.3 Fee/policy binding
+
+Any participant-facing fee that can become an economic obligation must
+be disclosed and frozen before commitment: payer, basis and applicable
+policy/version at minimum. Later node/policy rotation may not
+retroactively reinterpret the trade.
+
+> **Fee discovery ≠ Fee obligation.**
+
+### 28.4 Cross-node dispute authority
+
+Current implementation chooses/assigns arbitration through local
+deployment state. That behavior is not sufficient as the authority
+model for an independent multi-node trade.
+
+Frozen Day-0 property:
+
+> **Dispute Hosting Node ≠ Arbitration Authority.**
+
+The trade/settlement agreement must establish the applicable
+arbitration authority/policy and appeal semantics before funds are
+economically committed. Both sides must be able to verify the same
+authority, evidence, ruling and appeal round without treating either
+operator's private database/config as protocol truth.
+
+A node-local configuration change after trade-open cannot alter the
+already-agreed dispute authority.
+
+Preserve:
+
+> **Arbitration Policy ≠ Node Local Configuration once a trade is committed.**
+
+> **Ruling Attribution ≠ Funds Authority.**
+
+No universal arbitration model is selected by this correction. Existing
+rail-specific arbiter commitments and signed `DisputeOutcome` /
+authority evidence are reusable evidence patterns, not proof that the
+cross-node property already exists.
+
+### 28.5 §21 sequencing consequence
+
+The obligatory sequence must treat the following as part of the
+trade-open / settlement path before Stranger Node / Partner Wallet
+evidence can pass:
+
+- fiat amount/currency/payment-destination commitment;
+- settlement mechanism/custody binding;
+- fee/policy commitment;
+- cross-node arbitration-policy/authority commitment;
+- cross-node dispute evidence/ruling availability and failover.
+
+**BACKLOG DELTA:** DETECTED AND SYNCED.
