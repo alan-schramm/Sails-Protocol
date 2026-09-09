@@ -1387,7 +1387,9 @@ four are preserved below in the order they were registered:
 2. **The Implementation Sequence itself (ADR-001 §21, updated
    2026-09-09 twice — first to insert two new Day-0 identity/binding
    items, then to insert two new Day-0 economics items)** — (a)
-   portable signed Offers, (b) persistent node identity, (c) Economic
+   portable signed Offers, (b) persistent Participant Transport
+   Identity (corrected naming, 2026-09-09, CTO Gate — see item 4/5
+   below; not Operational Sails Node Identity), (c) Economic
    Identity ↔ Transport Identity Binding, (d) propagation/bootstrap,
    (e) multi-node discovery/convergence, (f) cross-node trade
    coordination, (g) pagination/discovery-scaling wiring, (h)
@@ -1422,13 +1424,22 @@ represented anywhere in this repository:
    explicitly not chosen (a real cryptographic design decision);
    explicitly forbidden: reusing `User.publicKey` directly as the Pears
    transport key.
-4. **Persistent Node Identity (ADR-001 §7).** `"A Sails Node
+4. **Persistent Node Identity (ADR-001 §7) — corrected, 2026-09-09, CTO
+   Gate, final institutional precision pass.** `"A Sails Node
    participating in network discovery must have a stable operational
-   identity across ordinary restarts."` Today's node-level identity
+   identity across ordinary restarts."` ~~Today's node-level identity
    (HyperDHT's ephemeral, per-session `peerId`) is classified as a
-   **current implementation gap against the accepted Day-0
-   architecture**, not a future nicety — the ADR's own gossip model
-   (§4) depends on stable peer relationships surviving restarts.
+   current implementation gap against the accepted Day-0 architecture,
+   not a future nicety — the ADR's own gossip model (§4) depends on
+   stable peer relationships surviving restarts.~~ **Corrected:** this
+   artifact is **Participant Transport Identity** (B), scoped per
+   participant, not an operator/deployment-level identity — see item 5
+   below and `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5 for the full
+   A/B/C/D taxonomy. §4's gossip-relay model needs **Operational Sails
+   Node Identity (C)**, which does not exist and is not closed by
+   persisting B. Classified as a current implementation gap against the
+   accepted Day-0 architecture for the participant-to-participant
+   property only, not a future nicety.
 
 **Updated again, 2026-09-09 (CTO Gate, Fase 2-5/9) — Node Contribution
 Accounting and Incentive Compatibility, classified before registering:**
@@ -1545,23 +1556,34 @@ Preserved:
    Conformance**; both are required and remain distinct.
 
 5. **Node identity lifecycle + operator-recipient separation —
-   Day-0/Production.** Preserve, precisely, four cardinalities
+   Day-0/Production.** Preserve, precisely, four protocol/semantic
+   cardinalities, not their current TypeScript/database identifiers
    (**corrected, 2026-09-09, CTO Gate, final institutional precision
-   pass** — full taxonomy: `docs/DAY0_COMPLETENESS_COLD_SWEEP.md`
-   §3.5): **A. Participant Economic Identity** (`User.publicKey`) ≠
-   **B. Participant Transport Identity** (the current per-participant
-   `peerId` mechanism — this is what "persistent node identity"
-   elsewhere in this repository actually refers to; not C) ≠
-   **C. Operational Sails Node Identity** (the operator/deployment's
-   own running-node key, used for gossip trust and a future Node
-   Descriptor; does not exist today) ≠ **D. Operator Economic
-   Recipient** (entitled to Node Contribution Accounting; one operator
-   may run several nodes — many C, one D; C may rotate while D
-   survives). **C and D must not be assumed to use the same key; no
-   mapping between them, and no new operator-identity primitive, is
-   authorized by this registration.** Once C exists, its own lifecycle
-   (backup/recovery, compromise/rotation/replacement, superseded-key
-   distrust) is required before production.
+   pass** — full taxonomy, implementation-neutral:
+   `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5): **A. Participant
+   Economic Identity** (protocol concept; today represented by
+   `User.publicKey` — a reference-implementation fact, not a protocol
+   format) ≠ **B. Participant Transport Identity** (protocol concept;
+   today represented by a per-participant `peerId` associated locally
+   through `ownerUserId` over Pears/HyperDHT — none of `peerId`,
+   `ownerUserId`, or Pears/HyperDHT is a mandatory protocol format; this
+   is what "persistent node identity" elsewhere in this repository
+   actually refers to; not C) ≠ **C. Operational Sails Node Identity**
+   (the operator/deployment's own running-node identity, used for
+   gossip trust and a future Node Descriptor; no reference
+   implementation exists today) ≠ **D. Operator Economic Recipient**
+   (entitled to Node Contribution Accounting; no reference
+   implementation exists today). **C does not determine D**: one
+   operator may run several C instances, but node cardinality does not
+   by itself fix how many economic recipients (D) that operator has —
+   that is a policy choice, not a fact derivable from C; C may rotate or
+   be rebuilt without automatically redefining D's entitlement, and D's
+   own policy must not grant C's operational authority. **C and D must
+   not be assumed to use the same key; no recipient model, no C↔D
+   mapping, and no new operator-identity primitive, is authorized by
+   this registration.** Once C exists, its own lifecycle (backup/
+   recovery, compromise/rotation/replacement, superseded-key distrust)
+   is required before production.
 
 6. **Eclipse / peer-diversity / selective-forwarding resilience —
    Day-0 evidence obligation.** One malicious bootstrap peer, relay set,

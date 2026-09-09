@@ -128,44 +128,72 @@ ADR-001 correctly freezes **Node Identity ≠ Participant Identity**. This sweep
 > **Node Identity ≠ Operator Economic Recipient.**
 
 **Taxonomy freeze (2026-09-09, CTO Gate, final institutional precision
-pass) — four cardinalities, not two, must never collapse:**
+pass) — four cardinalities, not two, must never collapse. Stated as
+protocol/semantic concepts first; today's TypeScript/database
+identifiers are cited only as reference-implementation evidence, never
+as the definition itself — an independent Rust/Go implementation, or a
+future non-Pears transport, must be able to satisfy the same semantics
+without reproducing this repository's schema
+(`docs/adr/ADR-001-day0-multi-operator-network.md`'s own "Pears
+capability ≠ mandatory architecture," "TypeScript is first, not
+authoritative"):**
 
-> **A. Participant Economic Identity** (`User.publicKey`) — the
-> participant's own economic identity; already real, already
-> non-custodial.
+> **A. Participant Economic Identity** — the protocol/economic concept
+> of one participant's own economic identity, non-custodial by
+> requirement.
+> *Current reference implementation:* represented by `User.publicKey`
+> in this repository's Prisma schema. A conforming implementation on a
+> different stack needs its own economic-identity primitive satisfying
+> the same non-custodial property; it does not need a `User` table or
+> this exact key format.
 >
-> **B. Participant Transport Identity** (the current `peerId`
-> mechanism) — one participant's own stable Pears/HyperDHT identity,
-> scoped per `ownerUserId`, used for direct participant-to-participant
-> communication. Persistence of this artifact is what "persistent node
+> **B. Participant Transport Identity** — the protocol concept of one
+> participant's own stable, participant-scoped transport identity, used
+> for direct participant-to-participant communication and reconnection.
+> *Current reference implementation:* represented by a participant
+> `peerId`, associated locally through `ownerUserId`, over Pears/
+> HyperDHT. A conforming implementation may use any transport with
+> equivalent peer-discovery and direct-connection properties (ADR-001
+> §4's own "Pears capability ≠ mandatory architecture") and any local
+> association mechanism — `ownerUserId` is this reference
+> implementation's own local/database identity, not a portable protocol
+> identifier. Persistence of this artifact is what "persistent node
 > identity" has, historically and imprecisely, been used to describe
 > elsewhere in this repository's own prior wording (§2 above,
 > corrected) — B is **not** C.
 >
-> **C. Operational Sails Node Identity** — a cryptographic identity for
-> the operator/deployment's own running node instance, used for
-> node-to-node gossip trust and to sign a future Node Descriptor
-> (§3.3). Does not exist in this codebase today. No mechanism is
-> selected or authorized here.
+> **C. Operational Sails Node Identity** — the protocol concept of an
+> identity for the operator/deployment's own running node instance,
+> used for node-to-node gossip trust and to sign a future Node
+> Descriptor (§3.3). *Current reference implementation:* none — does not
+> exist in this codebase today. No mechanism, key format, or transport
+> binding is selected or authorized here.
 >
-> **D. Operator Economic Recipient** — the economic entity entitled to
-> Node Contribution Accounting compensation. Distinct from C: one
-> operator may run several nodes (many C, one D); a node's own key (C)
-> may rotate, be rebuilt, or be compromised while the operator's
-> economic entitlement (D) survives. **C and D must not be assumed to
-> use the same key, and no mapping or mechanism between them is
-> selected in this pass.**
+> **D. Operator Economic Recipient** — the protocol/economic concept of
+> whichever economic entity or entities are entitled to Node
+> Contribution Accounting compensation for a given node's verified
+> service. *Current reference implementation:* none — undesigned. **C
+> does not determine D**: node cardinality does not imply
+> economic-recipient cardinality in either direction (an operator's
+> economic-recipient structure — one recipient, several, a pooled
+> arrangement, or something else — is a policy choice not made here, not
+> a fact derivable from how many C instances exist). Operational
+> node-key (C) rotation or rebuild must not automatically redefine
+> economic entitlement (D); conversely, economic-recipient policy (D)
+> must not grant operational node authority (C). **C and D must not be
+> assumed to share a key, and no recipient model or C↔D mapping
+> mechanism is selected in this pass.**
 >
 > **A ≠ B ≠ C ≠ D.** No canonical term such as "Sails Node Operator
 > Identity" is adopted for either C or D individually, or for the pair —
 > using one label for both is exactly the collapse this freeze exists to
 > prevent.
 
-One operator may run several nodes. One node may be rebuilt. A node key may be compromised. Economic entitlement must not accidentally turn an operational transport key into permanent financial identity.
+A node key may be compromised. Economic entitlement must not accidentally turn an operational transport key into permanent financial identity.
 
 Day-0/production obligations (concerning C and D, not B — B's own
 persistence/binding obligations are tracked separately, §2/ADR-001
-§7.1/§7.2):
+§7.1/§21(b)), stated as properties, not implementation:
 - operational node identity (C) backup/recovery policy;
 - compromise response;
 - rotation/replacement semantics;
