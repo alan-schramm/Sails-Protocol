@@ -2211,6 +2211,191 @@ No mitigation is authorized merely by this checklist.
 
 ---
 
+
+## 3.26 Independent Multi-Agent / Multi-Model Red Team
+
+Sails already carries Red Team, Network Simulation, Threat Model and external-audit
+obligations elsewhere in the repository. This entry adds a missing institutional
+property: **the same intelligence that helps design/build the system must not be
+the only intelligence that tries to break it.**
+
+Preserve:
+
+> **Builder intelligence ≠ sole adversarial reviewer.**
+
+> **Model agreement ≠ evidence.**
+
+> **Multiple reviewers repeating the same assumptions ≠ independent scrutiny.**
+
+> **A Red Team should try to falsify properties, not merely accumulate findings.**
+
+### Independent-review principle
+
+Where practical, important security/architecture gates should be challenged by
+independent reviewers that did not participate in the same reasoning chain.
+
+This may include:
+- different AI models/providers;
+- separate AI sessions with intentionally different context;
+- external human security reviewers;
+- independent implementers/operators;
+- external auditors.
+
+No specific model/vendor is required or made part of Sails architecture.
+
+### Three AI Red Team modes
+
+#### 1. White-box Red Team
+
+Receives:
+- repository/code;
+- architecture docs;
+- ADRs;
+- threat model;
+- known assumptions;
+- current evidence.
+
+Mission:
+
+> attack the implementation and try to falsify the properties the project
+> explicitly believes are true.
+
+Useful for:
+- invariant attacks;
+- cross-document contradictions;
+- exploit chaining;
+- concurrency/state-machine flaws;
+- authority-boundary violations.
+
+#### 2. Black-box Red Team
+
+Receives only what a public attacker/integrator reasonably has:
+- public API;
+- public docs;
+- wire behavior;
+- deployed endpoints where authorized.
+
+Mission:
+
+> discover what can be inferred, manipulated, exhausted, confused or abused
+> without privileged design context.
+
+Useful for:
+- external attack surface;
+- information disclosure;
+- protocol fingerprinting;
+- API abuse;
+- UX/DX ambiguity;
+- assumption leakage.
+
+#### 3. Blind / Hostile Architecture Review
+
+Receives enough artifacts to inspect the system but deliberately does **not**
+inherit the project's architectural justifications or prior conclusions.
+
+Mission examples:
+
+> Find how to steal value, create double commitments, fragment liquidity,
+> censor participants, gain economic authority, exploit arbitration, violate
+> privacy, or produce catastrophic resource exhaustion.
+
+The purpose is to reduce shared-bias contamination.
+
+### Diversity requirement
+
+For high-impact gates, ask whether independent reviewers differ in at least one
+of:
+
+- model/provider;
+- prompt/mission;
+- context exposure;
+- attacker objective;
+- implementation language assumptions;
+- knowledge of prior findings.
+
+If every Red Team receives the same narrative and reaches the same answer, that
+may be correlated reasoning rather than independent evidence.
+
+### Findings are not votes
+
+Never use:
+"3 AIs say it is safe"
+as evidence.
+
+Instead require:
+- reproduced exploit;
+- falsified property;
+- concrete counterexample;
+- adversarial test;
+- independently verifiable reasoning;
+- or explicit failure to falsify within a bounded tested scope.
+
+Preserve:
+
+> **Consensus among reviewers ≠ protocol consensus.**
+
+> **No exploit found ≠ no exploit exists.**
+
+### Role separation in current Sails workflow
+
+Conceptually preserve:
+
+- **Executor / Builder**: implements scoped missions.
+- **CTO Gate**: classifies evidence, architecture and claims.
+- **Independent Red Team(s)**: attempts to falsify assumptions/properties.
+- **External human review/audit**: independent scrutiny before high-risk production.
+- **Production feedback / incident replay**: continuously updates the threat model.
+
+These are roles, not permanent vendor assignments.
+
+### When mandatory
+
+Independent adversarial review should be strongly considered for:
+
+- protocol-semantic changes;
+- cryptographic changes;
+- identity/recovery changes;
+- settlement/funds-authority changes;
+- arbitration changes;
+- node-economics/incentive changes;
+- cross-node/distributed-state changes;
+- new transports/providers/rails;
+- production security gates;
+- remediation of critical vulnerabilities.
+
+### Anti-Goodhart rule
+
+Do not optimize for:
+- number of AI reviewers;
+- number of vulnerabilities reported;
+- number of pages in security reports;
+- reviewer agreement percentage.
+
+Optimize for:
+
+> **How many important properties survived serious independent attempts to falsify them?**
+
+### Institutional flow
+
+```
+property / claim
+→ builder evidence
+→ CTO Gate
+→ independent adversarial review
+→ falsification attempt
+→ correction if needed
+→ durable regression/evidence
+→ bounded freeze
+```
+
+This entry strengthens existing Red Team / Network Simulation / external audit
+obligations; it does not duplicate or replace them.
+
+**BACKLOG DELTA: candidate process/evidence delta only; requires dedicated
+reconciliation before promotion to Master Backlog.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
