@@ -1,0 +1,567 @@
+# Universal Systems Completeness Checklist
+
+**Type:** Institutional Memory / Completeness Discovery / Production Reality  
+**Status:** Question framework only. No implementation is authorized by this document.  
+**Purpose:** Prevent universal software/system requirements from remaining hidden merely because they are not specific to one Sails module, ADR, provider, rail, or current Master Backlog item.
+
+---
+
+## 1. Why this exists
+
+Sails has strong architecture-specific review processes, but a second class of blind spot exists:
+
+> requirements that are common to almost every serious software system, distributed system, protocol, runtime, financial system, or developer platform.
+
+Examples include:
+
+- error semantics;
+- user/developer feedback;
+- retryability;
+- unknown outcomes;
+- idempotency;
+- resource bounds;
+- configuration failure;
+- upgrade compatibility;
+- degraded-state visibility;
+- backup/restore;
+- cancellation;
+- timeouts;
+- clock correctness;
+- partial success;
+- recovery;
+- safe shutdown;
+- version negotiation.
+
+These can be missed precisely because they feel "obvious" or "generic".
+
+This checklist exists to make them explicit and falsifiable.
+
+It is **not** a feature backlog and must not become one automatically.
+
+> **Checklist item ≠ Sails obligation.**
+
+A checklist item becomes a Sails obligation only after:
+
+1. confrontation with current repository truth;
+2. duplicate check against existing Institutional Memory / Backlog / ADR / Technical Debt / evidence obligations;
+3. Day-0 / beta / production / future-scope classification;
+4. CTO decision.
+
+---
+
+## 2. Governing principles
+
+Preserve:
+
+> **Simple at the center. Open at the edges.**
+
+> **Stable semantics, replaceable edges.**
+
+> **Interfaces can multiply. Semantics should not.**
+
+> **Adopt capabilities, not dependencies as architecture.**
+
+> **Complexity must earn its place.**
+
+> **Simple, not simplified.**
+
+> **Do not make the test pass. Make reality pass the test.**
+
+> **OUTPUT ≠ EVIDENCE ≠ PROPERTY ≠ CLAIM.**
+
+The checklist must discover missing properties without turning Sails into a generic framework for every software concern.
+
+---
+
+# 3. Universal completeness domains
+
+Each domain below is a source of questions, not pre-authorized implementation.
+
+## 3.1 Errors & Feedback
+
+Questions:
+
+- Does every meaningful failure have machine-readable semantics?
+- Can callers distinguish temporary from permanent failure?
+- Can callers distinguish retryable from non-retryable failure?
+- Can callers distinguish rejection from unknown outcome?
+- Can partial success be represented?
+- Is the affected operation/state identifiable?
+- Is correlation available without leaking sensitive information?
+- Are internal/debug details separated from public-safe details?
+- Can independent implementations interpret the same protocol-level error consistently?
+- Can UX translate the failure without becoming protocol semantics?
+- Can developers programmatically branch on errors without parsing human strings?
+
+Preserve:
+
+> **Error Semantics ≠ Error Transport ≠ User Message.**
+
+Candidate conceptual boundary, not a frozen schema:
+
+```
+Protocol / Domain Error Semantics
+    ↓
+machine-readable code/category
+retryability/permanence
+affected operation/state
+safe structured metadata
+correlation/evidence reference where justified
+    ↓
+Transport representation
+    ↓
+Implementation / SDK
+    ↓
+Human UX message
+```
+
+Do **not** infer from this section that Sails needs a universal error registry.  
+The property must be proven necessary before any abstraction is added.
+
+---
+
+## 3.2 State & Consistency
+
+Questions:
+
+- Are all valid states explicit?
+- Are illegal transitions rejected?
+- Is stale state detectable?
+- Are concurrent operations safe?
+- Are duplicate requests safe?
+- Is idempotency defined where required?
+- Is ordering required, and if so, what defines it?
+- Is eventual consistency acceptable for this object?
+- Can two conformant implementations converge from the same facts?
+- Can an old valid fact incorrectly resurrect state?
+- Can local projections diverge without redefining protocol truth?
+
+---
+
+## 3.3 Failure & Recovery
+
+Questions:
+
+- What happens on process crash?
+- What happens on restart?
+- What happens when a dependency times out?
+- What happens when a dependency returns an ambiguous result?
+- What happens when the network partitions?
+- What happens when one party disappears?
+- What happens when a provider is offline?
+- What is retry-safe?
+- What requires reconciliation instead of retry?
+- Can work resume after interruption?
+- Is rollback real, or only local-state rollback?
+- Can failover create economic amnesia?
+
+Preserve:
+
+> **FAILED CALL ≠ PROVEN NO SIDE EFFECT.**
+
+> **Unknown outcome ≠ failed economic action.**
+
+---
+
+## 3.4 Time
+
+Questions:
+
+- Which semantics depend on wall-clock time?
+- What happens under clock skew?
+- Are expiries local or consensus-relevant?
+- Are deadlines explicit?
+- Are timeouts bounded?
+- Can ordering accidentally depend on unsynchronized clocks?
+- Are timestamps evidence, metadata, or authority?
+- What happens when a node clock is materially wrong?
+
+---
+
+## 3.5 Input & Validation
+
+Questions:
+
+- Are malformed inputs rejected before meaningful side effects?
+- Are unsupported values fail-closed?
+- Are size limits explicit?
+- Is semantic validation distinct from structural validation?
+- Are canonical encodings deterministic?
+- Are ambiguous values rejected?
+- Can one implementation accept input another conformant implementation interprets differently?
+
+---
+
+## 3.6 Security & Authority
+
+Questions:
+
+- Who is authenticated?
+- Who is authorized?
+- Who controls funds?
+- Who can authorize an economic transition?
+- Who merely hosts or transports the decision?
+- Are secrets scoped and isolated?
+- Are keys rotatable?
+- Are superseded keys distrusted?
+- Are replay and impersonation bounded?
+- Can one infrastructure component silently gain economic authority?
+
+Always attack cardinality and authority conflation:
+
+> Participant Economic Identity  
+> ≠ Participant Transport Identity  
+> ≠ Operational Node Identity  
+> ≠ Operator Economic Recipient
+
+---
+
+## 3.7 Privacy
+
+Questions:
+
+- What is public?
+- What is pairwise/private?
+- What is only locally required?
+- Are raw database rows accidentally exposed?
+- Is metadata more identifying than payload content?
+- Does persistence increase linkability?
+- Does recovery create public cross-protocol correlation?
+- Is retention bounded?
+- Can analytics/accounting create a global tracking graph?
+- Can logs/errors leak secrets or payment instructions?
+
+---
+
+## 3.8 Networking & Distributed Operation
+
+Questions:
+
+- How are peers discovered?
+- What happens if discovery is stale?
+- How are reconnects handled?
+- Can late joiners catch up?
+- Can partitions heal?
+- Can one malicious peer define a node's market view?
+- Are resource and peer-count bounds explicit?
+- Is backpressure real?
+- Can selective forwarding fragment the market?
+- Are protocol/wire versions negotiated safely?
+
+---
+
+## 3.9 Compatibility & Evolution
+
+Questions:
+
+- How does a live peer know another peer is compatible?
+- How are wire/object versions declared?
+- Is backward compatibility required?
+- Are historical semantics immutable?
+- Can schemas evolve without reinterpreting old signed facts?
+- Are migrations explicit?
+- Is deprecation observable?
+- Can TypeScript/Rust/Go implementations interpret the same object identically?
+
+Preserve:
+
+> **Conformance ≠ Interoperability.**
+
+> **TypeScript is first, not authoritative.**
+
+---
+
+## 3.10 Observability & Degraded State
+
+Questions:
+
+- Can operators distinguish healthy from degraded?
+- Can "not invoked" be distinguished from "invoked and succeeded"?
+- Can failure be distinguished from clean result?
+- Are economically relevant operations traceable without leaking private data?
+- Are metrics bounded in cardinality?
+- Are correlation IDs useful?
+- Can an operator know when a protective subsystem silently stopped working?
+- Does observability describe reality rather than create authority?
+
+---
+
+## 3.11 Resource Safety & Abuse
+
+Questions:
+
+- Are message/request sizes bounded?
+- Is CPU amplification bounded?
+- Is signature-verification amplification bounded?
+- Are queues bounded?
+- Are caches bounded?
+- Is storage growth bounded?
+- Is bandwidth bounded?
+- Are peer counts bounded?
+- Can validly signed garbage exhaust the system?
+- Can malformed input be disproportionately expensive?
+
+---
+
+## 3.12 Configuration & Environment
+
+Questions:
+
+- Are defaults safe?
+- Does invalid configuration fail clearly?
+- Are missing secrets distinguishable from first boot?
+- Can environment drift silently change economic behavior?
+- Are critical policies/versioned configuration bound before economic commitment?
+- Can configuration rotation reinterpret existing interactions?
+
+---
+
+## 3.13 Data Durability & Integrity
+
+Questions:
+
+- What does "persisted" actually prove?
+- Is crash/power-loss durability required?
+- Are corruption and absence distinguishable?
+- Are backups/restores defined?
+- Can a restore resurrect stale economic state?
+- Are migrations reversible or at least safely recoverable?
+- Is filesystem/database durability being overclaimed?
+- Is append-only evidence actually append-only under failure?
+
+---
+
+## 3.14 Dependency Boundaries
+
+For every external dependency/provider:
+
+- What capability does it provide?
+- What happens when it disappears?
+- What happens when its API changes?
+- What happens when it times out ambiguously?
+- Is it architecture or an adapter?
+- Can it be replaced without Core semantic change?
+- Does dependency failure create economic authority ambiguity?
+
+Apply explicitly to current/future edges such as transport, wallet stacks,
+settlement providers, RPCs, AI agents, databases, caches, evidence stores,
+and third-party integrations.
+
+Preserve:
+
+> **Adopt capabilities, not dependencies as architecture.**
+
+---
+
+## 3.15 UX / Human Feedback
+
+Questions:
+
+- Does the user know what is happening now?
+- Can the user distinguish pending, failed, cancelled, completed, and unknown?
+- Is retry shown only when retry is actually safe?
+- Can the user cancel when cancellation is economically meaningful?
+- Can the user recover after closing the app?
+- Is protocol/internal complexity hidden by default?
+- Can an advanced user still exercise sovereign choices when needed?
+- Do messages avoid false certainty?
+
+Goal:
+
+> centralized-grade UX without centralized authority.
+
+The protocol should increasingly disappear from the user's mental model.
+
+---
+
+## 3.16 Developer Experience
+
+Questions:
+
+- Can a developer integrate without private assistance?
+- Are errors programmatically usable?
+- Are examples truthful to production semantics?
+- Can developers discover supported capabilities?
+- Can an unsupported operation fail clearly?
+- Are version requirements visible?
+- Does the SDK hide implementation detail without hiding economic meaning?
+- Can a backend/service integration recover missed events?
+
+Each mandatory support question from a competent integrator is potentially:
+
+> a DX, documentation, abstraction-boundary, or product-surface defect.
+
+---
+
+## 3.17 Operations
+
+Questions:
+
+- Can an independent operator deploy?
+- Upgrade?
+- Roll back?
+- Back up?
+- Restore?
+- Rotate keys?
+- Recover from compromise?
+- Observe health?
+- Shut down safely?
+- Migrate nodes?
+- Change configuration without redefining open economic commitments?
+- Respond to incidents using public runbooks?
+
+---
+
+## 3.18 Testing & Evidence
+
+For every important property ask for:
+
+- happy path;
+- negative path;
+- adversarial path;
+- concurrency;
+- restart;
+- partition;
+- duplicate/replay;
+- stale state;
+- dependency failure;
+- ambiguous outcome;
+- independent implementation;
+- independent operator;
+- independent developer;
+- real partner integration where relevant.
+
+Testing rule:
+
+> **A passing test proves only the property actually exercised by that test.**
+
+Never promote test output directly into a broad production claim.
+
+---
+
+## 3.19 Claims & Maturity
+
+Questions:
+
+- Is the feature implemented?
+- Is the property evidenced?
+- Is the provider mature?
+- Is the integration production-eligible?
+- Is the advertised scope bounded?
+- Is the claim broader than the evidence?
+- Is roadmap presence being mistaken for runtime support?
+
+Preserve:
+
+> **Provider implementation ≠ provider maturity ≠ production eligibility.**
+
+> **Roadmap Asset ≠ SDK-Representable Asset ≠ Settlement-Supported Asset ≠ Beta-Enabled Asset.**
+
+> **Production readiness ≠ accumulation of completed tickets.**
+
+---
+
+# 4. How this checklist is used against Sails
+
+The execution flow is:
+
+```
+Universal checklist question
+        ↓
+Confront current Sails truth
+        ↓
+Already represented?
+  ├─ YES → cross-link / strengthen evidence, do not duplicate
+  └─ NO
+        ↓
+Does the property actually apply to Sails?
+  ├─ NO → record Not Applicable / reason where useful
+  └─ YES
+        ↓
+Classify
+  ├─ Institutional Memory
+  ├─ Master Backlog obligation
+  ├─ Technical Debt
+  ├─ ADR consequence
+  ├─ Evidence obligation
+  ├─ Partner Beta gate
+  ├─ Production Readiness gate
+  └─ Future Roadmap
+        ↓
+CTO decision
+        ↓
+Only then authorize implementation
+```
+
+---
+
+# 5. Required adversarial checks
+
+For every candidate delta run:
+
+## Goodhart Check
+Are we optimizing checklist completeness rather than system correctness?
+
+## Cobra Check
+Did solving one generic concern create a larger authority/security problem?
+
+## Rube Goldberg Check
+Did a universal best practice become an unnecessary subsystem?
+
+## Sacrifice Check
+What capability did the solution gain, and what simplicity/privacy/sovereignty did it sacrifice?
+
+## Core/Edge Check
+Does this belong in stable semantics or replaceable implementation edges?
+
+## Claim Check
+What is the narrowest statement evidence would permit after completion?
+
+---
+
+# 6. Immediate Sails discovery candidate: error semantics
+
+This checklist was triggered by an unresolved but important question:
+
+> How should Sails represent errors and feedback across protocol semantics,
+> reference implementations, SDKs, transports, and user interfaces?
+
+This document does **not** decide an error model.
+
+The first future sweep should investigate:
+
+- current backend error shapes;
+- SDK error handling;
+- protocol/domain error semantics, if any;
+- HTTP status usage;
+- Pears/direct transport failure representation;
+- settlement-provider errors;
+- retryable vs non-retryable distinction;
+- unknown economic outcomes;
+- correlation/evidence linkage;
+- safe/public vs internal error metadata;
+- UX translation boundaries;
+- cross-implementation determinism requirements.
+
+The required principle to test is:
+
+> **Error Semantics ≠ Error Transport ≠ User Message.**
+
+A future CTO Gate must decide whether this requires any protocol-level
+standardization at all, and if so, the smallest semantics that earn their place.
+
+---
+
+# 7. Institutional status
+
+**BACKLOG DELTA: NOT YET DETERMINED.**
+
+That is deliberate.
+
+This artifact registers the discovery framework and the error-semantics
+question so they cannot disappear from conversation.
+
+No checklist item becomes a Master Backlog obligation until a dedicated
+Sails confrontation pass classifies it.
+
+No implementation is authorized by this document.
