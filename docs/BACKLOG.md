@@ -786,3 +786,200 @@ were materially under-represented (no prior Master Backlog entry
 existed for either); Issue #75's own reconciliation requirement is now
 satisfied. No new Norte macrofront. Norte remains 38.
 
+
+
+---
+
+## Day-0 Multi-Operator Shared Market / Node Neutrality (registered 2026-09-09)
+
+**Type:** launch architecture + production-network obligation. This is a
+**Day-0 requirement for external wallet/provider beta and production**, not
+a Months 10-12 decentralization aspiration and not a post-launch cleanup.
+It refines the Production Readiness Consolidated Gate above and the
+OpenLiquidity / Transport-Interoperability / Economics fronts without
+creating a new Norte macrofront.
+
+### Core property
+
+> **Node choice must not define market membership.**
+
+A participant connected through one Sails runtime/node must not be trapped
+inside that operator's private liquidity island merely because a different
+participant, wallet, merchant, OTC desk, or liquidity provider entered the
+network through another independently-operated Sails node.
+
+The network-level property to demonstrate is:
+
+```
+Wallet / service A -> Sails Node A ---\
+Wallet / service B -> Sails Node B ----> shared economic opportunity set
+Liquidity source C -> Sails Node C ---/
+```
+
+subject to explicit market filters, policy, asset/rail capability, privacy
+choices, and normal propagation delay. **This does not claim instantaneous
+global consistency or that every node must materialize byte-for-byte
+identical local state.** It requires that independent node operation not
+create structurally captive marketplaces.
+
+Preserved formulation:
+
+> **Liquidity should be network-level; node operation should be
+> service-level.**
+
+### Day-0 decentralization boundary
+
+Satsails may operate one or more bootstrap/reference nodes, but:
+
+- Satsails-operated infrastructure must not be a necessary authority for
+  protocol membership or economic truth;
+- independent operators must be able to run compatible Sails nodes/runtimes;
+- a wallet or service must be able to select, change, or fail over between
+  operators without changing the economic market it belongs to;
+- node failure or operator exit must not by itself erase protocol truth,
+  strand a participant in a private market, or make the participant's
+  liquidity/reputation meaningful only inside that operator;
+- manual node selection may exist as an advanced/user-sovereignty surface,
+  but normal UX may choose/fail over nodes transparently. **User invisibility
+  must not be implemented as operator lock-in.**
+
+### Competition without liquidity cannibalization
+
+Independent node operators should compete on service properties such as
+uptime, latency, fee policy where protocol policy permits, privacy posture,
+support, jurisdiction, integrations, reliability, and additional services
+— **not by capturing liquidity into an isolated order book that other
+conformant Sails participants cannot discover.**
+
+The intended incentive direction is:
+
+```
+more independent operators
+-> better service competition
+-> more wallets/services willing to integrate
+-> more shared liquidity/counterparty reach
+-> more value to every participant
+```
+
+rather than:
+
+```
+more operators
+-> fragmented order books
+-> thinner liquidity per node
+-> weaker UX
+-> incentive to centralize on the largest operator
+```
+
+This is an economic-network property, not a claim that a specific Nash
+equilibrium has already been proven.
+
+### Operator economics
+
+Node/routing/coordination operators may be eligible for a share of protocol
+economics **only when a published economic policy and confirmed economic
+outcome create that entitlement**. Existing normative economic discipline
+continues to govern:
+
+`FeeCollectionEvidence(CONFIRMED) -> FeeObligation -> frozen
+DistributionPolicyVersion -> EntitlementLedgerEntry`.
+
+**Running a node does not automatically create a fee entitlement.** Exact
+operator-share percentages, attribution rules, anti-Sybil requirements,
+routing-credit rules, and multi-node contribution accounting remain future
+policy/evidence decisions; they must not be invented merely to incentivize
+node count.
+
+### Architecture questions that must be resolved before Day-0 partner beta
+
+The implementation mechanism is deliberately **not chosen by this backlog
+registration**. Before external partner beta is called network-level rather
+than single-operator, Sails must evidence answers to at least:
+
+1. **Cross-node discovery:** how an offer/liquidity source entering through
+   Node A becomes discoverable to an eligible participant using Node B.
+2. **Canonical economic semantics:** how independently operated nodes agree
+   on the meaning of offers, intents, authority, conditions, evidence, and
+   outcomes without one operator becoming truth.
+3. **Duplicate/conflict handling:** how repeated propagation, stale offers,
+   cancellation, expiry, and contradictory observations are handled without
+   double-counting liquidity or silently choosing a central authority.
+4. **Node selection/failover:** how a wallet/service can move between nodes
+   without losing its market membership or creating a second identity/
+   reputation universe.
+5. **Privacy:** how shared discovery avoids turning multi-node propagation
+   into unnecessary public correlation of user, wallet, transport identity,
+   IP/network metadata, or recovery relationships.
+6. **Abuse resistance:** how spam/Sybil/DoS resistance is provided without a
+   single operator becoming mandatory membership authority.
+7. **Economic attribution:** if multiple nodes participate in discovery,
+   routing, coordination, or evidence relay, what *provable contribution*
+   can justify any operator entitlement without rewarding fake hops or
+   self-generated traffic.
+8. **Operational degradation:** what happens when nodes disagree, partition,
+   lag, disappear, censor, or serve stale views; local availability must not
+   be confused with global economic truth.
+9. **Independent operation:** an external operator must be able to deploy
+   from public documentation/artifacts without private Satsails knowledge
+   being required for conformance.
+10. **Partner integration:** a wallet/site/provider using the public Sails
+    SDK must be able to participate through an independently operated node
+    and still reach liquidity originating through another operator.
+
+### Minimum evidence gate before claiming shared-market beta
+
+A future implementation mission must define the exact mechanism, but the
+claim **"shared Sails market across independent nodes"** is not earned until
+evidence includes, at minimum:
+
+- at least two independently operated Sails nodes/runtimes;
+- liquidity/offer created through one operator and discovered through the
+  other;
+- a trade initiated across that operator boundary;
+- cancellation/expiry propagation demonstrated;
+- reconnect/failover without creating a new isolated market identity;
+- no Satsails-only private service required to determine membership or
+  economic truth;
+- documented failure/partition behavior and claim limits.
+
+A single Satsails-hosted cluster, multiple replicas behind one operator, or
+multiple nodes reading one operator-controlled database **does not satisfy
+this property**.
+
+### Relationship to current architecture
+
+This obligation does **not** make Pears, Nostr, a federation protocol, a
+gossip layer, a global order book, a blockchain, a DHT, or any specific
+mechanism part of Sails Core. Those are candidate mechanisms/edges to be
+evaluated against the property above.
+
+It also does not require every node to store every offer forever. The
+property is economic reachability and shared market membership, not maximal
+replication.
+
+### Production Readiness linkage
+
+The **Production Readiness Consolidated Gate** above must treat this Day-0
+property as a launch blocker for any claim that Sails is an open,
+multi-operator P2P coordination network. A centralized Satsails-only
+deployment may be useful as an internal/reference environment, but must not
+be presented as satisfying the network architecture promised to external
+wallet partners.
+
+### Not authorized by this registration
+
+No gossip/federation protocol, node registry, relay set, DHT design,
+consensus mechanism, global-order-book implementation, fee split, operator
+staking/bond, routing reward, anti-Sybil mechanism, new Core primitive, or
+new database topology is authorized here. **Property first, mechanism
+second.**
+
+### Institutional placement
+
+No new Norte macrofront. This composes existing **OpenLiquidity**,
+**Transport/Interoperability**, **SDK/DX**, **Economics**, **Security**,
+**Privacy Architecture**, and **Production Readiness** obligations.
+
+Classification: **BACKLOG DELTA DETECTED AND SYNCED — DAY-0 LAUNCH
+OBLIGATION.** It must not be deferred to the aspirational open-ecosystem
+roadmap.
