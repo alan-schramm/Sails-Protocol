@@ -289,3 +289,135 @@ Until evidence exists, do not claim:
 This sweep found a second-order class of obligations: not “can two live nodes gossip a new offer?”, but “does the network remain one market across time, failures, upgrades, partitions, operator changes and adversarial peers?”
 
 These are Day-0 completeness obligations because without them a multi-node architecture can appear decentralized in a demo while remaining fragile or economically fragmented in real operation.
+
+
+## 9. Loop 2 — economic-binding sweep (2026-09-09)
+
+A second pass was run specifically against the accepted `OfferEnvelope`
+and cross-node trade-open handshake, asking: **can two honest nodes
+cryptographically agree that they are talking about the exact same
+economic deal, not merely the same offer identity?**
+
+Two additional load-bearing gaps were found.
+
+### 9.1 Signed Offer must commit to rail/network semantics
+
+ADR-001's current minimum signed field list includes `asset` but omits
+the existing `Offer.network` field.
+
+That omission is unsafe for Sails' multi-rail direction. A value such as
+`USDT_ERC20` identifies an asset family but does not, by itself,
+uniquely distinguish every EVM network Sails intends to support. Two
+nodes must not verify the same signature while silently resolving the
+economic settlement rail differently.
+
+**Property:**
+
+> A portable Offer signature must commit to every field whose
+> interpretation can change the economic asset, rail, payment obligation
+> or settlement destination semantics.
+
+At minimum, the canonical signed representation must include the
+canonical network/rail identifier whenever the asset type alone is not
+sufficient.
+
+More generally:
+
+> **Asset identity ≠ Network identity ≠ Settlement-provider identity.**
+
+The exact future canonical identifier vocabulary must follow existing
+Sails asset/network contracts or a separately-authorized compatibility
+decision; this sweep does not invent one.
+
+### 9.2 Trade-open handshake must bind the exact accepted Offer revision and terms
+
+ADR-001 currently describes the jointly-signed trade-open anchor using
+`logicalOfferId + mutually-derived tradeId`. That is not sufficient
+to prove buyer and seller accepted the same revision or the same
+economic terms.
+
+Example failure:
+
+1. Buyer discovered revision 4 at price X.
+2. Seller has already issued revision 5 at price Y.
+3. Both know the same `logicalOfferId`.
+4. A handshake that commits only to `logicalOfferId + tradeId` does not
+   itself prove which revision/price/network/amount was accepted.
+
+**Day-0 property:**
+
+> A trade-open anchor must cryptographically commit both parties to one
+> exact economic proposal.
+
+The commitment must cover, directly or by canonical hash:
+- `logicalOfferId`;
+- exact accepted offer `revision` (or exact OfferEnvelope hash);
+- trade amount;
+- agreed price/quote;
+- asset;
+- network/rail semantics;
+- payment method/fiat-side semantics required for the deal;
+- mutually-derived `tradeId`;
+- replay/idempotency context sufficient to prevent the same acceptance
+  from creating multiple logical trades.
+
+This does **not** require global Trade replication. It makes the existing
+pairwise model safe and independently re-verifiable.
+
+Preserved:
+
+> **Offer Discovery ≠ Trade Acceptance.**
+
+> **Offer Identity ≠ Accepted Offer Revision.**
+
+> **Trade ID ≠ Economic Terms.**
+
+### 9.3 Concurrent acceptance / double-commit evidence
+
+A shared, widely propagated Offer can be acted on by multiple buyers at
+nearly the same time.
+
+The existing professional-provider entry already requires local
+inventory reservation/optimistic locking. The multi-node consequence is
+made explicit here:
+
+> A seller must not become economically committed to more mutually
+> exclusive trade opens than its signed availability permits merely
+> because requests arrive through different nodes or devices.
+
+Required evidence must cover:
+- two buyers race the same single-fill offer;
+- stale revision attempts after a newer revision;
+- duplicate/replayed trade-open handshake;
+- seller reconnects through another node during an acceptance race.
+
+No global lock service is authorized. The eventual mechanism must
+preserve owner authority and pairwise coordination.
+
+## 10. Loop status
+
+After Loop 2, the institutional sweep has covered:
+
+- topology;
+- discovery;
+- catch-up;
+- convergence;
+- stale state;
+- exact economic object binding;
+- trade acceptance;
+- node identity;
+- operator economics;
+- node compatibility;
+- partitions/eclipses;
+- abuse/resource bounds;
+- privacy;
+- recovery/failover;
+- operator self-service;
+- developer self-service;
+- partner-wallet evidence;
+- professional service integrations;
+- production event consumption.
+
+**BACKLOG DELTA DETECTED again within the same cold-sweep obligation:**
+signed rail/network semantics and exact accepted-revision/terms binding
+were not previously explicit enough.
