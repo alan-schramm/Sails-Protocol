@@ -249,7 +249,7 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
 
   it('9. a higher revision supersedes a previously-stored one and is accepted', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex })
+    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex, createdAt: new Date('2026-09-09T00:00:00.000Z') })
     mockCreate.mockResolvedValue({ id: 'row-2' })
 
     const envelope = signedEnvelope(baseContent({ revision: 2 }, publicKeyHex), secretKeyHex)
@@ -261,7 +261,7 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
 
   it('10. an equal-or-lower revision does not overwrite the newer stored one', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 5, ownerPublicKey: publicKeyHex })
+    mockFindFirst.mockResolvedValue({ revision: 5, ownerPublicKey: publicKeyHex, createdAt: new Date('2026-09-09T00:00:00.000Z') })
 
     const equalRevision = signedEnvelope(baseContent({ revision: 5 }, publicKeyHex), secretKeyHex)
     const lowerRevision = signedEnvelope(baseContent({ revision: 3 }, publicKeyHex), secretKeyHex)
@@ -276,7 +276,7 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
 
   it('11. a validly-signed tombstone (CANCELLED at a higher revision) is accepted', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex })
+    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex, createdAt: new Date('2026-09-09T00:00:00.000Z') })
     mockCreate.mockResolvedValue({ id: 'row-cancel' })
 
     const tombstone = signedEnvelope(baseContent({ revision: 2, status: 'CANCELLED' }, publicKeyHex), secretKeyHex)
@@ -291,7 +291,7 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
   it('12. a tombstone with a forged/invalid signature is rejected, never stored', async () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
     const attacker = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex })
+    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: publicKeyHex, createdAt: new Date('2026-09-09T00:00:00.000Z') })
 
     const real = signedEnvelope(baseContent({ revision: 2, status: 'CANCELLED' }, publicKeyHex), secretKeyHex)
     const forged = { ...real, signature: signOfferEnvelope(real as any, attacker.secretKeyHex) }
@@ -316,7 +316,183 @@ describe('OfferEnvelopeRepository.ingest() — convergence, replay protection, t
   })
 })
 
-describe('OfferEnvelopeRepository.ingest() — owner continuity (Property A, CTO Gate correction 2026-09-09)', () => {
+describe('OfferEnvelopeRepository.ingest() — offer identity is order-independent (Property H, CTO Gate correction 2026-09-09)', () => {
+  // An earlier fix attempt (Property A) rejected any envelope whose
+  // ownerPublicKey differed from "whichever owner was already accepted"
+  // for a bare logicalOfferId — first-accepted-owner-wins. That is
+  // itself a defect: it makes ARRIVAL ORDER decide who owns an economic
+  // object, which is unacceptable for a multi-operator network where two
+  // nodes can observe the same two facts in different orders. The
+  // correct model: offer identity is the PAIR (ownerPublicKey,
+  // logicalOfferId); logicalOfferId is only ever creator-local, so two
+  // different owners choosing the same string were never making a
+  // competing claim over one object.
+  //
+  // These tests use a small in-memory fake in place of the jest.fn()
+  // mocks used elsewhere in this file, because proving order-independence
+  // genuinely requires persisted state across multiple ingest() calls
+  // (a bare mockResolvedValue can't express "what a real database would
+  // actually contain after these prior writes").
+  function useInMemoryStore(): void {
+    const rows: any[] = []
+    mockFindFirst.mockImplementation(async ({ where, orderBy }: any) => {
+      const matches = rows.filter((r: any) => Object.entries(where).every(([k, v]) => r[k] === v))
+      if (matches.length === 0) return null
+      matches.sort((a: any, b: any) => (orderBy?.revision === 'desc' ? b.revision - a.revision : a.revision - b.revision))
+      return matches[0]
+    })
+    mockCreate.mockImplementation(async ({ data }: any) => {
+      const row = { id: `row-${rows.length}`, ...data }
+      rows.push(row)
+      return row
+    })
+  }
+
+  beforeEach(() => {
+    mockFindFirst.mockReset()
+    mockCreate.mockReset()
+  })
+
+  it('CONFIRMED CONVERGENCE / NAMESPACE DEFECT (pre-fix reproduction): two nodes ingesting the identical two independently-valid envelopes in opposite arrival order used to disagree about who owned the shared logicalOfferId — this test now proves both converge identically regardless of order', async () => {
+    const alice = makeKeypair()
+    const mallory = makeKeypair()
+    const aliceEnvelope = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, alice.publicKeyHex), alice.secretKeyHex)
+    const malloryEnvelope = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, mallory.publicKeyHex), mallory.secretKeyHex)
+
+    // "Node A": Alice arrives first, Mallory second.
+    useInMemoryStore()
+    const repoA = new OfferEnvelopeRepository()
+    const rA1 = await repoA.ingest(aliceEnvelope as any)
+    const rA2 = await repoA.ingest(malloryEnvelope as any)
+    const aliceLatestOnA = await repoA.getLatest(alice.publicKeyHex, 'X')
+    const malloryLatestOnA = await repoA.getLatest(mallory.publicKeyHex, 'X')
+
+    // "Node B": Mallory arrives first, Alice second — same two facts, opposite order.
+    useInMemoryStore()
+    const repoB = new OfferEnvelopeRepository()
+    const rB1 = await repoB.ingest(malloryEnvelope as any)
+    const rB2 = await repoB.ingest(aliceEnvelope as any)
+    const aliceLatestOnB = await repoB.getLatest(alice.publicKeyHex, 'X')
+    const malloryLatestOnB = await repoB.getLatest(mallory.publicKeyHex, 'X')
+
+    // Both envelopes are independently accepted on BOTH nodes, regardless
+    // of arrival order — neither blocks, supersedes, or "wins" over the
+    // other, because they were never competing claims over one object.
+    expect(rA1.accepted).toBe(true)
+    expect(rA2.accepted).toBe(true)
+    expect(rB1.accepted).toBe(true)
+    expect(rB2.accepted).toBe(true)
+    expect(aliceLatestOnA?.ownerPublicKey).toBe(alice.publicKeyHex)
+    expect(malloryLatestOnA?.ownerPublicKey).toBe(mallory.publicKeyHex)
+    expect(aliceLatestOnB?.ownerPublicKey).toBe(alice.publicKeyHex)
+    expect(malloryLatestOnB?.ownerPublicKey).toBe(mallory.publicKeyHex)
+  })
+
+  it('cross-owner collision test: two owners using the identical creator-local logicalOfferId are both independently valid — neither is rejected, blocked, or superseded by the other', async () => {
+    useInMemoryStore()
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+    const mallory = makeKeypair()
+
+    const aliceOffer = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, alice.publicKeyHex), alice.secretKeyHex)
+    const malloryOffer = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, mallory.publicKeyHex), mallory.secretKeyHex)
+
+    const resultAlice = await repo.ingest(aliceOffer as any)
+    const resultMallory = await repo.ingest(malloryOffer as any)
+
+    expect(resultAlice.accepted).toBe(true)
+    expect(resultMallory.accepted).toBe(true)
+
+    const aliceLatest = await repo.getLatest(alice.publicKeyHex, 'X')
+    const malloryLatest = await repo.getLatest(mallory.publicKeyHex, 'X')
+    expect(aliceLatest?.ownerPublicKey).toBe(alice.publicKeyHex)
+    expect(malloryLatest?.ownerPublicKey).toBe(mallory.publicKeyHex)
+  })
+
+  it('cross-owner cancellation test: one owner cancelling their offer has zero effect on a different owner\'s offer at the identical logicalOfferId', async () => {
+    useInMemoryStore()
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+    const mallory = makeKeypair()
+
+    await repo.ingest(signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, alice.publicKeyHex), alice.secretKeyHex) as any)
+    await repo.ingest(signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, mallory.publicKeyHex), mallory.secretKeyHex) as any)
+
+    const malloryTombstone = signedEnvelope(
+      baseContent({ logicalOfferId: 'X', revision: 1, status: 'CANCELLED' }, mallory.publicKeyHex),
+      mallory.secretKeyHex
+    )
+    const cancelResult = await repo.ingest(malloryTombstone as any)
+    expect(cancelResult.accepted).toBe(true)
+
+    const aliceLatest = await repo.getLatest(alice.publicKeyHex, 'X')
+    expect(aliceLatest?.status).toBe('ACTIVE')
+    expect(aliceLatest?.revision).toBe(0)
+  })
+
+  it('same-owner revision test: a legitimate higher revision supersedes only that owner\'s own prior revision, with zero effect on a different owner\'s offer at the identical logicalOfferId', async () => {
+    useInMemoryStore()
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+    const mallory = makeKeypair()
+
+    await repo.ingest(signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, alice.publicKeyHex), alice.secretKeyHex) as any)
+    await repo.ingest(signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, mallory.publicKeyHex), mallory.secretKeyHex) as any)
+
+    const aliceRev1 = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 1 }, alice.publicKeyHex), alice.secretKeyHex)
+    const result = await repo.ingest(aliceRev1 as any)
+    expect(result.accepted).toBe(true)
+
+    const aliceLatest = await repo.getLatest(alice.publicKeyHex, 'X')
+    const malloryLatest = await repo.getLatest(mallory.publicKeyHex, 'X')
+    expect(aliceLatest?.revision).toBe(1)
+    expect(malloryLatest?.revision).toBe(0)
+  })
+
+  it('CONVERGENCE TEST: two histories carrying the identical set of facts in different arrival orders converge to the identical final state — arrival order does not affect object identity or latest revision', async () => {
+    const alice = makeKeypair()
+    const mallory = makeKeypair()
+    const aliceRev0 = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, alice.publicKeyHex), alice.secretKeyHex)
+    const malloryRev0 = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, mallory.publicKeyHex), mallory.secretKeyHex)
+    const aliceRev1 = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 1 }, alice.publicKeyHex), alice.secretKeyHex)
+
+    // History A: Alice/X/0, Mallory/X/0, Alice/X/1
+    useInMemoryStore()
+    const repoA = new OfferEnvelopeRepository()
+    await repoA.ingest(aliceRev0 as any)
+    await repoA.ingest(malloryRev0 as any)
+    await repoA.ingest(aliceRev1 as any)
+    const aliceFinalA = await repoA.getLatest(alice.publicKeyHex, 'X')
+    const malloryFinalA = await repoA.getLatest(mallory.publicKeyHex, 'X')
+
+    // History B: Mallory/X/0, Alice/X/0, Alice/X/1 — same facts, different order.
+    useInMemoryStore()
+    const repoB = new OfferEnvelopeRepository()
+    await repoB.ingest(malloryRev0 as any)
+    await repoB.ingest(aliceRev0 as any)
+    await repoB.ingest(aliceRev1 as any)
+    const aliceFinalB = await repoB.getLatest(alice.publicKeyHex, 'X')
+    const malloryFinalB = await repoB.getLatest(mallory.publicKeyHex, 'X')
+
+    expect(aliceFinalA?.revision).toBe(1)
+    expect(malloryFinalA?.revision).toBe(0)
+    expect(aliceFinalB?.revision).toBe(1)
+    expect(malloryFinalB?.revision).toBe(0)
+  })
+
+  it('the first envelope for a new offer identity is accepted with no prior history to check — not "first-writer-wins" over a shared namespace, simply the first fact about THIS owner\'s THIS logicalOfferId', async () => {
+    useInMemoryStore()
+    const repo = new OfferEnvelopeRepository()
+    const alice = makeKeypair()
+
+    const first = signedEnvelope(baseContent({ logicalOfferId: 'X', revision: 0 }, alice.publicKeyHex), alice.secretKeyHex)
+    const result = await repo.ingest(first as any)
+
+    expect(result.accepted).toBe(true)
+  })
+})
+
+describe('OfferEnvelopeRepository.ingest() — createdAt immutability across revisions (Property I, CTO Gate correction 2026-09-09)', () => {
   let repo: InstanceType<typeof OfferEnvelopeRepository>
 
   beforeEach(() => {
@@ -325,81 +501,49 @@ describe('OfferEnvelopeRepository.ingest() — owner continuity (Property A, CTO
     repo = new OfferEnvelopeRepository()
   })
 
-  it('CONFIRMED VULNERABILITY (pre-fix reproduction): a different key claiming a higher revision for an already-owned logicalOfferId used to be accepted — this test now proves it is rejected', async () => {
+  it('CONFIRMED ADR INVARIANT ENFORCEMENT GAP (pre-fix reproduction): a later revision claiming a different createdAt than the original used to be silently accepted — this test now proves it is rejected', async () => {
     const alice = makeKeypair()
-    const mallory = makeKeypair()
-    // Alice's revision 1 is already the accepted, stored state for this logicalOfferId.
-    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: alice.publicKeyHex })
+    mockFindFirst.mockResolvedValue({
+      revision: 0,
+      ownerPublicKey: alice.publicKeyHex,
+      createdAt: new Date('2026-09-09T00:00:00.000Z'),
+    })
 
-    // Mallory owns a completely real keypair and signs her own envelope
-    // correctly — the signature is genuinely valid, it just claims an
-    // logicalOfferId she was never the accepted owner of.
-    const forgedTakeover = signedEnvelope(
-      baseContent({ revision: 2 }, mallory.publicKeyHex),
-      mallory.secretKeyHex
-    )
-
-    // Sanity check: this envelope is internally well-formed and validly
-    // self-signed — verifyOfferEnvelope() alone cannot and should not
-    // catch this; continuity is ingest()'s job.
-    expect(verifyOfferEnvelope(forgedTakeover).valid).toBe(true)
-
-    const result = await repo.ingest(forgedTakeover as any)
-
-    expect(result.accepted).toBe(false)
-    expect((result as { reason: string }).reason).toMatch(/owner continuity/)
-    expect(mockCreate).not.toHaveBeenCalled()
-  })
-
-  it('an attacker cannot take over via a higher-revision CANCELLED tombstone either', async () => {
-    const alice = makeKeypair()
-    const mallory = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: alice.publicKeyHex })
-
-    const forgedTombstone = signedEnvelope(
-      baseContent({ revision: 2, status: 'CANCELLED' }, mallory.publicKeyHex),
-      mallory.secretKeyHex
-    )
-    expect(verifyOfferEnvelope(forgedTombstone).valid).toBe(true)
-
-    const result = await repo.ingest(forgedTombstone as any)
-
-    expect(result.accepted).toBe(false)
-    expect((result as { reason: string }).reason).toMatch(/owner continuity/)
-    expect(mockCreate).not.toHaveBeenCalled()
-  })
-
-  it('the legitimate owner can still supersede their own offer at a higher revision', async () => {
-    const alice = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: alice.publicKeyHex })
-    mockCreate.mockResolvedValue({ id: 'row-2' })
-
-    const legitimateUpdate = signedEnvelope(baseContent({ revision: 2 }, alice.publicKeyHex), alice.secretKeyHex)
-    const result = await repo.ingest(legitimateUpdate as any)
-
-    expect(result).toEqual({ accepted: true, id: 'row-2' })
-  })
-
-  it('the legitimate owner can still cancel their own offer at a higher revision', async () => {
-    const alice = makeKeypair()
-    mockFindFirst.mockResolvedValue({ revision: 1, ownerPublicKey: alice.publicKeyHex })
-    mockCreate.mockResolvedValue({ id: 'row-cancel' })
-
-    const legitimateCancel = signedEnvelope(
-      baseContent({ revision: 2, status: 'CANCELLED' }, alice.publicKeyHex),
+    const conflicting = signedEnvelope(
+      baseContent({ revision: 1, createdAt: '2026-09-10T00:00:00.000Z' }, alice.publicKeyHex),
       alice.secretKeyHex
     )
-    const result = await repo.ingest(legitimateCancel as any)
+    const result = await repo.ingest(conflicting as any)
 
-    expect(result).toEqual({ accepted: true, id: 'row-cancel' })
+    expect(result.accepted).toBe(false)
+    expect((result as { reason: string }).reason).toMatch(/createdAt is immutable/)
+    expect(mockCreate).not.toHaveBeenCalled()
   })
 
-  it('the first envelope for a new logicalOfferId establishes its owner (first-writer-wins) with no prior history to check', async () => {
+  it('a later revision carrying the identical createdAt as the original is accepted', async () => {
+    const alice = makeKeypair()
+    mockFindFirst.mockResolvedValue({
+      revision: 0,
+      ownerPublicKey: alice.publicKeyHex,
+      createdAt: new Date('2026-09-09T00:00:00.000Z'),
+    })
+    mockCreate.mockResolvedValue({ id: 'row-1' })
+
+    const consistent = signedEnvelope(
+      baseContent({ revision: 1, createdAt: '2026-09-09T00:00:00.000Z' }, alice.publicKeyHex),
+      alice.secretKeyHex
+    )
+    const result = await repo.ingest(consistent as any)
+
+    expect(result).toEqual({ accepted: true, id: 'row-1' })
+  })
+
+  it('the first revision for a new offer identity may set createdAt freely — there is no prior value to conflict with', async () => {
     const alice = makeKeypair()
     mockFindFirst.mockResolvedValue(null)
     mockCreate.mockResolvedValue({ id: 'row-1' })
 
-    const first = signedEnvelope(baseContent({ revision: 1 }, alice.publicKeyHex), alice.secretKeyHex)
+    const first = signedEnvelope(baseContent({ revision: 0, createdAt: '2026-09-09T00:00:00.000Z' }, alice.publicKeyHex), alice.secretKeyHex)
     const result = await repo.ingest(first as any)
 
     expect(result).toEqual({ accepted: true, id: 'row-1' })

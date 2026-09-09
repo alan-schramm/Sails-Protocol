@@ -237,7 +237,17 @@ model OfferEnvelope {
   moduleId       String              @default("openliquidity")
   protocolVersion String             @default("0.1")
 
-  @@unique([logicalOfferId, revision])
+  // CTO Gate correction (2026-09-09), Property H: the economic offer
+  // identity is the PAIR (ownerPublicKey, logicalOfferId), never
+  // `logicalOfferId` alone. `logicalOfferId` is only ever creator-local
+  // — two different owners choosing the identical string are two
+  // completely distinct economic objects, not competing claims over
+  // one. The uniqueness constraint below is what makes this true at
+  // the storage layer: revision uniqueness (and therefore "highest
+  // revision wins" convergence) is scoped to the owner+logicalOfferId
+  // pair, so two owners can never race over, block, or supersede each
+  // other's offer regardless of which one this node observes first.
+  @@unique([ownerPublicKey, logicalOfferId, revision])
   @@index([logicalOfferId])
   @@index([ownerPublicKey])
   @@map("offer_envelopes")

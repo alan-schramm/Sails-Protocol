@@ -58,6 +58,33 @@ below. Full narrative: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s own
 architecture decision in this document — Model C is unchanged; it
 corrects an implementation defect in an already-authorized step.
 
+**Fourth CTO Gate Correction Pass (2026-09-09, implementation).** A
+follow-up review found that the Third Pass's own owner-continuity fix
+("the first accepted envelope establishes a `logicalOfferId`'s owner")
+was itself a defect for a multi-operator network: it let **arrival
+order** determine economic ownership. Reproduced directly: two
+independent nodes ingesting the identical two independently-valid,
+self-signed envelopes (one from "Alice," one from "Mallory," both for
+the same creator-local `logicalOfferId`) in opposite arrival orders
+converged on *different* owners. Root cause: `logicalOfferId` was never
+a name for one shared object two owners could compete over — it is only
+ever creator-local — so "first writer wins" was solving a problem that
+did not exist while creating a real one (order-dependent authority).
+Fixed by making the canonical offer identity the pair `(ownerPublicKey,
+logicalOfferId)`: `prisma/schema.prisma`'s unique constraint, the
+`ingest()`/`getLatest()` lookup, and revision-ordering scope all changed
+accordingly (schema change: `@@unique([ownerPublicKey, logicalOfferId,
+revision])` replacing `@@unique([logicalOfferId, revision])`, corrected
+in place in the still-unmerged migration rather than adding a second
+one). A related gap was fixed in the same pass: `createdAt` immutability
+across an offer's own revisions (already stated at §3/§9 above) was not
+previously enforced by `ingest()`; it now is. §21(a)'s status was
+reverted to `CORRECTION REQUIRED` and re-closed below. Full narrative:
+`docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s "CTO Gate Correction
+(2026-09-09, Fourth Pass — Properties H, I)" section. This pass, like
+the Third, changes no architecture decision in this document — it
+corrects the earlier implementation-level fix, not Model C itself.
+
 ---
 
 ## Decision
@@ -180,10 +207,10 @@ shape.
 
 | Field | Purpose |
 |---|---|
-| `logicalOfferId` | Creator-assigned UUID, signed. **The key architectural move**: today's `Offer.id` is a node-local DB primary key; the logical id decouples "this is the same offer" from "which node's row it happens to be" — any node can recognize the same offer regardless of local storage. |
-| `ownerPublicKey` | The existing `User.publicKey` — no new identity concept. |
+| `logicalOfferId` | Creator-assigned UUID, signed, **creator-local only** — it names an offer within one owner's own numbering, never a globally-unique object by itself. **Corrected (2026-09-09, Fourth Pass):** the canonical offer identity is the *pair* `(ownerPublicKey, logicalOfferId)`, not `logicalOfferId` alone — see §5's correction below for why treating a bare `logicalOfferId` as the identity was itself a confirmed defect. Still the key architectural move relative to `Offer.id` (a node-local DB primary key): the pair decouples "this is the same offer" from "which node's row it happens to be" — any node can recognize the same offer regardless of local storage. |
+| `ownerPublicKey` | The existing `User.publicKey` — no new identity concept. Also, as of the Fourth Pass correction above, half of the canonical offer identity itself, not merely a field on it. |
 | `asset`, `side`, `priceUsd`, `minAmount`, `maxAmount`, `paymentMethod` | The existing economic terms (`Offer` model, unchanged shape). |
-| `revision` | Strictly increasing integer per `logicalOfferId`, chosen by the owner. Both the convergence mechanism (§5) and replay protection. |
+| `revision` | Strictly increasing integer per **offer identity** `(ownerPublicKey, logicalOfferId)` — corrected from an earlier "per `logicalOfferId`" phrasing, same reason as above — chosen by the owner. Both the convergence mechanism (§5) and replay protection. |
 | `createdAt` | Owner-supplied, immutable across revisions, signed. Advisory only — never used for cross-node ordering (§5 uses `revision`, not wall-clock time, precisely because clocks aren't trusted across nodes). |
 | `revisedAt` | Owner-supplied per revision, signed, same advisory status. |
 | `expiresAt` | Owner-supplied, signed. Self-enforcing (§2). |
@@ -200,8 +227,8 @@ implementation (TypeScript today, any future implementation per Issue
 
 **Replay protection:** a verifier discards any envelope whose
 `revision` is ≤ the highest one it has already verified for that
-`logicalOfferId`. This single rule also *is* the convergence rule
-(§5) — no second mechanism needed.
+offer identity `(ownerPublicKey, logicalOfferId)`. This single rule
+also *is* the convergence rule (§5) — no second mechanism needed.
 
 ## 4. Propagation model
 
@@ -224,13 +251,35 @@ already does today.
 
 ## 5. Convergence / conflict
 
-**Rule, already stated in §3/§4: highest verified `revision` wins.** A
-node that has verified revision N for a `logicalOfferId` ignores any
-later-arriving envelope for that id with revision ≤ N, and adopts any
-verified envelope with revision > N. This requires no central
+**Rule, already stated in §3/§4: highest verified `revision` wins,
+scoped to one offer identity `(ownerPublicKey, logicalOfferId)`.** A
+node that has verified revision N for an offer identity ignores any
+later-arriving envelope for that identity with revision ≤ N, and adopts
+any verified envelope with revision > N. This requires no central
 tie-breaker because only the owner's own key can ever produce a valid
-signature for that `logicalOfferId` — there is structurally no
-multi-party conflict to arbitrate, only single-owner sequencing.
+higher revision *for that identity* — there is structurally no
+multi-party conflict to arbitrate within one offer identity, only
+single-owner sequencing.
+
+> **Claim correction (2026-09-09, Fourth Pass).** This paragraph
+> originally scoped the "no multi-party conflict" claim to a bare
+> `logicalOfferId`, reading "...only the owner's own key can ever
+> produce a valid signature for that `logicalOfferId`." That was false
+> as scoped: `logicalOfferId` is creator-local, so two *different*
+> owners can each validly sign an envelope carrying the identical
+> `logicalOfferId` string — they are not making competing claims over
+> one object, because a bare `logicalOfferId` was never a name for one
+> shared object to begin with. Confirmed as a real defect in
+> implementation, not merely a documentation imprecision: an earlier
+> fix attempt that treated "first accepted envelope for a
+> `logicalOfferId`" as establishing ownership let **arrival order**
+> decide which of two independently-valid owners "won" — two nodes
+> observing the identical two facts in different orders converged on
+> different owners. The corrected claim, now reflected throughout this
+> section: for a canonical offer identity scoped by `(ownerPublicKey,
+> logicalOfferId)`, only that owner can ever produce a valid higher
+> revision. Full narrative: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s
+> "CTO Gate Correction (2026-09-09, Fourth Pass — Properties H, I)".
 
 **Named residual, not solved:** owner equivocation (the same owner
 signs two *different* envelopes at the *same* revision) is possible in
@@ -832,18 +881,23 @@ two items in this entire ADR granted that status):
 
 **(a) Portable signed Offers** — `logicalOfferId`, canonical
 serialization, Ed25519 signature, `revision`/`expiresAt`/tombstone
-semantics (§3). ~~CLOSED (2026-09-09)~~ **CORRECTED AND RE-CLOSED
-(2026-09-09).** A CTO Gate correction pass found a real, confirmed
-owner-takeover vulnerability (a different key could supersede an
-already-owned `logicalOfferId` simply by claiming a higher revision —
-reproduced directly against the pre-fix code before any fix was
-written) plus six related correctness gaps (canonical-serialization
-injectivity, decimal/timestamp canonical form, persistence round-trip
-fidelity, revision domain bounds, shape validation ordering). All seven
-are now fixed, tested (53 tests, up from 20, plus 3 new real-Postgres
-integration tests), and re-evidenced — zero regression (155/155
-suites, 1976/1976 tests). Full evidence, including the original closure
-and the full correction: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`.
+semantics (§3). ~~CLOSED (2026-09-09)~~ ~~CORRECTED AND RE-CLOSED
+(2026-09-09, Third Pass)~~ **CORRECTED AND RE-CLOSED AGAIN (2026-09-09,
+Fourth Pass).** The Third Pass found and fixed a real, confirmed
+owner-takeover vulnerability plus six related correctness gaps
+(Properties A-G). The Fourth Pass then found that the Third Pass's own
+Property A fix ("first accepted envelope establishes ownership") was
+itself defective: it let **arrival order** determine economic
+ownership across independent nodes — reproduced directly, two nodes
+ingesting the identical two independently-valid envelopes in opposite
+orders converged on different owners for the same `logicalOfferId`.
+Fixed by making the canonical offer identity the pair `(ownerPublicKey,
+logicalOfferId)` — a schema/query change, not a new check layered on
+top — plus one related gap (`createdAt` immutability across revisions,
+Property I). All nine properties (A-I) are now fixed, tested (57 tests,
+plus 4 real-Postgres integration tests), and re-evidenced — zero
+regression (155/155 suites, 1980/1980 tests). Full evidence, including
+every prior pass preserved as history: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`.
 Still proves Offer portability/authenticity only — no propagation, no
 second node, no network claim of any kind. Do not begin (b) before its
 own CTO Gate.

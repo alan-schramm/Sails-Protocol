@@ -27,33 +27,53 @@ export type IngestResult = { accepted: true; id: string } | { accepted: false; r
 export class OfferEnvelopeRepository {
   /**
    * Verify, then apply the convergence rule (ADR-001 §5): the highest
-   * verified `revision` for a `logicalOfferId` wins. An envelope whose
-   * revision does not strictly exceed the highest one already stored
-   * is rejected outright — this is also the replay-protection
-   * mechanism (ADR-001 §3), not a separate check.
+   * verified `revision` for an **offer identity** wins. An envelope
+   * whose revision does not strictly exceed the highest one already
+   * stored for that identity is rejected outright — this is also the
+   * replay-protection mechanism (ADR-001 §3), not a separate check.
    *
-   * **CTO Gate correction (2026-09-09), Property A — owner continuity.**
-   * `verifyOfferEnvelope()` only proves an envelope is self-consistent:
-   * that its signature matches whichever `ownerPublicKey` it itself
-   * claims. It has no notion of history, so on its own it cannot catch
-   * an attacker who owns a real keypair, signs their own envelope
-   * correctly, and simply claims someone else's already-established
-   * `logicalOfferId` at a higher revision. Demonstrated directly against
-   * this exact code path before this fix: given an already-accepted
-   * revision 1 owned by key A, a distinct, validly self-signed revision
-   * 2 owned by key B for the SAME `logicalOfferId` was accepted.
+   * **CTO Gate correction (2026-09-09), Property H — offer identity is
+   * (ownerPublicKey, logicalOfferId), not logicalOfferId alone.** An
+   * earlier version of this fix (Property A, same date) tried to solve
+   * a takeover attack by rejecting any envelope whose `ownerPublicKey`
+   * didn't match whichever owner had *already been accepted* for a bare
+   * `logicalOfferId` — "first accepted envelope wins." That is itself a
+   * defect for a multi-operator network: **arrival order determined
+   * economic ownership.** Reproduced directly: Node A ingesting
+   * Alice-then-Mallory (both independently valid, self-signed revision-0
+   * envelopes for the identical `logicalOfferId`) converged on Alice as
+   * owner; Node B ingesting the identical two envelopes in the opposite
+   * order (Mallory-then-Alice) converged on Mallory. Two nodes that saw
+   * the exact same two valid facts, in a different order, disagreed
+   * about who owned the object — a `logicalOfferId` is only ever
+   * creator-local, so two different owners choosing the same string
+   * were never actually making a competing claim over one object; they
+   * were describing two distinct objects that this code incorrectly
+   * treated as one.
    *
-   * Once a `logicalOfferId` has an accepted owner, every later revision
-   * or tombstone for it MUST come from that same owner. A higher
-   * revision number does not, by itself, grant authority — revision
-   * precedence and ownership authority are two different questions,
-   * checked here as two separate, sequential gates. There is no
-   * ownership-rotation mechanism (deliberately out of scope for v1):
-   * once established, `ownerPublicKey` is immutable for the lifetime of
-   * a `logicalOfferId`. The very first accepted envelope for a given
-   * `logicalOfferId` establishes its owner (first-writer-wins), exactly
-   * like the very first commit in this repository establishing initial
-   * authorship.
+   * The fix: `highest` is looked up scoped to the pair
+   * `(ownerPublicKey, logicalOfferId)`, matching the DB's own
+   * `@@unique([ownerPublicKey, logicalOfferId, revision])` constraint
+   * (`prisma/schema.prisma`). Alice/X and Mallory/X are now, by
+   * construction, two entirely separate row-sets — there is no shared
+   * "highest" for them to race over, no first-writer to privilege, and
+   * therefore nothing left to check about "which owner got there
+   * first." Owner continuity (Property A's original concern — a
+   * *different* key superseding an *already-established* owner) falls
+   * out of this identity model for free: every row this query can ever
+   * return for a given `(ownerPublicKey, logicalOfferId)` already has
+   * that exact `ownerPublicKey`, so there is no separate continuity
+   * check left to write, and no first-seen trust flag anywhere in this
+   * logic — the property emerges from the signed object identity
+   * itself, not from a rule bolted on top of it.
+   *
+   * **Property I — `createdAt` immutability.** ADR-001 states
+   * `createdAt` does not change across an offer's own revisions (it is
+   * advisory-only for cross-node ordering, but it is still part of what
+   * a single offer object *is* — an offer cannot retroactively change
+   * when it was created). Enforced here: once a `highest` row exists for
+   * this identity, a new revision must carry the identical `createdAt`
+   * as that row: rejected, not silently normalized, if it does not.
    */
   async ingest(envelope: SignedOfferEnvelope): Promise<IngestResult> {
     const verdict = verifyOfferEnvelope(envelope)
@@ -62,21 +82,21 @@ export class OfferEnvelopeRepository {
     }
 
     const highest = await prisma.offerEnvelope.findFirst({
-      where: { logicalOfferId: envelope.logicalOfferId },
+      where: { ownerPublicKey: envelope.ownerPublicKey, logicalOfferId: envelope.logicalOfferId },
       orderBy: { revision: 'desc' },
     })
-
-    if (highest && envelope.ownerPublicKey !== highest.ownerPublicKey) {
-      return {
-        accepted: false,
-        reason: `owner continuity violation: logicalOfferId ${envelope.logicalOfferId} is already owned by a different key; a higher revision does not grant authority to a new key`,
-      }
-    }
 
     if (highest && envelope.revision <= highest.revision) {
       return {
         accepted: false,
-        reason: `revision ${envelope.revision} does not supersede already-stored revision ${highest.revision} for logicalOfferId ${envelope.logicalOfferId}`,
+        reason: `revision ${envelope.revision} does not supersede already-stored revision ${highest.revision} for offer (${envelope.ownerPublicKey}, ${envelope.logicalOfferId})`,
+      }
+    }
+
+    if (highest && envelope.createdAt !== formatCanonicalTimestamp(highest.createdAt)) {
+      return {
+        accepted: false,
+        reason: `createdAt is immutable across revisions of the same offer identity: expected ${formatCanonicalTimestamp(highest.createdAt)}, got ${envelope.createdAt}`,
       }
     }
 
@@ -102,10 +122,15 @@ export class OfferEnvelopeRepository {
     return { accepted: true, id: created.id }
   }
 
-  /** The current, highest-revision envelope this node has stored for a logical offer. */
-  async getLatest(logicalOfferId: string) {
+  /**
+   * The current, highest-revision envelope this node has stored for a
+   * given offer identity. Takes `ownerPublicKey` explicitly (not just
+   * `logicalOfferId`) for the same reason `ingest()`'s own lookup does
+   * (Property H) — `logicalOfferId` alone does not name a unique offer.
+   */
+  async getLatest(ownerPublicKey: string, logicalOfferId: string) {
     return prisma.offerEnvelope.findFirst({
-      where: { logicalOfferId },
+      where: { ownerPublicKey, logicalOfferId },
       orderBy: { revision: 'desc' },
     })
   }

@@ -1,17 +1,23 @@
 # Portable Signed Offers — Evidence
 
-> **Status: CORRECTED (2026-09-09).** A CTO Gate correction pass found a
-> real, confirmed owner-takeover vulnerability plus six related
-> correctness gaps in the implementation this document originally
-> described as closed. All seven have since been fixed and re-evidenced
-> — see **"CTO Gate Correction (2026-09-09)"** below, which is the
-> authoritative current state. The sections above it describe the
-> implementation as it stood at the *original* step (a) closure and are
-> preserved verbatim as history; where a number or claim below has since
-> changed (test counts, the independent-verifier claim), the correction
-> section states the corrected value — treat this document's own
+> **Status: CORRECTED, Fourth Pass (2026-09-09).** A Third-Pass CTO Gate
+> correction found a real, confirmed owner-takeover vulnerability plus
+> six related correctness gaps (Properties A-G) in the implementation
+> this document originally described as closed. A Fourth-Pass
+> correction then found that the Third Pass's own Property A fix
+> ("first accepted envelope wins") was itself defective — it let
+> arrival order decide offer ownership across independent nodes — plus
+> one related ADR-invariant enforcement gap (Property I). All nine
+> properties (A-I) are now fixed and re-evidenced — see **"CTO Gate
+> Correction (2026-09-09, Third Pass — Properties A-G)"** and **"CTO
+> Gate Correction (2026-09-09, Fourth Pass — Properties H, I)"** below,
+> the latter being the authoritative current state. The sections above
+> them describe the implementation as it stood at earlier closures and
+> are preserved verbatim as history; where a number or claim has since
+> changed again, the latest correction section states the corrected
+> value — treat this document's own
 > internal cross-references as pointing there for anything in scope of
-> Properties A-G.
+> Properties A-I.
 
 **Scope:** ADR-001 Day-0 Multi-Operator Sails Network
 (`docs/adr/ADR-001-day0-multi-operator-network.md`), Implementation
@@ -152,17 +158,32 @@ tests (§ below), not merely asserted.
 
 ### Revision semantics
 
-Strictly increasing integer per `logicalOfferId`, chosen by the owner.
-`OfferEnvelopeRepository.ingest()` rejects any envelope whose revision
-does not strictly exceed the highest one already stored for that
-`logicalOfferId` — **timestamps are never used as ordering authority**;
-`createdAt`/`revisedAt` are advisory only, exactly as ADR-001 §3
-specifies, because wall-clock time is not trusted across
-independently-operated nodes. Because only the true owner can ever
-produce a valid signature for a given `logicalOfferId`, there is no
-multi-party conflict to arbitrate — a relay cannot forge a competing
-revision (proven, test 14), and a lower/equal revision is simply
-discarded (tests 9/10).
+Strictly increasing integer per **offer identity** — the pair
+`(ownerPublicKey, logicalOfferId)`, not `logicalOfferId` alone (see the
+"CTO Gate Correction (2026-09-09), Property H" section below for why) —
+chosen by the owner. `OfferEnvelopeRepository.ingest()` rejects any
+envelope whose revision does not strictly exceed the highest one
+already stored for that identity — **timestamps are never used as
+ordering authority**; `createdAt`/`revisedAt` are advisory only, exactly
+as ADR-001 §3 specifies, because wall-clock time is not trusted across
+independently-operated nodes.
+
+> **Claim correction (2026-09-09):** this paragraph originally read
+> "Because only the true owner can ever produce a valid signature for a
+> given `logicalOfferId`, there is no multi-party conflict to
+> arbitrate." That statement is false as originally scoped — two
+> *different* owners can each produce a validly-signed envelope for the
+> identical `logicalOfferId` string, because `logicalOfferId` is only
+> ever creator-local. The corrected claim: **for a canonical offer
+> identity scoped by `(ownerPublicKey, logicalOfferId)`, only that
+> owner can ever produce a valid higher revision** — there is no
+> multi-party conflict *within one offer identity*, but a bare
+> `logicalOfferId` was never itself a single object with one owner to
+> begin with. See "CTO Gate Correction (2026-09-09), Property H" below.
+
+A relay cannot forge a competing revision for a real offer identity
+(proven, test 14), and a lower/equal revision within that same identity
+is simply discarded (tests 9/10).
 
 ### Expiry semantics
 
@@ -303,7 +324,7 @@ property, nothing speculative added alongside them.
 
 ---
 
-## CTO Gate Correction (2026-09-09)
+## CTO Gate Correction (2026-09-09, Third Pass — Properties A-G)
 
 The original evidence above proved the seven properties it set out to
 prove (portability, authenticity, revision ordering, tombstones,
@@ -354,6 +375,19 @@ proven fixed), attacker higher CANCELLED tombstone rejected, legitimate
 same-owner higher revision still accepted, legitimate same-owner
 cancellation still accepted, first-writer-wins for a brand-new
 `logicalOfferId`.
+
+> **Superseded (2026-09-09, Property H below).** This fix's own
+> "first accepted envelope establishes its owner (first-writer-wins)"
+> rule was itself a defect: it made **arrival order** decide who owned
+> a `logicalOfferId`, which two nodes observing the identical facts in
+> different orders could — and, reproduced directly, did — resolve
+> differently. `first-writer-wins` is retracted as an authority rule.
+> The corrected model (Property H) makes offer identity the pair
+> `(ownerPublicKey, logicalOfferId)`, which removes the need for this
+> section's owner-continuity check entirely — see below for why it is
+> now structurally unreachable rather than merely re-verified. This
+> section is preserved as an accurate record of what was implemented
+> and why it still wasn't sufficient, not as current behavior.
 
 ### Property B — Canonical serialization must be injective
 
@@ -521,6 +555,223 @@ status line and its own dated correction note.
 **ZERO.** All seven properties are defects in the implementation of the
 already-authorized step (a), not new architecture fronts — no new
 obligation is registered in `docs/BACKLOG.md` by this correction.
+
+---
+
+## CTO Gate Correction (2026-09-09, Fourth Pass — Properties H, I)
+
+The Third Pass's own Property A fix ("first accepted envelope
+establishes its owner") was itself found defective for a multi-operator
+network: it let **arrival order** decide who owned a `logicalOfferId`.
+A Fourth Gate correction found this plus one related ADR-invariant
+enforcement gap. Both are now fixed, tested, and evidenced below.
+
+### Property H — Order-independent offer ownership / no first-writer authority
+
+**Reproduced against the real, pre-fix repository logic before writing
+any fix.** Setup: two independent nodes, each with their own empty
+store. Alice and Mallory each independently sign a genuinely valid
+revision-0 envelope for the identical `logicalOfferId = X` (a real,
+distinct keypair each — no forgery involved on either side). Node A
+ingests Alice's envelope first, then Mallory's. Node B ingests the
+*identical two envelopes*, in the opposite order: Mallory first, then
+Alice.
+
+**Result before this fix:** Node A converged on `owner = Alice` (Alice
+arrived first, so the Third Pass's continuity check rejected Mallory's
+envelope as "a different key can't take over an already-owned
+`logicalOfferId`"). Node B converged on `owner = Mallory` (Mallory
+arrived first there, so *Alice's* envelope was the one rejected). **Two
+nodes, given the identical two independently-valid facts, disagreed
+about who owned the object — purely because of the order they happened
+to observe those facts in.** Classified: **CONFIRMED CONVERGENCE /
+NAMESPACE DEFECT.** Root cause: `logicalOfferId` is only ever
+creator-local (never checked or coordinated across owners) — it never
+named one shared object that two owners could compete over. Treating it
+as if it did, and picking whichever owner arrived first as "the" owner,
+was the actual defect, not a missing check.
+
+**Required property, frozen:** offer identity MUST be owner-namespaced
+and order-independent. A node's observation order MUST NOT establish
+economic authority. Two distinct owners using the same creator-local
+`logicalOfferId` MUST represent two distinct economic objects, never
+competing claims over one.
+
+**Fix — chosen canonical offer identity:**
+
+```
+Offer Identity = (ownerPublicKey, logicalOfferId)
+```
+
+No derived/hashed `canonicalOfferId` was added — the composite identity
+is already sufficient for every consequence below, and ADR-001's own
+Rube Goldberg discipline (property first, mechanism second; no
+mechanism beyond what a property actually requires) rules out adding
+one "for elegance" alone.
+
+**Why this is order-independent:** with the lookup itself scoped to
+`(ownerPublicKey, logicalOfferId)`, Alice's rows and Mallory's rows are,
+by construction, two entirely disjoint row-sets — there is no shared
+"highest revision for X" for them to race over, and therefore nothing
+left that could depend on which one a node happened to observe first.
+Order independence is not a rule bolted on top of the identity model;
+it falls out of the identity model being correct.
+
+**Implementation consequences, reviewed and adjusted:**
+
+1. **Persistence lookup identity** — `ingest()`'s `highest` query
+   (`src/modules/open-liquidity/offer-envelope-repository.ts`) now
+   filters on `{ ownerPublicKey, logicalOfferId }`, not `logicalOfferId`
+   alone.
+2. **Uniqueness constraint** — `prisma/schema.prisma`:
+   `@@unique([ownerPublicKey, logicalOfferId, revision])`, replacing
+   `@@unique([logicalOfferId, revision])`.
+3. **Revision ordering** — now scoped to `ownerPublicKey +
+   logicalOfferId` (via the same `highest` query above), not bare
+   `logicalOfferId`.
+4. **`getLatest()`** — signature changed to
+   `getLatest(ownerPublicKey, logicalOfferId)`; no caller outside this
+   module and its own tests existed yet (step (a) exposes no HTTP
+   route), so this is not a breaking public-API change.
+5. **Replay protection** — unchanged in mechanism (still "revision must
+   strictly exceed the highest already stored"), now correctly scoped
+   to the real offer identity instead of a shared, ambiguous namespace.
+6. **Cancellation/tombstone lookup** — uses the identical scoped
+   `highest` query; a tombstone from one owner can now never be looked
+   up against, or affect, a different owner's rows for the same
+   `logicalOfferId` string.
+7. **Tests** — see below.
+8. **Evidence documentation** — this section, plus the corrected
+   "Revision semantics" paragraph and retraction note under Property A
+   above.
+
+**Property A's own explicit owner-continuity check is now removed as
+dead code**, not merely redundant: every row `highest` can ever return
+for a given `(ownerPublicKey, logicalOfferId)` pair already carries that
+exact `ownerPublicKey` by construction of the query itself, so a
+separate inequality check can never trigger. The property emerges from
+the signed object identity and the scoped lookup, not from an
+additional rule layered on top (COBRA discipline: no first-seen trust
+flag, no rule that could itself encode a new failure mode).
+
+**Not implemented, per explicit CTO instruction:** no central namespace
+registry, no first-seen trust, no ownership-rotation mechanism.
+
+**Tests added** (`tests/offerEnvelope.test.ts`, describe block "offer
+identity is order-independent (Property H...)"):
+- The exact two-node reproduction above, now proving both nodes
+  converge identically (both envelopes accepted on both nodes,
+  regardless of order).
+- Cross-owner collision test: two owners, identical `logicalOfferId`,
+  both independently accepted.
+- Cross-owner cancellation test: Mallory's tombstone has zero effect on
+  Alice's offer at the same `logicalOfferId`.
+- Same-owner revision test: Alice's higher revision supersedes only her
+  own prior revision, zero effect on Mallory's offer.
+- **CONVERGENCE TEST:** `History A: Alice/X/0, Mallory/X/0, Alice/X/1`
+  and `History B: Mallory/X/0, Alice/X/0, Alice/X/1` — genuinely
+  different arrival orders of the identical set of facts — both proven
+  to converge to exactly `Alice/X latest = revision 1`, `Mallory/X
+  latest = revision 0`. This is the load-bearing Day-0 property.
+- A real-Postgres version of the cross-owner case
+  (`tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`,
+  "Property H (real DB)"): two owners insert under the identical
+  `logicalOfferId` against a real database — proving the corrected
+  composite unique constraint itself permits this (the old constraint
+  would have thrown a real Postgres unique-violation on the second
+  insert), not just that the mocked unit logic allows it.
+
+### Property I — `createdAt` immutability
+
+ADR-001 states `createdAt` does not change across an offer's own
+revisions. `ingest()` did not enforce this — a later revision of the
+same offer identity could claim any `createdAt` and it would be
+accepted and stored as-is. **Reproduced directly:** owner submits
+revision 0 with `createdAt = 2026-09-09T00:00:00.000Z`, then the same
+owner/logicalOfferId's revision 1 with `createdAt =
+2026-09-10T00:00:00.000Z` — accepted before this fix. Classified:
+**CONFIRMED ADR INVARIANT ENFORCEMENT GAP.**
+
+**Fix:** `ingest()` now requires, whenever a `highest` row exists for
+the offer identity, that the new envelope's `createdAt` exactly equals
+that row's `createdAt` (compared via `formatCanonicalTimestamp()`, the
+same canonical-reconstruction helper Property E already established) —
+rejected, not silently normalized or replaced, on any mismatch. Because
+`highest.createdAt` was itself validated against whichever row preceded
+it at the time it was accepted, this single comparison is transitively
+sufficient: it is not possible for a chain of accepted revisions to
+ever disagree with the original `createdAt` two or more steps back.
+
+**Tests added** (`tests/offerEnvelope.test.ts`, describe block
+"createdAt immutability across revisions (Property I...)"): the exact
+reproduction case above, now proving rejection with a reason matching
+`/createdAt is immutable/`; a later revision carrying the identical
+`createdAt` is still accepted; the first revision for a new offer
+identity may set `createdAt` freely (no prior value to conflict with).
+
+### Database changes (Properties H/I)
+
+`prisma/schema.prisma`: `@@unique([ownerPublicKey, logicalOfferId,
+revision])` replaces `@@unique([logicalOfferId, revision])` — the only
+schema change. Because PR #100 has not merged and this table has never
+existed in any shared environment, the existing, unmerged
+`prisma/migrations/20260909000000_offer_envelope/migration.sql` was
+corrected in place (its `CREATE UNIQUE INDEX` statement updated to the
+three-column form) rather than adding a second migration purely to
+patch the first — no migration-history noise for a change to a
+never-applied migration. `npx prisma validate`: schema valid. Real
+Postgres evidence: `tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`'s
+new "Property H (real DB)" test proves the corrected composite unique
+constraint itself (not just the mocked application logic) permits two
+different owners under the identical `logicalOfferId`.
+
+### Updated counts (Fourth Pass)
+
+`tests/offerEnvelope.test.ts`: **57 tests** (up from 53 — the Property
+A describe block was replaced by 6 Property H tests, plus 3 new
+Property I tests; net +4).
+`tests/integration/offerEnvelopePersistenceRoundTrip.test.ts`: **4
+tests** (the 3 from the Third Pass, plus the new "Property H (real DB)"
+test). **Full `npm run test:unit`: 155/155 suites, 1980/1980 tests,
+zero failures.** `npx tsc --noEmit`: clean. `npx prisma validate`:
+schema valid; `npx prisma generate`: regenerated client, no type
+errors. `git diff --check`: clean.
+
+### COBRA Check (Fourth Pass)
+
+The fix does not introduce: a global registry; consensus; server-
+assigned IDs; a trusted bootstrap authority; a centralized uniqueness
+service; a mutable ownership mapping; or a first-seen trust flag —
+Property A's own first-seen check is *removed*, not replaced by a
+different one. The property (no arrival-order-dependent authority)
+emerges from the signed object identity itself: `(ownerPublicKey,
+logicalOfferId)` is derivable from the envelope alone, by any verifier,
+with no reference to which node saw what first.
+
+### Rube Goldberg Check (Fourth Pass)
+
+Chosen: `owner key + creator-local id` (a plain composite identity) —
+no derived/hashed `canonicalOfferId`, no DID, no blockchain registry,
+no CRDT, no distributed lock, no ownership service. The fix touches
+exactly: one query's `where` clause, one Prisma `@@unique` annotation
+(and its already-unmerged migration, corrected in place), one new
+equality check (`createdAt`), and `getLatest()`'s parameter list. This
+remains a bounded OpenLiquidity envelope correction.
+
+### ADR-001 step (a) status (Fourth Pass)
+
+Reverted to **CORRECTION REQUIRED** at the start of this pass (from the
+Third Pass's `CORRECTED AND RE-CLOSED`); **re-closed as CLOSED
+(2026-09-09, corrected — Fourth Pass)** now that Properties H and I are
+fixed, tested, and evidenced. See
+`docs/adr/ADR-001-day0-multi-operator-network.md` §21(a).
+
+### BACKLOG DELTA (Fourth Pass)
+
+**ZERO.** Properties H and I are defects in the implementation of the
+already-authorized step (a) — the offer-identity model was wrong, not
+missing architecture. No new obligation is registered in
+`docs/BACKLOG.md`.
 
 ---
 

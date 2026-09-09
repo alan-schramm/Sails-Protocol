@@ -26,7 +26,14 @@ CREATE TABLE "offer_envelopes" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "offer_envelopes_logicalOfferId_revision_key" ON "offer_envelopes"("logicalOfferId", "revision");
+-- CTO Gate correction (2026-09-09), Property H: offer identity is the
+-- pair (ownerPublicKey, logicalOfferId) — revision uniqueness (and
+-- convergence) is scoped to that pair, not to logicalOfferId alone, so
+-- two distinct owners can never collide over the same creator-local id.
+-- This migration is corrected in place (not superseded by a new one)
+-- because PR #100 has not yet merged and this table has never existed
+-- in any shared environment.
+CREATE UNIQUE INDEX "offer_envelopes_ownerPublicKey_logicalOfferId_revision_key" ON "offer_envelopes"("ownerPublicKey", "logicalOfferId", "revision");
 
 -- CreateIndex
 CREATE INDEX "offer_envelopes_logicalOfferId_idx" ON "offer_envelopes"("logicalOfferId");

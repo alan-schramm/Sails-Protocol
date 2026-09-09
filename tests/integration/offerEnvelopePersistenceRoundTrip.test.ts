@@ -241,4 +241,47 @@ describe('OfferEnvelope — persistence round-trip against real Postgres (Proper
     expect(canonicalizeOfferEnvelope(reconstructed).equals(canonicalizeOfferEnvelope(content))).toBe(true)
     expect(verifyOfferEnvelope(reconstructed)).toEqual({ valid: true })
   })
+
+  it('Property H (real DB): two different owners using the identical logicalOfferId both persist without a unique-constraint violation, and ingest() converges each independently against real Postgres', async () => {
+    requirePostgres('Property H composite uniqueness against real Postgres')
+    const alice = makeKeypair()
+    const mallory = makeKeypair()
+    // Deliberately the SAME logicalOfferId for two different owners —
+    // this is the exact case the corrected `@@unique([ownerPublicKey,
+    // logicalOfferId, revision])` constraint (prisma/schema.prisma) must
+    // allow; the old `@@unique([logicalOfferId, revision])` constraint
+    // would have thrown a real Postgres unique-violation on the second
+    // insert.
+    const logicalOfferId = `${TEST_LOGICAL_ID_PREFIX}${Date.now()}-shared`
+
+    const aliceContent: OfferEnvelopeContent = {
+      logicalOfferId,
+      ownerPublicKey: alice.publicKeyHex,
+      asset: 'BTC',
+      side: 'SELL',
+      priceUsd: '65000.00000000',
+      minAmount: '0.00100000',
+      maxAmount: '0.50000000',
+      paymentMethod: 'PIX',
+      revision: 0,
+      createdAt: '2026-09-09T00:00:00.000Z',
+      revisedAt: '2026-09-09T00:00:00.000Z',
+      expiresAt: '2026-09-10T00:00:00.000Z',
+      status: 'ACTIVE',
+    }
+    const malloryContent: OfferEnvelopeContent = { ...aliceContent, ownerPublicKey: mallory.publicKeyHex }
+    const aliceSigned = { ...aliceContent, signature: signOfferEnvelope(aliceContent, alice.secretKeyHex) }
+    const mallorySigned = { ...malloryContent, signature: signOfferEnvelope(malloryContent, mallory.secretKeyHex) }
+
+    const aliceResult = await repo.ingest(aliceSigned)
+    const malloryResult = await repo.ingest(mallorySigned)
+
+    expect(aliceResult.accepted).toBe(true)
+    expect(malloryResult.accepted).toBe(true)
+
+    const aliceLatest = await repo.getLatest(alice.publicKeyHex, logicalOfferId)
+    const malloryLatest = await repo.getLatest(mallory.publicKeyHex, logicalOfferId)
+    expect(aliceLatest?.ownerPublicKey).toBe(alice.publicKeyHex)
+    expect(malloryLatest?.ownerPublicKey).toBe(mallory.publicKeyHex)
+  })
 })
