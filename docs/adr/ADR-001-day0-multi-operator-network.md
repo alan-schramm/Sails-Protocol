@@ -43,6 +43,208 @@ the new accounting mechanism. `docs/SAILS_NODE_SHARED_LIQUIDITY_DISCOVERY.md`
 artifact in this same pass — this ADR remains the architecture decision
 authority.
 
+**Third CTO Gate Correction Pass (2026-09-09, implementation).** A
+security/correctness review of step (a)'s implementation (PR #100)
+found a real, confirmed owner-takeover vulnerability — a different key
+could supersede an already-owned `logicalOfferId` by claiming a higher
+revision, reproduced directly against the code before any fix — plus
+six related correctness gaps (canonical-serialization injectivity,
+decimal/timestamp canonical form, persistence round-trip fidelity,
+revision domain bounds, shape-validation ordering). §21(a)'s status was
+reverted from a premature `CLOSED` to `CORRECTION REQUIRED`, all seven
+properties were fixed and re-evidenced, and the status is re-closed
+below. Full narrative: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s own
+"CTO Gate Correction (2026-09-09)" section. This pass changes no
+architecture decision in this document — Model C is unchanged; it
+corrects an implementation defect in an already-authorized step.
+
+**Fourth CTO Gate Correction Pass (2026-09-09, implementation).** A
+follow-up review found that the Third Pass's own owner-continuity fix
+("the first accepted envelope establishes a `logicalOfferId`'s owner")
+was itself a defect for a multi-operator network: it let **arrival
+order** determine economic ownership. Reproduced directly: two
+independent nodes ingesting the identical two independently-valid,
+self-signed envelopes (one from "Alice," one from "Mallory," both for
+the same creator-local `logicalOfferId`) in opposite arrival orders
+converged on *different* owners. Root cause: `logicalOfferId` was never
+a name for one shared object two owners could compete over — it is only
+ever creator-local — so "first writer wins" was solving a problem that
+did not exist while creating a real one (order-dependent authority).
+Fixed by making the canonical offer identity the pair `(ownerPublicKey,
+logicalOfferId)`: `prisma/schema.prisma`'s unique constraint, the
+`ingest()`/`getLatest()` lookup, and revision-ordering scope all changed
+accordingly (schema change: `@@unique([ownerPublicKey, logicalOfferId,
+revision])` replacing `@@unique([logicalOfferId, revision])`, corrected
+in place in the still-unmerged migration rather than adding a second
+one). A related gap was fixed in the same pass: `createdAt` immutability
+across an offer's own revisions (already stated at §3/§9 above) was not
+previously enforced by `ingest()`; it now is. §21(a)'s status was
+reverted to `CORRECTION REQUIRED` and re-closed below. Full narrative:
+`docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s "CTO Gate Correction
+(2026-09-09, Fourth Pass — Properties H, I)" section. This pass, like
+the Third, changes no architecture decision in this document — it
+corrects the earlier implementation-level fix, not Model C itself.
+
+> **Superseded (2026-09-09, Fifth Pass below).** This paragraph's own
+> `createdAt` immutability enforcement was itself found to be
+> order-dependent and non-convergent — see the Fifth Pass note and §3's
+> own corrected `createdAt` row. The enforcement described here was
+> removed, not merely adjusted.
+
+**Fifth CTO Gate Correction Pass (2026-09-09, distributed convergence).**
+A broader review asked the central question directly: do two conformant
+nodes that eventually observe the same set of valid signed
+`OfferEnvelope` facts ever end with different economic interpretations
+solely because those facts arrived in a different order? Two more real
+cases were found where the answer was yes.
+**Property J (owner equivocation):** nothing prevents the same owner
+from signing two genuinely different envelopes at the identical
+`(ownerPublicKey, logicalOfferId, revision)` — reproduced directly, a
+node ingesting E1-then-E2 accepted E1's price as "the" offer, a node
+ingesting E2-then-E1 accepted E2's price; the (correct, as of the Fourth
+Pass) "revision does not supersede" rejection was itself silently
+discarding whichever conflicting fact happened to arrive second. Fixed,
+deliberately fail-CLOSED rather than another first-writer-wins race:
+`prisma/schema.prisma`'s unique constraint gained a fourth column,
+`signature` (`@@unique([ownerPublicKey, logicalOfferId, revision,
+signature])`, corrected in place in the same still-unmerged migration),
+so two genuinely different signed envelopes at the identical revision
+are BOTH durably stored as equivocation evidence — never silently
+dropped, never used to overwrite one another. `getLatest()` now returns
+a three-way state (`RESOLVED` / `EQUIVOCATED` / `NOT_FOUND`) instead of
+a single row-or-null; an `EQUIVOCATED` state is, by rule, never
+economically active (`isOfferStateEconomicallyActive()`), regardless of
+which conflicting envelope any given node happened to store first — this
+verdict is computed fresh from the full stored history every time, so it
+is order-independent by construction. **Property L:** a subsequent,
+correctly-signed higher revision deterministically resolves the CURRENT
+state going forward; the lower revision's equivocation evidence remains
+in the table, un-deleted, as a permanent record that the owner
+misbehaved once.
+**Property K (`createdAt` immutability, retracted):** the Fourth Pass's
+own `createdAt`-immutability enforcement was reproduced to be itself
+order-dependent — a node that happens to observe a later revision before
+an earlier one has no prior value to compare against and accepts it
+unconditionally, then incorrectly *rejects* a legitimately-signed further
+revision carrying the true original value, purely due to observation
+order; two nodes given the identical eventual facts converged on
+different accepted revisions entirely (not just a different verdict on
+one field). No order-independent enforcement mechanism exists without
+full-history replication (a later, unauthorized step) or a global
+minimum-tracking scheme this pass declined to invent for a claim that is
+not load-bearing for any of ADR-001 §3's seven frozen Portable-Offer
+properties. **Retracted as an enforced rule** — `createdAt` remains
+signed (tamper-evident) and advisory (never used for ordering), exactly
+as originally, minus the ingest()-level rejection. §3's `createdAt` row
+below is corrected accordingly. §21(a)'s status was reverted to
+`CORRECTION REQUIRED` and re-closed below. Full narrative:
+`docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s "CTO Gate Correction
+(2026-09-09, Fifth Pass — Properties J, K, L)" section. Like the Third
+and Fourth passes, this changes no architecture decision in this
+document — Model C is unchanged.
+
+**Sixth CTO Gate Correction Pass (2026-09-09, distributed correctness
+foundations).** Before freezing step (a), a review established that
+fact identity, revision ordering, current-state convergence, and
+historical-evidence semantics were three different questions this
+document and its implementation had been conflating, and found two more
+real defects plus one real vulnerability in the Fifth Pass's own
+equivocation mechanism.
+**Property M (concurrent identical-fact ingestion):** reproduced
+directly against a real local Postgres instance — two truly concurrent
+`ingest()` calls (`Promise.all`) for the identical signed envelope let
+one caller succeed while the other's promise rejected with a raw,
+uncaught `PrismaClientKnownRequestError` (P2002), a real unhandled
+exception, not the forbidden-outcome hypothesis. Fixed by relying on the
+database's own atomic uniqueness check as the actual concurrency
+control (no lock, no serialization): `create()` is attempted directly
+and a P2002 is caught and converted into the same graceful result a
+non-racing caller would receive.
+**Property O (signature is not a sound identity):** confirmed directly,
+via a controlled test against the real `tweetnacl` verifier (not a
+guess) — Ed25519 signatures are malleable; given one valid signature
+`(R, S)`, the byte-different `(R, S + L)` (`L` = the Ed25519 group
+order) also verifies, with no secret key required. The Fifth Pass's own
+"different signature at the same revision means equivocation" rule was
+therefore exploitable by a mere OBSERVER, not even the offer's owner, as
+a griefing vector — falsely triggering the fail-closed `EQUIVOCATED`
+state against an offer that was never actually double-signed. Fixed:
+fact identity is now `contentDigest` (`hashOfferEnvelope()`'s digest of
+the canonical content, excluding `signature`), used for both the DB
+uniqueness constraint and `getLatest()`'s distinctness check;
+`signature` remains stored in full as authorization evidence, demoted
+from "identity."
+**Property P (historical-evidence convergence):** reproduced directly —
+"History A" (an owner's equivocating pair at revision 5, then a
+resolving revision 6) and "History B" (the identical facts, with
+revision 6 arriving FIRST) converged on the identical CURRENT state
+either way, but under the prior "revision below the current highest is
+stale, reject" rule, History B's own revision-5 facts (arriving after
+revision 6 was already known) would never have been stored at all —
+History B would then hold zero evidence the owner ever equivocated,
+while History A held both. Decided explicitly, property first mechanism
+second: **Option B** — every validly-signed fact is retained regardless
+of its revision relative to anything already known (reputation/dispute/
+abuse-evidence value outweighs the storage cost; replay of an already-
+known fact specifically is free under Property M/O's own idempotency —
+**corrected 2026-09-09, Seventh Pass, Property R:** this paragraph
+originally also claimed that cost was "bounded by cryptography, not
+policy" for genuinely NEW facts, which is false — see Property R below,
+"authenticity ≠ resource boundedness"). `ingest()`'s revision-comparison
+rejection is removed entirely; `getLatest()`'s CURRENT-STATE semantics
+are completely unaffected. **Property N
+(gossip-dedup semantic contradiction):** audited §3/§4/§21/§22 for every
+statement conflating fact identity with revision-number dedup
+("discards any envelope whose revision is ≤ the highest," "a node never
+relays the same revision twice") — corrected throughout to state the
+actual property (fact-identity dedup) without designing the not-yet-
+authorized gossip data structure itself. §21(a)'s status was reverted to
+`CORRECTION REQUIRED` and re-closed below. Full narrative:
+`docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s "CTO Gate Correction
+(2026-09-09, Sixth Pass — Properties M, N, O, P)" section. Like every
+prior pass, this changes no architecture decision in this document —
+Model C is unchanged; all four properties are corrections to step (a)'s
+own implementation and specification, not to the network model itself.
+
+**Seventh CTO Gate Correction Pass (2026-09-09, cross-implementation
+signature semantics + resource-claim precision).** Before freezing step
+(a), this pass closed the more fundamental property behind Property O's
+own malleability finding: **two conformant Sails implementations
+receiving the same signature bytes must not disagree on validity merely
+because their Ed25519 libraries enforce different canonical-encoding
+rules.** Confirmed directly, by reading `tweetnacl`'s source, that it
+never checks RFC 8032 §5.1.7's own required `0 <= S < L` bound (fetched
+and quoted directly from the RFC, not recalled) — this, not a
+`tweetnacl`-specific design choice, is exactly why `(R, S+L)` verifies
+under raw `tweetnacl`. **Property Q:** Sails's own `verifyOfferEnvelope()`
+now enforces this canonical range (plus the analogous `y < P` check for
+`R`/`ownerPublicKey`'s point encoding) BEFORE calling `tweetnacl` at all
+— the malleated signature Property O demonstrated is now rejected by
+Sails outright, while `contentDigest` (Property O's own fix) remains the
+fact identity for every case that legitimately reaches it; no new crypto
+library, no reimplementation of Ed25519, a pure range-check layer in
+front of the existing, unmodified verifier call. **Property R:**
+corrected an over-claim, introduced in the Sixth Pass's own Property P
+reasoning, that storage cost was "bounded by cryptography" — false;
+cryptographic authenticity bounds WHO can sign, never HOW MANY facts an
+authorized owner (or many Sybil identities) can produce. The residual
+(owner-history growth, Sybil amplification, no bandwidth mitigation
+since step (a) has no propagation) is now named explicitly, deferred to
+a later CTO Gate, and deliberately NOT papered over with pruning (which
+could destroy the equivocation evidence Option B exists to preserve).
+**Property S:** reproduced directly against real Postgres that
+`ingest()`'s own `equivocationDetected` response hint can be missed by
+BOTH callers under a genuine concurrent-equivocation race, while
+`getLatest()`/the stored fact set are always correct regardless —
+confirmed advisory, not load-bearing, and documented as such rather than
+hardened with new locking machinery. Two stale source comments
+describing Property A's superseded "owner continuity" model (retracted
+since Property H) were also corrected. §21(a)'s status was reverted to
+`CORRECTION REQUIRED` and re-closed below. Full narrative:
+`docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s "CTO Gate Correction
+(2026-09-09, Seventh Pass — Properties Q, R, S)" section. Like every
+prior pass, this changes no architecture decision in this document.
+
 ---
 
 ## Decision
@@ -51,8 +253,15 @@ Sails adopts a **signed-offer, pairwise-gossip** network model:
 economic advertisements (`Offer`s) become self-authenticating, signed
 envelopes with a creator-assigned logical identity, propagated between
 nodes over direct Hyperswarm/HyperDHT connections (already a proven
-capability in this codebase) using flood-gossip with revision-based
-deduplication — **not** a DHT-stored, content-addressed advertisement
+capability in this codebase) using flood-gossip with signed-fact/
+content-derived deduplication (`contentDigest` — dedup key = signed
+fact identity, not revision; revision determines ordering and
+current-state selection only, §3/§5; a lower or equal revision is not,
+by itself, sufficient reason to discard a previously-unseen valid fact,
+§21(a) Property P — **corrected 2026-09-09, Eighth Pass**: this
+paragraph previously read "revision-based deduplication," directly
+contradicting §3/§4's own Sixth Pass corrections and Property N) —
+**not** a DHT-stored, content-addressed advertisement
 system, and **not** a federated/replicated shared database. Trade
 coordination remains pairwise between the two actual counterparties;
 no Trade, Escrow, or reputation state is globally replicated. No node
@@ -165,11 +374,11 @@ shape.
 
 | Field | Purpose |
 |---|---|
-| `logicalOfferId` | Creator-assigned UUID, signed. **The key architectural move**: today's `Offer.id` is a node-local DB primary key; the logical id decouples "this is the same offer" from "which node's row it happens to be" — any node can recognize the same offer regardless of local storage. |
-| `ownerPublicKey` | The existing `User.publicKey` — no new identity concept. |
+| `logicalOfferId` | Creator-assigned UUID, signed, **creator-local only** — it names an offer within one owner's own numbering, never a globally-unique object by itself. **Corrected (2026-09-09, Fourth Pass):** the canonical offer identity is the *pair* `(ownerPublicKey, logicalOfferId)`, not `logicalOfferId` alone — see §5's correction below for why treating a bare `logicalOfferId` as the identity was itself a confirmed defect. Still the key architectural move relative to `Offer.id` (a node-local DB primary key): the pair decouples "this is the same offer" from "which node's row it happens to be" — any node can recognize the same offer regardless of local storage. |
+| `ownerPublicKey` | The existing `User.publicKey` — no new identity concept. Also, as of the Fourth Pass correction above, half of the canonical offer identity itself, not merely a field on it. |
 | `asset`, `side`, `priceUsd`, `minAmount`, `maxAmount`, `paymentMethod` | The existing economic terms (`Offer` model, unchanged shape). |
-| `revision` | Strictly increasing integer per `logicalOfferId`, chosen by the owner. Both the convergence mechanism (§5) and replay protection. |
-| `createdAt` | Owner-supplied, immutable across revisions, signed. Advisory only — never used for cross-node ordering (§5 uses `revision`, not wall-clock time, precisely because clocks aren't trusted across nodes). |
+| `revision` | Strictly increasing integer per **offer identity** `(ownerPublicKey, logicalOfferId)` — corrected from an earlier "per `logicalOfferId`" phrasing, same reason as above — chosen by the owner. The convergence/current-state-selection mechanism (§5). **Corrected (2026-09-09, Eighth Pass):** this row previously also called `revision` itself the "replay protection" — imprecise; replay protection (deduplication) is by signed-fact identity (`contentDigest`), not `revision` (§3's own "Replay protection" paragraph, Property N/O). |
+| `createdAt` | Owner-supplied, signed (tamper-evident — no relay can alter it without invalidating the signature), advisory only — never used for cross-node ordering (§5 uses `revision`, not wall-clock time, precisely because clocks aren't trusted across nodes). **Corrected (2026-09-09, Fifth Pass):** this row previously also said "immutable across revisions" as an enforced rule. Reproduced directly that enforcing this against a node's own locally-first-observed value is itself order-dependent and non-convergent — retracted as an enforced protocol rule, narrowed to what it always structurally was: signed and advisory, nothing more. |
 | `revisedAt` | Owner-supplied per revision, signed, same advisory status. |
 | `expiresAt` | Owner-supplied, signed. Self-enforcing (§2). |
 | `status` | `ACTIVE` / `CANCELLED` — cancellation is a new signed envelope at a higher revision, not a deletion (a tombstone). |
@@ -183,21 +392,45 @@ canonical form exist and be re-derivable identically by any conformant
 implementation (TypeScript today, any future implementation per Issue
 #75) is frozen.
 
-**Replay protection:** a verifier discards any envelope whose
-`revision` is ≤ the highest one it has already verified for that
-`logicalOfferId`. This single rule also *is* the convergence rule
-(§5) — no second mechanism needed.
+**Replay protection:** a verifier never re-processes a signed fact it
+has already accepted. **Corrected (2026-09-09, Sixth Pass, Property N):**
+this paragraph originally read "a verifier discards any envelope whose
+`revision` is ≤ the highest one it has already verified for that offer
+identity," conflating two different questions — **fact identity ≠
+revision ordering.** `revision` determines ordering and CURRENT-STATE
+selection (§5) only; it is not the deduplication key, and a lower or
+equal revision number is not, by itself, a reason to discard an
+envelope this node has never seen before (§21(a)'s own Property P
+closes exactly this gap: a genuinely new signed fact at a
+previously-seen revision is retained as evidence, not discarded).
+Deduplication is by **signed-fact identity** — a content-derived digest
+of the envelope, not the raw `signature` (Property O: Ed25519
+signatures are malleable — a second, different-byte signature can exist
+over identical content without the signing key, so `signature` itself
+is not a sound identity to dedup on) and not `revision` alone. A
+byte-identical or content-identical resend of an already-known fact is
+a no-op; a genuinely new distinct fact is retained regardless of its
+revision relative to whatever this node has already seen.
 
 ## 4. Propagation model
 
 **Decision: Model C — signed gossip over direct Hyperswarm/HyperDHT
 peer connections.** Each node maintains connections to a bounded set of
 known peer nodes (from bootstrap, §6, plus peer-exchange). A node
-relays any newly-received, signature-valid, higher-revision envelope to
-its own connected peers exactly once (standard flood-gossip with
-per-`logicalOfferId` dedup by highest-seen `revision` — the same
-counter already required for §3's replay protection, no second data
-structure). **HyperDHT is used only for its already-proven capability**
+relays any newly-received, signature-valid envelope it has not already
+relayed to its own connected peers exactly once. **Corrected (2026-09-09,
+Sixth Pass, Property N):** this paragraph originally described the
+relay-dedup rule as "per-`logicalOfferId` dedup by highest-seen
+`revision`" — the same conflation as §3's correction above. The property
+this ADR actually freezes for a future gossip design (§21(d), not
+designed here): **a node must never suppress relay of a genuinely new,
+distinct signed fact merely because that revision number was already
+seen for that offer identity** — including a fact whose revision is
+lower than one already relayed (Property P). The exact relay-dedup data
+structure (a revision counter, a fact-identity set, a Bloom filter,
+etc.) is an implementation detail for step (d)'s own CTO Gate, not
+frozen here — only the property is frozen. **HyperDHT is used only for
+its already-proven capability**
 (peer discovery, direct connections) — **not** as a generic key-value
 store for offer records (that would be Model D, rejected above).
 `Pears capability ≠ mandatory architecture`: if a future implementation
@@ -209,22 +442,75 @@ already does today.
 
 ## 5. Convergence / conflict
 
-**Rule, already stated in §3/§4: highest verified `revision` wins.** A
-node that has verified revision N for a `logicalOfferId` ignores any
-later-arriving envelope for that id with revision ≤ N, and adopts any
-verified envelope with revision > N. This requires no central
-tie-breaker because only the owner's own key can ever produce a valid
-signature for that `logicalOfferId` — there is structurally no
-multi-party conflict to arbitrate, only single-owner sequencing.
+**Rule, already stated in §3/§4: highest verified `revision` wins,
+scoped to one offer identity `(ownerPublicKey, logicalOfferId)`.** A
+node that has verified revision N for an offer identity treats any
+later-arriving envelope for that identity with revision strictly below
+N as **not current** (this is a CURRENT-STATE / convergence question,
+answered independently of whether that envelope is also retained as
+historical/equivocation evidence — §3's own replay-protection paragraph
+and §21(a) Property P), and adopts any verified envelope with revision
+> N as the new current state. This requires no
+central tie-breaker because only the owner's own key can ever produce a
+valid signature at any revision *for that identity* — there is
+structurally no cross-owner conflict to arbitrate within one offer
+identity, only single-owner sequencing. **Exception, precisely bounded
+(Property J, Fifth Pass, see below):** the *same* owner can equivocate
+by signing two different envelopes at the identical revision — this is
+not a cross-owner conflict (no one but the true owner could produce
+either envelope) but it does mean "revision N" does not always name a
+single unambiguous economic fact; §5's residual paragraph below covers
+exactly this case and how it is now handled.
 
-**Named residual, not solved:** owner equivocation (the same owner
+> **Claim correction (2026-09-09, Fourth Pass).** This paragraph
+> originally scoped the "no multi-party conflict" claim to a bare
+> `logicalOfferId`, reading "...only the owner's own key can ever
+> produce a valid signature for that `logicalOfferId`." That was false
+> as scoped: `logicalOfferId` is creator-local, so two *different*
+> owners can each validly sign an envelope carrying the identical
+> `logicalOfferId` string — they are not making competing claims over
+> one object, because a bare `logicalOfferId` was never a name for one
+> shared object to begin with. Confirmed as a real defect in
+> implementation, not merely a documentation imprecision: an earlier
+> fix attempt that treated "first accepted envelope for a
+> `logicalOfferId`" as establishing ownership let **arrival order**
+> decide which of two independently-valid owners "won" — two nodes
+> observing the identical two facts in different orders converged on
+> different owners. The corrected claim, now reflected throughout this
+> section: for a canonical offer identity scoped by `(ownerPublicKey,
+> logicalOfferId)`, only that owner can ever produce a valid higher
+> revision. Full narrative: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s
+> "CTO Gate Correction (2026-09-09, Fourth Pass — Properties H, I)".
+
+~~**Named residual, not solved:** owner equivocation (the same owner
 signs two *different* envelopes at the *same* revision) is possible in
 principle and is not detected by the revision rule alone. This is
 bounded, not exploitable by a third party: it can only confuse the
 owner's *own* counterparties, never let anyone else forge or hijack the
 offer. Detection (e.g., a node that observes two differently-signed
 envelopes at one revision could flag the owner) is named as a future
-hardening, not designed here.
+hardening, not designed here.~~
+
+> **Claim correction (2026-09-09, Fifth Pass) — Property J.** The
+> paragraph above (preserved struck through, not deleted) understated
+> this residual: it is not merely "confuses the owner's own
+> counterparties." Reproduced directly: a node ingesting equivocating
+> envelope E1-then-E2 accepted E1's economic terms as authoritative; a
+> node ingesting the identical two envelopes E2-then-E1 accepted E2's —
+> **two conformant nodes, given the identical set of facts, disagreed
+> about the offer's actual economic terms, purely due to arrival
+> order.** That is exactly the central distributed-convergence property
+> this whole correction pass exists to protect, not a bounded,
+> low-severity residual. Now designed and fixed, fail-closed: both
+> conflicting envelopes are durably stored (`@@unique([ownerPublicKey,
+> logicalOfferId, revision, signature])`, `prisma/schema.prisma`) and
+> `getLatest()` reports an explicit `EQUIVOCATED` state — never
+> economically active, order-independently, regardless of which
+> envelope any given node stored first. A subsequent, correctly-signed
+> higher revision deterministically resolves the current state going
+> forward; the equivocation evidence at the lower revision is never
+> deleted. Full narrative: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s
+> "CTO Gate Correction (2026-09-09, Fifth Pass — Properties J, K, L)".
 
 ## 6. Bootstrap and membership
 
@@ -817,7 +1103,81 @@ two items in this entire ADR granted that status):
 
 **(a) Portable signed Offers** — `logicalOfferId`, canonical
 serialization, Ed25519 signature, `revision`/`expiresAt`/tombstone
-semantics (§3).
+semantics (§3). ~~CLOSED (2026-09-09)~~ ~~CORRECTED AND RE-CLOSED
+(2026-09-09, Third Pass)~~ ~~CORRECTED AND RE-CLOSED AGAIN (2026-09-09,
+Fourth Pass)~~ ~~CORRECTED AND RE-CLOSED A THIRD TIME (2026-09-09, Fifth
+Pass)~~ ~~CORRECTED AND RE-CLOSED A FOURTH TIME (2026-09-09, Sixth
+Pass)~~ **CORRECTED AND RE-CLOSED A FIFTH TIME (2026-09-09, Seventh
+Pass).** The Third Pass found and fixed a real, confirmed owner-takeover
+vulnerability plus six related correctness gaps (Properties A-G). The
+Fourth Pass found that the Third Pass's own Property A fix ("first
+accepted envelope establishes ownership") was itself defective: it let
+**arrival order** determine economic ownership across independent
+nodes. Fixed by making the canonical offer identity the pair
+`(ownerPublicKey, logicalOfferId)`, plus one related gap (`createdAt`
+immutability across revisions, Property I). The Fifth Pass then asked
+the central distributed-convergence question directly and found two
+more real gaps: **Property J (owner equivocation)** — the same owner
+signing two different envelopes at the identical revision let arrival
+order determine WHICH conflicting economic terms a node accepted;
+fixed, fail-closed, by storing both as durable evidence and having
+`getLatest()` report an explicit, order-independent `EQUIVOCATED` state
+that is never economically active — a subsequent higher revision
+deterministically resolves it going forward without erasing the
+evidence (**Property L**). **Property K** — the Fourth Pass's own
+`createdAt`-immutability enforcement was found to be itself
+order-dependent and was **retracted**, not repaired. The Sixth Pass then
+found the Fifth Pass's own equivocation mechanism itself carried a real
+vulnerability plus two more convergence gaps: **Property O** — Ed25519
+signatures are malleable (confirmed via a controlled test against the
+real verifier), so the Fifth Pass's `signature`-keyed uniqueness
+constraint (`@@unique([ownerPublicKey, logicalOfferId, revision,
+signature])`) let a mere OBSERVER manufacture a false `EQUIVOCATED`
+state against an offer that was never actually double-signed — fixed by
+re-keying on `contentDigest` (a content-derived hash, not `signature`)
+instead. **Property M** — reproduced directly against real Postgres:
+concurrent identical-fact ingestion used to leak a raw, uncaught
+`PrismaClientKnownRequestError`; fixed by relying on the database's own
+atomic uniqueness check (no lock, no serialization) rather than a racy
+application-level pre-check. **Property P** — reproduced directly: a
+node that observes a lower revision AFTER a higher one was itself
+rejecting that lower revision as "stale," silently losing equivocation
+evidence a node observing the same facts in a different order would
+have retained; decided explicitly (Option B) that all valid signed
+facts are retained regardless of arrival order, removing the
+revision-comparison rejection from `ingest()` entirely (this changes
+nothing about `getLatest()`'s own CURRENT-STATE selection). **Property
+N** — corrected every ADR statement conflating fact-identity
+deduplication with revision-number comparison (§3/§4/§21/§22), without
+designing the not-yet-authorized gossip mechanism itself. The Seventh
+Pass then closed the cross-implementation signature-semantics question
+directly: **Property Q** — confirmed, by reading `tweetnacl`'s source
+and RFC 8032 §5.1.7's own text, that `tweetnacl` never enforces the
+spec's required `0 <= S < L` bound; fixed by having Sails's own
+`verifyOfferEnvelope()` reject a non-canonical `(R, S)` or public key
+outright, before `contentDigest`-based identity logic ever runs — no new
+crypto library, a pure range check in front of the unmodified verifier.
+**Property R** — corrected an over-claim that storage cost was "bounded
+by cryptography"; authenticity bounds WHO can sign, never HOW MANY
+facts — the owner-history-growth/Sybil-amplification residual is now
+named and deferred to a later Gate, not solved or hidden. **Property S**
+— confirmed by direct real-Postgres reproduction that `ingest()`'s own
+`equivocationDetected` hint can be missed by both concurrent callers in
+a genuine race, while `getLatest()`/the stored fact set remain always
+correct; documented as advisory, not hardened with new locking. All
+nineteen properties named across five correction passes (A-S, with I
+retracted rather than fixed) are now in their evidenced final state —
+tested (80 unit tests, 9 real-Postgres integration tests, including real
+`Promise.all` concurrency evidence for both Property M and Property S),
+zero regression. Full evidence, including every prior pass preserved as
+history: `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`. Still proves Offer
+portability/authenticity only — no propagation, no second node, no
+network claim of any kind, and NOT general distributed consensus: the
+convergence property demonstrated here is "the same eventual facts
+produce the same eventual interpretation" for THIS bounded object model,
+not a claim that arbitrary distributed disagreement is solved. Do not
+begin (b) before its
+own CTO Gate.
 **(b) Persistent node identity** — a stable operational node keypair
 across ordinary restarts (§7), closing the confirmed current gap
 (ephemeral, per-session `peerId`) this ADR's own gossip model (§4)
@@ -829,7 +1189,8 @@ session/interaction-scoped transport identity (§7.1) — **added
 step (e) below has no real mechanism to connect the discovering buyer
 to the actual offer owner.
 **(d) Propagation/bootstrap** — bootstrap peer list, flood-gossip with
-revision-dedup (§4/§6), building on (b)'s now-stable node identity.
+fact-identity dedup, not revision-number dedup (§4/§6, corrected
+2026-09-09 Sixth Pass), building on (b)'s now-stable node identity.
 **(e) Multi-node discovery/convergence** — highest-revision-wins
 verification at the receiving node (§5), feeding into the existing
 local `Offer` table.
@@ -906,8 +1267,11 @@ D/hybrid propagation (Alternatives section).
 - *Coupling:* couples node operation to maintaining peer connections —
   already true today for Pears' existing chat/negotiation use, not a
   new class of coupling.
-- *Operational cost:* bandwidth for relaying (bounded by revision-
-  dedup, §4 — a node never relays the same revision twice).
+- *Operational cost:* bandwidth for relaying (bounded by fact-identity
+  dedup, §4 — corrected 2026-09-09, Sixth Pass: a node never re-relays
+  the same signed fact twice; it is not bounded by revision number
+  alone, since a genuinely new fact at a previously-seen revision must
+  still be relayed, Property P).
 - *Privacy cost:* addressed in §12 (offer visibility broadens, private
   trade content does not).
 - *Attack surface:* flooding/spam (named, §14 threat table, not solved
@@ -915,9 +1279,9 @@ D/hybrid propagation (Alternatives section).
   only waste bandwidth).
 - **COBRA Check:** does not touch settlement/escrow/authority — a
   discovery-layer mechanism only.
-- **Rube Goldberg Check:** passes — flood-gossip with revision-dedup is
-  a standard, minimal pattern for this exact problem class, not a
-  bespoke invention.
+- **Rube Goldberg Check:** passes — flood-gossip with fact-identity
+  dedup is a standard, minimal pattern for this exact problem class, not
+  a bespoke invention.
 
 ## 23. Claims not yet demonstrated (discipline, restated)
 

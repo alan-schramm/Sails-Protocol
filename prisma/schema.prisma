@@ -175,6 +175,153 @@ model Offer {
   @@map("offers")
 }
 
+enum OfferEnvelopeStatus {
+  ACTIVE
+  CANCELLED
+}
+
+// ADR-001 Day-0 Multi-Operator Sails Network, Implementation Sequence
+// step (a) "Portable Signed Offers" (docs/adr/ADR-001-day0-multi-operator-network.md
+// §3/§21, docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md). A signed, portable,
+// independently-verifiable economic advertisement — deliberately
+// separate from `Offer` above, which remains this node's own local
+// OpenLiquidity bookkeeping, completely untouched by this model (zero
+// breaking change to any existing route, service, or SDK surface).
+//
+// Append-only: one row per distinct, independently-verified signed fact
+// ever received — never updated or overwritten
+// (`offer-envelope-repository.ts`'s `ingest()` only ever creates new
+// rows). Rows are scoped to **offer identity**, the pair
+// `(ownerPublicKey, logicalOfferId)` — never a bare `logicalOfferId`,
+// which is only ever creator-local and does not by itself name a unique
+// offer (ADR-001 §3, Property H). Multiple distinct rows MAY legitimately
+// share the identical `(ownerPublicKey, logicalOfferId, revision)` when
+// the owner equivocates (signs two different facts at the same
+// revision) — `contentDigest` (a hash of the canonical content,
+// excluding `signature`) is what distinguishes genuinely distinct signed
+// facts from a mere resend of an already-known one (Property O); `revision`
+// itself determines ordering only, never deduplication (Property N).
+// `getLatest()` determines the CURRENT economic state by finding the
+// highest `revision` for the full offer identity and, if more than one
+// distinct fact exists at that revision, fails CLOSED and reports
+// `EQUIVOCATED` rather than picking one arbitrarily (Property J). This
+// table is a local, non-authoritative cache of independently-verified
+// facts — not itself protocol truth. Any conformant node re-derives the
+// exact same accept/reject verdict from the same raw envelope fields
+// (`offer-envelope.ts`'s `verifyOfferEnvelope()`) — this row never
+// stores a bare "trusted" boolean; `signature` is always the real,
+// re-verifiable Ed25519 signature, not a cached verdict.
+model OfferEnvelope {
+  id             String              @id @default(uuid())
+  logicalOfferId String
+  ownerPublicKey String
+  asset          AssetType
+  side           TradeSide
+  priceUsd       Decimal             @db.Decimal(24, 8)
+  minAmount      Decimal             @db.Decimal(24, 8)
+  maxAmount      Decimal             @db.Decimal(24, 8)
+  paymentMethod  PaymentMethod
+  // Owner-chosen per offer identity (ownerPublicKey + logicalOfferId,
+  // Property H) — determines CURRENT-STATE ordering only
+  // (`OfferEnvelopeRepository.getLatest()` selects the highest
+  // `revision`'s row(s) as current). CTO Gate correction (2026-09-09,
+  // Sixth Pass, Property P): `revision` does NOT determine what gets
+  // STORED — a genuinely new signed fact at a revision lower than one
+  // already stored is still retained as historical/equivocation
+  // evidence, never discarded as "stale" (Option B, see
+  // `docs/PORTABLE_SIGNED_OFFERS_EVIDENCE.md`'s Sixth Pass section for
+  // the full property-vs-mechanism evaluation). Two DIFFERENT rows may
+  // legitimately share the same (ownerPublicKey, logicalOfferId,
+  // revision) — that is owner equivocation (Property J), not a schema
+  // bug.
+  revision       Int
+  // Owner-supplied, advisory only — never used for cross-node ordering
+  // (that's `revision`'s job, precisely because wall-clock time isn't
+  // trusted across independently-operated nodes, ADR-001 §3).
+  createdAt      DateTime
+  revisedAt      DateTime
+  // Self-enforcing: any verifier checks this against its own clock:
+  // no action or central authority is needed to "expire" an offer
+  // (ADR-001 §2/§3).
+  expiresAt      DateTime
+  // CANCELLED is a signed tombstone at a higher revision, not a row
+  // deletion — cancellation is portable via the exact same
+  // signature/revision mechanism as any other update (ADR-001 §3).
+  status         OfferEnvelopeStatus @default(ACTIVE)
+  // Ed25519 signature hex, over the sha256 digest of this envelope's
+  // own canonical serialization (`hashOfferEnvelope()`) — verifiable by
+  // any party holding `ownerPublicKey`, independent of this node's own
+  // database integrity.
+  signature      String
+  // CTO Gate correction (2026-09-09, Sixth Pass, Property O): a
+  // content-derived identity for this signed fact, independent of
+  // `signature`. Confirmed directly (a controlled test against the real
+  // `tweetnacl` verifier, not a guess): Ed25519 signatures are
+  // malleable — given one valid signature (R, S) over a message, a
+  // SECOND, byte-different signature (R, S + L, where L is the Ed25519
+  // group order) verifies successfully against the IDENTICAL message
+  // and public key, with NO knowledge of the secret key required.
+  // `signature` is therefore NOT a sound identity for deduplication or
+  // equivocation detection — a mere observer (not even the offer's
+  // owner) could otherwise manufacture an apparently-new "conflicting"
+  // signature over content that was never actually double-signed,
+  // falsely triggering EQUIVOCATED (a fail-closed, economically-inert
+  // state) as a griefing vector. `contentDigest` is `hashOfferEnvelope()`'s
+  // sha256 hex digest of the canonical serialization — a pure function
+  // of the signed CONTENT fields only, excluding `signature` itself —
+  // and is what `ingest()`/`getLatest()` now use to distinguish "the
+  // same fact, differently encoded" (idempotent) from "a genuinely
+  // different signed fact" (equivocation). `signature` remains stored
+  // in full and is still what every verification re-checks — it is
+  // demoted from "identity" to "authorization evidence," not removed.
+  contentDigest  String
+  // Local bookkeeping only — when THIS node first verified and stored
+  // this envelope. Never protocol truth, never used in verification.
+  receivedAt     DateTime            @default(now())
+  moduleId       String              @default("openliquidity")
+  protocolVersion String             @default("0.1")
+
+  // CTO Gate correction (2026-09-09), Property H: the economic offer
+  // identity is the PAIR (ownerPublicKey, logicalOfferId), never
+  // `logicalOfferId` alone. `logicalOfferId` is only ever creator-local
+  // — two different owners choosing the identical string are two
+  // completely distinct economic objects, not competing claims over
+  // one. Revision uniqueness (and therefore current-state selection,
+  // §5) is scoped to the owner+logicalOfferId pair, so two owners can
+  // never race over, block, or supersede each other's offer regardless
+  // of which one this node observes first.
+  //
+  // CTO Gate correction (2026-09-09), Property J/O: `contentDigest` —
+  // not `signature` (Property O found signature unsound for this,
+  // above) — is part of this uniqueness key, not just the three
+  // identity/ordering fields above. This is deliberate, not an
+  // oversight — it is what makes owner EQUIVOCATION observable rather
+  // than silently discarded: if the same owner signs two genuinely
+  // different envelopes at the identical (ownerPublicKey,
+  // logicalOfferId, revision) — a real, if adversarial, possibility
+  // this schema does not prevent at the crypto layer — both are
+  // durably stored as two distinct rows. A uniqueness constraint on the
+  // three identity/ordering columns ALONE would silently make "the
+  // second conflicting fact cannot be stored" into "the second
+  // conflicting fact did not exist" — exactly the failure mode this
+  // correction closes. This same constraint also closes Property M
+  // (concurrent identical-fact ingestion): `ingest()` relies on this
+  // constraint firing atomically at the database level — not a racy
+  // application-level pre-check — to make concurrent resends of the
+  // identical fact idempotent rather than double-inserted or
+  // exception-leaking. `OfferEnvelopeRepository.getLatest()` is what
+  // detects and surfaces conflicting content as EQUIVOCATED; this table
+  // itself makes no attempt to pick a winner.
+  // Named explicitly (`map:`) — Prisma's auto-generated name for this
+  // four-column constraint exceeds Postgres's 63-byte identifier limit
+  // (NAMEDATALEN) and would be silently truncated, risking a name
+  // Prisma's own migration tooling doesn't recognize.
+  @@unique([ownerPublicKey, logicalOfferId, revision, contentDigest], map: "offer_envelopes_identity_revision_digest_key")
+  @@index([logicalOfferId])
+  @@index([ownerPublicKey])
+  @@map("offer_envelopes")
+}
+
 model Trade {
   id              String      @id @default(uuid())
   offerId         String
