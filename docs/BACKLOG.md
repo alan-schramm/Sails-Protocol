@@ -1387,7 +1387,9 @@ four are preserved below in the order they were registered:
 2. **The Implementation Sequence itself (ADR-001 §21, updated
    2026-09-09 twice — first to insert two new Day-0 identity/binding
    items, then to insert two new Day-0 economics items)** — (a)
-   portable signed Offers, (b) persistent node identity, (c) Economic
+   portable signed Offers, (b) persistent Participant Transport
+   Identity (corrected naming, 2026-09-09, CTO Gate — see item 4/5
+   below; not Operational Sails Node Identity), (c) Economic
    Identity ↔ Transport Identity Binding, (d) propagation/bootstrap,
    (e) multi-node discovery/convergence, (f) cross-node trade
    coordination, (g) pagination/discovery-scaling wiring, (h)
@@ -1422,13 +1424,22 @@ represented anywhere in this repository:
    explicitly not chosen (a real cryptographic design decision);
    explicitly forbidden: reusing `User.publicKey` directly as the Pears
    transport key.
-4. **Persistent Node Identity (ADR-001 §7).** `"A Sails Node
+4. **Persistent Node Identity (ADR-001 §7) — corrected, 2026-09-09, CTO
+   Gate, final institutional precision pass.** `"A Sails Node
    participating in network discovery must have a stable operational
-   identity across ordinary restarts."` Today's node-level identity
+   identity across ordinary restarts."` ~~Today's node-level identity
    (HyperDHT's ephemeral, per-session `peerId`) is classified as a
-   **current implementation gap against the accepted Day-0
-   architecture**, not a future nicety — the ADR's own gossip model
-   (§4) depends on stable peer relationships surviving restarts.
+   current implementation gap against the accepted Day-0 architecture,
+   not a future nicety — the ADR's own gossip model (§4) depends on
+   stable peer relationships surviving restarts.~~ **Corrected:** this
+   artifact is **Participant Transport Identity** (B), scoped per
+   participant, not an operator/deployment-level identity — see item 5
+   below and `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5 for the full
+   A/B/C/D taxonomy. §4's gossip-relay model needs **Operational Sails
+   Node Identity (C)**, which does not exist and is not closed by
+   persisting B. Classified as a current implementation gap against the
+   accepted Day-0 architecture for the participant-to-participant
+   property only, not a future nicety.
 
 **Updated again, 2026-09-09 (CTO Gate, Fase 2-5/9) — Node Contribution
 Accounting and Incentive Compatibility, classified before registering:**
@@ -1488,3 +1499,380 @@ new obligations (settlement-release signatures; the ordered
 implementation sequence), everything else confirmed already covered.
 No new Norte macrofront. Norte remains 38.
 
+
+
+---
+
+## Day-0 Completeness Cold Sweep — network continuity beyond the happy path (2026-09-09)
+
+**Source:** `docs/DAY0_COMPLETENESS_COLD_SWEEP.md`.
+
+**Type:** Day-0 architecture completeness + Partner Beta/Production Reality.
+**Status:** obligations registered, implementation not authorized by this entry.
+**Norte:** no new macrofront; this composes existing OpenP2P, OpenLiquidity,
+Transport/Interoperability, OpenIdentity, Economics, Security, DX and
+Production Readiness fronts.
+
+This pass deliberately starts **after** ADR-001's accepted signed-offer
+gossip decision and asks whether a network that works on a clean, live
+happy path can still fragment or become operationally centralized over
+time.
+
+Preserved:
+
+> **Node choice must not define market membership.**
+
+> **Liquidity should be network-level; node operation should be service-level.**
+
+> **Sails Protocol ≠ Sails Node.**
+
+### New completeness obligations
+
+1. **Gossip catch-up / anti-entropy / partition healing — Day-0.**
+   Newly-connected or returning nodes must converge toward current
+   active offers and higher revisions/tombstones that were published
+   while they were absent. New-event flood-gossip alone is insufficient
+   evidence for late join or partition healing.
+
+2. **Stale-resurrection-safe revision retention — Day-0.**
+   Garbage collection must never allow an older signed `ACTIVE`
+   revision to become valid again after a higher revision/cancellation
+   was accepted. Nodes may compact state but must retain enough monotonic
+   knowledge to reject stale resurrection.
+
+3. **Self-authenticating Node Descriptor / operator advertisement —
+   Day-0.** A node must be able to disclose, without a central registry
+   becoming authority: stable node identity; reachable transport/
+   endpoint information; supported protocol/wire version range;
+   relevant enabled capabilities; settlement rails plus disclosed
+   maturity/custody labels; applicable fee/policy information; descriptor
+   freshness/expiry; descriptor authenticity. Optional human metadata
+   never becomes protocol authority.
+
+4. **Protocol/wire compatibility negotiation — Day-0.**
+   Live nodes must determine whether they can safely exchange economic
+   objects before doing so, and fail clearly on incompatible semantics.
+   **Wire-version compatibility ≠ Independent Implementation
+   Conformance**; both are required and remain distinct.
+
+5. **Node identity lifecycle + operator-recipient separation —
+   Day-0/Production.** Preserve, precisely, four protocol/semantic
+   cardinalities, not their current TypeScript/database identifiers
+   (**corrected, 2026-09-09, CTO Gate, final institutional precision
+   pass** — full taxonomy, implementation-neutral:
+   `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5): **A. Participant
+   Economic Identity** (protocol concept; today represented by
+   `User.publicKey` — a reference-implementation fact, not a protocol
+   format) ≠ **B. Participant Transport Identity** (protocol concept;
+   today represented by a per-participant `peerId` associated locally
+   through `ownerUserId` over Pears/HyperDHT — none of `peerId`,
+   `ownerUserId`, or Pears/HyperDHT is a mandatory protocol format; this
+   is what "persistent node identity" elsewhere in this repository
+   actually refers to; not C) ≠ **C. Operational Sails Node Identity**
+   (the operator/deployment's own running-node identity, used for
+   gossip trust and a future Node Descriptor; no reference
+   implementation exists today) ≠ **D. Operator Economic Recipient**
+   (entitled to Node Contribution Accounting; no reference
+   implementation exists today). **C does not determine D**: one
+   operator may run several C instances, but node cardinality does not
+   by itself fix how many economic recipients (D) that operator has —
+   that is a policy choice, not a fact derivable from C; C may rotate or
+   be rebuilt without automatically redefining D's entitlement, and D's
+   own policy must not grant C's operational authority. **C and D must
+   not be assumed to use the same key; no recipient model, no C↔D
+   mapping, and no new operator-identity primitive, is authorized by
+   this registration.** Once C exists, its own lifecycle (backup/
+   recovery, compromise/rotation/replacement, superseded-key distrust)
+   is required before production.
+
+6. **Eclipse / peer-diversity / selective-forwarding resilience —
+   Day-0 evidence obligation.** One malicious bootstrap peer, relay set,
+   or operator must not be sufficient to define an otherwise conformant
+   node's market view. Evidence must exercise alternate honest paths,
+   bootstrap diversity, peer rotation/reconnection, and isolation
+   attempts. This is not a claim of perfect censorship resistance.
+
+7. **Gossip resource bounds / abuse containment — Day-0.**
+   Valid signatures do not make traffic economically valid. The network
+   must bound CPU/memory/storage/bandwidth cost from envelope size,
+   ingress rate, duplicate/revision caches, tombstones, malformed
+   messages, signature-verification amplification, peer count and
+   backpressure without requiring central permission for honest users.
+   Formal Sybil resistance remains separately tracked.
+
+8. **Clock / expiry operational correctness — Production Readiness.**
+   `expiresAt` depends on local time even though revisions do not.
+   Production node operation must define bounded clock-health behavior
+   so clock error does not silently create materially different offer
+   availability across otherwise conformant nodes.
+
+9. **Node failover / migration without economic amnesia —
+   Partner Beta/Production evidence.** Changing the node used by a
+   wallet must not inherently erase participant identity, signed trade
+   anchors, portable evidence, historical rights, or access to network
+   liquidity. Local policy/score may differ; signed economic facts may
+   not be redefined.
+
+10. **Independent Node Operator No-Assistance Test — Day-0.**
+    A competent third-party operator must be able to deploy, configure,
+    join, observe, upgrade, back up, recover and safely stop a conformant
+    Sails Node using only public artifacts/documentation. This is the
+    node-side counterpart to the existing Stranger Developer Test.
+
+11. **Service-integration durable event consumption — Public
+    Production.** Outbound webhooks remain explicitly deferred past the
+    first beta and are **not forgotten**. Before public production, a
+    backend/service integrator needs a documented recoverable way to
+    consume economically relevant state changes without depending on an
+    unbounded best-effort WebSocket session. Webhooks, resumable event
+    consumption, durable cursors or bounded polling are possible
+    mechanisms; none is selected here.
+
+### New adversarial evidence obligations
+
+Add to the Day-0/Production evidence program:
+
+- Late Join Test
+- Partition Heal Test
+- Tombstone Resurrection Test
+- Malicious Selective Forwarding Test
+- Eclipse / Bootstrap Diversity Test
+- Node Descriptor Authenticity + Staleness Test
+- Wire-Version Mismatch Test
+- Node-Key Rotation / Compromise Test
+- Node Switch / Economic Continuity Test
+- Gossip Resource-Exhaustion Test
+- Clock-Skew / Offer-Expiry Test
+- Independent Node Operator No-Assistance Test
+
+These extend, not replace, ADR-001's stranger-node,
+stranger-developer and first independent partner-wallet tests.
+
+### Explicitly checked and NOT duplicated
+
+Already institutionally represented before this pass:
+shared-market invariant, signed Offers, persistent **participant
+transport identity** (scoped per participant — not Operational Sails
+Node Identity, item 5's own precision above), Economic Identity ↔
+Transport Identity binding, bootstrap/peer exchange,
+cross-node trade handshake, capability/rail discovery, professional
+provider flow, restart/resume, node contribution accounting,
+no-cannibalization evidence, node selection UX, privacy separation,
+Partner Beta Readiness, stranger developer, stranger node, partner
+wallet evidence, node economics, Production Readiness, Sybil/spam risk,
+protocol-version compatibility as an evidence category, and node
+failover/migration as an evidence category.
+
+This pass turns several of those broad categories into falsifiable
+Day-0 completeness properties without counting the same obligation
+twice.
+
+### Claim boundary
+
+Until these properties are evidenced, a happy-path two-node demo does
+**not** demonstrate: durable shared liquidity, late-join convergence,
+seamless node switching, practical permissionless node operation,
+censorship resistance, or production-grade decentralized operation.
+
+Classification: **BACKLOG DELTA DETECTED AND SYNCED.**
+
+Operational tracker: **Issue #105 — [Day-0] Multi-Operator Network + Partner Beta Completion Gate**.
+
+
+### Cold Sweep Loop 2 — exact economic binding (2026-09-09)
+
+A second pass over the already-accepted OfferEnvelope + trade-open design
+found two further Day-0 precision gaps.
+
+12. **Signed rail/network semantics — Day-0.**
+    The portable Offer signature must commit to every field whose value
+    can change economic interpretation. `asset` alone is not sufficient
+    for Sails' multi-rail direction where one asset family may exist on
+    multiple networks. Preserve:
+    **Asset identity ≠ Network identity ≠ Settlement-provider identity.**
+    The signed canonical representation must include the canonical
+    network/rail semantics whenever the asset identifier alone is
+    insufficient. Exact vocabulary remains a separate compatibility
+    decision; no new universal identifier is invented here.
+
+13. **Trade-open exact revision/terms commitment + replay safety —
+    Day-0.** The jointly-signed trade-open anchor must not commit merely
+    to `logicalOfferId + tradeId`; it must prove both parties accepted
+    one exact economic proposal. Directly or through a canonical
+    OfferEnvelope hash, the commitment must bind the accepted revision,
+    amount, price/quote, asset, network/rail semantics, required
+    payment-method semantics, and the mutually-derived tradeId, with
+    replay/idempotency protection sufficient to prevent one acceptance
+    from creating multiple logical trades.
+
+    Preserved:
+    **Offer Identity ≠ Accepted Offer Revision.**
+    **Trade ID ≠ Economic Terms.**
+
+14. **Concurrent acceptance / double-commit evidence — Day-0.**
+    Extend the already-registered professional-provider inventory
+    reservation obligation to the multi-node case: two buyers racing the
+    same single-fill/limited-inventory Offer through different nodes or
+    devices must not create more mutually exclusive commitments than the
+    owner's signed availability permits. Required evidence includes stale
+    revision attempts, duplicate/replayed trade-open handshakes and
+    owner-node migration during a race. No global lock service is
+    authorized.
+
+These are sub-obligations of the same Day-0 completeness sweep, not new
+macrofronts.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
+
+
+### Cold Sweep Loop 3 — real-money agreement + dispute authority (2026-09-09)
+
+A third pass traced a cross-node trade through fiat payment, settlement
+selection, fee binding and dispute resolution. Four further Day-0
+properties are now explicit:
+
+15. **Exact fiat obligation + payment-destination commitment — Day-0.**
+    Before fiat payment becomes binding, both parties must be able to
+    verify the exact fiat amount, fiat currency, payment method and
+    committed payment-destination identity/reference. Raw PIX/bank
+    details must not need to become public gossip merely to be
+    verifiable. Any post-commit instruction change requires explicit
+    authenticated amendment; chat text alone cannot redefine the
+    obligation.
+
+    Preserve:
+    **Payment destination commitment ≠ Public payment destination.**
+    **Chat Instruction ≠ Economic Authority.**
+    **Payment Method ≠ Payment Destination.**
+
+16. **Settlement contract / custody semantics binding — Day-0.**
+    The trade/escrow agreement must bind the actual settlement mechanism
+    accepted by the parties: selected EscrowType/provider capability,
+    network/rail, asset, custody posture, signer/approval requirements,
+    relevant finality/confirmation policy and required refund/dispute
+    semantics. A node may not silently substitute a different settlement
+    mechanism after economic commitment.
+
+    Preserve:
+    **Interface uniformity ≠ Security uniformity.**
+
+17. **Fee/policy commitment before economic commitment — Day-0.**
+    Every participant-facing fee obligation must be disclosed and frozen
+    before commitment, including payer, economic basis and applicable
+    policy/version. Policy/node rotation after trade-open must not
+    retroactively change the agreed obligation.
+
+    Preserve:
+    **Fee discovery ≠ Fee obligation.**
+    **Verified contribution ≠ Fee entitlement.**
+
+18. **Cross-node dispute/arbitration authority — Day-0 blocker.**
+    Current dispute/arbitration selection is deployment-local. In a
+    multi-operator trade, whichever node receives `raiseDispute()` must
+    not gain authority to choose the governing arbiter/policy after the
+    fact. Arbitration authority, applicable policy and appeal semantics
+    must be established by the trade/settlement agreement and be
+    independently verifiable by both sides. Evidence/rulings must remain
+    usable if one party's node disappears.
+
+    Preserve:
+    **Dispute Hosting Node ≠ Arbitration Authority.**
+    **Arbitration Policy ≠ Node Local Configuration once a trade is committed.**
+    **Ruling Attribution ≠ Funds Authority.**
+
+New evidence cases:
+Fiat Amount/Currency Binding; Payment-Destination Substitution;
+Post-Commit Payment-Instruction Change; Settlement-Provider
+Substitution; Fee-Policy Rotation/Hidden Fee; Cross-Node Arbitration
+Policy Mismatch; Dispute Hosting-Node Failover; Appeal-Round Cross-Node
+Consistency.
+
+These are sub-obligations of the existing Day-0 Completion Gate / Issue
+#105 and must not be split into parallel marketplaces, node-local truth,
+or hidden operational conventions.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
+
+
+### Cold Sweep Loop 4 — current public Offer privacy defect (2026-09-09)
+
+19. **Public OfferDetail privacy projection — CURRENT DEFECT / Partner
+    Beta blocker.** Registered as `docs/TECHNICAL_DEBT_AUDIT.md #61`.
+    The unauthenticated `GET /v1/liquidity/offers/:id` currently
+    returns the raw persisted Offer (including `paymentDetails`) plus
+    a broad User projection. This violates the already-established
+    public-read discipline used elsewhere in the repository.
+
+    Required property:
+    **Public Offer View ≠ Raw Offer Row.**
+    **Offer Discovery Data ≠ Payment Execution Data.**
+    **Payment Destination Commitment ≠ Public Payment Destination.**
+
+    Must close before Partner Beta: purpose-built public projection,
+    no raw payment-instruction disclosure, justified participant fields,
+    and proof that the actual two trade parties still receive/verify the
+    committed payment instruction through the authorized pairwise path.
+
+    Cross-node rule: the ADR-001 OfferEnvelope must continue excluding
+    private `paymentDetails`; gossip must never serialize the current
+    raw DB row by convenience.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
+
+
+### Cold Sweep Loop 5 — Partner Beta Asset/Rail Scope Gate (2026-09-09)
+
+20. **Partner Beta Asset/Rail Scope Gate — beta-launch obligation.**
+    README strategic coverage already names USDT, USDC, BTC, LBTC,
+    L-USDT, DePix, Tether Gold and RGB assets as “in view,” correctly
+    without claiming support. Current `AssetType` is materially
+    narrower and does not contain DePix, USDC or Tether Gold.
+
+    Required property:
+    the first partner beta must publish an explicit
+    **Asset × Network/Rail × Wallet Adapter × Settlement Capability ×
+    Maturity** matrix, and every advertised beta flow must be
+    representable end-to-end by the real SDK/schema/provider combination.
+
+    Preserve:
+    **Roadmap Asset ≠ SDK-Representable Asset ≠ Settlement-Supported Asset
+    ≠ Beta-Enabled Asset.**
+
+    If DePix is promised in the first partner beta, its current absence
+    from `AssetType` and the absence of a production-eligible
+    Liquid/DePix settlement path are blockers to that scope. If the beta
+    is explicitly narrower (for example BTC-only or bounded BTC+USDT),
+    DePix does not block the narrower evidence gate.
+
+21. **Canonical quote-currency discoverability — conditional Day-0
+    blocker for multi-fiat beta.** Aggregate `LiquidityOffer` exposes
+    `priceUsd`; persisted Offer has optional `priceBrl`; Intent has
+    optional `currency`. For any beta supporting more than one fiat
+    quote denomination, the market pair/currency must be explicit and
+    never inferred from node, locale, payment method or geography.
+
+Required evidence:
+Beta Asset/Rail Matrix Truth Test; Unsupported Asset Fail-Closed Test;
+DePix End-to-End Representability Test if DePix is in beta scope;
+Multi-Fiat Quote-Currency Disambiguation Test when multi-fiat is enabled.
+
+Operational tracker remains Issue #105.
+
+**Counting precision (2026-09-09, CTO Gate, final institutional
+precision pass):** the sequential numbering used across this entry
+(items 1-21) and mirrored into Issue #105 (items 1-41 including the
+pre-existing ordered path) is an **operational/sequential item count,
+not a canonical count of distinct institutional obligations.** Several
+numbered items are evidence cases, sub-properties, or required tests
+for the same underlying property rather than independent obligations.
+**Issue item count ≠ distinct institutional obligation count.** BACKLOG
+DELTA is stated qualitatively above, by named property/category
+(anti-entropy, tombstone retention, node descriptor, wire compatibility,
+identity lifecycle, eclipse resilience, resource bounds, clock health,
+node switch, operator self-service, durable event consumption, exact
+economic/fiat/settlement/fee/dispute binding, and the confirmed #61
+privacy defect) — no aggregate numeric total is asserted as a canonical
+count, since no canonical counting model for "one institutional
+obligation" is defined anywhere in this repository.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**

@@ -551,15 +551,40 @@ no central bootstrap registry exists or is proposed.
 > terms (§2/§3 remain participant-signed, exclusively).
 
 **Current implementation gap, classified explicitly against the
-accepted Day-0 architecture (not a future nicety):** today's node-level
-keypair is HyperDHT's per-session, ephemeral `peerId` (confirmed,
-`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`) — regenerated on every
-restart, satisfying neither the frozen property above nor this ADR's
-own reliance (§4, gossip relay/dedup) on stable peer relationships
-surviving ordinary restarts. **This is registered as a Day-0
-implementation obligation (§21), not a beta-hardening nicety** — a
+accepted Day-0 architecture (not a future nicety):** ~~today's
+node-level keypair is HyperDHT's per-session, ephemeral `peerId`,
+regenerated on every restart, satisfying neither the frozen property
+above nor this ADR's own reliance (§4, gossip relay/dedup) on stable
+peer relationships surviving ordinary restarts. This is registered as a
+Day-0 implementation obligation (§21), not a beta-hardening nicety — a
 node whose peer identity changes on every restart cannot maintain the
-gossip peer relationships §4's own propagation model depends on.
+gossip peer relationships §4's own propagation model depends on.~~
+(confirmed, `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`, at the time this
+paragraph was written)
+
+**Correction (2026-09-09, CTO Gate, final institutional precision
+pass) — two conflations fixed, current truth stated precisely:** the
+struck-through text (1) called this artifact a "node-level keypair,"
+inviting the reading that it is the operator/deployment-level identity
+§4/§16 separately require, and (2) claimed its persistence is what
+§4's gossip-relay peer model "depends on." Neither is accurate. This
+artifact is **Participant Transport Identity** — scoped per participant
+(`ownerUserId`), not per operator/deployment — see
+`docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5 for the full four-way
+taxonomy (Participant Economic Identity / Participant Transport
+Identity / Operational Sails Node Identity / Operator Economic
+Recipient) this correction preserves. §4's gossip-relay peer network is
+a **Sails Node operator-to-operator** relationship, which requires
+Operational Sails Node Identity — an identity that **does not exist in
+this codebase today** (confirmed by direct code/schema search; no
+model, keypair, or code path represents an operator/deployment entity
+distinct from its hosted participants). Persisting Participant Transport
+Identity (§21(b)) closes the participant-to-participant restart-stability
+gap only; it does not, and structurally cannot, make any gossip-relay
+peer relationship stable. This is registered as a Day-0 implementation
+obligation (§21(b) for Participant Transport Identity; §26.2/§26.3 for
+the still-undesigned Operational Sails Node Identity), not a
+beta-hardening nicety.
 
 **Sybil resistance: explicitly not promised, per instruction.** No
 strong Sybil-resistance mechanism is designed here, because none is
@@ -1178,10 +1203,17 @@ produce the same eventual interpretation" for THIS bounded object model,
 not a claim that arbitrary distributed disagreement is solved. Do not
 begin (b) before its
 own CTO Gate.
-**(b) Persistent node identity** — a stable operational node keypair
-across ordinary restarts (§7), closing the confirmed current gap
-(ephemeral, per-session `peerId`) this ADR's own gossip model (§4)
-depends on.
+**(b) Persistent Participant Transport Identity** — ~~a stable
+operational node keypair across ordinary restarts (§7), closing the
+confirmed current gap (ephemeral, per-session `peerId`) this ADR's own
+gossip model (§4) depends on~~. **Corrected (2026-09-09, CTO Gate,
+final institutional precision pass):** a stable, per-participant
+transport identity across ordinary restarts (§7), closing the confirmed
+current gap (ephemeral, per-session `peerId`) for participant-to-
+participant direct communication. **Does not** close §4's gossip-relay
+model, which needs Operational Sails Node Identity (§26.2/§26.3,
+`docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5) — a distinct, still-
+undesigned identity this step does not produce.
 **(c) Economic Identity ↔ Transport Identity Binding** — the
 participant-signed statement binding `User.publicKey` to a
 session/interaction-scoped transport identity (§7.1) — **added
@@ -1339,3 +1371,357 @@ sequence" obligation twice. Checked against `docs/PROTOCOL_ECONOMY.md`
 §4.2 — no duplication: that section's own Node Operator Pool/routing-
 fee content is the future payout-*rollout* layer; §21(j)/(k) are the
 Day-0 accounting/entitlement-*capability* layer underneath it.
+
+
+## 26. Day-0 Completeness Cold Sweep — implementation consequence (2026-09-09)
+
+**This section does not change the accepted topology decision.** Signed
+Offer envelopes + direct node-to-node gossip remain the Day-0
+architecture. It corrects a completeness omission in §21: a clean
+happy-path propagation flow is not enough to demonstrate one durable
+economic market across time, failure and adversarial network
+conditions.
+
+Full evidence/registration:
+`docs/DAY0_COMPLETENESS_COLD_SWEEP.md`.
+
+The §21 implementation sequence is therefore interpreted as requiring
+the following additional properties before the corresponding evidence
+gates can pass:
+
+### 26.1 Propagation completeness
+
+§21(d)/(e) **Propagation/bootstrap + discovery/convergence** are not
+complete until they also demonstrate:
+
+- late-joining-node catch-up / anti-entropy;
+- partition healing;
+- delivery of revisions/tombstones created while a node was offline;
+- stale-resurrection prevention after local compaction/garbage
+  collection.
+
+> **New-event gossip ≠ Network convergence over time.**
+
+### 26.2 Node discoverability and compatibility
+
+§21(d)/(g) are not complete until a peer can self-authenticate the
+minimum information required to decide whether interaction is safe.
+**Precision (2026-09-09, CTO Gate, final institutional precision
+pass):** this is a Node Descriptor, advertised by the operator/
+deployment to other nodes — it concerns **Operational Sails Node
+Identity (C, §26.3)**, which does not exist today, not **Participant
+Transport Identity (B, §21(b))**, which does. §21(b)'s own closure does
+not satisfy this list:
+
+- Operational Sails Node Identity (C) — not yet designed, see §26.3;
+- reachable endpoint/transport information;
+- compatible protocol/wire version;
+- relevant enabled capabilities;
+- relevant settlement rails with disclosed maturity/custody posture;
+- applicable node fee/policy disclosure;
+- freshness/expiry of that advertisement.
+
+No central node registry is authorized.
+
+> **Node discoverability ≠ Node authority.**
+
+### 26.3 Node identity lifecycle
+
+**Correction (2026-09-09, CTO Gate, final institutional precision
+pass):** §21(b)'s "persistent node identity" describes **Participant
+Transport Identity (B)** — a protocol concept, not an operational
+node/deployment identity — currently represented, in this reference
+implementation only, by a `peerId` associated locally through
+`ownerUserId`. Neither `peerId` nor `ownerUserId` is a protocol format;
+a conforming implementation on a different stack needs only the
+underlying property (a stable, participant-scoped transport identity),
+not these identifiers. Calling B "node-level identity" without
+qualification invites exactly the collapse this section exists to
+prevent. See `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5 for the full
+four-way taxonomy freeze (A Participant Economic Identity / B
+Participant Transport Identity / C Operational Sails Node Identity / D
+Operator Economic Recipient), reproduced here:
+
+> **A ≠ B ≠ C ≠ D.** Participant Transport Identity (B, §21(b)) is a
+> different property from Operational Sails Node Identity (C, this
+> section) — B's persistence does not, and cannot, produce C. **C does
+> not determine D**: one operator may run several C instances, but node
+> cardinality does not by itself fix how many economic recipients (D)
+> that operator has — that is a policy choice, not a fact derivable from
+> C. A node's own operational key (C) may rotate or be rebuilt without
+> automatically redefining D's entitlement; D's own policy must not
+> grant C's operational authority. C and D must not be assumed to use
+> the same key. No canonical single term covering both C and D is
+> adopted.
+
+Before production, C — once it exists — must define bounded behavior
+for backup, loss, compromise, rotation/replacement and superseded-key
+distrust. No mechanism, no key format, no recipient model, and no
+mapping between C and D, is selected or authorized here.
+
+### 26.4 Network-view resilience
+
+§21(d)/(e) and §21(k)'s no-cannibalization evidence must include
+adversarial topology, not only honest topology:
+
+- selective forwarding;
+- one malicious bootstrap/relay peer;
+- attempted eclipse/isolation;
+- alternate honest paths;
+- peer diversity/rotation sufficient to avoid one operator defining a
+  node's entire market view.
+
+No perfect censorship-resistance claim is created.
+
+### 26.5 Resource safety
+
+A valid signature proves authorship, not economic relevance. Gossip
+implementation must have explicit, testable resource bounds for message
+size, ingress rate, duplicate/revision cache growth, tombstone
+retention, malformed messages, signature-verification amplification,
+peer count and backpressure.
+
+Formal Sybil resistance remains separately tracked exactly as §7
+already states.
+
+### 26.6 Clock-dependent expiry
+
+`revision` ordering remains clock-independent as already frozen.
+`expiresAt`, however, is evaluated against local time. Production node
+operation must therefore define a bounded clock-health expectation and
+visible degraded/fail behavior for materially incorrect clocks.
+
+No global clock or consensus-time mechanism is introduced.
+
+### 26.7 Node switching / operator independence evidence
+
+§21(i)/(l)/(n) are not complete if a wallet can technically connect to
+another node but loses its economic continuity when doing so.
+
+Evidence must establish that node switching does not inherently erase
+or redefine:
+
+- participant identity;
+- signed trade-open anchors;
+- portable evidence;
+- historical economic rights;
+- access to the same reachable liquidity universe.
+
+Local policy and locally-computed reputation scores may differ.
+
+### 26.8 Independent node-operator test
+
+Add an operator-side evidence gate alongside Stranger Node and Stranger
+Developer:
+
+> A competent independent operator, with no private Satsails assistance,
+> can deploy, configure, join, observe, upgrade, back up, recover and
+> safely stop a conformant Sails Node using only public supported
+> artifacts.
+
+This is a **Day-0 operational decentralization property**, not merely
+documentation polish.
+
+### 26.9 Production service event consumption
+
+§13's outbound-webhook deferral remains valid for the first partner beta,
+but it is not a production waiver. Before public production, a
+backend/service integrator must have a documented recoverable way to
+consume economically relevant state changes without relying on a
+best-effort WebSocket session that can lose continuity.
+
+No delivery mechanism is selected by this ADR correction.
+
+### 26.10 Added evidence cases
+
+The evidence program must now explicitly include:
+
+1. Late Join Test.
+2. Partition Heal Test.
+3. Tombstone Resurrection Test.
+4. Malicious Selective Forwarding Test.
+5. Eclipse / Bootstrap Diversity Test.
+6. Node Descriptor Authenticity / Staleness Test.
+7. Wire-Version Mismatch Test.
+8. Node-Key Rotation / Compromise Test.
+9. Node Switch / Economic Continuity Test.
+10. Gossip Resource-Exhaustion Test.
+11. Clock-Skew / Offer-Expiry Test.
+12. Independent Node Operator No-Assistance Test.
+
+These are implementation/evidence consequences of the already-accepted
+architecture, not a new topology model.
+
+**BACKLOG DELTA:** DETECTED AND SYNCED in `docs/BACKLOG.md`.
+
+
+## 27. Exact economic binding correction (2026-09-09)
+
+This correction **does not change the topology decision**. It tightens
+what the already-selected signed Offer + jointly-signed trade-open model
+must cryptographically bind.
+
+### 27.1 OfferEnvelope rail/network completeness
+
+The original §3 minimum field table listed `asset` but omitted the
+existing `Offer.network` semantic dimension. For a multi-rail protocol,
+that is too weak.
+
+Correction:
+
+> A signed OfferEnvelope must commit to the canonical network/rail
+> semantics whenever `asset` alone does not uniquely identify the
+> economic settlement domain.
+
+Preserved:
+
+> **Asset identity ≠ Network identity ≠ Settlement-provider identity.**
+
+The exact future identifier vocabulary is not selected by this
+correction. The requirement is only that two conformant implementations
+cannot verify the same Offer signature while silently interpreting the
+rail differently.
+
+### 27.2 Trade-open anchor must commit to the accepted revision/terms
+
+The original §8 shorthand described the jointly-signed trade-open
+handshake as `logicalOfferId + mutually-derived tradeId`. Read
+literally, that is insufficient: two parties could know the same logical
+offer while holding different revisions/terms.
+
+Correction:
+
+> A trade-open anchor must cryptographically commit both parties to one
+> exact economic proposal.
+
+Directly or by committing to the canonical OfferEnvelope hash, the
+joint signature must bind:
+- `logicalOfferId`;
+- exact accepted revision / OfferEnvelope hash;
+- trade amount;
+- agreed price/quote;
+- asset;
+- network/rail semantics;
+- payment-method/fiat-side semantics required for the deal;
+- mutually-derived `tradeId`;
+- replay/idempotency context sufficient to prevent one acceptance from
+  producing multiple logical trades.
+
+Preserved:
+
+> **Offer Discovery ≠ Trade Acceptance.**
+
+> **Offer Identity ≠ Accepted Offer Revision.**
+
+> **Trade ID ≠ Economic Terms.**
+
+No global Trade replication or central lock service is introduced.
+
+### 27.3 Concurrent acceptance
+
+§13/§21(h)'s local inventory-reservation obligation must be evidenced in
+the cross-node case as well: two buyers racing a single-fill or
+capacity-limited Offer through different nodes/devices must not commit
+the seller beyond the owner's signed availability.
+
+The future evidence set must include:
+- competing trade opens against one Offer;
+- stale-revision acceptance attempt;
+- duplicate/replayed trade-open handshake;
+- owner-node migration/reconnect during the race.
+
+The owner remains the authority over acceptance. This correction does
+not select a global lock mechanism.
+
+**BACKLOG DELTA:** DETECTED AND SYNCED.
+
+
+## 28. Real-money agreement and dispute-authority correction (2026-09-09)
+
+This correction preserves the accepted signed-gossip / pairwise-trade
+topology and tightens the economic commitment that §27 already began to
+formalize.
+
+### 28.1 Fiat-side obligation
+
+Before a fiat-side payment becomes binding, the jointly-verifiable
+trade agreement must freeze:
+- exact fiat denomination;
+- exact fiat amount;
+- payment method;
+- a verifiable commitment/reference to the payment destination.
+
+Raw payment details remain private/pairwise. The commitment need not
+publish the PIX key or bank account network-wide.
+
+> **Payment destination commitment ≠ Public payment destination.**
+
+> **Chat Instruction ≠ Economic Authority.**
+
+A post-commit payment-instruction change is a new authenticated economic
+amendment, never merely a chat message.
+
+### 28.2 Settlement mechanism binding
+
+§27's exact trade-open commitment must additionally bind the actual
+settlement/custody contract the parties accepted. Where applicable this
+includes the selected EscrowType/provider capability, network/rail,
+custody posture, signer/approval requirements, economically relevant
+finality policy and required refund/dispute capability.
+
+A node may not silently substitute another provider after commitment.
+
+> **Interface uniformity ≠ Security uniformity.**
+
+### 28.3 Fee/policy binding
+
+Any participant-facing fee that can become an economic obligation must
+be disclosed and frozen before commitment: payer, basis and applicable
+policy/version at minimum. Later node/policy rotation may not
+retroactively reinterpret the trade.
+
+> **Fee discovery ≠ Fee obligation.**
+
+### 28.4 Cross-node dispute authority
+
+Current implementation chooses/assigns arbitration through local
+deployment state. That behavior is not sufficient as the authority
+model for an independent multi-node trade.
+
+Frozen Day-0 property:
+
+> **Dispute Hosting Node ≠ Arbitration Authority.**
+
+The trade/settlement agreement must establish the applicable
+arbitration authority/policy and appeal semantics before funds are
+economically committed. Both sides must be able to verify the same
+authority, evidence, ruling and appeal round without treating either
+operator's private database/config as protocol truth.
+
+A node-local configuration change after trade-open cannot alter the
+already-agreed dispute authority.
+
+Preserve:
+
+> **Arbitration Policy ≠ Node Local Configuration once a trade is committed.**
+
+> **Ruling Attribution ≠ Funds Authority.**
+
+No universal arbitration model is selected by this correction. Existing
+rail-specific arbiter commitments and signed `DisputeOutcome` /
+authority evidence are reusable evidence patterns, not proof that the
+cross-node property already exists.
+
+### 28.5 §21 sequencing consequence
+
+The obligatory sequence must treat the following as part of the
+trade-open / settlement path before Stranger Node / Partner Wallet
+evidence can pass:
+
+- fiat amount/currency/payment-destination commitment;
+- settlement mechanism/custody binding;
+- fee/policy commitment;
+- cross-node arbitration-policy/authority commitment;
+- cross-node dispute evidence/ruling availability and failover.
+
+**BACKLOG DELTA:** DETECTED AND SYNCED.
