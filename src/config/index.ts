@@ -195,6 +195,15 @@ export const config = {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean),
+    // ADR-001 §21 step (b), Persistent Node Identity. Same `./data/<name>`
+    // + env-var-override convention already established for
+    // `proof.evidenceStorageDir` (evidence-provider.ts) — a plain local
+    // directory, not a cloud KMS/secret-store dependency (none is
+    // required to solve local persistence). Holds one 32-byte Ed25519
+    // seed file per node identity — see `node-identity.ts` for the
+    // read/write contract, corruption handling, and why this is never a
+    // cloud dependency by default.
+    nodeIdentityStorageDir: process.env.NODE_IDENTITY_STORAGE_DIR ?? './data/node-identity',
   },
 
   // CTO_DUE_DILIGENCE_REPORT.md B-SEC-01, closed 2026-08-08 — `origin: true`

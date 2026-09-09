@@ -30,6 +30,7 @@ import { eventBus } from '../../common/events/event-bus'
 import { prisma } from '../../common/database'
 import { config } from '../../config'
 import { childLogger } from '../../common/logger'
+import { loadOrCreateNodeIdentitySeed } from './node-identity'
 
 const log = childLogger('pear')
 
@@ -107,8 +108,8 @@ export class PearNode extends EventEmitter {
   // logging, no persistence — only the derived public peerId went to
   // Postgres), but it DID transit the network on this one call, an
   // avoidable exposure this reference implementation doesn't need: the
-  // server already runs this node, so it can generate its own ephemeral
-  // per-session identity instead of receiving one. HyperDHT.keyPair()
+  // server already runs this node, so it can generate its own
+  // identity instead of receiving one. HyperDHT.keyPair()
   // (the library's own generator, not hand-rolled) produces the exact
   // shape HyperDHT/Hyperswarm's own `keyPair` constructor option expects
   // — used directly, not sliced apart, unlike the old client-supplied
@@ -116,10 +117,29 @@ export class PearNode extends EventEmitter {
   // entirely client-side, server never involved at all) stays real,
   // separate future work — see this same TODO.md item's own note on
   // that larger design.
+  //
+  // ADR-001 §21 step (b), Persistent Node Identity (2026-09-09):
+  // previously `HyperDHT.keyPair()` was called with no argument here,
+  // generating a brand-new, unrelated keypair on every call — meaning
+  // every ordinary server restart (this class holds all state in
+  // process memory only) produced a different `peerId`, confirmed
+  // directly to violate ADR-001 §7's own frozen property ("a Sails Node
+  // participating in network discovery must have a stable operational
+  // identity across ordinary restarts"). `loadOrCreateNodeIdentitySeed()`
+  // (`node-identity.ts`) now supplies a persisted 32-byte seed — the
+  // exact input `HyperDHT.keyPair(seed)` uses for its own OFFICIAL,
+  // deterministic Ed25519 derivation (confirmed directly against
+  // `hyperdht`'s real source) — so an ordinary restart reloads the
+  // identical seed and reproduces the identical keypair. This is
+  // strictly additive to this method's own pre-existing custody model:
+  // the secret this now persists is the SAME one this method already
+  // generated and held in server memory before this change; nothing
+  // that wasn't already server-held is newly exposed.
   async start(): Promise<string> {
     if (this.isStarted) return this.keyPair!.publicKey.toString('hex')
 
-    const keyPair = HyperDHT.keyPair()
+    const seed = await loadOrCreateNodeIdentitySeed(this.ownerUserId)
+    const keyPair = HyperDHT.keyPair(seed)
     this.keyPair = keyPair
 
     this.dht = new HyperDHT({
