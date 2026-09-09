@@ -1195,3 +1195,62 @@ previously-unregistered Day-0 obligation, distinguished explicitly from
 every adjacent existing entry above rather than merged into any of
 them.
 
+---
+
+## ADR-001 Day-0 Multi-Operator Sails Network — decision registered (2026-09-09)
+
+**Source:** `docs/adr/ADR-001-day0-multi-operator-network.md`. Freezes
+the smallest correct architecture (signed-offer, pairwise-gossip over
+Hyperswarm/HyperDHT — Model C, not D/A/B — see the ADR's own
+Alternatives section for why each other model lost) satisfying the
+Day-0 Multi-Operator obligation registered above. **No implementation
+authorized by the ADR itself** — this entry registers the ADR's own
+executable consequences as concrete Backlog deltas, superseding the
+prior entry's abstract "investigation targets" framing with a real
+implementation sequence.
+
+**Not forced to BACKLOG DELTA: ZERO**, per the mission's own explicit
+instruction — two genuinely new, previously-unregistered obligations
+surfaced:
+
+1. **Settlement-release signature requirement (ADR-001 §11).** Ordinary
+   (non-disputed) escrow release/refund authorizations do not carry a
+   participant-signed attestation today — only `DisputeOutcome` does
+   (`attributionRawProof`). Extending the same, already-proven Ed25519
+   signature pattern to ordinary releases is a genuinely new obligation,
+   not previously named anywhere in this file, `docs/TODO.md`, or any
+   Issue. No new primitive — reuses the exact existing signature/
+   verification mechanism.
+2. **The Implementation Sequence itself (ADR-001 §21)** — (a) portable
+   signed Offers, (b) propagation/bootstrap, (c) multi-node discovery/
+   convergence, (d) cross-node trade coordination, (e) pagination/
+   discovery-scaling wiring, (f) professional-provider inventory
+   locking, (g) cross-node restart/resume, (h) stranger-node test, (i)
+   stranger-developer test, (j) first independent partner-wallet beta —
+   registered as the concrete, ordered obligation that supersedes this
+   file's own prior "16 evidence-required properties" framing (still
+   accurate as *scope*, now given an actual build order). Explicitly
+   **not** authorized for implementation by the ADR or this entry —
+   requires its own separate CTO Gate before any step begins.
+
+**Explicitly deferred past Day-0 beta, named not dropped** (ADR-001
+§21's own residual list): partial fill; outbound webhook delivery; any
+node-economic payment activation (§16 of the ADR activates none); a
+formal Sybil-resistance mechanism; Model D/hybrid propagation.
+
+**Not registered as new deltas** — already covered by existing
+representation: the professional-provider quote-expiry/min-max gaps
+(already registered, this file's own Partner Beta entry — the ADR's §3
+`OfferEnvelope` design closes quote expiry as part of (a) above, not a
+separate obligation); the liquidity-discovery pagination mechanism
+(already real and shipped, only the stale example doc needed fixing,
+already registered); capability/rail discovery (already registered,
+the ADR's §15 only narrows the *shape* of the future surface —
+capability-specific, not universal — without creating a new
+obligation).
+
+Classification: **BACKLOG DELTA DETECTED AND SYNCED** — two genuinely
+new obligations (settlement-release signatures; the ordered
+implementation sequence), everything else confirmed already covered.
+No new Norte macrofront. Norte remains 38.
+
