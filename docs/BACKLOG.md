@@ -1368,8 +1368,13 @@ prior entry's abstract "investigation targets" framing with a real
 implementation sequence.
 
 **Not forced to BACKLOG DELTA: ZERO**, per the mission's own explicit
-instruction — two genuinely new, previously-unregistered obligations
-surfaced:
+instruction. **Count correction (2026-09-09, CTO Gate) — stated
+explicitly, not left for the reader to add up:** the original ADR-001
+registration pass below (items 1-2) registered **2** distinct
+obligations; the subsequent CTO correction/reconciliation pass (items
+3-4) added **2 further** distinct obligations. **Total distinct
+obligations carried by this ADR entry: 4.** No history erased — all
+four are preserved below in the order they were registered:
 
 1. **Settlement-release signature requirement (ADR-001 §11).** Ordinary
    (non-disputed) escrow release/refund authorizations do not carry a
@@ -1379,19 +1384,27 @@ surfaced:
    not previously named anywhere in this file, `docs/TODO.md`, or any
    Issue. No new primitive — reuses the exact existing signature/
    verification mechanism.
-2. **The Implementation Sequence itself (ADR-001 §21, updated 2026-09-09
-   to insert two new Day-0 items)** — (a) portable signed Offers, (b)
-   persistent node identity, (c) Economic Identity ↔ Transport Identity
-   Binding, (d) propagation/bootstrap, (e) multi-node discovery/
-   convergence, (f) cross-node trade coordination, (g) pagination/
-   discovery-scaling wiring, (h) professional-provider inventory
-   locking, (i) cross-node restart/resume, (j) stranger-node test, (k)
-   stranger-developer test, (l) first independent partner-wallet beta —
-   registered as the concrete, ordered obligation that supersedes this
-   file's own prior "16 evidence-required properties" framing (still
-   accurate as *scope*, now given an actual build order). Explicitly
-   **not** authorized for implementation by the ADR or this entry —
-   requires its own separate CTO Gate before any step begins.
+2. **The Implementation Sequence itself (ADR-001 §21, updated
+   2026-09-09 twice — first to insert two new Day-0 identity/binding
+   items, then to insert two new Day-0 economics items)** — (a)
+   portable signed Offers, (b) persistent node identity, (c) Economic
+   Identity ↔ Transport Identity Binding, (d) propagation/bootstrap,
+   (e) multi-node discovery/convergence, (f) cross-node trade
+   coordination, (g) pagination/discovery-scaling wiring, (h)
+   professional-provider inventory locking, (i) cross-node
+   restart/resume, (j) Node Contribution Accounting, (k) Incentive
+   Compatibility / No-Cannibalization Evidence, (l) stranger-node test,
+   (m) stranger-developer test, (n) first independent partner-wallet
+   beta — registered as the concrete, ordered obligation that
+   supersedes this file's own prior "16 evidence-required properties"
+   framing (still accurate as *scope*, now given an actual build
+   order). Explicitly **not** authorized for implementation by the ADR
+   or this entry — requires its own separate CTO Gate before any step
+   begins. **Actual payout execution is separate from and later than
+   this sequence** — gated by the Production Readiness Consolidated
+   Gate, may remain disabled through the entire beta; (j)/(k) make
+   contribution accounting and entitlement recognition testable, they
+   do not activate payment.
 
 **Updated 2026-09-09 (CTO Gate correction + PR #98 reconciliation) —
 two further genuinely new obligations**, neither previously
@@ -1416,6 +1429,24 @@ represented anywhere in this repository:
    **current implementation gap against the accepted Day-0
    architecture**, not a future nicety — the ADR's own gossip model
    (§4) depends on stable peer relationships surviving restarts.
+
+**Updated again, 2026-09-09 (CTO Gate, Fase 2-5/9) — Node Contribution
+Accounting and Incentive Compatibility, classified before registering:**
+both are **new content inside the already-counted Implementation
+Sequence obligation (item 2, now sequence items (j)/(k))**, deliberately
+**not** registered as separate fifth/sixth top-level obligations — they
+are sub-obligations of the same "build this ordered sequence" item
+already counted above, and double-counting them would contradict this
+entry's own corrected "4 distinct obligations" framing. **Checked
+against `docs/PROTOCOL_ECONOMY.md` §4.2 — no duplication:** that
+section's Node Operator Pool / Lightning-style routing fee are the
+future *rollout/payout* layer (Months 7-9/10-12 timing, itself already
+corrected to be Day-0-*capability*-compatible, not accelerated); Node
+Contribution Accounting and Incentive Compatibility are the
+Day-0-*capability* layer underneath — recording and testing that a
+contribution happened and would be entitled under some policy, with
+zero real value moving. Distinct obligations, not the same one named
+twice.
 
 **Reconciled against PR #98's (`docs/SAILS_NODE_SHARED_LIQUIDITY_DISCOVERY.md`)
 own 9 backlog-delta candidates, checked before registering, per its own

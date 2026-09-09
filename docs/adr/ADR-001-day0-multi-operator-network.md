@@ -30,6 +30,19 @@ naming ambiguity against the independent, parallel
 document. All corrections preserve the original decision (Model C,
 signed gossip) — none reverses it.
 
+**Second CTO Gate Correction Pass (2026-09-09, economics/institutional).**
+Registers the Product Direction that independent Sails Nodes must be
+economically viable participants from Day 0 (§16, distinguishing
+capability/accounting/entitlement/payout as four separate decisions,
+only the last deferred); narrows §17's no-cannibalization claim so it
+no longer depends solely on node economics being disabled; adds two new
+Day-0 sequence items, Node Contribution Accounting and Incentive
+Compatibility Evidence (§21 (j)/(k)); extends §12's privacy review to
+the new accounting mechanism. `docs/SAILS_NODE_SHARED_LIQUIDITY_DISCOVERY.md`
+(PR #98) is rebased and merged as a historical/research/evidence
+artifact in this same pass — this ADR remains the architecture decision
+authority.
+
 ---
 
 ## Decision
@@ -517,7 +530,31 @@ new binding requirement:**
   mechanism complexity). **This ADR does not choose among them** — §7.1
   registers the requirement; this section registers that its privacy
   shape is a real, undecided design question for whatever mechanism
-  closes §21(c), not an oversight.
+  closes §21(c), not an oversight. **Kept explicit and reusable, since
+  the same shape question applies elsewhere in this repository's own
+  identity work:** `Recovery relationship ≠ Public identity
+  relationship` (`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`) — the
+  binding statement here is exactly a recovery/linkage relationship of
+  that same class, and the same caution against making it automatically
+  public applies.
+
+**Reconfirmed, 2026-09-09 (CTO Gate, Fase 8) — extended to §16's new
+Node Contribution Accounting (§21(j)):**
+
+> **Economic contribution attribution ≠ Global participant
+> surveillance.**
+
+Recording that a node genuinely served a confirmed trade (§16's
+"trade-serving" row, the only verifiable contribution today) requires
+only that trade's own already-durable `Trade`/`Escrow` rows and the
+trade-open handshake (§8) — it does **not** require, and this ADR does
+not authorize, any mechanism that aggregates a participant's activity
+*across* trades into a single trackable profile for contribution-
+accounting purposes. **Node contribution accounting must not require
+global user tracking; economic attribution must not create a universal
+participant tracking graph** — a design that needed either would be
+solving a much larger problem than "did this node serve this one
+confirmed trade," and is explicitly out of scope for §21(j)/(k).
 
 ## 13. Professional liquidity provider
 
@@ -586,13 +623,43 @@ format level here.
 
 ## 16. Node economics
 
-**Principle frozen, no percentages:** `Node existence ≠ economic
-contribution`. Fee entitlement requires verifiable contribution to a
-confirmed economic outcome, under the applicable frozen
-`DistributionPolicyVersion` (unchanged from `docs/BACKLOG.md`'s own
-prior registration).
+**Product Direction, registered 2026-09-09 (CTO Gate, Fase 2):**
 
-**Precision added, 2026-09-09 (CTO Gate) — a third term, not two:**
+> Independent Sails Nodes are intended to participate economically from
+> Day 0 of the production network.
+
+**Four distinct things, not one, per instruction — collapsing them is
+exactly the mistake this correction fixes:**
+
+- **Economic capability** — does the architecture allow contribution to
+  be attributed at all? Yes, for participant-facing coordination
+  (table below), the moment §21(a)/(f) land — no new primitive
+  required.
+- **Contribution accounting** — is a contribution actually being
+  recorded/tracked as it happens? **Must be built and testable before
+  the independent partner-wallet beta (§20, §21(n))** — this is new,
+  registered as Implementation Sequence item (j).
+- **Entitlement recognition** — does a `DistributionPolicyVersion`
+  actually name the contribution as eligible and specify (whatever)
+  share? A policy decision, separate from accounting — **must also be
+  testable before the partner-wallet beta**, without requiring any
+  particular percentage to be chosen yet (a policy can name eligibility
+  with a placeholder/test share for the purpose of exercising the
+  mechanism).
+- **Actual payout execution** — real value moving to a node operator.
+  **Remains gated by the Production Readiness Consolidated Gate
+  (`docs/BACKLOG.md`) — may stay disabled through the entire beta.**
+
+**For beta, precisely:** real payout activation MAY remain disabled.
+**Contribution accounting and entitlement semantics must be testable**
+— meaning: a real contribution can be recorded, and a real
+`DistributionPolicyVersion` can name it eligible and compute what it
+*would* pay, end to end, without a single unit of value actually
+moving. **No payout percentage is invented here. No new token is
+introduced. No production fee is activated by this ADR.**
+
+**Precision, unchanged from the prior correction — a third term, not
+two:**
 
 > **Coordination Attempt ≠ Verified Contribution ≠ Fee Entitlement.**
 
@@ -603,60 +670,107 @@ actually happened) is not itself an entitlement (the applicable
 its share — a policy decision, never automatic from verification
 alone).
 
-**Reconciling "Day-0-capable" with "not activated" — both true,
-explicitly not in tension:** the Product Owner's decision, already
-registered (`docs/PROTOCOL_ECONOMY.md` §4.2's own correction), is that
-independent Sails Nodes must be **economically viable participants
-from Day 0** — meaning the *architecture* must not structurally
-preclude compensation until some later phase. This ADR satisfies that
-by ensuring the one contribution type with a real verification path
-today (Coordination, below) requires no new primitive to attribute —
-it is Day-0-**capable** the moment §8/§21's own sequence lands. **This
-ADR still activates zero payment** — capability and activation are
-different decisions, and only the latter is deferred here, by design,
-not by oversight.
+**Contribution sources, classified by verifiability today, expanded
+per instruction to cover all six evaluation dimensions — no
+percentages set for any of them:**
 
-**Contribution types evaluated separately, classified by verifiability
-today, not assumed legitimate:**
-
-| Contribution | Verifiability today | Basis |
+| Contribution source | Verifiability today | Basis |
 |---|---|---|
-| **Participant-facing coordination** (a node was genuinely used by a real participant to reach a real, confirmed trade) | **Verifiable** | Directly derivable from the already-durable `Trade`/`Escrow` rows plus §8's jointly-signed trade-open handshake — no new proof primitive needed. **The only contribution type with a plausible verification path today.** |
-| **Trade-serving node** (as above, viewed from the node's own operational side — did serving this participant actually produce a confirmed outcome) | **Verifiable**, same basis as above — arguably the same fact from the node-operator's own accounting perspective, not a separate contribution type requiring separate proof. |
-| **Discovery / propagation** (a node helped an offer be found/relayed) | **Potentially verifiable** — *only if* the propagation mechanism itself is signed/versioned (§9's own revision requirement); even then, no design here proves *which specific hop* mattered to a specific outcome. Not verifiable with any mechanism that exists today. |
-| **Routing** | **Not currently verifiable** — same gap as discovery/propagation, no proof mechanism proposed. |
+| **Trade-serving node compensation** (a node was genuinely used by a real participant to reach a real, confirmed trade) | **Verifiable today** | Directly derivable from the already-durable `Trade`/`Escrow` rows plus §8's jointly-signed trade-open handshake — no new proof primitive needed. |
+| **Offer-origin contribution** (the node where a winning offer's owner was connected when the offer was created/signed) | **Potentially verifiable** — the signed `OfferEnvelope` (§3) already names `ownerPublicKey`, and §7.1's own binding (once built) could extend to naming an origin node — but attributing *origin*, as distinct from *serving the eventual trade*, is not yet designed. Considered explicitly, per instruction: the offer-origin identity plus the trade-open handshake together provide **durable attribution sufficient for trade-serving compensation specifically** (the row above) — they do not, by themselves, resolve origin-vs-serving-node attribution when those differ. |
 | **Settlement contribution** (a node's own settlement-provider infrastructure processed a release/refund) | **Potentially verifiable** — the transaction hash and (once §11 lands) the signed release authorization are both real, checkable artifacts; attributing them to a specific *node's own infrastructure* rather than the settlement provider itself is not yet designed. |
+| **Discovery / propagation contribution** (a node helped an offer be found/relayed) | **Potentially verifiable** — *only if* the propagation mechanism itself is signed/versioned (§9's own revision requirement); even then, no design here proves *which specific hop* mattered to a specific outcome. |
+| **Routing** | **Not currently verifiable** — same gap as discovery/propagation, no proof mechanism proposed. |
+| **Wallet/integrator rebate** (compensating the *wallet*, not the node, for bringing a transacting user) | **Verifiable today**, and structurally simpler than any node-side row above — a wallet/integrator is already identifiable via whichever `WalletAdapter`/API credential originated the request; this is a genuinely different recipient class from "node," not evaluated further here (out of this ADR's own node-economics scope, named only so it isn't confused with a node-side lever). |
+| **Treasury/protocol share** | Not a contribution-verifiability question at all — a `DistributionPolicyVersion` policy choice (how much of a confirmed fee goes to the protocol treasury vs. any other named recipient), unrelated to whether any *node* contribution can be verified. |
+
+**No new generic economic primitive is introduced** — every
+potentially-verifiable row above extends an already-real, already-
+proven mechanism (signed envelopes, signed release authorizations,
+transaction hashes), consistent with the instruction that a new
+primitive is authorized only if evidence demands it; none of this
+evidence does.
 
 **Explicitly, no payment is authorized for gossip relaying in this
 ADR** — a naive "pay per message relayed" design is **rejected
 outright** (not merely deferred) because it trivially incentivizes
 spam and self-relay loops (relay your own garbage to yourself for a
 stipend). Any future design for the "potentially verifiable" and "not
-currently verifiable" rows must close that gap before activation, not
-after. **Availability** — no attestation mechanism exists; unaddressed,
-consistent with `docs/PROTOCOL_ECONOMY.md` §4.2's own,
-now-Day-0-capability-corrected (not Day-0-*activated*) timeline.
+currently verifiable" rows must close that verifiability gap before
+activation, not after. **Availability** — no attestation mechanism
+exists; unaddressed, consistent with `docs/PROTOCOL_ECONOMY.md` §4.2's
+own, now-Day-0-capability-corrected (not Day-0-*activated*) timeline.
 
-**No node economics are activated by this ADR.** This is a deliberate,
-load-bearing choice, not an oversight: it is what makes §7's Sybil-
-resistance deferral and §17's incentive test both hold cleanly at
-Day-0, while leaving the architecture itself Day-0-capable per the
-reconciliation above.
+**No real payout is activated by this ADR.** This remains a deliberate,
+load-bearing choice: it is what makes §7's Sybil-resistance deferral
+hold cleanly at Day-0, while contribution accounting and entitlement
+recognition themselves become real, testable, Day-0 obligations per the
+Product Direction above — capability, accounting, and entitlement
+recognition are no longer treated as "later," only payout execution is.
 
-## 17. No-cannibalization incentive test
+## 17. Incentive compatibility / no-cannibalization property
 
-**Explicit test, per instruction:** does hiding competitor offers
-rationally increase a node's revenue under this design? **No** —
-because §16 activates zero node-side, offer-visibility-based revenue
-lever at Day-0. A node earns nothing extra from relaying (or
-withholding) more of *other* participants' offers; there is no
-"exclusive discovery" fee to protect. The only lever an operator has to
-attract genuine volume is service quality (uptime, latency, honest
-relay, support) — the already-registered "compete on service quality,
-not by capturing users into isolated liquidity" principle. **This
-passes the Day-0 incentive test structurally**, not by hoping operators
-behave — there is simply no economic mechanism in this ADR that
-withholding liquidity could exploit.
+**Narrowed, 2026-09-09 (CTO Gate) — the prior claim depended entirely
+on node economics being disabled, which stops holding the moment
+accounting/entitlement become Day-0-testable (§16). Replaced with a
+property that holds independent of that:**
+
+> A conformant node must not gain durable economic advantage by
+> withholding valid competing liquidity.
+
+> Honest liquidity propagation must remain economically rational
+> relative to liquidity suppression.
+
+**Evaluated explicitly against each of §16's six dimensions, not
+assumed to hold uniformly:**
+
+- **Trade-serving node compensation:** compensates a node only for
+  trades it actually, verifiably served — withholding a *competitor's*
+  offer earns nothing extra here, since compensation attaches to the
+  node's own served trades, not to the volume of offers it chose to
+  show or hide. **Property holds.**
+- **Wallet/integrator rebate:** same reasoning, one layer up — a wallet
+  rebate rewards bringing a real transacting user, not suppressing
+  competing liquidity that user might otherwise have found elsewhere.
+  **Property holds**, contingent on the rebate never being computed as
+  a function of "share of visible market," which would invert the
+  incentive — named as a design constraint for whenever this mechanism
+  is built, not designed further here.
+- **Offer-origin contribution:** if ever activated, rewards accurately
+  attributing where a winning offer came from — has no natural
+  incentive to suppress *other* offers, since suppressing a competitor
+  doesn't make one's own offer's origin more "contributory." **Property
+  holds under the same accurate-attribution assumption §16 already
+  names as undesigned.**
+- **Settlement contribution:** rewards processing confirmed outcomes,
+  which requires trades to actually happen — suppressing liquidity
+  network-wide reduces the total number of trades available to settle,
+  a direct disincentive to suppression. **Property holds, and is
+  actively reinforcing.**
+- **Discovery/propagation contribution:** the one dimension with a real,
+  disclosed risk if ever activated naively — a poorly designed
+  discovery/propagation reward *could* create an incentive to relay
+  more (even spam) rather than relay honestly, which is exactly why
+  §16 rejects "pay per relay" outright rather than merely deferring it.
+  **Property does not automatically hold here — it is exactly why this
+  dimension stays unverifiable/unpaid until a real design closes the
+  gap**, not an oversight.
+- **Treasury/protocol share:** a fixed policy allocation, not
+  contribution-dependent — no incentive effect on any individual node's
+  behavior either way.
+
+**Explicit withholding-liquidity threat analysis:** the failure mode
+named by the mission — "if hiding liquidity can rationally increase
+revenue, the design fails the Day-0 incentive test" — is evaluated per
+dimension above, not asserted globally. Four of six dimensions
+structurally cannot reward withholding (trade-serving, rebate,
+offer-origin, settlement); one (treasury share) is neutral; one
+(discovery/propagation) is the one genuine risk, and is precisely the
+one this ADR keeps unpaid until it can be designed safely. **This is a
+stronger, more defensible position than the prior "economics are
+disabled" framing** — it holds for four of six real dimensions on
+their own structural merits, and names the one real remaining risk
+explicitly rather than hiding it behind "nothing is paid yet."
 
 ## 18. Stranger-node test (future evidence gate)
 
@@ -733,14 +847,29 @@ already covered by (a).
 **(i) Restart/offline/resume** — extend existing intra-node durability
 with the jointly-signed trade handshake as the cross-node re-anchor
 point (§9).
-**(j) Stranger-node test** (§18).
-**(k) Stranger-developer test** (§19).
-**(l) First independent partner-wallet beta** (§20).
+**(j) Node Contribution Accounting** — **added 2026-09-09**: recording
+a verified contribution (§16's trade-serving row, the only one
+verifiable today) as it happens — economic *capability* without
+payout, must exist and be testable before (n) below.
+**(k) Incentive Compatibility / No-Cannibalization Evidence** — **added
+2026-09-09**: demonstrating §17's property actually holds against (j)'s
+real accounting mechanism once built, not only as a structural argument
+on paper — must exist and be testable before (n) below.
+**(l) Stranger-node test** (§18).
+**(m) Stranger-developer test** (§19).
+**(n) First independent partner-wallet beta** (§20).
+
+**Actual payout execution remains gated by the Production Readiness
+Consolidated Gate (`docs/BACKLOG.md`)** — separate from, and later
+than, this sequence; (j)/(k) make accounting and entitlement
+*testable*, they do not activate any real payment.
 
 **Deferred past Day-0 beta, named explicitly, not silently dropped:**
-partial fill (§13); outbound webhook delivery (§13); any node-economic
-payment activation (§16); formal Sybil-resistance mechanism (§7);
-Model D/hybrid propagation (Alternatives section).
+partial fill (§13); outbound webhook delivery (§13); any real
+node-economic **payout activation** (§16 — capability/accounting/
+entitlement recognition are Day-0 sequence items (j)/(k), payout
+execution is not); formal Sybil-resistance mechanism (§7); Model
+D/hybrid propagation (Alternatives section).
 
 ## 22. Complexity tests (applied to this ADR's own new artifacts)
 
@@ -831,3 +960,18 @@ was represented anywhere in this repository before this pass), neither
 duplicating an existing entry. See `docs/BACKLOG.md`'s own updated
 entry for the full registration and the explicit check against
 duplication with PR #98's own candidate list.
+
+**Count correction, 2026-09-09.** `docs/BACKLOG.md`'s own entry for
+this ADR now states explicitly: the original registration pass counted
+**2** distinct obligations (items 1-2 there); this correction pass
+added **2 further** (items 3-4); **total: 4**, not left implicit.
+
+**Updated again, 2026-09-09 (Fase 2-5/9) — Node Contribution Accounting
+and Incentive Compatibility (§21 (j)/(k))** are new *sequence items*
+inside the already-counted Implementation Sequence obligation (item 2)
+— deliberately **not** registered as separate fifth/sixth top-level
+obligations, to avoid double-counting the same "build this ordered
+sequence" obligation twice. Checked against `docs/PROTOCOL_ECONOMY.md`
+§4.2 — no duplication: that section's own Node Operator Pool/routing-
+fee content is the future payout-*rollout* layer; §21(j)/(k) are the
+Day-0 accounting/entitlement-*capability* layer underneath it.
