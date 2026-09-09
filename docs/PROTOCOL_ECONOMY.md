@@ -421,6 +421,19 @@ coordination mechanism — none of those is decided here or anywhere
 else in this repository yet. See `docs/BACKLOG.md`'s entry for the
 full registration.
 
+**Open question, registered non-normatively (2026-09-09, Day-0
+Multi-Node + Partner Beta Reality institutional reconciliation):**
+whether **"Node Operator" should become a formal eligible-recipient
+category** within the existing
+`FeeCollectionEvidence(CONFIRMED) → FeeObligation →
+DistributionPolicyVersion → EntitlementLedgerEntry` chain — i.e.,
+whether a future `DistributionPolicyVersion` could name "Node Operator"
+alongside whatever recipient classes it already names, the same way
+this section already treats LPs and Developers as distinct categories.
+**Not decided here** — no schema change, no percentage, no eligibility
+criteria. See `docs/BACKLOG.md`'s Day-0 Multi-Node entry for the full
+registration and cross-links.
+
 ### 4.3 Developers (protocol-spec, SDK, and module contributors)
 
 - **Open-source contribution model** — the same non-monetary incentive

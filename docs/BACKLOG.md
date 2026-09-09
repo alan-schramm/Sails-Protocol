@@ -963,7 +963,23 @@ cross-links back here rather than duplicating content.
 Preserved, verbatim:
 
 - **Sails Protocol ≠ Satsails server.**
-- **Node choice must not define market membership.**
+- **Sails Protocol ≠ Sails Node (added 2026-09-09, Day-0 Multi-Node +
+  Partner Beta Reality reconciliation).** A Sails Node/runtime is an
+  *operational implementation* of the protocol, not the protocol
+  itself — the same relationship this file's own "TypeScript is first,
+  not authoritative" distinction (Issue #75 reconciliation, above)
+  already establishes for *language* implementations, now stated
+  explicitly for *operational* ones too. Satsails may operate a first
+  node/reference runtime without becoming the network's normative
+  authority.
+- **Node choice must not define market membership.** Explicit failure
+  mode this forbids, named concretely: `Node A → 100 offers, Node B →
+  14 offers, Node C → 3 offers, with no cross-node discovery` — this
+  produces three isolated marketplaces, not one Sails economic
+  network, regardless of how healthy each individual node looks in
+  isolation.
+- **Choosing a Sails Node must not, by itself, confine a participant to
+  an economically isolated marketplace.**
 - **Changing node must not inherently change participant economic
   identity, reputation or historical rights.**
 - **Running a node must not grant authority over settlement truth,
@@ -1017,6 +1033,26 @@ Distinctions preserved, verbatim:
 
 - **Shared Market Universe ≠ Instantaneous Identical View.**
 - **Eventual propagation ≠ Economic fragmentation.**
+
+**Reinforced framing (2026-09-09, Day-0 Multi-Node + Partner Beta
+Reality reconciliation) — same property, articulated a second way for
+institutional clarity, not a second obligation:**
+
+> Liquidity should be network-level; node operation should be
+> service-level.
+
+> Shared economic discoverability ≠ identical full database
+> replication.
+
+> An economically eligible participant should be able to discover
+> relevant network liquidity regardless of which conformant Sails
+> Node/runtime it connects through, subject to legitimate privacy,
+> policy, capability, market, and filtering constraints.
+
+No mechanism is chosen by this reinforcement — `ADR-001` (below)
+already made the Day-0 mechanism decision (signed-offer gossip); this
+paragraph exists only to make the underlying property legible
+independent of that decision, for any future re-evaluation.
 
 ### Properties requiring evidence before any production claim
 
@@ -1093,10 +1129,15 @@ future mission — not designed or selected here.
 > A Sails Node should compete on service quality, not by capturing
 > users into isolated liquidity.
 
+**Restated 2026-09-09:** node operators should compete on service
+quality and economic contribution, not on artificial liquidity
+enclosure.
+
 Possible competition dimensions, named only as rationale for why this
 principle is plausible, **not scored, weighted, or ranked here**:
 uptime, latency, fee, privacy, operational quality, support,
-routing/service quality. **No scoring mechanism is authorized or
+routing/service quality, jurisdictional posture, additional services,
+integrations, reputation. **No scoring mechanism is authorized or
 implied by naming these** — this is a design-north-star statement, not
 a specification. No node marketplace is created by this entry.
 
@@ -1119,6 +1160,103 @@ A node that helps discovery/coordination reach more counterparties
 three separate authorities today, and this entry does not blur them
 even while registering that a node may earn economic entitlement for
 the first one.
+
+### Node selection UX (new, 2026-09-09)
+
+**Property:** infrastructure choice may be visible to advanced users/
+operators without becoming mandatory cognitive load for ordinary users.
+Target UX for an ordinary user: `Open wallet → Buy/Sell → works` — node
+selection never enters that path. An integrator may internally reason
+about `primary node / fallback node / own node / partner node`, the
+same way other P2P protocols already let advanced users pick a relay/
+node/server — **this does not imply a failover protocol is designed or
+implemented by naming the possibility.** No node-selection UI, no
+failover mechanism, authorized by this entry.
+
+### Production bootstrap model — concrete questions added to the Production Readiness Consolidated Gate (2026-09-09)
+
+The Gate's existing "bootstrap/discovery" category (registered above)
+gains a concrete question checklist a future Partner Beta pass must
+actually answer — **not answered by assumption here**:
+
+Where does the SDK connect by default? Who operates the initial
+node(s)? Can a wallet run its own node? Can a web service run its own
+node? How does a new node enter the network? How does it discover
+other participants/liquidity? Is any operator *required* for
+bootstrap? What happens if the default node goes offline? Does node
+selection affect economic membership? Which data is local vs.
+network-visible? Which data must never be globally propagated for
+privacy reasons (see Privacy, below)?
+
+### Privacy — granular data-category separation (strengthened 2026-09-09)
+
+**Preserved, verbatim:** `Shared market ≠ shared private state` /
+`Shared economic discoverability ≠ global identity/profile
+replication`. A future design must separate, at minimum: public market
+data; selective participant information; private negotiation data;
+identity bindings; reputation evidence; payment details; proof/
+evidence; settlement secrets. **No schema designed here** — this is a
+category list a future mechanism must respect, not a data model.
+
+### Security / Sybil / abuse — registered as an open question, not solved (cross-linked, 2026-09-09)
+
+Already named in `ADR-001-day0-multi-operator-network.md` §7/§14
+(Sybil resistance explicitly not promised; a threat inventory covering
+spam offers, fake liquidity, duplicate offers, poisoning, censorship,
+selective forwarding, stale offers, and fabricated node metadata) —
+restated here for Master Backlog visibility rather than duplicated:
+**how to bound these abuses without introducing a central membership
+authority remains an open architectural/economic question.** Not
+solved by staking, trusted lists, proof-of-work, bonds, or assumed
+reputation — none of those is adopted here or in `ADR-001`.
+
+### Conformance connection (new, 2026-09-09)
+
+Cross-linking, not merging, the separately-registered **Independent
+Implementation Conformance** obligation (above, this file) with this
+Day-0 Multi-Node obligation:
+
+> Multiple independent nodes only form one protocol network if they
+> interpret shared economic objects compatibly.
+
+> Network reachability without semantic conformance does not establish
+> one economic network.
+
+A gossip/propagation mechanism (`ADR-001`) can make a signed `Offer`
+*reach* every conformant node; it says nothing about whether every
+node's own implementation *agrees* on what that Offer's terms mean
+economically — that is exactly Independent Implementation
+Conformance's own scope, not re-registered here.
+
+### Partner Beta Readiness — named as a bounded sub-gate of Production Readiness (new, 2026-09-09)
+
+**Not a score. Not "N/8 = production."** Beta readiness ≠ full
+production readiness — this sub-gate exists precisely to prevent that
+conflation. Likely properties (cross-linking existing registrations,
+not re-describing them): an independent developer can integrate
+(`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §10, `ADR-001` §19);
+bootstrap path documented (this entry, above); supported node model
+understood (this entry, above); relevant liquidity discoverable
+(`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §5, already shipped —
+example doc still stale); correct rail/capability visibility
+(`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §8); user journey can
+resume after normal interruptions (`docs/PARTNER_BETA_INTEGRATION_REALITY.md`
+§9, `ADR-001` §9); at least one real independent partner path
+exercised (`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §11, `ADR-001`
+§20); claims strictly beta-bounded; no unsupported production-provider
+claim. **No new registration of any individual property here** — this
+sub-gate's only new content is naming it as a distinct, bounded
+checkpoint rather than leaving "beta" and "production" readiness
+conflated inside one undifferentiated Gate.
+
+**No-assistance developer test — classification taxonomy added
+(2026-09-09).** Extending the already-registered Stranger Developer
+Test (`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §10, `ADR-001` §19):
+every clarification a test subject needs from the team must itself be
+classified as one of — documentation defect; SDK DX defect; missing
+capability; hidden operational dependency; architectural ambiguity.
+**This test is evidence of independent integrability, not proof of
+protocol correctness** — the two are explicitly not conflated.
 
 ### Existing architecture overlap — checked before registering, not assumed new
 
@@ -1194,6 +1332,26 @@ Classification: **BACKLOG DELTA DETECTED AND SYNCED** — a real,
 previously-unregistered Day-0 obligation, distinguished explicitly from
 every adjacent existing entry above rather than merged into any of
 them.
+
+**Reconciliation pass, 2026-09-09 (Day-0 Multi-Node + Partner Beta
+Reality).** Added, within this same entry: the "Sails Protocol ≠ Sails
+Node" distinction, the concrete three-node isolated-liquidity failure
+example, the network-level/service-level reinforcement, expanded
+competition dimensions, Node Selection UX, the concrete bootstrap
+question checklist (feeding the Production Readiness Gate's existing
+"bootstrap/discovery" category), a granular privacy data-category
+list, the Sybil/abuse open-question cross-link, the Conformance
+Connection, the Partner Beta Readiness sub-gate, and the no-assistance
+developer test's classification taxonomy. **Confirmed before writing,
+not assumed:** liquidity-discovery scaling (`docs/TODO.md` §25,
+`examples/simple-wallet`'s own stale finding), professional-provider
+flow, capability/rail discovery, restart/offline/resume, the
+independent-developer test, and independent partner-wallet evidence
+were **all already materially represented** in
+`docs/PARTNER_BETA_INTEGRATION_REALITY.md` and its own Backlog deltas
+(above) and in `ADR-001` — cross-linked here, not duplicated as new
+entries. No mechanism chosen or implemented by this pass — property
+first, mechanism second, unchanged.
 
 ---
 
