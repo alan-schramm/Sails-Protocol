@@ -556,6 +556,251 @@ No Sybil mechanism is selected or authorized by this checklist.
 
 ---
 
+
+## 3.21 Adversarial Security / Continuous Red Team / Unknown-Unknowns
+
+This domain exists because a serious open protocol must assume that once valuable enough, it will be continuously inspected by skilled, automated, and economically-motivated attackers.
+
+Security review is therefore not a one-time pre-launch ceremony.
+
+> **Security is a permanent adversarial process, not a final checklist.**
+
+> **Production exposure changes the attacker model.**
+
+> **A vulnerability surviving for years is still a vulnerability.**
+
+> **Human review limits are no longer a sufficient threat model in the era of automated AI-assisted offensive analysis.**
+
+The Sails security program must reason about at least four attack classes:
+
+### A. Known attacks
+
+Attacks already well understood in software, distributed systems, financial infrastructure, wallets, P2P systems, APIs, cryptographic protocols, databases, supply chains, and operational infrastructure.
+
+Examples of categories to confront:
+
+- authentication / authorization bypass;
+- key theft / key substitution;
+- replay;
+- signature misuse / malleability / domain-confusion;
+- request smuggling / injection classes;
+- SSRF / path traversal / unsafe deserialization;
+- dependency / supply-chain compromise;
+- secret leakage;
+- privilege escalation;
+- race conditions / TOCTOU;
+- double-spend / double-commit / duplicate execution;
+- stale-state resurrection;
+- equivocation;
+- eclipse / Sybil / selective forwarding;
+- DoS / amplification / resource exhaustion;
+- malformed-message parser attacks;
+- unsafe upgrade / downgrade paths;
+- version-confusion;
+- privacy / metadata-correlation attacks;
+- recovery / backup compromise;
+- logging / observability leakage;
+- configuration poisoning;
+- compromised infrastructure / CI / package publication;
+- social-engineering paths that lead to protocol or operator compromise.
+
+### B. Known-industry incident classes
+
+For relevant incidents in Bitcoin, Lightning, sidechains, wallets, payment servers,
+cryptographic libraries, exchanges, P2P networks and adjacent infrastructure,
+the process should ask:
+
+> What property failed?
+
+> Could the same class of failure exist in Sails, even through a different implementation?
+
+The purpose is not to copy incident-specific fixes blindly. It is to extract
+the underlying violated property and confront Sails against it.
+
+### C. AI-amplified attacks
+
+Assume attackers can use highly capable models and autonomous tooling to:
+
+- read the whole repository continuously;
+- compare releases and diffs;
+- generate exploit hypotheses;
+- fuzz APIs and wire formats;
+- synthesize malformed protocol objects;
+- search for invariant violations;
+- chain individually-low-severity bugs;
+- inspect dependency behavior;
+- generate race/concurrency schedules;
+- search for secret-handling mistakes;
+- simulate malicious integrators, nodes, wallets and providers;
+- continuously retry novel attack combinations at machine speed.
+
+Defensive implication:
+
+> **The attacker can automate scrutiny. Sails must automate adversarial scrutiny too.**
+
+No specific offensive model/tool is made part of the architecture.
+The property is that defensive review capability must keep pace with automated attack capability.
+
+### D. Unknown-unknowns
+
+The hardest class is not a known CVE pattern but a valid-looking interaction
+that violates an assumption nobody explicitly wrote down.
+
+Questions:
+
+- What assumption exists only in a developer's head?
+- What two individually-correct components become unsafe when composed?
+- What happens if an attacker violates our expected sequence but still sends valid inputs?
+- What happens if all dependencies behave within their documented contracts but at adversarial timing?
+- What can a malicious but protocol-conformant participant do?
+- What can a malicious node do without forging signatures?
+- What can a malicious provider do while returning syntactically valid responses?
+- What can two or more colluding actors do that one actor cannot?
+- What happens if one security control itself becomes unavailable or compromised?
+- Which safety property currently depends on "nobody would do that"?
+- Which assumptions were inherited from the reference implementation rather than the protocol?
+- Which bugs could remain latent because happy-path tests never create the triggering state?
+
+Preserve:
+
+> **Valid input ≠ safe behavior.**
+
+> **Authenticated actor ≠ honest actor.**
+
+> **Conformant message ≠ benign message.**
+
+> **One secure component + another secure component ≠ secure composition.**
+
+---
+
+### Continuous Red Team rule
+
+Sails should maintain a permanent adversarial-review discipline across its lifecycle.
+
+At minimum:
+
+1. **Pre-implementation adversarial design review**
+   - attack the property before choosing the mechanism;
+   - identify trust boundaries and authority escalation paths;
+   - challenge assumptions and cardinalities.
+
+2. **Implementation red team before freeze**
+   - adversarial code review;
+   - negative-path tests;
+   - fuzz/property-based testing where justified;
+   - concurrency/race tests;
+   - malformed-object and boundary testing;
+   - dependency behavior confrontation.
+
+3. **Pre-beta red team**
+   - attack the real integrated system;
+   - multi-node / multi-party abuse;
+   - privacy leakage;
+   - operator compromise scenarios;
+   - resource exhaustion;
+   - recovery and degraded-state tests.
+
+4. **Pre-production security gate**
+   - Network Simulation + Final Red Team;
+   - external security audit/remediation;
+   - production provider eligibility;
+   - bounded real-value validation.
+
+5. **Post-production continuous red team**
+   - recurring adversarial reassessment after meaningful releases;
+   - new dependency / new provider / new transport / new rail review;
+   - incident-driven replay against Sails;
+   - periodic unknown-unknown sweep;
+   - attack-surface review after architectural changes;
+   - regression tests for every confirmed vulnerability class.
+
+A security finding must not disappear after remediation.
+
+Required lifecycle:
+
+```
+finding
+→ root violated property
+→ exploit/evidence
+→ fix
+→ adversarial regression
+→ institutional memory
+→ future release gate where applicable
+```
+
+---
+
+### Security research discipline
+
+Do not optimize for "number of vulnerabilities found."
+
+Preserve:
+
+> **Finding count ≠ security.**
+
+> **No findings ≠ no vulnerabilities.**
+
+> **Scanner clean ≠ secure.**
+
+> **Audit complete ≠ attack surface complete.**
+
+> **Red Team result ≠ permanent proof.**
+
+The purpose is to continuously reduce unexamined attack surface and convert
+security discoveries into durable properties/evidence.
+
+---
+
+### Attacker-model breadth
+
+Every major Sails surface should eventually be confronted against at least:
+
+- malicious participant;
+- malicious counterparty;
+- malicious Sails Node;
+- malicious node operator;
+- malicious liquidity provider;
+- malicious settlement provider;
+- malicious wallet/integrator;
+- compromised dependency;
+- compromised CI/release pipeline;
+- compromised operator host;
+- network observer;
+- colluding actors;
+- resource-rich Sybil adversary;
+- AI-assisted automated adversary.
+
+Where relevant, test both:
+- attacker violates the protocol;
+- attacker remains protocol-conformant but exploits economics, ordering, timing, privacy, or resource asymmetry.
+
+---
+
+### Scope discipline
+
+This section does **not** authorize a universal security framework,
+mandatory proof-of-work, token, global identity registry, centralized firewall,
+or any specific AI security product.
+
+For each candidate mitigation ask:
+
+> What exact attack/property does this mitigate?
+
+> Does the mitigation introduce a larger trust, privacy, centralization or complexity cost?
+
+> Can the risk be structurally neutralized instead of centrally policed?
+
+Apply Goodhart, Cobra, Rube Goldberg, Sacrifice and Core/Edge checks.
+
+A future dedicated Sails Security Adversarial Sweep should transform this
+question framework into a threat-model matrix against the actual repository,
+then classify each surviving gap into Backlog / Technical Debt / Evidence /
+Partner Beta / Production Readiness.
+
+**BACKLOG DELTA: NOT YET DETERMINED by this checklist entry.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
