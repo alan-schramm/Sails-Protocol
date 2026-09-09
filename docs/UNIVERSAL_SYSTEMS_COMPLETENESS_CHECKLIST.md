@@ -1402,6 +1402,394 @@ A dedicated confrontation pass must classify each item as:
 
 ---
 
+
+## 3.24 Technology / Provider Attack Surface / Agnostic-Edge Risk
+
+Sails is intentionally infrastructure-agnostic. That increases interoperability,
+but also increases the number of replaceable edges that can fail, be compromised,
+change semantics, or introduce hidden authority.
+
+Core principle:
+
+> **Technology agnosticism ≠ technology risk neutrality.**
+
+> **Replaceable edge ≠ harmless edge.**
+
+> **Capability adoption ≠ trust delegation.**
+
+Every supported technology, protocol, provider, SDK, transport, wallet stack,
+settlement rail, database, AI agent, cloud/runtime, or external service must be
+treated as an independent attack and failure surface.
+
+### Core question
+
+> **If this technology is malicious, compromised, buggy, unavailable, upgraded incompatibly, or simply behaves differently than expected, what power does it gain over Sails?**
+
+The ideal answer is:
+
+> only the minimum capability that edge was explicitly authorized to provide.
+
+---
+
+### 1. Transport technologies
+
+Examples include Pears/HyperDHT today and any future alternative transport.
+
+Questions:
+
+- Can transport impersonate participant economic identity?
+- Can transport metadata leak identity relationships?
+- Can peer discovery be eclipsed or poisoned?
+- Can malformed transport frames exhaust resources?
+- Can transport upgrades change identity semantics?
+- Can a transport implementation silently become membership authority?
+- Can one transport-specific assumption leak into protocol semantics?
+- Can a transport compromise modify economic facts, or only delay/drop them?
+
+Desired boundary:
+
+> **Transport Authority ≠ Economic Authority.**
+
+---
+
+### 2. Wallet infrastructure / key-management technologies
+
+Examples include WDK and future wallet stacks/adapters.
+
+Questions:
+
+- Can wallet infrastructure change key derivation semantics?
+- Can an SDK update compromise key generation or signing?
+- Can a wallet adapter gain authority beyond signing the explicitly authorized action?
+- Can one provider's seed/key model become protocol identity?
+- Can backup/recovery semantics leak across domains?
+- Can wallet infrastructure silently downgrade custody or signer assumptions?
+
+Preserve:
+
+> **WalletAdapter ≠ SettlementProvider.**
+
+> **Wallet stack ≠ Protocol identity definition.**
+
+---
+
+### 3. Settlement providers and rails
+
+Examples may include on-chain Bitcoin, Lightning/Spark-like rails, Liquid,
+EVM stablecoin rails, DePix providers, sidechains and future settlement systems.
+
+Questions:
+
+- What is authoritative: chain state, provider API, attestation, multisig artifact,
+  invoice state, or local database?
+- Can provider API success lie about final settlement?
+- Can timeout produce unknown economic outcome?
+- Can provider substitute a rail or custody posture?
+- Can the provider censor release/refund?
+- Can provider downtime freeze open trades?
+- Can reorg/finality assumptions differ by rail?
+- Can one generic interface hide materially different security semantics?
+
+Preserve:
+
+> **Interface uniformity ≠ Security uniformity.**
+
+> **Settlement Provider ≠ Settlement Authority unless the rail explicitly gives it that role.**
+
+---
+
+### 4. AI / agent technologies
+
+Examples include QVAC or future negotiation/automation agents.
+
+Questions:
+
+- Can an agent create economic commitments?
+- What authority is delegated to the agent?
+- Can prompt/input manipulation cause unauthorized actions?
+- Can model hallucination become protocol truth?
+- Can an external model/provider observe private trade data?
+- Can model updates change economic behavior without protocol/version change?
+- Can an agent be induced to reveal secrets or payment instructions?
+- Is every agent action bounded by cryptographic/user authorization?
+
+Desired boundary:
+
+> **Agent Recommendation ≠ Economic Authority.**
+
+> **Model Output ≠ Evidence.**
+
+> **Autonomy must never exceed explicitly delegated authority.**
+
+---
+
+### 5. Databases / caches / queues
+
+Questions:
+
+- Can Redis/cache disagreement redefine economic truth?
+- Can database corruption resurrect stale state?
+- Can replica lag create double-commit behavior?
+- Can cache poisoning alter validation?
+- Can queue redelivery duplicate economic actions?
+- Can schema migration reinterpret historical facts?
+- Does losing a cache merely degrade performance, or corrupt semantics?
+
+Preserve:
+
+> **Storage representation ≠ Protocol truth.**
+
+---
+
+### 6. Cryptographic libraries
+
+Questions:
+
+- Does the library actually enforce the canonical signature rules Sails assumes?
+- Can malleability or permissive parsing change fact identity?
+- Are public-key encodings validated canonically?
+- Can version upgrades alter verification behavior?
+- Are domain-separation requirements enforced by Sails rather than assumed from the library?
+- Is cryptographic failure fail-closed?
+
+Preserve lesson:
+
+> **Library verification success ≠ protocol-semantic validity.**
+
+---
+
+### 7. API frameworks / serialization / parsers
+
+Questions:
+
+- Can parser ambiguity create cross-implementation disagreement?
+- Can unknown fields be interpreted differently?
+- Can numeric coercion change value?
+- Can JSON ordering/Unicode/float behavior alter signatures?
+- Can request middleware bypass authentication/authorization?
+- Can framework defaults expose internal objects?
+- Can deserialization trigger dangerous behavior?
+
+---
+
+### 8. Third-party identity / authentication systems
+
+Questions:
+
+- Can external auth become protocol membership authority?
+- Can account recovery override economic identity?
+- Can OAuth/session compromise sign economic actions?
+- Can identity-provider outage lock users out of sovereign assets?
+- Can email/phone identity become conflated with cryptographic authority?
+
+Desired boundary:
+
+> **Application Authentication ≠ Protocol Economic Identity.**
+
+---
+
+### 9. Cloud / hosting / deployment infrastructure
+
+Questions:
+
+- What happens if the cloud account is compromised?
+- Can infrastructure admin access participant secrets?
+- Can snapshots/backups expose keys?
+- Can DNS/TLS compromise redirect clients?
+- Can one hosting provider take down a large fraction of nodes?
+- Can autoscaling/redeployment accidentally rotate node identity?
+- Can observability vendors ingest private trade data?
+
+---
+
+### 10. Package managers / build tools / CI/CD
+
+Questions:
+
+- Can dependency confusion or typosquatting compromise builds?
+- Can a maintainer account publish malicious packages?
+- Can generated code differ from reviewed source?
+- Can CI secrets sign/publish attacker-controlled artifacts?
+- Can post-install scripts execute dangerous behavior?
+- Are transitive dependency changes visible and reviewed?
+
+---
+
+### 11. Bridge / wrapper / adapter risk
+
+Agnostic systems often concentrate danger in adapters.
+
+Questions:
+
+- Does the adapter translate semantics losslessly?
+- Does it invent defaults when the source system is ambiguous?
+- Does it hide unsupported states?
+- Can two adapters map the same external state differently?
+- Does adapter fallback silently switch providers?
+- Can adapter convenience create hidden custody or trust?
+
+Preserve:
+
+> **Adapter compatibility ≠ semantic compatibility.**
+
+---
+
+### 12. Version and dependency drift
+
+Questions:
+
+- Can a minor dependency update change security-relevant behavior?
+- Are breaking changes detected before release?
+- Can two node operators run dependency versions with divergent semantics?
+- Is protocol compatibility independent from library version compatibility?
+- Can an emergency upstream patch create a rushed Sails regression?
+
+---
+
+### 13. Provider maturity and eligibility
+
+For each provider/technology distinguish:
+
+> **Available ≠ Integrated ≠ Evidenced ≠ Mature ≠ Production Eligible.**
+
+Questions:
+
+- Has it been adversarially tested?
+- Has it survived real production exposure?
+- Is incident history understood?
+- Does it expose sufficient evidence for Sails to verify outcomes?
+- Is fallback possible?
+- Is blast radius bounded?
+- Does provider compromise require halting only one rail, or the whole protocol?
+
+---
+
+### 14. Cross-technology composition attacks
+
+The largest risk may exist between technologies rather than inside one.
+
+Examples of questions:
+
+- Can transport identity + wallet identity composition leak correlation?
+- Can provider timeout + retry logic create duplicate settlement?
+- Can AI agent + permissive API create unauthorized commitment?
+- Can cache lag + provider response create stale release?
+- Can identity provider recovery + wallet binding hijack account authority?
+- Can two individually-correct adapters disagree on the same asset/network semantics?
+
+Preserve:
+
+> **Secure component A + secure component B ≠ secure composition.**
+
+---
+
+### 15. Technology-removal test
+
+For every dependency ask:
+
+> **If this technology disappeared tomorrow, what protocol semantics would break?**
+
+Interpretation:
+
+- If only capability disappears, boundary is probably healthy.
+- If protocol truth becomes undefined, the edge may have become architecture.
+- If users lose authority because a provider disappears, hidden centralization may exist.
+
+This is a permanent Architecture Drift check.
+
+---
+
+### 16. Blast-radius test
+
+For each technology/provider define:
+
+- maximum funds/value it can affect;
+- identities it can impersonate;
+- data it can observe;
+- state it can mutate;
+- nodes/users it can isolate;
+- claims it can falsify;
+- availability it can remove.
+
+Desired property:
+
+> **Compromise of one replaceable edge must not grant unrelated authority elsewhere.**
+
+---
+
+### 17. Technology incident replay
+
+Whenever any relevant external technology or adjacent ecosystem suffers a
+security incident:
+
+1. identify the root violated property;
+2. ignore brand-specific details initially;
+3. ask whether the same property exists anywhere in Sails;
+4. inspect all adapters/providers that share the class;
+5. add adversarial regression/evidence if applicable;
+6. classify any real gap institutionally.
+
+This creates the desired "natural antibodies":
+
+> **External incident → Sails hypothesis → adversarial confrontation → durable evidence.**
+
+---
+
+### 18. Agnostic-edge threat matrix
+
+A future dedicated sweep should create a matrix for each real Sails technology:
+
+```
+Technology / Provider
+→ Capability supplied
+→ Authority granted
+→ Secrets/data exposed
+→ Failure modes
+→ Compromise modes
+→ Semantic assumptions
+→ Replaceability
+→ Blast radius
+→ Existing evidence
+→ Missing evidence
+→ Production eligibility
+```
+
+Candidate surfaces to confront include current or planned technologies such as:
+
+- Pears / HyperDHT;
+- WDK;
+- QVAC;
+- Bitcoin node/RPC infrastructure;
+- Lightning / Spark-like infrastructure;
+- Liquid / Elements ecosystem;
+- EVM networks and RPC/providers;
+- Solana / Tron / TON / BNB-style rails where supported;
+- DePix and fiat/PIX providers;
+- settlement/custody/escrow providers;
+- database/cache/event infrastructure;
+- cryptographic libraries;
+- authentication/wallet-integration providers;
+- package/build/CI supply chain;
+- AI/model providers;
+- future adapters and independent implementations.
+
+This list is a discovery seed, not a statement that every technology above is
+currently implemented or production-supported.
+
+No technology is rejected merely for having risk.
+No technology is trusted merely because it is widely used.
+
+> **Agnosticism means replaceability with explicit trust boundaries, not blind compatibility.**
+
+A future **Sails Technology Attack-Surface Sweep** must confront each actual
+repository dependency/integration against this matrix and classify surviving
+gaps into ADR / Backlog / Technical Debt / Evidence / Partner Beta /
+Production Readiness.
+
+**BACKLOG DELTA: NOT YET DETERMINED by this checklist entry.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
