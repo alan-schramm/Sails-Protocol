@@ -1758,3 +1758,29 @@ These are sub-obligations of the existing Day-0 Completion Gate / Issue
 or hidden operational conventions.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+
+### Cold Sweep Loop 4 — current public Offer privacy defect (2026-09-09)
+
+19. **Public OfferDetail privacy projection — CURRENT DEFECT / Partner
+    Beta blocker.** Registered as `docs/TECHNICAL_DEBT_AUDIT.md #61`.
+    The unauthenticated `GET /v1/liquidity/offers/:id` currently
+    returns the raw persisted Offer (including `paymentDetails`) plus
+    a broad User projection. This violates the already-established
+    public-read discipline used elsewhere in the repository.
+
+    Required property:
+    **Public Offer View ≠ Raw Offer Row.**
+    **Offer Discovery Data ≠ Payment Execution Data.**
+    **Payment Destination Commitment ≠ Public Payment Destination.**
+
+    Must close before Partner Beta: purpose-built public projection,
+    no raw payment-instruction disclosure, justified participant fields,
+    and proof that the actual two trade parties still receive/verify the
+    committed payment instruction through the authorized pairwise path.
+
+    Cross-node rule: the ADR-001 OfferEnvelope must continue excluding
+    private `paymentDetails`; gossip must never serialize the current
+    raw DB row by convenience.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
