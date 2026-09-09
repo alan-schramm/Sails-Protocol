@@ -113,7 +113,17 @@
  * `tests/participantTransportIdentity.test.ts`'s `Promise.all` test for
  * the executed evidence, and its own comment for the exact boundary of
  * what that evidence does and does not prove (same-process concurrent
- * async calls, not literal separate OS processes).
+ * async calls, not literal separate OS processes). **Durability
+ * boundary, disclosed narrowly, not solved:** exclusive creation
+ * (`O_CREAT|O_EXCL`) proves only that two concurrent initializers cannot
+ * both become the persisted winner — it is a concurrency-correctness
+ * primitive, not a crash/power-loss durability guarantee. No `fsync` is
+ * performed; a seed reported as successfully created could, in
+ * principle, still be lost to an OS crash or power loss before the
+ * filesystem itself durably commits it. This pass adds no `fsync`,
+ * transactional storage, new dependency, or additional mechanism to
+ * close that gap — it is named as an unproven boundary, not solved
+ * here.
  *
  * **Corruption / missing-secret behavior, both deliberately explicit
  * rather than silently permissive:**
@@ -245,7 +255,12 @@ export async function loadOrCreateParticipantTransportIdentitySeed(
     return readWinnerAfterLosingRace(seedPath)
   }
 
-  // Won the race — candidateSeed is now durably, exclusively persisted.
+  // Won the race — candidateSeed is now exclusively created and
+  // persisted to the local filesystem. Exclusive creation is what
+  // prevents two concurrent initializers from both becoming the
+  // persisted winner; it is not a crash/power-loss durability guarantee
+  // (no fsync is performed here) — that boundary is disclosed, not
+  // solved, in this module's own header comment.
   const peerId = HyperDHT.keyPair(candidateSeed).publicKey.toString('hex')
   log.warn({
     msg: 'New participant transport identity created — this ownerUserId had no prior persisted seed. ' +

@@ -1385,24 +1385,29 @@ four are preserved below in the order they were registered:
    Issue. No new primitive — reuses the exact existing signature/
    verification mechanism.
 2. **The Implementation Sequence itself (ADR-001 §21, updated
-   2026-09-09 twice — first to insert two new Day-0 identity/binding
-   items, then to insert two new Day-0 economics items)** — (a)
-   portable signed Offers, (b) persistent node identity, (c) Economic
-   Identity ↔ Transport Identity Binding, (d) propagation/bootstrap,
-   (e) multi-node discovery/convergence, (f) cross-node trade
-   coordination, (g) pagination/discovery-scaling wiring, (h)
-   professional-provider inventory locking, (i) cross-node
-   restart/resume, (j) Node Contribution Accounting, (k) Incentive
-   Compatibility / No-Cannibalization Evidence, (l) stranger-node test,
-   (m) stranger-developer test, (n) first independent partner-wallet
-   beta — registered as the concrete, ordered obligation that
-   supersedes this file's own prior "16 evidence-required properties"
-   framing (still accurate as *scope*, now given an actual build
-   order). Explicitly **not** authorized for implementation by the ADR
-   or this entry — requires its own separate CTO Gate before any step
-   begins. **Actual payout execution is separate from and later than
-   this sequence** — gated by the Production Readiness Consolidated
-   Gate, may remain disabled through the entire beta; (j)/(k) make
+   2026-09-09 three times — first to insert two new Day-0
+   identity/binding items, then to insert two new Day-0 economics
+   items, then to insert (d) Sails Node Operator Identity and renumber
+   everything after it, CTO decision, PR #108 final-precision pass)** —
+   (a) portable signed Offers, (b) persistent Participant Transport
+   Identity, (c) Economic Identity ↔ Transport Identity Binding, **(d)
+   Sails Node Operator Identity**, (e) propagation/bootstrap, (f)
+   multi-node discovery/convergence, (g) cross-node trade coordination,
+   (h) pagination/discovery-scaling wiring, (i) professional-provider
+   inventory locking, (j) cross-node restart/resume, (k) Node
+   Contribution Accounting, (l) Incentive Compatibility /
+   No-Cannibalization Evidence, (m) stranger-node test, (n)
+   stranger-developer test, (o) first independent partner-wallet beta —
+   registered as the concrete, ordered obligation that supersedes this
+   file's own prior "16 evidence-required properties" framing (still
+   accurate as *scope*, now given an actual build order). Explicitly
+   **not** authorized for implementation by the ADR or this entry —
+   requires its own separate CTO Gate before any step begins. **Critical
+   dependency, explicit:** (e) propagation/bootstrap must not be
+   implemented before (d) has its own CTO-approved design and evidence.
+   **Actual payout execution is separate from and later than this
+   sequence** — gated by the Production Readiness Consolidated Gate,
+   may remain disabled through the entire beta; (k)/(l) make
    contribution accounting and entitlement recognition testable, they
    do not activate payment.
 
@@ -1454,16 +1459,20 @@ represented anywhere in this repository:
    does **not** close this — they are structurally distinct, confirmed
    by the fact that a single operator can host many participants (one
    `PearNode` per `ownerUserId`), so no per-participant identity can
-   stand in for an operator-level one. Exact placement in ADR-001 §21's
-   ordered sequence is left to CTO classification — §7.2 names (d)
-   Propagation/bootstrap and (j) Node Contribution Accounting as the
-   earliest points it becomes load-bearing, without committing to a
-   letter.
+   stand in for an operator-level one. **Sequenced (2026-09-09, CTO
+   decision, final-precision correction pass on PR #108): ADR-001
+   §21(d)**, inserted immediately after (c) Economic Identity ↔
+   Transport Identity Binding and before (e) Propagation/bootstrap — an
+   ordered Day-0 prerequisite, not merely "sometime before
+   gossip/economics." Propagation/bootstrap (e) must not be implemented
+   before this step has its own CTO-approved design and evidence.
 
 **Updated again, 2026-09-09 (CTO Gate, Fase 2-5/9) — Node Contribution
 Accounting and Incentive Compatibility, classified before registering:**
 both are **new content inside the already-counted Implementation
-Sequence obligation (item 2, now sequence items (j)/(k))**, deliberately
+Sequence obligation (item 2, sequence items (j)/(k) at the time of this
+entry, renumbered to (k)/(l) 2026-09-09 by the later (d) Sails Node
+Operator Identity insertion)**, deliberately
 **not** registered as separate fifth/sixth top-level obligations — they
 are sub-obligations of the same "build this ordered sequence" item
 already counted above, and double-counting them would contradict this

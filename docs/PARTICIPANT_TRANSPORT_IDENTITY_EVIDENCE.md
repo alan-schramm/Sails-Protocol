@@ -1,27 +1,30 @@
 # Participant Transport Identity — Evidence
 
-> **Status: CORRECTED, Second Pass (2026-09-09, CTO Gate B on PR #108).**
-> Renamed from `PERSISTENT_NODE_IDENTITY_EVIDENCE.md`. The First Pass
-> closed ADR-001 §21 step (b) under the name "Persistent Node Identity"
-> and claimed BACKLOG DELTA: ZERO. A CTO Gate B correction found that
-> claim conflated two distinct concepts never previously distinguished
-> in ADR-001's own text: **Participant Transport Identity** (one
-> participant's own stable `peerId`, what this module actually
+> **Status: CORRECTED, Third Pass (2026-09-09, CTO Gate B final-precision
+> pass on PR #108).** Renamed from `PERSISTENT_NODE_IDENTITY_EVIDENCE.md`.
+> The First Pass closed ADR-001 §21 step (b) under the name "Persistent
+> Node Identity" and claimed BACKLOG DELTA: ZERO. The Second Pass found
+> that claim conflated two distinct concepts never previously
+> distinguished in ADR-001's own text: **Participant Transport Identity**
+> (one participant's own stable `peerId`, what this module actually
 > persists — confirmed directly against `pear.service.ts`'s own
 > `prisma.user.update({ where: { id: this.ownerUserId }, data: {peerId}
 > })`) and **Sails Node Operator Identity** (a cryptographic identity
 > for the operator/deployment itself, independent of any hosted
 > participant, required by ADR-001 §4's gossip-relay peer model and
 > §16's trade-serving-node compensation — confirmed, by direct code and
-> schema search, **not to exist anywhere in this codebase**). See
-> `docs/adr/ADR-001-day0-multi-operator-network.md` §7.2 for the full
-> correction narrative and `docs/BACKLOG.md` item 5 for the newly
-> registered, still-undesigned Operator Identity gap. This Second Pass
-> also fixed a real concurrent first-initialization race (Property
-> below) and reassessed the privacy wording accordingly. Everything in
-> this document describes the corrected, current state; nothing from
-> the First Pass is preserved as separately-cited history because the
-> underlying mechanism (not just its name) changed.
+> schema search, **not to exist anywhere in this codebase**), fixed a
+> real concurrent first-initialization race, and reassessed the privacy
+> wording accordingly. This Third Pass: (1) sequenced Sails Node
+> Operator Identity as **ADR-001 §21(d)**, an ordered Day-0 prerequisite
+> before (e) Propagation/bootstrap, no longer "left to CTO"; (2)
+> corrected an overclaim that exclusive-create persistence was
+> crash/power-loss durable — it is a concurrency-correctness guarantee
+> only, disclosed narrowly (§5, §11 residual 5), not solved with new
+> mechanism. See `docs/adr/ADR-001-day0-multi-operator-network.md` §7.2
+> and §21 for the full correction/sequencing narrative and
+> `docs/BACKLOG.md` item 5. Everything in this document describes the
+> corrected, current state.
 
 ## 1. Property
 
@@ -109,8 +112,14 @@ calls with no seed produce two different `publicKey` values every time.
 - First call for a given `ownerUserId`: generates 32 random bytes,
   attempts an **exclusive, atomic create** (`fs.writeFile(seedPath,
   seed, {flag: 'wx'})` — POSIX `O_CREAT|O_EXCL` / Windows `CREATE_NEW`).
-- On success: this call's seed is now durably persisted and
-  authoritative; a WARN is logged naming the new `peerId`.
+- On success: this call's seed is now exclusively created and persisted
+  to the local filesystem, and authoritative; a WARN is logged naming
+  the new `peerId`. **Precision (2026-09-09, CTO Gate B final pass):**
+  "exclusively created and persisted" is a concurrency-correctness
+  claim — it proves two concurrent initializers cannot both become the
+  winner (§7 below) — not a crash/power-loss durability claim; no
+  `fsync` is performed, and that gap is disclosed as an unproven
+  boundary, not solved in this pass.
 - On `EEXIST` (another concurrent caller already won): reads back the
   winner's persisted seed instead of returning its own candidate — see
   §7 (concurrency fix) below.
@@ -236,9 +245,19 @@ operator identity exists (§3).
 2. No dedicated rotation API.
 3. **Sails Node Operator Identity does not exist and is not designed
    here** — registered as `docs/BACKLOG.md` item 5, a real,
-   previously-unregistered gap, exact sequence placement left to CTO.
+   previously-unregistered gap. **Sequenced 2026-09-09 (CTO decision,
+   final-precision pass): ADR-001 §21(d)**, no longer "left to CTO" —
+   an ordered Day-0 prerequisite, before (e) Propagation/bootstrap.
 4. Property G's cross-process guarantee rests on OS documentation, not
    on this suite having executed separate processes (§8).
+5. **Crash/power-loss durability is not demonstrated** (2026-09-09, CTO
+   Gate B final pass). Exclusive creation (`O_CREAT|O_EXCL`) proves
+   concurrency-correctness — two initializers cannot both become the
+   winner — not that a reported-successful create survives an OS crash
+   or power loss before the filesystem commits it; no `fsync` is
+   performed. Disclosed narrowly as an unproven boundary; no `fsync`,
+   transactional storage, new dependency, or additional mechanism was
+   added to close it in this pass.
 
 ## 12. Claims
 
