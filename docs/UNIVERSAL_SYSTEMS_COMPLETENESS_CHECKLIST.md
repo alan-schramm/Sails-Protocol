@@ -801,6 +801,215 @@ Partner Beta / Production Readiness.
 
 ---
 
+
+## 3.22 Arbitration / Dispute Authority / Adversarial Justice
+
+Arbitration is a distinct security, governance, economic, privacy and liveness surface.
+It must not be treated as a small branch of the happy-path trade state machine.
+
+Core principle:
+
+> **Dispute Hosting Node ≠ Arbitration Authority ≠ Funds Authority.**
+
+Preserve additionally:
+
+> **Arbitration Policy ≠ Node Local Configuration once a trade is committed.**
+
+> **Ruling Attribution ≠ Funds Authority.**
+
+> **Evidence Hosting ≠ Evidence Authority.**
+
+> **Arbiter Selection ≠ Arbiter Legitimacy.**
+
+> **A valid ruling must not depend on one operator remaining online.**
+
+This checklist entry does not select an arbitration mechanism. It creates the questions that any future Sails arbitration design must survive.
+
+### Authority and commitment
+
+Questions:
+
+- At what exact point is the arbitration authority selected?
+- Is the applicable arbitration policy committed before funds become economically at risk?
+- Can either party, node, provider, or operator substitute the arbiter after trade commitment?
+- Is the selected authority independently verifiable by both parties?
+- Does the trade commit to the exact arbitration policy/version?
+- Can policy updates retroactively alter an existing dispute?
+- Can a hosting node gain authority merely because it received `raiseDispute()` first?
+- Can settlement-provider configuration silently redefine the arbiter?
+- Can an arbiter ruling itself move funds, or is separate rail-specific authorization required?
+
+### Arbiter capture and collusion
+
+Questions:
+
+- What if the arbiter colludes with buyer?
+- With seller?
+- With node operator?
+- With settlement provider?
+- With liquidity provider?
+- With another arbiter?
+- Can one economic operator control multiple apparently independent arbiters?
+- Does Sybil multiplicity create fake arbitration diversity?
+- Can an arbiter favor counterparties that generate future fees?
+- Can a node route users toward economically affiliated arbiters without disclosure?
+- Can a cartel make honest arbitration economically irrational?
+
+### Availability and censorship
+
+Questions:
+
+- What if the selected arbiter disappears?
+- Refuses to accept the dispute?
+- Delays indefinitely?
+- Selectively ignores one party?
+- Refuses certain jurisdictions/assets/users?
+- Is there an explicit timeout?
+- Is fallback/appeal defined before commitment?
+- Can a party progress if the dispute-hosting node disappears?
+- Can evidence and rulings be retrieved from another node?
+- Can an operator censor evidence without destroying the underlying verifiable facts?
+
+### Evidence integrity
+
+Questions:
+
+- What evidence is admissible?
+- Who can create it?
+- Who can attest it?
+- Who stores it?
+- Can evidence be modified, withheld, reordered, truncated, or selectively presented?
+- Are hashes/signatures sufficient to prove exactly what was submitted?
+- Can private evidence remain private while still being verifiable by authorized arbiters?
+- Can metadata leak sensitive financial or identity information?
+- Can one party flood the arbiter with valid but irrelevant evidence?
+- Is there a canonical reference to the evidence set considered by a ruling?
+- Can two honest reviewers independently verify what evidence a ruling relied on?
+
+### Identity and conflicts of interest
+
+Questions:
+
+- How is an arbiter identified?
+- Is arbiter identity operational, economic, legal, reputational, or some combination?
+- Can arbiter keys rotate without invalidating prior rulings?
+- How are superseded/compromised arbiter keys handled?
+- Must an arbiter disclose conflicts of interest?
+- Can participants distinguish one human/legal arbiter from many technical identities?
+- Can reputation remain portable without becoming a global surveillance score?
+
+### Ruling semantics
+
+Questions:
+
+- What exactly does a ruling state?
+- Is the ruling deterministic enough for independent implementations to interpret identically?
+- Is the ruling signed?
+- Does it bind the dispute/trade/evidence set/policy version/appeal round?
+- Can an old ruling be replayed against another trade?
+- Can contradictory rulings exist at the same appeal level?
+- Is equivocation detectable?
+- What is the current-state rule if a higher appeal round exists?
+- Can a ruling be partially executable depending on settlement rail?
+
+### Funds authority
+
+Questions:
+
+- Who actually authorizes release/refund after a ruling?
+- Does the arbiter control funds directly?
+- Does the settlement provider require a separate authorization artifact?
+- Can a node fabricate "arbiter approved" without the arbiter's signature?
+- Can a ruling be valid but not executable under a particular rail?
+- Can a settlement mechanism give an arbiter more authority than participants believed they accepted?
+
+Always preserve:
+
+> **Authorization Evidence ≠ Funds Authority.**
+
+> **Interface uniformity ≠ Security uniformity.**
+
+### Appeals and finality
+
+Questions:
+
+- Is appeal supported?
+- Who may appeal?
+- What is the deadline?
+- Is the appeal authority precommitted?
+- Can appeal policy change mid-trade?
+- Does a higher ruling supersede or merely append to a prior ruling?
+- Is finality explicit?
+- Can funds move before the appeal window closes?
+- Can an unavailable appeals layer lock funds forever?
+- Can a malicious party abuse appeals purely for griefing or capital lockup?
+
+### Economic attacks against arbitration
+
+Questions:
+
+- Can disputing become cheaper than honest completion?
+- Can attackers grief counterparties by repeatedly forcing arbitration?
+- Can arbitrers be bribed more cheaply than the value they control?
+- Can fees create incentives to manufacture disputes?
+- Can an operator earn more when users enter disputes?
+- Can colluding accounts farm arbiter reputation or fees?
+- Can bond/deposit mechanisms, if ever proposed, be Sybil-farmed or become censorship tools?
+- Can a wealthy actor economically exhaust honest counterparties through repeated disputes?
+
+### Privacy and coercion
+
+Questions:
+
+- Does dispute resolution force public disclosure of payment details?
+- Can an arbiter infer more participant identity than required?
+- Can evidence create cross-trade/cross-wallet correlation?
+- Can arbitration logs become a permanent surveillance graph?
+- Can a malicious arbiter retain private evidence beyond necessity?
+- Can parties prove enough without globally publishing sensitive data?
+
+### Cross-node and independent-operation reality
+
+Required future adversarial evidence should include, where applicable:
+
+- Buyer-node disappearance during dispute.
+- Seller-node disappearance during dispute.
+- Dispute-hosting-node failover.
+- Arbiter unavailable before accepting dispute.
+- Arbiter unavailable after accepting evidence.
+- Conflicting node-local arbitration configuration.
+- Arbiter-key rotation/compromise.
+- Contradictory ruling / arbiter equivocation.
+- Appeal-round consistency.
+- Evidence withholding / partial evidence set.
+- Malicious evidence flood.
+- Settlement-provider substitution attempt after dispute begins.
+- Fee/policy rotation after dispute begins.
+- Independent stranger node verifies ruling and evidence references.
+- Independent implementation interprets the same ruling identically.
+
+### Adversarial design rule
+
+For every arbitration proposal ask:
+
+> Can a malicious but protocol-conformant arbiter exploit this?
+
+> Can a malicious node exploit this without controlling the arbiter?
+
+> Can a malicious settlement provider exploit this while returning valid responses?
+
+> Can two colluding roles gain authority that neither role has alone?
+
+> Does the proposed safeguard create hidden central authority?
+
+No universal arbiter registry, token, staking model, legal identity layer, reputation formula, multisig structure, or appeal hierarchy is authorized by this checklist.
+
+A future dedicated **Sails Arbitration Adversarial Sweep** must confront these questions against current dispute code, settlement rails, evidence model, economic policy and cross-node architecture, then classify surviving gaps into ADR / Backlog / Technical Debt / Evidence / Partner Beta / Production Readiness.
+
+**BACKLOG DELTA: NOT YET DETERMINED by this checklist entry.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
