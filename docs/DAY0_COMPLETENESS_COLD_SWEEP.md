@@ -1,0 +1,291 @@
+# Day-0 Completeness Cold Sweep — Multi-Operator Network + Partner Beta
+
+**Type:** Institutional Memory / Architecture Completeness / Production Reality.
+**Date:** 2026-09-09.
+**Authority:** CTO cold sweep following ADR-001 and the Partner Beta / Integration Reality discovery.
+**Status:** evidence + obligation registration only. No implementation is authorized by this document.
+
+## 1. Why this sweep exists
+
+The current architecture now correctly freezes the central Day-0 property:
+
+> **Node choice must not define market membership.**
+
+and the operating principle:
+
+> **Liquidity should be network-level; node operation should be service-level.**
+
+This sweep asks a different question: **what can still fail in practice even if ADR-001's signed-offer gossip architecture is implemented exactly as written?**
+
+The purpose is to prevent hidden Day-0 requirements from living only in conversation, intuition, or future operational experience.
+
+## 2. What was already institutionalized before this sweep
+
+Already represented and therefore **not duplicated as new obligations**:
+
+- shared market universe across independent nodes;
+- no mandatory Satsails-operated membership/truth authority;
+- signed portable Offer envelopes;
+- persistent node identity;
+- Economic Identity ↔ Transport Identity binding;
+- bootstrap + peer exchange;
+- gossip propagation + revision dedup;
+- cross-node trade-open handshake;
+- capability/rail pre-creation discovery;
+- professional liquidity-provider flow;
+- restart/offline/resume;
+- node contribution accounting;
+- no-cannibalization / incentive-compatibility evidence;
+- stranger-node test;
+- stranger-developer test;
+- first independent partner-wallet beta;
+- node selection UX;
+- node economics separated from protocol authority;
+- privacy rule: shared market ≠ shared private state;
+- production readiness and partner-beta gates;
+- professional-provider quote expiry/min-max and inventory reservation;
+- partial fill and outbound webhooks explicitly preserved as later obligations, not forgotten;
+- Sybil/spam risk already named;
+- protocol-version compatibility and node failover already named as evidence-required categories.
+
+## 3. New Day-0 completeness obligations discovered by this sweep
+
+### 3.1 Gossip catch-up / anti-entropy / partition healing
+
+**Gap:** ADR-001 specifies propagation of newly-seen revisions. That alone does not prove a node joining later, reconnecting after downtime, or healing after a network partition receives active offers and newer tombstones that were published while it was absent.
+
+**Property:**
+
+> A conformant node that joins late or reconnects after a partition must be able to converge toward the current valid offer universe without requiring offers to be republished manually.
+
+Required evidence must cover:
+- late-joining node;
+- node offline while an offer is created;
+- node offline while an offer is revised;
+- node offline while an offer is cancelled;
+- partition heals with different highest-known revisions on each side.
+
+No mechanism is selected here. Snapshot exchange, bounded inventory reconciliation, revision summaries, or another anti-entropy technique must earn selection separately.
+
+### 3.2 Tombstone / highest-revision retention and stale resurrection prevention
+
+**Gap:** cancellation is a higher-revision tombstone. If a node later discards the only evidence that revision N cancelled an offer, an old ACTIVE revision N-1 arriving from a stale peer can resurrect liquidity that no longer exists.
+
+**Property:**
+
+> Garbage collection must never make an older validly-signed ACTIVE offer become valid again after a higher revision or cancellation was previously accepted.
+
+A node may compact data, but it must preserve enough monotonic knowledge to reject stale resurrection.
+
+### 3.3 Node descriptor / self-authenticating operator advertisement
+
+The network can discover peer addresses without yet exposing enough information for a wallet, service or operator to make a safe node choice.
+
+**Day-0 property:**
+
+> A node must be able to self-authenticate and disclose the minimum operational facts needed for compatibility and informed selection without a central registry becoming authority.
+
+Minimum categories to define and evidence:
+- stable node identity;
+- reachable endpoint / transport information;
+- supported protocol / wire version range;
+- enabled Sails capabilities relevant to the integrator;
+- enabled settlement rails and disclosed maturity/custody labels;
+- fee/policy disclosure applicable to using that node;
+- expiry/freshness of the descriptor;
+- signature/authenticity of the descriptor.
+
+Optional human-facing metadata (name, jurisdiction, support contact) must remain metadata, never protocol authority.
+
+This is analogous in *property* to operator-info advertisements in other P2P systems, but no external schema is adopted by this registration.
+
+### 3.4 Protocol/wire compatibility negotiation
+
+Merely knowing that two processes speak “Sails” is insufficient once protocol objects evolve.
+
+**Property:**
+
+> Before exchanging economic advertisements, nodes must be able to determine whether they share a compatible wire/object semantics version and must fail clearly rather than silently reinterpret economic meaning.
+
+This is distinct from Independent Implementation Conformance:
+- conformance asks whether two implementations interpret the same canonical object the same way;
+- version negotiation asks whether two live nodes should exchange that object at all.
+
+### 3.5 Node identity lifecycle and operator-recipient separation
+
+ADR-001 correctly freezes **Node Identity ≠ Participant Identity**. This sweep adds a missing adjacent distinction:
+
+> **Node Identity ≠ Operator Economic Recipient.**
+
+One operator may run several nodes. One node may be rebuilt. A node key may be compromised. Economic entitlement must not accidentally turn an operational transport key into permanent financial identity.
+
+Day-0/production obligations:
+- node identity backup/recovery policy;
+- compromise response;
+- rotation/replacement semantics;
+- how peers stop trusting a superseded node key;
+- how economic accounting survives legitimate node-key rotation where policy says it should;
+- no node key gains authority over participant funds or protocol semantics.
+
+No new operator-identity primitive is authorized here.
+
+### 3.6 Eclipse / peer-diversity / selective-forwarding resilience
+
+Signed offers prevent forgery; they do not prevent a node from being surrounded by peers that selectively withhold valid liquidity.
+
+**Property:**
+
+> A single malicious bootstrap peer, relay set, or operator must not be sufficient to define the market view of an otherwise conformant node.
+
+Evidence must include at least:
+- one withholding peer with alternate honest paths;
+- multiple malicious peers attempting eclipse/isolation;
+- bootstrap diversity / operator-editable bootstrap behavior;
+- peer rotation/reconnection behavior sufficient to escape a stale or censoring neighborhood.
+
+This is not a claim of perfect censorship resistance.
+
+### 3.7 Gossip resource bounds and abuse containment
+
+Valid signatures do not make traffic economically valid. Attackers can create many valid keys and many validly-signed garbage offers.
+
+**Property:**
+
+> A conformant node must be able to bound CPU, memory, storage and bandwidth consumption from gossip without requiring central permission for honest participation.
+
+The eventual design must explicitly bound:
+- envelope size;
+- per-peer ingress;
+- duplicate/revision cache growth;
+- expired/tombstone retention;
+- malformed-message cost;
+- signature-verification amplification;
+- peer connection count;
+- backpressure.
+
+Formal Sybil resistance remains a separate question; basic resource safety does not.
+
+### 3.8 Clock / expiry operational correctness
+
+ADR-001 intentionally avoids cross-node clock ordering for revisions, but `expiresAt` is evaluated against local time.
+
+**Property:**
+
+> Clock error must not silently create materially different market availability across otherwise conformant nodes.
+
+Day-0 production operations must define a bounded clock-health expectation and fail/degrade visibly when the node clock is outside that bound. This is an operational requirement, not a global consensus clock.
+
+### 3.9 Node failover / migration without economic amnesia
+
+The Backlog already names failover/migration as evidence-required. This sweep makes the user-facing consequence explicit:
+
+> Changing the node used by a wallet must not inherently erase participant identity, signed trade anchors, portable evidence, historical rights, or access to network liquidity.
+
+A node switch may change local policy or local score calculation. It must not redefine already-signed economic facts.
+
+This must be exercised in Partner Beta / Production Readiness, not left as an abstract category.
+
+### 3.10 Node operator self-service / runbook
+
+If independent operation is a Day-0 requirement, running a node cannot depend on private assistance from Satsails.
+
+**Property:**
+
+> A competent independent operator must be able to deploy, configure, join, observe, upgrade, back up, recover and safely stop a conformant Sails Node from public documentation and supported artifacts.
+
+The future operator path must cover at minimum:
+- installation/deployment;
+- Postgres/Redis requirements;
+- persistent node-key custody;
+- bootstrap configuration;
+- TLS/network ports;
+- supported rail configuration;
+- migrations;
+- health/metrics/logging;
+- backups/restores;
+- upgrade/rollback;
+- incident/recovery procedures;
+- protocol-version compatibility;
+- fee/policy publication where applicable.
+
+This is the node-side counterpart to the already-frozen Stranger Developer Test.
+
+### 3.11 Service-integration event delivery
+
+Outbound webhooks remain explicitly deferred past the first beta in ADR-001. They are **not forgotten**.
+
+For public production:
+
+> A backend/service integrator must have a documented, recoverable way to consume economically relevant state changes without relying on an unbounded best-effort WebSocket session.
+
+The eventual production answer may be webhooks, resumable event consumption, polling with durable cursors, or another bounded mechanism. This sweep does not choose one.
+
+## 4. Properties deliberately NOT promoted to Day-0 beta blockers
+
+The following remain correctly separated from the first independent partner-wallet beta unless later evidence makes them load-bearing:
+
+- partial fills;
+- a universal node reputation score;
+- paid gossip/relay rewards;
+- DHT-stored offer architecture;
+- Rust/Go implementations themselves;
+- public Playground;
+- full global Sybil-proof membership;
+- every settlement rail in the long-term matrix.
+
+They remain institutional obligations where already registered.
+
+## 5. Adversarial Day-0 evidence set added by this sweep
+
+Before any “shared liquidity / multi-node / decentralized” production claim, the evidence program must include:
+
+1. Late Join Test.
+2. Partition Heal Test.
+3. Tombstone Resurrection Test.
+4. Malicious Selective Forwarding Test.
+5. Eclipse/Bootstrap Diversity Test.
+6. Node Descriptor Authenticity / Staleness Test.
+7. Wire-Version Mismatch Test.
+8. Node-Key Rotation / Compromise Test.
+9. Node Switch / Economic Continuity Test.
+10. Gossip Resource-Exhaustion Test.
+11. Clock-Skew / Expiry Test.
+12. Independent Node Operator No-Assistance Test.
+
+These extend, not replace, ADR-001's stranger-node, stranger-developer and partner-wallet tests.
+
+## 6. Sequencing consequence
+
+The accepted ADR-001 architecture decision is unchanged.
+
+However, the Day-0 implementation sequence is incomplete unless it also covers:
+- anti-entropy/catch-up and partition healing;
+- stale-resurrection-safe revision retention;
+- self-authenticating node descriptor + protocol compatibility;
+- node identity lifecycle;
+- peer-diversity/eclipse resilience;
+- gossip resource bounds;
+- clock-health behavior;
+- node operator self-service;
+- node failover/migration evidence.
+
+No item above may disappear merely because the happy path works.
+
+## 7. Claim discipline
+
+Until evidence exists, do not claim:
+- all nodes see the same liquidity;
+- late joiners converge;
+- node switching is seamless;
+- node operation is permissionless in practice;
+- node economics are incentive-compatible in production;
+- censorship resistance;
+- production-grade decentralized operation.
+
+## 8. Institutional result
+
+**BACKLOG DELTA DETECTED.**
+
+This sweep found a second-order class of obligations: not “can two live nodes gossip a new offer?”, but “does the network remain one market across time, failures, upgrades, partitions, operator changes and adversarial peers?”
+
+These are Day-0 completeness obligations because without them a multi-node architecture can appear decentralized in a demo while remaining fragile or economically fragmented in real operation.
