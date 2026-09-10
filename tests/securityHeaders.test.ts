@@ -75,7 +75,7 @@ async function buildAppWithEnv(envOverrides: Record<string, string>): Promise<Fa
     const { buildApp } = require('../src/app')
     // Technical Debt #57 bounded remediation — this suite exercises
     // security headers only, never /docs; registerSwaggerUi: false skips
-    // the demonstrated-expensive Swagger-UI registration without changing
+    // Swagger-UI's real asynchronous bootstrap work without changing
     // the CSP-outside-production behavior this file actually asserts
     // (helmet's CSP config is keyed on config.isProduction, not on
     // whether swagger-ui itself is registered).

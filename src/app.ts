@@ -51,14 +51,15 @@ export interface BuildAppOptions {
   // Technical Debt #57 bounded remediation (2026-09-10). @fastify/swagger
   // (OpenAPI spec generation, below) is never gated by this option — it
   // has no meaningful registration cost and every route's OpenAPI schema
-  // metadata still needs it. @fastify/swagger-ui is the demonstrated,
-  // measured-expensive boundary (real async fs.readFile + require() on
-  // every buildApp() call — docs/TECHNICAL_DEBT_AUDIT.md #57's own
-  // evidence): registering it fresh in every one of this repo's ~18
-  // buildApp()-calling test files, under Jest's parallel worker topology,
-  // is what produced the demonstrated worker-count-driven contention (0/10
-  // failures serial, 9/10 at 10 workers). Defaults to `true` — identical
-  // to this option not existing at all — so `startServer()`'s real boot
+  // metadata still needs it. @fastify/swagger-ui performs real
+  // asynchronous bootstrap work (fs.readFile + require() on every
+  // buildApp() call) and appears on the observed TD #57 failure path —
+  // its marginal causal contribution to the historical timeout has not
+  // been isolated (docs/TECHNICAL_DEBT_AUDIT.md #57). This option allows
+  // test callers that do not exercise the documentation UI to skip that
+  // unrelated bootstrap work while preserving the default
+  // development/production behavior. Defaults to `true` — identical to
+  // this option not existing at all — so `startServer()`'s real boot
   // path and every existing caller that doesn't pass this option keep
   // exactly today's behavior; no test's outcome changes unless it
   // explicitly opts out.
