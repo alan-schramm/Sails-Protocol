@@ -519,7 +519,11 @@ not plain-Lightning HTLC settlement. Corrected: **Arkade** is
 IMPLEMENTED/TESTNET-EVIDENCED; **Lightning**, as its own capability, is
 **NOT IMPLEMENTED/NOT EVIDENCED**. Lightning's Day-0 requirement is
 unchanged — only its current maturity claim moved to match actual
-evidence. Full canonical matrix:
+evidence. Protocol family, implementation/client, settlement provider,
+and interoperability path are four distinct concepts, never collapsed
+into each other — interoperating with Lightning would not make Ark,
+Spark, or RGB "a Lightning implementation." Full canonical matrix and
+worked examples:
 `docs/BACKLOG.md` Cold Sweep Loop 5, item 20.
 
 **A successful Satsails production integration proves the reference

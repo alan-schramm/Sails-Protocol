@@ -1911,6 +1911,44 @@ or hidden operational conventions.
       maturity claim moves to match actual evidence. Blocking gap for
       Lightning specifically: an architecture/provider path for real
       Lightning-native settlement, not yet designed.
+
+      **Institutional blind-spot rule, recorded 2026-09-10 (governance/
+      architecture guidance, not wire semantics):** "Do not confuse
+      protocol identity with implementation identity or
+      interoperability." Equivalent test: *if system A can interoperate
+      with protocol B, that does not make A an implementation of B.*
+      Four concepts stay distinct and are never collapsed into each
+      other: **protocol/network family ≠ implementation/client/SDK ≠
+      settlement capability/provider ≠ interoperability path.** Worked
+      examples, for calibration (none of these expand Day-0 scope by
+      themselves — RGB in particular stays exactly where it already was,
+      📋 Future/roadmap, not Day-0-required):
+      - **Lightning Network** is a protocol/network family; LND, Core
+        Lightning, LDK, and Eclair are different *implementations* of
+        that same family — naming one of them (or a Sails provider)
+        does not itself prove which protocol family is actually
+        realized.
+      - **Ark/Arkade** is its own, separate Bitcoin second-layer
+        protocol family. It may interoperate with Lightning (e.g. a
+        boarding/exit path) — that interoperability does not make Ark
+        "Lightning," and does not make a Sails provider that speaks Ark
+        a Lightning implementation.
+      - **Spark** is its own, separate Bitcoin L2/protocol family. It
+        may be Lightning-compatible/interoperable in the wider Bitcoin
+        ecosystem — this does not make Spark "another Lightning
+        implementation," and Spark must never be classified as one
+        merely because it can interoperate with Lightning.
+      - **RGB** is a Bitcoin asset protocol/layer that may use or
+        interoperate with Lightning payment/channel paths — this does
+        not make RGB itself a Lightning implementation either. RGB
+        remains 📋 Future/roadmap in this document, not part of the
+        frozen Day-0 target — this rule does not add it.
+      Applied directly to this repository: `LIGHTNING_HODL` is a
+      *settlement-provider implementation* realizing the *Ark/Arkade
+      protocol family* — it is neither a Lightning implementation nor
+      evidence that Lightning and Arkade share protocol identity, even
+      though both are BTC Day-0 product capabilities and even though a
+      future real integration might make them interoperate.
     - **DePix**: Liquid **and** Spark — both required, not a choice.
       `DEPIX` does not exist in the real `AssetType`/`prisma/
       schema.prisma` today (UI-only, `packages/sails-ui/src/types.ts`'s

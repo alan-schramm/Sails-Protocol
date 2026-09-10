@@ -140,8 +140,13 @@ remains Day-0-required, per Product Direction, distinct from Arkade and
 Spark; only its *current maturity claim* is downgraded to match actual
 evidence. The blocking gap for Lightning specifically is an
 architecture/provider path for real Lightning-native settlement, not
-yet designed or built. Full canonical Day-0 matrix and this maturity
-correction: `docs/BACKLOG.md` Cold Sweep Loop 5, item 20.
+yet designed or built. Protocol/network family, implementation/client,
+settlement capability, and interoperability path are four distinct
+concepts that must never collapse into each other (e.g. Ark/Arkade
+interoperating with Lightning would not make Ark "Lightning") — see the
+"Institutional blind-spot rule" in `docs/BACKLOG.md` Cold Sweep Loop 5,
+item 20 for the full worked examples. Full canonical Day-0 matrix and
+this maturity correction: same location.
 
 **Wallet-kit adapters and settlement providers are different axes.** A wallet
 adapter connects the wallet's existing key/signing/balance/address stack to
