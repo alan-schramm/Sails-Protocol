@@ -2151,6 +2151,98 @@ com um banco/Redis local reais (mecanismo já existente no projeto)
 elimina o sintoma por completo nas 10 suites históricas, sem qualquer
 mudança de timeout, worker count ou arquitetura de teste.
 
+**CTO Gate Correction (2026-09-10) — construction ≠ connection ≠ query;
+combined ablation ≠ individual attribution.** A conclusão causal acima
+superestimava o que o código real faz. Os NÚMEROS medidos (9/10 falhas
+a 10 workers com infra inacessível, 0/10 falhas a 10 e 15 workers com
+infra reachable, evidência de stack trace do Swagger-ui, resultado do
+diagnóstico `lazyConnect`) permanecem válidos e não são revisados por
+esta nota — apenas a interpretação causal é corrigida, por releitura
+direta do código-fonte atual, não por suposição:
+
+- **Redis (`src/common/redis/index.ts:14`)**: `export const redis = new
+  Redis(config.redis.url, {...})` no escopo de módulo, sem
+  `lazyConnect: true` — o `ioredis` por padrão inicia a tentativa de
+  conexão TCP imediatamente na construção. **Isto é conexão eager real,
+  diretamente evidenciada pelo código-fonte.** Esta parte da alegação
+  original está correta.
+- **Postgres/Prisma (`src/common/database/index.ts:24,28-33,39-42`)**:
+  `new PrismaPg({connectionString})` e `new PrismaClient({adapter,
+  log})` no escopo de módulo são **construção de objeto, não conexão de
+  rede** — nem o `pg.Pool` que `PrismaPg` envolve nem o query engine do
+  Prisma abrem socket na construção. A conexão real só ocorre em
+  `prisma.$connect()`, chamado exclusivamente dentro de
+  `connectDatabase()`, que por sua vez só é chamado por `startServer()`
+  (`src/app.ts:371-372`) — **nunca por `buildApp()`**, confirmado por
+  leitura direta (`grep` de `connectDatabase\|connectRedis` em
+  `src/app.ts`: únicas ocorrências nas linhas 371-372, dentro de
+  `startServer()`). Nenhuma das 13 chamadas de teste reais a
+  `buildApp()` passa por `startServer()`. A frase original "PrismaPg/
+  PrismaClient são construídos no import... conecta eagerly" conflava
+  construção com conexão — **corrigido: PrismaPg/PrismaClient são
+  construídos no import; a conexão real não é evidenciada como eager
+  para o caminho `buildApp()`-apenas que estas suites exercitam.**
+
+- **Auditoria de mocking (achado adicional, não solicitado pela missão
+  original de discovery, encontrado ao verificar a alegação acima
+  contra o código real das 10 suites):** das 10 suites históricas,
+  **10/10 fazem `jest.mock('../src/common/database', ...)`** (9 de
+  forma estática + `healthLiveReady.test.ts` via `jest.doMock()` por
+  teste) e **9/10 também fazem `jest.mock('../src/common/redis', ...)`**
+  — apenas `fullTradeLifecycle.test.ts` deixa o módulo real de Redis
+  ativo. Como `jest.mock()` substitui o módulo inteiro no registro de
+  módulos do Jest para qualquer importador subsequente dentro daquele
+  arquivo de teste — incluindo `src/app.ts`, que importa
+  `common/database`/`common/redis` no escopo de módulo — **o `new
+  Redis(...)` e o `new PrismaPg(...)`/`new PrismaClient(...)` reais
+  nunca executam dentro de 9 das 10 suites (e o Prisma real nunca
+  executa em nenhuma das 10).** Isso significa que "esta suite tenta
+  conectar e falha" não pode ser o mecanismo mecânico de por que 9/10
+  destas suites especificamente falharam com Postgres/Redis
+  inacessíveis — o módulo real nem é carregado nelas. Consistente com
+  isto: o diagnóstico `lazyConnect: true` em Redis não eliminou as
+  falhas — resultado esperado se 9 das 10 suites nem carregam o módulo
+  Redis real para começar, então mudar sua config não poderia afetá-las.
+
+- **Consequência para a classificação — combined ablation ≠ individual
+  attribution:** a melhoria de 9/10→0/10 falhas ao subir Postgres/Redis
+  locais reais permanece um fato medido e real, não contestado por esta
+  nota. Mas o experimento subiu AMBOS juntos — não isola a contribuição
+  marginal de cada um — e o MECANISMO pelo qual isso beneficiou as 9
+  suites que mockam ambos os módulos não está isolado nem demonstrado.
+  Hipótese plausível, explicitamente rotulada como especulativa e NÃO
+  testada: efeito de sistema/processo cruzado — outras suites não
+  citadas aqui, rodando em OUTROS workers paralelos do mesmo `npm run
+  test:unit` (não mockadas, tentando conexões reais repetidas contra
+  Postgres/Redis inacessíveis) — poderiam gerar contenção de CPU/rede/
+  timers a nível de sistema operacional que atrasa `beforeAll()` em
+  processos irmãos, incluindo os das 10 suites nomeadas. Não comprovada
+  nesta nota.
+
+**Reclassificação (substitui a "Classificação final" acima; números
+medidos preservados sem revisão):**
+
+> A falha histórica é um fenômeno multi-fator de ambiente de teste/
+> bootstrap. Infraestrutura local inalcançável amplifica materialmente
+> a assinatura de falha de `buildApp()` sob paralelismo. O
+> comportamento de conexão/retry eager do Redis é diretamente
+> evidenciado pelo código-fonte, mas só é mecanicamente exercitado por
+> 1 das 10 suites históricas (as outras 9 mockam o módulo inteiro). A
+> contribuição marginal de Postgres versus Redis — e o mecanismo exato
+> pelo qual a alcançabilidade de infraestrutura afeta suites que mockam
+> ambos os módulos — não foi isolada. Swagger-UI é demonstrado
+> independentemente como um custo real de registro assíncrono e fator
+> contribuinte, mas não provado dominante.
+
+**Item #57 permanece ABERTO / parcialmente compreendido — não CLOSED.**
+Nenhuma correção de código foi feita por esta nota (correção de
+registro/interpretação apenas, mesma disciplina de "Corrigido/
+Implementado [data]" já usada neste arquivo). Novo delta de backlog
+recomendado, não registrado nesta nota (fora do escopo desta correção
+de PR #114): investigação dedicada do mecanismo cross-worker acima, se
+o CTO julgar que vale o custo — não obrigatória para o fechamento desta
+correção.
+
 ### 58. `WDK_USDT_EVM`'s `releaseFunds()`/`refundFunds()`/`splitFunds()` — sweep de segurança de fund-moving operations, veredito por método (2026-09-08)
 
 **Classificação: investigação de produção-safety, obrigação derivada de
