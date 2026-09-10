@@ -2312,6 +2312,79 @@ rodadas):**
 item #57 já é o dono desta pergunta em aberto — não há obrigação
 duplicada a registrar.
 
+**Bounded Remediation (Swagger-UI Test Bootstrap, PR #115, 2026-09-10).**
+Escopo estritamente limitado à Pergunta 2 do achado original acima ("o
+registro do Swagger/OpenAPI é o custo dominante ou apenas
+correlacionado?"). PR #114 (mesclado, commit `0953da1`) e suas duas
+rodadas de CTO Gate Correction acima estabeleceram que TD #57
+permanece um fenômeno de confiabilidade de teste/bootstrap paralelo
+multi-fator cujo mecanismo exato não está isolado — esta remediação
+bounded **não afirma resolver esse fenômeno completo**; ela remove o
+trabalho de bootstrap do Swagger-UI dos chamadores de teste que não o
+exercitam, mantendo cobertura dedicada para o caminho real/default de
+documentação.
+
+`@fastify/swagger` (gerador de spec OpenAPI, registro sem custo
+relevante, usado por todo schema de rota) e `@fastify/swagger-ui`
+(servidor real de `/docs`, cujo próprio `index.js:14` faz um
+`fs.readFile` assíncrono real do `logo.svg` a cada registro —
+demonstrado acima como custo real de bootstrap assíncrono que aparece
+no caminho de falha observado, contribuição causal marginal NÃO
+isolada) são arquiteturalmente distintos. Fix implementado: nova opção
+aditiva `BuildAppOptions.registerSwaggerUi` (`src/app.ts`), default
+`true` (comportamento de `startServer()` e de qualquer chamador que
+omita a opção fica byte-idêntico ao anterior). Classificação dos ~18
+arquivos de teste que mencionam `buildApp` feita por evidência, não por
+comentário: apenas 13 realmente chamam `buildApp()`; busca direta
+(`grep`) confirmou **zero** asserções contra `/docs`/`/documentation`
+em todo `tests/` antes desta mudança — logo os 13 são Classificação C e
+foram atualizados para `{ registerSwaggerUi: false }` em seus call
+sites reais. Gap de cobertura real fechado:
+`tests/swaggerUiRegistration.test.ts` (novo) é o primeiro teste deste
+repositório a de fato afirmar que `/docs` é servido por padrão, que a
+opção de opt-out o remove, e que `@fastify/swagger` continua gerando a
+spec OpenAPI corretamente em ambos os modos.
+
+**Evidência adversarial pós-rebase (mesmo protocolo de 10 suites/1-2-10
+workers desta entrada, Postgres+Redis locais reais e alcançáveis
+durante a coleta, re-executado após o rebase sobre `main` pós-#114):**
+`EVIDENCE_PLACEHOLDER`
+
+**Perguntas de investigação, status (cross-referenciado a PR #114
+mesclado, `0953da1`, não duplicado aqui):**
+1. Ainda ABERTA — ver achado #114/CTO Gate Correction acima.
+2. Refinada — Swagger-UI é demonstrado como custo real de bootstrap
+   assíncrono e aparece no caminho de falha observado; contribuição
+   causal marginal não isolada (ver "Precisão causal do Swagger-UI",
+   CTO Gate Correction rodada 2 acima).
+3. Respondida parcialmente — infraestrutura alcançável altera o
+   resultado experimentalmente, mas o mecanismo não está isolado (ver
+   #114 acima); não se afirma dominância de Postgres/Redis isoladamente.
+4. Fora do escopo desta missão — nenhum refactor de singleton
+   Prisma/Redis ou fronteira de bootstrap compartilhada foi autorizado
+   ou feito.
+5. Não verificada nesta remediação.
+6. Parcialmente respondida — a nova opção é exatamente essa fronteira,
+   e não mascara custo real: `@fastify/swagger` permanece incondicional,
+   e `tests/swaggerUiRegistration.test.ts` prova que ambos os modos
+   continuam corretos.
+7. Respondida para a fatia Swagger-UI — correção de implementação
+   (opção aditiva em `buildApp()`), não de configuração de Jest/CI nem
+   de arquitetura de testes.
+
+**Status: `STATUS_PLACEHOLDER`.** A propriedade estreita demonstrada é
+"`buildApp()` não registra mais `@fastify/swagger-ui` em nenhum dos 13
+call sites de teste Classificação C, sem perda de cobertura." Não se
+afirma "contenção de `buildApp()` sob carga paralela resolvida" de
+forma genérica. Nenhuma mudança de timeout do Jest, de contagem de
+workers, retries, ou remoção global de Swagger/OpenAPI foi feita ou
+autorizada — consistente com os limites explícitos desta missão.
+
+**TD #57 (o fenômeno mais amplo): permanece ABERTO / parcialmente
+compreendido — não CLOSED.** Distinto da remediação bounded do
+Swagger-UI acima: TD #57 em si não é fechado por este item; apenas a
+fatia estreita do registro de Swagger-UI em testes é tratada.
+
 ### 58. `WDK_USDT_EVM`'s `releaseFunds()`/`refundFunds()`/`splitFunds()` — sweep de segurança de fund-moving operations, veredito por método (2026-09-08)
 
 **Classificação: investigação de produção-safety, obrigação derivada de
