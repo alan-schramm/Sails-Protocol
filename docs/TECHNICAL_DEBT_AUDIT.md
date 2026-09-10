@@ -2836,6 +2836,66 @@ adenda — apenas registra que produtor e consumidor de primeira parte
 ficaram consistentes no mesmo merge, evitando `main` num estado
 conhecidamente inconsistente.
 
+### 62. `User.reputationScore` renderizado como percentual 0-100 na UI — mas é uma soma corrida ilimitada, não uma escala fechada (encontrado 2026-09-10, CTO review do PR #117)
+
+**Classificação: Product / Reputation semantic debt — pré-existente,
+fora do escopo do TD #61.** Achado de passagem durante a revisão do
+PR #117 (migração de `OfferDetail.tsx` para `PublicOfferDetail`); não
+verificado como duplicata de nenhum item já registrado (busca direta em
+`docs/BACKLOG.md`/`docs/TODO.md`/`docs/TECHNICAL_DEBT_AUDIT.md`, nenhum
+achado equivalente encontrado).
+
+**Achado:** `reputation.service.ts`'s próprio comentário de cabeçalho
+documenta `User.reputationScore` como uma soma corrida e sem limite
+superior (+2/-5 por trade, `recordOutcome()`), explicitamente **não**
+uma escala 0-100 ou uma razão 0-1. `packages/sails-ui/src/pages/
+OfferDetail.tsx`, porém, renderiza esse mesmo campo como se fosse
+fechado: `{offer.seller.reputationScore.toFixed(1)} / 100` e usa o
+valor bruto diretamente como `width` percentual de uma barra de
+progresso CSS (`style={{ width: `${offer.seller.reputationScore}%` }}`)
+— para qualquer participante cuja soma corrida já tenha ultrapassado
+100 (matematicamente inevitável com uso real e prolongado do
+protocolo), a barra estoura 100% de largura e o texto mostra algo como
+"142.0 / 100", sem sentido para o usuário final.
+
+**Não corrigido nesta nota, não corrigido no PR #117** — a instrução
+explícita da missão que encontrou isto foi não redesenhar reputação
+dentro dessa correção bounded. Nenhuma mudança de comportamento feita.
+
+**Fix recomendado (propriedade, não mecanismo):** nenhum prescrito
+aqui — decisão de produto genuína (normalizar/clampar visualmente,
+trocar a barra por outra representação, ou expor um campo derivado
+0-100 no backend) requer entrada de produto, não apenas engenharia.
+
+**Status: OPEN.**
+
+### 63. `packages/sails-ui` não tem nenhum framework de teste executável (achado 2026-09-10, CTO review do PR #117)
+
+**Classificação: evidence/tooling gap — pré-existente, não introduzido
+pelo TD #61.** Não verificado como duplicata (mesma busca do item #62
+acima, nenhum achado equivalente encontrado).
+
+**Achado, confirmado diretamente:** `packages/sails-ui/package.json`
+não tem script `"test"`; busca por `*.test.*`/`*.spec.*` no pacote não
+retorna nenhum arquivo; nenhuma configuração de Vitest/Jest/Testing
+Library presente. Toda a superfície de UI deste pacote (incluindo
+`OfferDetail.tsx`, migrado no PR #117) é verificada hoje apenas por
+`tsc --noEmit` + `vite build` (prova de tipo/compilação) e, quando
+disponível, checagem manual em navegador — nunca por um teste de
+comportamento automatizado e executável.
+
+**Não corrigido nesta nota** — instalar um framework de teste é
+trabalho genuíno e não-trivial (escolha de framework, configuração,
+primeiro teste real), explicitamente fora do escopo de uma correção
+bounded que já estava em andamento quando isto foi encontrado.
+
+**Fix recomendado (propriedade, não mecanismo):** nenhum prescrito
+aqui — decisão de ferramenta (Vitest é o encaixe natural dado o uso de
+Vite já existente, mas não decidido aqui) requer sua própria missão
+dedicada.
+
+**Status: OPEN.**
+
 ## Ações Recomendadas por Prioridade
 
 ### P0 — Antes de qualquer apresentação (1-2 dias)
