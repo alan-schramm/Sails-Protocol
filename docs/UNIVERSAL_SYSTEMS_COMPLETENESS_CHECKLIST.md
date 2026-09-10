@@ -2803,6 +2803,246 @@ real, especially during:
 
 ---
 
+
+## 3.29 Incident Replay Tasks — Deployment, Recovery, Control-Plane and Economic Manipulation
+
+This section adds historical incident classes that contribute distinct adversarial
+properties not already captured strongly enough elsewhere.
+
+The rule remains:
+
+> **Incident name is not the lesson. The violated property is the lesson.**
+
+### A. Knight Capital — partial deployment + dormant code + reused control flag
+
+Reference class: the 2012 Knight Capital incident in which one production server
+remained on old code while a repurposed flag activated dormant behavior, producing
+catastrophic unintended trading.
+
+Extracted properties:
+
+> **Partial deployment must never create multiple economic meanings for the same control signal.**
+
+> **Dormant code is still attack surface if it remains executable.**
+
+> **Deployment completeness is a safety property, not an operations nicety.**
+
+Sails replay questions:
+
+- Can two nodes on supposedly the same release interpret the same flag/config differently?
+- Can a deprecated feature remain reachable through a reused enum, flag, route, or message type?
+- Can one stale operator instance remain economically active after a rollout?
+- Can a config key acquire a new meaning while old binaries still interpret the old one?
+- Is there machine-verifiable evidence that all instances intended for a coordinated rollout run compatible code/config?
+- Can an emergency rollback reactivate previously-dead behavior?
+
+Required future attack:
+mixed-version / stale-instance execution against a real economic flow.
+
+---
+
+### B. GitLab 2017 — recovery plan exists, backups fail when actually needed
+
+Reference class: GitLab.com's 2017 database outage and partial data loss, where an
+operational mistake deleted primary data and several backup/recovery paths were
+unusable or stale.
+
+Extracted properties:
+
+> **Backup existence ≠ recoverability.**
+
+> **Recovery procedure not exercised under failure conditions ≠ recovery capability.**
+
+> **The recovery system must not depend on the failed system remaining healthy.**
+
+Sails replay questions:
+
+- Are node identity backups actually restorable?
+- Can signed economic state be reconstructed after DB loss?
+- Can backups restore stale/cancelled facts and accidentally resurrect them?
+- Does recovery require the same cloud/account/control plane that may be unavailable?
+- Are recovery credentials themselves protected and tested?
+- Can disaster recovery preserve authority boundaries instead of recreating them manually?
+
+Required evidence:
+destructive restore drill / clean-environment recovery, not merely backup creation.
+
+---
+
+### C. Cloudflare 2019 — safety mechanism removed during optimization + global rollout
+
+Reference class: Cloudflare's 2019 WAF outage, where a pathological regular
+expression exhausted CPU globally; a protection against excessive CPU usage had
+previously been removed during a refactor, the test suite did not measure the
+resource property, and rollout was global.
+
+Extracted properties:
+
+> **A functional test suite can pass while a resource-safety invariant is absent.**
+
+> **Safety mechanisms removed during refactoring must be treated as semantic changes.**
+
+> **Global rollout multiplies local mistakes into systemic failure.**
+
+Sails replay questions:
+
+- Do tests assert bounded CPU/memory/bandwidth, not only correct output?
+- Can regex/parser/canonicalization complexity be adversarially superlinear?
+- Can a refactor silently remove rate/resource guards?
+- Can one configuration/rule update hit every Sails-operated or partner node simultaneously?
+- Can staged rollout/canarying limit blast radius for reference infrastructure without becoming protocol authority?
+
+Required future evidence:
+complexity/property tests and staged-failure simulation for critical runtime rules.
+
+---
+
+### D. Cloudflare 2023/2025 — control plane depends on the failed dependency
+
+Reference class: incidents where Workers KV failures impacted services and even
+tools needed to roll back or authenticate into recovery paths.
+
+Extracted properties:
+
+> **Control plane must not share the exact failure domain of the system it must recover.**
+
+> **Break-glass that has never been exercised is an assumption, not a capability.**
+
+Sails replay questions:
+
+- Can node operators still stop/rollback/rotate credentials if their normal auth/provider is down?
+- Does incident communication depend on the same infrastructure being recovered?
+- Can a dependency outage prevent access to secrets needed for remediation?
+- Is there a minimal recovery path with fewer dependencies than normal operation?
+- Can emergency control be exercised without granting broader economic authority?
+
+---
+
+### E. Nomad Bridge — default/zero state accidentally treated as trusted
+
+Reference class: Nomad's 2022 bridge incident, where an initialization/configuration
+state caused unproven messages to be accepted as proven and made exploitation
+trivially copyable.
+
+Extracted properties:
+
+> **Default / zero / uninitialized state must never mean authorized unless explicitly proven safe.**
+
+> **Fail-open initialization in value-moving systems is catastrophic.**
+
+> **An exploit that is easy to copy changes attacker population from one adversary to everyone watching.**
+
+Sails replay questions:
+
+- Can zero hash / empty signer / missing policy / null binding / default enum become "valid"?
+- Does database migration create temporary permissive states?
+- Can unset maturity/custody/rail fields fall back to production-eligible defaults?
+- Can an uninitialized arbitration/provider state become implicitly trusted?
+- If one exploit transaction/message becomes public, can arbitrary observers cheaply replay it?
+
+Required mutation:
+zero/default/uninitialized values across every authority-bearing object.
+
+---
+
+### F. Ronin Bridge — quorum diversity was nominal, not operationally independent
+
+Reference class: the 2022 Ronin bridge compromise, where enough validator keys
+were compromised to satisfy the bridge's authorization threshold, including an
+old delegated authorization path that had remained active.
+
+Extracted properties:
+
+> **Threshold count ≠ trust-domain diversity.**
+
+> **Revoked-in-intent but still-active delegation is live authority.**
+
+> **Authorization topology must be evaluated by who controls the keys, not how many keys exist.**
+
+Sails replay questions:
+
+- Can multiple apparently independent roles/keys be controlled by one operator?
+- Can old delegated capabilities remain valid after their operational purpose ends?
+- Can one cloud/account/host compromise reach several signers?
+- Does a threshold policy actually cross organizational/infrastructure trust domains?
+- Are temporary grants automatically expired/revoked?
+
+---
+
+### G. Mango Markets — valid market actions manipulate an externalized economic oracle
+
+Reference class: Mango Markets 2022, where market activity manipulated an oracle-
+derived price and inflated collateral value sufficiently to withdraw assets.
+
+Extracted properties:
+
+> **Externally observed market price can be protocol-valid and economically manipulated at the same time.**
+
+> **Oracle correctness ≠ market integrity.**
+
+> **An attacker may use legitimate trades to manufacture the state that authorizes a later action.**
+
+Sails replay questions:
+
+- Can thin-liquidity price sources be moved cheaply relative to economic exposure?
+- Can a participant trade against themselves/colluders to alter reputation, price, liquidity or entitlement?
+- Can one observed market feed unlock a larger withdrawal/limit/reputation benefit?
+- Are price-source liquidity/depth/freshness properties part of risk assessment?
+- Can external valid state be economically adversarial even if cryptographically authentic?
+
+---
+
+### H. Parity multisig freeze — shared library becomes shared catastrophic dependency
+
+Reference class: the 2017 Parity multisig freeze, where many wallets depended on
+a shared library contract whose destruction rendered dependent wallets unable to
+execute their logic.
+
+Extracted properties:
+
+> **Shared code reuse can create shared fate.**
+
+> **Replaceable implementation is not truly replaceable if all live state depends on one instance.**
+
+> **Dependency destruction/unavailability can be as catastrophic as dependency compromise.**
+
+Sails replay questions:
+
+- Can one shared service/library/provider disappearance freeze many open trades?
+- Does a supposedly replaceable provider hold unique state needed to complete existing commitments?
+- Can adapters be replaced mid-lifecycle without changing economic meaning?
+- Are historical commitments executable if the original dependency disappears?
+- Does a common library or service create a protocol-wide single point of liveness?
+
+---
+
+### Composite adversarial rule
+
+These incidents add a broader Day-0 question:
+
+> **Can a locally reasonable operational choice become globally economic because deployment, recovery, control-plane, or dependency boundaries were not modeled as part of protocol safety?**
+
+Future Red Team passes should explicitly include:
+
+- mixed-version fleet;
+- stale binary/config;
+- dormant code reactivation;
+- failed restore;
+- unavailable control plane during incident;
+- zero/default authorization state;
+- nominally-diverse but commonly-controlled signers;
+- market-manipulated external state;
+- shared dependency disappearance.
+
+Do not create one implementation ticket per historical incident.
+During the relevant Sails phase, replay the violated property and classify the
+actual result into Backlog / Technical Debt / Evidence / Partner Beta /
+Production Readiness / Not Applicable.
+
+**BACKLOG DELTA: NOT YET DETERMINED by these incident-replay tasks.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
