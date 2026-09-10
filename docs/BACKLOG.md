@@ -1844,6 +1844,104 @@ or hidden operational conventions.
     is explicitly narrower (for example BTC-only or bounded BTC+USDT),
     DePix does not block the narrower evidence gate.
 
+    **SUPERSEDED (2026-09-10, Product Direction Freeze — Gate B).** The
+    paragraph above was historically valid on 2026-09-09 (a genuine open
+    question at the time) — preserved verbatim above, not deleted,
+    because it documents what was actually decided and when. It no
+    longer reflects current product truth as of this freeze. Product
+    Direction has since fixed the Day-0 scope question this paragraph
+    left open: the first beta is **not** a choice between BTC-only,
+    bounded BTC+USDT, or DePix-inclusive — the Day-0 target is the
+    **Full Reference Wallet Day-0 Capability Target**, fixed below,
+    covering every asset/network/rail the Satsails Wallet V2 reference
+    product requires. DePix is Day-0-required on **both** Liquid and
+    Spark — not conditional on a narrower beta choice. See the new
+    canonical matrix immediately below this item; it replaces this
+    item's own "if...then" framing as the authoritative scope statement.
+    The evidence obligation itself (representability, fail-closed
+    behavior for unsupported assets) is unchanged by this freeze — only
+    the *scope-selection* framing is superseded.
+
+    **Frozen product properties (2026-09-10):**
+    > A capability required by the declared Reference Wallet Day-0
+    > target may be immature, but it may not disappear through scope
+    > reduction.
+
+    > We do not simplify the product by exporting complexity to the
+    > user.
+
+    > The Reference Wallet defines the Day-0 capability pressure, not
+    > current implementation convenience.
+
+    These are Product/Engineering governance statements — they do not
+    define protocol wire semantics, and they do not by themselves
+    authorize any provider implementation, `AssetType` change, or
+    settlement-architecture refactor (all separately gated).
+
+    **Full Reference Wallet Day-0 Capability Target (canonical, 2026-09-10):**
+
+    - **BTC**: Bitcoin on-chain; Spark; Lightning; Arkade; Liquid/L-BTC.
+      These are five **distinct product capabilities** — shared
+      implementation mechanism (today, `LIGHTNING_HODL`'s own Arkade-
+      based construction) does not collapse Lightning and Arkade into
+      one capability, and does not imply Spark is served by that same
+      mechanism. `LIGHTNING_HODL` (`src/modules/open-settlement/
+      lightning-hodl.provider.ts`) is real, testnet-evidenced (Mutinynet)
+      via the Ark protocol specifically — its own header comment
+      discloses plain Lightning HTLCs have no genuine multi-party escrow
+      primitive, which is *why* it settles via Ark under the hood. This
+      is current implementation truth, not product-capability truth:
+      whether "Lightning" and "Arkade" become two differently-provided
+      capabilities, or one capability with corrected naming, or
+      something else, is an **open architecture question**, not decided
+      by this freeze. Spark has zero implementation today (confirmed:
+      `AssetType.SPARK` exists, deliberately excluded from the Reference
+      UI's own offer picker, zero `SettlementProvider` wiring).
+    - **DePix**: Liquid **and** Spark — both required, not a choice.
+      `DEPIX` does not exist in the real `AssetType`/`prisma/
+      schema.prisma` today (UI-only, `packages/sails-ui/src/types.ts`'s
+      own comment already discloses this); the Liquid rail itself has
+      zero settlement implementation (`LiquidCovenantProvider` is not a
+      file that exists); the Spark rail has zero implementation for any
+      asset.
+    - **USDT**: Ethereum; Base; Optimism; Polygon; Avalanche; Solana;
+      Tron; TON; BNB Chain; Arbitrum; Liquid. Of these, only Ethereum
+      (`USDT_ERC20` → `WDK_USDT_EVM`, testnet-evidenced, server-
+      custodial) and Tron (`USDT_TRC20`, schema-represented, zero
+      provider) have any protocol-level representation today. Base,
+      Optimism, Polygon, Avalanche, Arbitrum, BNB Chain, Solana, and TON
+      have none — this is **existing product/reference-wallet truth
+      missing from Sails Protocol's own institutional memory**, not new
+      scope invented on 2026-09-10 (Satsails Wallet V2's own WDK-based
+      wallet architecture is understood to already target a
+      multi-network EVM/non-EVM footprint broader than this repository's
+      own `@tetherto/wdk-wallet-evm` single-package dependency proves by
+      itself — Sails Protocol adapter/provider maturity and Satsails
+      Wallet V2 wallet capability maturity are explicitly different
+      claims, never to be conflated).
+    - **USDC**: Ethereum; Base; Optimism; Arbitrum; Avalanche; Polygon.
+      Not represented in `AssetType` at all today, on any network.
+    - **XAUT (Tether Gold)**: Ethereum. Day-0 required. (Network
+      question resolved 2026-09-10, Product Direction — previously
+      recorded as pending; superseded here.)
+
+    **Architecture obligation recorded, mechanism NOT frozen:** the
+    current flat `AssetType` (10 string values, each conflating asset
+    identity and network/rail identity in one token, e.g. `USDT_ERC20`)
+    demonstrably does not scale to this matrix without either a
+    combinatorial explosion of new flat values or a genuine Asset ×
+    Network × Settlement-Capability decomposition. Which of those (or
+    another option) is correct is an **open architecture question**,
+    deliberately not decided by this freeze — a dedicated architecture
+    mission is the correct venue. Separately, whether one generic EVM
+    `SettlementProvider` implementation can serve Ethereum/Base/
+    Optimism/Polygon/Avalanche/Arbitrum/BNB Chain while each network
+    keeps independently-tracked maturity/evidence/eligibility (shared
+    implementation ≠ shared maturity state) is a real, plausible
+    hypothesis given `wdk-wallet-evm`'s own chain-agnostic design and
+    `wdk-settlement.provider.ts`'s own parametrized-decimals precedent —
+    also not decided or implemented here.
+
 21. **Canonical quote-currency discoverability — conditional Day-0
     blocker for multi-fiat beta.** Aggregate `LiquidityOffer` exposes
     `priceUsd`; persisted Offer has optional `priceBrl`; Intent has
@@ -1853,7 +1951,9 @@ or hidden operational conventions.
 
 Required evidence:
 Beta Asset/Rail Matrix Truth Test; Unsupported Asset Fail-Closed Test;
-DePix End-to-End Representability Test if DePix is in beta scope;
+DePix End-to-End Representability Test **(unconditional — DePix/Liquid
+and DePix/Spark are both Day-0-required per the 2026-09-10 Product
+Direction freeze above, not conditional on beta scope)**;
 Multi-Fiat Quote-Currency Disambiguation Test when multi-fiat is enabled.
 
 Operational tracker remains Issue #105.

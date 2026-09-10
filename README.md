@@ -88,17 +88,49 @@ of these already has a real, evidenced `SettlementProvider`)*:
 | Target | Category | Typical environment | Sails role | Current maturity |
 |---|---|---|---|---|
 | Bitcoin | Bitcoin base layer | Bitcoin | Settlement target | ✅ Proven (`MULTISIG`) |
-| Lightning | Bitcoin L2 | Lightning / Arkade | Settlement target | 🏗️ Implemented, testnet-only (`LIGHTNING_HODL`) |
+| Lightning | Bitcoin L2 | Lightning | Settlement target | 🏗️ Implemented, testnet-only — see 2026-09-10 note below (current mechanism is Ark-based, `LIGHTNING_HODL`) |
 | Spark | Bitcoin-adjacent settlement environment | Spark | Settlement target | 📋 Future |
 | Liquid | Bitcoin sidechain | Liquid | Asset + settlement target | 📋 Designed, zero implementation |
 | RGB | Bitcoin asset/protocol layer | Bitcoin / RGB | Asset + settlement target | 📋 Future |
-| Arkade | Bitcoin settlement environment | Bitcoin / Ark | Settlement target | 📋 Future |
+| Arkade | Bitcoin settlement environment | Bitcoin / Ark | Settlement target | 🏗️ Implemented, testnet-only — see 2026-09-10 note below (same current mechanism as the Lightning row; capability naming not yet reconciled) |
 | Stacks | Bitcoin-adjacent smart-contract network | Stacks | Settlement target | 📋 Roadmap (Months 7-9, `docs/ROADMAP.md`) |
 | RSK / Rootstock | Bitcoin sidechain / EVM | Rootstock | Settlement target | 📋 Roadmap (Months 7-9, `docs/ROADMAP.md`) |
-| EVM-family networks | Smart-contract network family | Ethereum, BNB Smart Chain | Settlement target | ✅ Proven for USDT on EVM (`WDK_USDT_EVM`, testnet — see "Rail readiness" above); not proven for other EVM chains or assets |
-| TRON | Smart-contract network | TRON | Stablecoin wallet + settlement target | 📋 Planned |
+| Ethereum | EVM network | Ethereum mainnet/Sepolia | Settlement target | ✅ Proven for USDT (`WDK_USDT_EVM`, testnet — see "Rail readiness" above); not proven for USDC or other assets |
+| Base | EVM network | Base | Settlement target | 📋 Day-0 target, zero implementation (added 2026-09-10 — existing product/reference-wallet truth, not new scope) |
+| Optimism | EVM network | Optimism | Settlement target | 📋 Day-0 target, zero implementation (added 2026-09-10) |
+| Polygon | EVM network | Polygon | Settlement target | 📋 Day-0 target, zero implementation (added 2026-09-10) |
+| Avalanche | EVM network | Avalanche | Settlement target | 📋 Day-0 target, zero implementation (added 2026-09-10) |
+| Arbitrum | EVM network | Arbitrum | Settlement target | 📋 Day-0 target, zero implementation (added 2026-09-10) |
+| BNB Chain | EVM network | BNB Smart Chain | Settlement target | 📋 Day-0 target, zero implementation (previously only bundled into a generic "EVM-family" mention, never its own tracked row — corrected 2026-09-10) |
+| TRON | Smart-contract network | TRON | Stablecoin wallet + settlement target | 📋 Planned (`AssetType.USDT_TRC20` schema-represented, no `SettlementProvider`) |
 | Solana | Smart-contract network | Solana | Stablecoin wallet + settlement target | 📋 Planned |
 | TON | Smart-contract network | TON | Stablecoin wallet + settlement target | 📋 Planned |
+
+**2026-09-10 Product Direction Freeze (Gate B) note.** Base, Optimism,
+Polygon, Avalanche, Arbitrum, and a properly-tracked BNB Chain row are
+added above as the Satsails Wallet V2 reference target's existing
+Day-0 scope — this table previously omitted them entirely (BNB Chain
+only appeared bundled inside a now-removed generic "EVM-family
+networks" row); their addition here corrects this document's own
+incomplete institutional memory, it is not new product scope invented
+on this date. Whether these six networks are served by one generic EVM
+`SettlementProvider` parameterized by chain-id, or by six separate
+provider implementations, is an open architecture question — not
+decided here, and shared implementation (if chosen) would not imply
+shared maturity/evidence/eligibility across networks. Separately: the
+former single "Lightning / Arkade" row has been split into two rows
+above, both now correctly showing 🏗️ Implemented (both point at the
+same current `LIGHTNING_HODL` code, which is Ark-based per that
+provider's own header comment — real Lightning HTLCs have no genuine
+multi-party escrow primitive). This corrects a real internal
+inconsistency this table previously had (Lightning shown as
+Implemented while Arkade was separately shown as 📋 Future, despite
+both naming the same underlying settlement target). Lightning, Arkade,
+and Spark remain three **distinct product capabilities** by Product
+Direction — this correction does not collapse them into one; it only
+fixes which of the three currently has real testnet implementation
+behind it. Full canonical Day-0 matrix: `docs/BACKLOG.md` Cold Sweep
+Loop 5, item 20.
 
 **Wallet-kit adapters and settlement providers are different axes.** A wallet
 adapter connects the wallet's existing key/signing/balance/address stack to
@@ -117,7 +149,30 @@ every asset on it is. Relevant assets already in view, none claimed as
 finally supported where evidence does not yet exist: **USDT, USDC, BTC,
 LBTC, L-USDT, DePix, Tether Gold, RGB assets.** `WDK_USDT_EVM`'s own
 "Rail readiness" entry above is the only one of these with a real,
-evidenced (testnet) settlement path today.
+evidenced (testnet) settlement path today. The current flat `AssetType`
+enum (10 string values, e.g. `USDT_ERC20`) conflates asset identity and
+network/rail identity into one token each — this is a real, recorded
+architecture tension for the Day-0 target below, not yet resolved into
+a mechanism (`docs/BACKLOG.md` Cold Sweep Loop 5, item 20 has the full
+discussion).
+
+**Full Reference Wallet Day-0 Capability Target (2026-09-10 Product
+Direction freeze — Gate B).** This is the authoritative current-scope
+statement, superseding any earlier framing in this README that read as
+a choice between narrower beta scopes: **USDT** — Ethereum, Base,
+Optimism, Polygon, Avalanche, Solana, Tron, TON, BNB Chain, Arbitrum,
+Liquid. **USDC** — Ethereum, Base, Optimism, Arbitrum, Avalanche,
+Polygon. **XAUT (Tether Gold)** — Ethereum. **DePix** — Liquid and
+Spark, both required. **BTC** — on-chain, Spark, Lightning, Arkade, and
+Liquid/L-BTC, as five distinct product capabilities. A capability
+appearing in this target and still showing 📋/zero-implementation
+elsewhere in this document is expected — Day-0 scope, protocol
+representability, SDK representability, implementation, real-path
+evidence, beta eligibility, and production eligibility are seven
+different claims, and immaturity on any of them never removes a
+capability from this scope. Full canonical matrix, provenance, and the
+architecture questions this raises: `docs/BACKLOG.md` Cold Sweep Loop 5,
+item 20.
 
 **First-party supported criteria.** A wallet-kit adapter is not
 "first-party supported" merely because the npm package exists. Depending
