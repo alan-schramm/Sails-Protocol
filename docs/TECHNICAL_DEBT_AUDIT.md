@@ -2097,6 +2097,60 @@ existir — timing sob paralelismo é, pela própria natureza deste
 achado, não-determinístico). Full evidence do achado #59:
 `docs/TEST_HARNESS_RELIABILITY.md`.
 
+**CAUSA RAIZ DEMONSTRADA (2026-09-10, missão dedicada de discovery).**
+Reprodução controlada e direta, não assumida: rodando as mesmas 10
+suites historicamente citadas juntas, `--maxWorkers=10`, com Postgres/
+Redis locais **inacessíveis** (`localhost:5432`/`localhost:6379`
+recusando conexão, condição padrão neste ambiente até então): **9/10
+falharam**, cada uma em `beforeAll()`'s `buildApp()`, 84-110s (excedendo
+o timeout de 30s em até 3.7x); com `--runInBand` (serial), as mesmas 10
+suites: **10/10 passaram, 86/86 testes, 73.1s** — reprodução exata do
+sintoma original. Curva de dose-resposta direta por contagem de
+workers: 1 worker → 0 falhas/73.1s; 2 workers → 2 falhas/95.4s; 10
+workers → 9 falhas/127.4s.
+
+Uma evidência causal direta e adicional foi capturada: múltiplas suites
+falhas logaram `ReferenceError: You are trying to require a file after
+the Jest environment has been torn down... at fastifySwaggerUi
+(node_modules/@fastify/swagger-ui/index.js:14:28)` — essa linha é
+`await fsPromises.readFile(...)`, uma leitura de disco assíncrona real
+dentro do registro do `@fastify/swagger-ui`, ainda em andamento quando
+o Jest já havia encerrado o ambiente do teste. Isso confirma
+**Swagger-ui como causa real, não apenas correlacionada** — mas um
+experimento de ablação isolado (Redis com `lazyConnect: true`,
+diagnóstico, revertido) NÃO eliminou as falhas (9/10 ainda falharam,
+tempo total até piorou), indicando que Swagger sozinho não era a causa
+dominante.
+
+**Correção decisiva, 2026-09-10 (mesma sessão, descoberta posterior):**
+subindo um Postgres local real (`npm run db:local:start`,
+`scripts/local-postgres.js`, via `pg_ctl` nativo) e um Redis-compatível
+real (`node scripts/local-redis.js start`, Memurai) — ambos scripts
+já existentes neste projeto, nunca utilizados durante a investigação
+original — e re-executando o EXATO mesmo experimento das 10 suites:
+**`--maxWorkers=10`: 10/10 passaram, 86/86 testes, 31.2s.
+`--maxWorkers=15`: 10/10 passaram, 86/86 testes, 19.1s — mais rápido
+com MAIS paralelismo**, o padrão oposto e esperado quando não há
+contenção real. **Isso demonstra que a causa dominante era Postgres/
+Redis inacessíveis** (`new Redis(url)` conecta e tenta reconectar
+imediatamente no import do módulo, `PrismaPg`/`PrismaClient` são
+construídos no import de `common/database`), não o worker count em si
+nem o Swagger isoladamente — sob N processos paralelos, cada um
+importando `buildApp()` e tentando (e falhando) conexões reais de
+rede/DB repetidamente, o event loop de cada worker fica sob pressão
+suficiente para que `beforeAll()` estoure 30s ocasionalmente. O
+achado do Swagger-ui (acima) permanece real e válido como um segundo
+fator contribuinte genuíno, apenas não dominante isoladamente.
+
+**Classificação final: causas múltiplas interagindo, com Postgres/
+Redis inacessíveis como fator dominante confirmado por experimento
+direto (antes/depois) e Swagger-ui como fator contribuinte confirmado
+por evidência causal direta (stack trace).** Nenhuma correção de
+código foi implementada nesta passada — o achado é que rodar a suíte
+com um banco/Redis local reais (mecanismo já existente no projeto)
+elimina o sintoma por completo nas 10 suites históricas, sem qualquer
+mudança de timeout, worker count ou arquitetura de teste.
+
 ### 58. `WDK_USDT_EVM`'s `releaseFunds()`/`refundFunds()`/`splitFunds()` — sweep de segurança de fund-moving operations, veredito por método (2026-09-08)
 
 **Classificação: investigação de produção-safety, obrigação derivada de
