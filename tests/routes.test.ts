@@ -355,18 +355,20 @@ async function wsTicketFor(app: FastifyInstance, sessionToken: string): Promise<
 }
 
 describe('Route restoration — HTTP round-trips through the real routes', () => {
-  // Missão 11 Fase 6.3B.1 — real buildApp() registers @fastify/swagger-ui,
-  // slow under load — see tests/cors.test.ts's identical comment. This
-  // file was missing the same defensive timeout its sibling suites
-  // (cors/securityHeaders/metrics/healthLiveReady/rateLimit) already
-  // carry; found via a genuine, reproduced default-timeout failure under
-  // real parallel Jest execution, not a hypothetical.
+  // Missão 11 Fase 6.3B.1 — this file was missing the same defensive
+  // timeout its sibling suites (cors/securityHeaders/metrics/
+  // healthLiveReady/rateLimit) already carry; found via a genuine,
+  // reproduced default-timeout failure under real parallel Jest
+  // execution, not a hypothetical. Technical Debt #57 bounded
+  // remediation: this suite exercises real HTTP routes, never /docs —
+  // registerSwaggerUi: false below removes the single most expensive
+  // registration step; the 30s margin is retained defensively.
   jest.setTimeout(30_000)
 
   let app: FastifyInstance
 
   beforeAll(async () => {
-    app = await buildApp()
+    app = await buildApp({ registerSwaggerUi: false })
     await app.ready()
   })
 

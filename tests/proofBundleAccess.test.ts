@@ -99,13 +99,14 @@ async function authedSession(participantId: string): Promise<string> {
 }
 
 describe('GET /v1/proof/trades/:tradeId/bundle — access control (Missão 06.6)', () => {
-  jest.setTimeout(30_000)
+  jest.setTimeout(30_000) // defensive margin retained; this suite no longer registers @fastify/swagger-ui (Technical Debt #57 bounded remediation)
   let app: FastifyInstance
 
   beforeAll(async () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { buildApp } = require('../src/app')
-    app = await buildApp()
+    // Technical Debt #57 bounded remediation — access-control behavior only, never /docs.
+    app = await buildApp({ registerSwaggerUi: false })
     await app.ready()
   })
 

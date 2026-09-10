@@ -71,12 +71,13 @@ jest.mock('../src/common/redis', () => ({
 const { buildApp } = require('../src/app')
 
 describe('GET /v1/liquidity/offers/:id does not shadow GET /v1/liquidity/offers/mine', () => {
-  jest.setTimeout(30_000) // real buildApp() registers @fastify/swagger-ui — see tests/cors.test.ts's identical comment
+  jest.setTimeout(30_000) // defensive margin retained; this suite no longer registers @fastify/swagger-ui (Technical Debt #57 bounded remediation)
 
   let app: import('fastify').FastifyInstance
 
   beforeAll(async () => {
-    app = await buildApp()
+    // Technical Debt #57 bounded remediation — route-collision behavior only, never /docs.
+    app = await buildApp({ registerSwaggerUi: false })
     await app.ready()
   })
 
