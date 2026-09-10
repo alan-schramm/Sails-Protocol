@@ -2569,6 +2569,240 @@ Preserve the compact rule:
 
 ---
 
+
+## 3.28 Incident Replay Tasks — Historical Failures as Day-0 Antibodies
+
+This section turns selected historical incidents from Bitcoin, Lightning and
+adjacent financial infrastructure into reusable Sails adversarial tasks.
+
+The purpose is not to collect famous hacks.
+Each incident earns a place only if it contributes a distinct violated property
+that Sails should be forced to confront.
+
+### A. Implementation resource limit becomes protocol validity
+
+Historical reference class: Bitcoin's 2013 Berkeley DB / LevelDB chain split.
+
+Extracted property:
+
+> **Local implementation constraints must never silently become protocol validity rules.**
+
+Sails replay questions:
+
+- Can database limits cause one conforming implementation to reject an object another accepts?
+- Can cache size, transaction limits, queue limits, parser limits or runtime limits alter economic validity?
+- Can Postgres/Prisma behavior become de facto protocol semantics?
+- Can different SDK/runtime languages disagree because one hits implementation-specific limits first?
+- Can a large but valid Offer/evidence/dispute object split interpretation across implementations?
+
+Task outcome classification:
+already impossible / evidence required / implementation defect / protocol ambiguity / not applicable.
+
+---
+
+### B. Optimization bypasses an economic invariant
+
+Historical reference class: Bitcoin CVE-2018-17144.
+
+Extracted property:
+
+> **Optimization must not bypass an invariant merely because another layer is expected to enforce it.**
+
+Sails replay questions:
+
+- Can dedup skip a validation previously enforced elsewhere?
+- Can cache shortcuts bypass signature/authority checks?
+- Can batching alter exact-once or replay semantics?
+- Can pagination/projection omit state required for safety?
+- Can performance work around reconciliation/state-machine code skip an invariant?
+- Can “fast path” and “slow path” produce different economic outcomes?
+
+Permanent review question:
+
+> **What invariant disappeared because this code became faster?**
+
+---
+
+### C. Boundary value breaks control-flow completeness
+
+Historical reference class: Lightning/LND malformed or edge-valued gossip DoS classes.
+
+Extracted property:
+
+> **Boundary-valid or parser-valid values must be tested across complete control flow, not only input validation.**
+
+Sails mutation tasks should include, where applicable:
+
+- zero;
+- empty;
+- minimum;
+- maximum;
+- first/last;
+- duplicate;
+- missing optional field;
+- unexpected-but-valid enum/version;
+- stale timestamp;
+- far-future timestamp;
+- exact expiry boundary;
+- single-element / zero-element collections.
+
+Required question:
+
+> **Does a boundary value create an uninitialized, unreachable, contradictory or panic-producing state later in the flow?**
+
+---
+
+### D. Valid parameter becomes an economic weapon
+
+Historical reference class: Lightning fee/state interactions where individually
+valid parameters can become destructive when combined with later state transitions.
+
+Extracted property:
+
+> **Valid parameter in isolation ≠ economically safe parameter across state transitions.**
+
+Replay against Sails:
+
+- fees;
+- quote expiry;
+- settlement timeout;
+- appeal deadline;
+- dispute fee;
+- slashing;
+- collateral;
+- trade limits;
+- retry count;
+- provider finality thresholds;
+- inventory reservation;
+- reputation thresholds.
+
+Attack question:
+
+> **Can an attacker choose a protocol-valid value today that becomes coercive, destructive, censoring or value-extracting in a later state?**
+
+---
+
+### E. False independence between trust domains
+
+Historical reference class: systems with multiple validators/verifiers that rely
+on the same compromised RPC, cloud, oracle or infrastructure provider.
+
+Extracted property:
+
+> **Independent components ≠ independent trust domains.**
+
+> **Redundancy without control-plane diversity may be one dependency wearing several names.**
+
+For every apparently-independent path map:
+
+- cloud provider;
+- RPC provider;
+- DNS;
+- package registry;
+- CI/release infrastructure;
+- bootstrap source;
+- oracle/price source;
+- identity provider;
+- model/AI provider;
+- storage provider;
+- settlement infrastructure.
+
+Required question:
+
+> **What single upstream dependency can simultaneously corrupt several supposedly independent observations?**
+
+Future evidence should distinguish:
+logical diversity
+≠
+operator diversity
+≠
+infrastructure diversity
+≠
+trust-domain diversity.
+
+---
+
+### F. Peripheral dependency compromises the whole process
+
+Historical reference class: Bitcoin/Bitcoin-Core adjacent dependency RCE classes
+and other supply-chain vulnerabilities.
+
+Extracted property:
+
+> **A non-economic dependency can still gain process-level authority.**
+
+Sails replay questions:
+
+- Can a UI/docs/static-file dependency execute inside the main node process?
+- Can a parser, logger, metrics library or image processor access secrets?
+- Can an SDK transitive dependency gain filesystem/network/process authority?
+- Can post-install/build scripts alter release artifacts?
+- Can dependency compromise reach signing material or settlement credentials?
+
+Desired property:
+
+> **Peripheral capability should run with peripheral authority.**
+
+---
+
+### G. Security fix hidden inside ordinary dependency release
+
+Historical reference class: lnp2pBot / `invoices` semantic-split incident.
+
+Extracted operational property:
+
+> **Security relevance must be detected independently of changelog quality.**
+
+Task:
+
+For critical dependencies, future dependency monitoring should be able to ask:
+
+- what code actually changed?
+- did parsing/validation/crypto/authority behavior change?
+- did the release quietly close an exploitable condition?
+- did a security correction ship together with unrelated breaking changes?
+- would waiting for a routine upgrade leave Sails exposed?
+
+Preserve:
+
+> **Changelog silence ≠ security irrelevance.**
+
+---
+
+### Historical-incident replay rule
+
+For every future relevant incident:
+
+```
+incident
+→ identify violated property
+→ check if property is already institutionalized
+→ if new, add property
+→ replay against actual Sails boundaries
+→ evidence / defect / backlog classification
+→ durable regression where justified
+```
+
+Do not add incidents that merely repeat an already-catalogued property without
+adding useful evidence or a stronger adversarial formulation.
+
+### Day-0 usage
+
+These tasks must be brought back when their corresponding Sails surface becomes
+real, especially during:
+
+- independent implementation/conformance work;
+- performance optimization;
+- distributed-state/gossip implementation;
+- settlement and fee design;
+- provider/RPC redundancy design;
+- dependency upgrades;
+- Production Readiness and Final Red Team.
+
+**BACKLOG DELTA: NOT YET DETERMINED by these incident-replay tasks.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
