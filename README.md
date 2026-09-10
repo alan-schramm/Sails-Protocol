@@ -88,11 +88,11 @@ of these already has a real, evidenced `SettlementProvider`)*:
 | Target | Category | Typical environment | Sails role | Current maturity |
 |---|---|---|---|---|
 | Bitcoin | Bitcoin base layer | Bitcoin | Settlement target | ✅ Proven (`MULTISIG`) |
-| Lightning | Bitcoin L2 | Lightning | Settlement target | 🏗️ Implemented, testnet-only — see 2026-09-10 note below (current mechanism is Ark-based, `LIGHTNING_HODL`) |
+| Lightning | Bitcoin L2 | Lightning | Settlement target | 📋 Day-0 required, **NOT IMPLEMENTED / NOT EVIDENCED as a distinct capability** — see 2026-09-10 correction note below (no genuine plain-Lightning HTLC settlement path exists in this repository; `LIGHTNING_HODL` is Ark-based, not Lightning) |
 | Spark | Bitcoin-adjacent settlement environment | Spark | Settlement target | 📋 Future |
 | Liquid | Bitcoin sidechain | Liquid | Asset + settlement target | 📋 Designed, zero implementation |
 | RGB | Bitcoin asset/protocol layer | Bitcoin / RGB | Asset + settlement target | 📋 Future |
-| Arkade | Bitcoin settlement environment | Bitcoin / Ark | Settlement target | 🏗️ Implemented, testnet-only — see 2026-09-10 note below (same current mechanism as the Lightning row; capability naming not yet reconciled) |
+| Arkade | Bitcoin settlement environment | Bitcoin / Ark | Settlement target | 🏗️ IMPLEMENTED / TESTNET-EVIDENCED (Mutinynet) — `LIGHTNING_HODL` (`lightning-hodl.provider.ts`) is a real Ark-protocol VTXO/Taproot implementation — see 2026-09-10 correction note below |
 | Stacks | Bitcoin-adjacent smart-contract network | Stacks | Settlement target | 📋 Roadmap (Months 7-9, `docs/ROADMAP.md`) |
 | RSK / Rootstock | Bitcoin sidechain / EVM | Rootstock | Settlement target | 📋 Roadmap (Months 7-9, `docs/ROADMAP.md`) |
 | Ethereum | EVM network | Ethereum mainnet/Sepolia | Settlement target | ✅ Proven for USDT (`WDK_USDT_EVM`, testnet — see "Rail readiness" above); not proven for USDC or other assets |
@@ -117,20 +117,31 @@ on this date. Whether these six networks are served by one generic EVM
 `SettlementProvider` parameterized by chain-id, or by six separate
 provider implementations, is an open architecture question — not
 decided here, and shared implementation (if chosen) would not imply
-shared maturity/evidence/eligibility across networks. Separately: the
-former single "Lightning / Arkade" row has been split into two rows
-above, both now correctly showing 🏗️ Implemented (both point at the
-same current `LIGHTNING_HODL` code, which is Ark-based per that
-provider's own header comment — real Lightning HTLCs have no genuine
-multi-party escrow primitive). This corrects a real internal
-inconsistency this table previously had (Lightning shown as
-Implemented while Arkade was separately shown as 📋 Future, despite
-both naming the same underlying settlement target). Lightning, Arkade,
-and Spark remain three **distinct product capabilities** by Product
-Direction — this correction does not collapse them into one; it only
-fixes which of the three currently has real testnet implementation
-behind it. Full canonical Day-0 matrix: `docs/BACKLOG.md` Cold Sweep
-Loop 5, item 20.
+shared maturity/evidence/eligibility across networks.
+
+**2026-09-10 correction (semantic precision, same-day follow-up).** The
+former single "Lightning / Arkade" row was first split into two rows
+both showing Implemented — that overclaimed the evidence. Re-audited
+directly against `lightning-hodl.provider.ts`'s own header comment and
+a repository-wide search for any genuine Lightning-specific mechanism
+(BOLT11/HTLC/LND — none found anywhere in `src/`, confirmed, not
+inferred from naming): the single current implementation behind both
+labels is **Ark-protocol VTXO/Taproot settlement**, not plain-Lightning
+HTLC settlement — the provider's own comment states real Lightning has
+no genuine multi-party escrow primitive, which is *why* it settles via
+Ark instead. Shared current implementation cannot prove two distinct
+capabilities when that implementation only realizes one capability's
+actual semantics. Corrected: **Arkade** is IMPLEMENTED /
+TESTNET-EVIDENCED (real, via `LIGHTNING_HODL`); **Lightning**, as its
+own distinct capability, is **NOT IMPLEMENTED / NOT EVIDENCED** — no
+genuine Lightning-specific settlement path exists in this repository
+today. This does **not** remove Lightning from the Day-0 target — it
+remains Day-0-required, per Product Direction, distinct from Arkade and
+Spark; only its *current maturity claim* is downgraded to match actual
+evidence. The blocking gap for Lightning specifically is an
+architecture/provider path for real Lightning-native settlement, not
+yet designed or built. Full canonical Day-0 matrix and this maturity
+correction: `docs/BACKLOG.md` Cold Sweep Loop 5, item 20.
 
 **Wallet-kit adapters and settlement providers are different axes.** A wallet
 adapter connects the wallet's existing key/signing/balance/address stack to

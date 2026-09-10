@@ -1897,6 +1897,20 @@ or hidden operational conventions.
       by this freeze. Spark has zero implementation today (confirmed:
       `AssetType.SPARK` exists, deliberately excluded from the Reference
       UI's own offer picker, zero `SettlementProvider` wiring).
+
+      **Explicit per-capability maturity (2026-09-10, semantic-precision
+      correction, same-day follow-up):** re-audited directly —
+      repository-wide search found no BOLT11/HTLC/LND code anywhere in
+      `src/`, confirming `LIGHTNING_HODL` realizes Ark-protocol
+      settlement specifically, not plain-Lightning settlement. Stated
+      without ambiguity: **Arkade** = IMPLEMENTED / TESTNET-EVIDENCED
+      (Mutinynet, via `LIGHTNING_HODL`). **Lightning**, as its own
+      distinct capability = **NOT IMPLEMENTED / NOT EVIDENCED** — no
+      genuine Lightning-specific settlement path exists in this
+      repository. Lightning's Day-0 requirement is unchanged; only its
+      maturity claim moves to match actual evidence. Blocking gap for
+      Lightning specifically: an architecture/provider path for real
+      Lightning-native settlement, not yet designed.
     - **DePix**: Liquid **and** Spark — both required, not a choice.
       `DEPIX` does not exist in the real `AssetType`/`prisma/
       schema.prisma` today (UI-only, `packages/sails-ui/src/types.ts`'s

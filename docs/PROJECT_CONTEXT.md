@@ -483,8 +483,8 @@ as each rail's own real status allows (see "Rail readiness," `README.md`):
 - Bitcoin on-chain (✅ Proven, `MULTISIG`)
 - Spark (📋 Future — not yet implemented; distinct BTC product capability, not the same as Lightning/Arkade — see 2026-09-10 note below)
 - Liquid (📋 Designed — zero implementation)
-- Lightning (🏗️ Implemented testnet-only today via `LIGHTNING_HODL` — see 2026-09-10 note below for why this is not the same claim as "Arkade")
-- Arkade (🏗️ `LIGHTNING_HODL`'s own current mechanism is Ark-based, testnet-only — see 2026-09-10 note below)
+- Lightning (📋 Day-0 required — NOT IMPLEMENTED / NOT EVIDENCED as a distinct capability; corrected 2026-09-10, see note below)
+- Arkade (🏗️ Implemented, testnet-only, via `LIGHTNING_HODL` — see 2026-09-10 note below)
 - WDK-backed stablecoin stacks (🏗️ Implemented, testnet, server-custodial reference — `WDK_USDT_EVM`)
 - Tether Gold / XAUT (📋 Future — not yet implemented; network is Ethereum, per 2026-09-10 Product Direction)
 - DePix (📋 Future — not yet implemented; targets both Liquid and Spark, per 2026-09-10 Product Direction — added to this list, was previously absent)
@@ -506,7 +506,20 @@ genuine multi-party escrow primitive) does not make "Lightning" and
 "Arkade" the same capability, and does not imply Spark is served by
 that mechanism. Whether these become separately-provided capabilities,
 one capability with corrected naming, or something else is an open
-architecture question, not decided here. Full canonical matrix:
+architecture question, not decided here.
+
+**Same-day maturity correction (semantic precision).** The line above
+this note first read "Lightning (🏗️ Implemented testnet-only... via
+`LIGHTNING_HODL`)" — that overclaimed the evidence. Shared current
+implementation cannot prove two distinct capabilities when the
+implementation only realizes one of them: `LIGHTNING_HODL`'s own header
+comment and a repository-wide search (no BOLT11/HTLC/LND code anywhere
+in `src/`, confirmed) show it is Ark-protocol VTXO/Taproot settlement,
+not plain-Lightning HTLC settlement. Corrected: **Arkade** is
+IMPLEMENTED/TESTNET-EVIDENCED; **Lightning**, as its own capability, is
+**NOT IMPLEMENTED/NOT EVIDENCED**. Lightning's Day-0 requirement is
+unchanged — only its current maturity claim moved to match actual
+evidence. Full canonical matrix:
 `docs/BACKLOG.md` Cold Sweep Loop 5, item 20.
 
 **A successful Satsails production integration proves the reference
