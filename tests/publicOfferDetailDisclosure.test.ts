@@ -14,6 +14,14 @@
  * requireAuth + an explicit buyer/seller ownership check,
  * SECURITY_AUDIT_REPORT.md §2) is unaffected.
  */
+export {} // forces this file to be a module (no top-level import/export
+// otherwise) so its top-level consts don't leak into the shared global
+// scope and collide with another such file's identically named ones —
+// this exact collision (mockTradeFindUnique vs.
+// tests/settlementOrchestrator.test.ts's own) was caught for real in CI
+// (tests/liquidityOfferRouteCollision.test.ts's own header comment
+// documents the same fix for the same class of bug, Missão 06).
+
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: { emit: jest.fn().mockResolvedValue(undefined), on: jest.fn(), onDurable: jest.fn() },
 }))
