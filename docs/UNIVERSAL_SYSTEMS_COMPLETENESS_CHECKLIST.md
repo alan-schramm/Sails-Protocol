@@ -3232,6 +3232,258 @@ instance fixed
 
 ---
 
+
+## 3.31 Economic Defense-in-Depth / Attack-Cost Escalation
+
+This section captures a core security posture for Sails:
+
+> **No single bug should be sufficient to create irreversible economic loss.**
+
+> **An attacker should need to defeat multiple independent properties, across different trust domains, before gaining economic authority.**
+
+The goal is not an imaginary "impenetrable wall".
+The goal is a layered system where one defect, one compromised dependency, one
+malicious node, one parser bug, or one operational mistake is insufficient by itself
+to create systemic economic damage.
+
+### 1. Layered economic authority
+
+Critical value-moving flows should, where justified, compose independent checks such as:
+
+```
+input / parser validation
+→ canonical semantic interpretation
+→ signed economic commitment
+→ authority / capability validation
+→ provider correspondence
+→ execution observation
+→ reconciliation
+→ exposure limits
+→ anomaly detection
+→ fail-closed / degraded mode
+```
+
+A failure in one layer should not automatically imply success for the attacker.
+
+Preserve:
+
+> **Defense in depth must protect economic authority, not merely process integrity.**
+
+### 2. Single-Bug Catastrophe Resistance
+
+Required design question for every critical flow:
+
+> **What is the minimum number of independent failures required to steal, redirect, release, freeze, or irreversibly lose value?**
+
+If the answer is one, treat the architecture as fragile until justified otherwise.
+
+Do not force arbitrary "N-of-M security" everywhere.
+The objective is independent protection of authority, semantics, execution truth and blast radius.
+
+### 3. Blast Radius Budget
+
+Security does not end at prevention.
+
+For every failure/compromise ask:
+
+> **If the attacker succeeds here, how much damage can happen before another layer detects or stops it?**
+
+Candidate bounds:
+
+- value per operation;
+- value per provider;
+- value per rail;
+- value per time window;
+- simultaneous trades;
+- exposure per new identity;
+- exposure per node/operator;
+- payout/withdrawal velocity;
+- beta/launch value caps;
+- capability-specific limits.
+
+Principle:
+
+> **Compromise must have a bounded economic blast radius.**
+
+Limits must not become hidden protocol authority or centralized membership control.
+
+### 4. Security Degradation Ladder
+
+Critical systems should avoid binary behavior:
+
+```
+NORMAL
+→ CATASTROPHIC FAILURE
+```
+
+Prefer an explicit degradation ladder where appropriate:
+
+```
+NORMAL
+→ DEGRADED
+→ RESTRICTED
+→ READ-ONLY
+→ NEW-COMMITMENTS PAUSED
+→ SETTLEMENT-RESTRICTED
+→ SAFE SHUTDOWN / MANUAL RECOVERY
+```
+
+The exact ladder is capability/provider specific and must not create a universal
+Satsails kill switch.
+
+Preserve:
+
+> **Local emergency policy ≠ protocol authority.**
+
+> **Fail-safe degradation should reduce authority before it increases it.**
+
+### 5. Assume-Compromise Analysis
+
+For every important component ask:
+
+> **If this component were fully compromised, what authority would it gain?**
+
+Replay against:
+
+- Sails Node;
+- database;
+- cache/event infrastructure;
+- transport;
+- wallet adapter;
+- WDK/provider adapter;
+- settlement provider;
+- RPC;
+- AI/QVAC agent;
+- CI/release system;
+- dependency/package;
+- operator credentials;
+- monitoring/control plane.
+
+The desired result is not "nothing bad can happen".
+The desired result is:
+
+> **Compromise authority is explicit, bounded, and does not silently cross unrelated domains.**
+
+### 6. Attack-Cost Escalation
+
+Sails should prefer designs where increasing attack scale raises attacker cost
+without proportionally increasing authority or reward.
+
+Examples of desired properties:
+
+- more nodes do not create more protocol authority;
+- more messages do not create more economic entitlement;
+- more identities do not create more reputation by themselves;
+- fake liquidity does not create verified contribution;
+- repeated retries do not create repeated payout rights;
+- resource consumption imposed by one peer is locally bounded;
+- low-history/new actors have bounded economic exposure where appropriate.
+
+Core principle:
+
+> **Cheap identities should be cheap to create but economically powerless by default.**
+
+Do not copy Proof-of-Work, staking, tokens, allowlists or registries by analogy.
+First identify the exact power cheap multiplicity buys, then remove that power or
+make abuse uneconomic.
+
+### 7. Security Margin
+
+Critical limits should survive estimation error.
+
+Ask:
+
+- if expected clock skew is X, what happens at 10X?
+- if expected provider latency is X, what happens at 10X?
+- if normal message size is X, what happens near the valid maximum?
+- if a provider appears reliable, what happens if it becomes Byzantine?
+- if an attack is expected to cost Y, what if automation reduces cost by 100x?
+
+Principle:
+
+> **Security should survive reasonable errors in our assumptions.**
+
+### 8. AI-era attacker asymmetry
+
+Open code should be treated as continuously inspected by automated adversaries.
+
+Assume attackers can:
+
+- scan every commit;
+- compare old/new behavior;
+- synthesize malformed/edge-case inputs;
+- chain low-severity findings;
+- search all call paths for the same violated property;
+- replay public exploits against Sails;
+- generate large adversarial state spaces faster than human review alone.
+
+Therefore Sails should use AI not only to build, but to attack its own claims.
+
+Preserve:
+
+> **Builder intelligence ≠ adversarial intelligence.**
+
+> **Every critical AI-built capability should face an independent adversarial objective before freeze.**
+
+Preferred role separation:
+
+```
+Builder / Executor
+→ property evidence
+→ CTO Gate
+→ independent adversarial model(s)
+→ falsification attempt
+→ correction
+→ durable regression
+→ bounded freeze
+```
+
+Different models/providers/prompts/context exposure are desirable where practical.
+
+### 9. The "wall" test
+
+For every high-value attack path, ask:
+
+> **How many independent layers must the attacker cross before economic authority is gained?**
+
+and:
+
+> **Does each additional layer materially increase attacker cost, uncertainty, time, detection probability, or required trust-domain compromise?**
+
+A wall with many layers that all depend on the same key, database, RPC, operator,
+cloud or interpretation is not deep defense.
+
+Preserve:
+
+> **Many checks in one trust domain ≠ many security layers.**
+
+### 10. Desired end state
+
+The target is not "Sails has no bugs."
+
+The target is:
+
+> **Sails can contain bugs without allowing one ordinary defect to become systemic economic loss.**
+
+> **Known attacks should become expensive, multi-step, detectable, bounded, or economically irrational.**
+
+> **Unknown attacks should encounter independent semantic, authority, execution and exposure barriers before reaching irreversible value.**
+
+This posture should be revisited during:
+- Day-0 architecture work;
+- settlement/provider integration;
+- node economics;
+- identity/recovery;
+- arbitration;
+- partner beta;
+- Production Readiness;
+- Final Red Team;
+- post-production incident review.
+
+**BACKLOG DELTA: NOT YET DETERMINED by this architectural security posture.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
