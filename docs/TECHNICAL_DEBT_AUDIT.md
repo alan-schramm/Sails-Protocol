@@ -2742,6 +2742,158 @@ defect into network-wide disclosure.
 Full sweep evidence:
 `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §13.
 
+**Remediation (Bounded, 2026-09-10).** Missão CTO de bounded
+implementation, precedida por duas passadas de discovery/arquitetura
+(seller-field-by-field disclosure matrix, comparação `LiquidityOffer`
+vs. `PublicOfferDetail` dedicado, matriz de campos do Offer).
+
+Fix implementado em `src/modules/open-liquidity/liquidity.service.ts`:
+`getOffer()` não faz mais `prisma.offer.findUnique` sem `select` — usa
+um `select` explícito (Offer: `id, asset, side, priceUsd, priceBrl,
+minAmount, maxAmount, paymentMethod, status, network, description,
+createdAt, updatedAt`; User: `id, publicKey, displayName, peerId,
+verified, reputationScore, totalTrades, disputeCount`) mapeado através
+de uma nova função `mapOfferToPublicDetail()` — mesmo padrão já
+estabelecido por `mapOfferToLiquidityOffer()` neste mesmo arquivo —
+para um novo tipo dedicado `PublicOfferDetail`/`PublicOfferSeller`,
+deliberadamente separado de `LiquidityOffer` (que continua servindo
+apenas discovery agregado/multi-provider). Nunca um raw Prisma row
+alcança a resposta HTTP; `select` explícito falha fechado contra
+expansão futura do schema — um novo campo do Prisma nunca é buscado, e
+mesmo que fosse, o mapper explícito nunca o incluiria na saída.
+
+**Propriedade nova, congelada por esta remediação:**
+
+> **PublicOfferDetail seller disclosure ≤ Canonical Public Identity +
+> Canonical Public Reputation disclosure.**
+
+A disclosure do vendedor em `PublicOfferDetail` nunca excede a união
+de `identity.service.ts`'s `getPublicView()` (`id/publicKey/
+displayName/peerId/verified`, `GET /v1/identity/participants/:id`) e
+`reputation.service.ts`'s `getScore()` (`reputationScore/totalTrades/
+disputeRate`, `GET /v1/reputation/:participantId`) — nunca uma
+terceira definição, mais ampla, de "perfil público de participante".
+`disputeCount` é buscado (necessário para derivar `disputeRate` pela
+mesma fórmula de `getScore()`) mas nunca incluído na saída;
+`totalVolumeBtc` e `User.createdAt` foram removidos por completo —
+nenhuma das duas views canônicas os expõe, e nenhuma decisão de
+produto separada os autorizou. Qualquer expansão futura requer decisão
+explícita de produto/protocolo, não uma adição silenciosa.
+
+**As três propriedades originais, verificadas como corrigidas para
+esta rota específica:**
+- *Public Offer View ≠ Raw Offer Row* — corrigida.
+- *Offer Discovery Data ≠ Payment Execution Data* — corrigida.
+- *Payment Destination Commitment ≠ Public Payment Destination* — corrigida.
+
+**`paymentDetails` — caminho autorizado confirmado, inalterado:**
+`GET /v1/openp2p/trades/:id` (`requireAuth` + checagem explícita
+`participantId === trade.buyerId || trade.sellerId`,
+`SECURITY_AUDIT_REPORT.md §2`) continua entregando `paymentDetails`
+real a um comprador/vendedor autenticado e real, e continua rejeitando
+um não-participante autenticado (403) e um chamador não-autenticado
+(401) — nenhuma mudança de comportamento nesse caminho.
+
+**Evidência real, testes adversariais novos
+(`tests/publicOfferDetailDisclosure.test.ts`, 11 testes):**
+`paymentDetails` nunca aparece mesmo quando o mock da persistência o
+inclui deliberadamente (prova que a fronteira é o `select`/mapper, não
+"o mock nunca manda"); `userId`/`moduleId`/`protocolVersion`/
+`intentType`/`intentId` nunca aparecem; `disputeCount`/
+`totalVolumeBtc`/`createdAt` do vendedor nunca aparecem; os 8 campos
+canônicos do vendedor aparecem exatamente, com `disputeRate` derivado
+corretamente; todos os campos de discovery esperados continuam
+presentes; allowlist exata de chaves no nível superior e do `seller`
+(prova de fail-closed contra expansão futura do schema); discovery
+agregado (`GET /offers`) inalterado; os 4 cenários de `GET /trades/:id`
+(comprador real, vendedor real, não-participante autenticado,
+não-autenticado) — todos corretos. Regressão completa (`npm run
+test:unit`): **157/157 suites, 2017/2017 testes, zero falhas.**
+`tsc --noEmit` limpo. `git diff --check` limpo.
+
+**Não se afirma:** que a arquitetura de privacidade mais ampla do
+protocolo está resolvida, nem que toda superfície pública futura segue
+automaticamente esta mesma disciplina — apenas que esta rota
+específica (`GET /v1/liquidity/offers/:id`) agora tem uma fronteira de
+disclosure explícita, testada e fail-closed.
+
+**Status: CLOSED (bounded) — evidência completa, ver retorno da missão
+para detalhes de PR/CI.**
+
+**Consumer migration (2026-09-10).** O único consumidor real deste
+endpoint — `packages/sails-ui`'s `OfferDetail.tsx`, via
+`@satsails/p2p-trading-sdk`'s `liquidity.getOffer()` — migrou
+atomicamente no mesmo PR, no mesmo commit que o contrato do backend:
+`getOffer()` do SDK agora tipa seu retorno como `PublicOfferDetail`
+(não mais `Offer & { user: Participant }`); `OfferDetail.tsx` lê
+`seller.*` em vez de `user`/`userId`; `raw.paymentDetails` não é mais
+lido em lugar nenhum. Exibições que dependiam de campos removidos
+("Membro desde", contagem crua de disputas, volume BTC) foram
+removidas, não reconstruídas — substituídas por Total de Trades / Taxa
+de Disputas (`disputeRate`, canônico) / Reputação, a mesma hierarquia
+desta nota. Nenhuma alegação de privacidade acima foi alterada por esta
+adenda — apenas registra que produtor e consumidor de primeira parte
+ficaram consistentes no mesmo merge, evitando `main` num estado
+conhecidamente inconsistente.
+
+### 62. `User.reputationScore` renderizado como percentual 0-100 na UI — mas é uma soma corrida ilimitada, não uma escala fechada (encontrado 2026-09-10, CTO review do PR #117)
+
+**Classificação: Product / Reputation semantic debt — pré-existente,
+fora do escopo do TD #61.** Achado de passagem durante a revisão do
+PR #117 (migração de `OfferDetail.tsx` para `PublicOfferDetail`); não
+verificado como duplicata de nenhum item já registrado (busca direta em
+`docs/BACKLOG.md`/`docs/TODO.md`/`docs/TECHNICAL_DEBT_AUDIT.md`, nenhum
+achado equivalente encontrado).
+
+**Achado:** `reputation.service.ts`'s próprio comentário de cabeçalho
+documenta `User.reputationScore` como uma soma corrida e sem limite
+superior (+2/-5 por trade, `recordOutcome()`), explicitamente **não**
+uma escala 0-100 ou uma razão 0-1. `packages/sails-ui/src/pages/
+OfferDetail.tsx`, porém, renderiza esse mesmo campo como se fosse
+fechado: `{offer.seller.reputationScore.toFixed(1)} / 100` e usa o
+valor bruto diretamente como `width` percentual de uma barra de
+progresso CSS (`style={{ width: `${offer.seller.reputationScore}%` }}`)
+— para qualquer participante cuja soma corrida já tenha ultrapassado
+100 (matematicamente inevitável com uso real e prolongado do
+protocolo), a barra estoura 100% de largura e o texto mostra algo como
+"142.0 / 100", sem sentido para o usuário final.
+
+**Não corrigido nesta nota, não corrigido no PR #117** — a instrução
+explícita da missão que encontrou isto foi não redesenhar reputação
+dentro dessa correção bounded. Nenhuma mudança de comportamento feita.
+
+**Fix recomendado (propriedade, não mecanismo):** nenhum prescrito
+aqui — decisão de produto genuína (normalizar/clampar visualmente,
+trocar a barra por outra representação, ou expor um campo derivado
+0-100 no backend) requer entrada de produto, não apenas engenharia.
+
+**Status: OPEN.**
+
+### 63. `packages/sails-ui` não tem nenhum framework de teste executável (achado 2026-09-10, CTO review do PR #117)
+
+**Classificação: evidence/tooling gap — pré-existente, não introduzido
+pelo TD #61.** Não verificado como duplicata (mesma busca do item #62
+acima, nenhum achado equivalente encontrado).
+
+**Achado, confirmado diretamente:** `packages/sails-ui/package.json`
+não tem script `"test"`; busca por `*.test.*`/`*.spec.*` no pacote não
+retorna nenhum arquivo; nenhuma configuração de Vitest/Jest/Testing
+Library presente. Toda a superfície de UI deste pacote (incluindo
+`OfferDetail.tsx`, migrado no PR #117) é verificada hoje apenas por
+`tsc --noEmit` + `vite build` (prova de tipo/compilação) e, quando
+disponível, checagem manual em navegador — nunca por um teste de
+comportamento automatizado e executável.
+
+**Não corrigido nesta nota** — instalar um framework de teste é
+trabalho genuíno e não-trivial (escolha de framework, configuração,
+primeiro teste real), explicitamente fora do escopo de uma correção
+bounded que já estava em andamento quando isto foi encontrado.
+
+**Fix recomendado (propriedade, não mecanismo):** nenhum prescrito
+aqui — decisão de ferramenta (Vitest é o encaixe natural dado o uso de
+Vite já existente, mas não decidido aqui) requer sua própria missão
+dedicada.
+
 **Status: OPEN.**
 
 ## Ações Recomendadas por Prioridade

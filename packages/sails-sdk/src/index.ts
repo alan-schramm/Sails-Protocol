@@ -43,6 +43,8 @@ export {
   type MatchInput,
   type LiquidityOfferSummary,
   type DiscoverResult,
+  type PublicOfferDetail,
+  type PublicOfferSeller,
 } from './modules/liquidity'
 export {
   SailsOpenP2PModule,

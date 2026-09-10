@@ -37,6 +37,41 @@ export function isPowerTrader(user: Pick<User, 'totalTrades' | 'disputeCount'>):
   return user.totalTrades >= POWER_TRADER_MIN_TRADES && positiveFeedbackPct(user) >= POWER_TRADER_MIN_POSITIVE_PCT
 }
 
+// Technical Debt #61 (2026-09-10) — the public single-offer view
+// (OfferDetail.tsx, sailsClient.liquidity.getOffer()) no longer carries
+// a seller's raw `disputeCount`: only reputation.service.ts's own
+// derived `disputeRate` is part of the approved public disclosure
+// contract (docs/TECHNICAL_DEBT_AUDIT.md #61 — capped at canonical
+// public Identity + Reputation disclosure). `disputeRatePct` below is a
+// plain display helper (dispute rate as a percentage, e.g. 0.02 -> 2) —
+// it is NOT the complement of positiveFeedbackPct() and must never be
+// subtracted from 100 to approximate it: `100 - Math.round(x * 100)`
+// and `Math.round((1 - x) * 100)` disagree at rounding boundaries (e.g.
+// x = 0.045: the first gives 95, the second — positiveFeedbackPct()'s
+// own real formula — gives 96; found for real, not theoretical, CTO
+// review 2026-09-10). `positivePctFromDisputeRate` below reproduces
+// positiveFeedbackPct()'s exact rounding by computing the same
+// `Math.round((1 - x) * 100)` directly from the canonical field, so
+// isPowerTraderFromCanonical()'s threshold behavior matches
+// isPowerTrader()'s exactly, not merely approximately. `disputeRate` is
+// already 0 when `totalTrades` is 0 (reputation.service.ts's own
+// getScore()), so no separate zero-trades branch is needed here the way
+// positiveFeedbackPct() needs one for raw division. The other three
+// callers of positiveFeedbackPct()/isPowerTrader() above
+// (TradeParties.tsx, Profile.tsx, Trade.tsx) still read from the full,
+// authenticated `User` shape and are unaffected by any of this.
+export function disputeRatePct(disputeRate: number): number {
+  return Math.round(disputeRate * 100)
+}
+
+function positivePctFromDisputeRate(disputeRate: number): number {
+  return Math.round((1 - disputeRate) * 100)
+}
+
+export function isPowerTraderFromCanonical(seller: { totalTrades: number; disputeRate: number }): boolean {
+  return seller.totalTrades >= POWER_TRADER_MIN_TRADES && positivePctFromDisputeRate(seller.disputeRate) >= POWER_TRADER_MIN_POSITIVE_PCT
+}
+
 // RFC-021 D7 (real peer vouching) — mirrors vouch.service.ts's own
 // server-enforced eligibility bar (MIN_VOUCHER_TRADES = 3, reputationScore
 // > 0) purely so VouchButton.tsx can hide/disable itself instead of

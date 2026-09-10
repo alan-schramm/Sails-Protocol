@@ -1,5 +1,13 @@
 import type { User } from '../../types'
 
+// Technical Debt #61 (2026-09-10) — only `id`/`displayName` are ever
+// read below; loosened from the full `User` so callers with a narrower
+// public projection (e.g. OfferDetail.tsx's PublicOfferSeller, which
+// legitimately has no disputeCount/totalVolumeBtc/createdAt) can pass
+// their seller object directly instead of padding out unused fields.
+// Every existing `User`-typed caller still satisfies this exactly.
+type AvatarUser = Pick<User, 'id' | 'displayName'>
+
 const SIZES = { sm: 'w-7 h-7 text-xs', md: 'w-9 h-9 text-sm', lg: 'w-12 h-12 text-base', xl: 'w-16 h-16 text-xl' } as const
 const DOT_SIZES = { sm: 'w-2 h-2', md: 'w-2.5 h-2.5', lg: 'w-3 h-3', xl: 'w-3.5 h-3.5' } as const
 
@@ -20,7 +28,7 @@ export function UserAvatar({
   // inside an actual trade) is the only place this can be honest.
   online = null,
 }: {
-  user: User
+  user: AvatarUser
   size?: keyof typeof SIZES
   showPresence?: boolean
   online?: boolean | null

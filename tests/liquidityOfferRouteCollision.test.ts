@@ -102,7 +102,21 @@ describe('GET /v1/liquidity/offers/:id does not shadow GET /v1/liquidity/offers/
   })
 
   it('GET /v1/liquidity/offers/:id (a real id) hits getOffer(), unaffected by the /mine route existing', async () => {
-    mockOfferFindUnique.mockResolvedValueOnce({ id: 'offer-42', userId: 'user-1', asset: 'BTC', user: {} })
+    // Technical Debt #61 — getOffer() now maps through mapOfferToPublicDetail(),
+    // which reads real nested fields (.toString()/.toISOString()), so this
+    // mock needs a realistic full row, not a partial one.
+    mockOfferFindUnique.mockResolvedValueOnce({
+      id: 'offer-42', asset: 'BTC', side: 'SELL',
+      priceUsd: '65000.00000000', priceBrl: null,
+      minAmount: '0.00100000', maxAmount: '0.50000000',
+      paymentMethod: 'PIX', status: 'ACTIVE', network: null, description: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      user: {
+        id: 'user-1', publicKey: 'a'.repeat(64), displayName: 'Alice', peerId: null,
+        verified: true, reputationScore: 4.5, totalTrades: 10, disputeCount: 1,
+      },
+    })
 
     const res = await app.inject({ method: 'GET', url: '/v1/liquidity/offers/offer-42' })
 
