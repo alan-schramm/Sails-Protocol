@@ -3043,6 +3043,195 @@ Production Readiness / Not Applicable.
 
 ---
 
+
+## 3.30 AI-Era Exploit Compression / N-Day / Patch-Diff Adversary
+
+This section captures a security property whose importance increases sharply
+when attackers can use capable AI systems to continuously inspect code,
+dependencies, releases, diffs and incident reports.
+
+Core principle:
+
+> **Public fix publication can start the exploitation clock.**
+
+> **Patch availability ≠ ecosystem safety.**
+
+> **A disclosed fix may reveal the vulnerability class faster than downstream systems can upgrade.**
+
+### 1. Patch-diff exploitation
+
+Assume an attacker can automatically:
+
+- monitor dependency releases;
+- diff old/new source;
+- identify security-relevant validation changes;
+- infer the pre-patch bug;
+- generate candidate exploit inputs;
+- search Sails for equivalent patterns;
+- search transitive dependencies for the same class;
+- test alternate call paths not covered by the upstream fix.
+
+Required question:
+
+> **If an attacker sees this patch before we deploy it, what can they infer and attack immediately?**
+
+### 2. Variant hunting after a fix
+
+Every security correction must trigger:
+
+> **Where else does the same violated property exist?**
+
+Do not stop at the exact function or dependency named in the incident.
+
+Search:
+
+- sibling methods;
+- alternate providers;
+- alternate rails;
+- old compatibility paths;
+- SDK/backend duplicate logic;
+- parser/executor pairs;
+- test-only versus production paths;
+- retries/recovery paths;
+- other languages/implementations.
+
+Preserve:
+
+> **Fixing one instance ≠ eliminating the vulnerability class.**
+
+### 3. Exploit-window compression
+
+Traditional assumptions such as "we have a week to patch" are not safe defaults.
+
+For critical dependencies and protocol surfaces ask:
+
+- how quickly can an attacker detect the change?
+- how quickly can the exploit be synthesized?
+- how quickly can all production operators actually upgrade?
+- is emergency disablement possible without changing protocol truth?
+- can vulnerable nodes be isolated without creating central membership authority?
+- can partner wallets/providers be notified quickly enough?
+
+No universal SLA is selected here, but urgency must follow potential exploitability,
+not release cadence convenience.
+
+### 4. Silent security releases
+
+Reinforce:
+
+> **Changelog silence ≠ security irrelevance.**
+
+Critical dependency monitoring should compare code behavior, not only release notes.
+
+A release changing:
+
+- validation;
+- parsing;
+- canonicalization;
+- cryptography;
+- authorization;
+- identity;
+- settlement;
+- retry;
+- resource limits;
+- serialization;
+
+must be treated as potentially security relevant until understood.
+
+### 5. AI-assisted attack-chain composition
+
+Assume attackers can combine several low-severity weaknesses:
+
+```
+information leak
++ weak rate limit
++ parser ambiguity
++ stale recovery path
++ provider retry
+→ economic exploit
+```
+
+Required Red Team question:
+
+> **What dangerous capability appears only when several individually non-critical findings are chained?**
+
+Severity must therefore be evaluated both individually and compositionally.
+
+### 6. Security-fix regression obligation
+
+For every confirmed vulnerability class:
+
+1. exact exploit regression;
+2. sibling/variant search;
+3. cross-provider replay;
+4. cross-implementation replay where relevant;
+5. institutional-memory update;
+6. future release-gate inclusion where justified.
+
+### 7. Dependency criticality tiers
+
+Not every package deserves identical monitoring.
+
+Future Sails dependency review should classify dependencies by potential authority/blast radius:
+
+- Tier A: cryptography, keys, signing, settlement, parsing of authoritative economic objects;
+- Tier B: transport, auth, DB drivers, RPC clients, serialization, state/recovery;
+- Tier C: observability/UI/tooling with limited process authority;
+- lower-risk edges where compromise has tightly bounded effects.
+
+The tier is about blast radius, not brand prestige.
+
+### 8. Assume public code is continuously scrutinized
+
+Sails is open infrastructure.
+
+Therefore design as if:
+
+- every commit is immediately diffed;
+- every invariant is searched for bypasses;
+- every dependency graph is automatically analyzed;
+- every release is fuzzed;
+- every public incident is replayed against Sails;
+- every "temporary" shortcut will be noticed.
+
+Desired posture:
+
+> **Security through obscurity has zero architectural value.**
+
+### 9. Defender automation parity
+
+The attacker can automate scrutiny.
+Sails should automate adversarial scrutiny too.
+
+Candidate future defensive automation may include:
+
+- dependency diff analysis;
+- semantic change detection;
+- automated fuzz/property campaigns;
+- variant search after findings;
+- regression replay;
+- threat-model delta generation;
+- independent-model red-team review.
+
+No specific AI vendor/tool is protocol architecture.
+
+### Institutional rule
+
+A critical security finding closes only when:
+
+```
+instance fixed
++ vulnerability class searched
++ variants confronted
++ regression durable
++ exposed dependencies/operators assessed
++ claim boundary updated
+```
+
+**BACKLOG DELTA: NOT YET DETERMINED by this AI-era security entry.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
