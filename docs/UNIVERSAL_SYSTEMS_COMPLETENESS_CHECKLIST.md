@@ -3484,6 +3484,314 @@ This posture should be revisited during:
 
 ---
 
+
+## 3.32 Private Liquidity Domains / Permissioned Discovery Without Permissioned Protocol
+
+This is classified as a **Day-0 product/protocol differentiator**, not a future-roadmap idea.
+
+The motivating product thesis is that Sails must be visibly more than another P2P
+marketplace implementation. Its launch narrative is strengthened by several mutually
+reinforcing pillars:
+
+- any compatible wallet can become a P2P terminal;
+- economic reputation/history can be portable across compatible wallets and contexts;
+- wallets, rails and settlement technologies remain replaceable edges;
+- users may participate in public economic markets;
+- users may also create or join intentionally private economic communities without
+  turning Satsails, a Sails Node, or a shared password into protocol authority.
+
+The private-market capability is an **auxiliary differentiating pillar** supporting the
+central architecture and the product/marketing narrative. It must exist in the Day-0
+scope in a deliberately bounded form, even if advanced privacy transports, group
+governance, richer permissions and specialized community tooling remain later
+capabilities.
+
+### Product thesis
+
+A real-world pattern already exists outside software:
+
+```
+trusted social group
+→ WhatsApp / chat coordination
+→ one member pays another member's bill / invoice / local obligation
+→ reciprocal payment or settlement elsewhere
+→ manual history and social reputation
+```
+
+Sails should be capable of turning that social coordination pattern into a
+non-custodial, explicit, auditable economic coordination surface.
+
+Examples include:
+
+- groups of friends;
+- families;
+- local Bitcoin communities;
+- merchant groups;
+- closed OTC circles;
+- company or supplier communities;
+- cross-border community markets;
+- invitation-only liquidity groups.
+
+The protocol should support both public and intentionally private economic
+coordination without creating two different protocol semantics.
+
+### Core architectural distinction
+
+Preserve:
+
+> **Private Market ≠ Private Node.**
+
+> **Market Membership ≠ Node Membership.**
+
+> **Permissioned Discovery ≠ Permissioned Protocol.**
+
+A Sails Node is infrastructure.
+A Private Liquidity Domain is an economic/discovery scope.
+
+Node choice must continue not to define market membership.
+
+A conformant participant may simultaneously belong to:
+
+```
+Public Market
++
+Private Group A
++
+Private Group B
++
+Direct Counterparty Context
+```
+
+without requiring a separate wallet identity for each market and without forcing all
+those markets onto one infrastructure operator.
+
+### Visibility as an explicit economic property
+
+A future formal design may need to distinguish scopes conceptually such as:
+
+```
+PUBLIC
+PRIVATE_DOMAIN
+DIRECT
+```
+
+This document does not freeze that enum or wire format.
+
+The required property is:
+
+> **Liquidity fragmentation caused by explicit participant choice is valid; liquidity fragmentation caused accidentally by node choice is not.**
+
+Therefore:
+
+> **Private Liquidity ≠ Accidental Liquidity Fragmentation.**
+
+The shared-market invariant for public liquidity remains intact.
+
+### Membership and invitation authority
+
+Do not default to a single shared group password or master secret.
+
+A shared secret creates poor revocation and excessive blast radius:
+
+```
+one leaked group secret
+→ entire membership boundary compromised
+```
+
+Preferred architectural direction to investigate:
+
+```
+signed / scoped invitation
+→ explicit market identifier
+→ recipient or capability binding
+→ bounded permissions
+→ optional expiry / one-time use
+→ revocation without rotating every participant credential
+```
+
+No specific invitation schema, identity format or capability object is frozen here.
+
+Preserve:
+
+> **Authorization to Discover ≠ Authorization to Settle.**
+
+> **Invitation Authority ≠ Funds Authority.**
+
+> **Group Administrator ≠ Protocol Authority.**
+
+> **Authorized Member ≠ Honest Member.**
+
+### Revocation and historical truth
+
+A member may be removed from future discovery or publication rights without rewriting
+past economic truth.
+
+Preserve:
+
+> **Membership Revocation ≠ Economic History Revocation.**
+
+> **Membership Revocation ≠ Existing Trade Obligation Revocation.**
+
+> **Future visibility policy must not retroactively erase signed economic facts.**
+
+Open design questions include:
+
+- can a removed member still read previously received offers?
+- does removal stop future gossip only?
+- how are in-flight trades completed?
+- how are revoked invitation capabilities represented?
+- what evidence proves membership at the moment a trade was committed?
+- what survives recovery, device replacement or wallet migration?
+
+### Privacy boundaries
+
+Private discovery is not the same as network anonymity.
+
+Preserve:
+
+> **Private Membership ≠ Network Anonymity.**
+
+> **Private Market Content ≠ Private Membership Metadata.**
+
+Tor, I2P, Pears privacy properties, relay hiding or other anonymous transports are
+separate capabilities. They must not be pulled into Day-0 merely to make a private
+market possible.
+
+A bounded Day-0 private-market capability may operate over ordinary supported
+transport while preserving the abstraction needed for stronger privacy transports
+later.
+
+### Relationship to portable reputation and identity
+
+Private domains should reinforce, not fragment, portable economic identity.
+
+The desired product property is:
+
+> A participant may use more than one compatible wallet, participate in more than one
+> public/private market, and carry appropriately scoped economic reputation/history
+> without making any one wallet the identity authority.
+
+However:
+
+> **Portable Reputation ≠ Universal Disclosure.**
+
+Private-domain activity may require selective disclosure, scoped proofs or reputation
+summaries rather than broadcasting every private economic event into the public
+market.
+
+This requires future reconciliation with Identity, Reputation, Privacy and Evidence
+semantics before implementation is frozen.
+
+### Security questions
+
+Every private-domain design must confront:
+
+- stolen invitation;
+- forwarded invitation;
+- compromised member;
+- Sybil invitation farming;
+- colluding group members;
+- malicious group administrator;
+- privacy metadata leakage;
+- group enumeration;
+- revoked-member stale access;
+- unauthorized gossip relay;
+- private-offer leakage into public discovery;
+- accidental cross-domain deduplication;
+- replay of old membership proofs;
+- recovery/rebinding after wallet or device migration;
+- admin authority silently becoming settlement authority;
+- one private node becoming a mandatory availability dependency.
+
+Required attack question:
+
+> **What does compromising one member, one invite, one administrator, or one node actually let the attacker do?**
+
+Apply the Defense-in-Depth / Attack-Cost Escalation posture from §3.31.
+
+### Day-0 boundedness
+
+Day-0 does not require every possible community feature.
+
+A minimal Day-0 property can be significantly narrower:
+
+```
+create private economic domain
+→ issue/redeem bounded invitations
+→ discover only authorized private-domain liquidity
+→ publish signed offers scoped to that domain
+→ preserve ordinary Sails trade/settlement semantics
+→ revoke future membership/discovery rights
+→ keep public and private liquidity scopes from leaking into one another
+```
+
+Potentially later, without invalidating Day-0:
+
+- richer roles;
+- multisig/federated administration;
+- Tor/I2P-specific transports;
+- complex group governance;
+- community-specific arbitration;
+- private reputation proofs;
+- organizational policy engines;
+- advanced membership recovery.
+
+The architecture must leave room for those capabilities without requiring them to
+make the first private-domain version real.
+
+### Product / marketing significance
+
+This is intentionally registered as more than an engineering feature.
+
+The launch narrative should be able to truthfully express a family of capabilities:
+
+```
+your wallet can become a P2P terminal
++
+your economic reputation/history can travel with you
++
+you are not locked to one wallet or one rail
++
+you can participate in public liquidity
++
+you can create or join private economic communities
++
+developers and wallets can plug into the same coordination semantics
+```
+
+This helps distinguish Sails from a single marketplace, a single node operator, or a
+single application.
+
+The product promise must never exceed implemented/evidenced capability, but the
+architectural room for this promise is a Day-0 requirement.
+
+### Institutional classification
+
+**Classification: DAY-0 PRODUCT/PROTOCOL REQUIREMENT CANDIDATE, NOT ROADMAP.**
+
+This section records the requirement so it cannot be demoted to a future idea through
+sequencing drift.
+
+Before implementation, it must still pass normal governance:
+
+```
+Institutional Memory
+→ Current Truth Reconciliation
+→ Master Backlog cross-link / delta
+→ architecture hypothesis
+→ evidence / adversarial review
+→ CTO decision
+→ bounded implementation
+```
+
+Do not create a duplicate marketplace architecture if existing Day-0 signed-offer,
+identity, discovery and gossip work can carry this property through scope/visibility
+semantics.
+
+**BACKLOG DELTA: DAY-0 RECONCILIATION REQUIRED; NOT YET DUPLICATED INTO BACKLOG BY THIS MEMORY REGISTRATION.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
