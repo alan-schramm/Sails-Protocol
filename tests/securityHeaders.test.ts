@@ -73,7 +73,13 @@ async function buildAppWithEnv(envOverrides: Record<string, string>): Promise<Fa
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { buildApp } = require('../src/app')
-    const app = await buildApp()
+    // Technical Debt #57 bounded remediation — this suite exercises
+    // security headers only, never /docs; registerSwaggerUi: false skips
+    // Swagger-UI's real asynchronous bootstrap work without changing
+    // the CSP-outside-production behavior this file actually asserts
+    // (helmet's CSP config is keyed on config.isProduction, not on
+    // whether swagger-ui itself is registered).
+    const app = await buildApp({ registerSwaggerUi: false })
     await app.ready()
     return app
   } finally {
@@ -82,7 +88,7 @@ async function buildAppWithEnv(envOverrides: Record<string, string>): Promise<Fa
 }
 
 describe('Security headers (@fastify/helmet)', () => {
-  jest.setTimeout(30_000) // real buildApp() registers @fastify/swagger-ui, slow under load — see tests/cors.test.ts's identical comment
+  jest.setTimeout(30_000) // defensive margin retained; this suite no longer registers @fastify/swagger-ui (Technical Debt #57 bounded remediation)
 
   it('always sends the baseline hardening headers (X-Frame-Options, X-Content-Type-Options, HSTS), dev or production', async () => {
     const app = await buildAppWithEnv({ NODE_ENV: 'test' })

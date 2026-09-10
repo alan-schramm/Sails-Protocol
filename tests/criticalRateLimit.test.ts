@@ -83,12 +83,13 @@ jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 const { buildApp } = require('../src/app')
 
 describe('Critical-route rate limiting (RATE_LIMIT_CRITICAL_MAX=2 for this suite)', () => {
-  jest.setTimeout(30_000) // real buildApp() registers @fastify/swagger-ui — see tests/cors.test.ts's identical comment
+  jest.setTimeout(30_000) // defensive margin retained; this suite no longer registers @fastify/swagger-ui (Technical Debt #57 bounded remediation)
 
   let app: FastifyInstance
 
   beforeAll(async () => {
-    app = await buildApp()
+    // Technical Debt #57 bounded remediation — rate-limit behavior only, never /docs.
+    app = await buildApp({ registerSwaggerUi: false })
     await app.ready()
   })
 

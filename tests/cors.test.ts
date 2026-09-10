@@ -88,7 +88,12 @@ async function buildAppWithEnv(envOverrides: Record<string, string>): Promise<Fa
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { buildApp } = require('../src/app')
-    const app = await buildApp()
+    // Technical Debt #57 bounded remediation — this suite exercises CORS
+    // headers only, never /docs; registerSwaggerUi: false skips
+    // Swagger-UI's real asynchronous bootstrap work (fs.readFile +
+    // require()) without changing any behavior this suite actually
+    // asserts on.
+    const app = await buildApp({ registerSwaggerUi: false })
     await app.ready()
     return app
   } finally {

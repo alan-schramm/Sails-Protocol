@@ -45,15 +45,14 @@ afterEach(() => {
 
 describe('/health/live', () => {
   // Each test does a full jest.resetModules() + fresh require('../src/app')
-  // (this file's own header comment) — the most expensive cold-start path
-  // in the suite, real buildApp() registering every route + @fastify/
-  // swagger-ui (same reasoning tests/cors.test.ts's identical comment
-  // gives). PRODUCTION_READINESS_FIXES.md item 21 (OpenAPI schemas,
-  // closed 2026-08-08) added one more require to that cold path
-  // (common/openapi.ts) — small on its own, but enough to occasionally
-  // push the default 5000ms Jest timeout past what a busy machine's first
-  // cold compile+require takes. Matches the same 30s bump every other
-  // real-buildApp() suite already carries.
+  // (this file's own header comment) — a real cold-start path. Technical
+  // Debt #57 bounded remediation: every buildApp() call below now passes
+  // registerSwaggerUi: false, since this suite never touches /docs — this
+  // removes the single most expensive registration step
+  // (docs/TECHNICAL_DEBT_AUDIT.md #57's own evidence). The 30s margin is
+  // retained defensively for the remaining cold-require cost (every route
+  // + common/openapi.ts's own OpenAPI schema generation, PRODUCTION_READINESS_FIXES.md
+  // item 21), not because Swagger-UI is registered here anymore.
   jest.setTimeout(30_000)
 
   it('always reports ok, without touching postgres or redis', async () => {
@@ -62,7 +61,7 @@ describe('/health/live', () => {
     const { prisma } = require('../src/common/database')
     const { redis } = require('../src/common/redis')
     const { buildApp } = require('../src/app')
-    const app = await buildApp()
+    const app = await buildApp({ registerSwaggerUi: false })
     try {
       const res = await app.inject({ method: 'GET', url: '/health/live' })
       expect(res.statusCode).toBe(200)
@@ -80,7 +79,7 @@ describe('/health/ready', () => {
     jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]) } }))
     jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn().mockResolvedValue('PONG') } }))
     const { buildApp } = require('../src/app')
-    const app = await buildApp()
+    const app = await buildApp({ registerSwaggerUi: false })
     try {
       const res = await app.inject({ method: 'GET', url: '/health/ready' })
       expect(res.statusCode).toBe(200)
@@ -97,7 +96,7 @@ describe('/health/ready', () => {
     jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]) } }))
     jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')) } }))
     const { buildApp } = require('../src/app')
-    const app = await buildApp()
+    const app = await buildApp({ registerSwaggerUi: false })
     try {
       const res = await app.inject({ method: 'GET', url: '/health/ready' })
       expect(res.statusCode).toBe(503)
@@ -115,7 +114,7 @@ describe('/health/ready', () => {
     jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]) } }))
     jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn().mockResolvedValue('WEIRD') } }))
     const { buildApp } = require('../src/app')
-    const app = await buildApp()
+    const app = await buildApp({ registerSwaggerUi: false })
     try {
       const res = await app.inject({ method: 'GET', url: '/health/ready' })
       expect(res.statusCode).toBe(503)

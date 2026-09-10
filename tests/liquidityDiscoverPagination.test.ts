@@ -95,13 +95,14 @@ jest.mock('../src/common/database', () => ({
 }))
 
 describe('GET /v1/liquidity/offers — pagination on a marketplace with >10 offers (Missão 07.1)', () => {
-  jest.setTimeout(30_000) // real buildApp() registers @fastify/swagger-ui — see tests/cors.test.ts's identical comment
+  jest.setTimeout(30_000) // defensive margin retained; this suite no longer registers @fastify/swagger-ui (Technical Debt #57 bounded remediation)
   let app: FastifyInstance
 
   beforeAll(async () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { buildApp } = require('../src/app')
-    app = await buildApp()
+    // Technical Debt #57 bounded remediation — pagination behavior only, never /docs.
+    app = await buildApp({ registerSwaggerUi: false })
     await app.ready()
   })
 
