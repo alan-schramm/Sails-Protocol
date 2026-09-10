@@ -157,6 +157,106 @@ function mapOfferToLiquidityOffer(offer: OfferRow): LiquidityOffer {
   }
 }
 
+// ─── Public single-offer detail (Technical Debt #61 bounded remediation, 2026-09-10) ──
+// The explicit, dedicated public disclosure contract for one internal
+// offer — deliberately its own type, not an extension of LiquidityOffer
+// above (which stays scoped to aggregated multi-provider discovery/book
+// semantics; a `source: 'hodlhodl' | ...` offer has no single-offer
+// detail view here at all). getOffer() below is this type's only real
+// producer.
+//
+// Seller disclosure here is capped at — never a third, broader
+// definition beyond — this protocol's two existing canonical public
+// views: identity.service.ts's getPublicView() (id/publicKey/
+// displayName/peerId/verified) and reputation.service.ts's getScore()
+// (reputationScore/totalTrades/disputeRate). Any future field beyond
+// this union requires an explicit product/protocol decision, not a
+// silent addition here.
+export interface PublicOfferSeller {
+  id: string
+  publicKey: string
+  displayName: string | null
+  peerId: string | null
+  verified: boolean
+  reputationScore: number
+  totalTrades: number
+  disputeRate: number
+}
+
+export interface PublicOfferDetail {
+  id: string
+  asset: AssetType
+  side: TradeSide
+  priceUsd: string
+  priceBrl: string | null
+  minAmount: string
+  maxAmount: string
+  paymentMethod: PaymentMethod
+  status: OfferStatus
+  network: string | null
+  description: string | null
+  createdAt: string
+  updatedAt: string
+  seller: PublicOfferSeller
+}
+
+type PublicOfferDetailRow = {
+  id: string
+  asset: string
+  side: string
+  priceUsd: Prisma.Decimal
+  priceBrl: Prisma.Decimal | null
+  minAmount: Prisma.Decimal
+  maxAmount: Prisma.Decimal
+  paymentMethod: string
+  status: string
+  network: string | null
+  description: string | null
+  createdAt: Date
+  updatedAt: Date
+  user: {
+    id: string
+    publicKey: string
+    displayName: string | null
+    peerId: string | null
+    verified: boolean
+    reputationScore: number
+    totalTrades: number
+    disputeCount: number
+  }
+}
+
+// Same disputeRate formula reputation.service.ts's getScore() already
+// uses — one derived stat, not the raw count, matching this repo's own
+// established canonical public reputation semantics exactly.
+function mapOfferToPublicDetail(offer: PublicOfferDetailRow): PublicOfferDetail {
+  return {
+    id: offer.id,
+    asset: offer.asset as AssetType,
+    side: offer.side as TradeSide,
+    priceUsd: offer.priceUsd.toString(),
+    priceBrl: offer.priceBrl?.toString() ?? null,
+    minAmount: offer.minAmount.toString(),
+    maxAmount: offer.maxAmount.toString(),
+    paymentMethod: offer.paymentMethod as PaymentMethod,
+    status: offer.status as OfferStatus,
+    network: offer.network,
+    description: offer.description,
+    createdAt: offer.createdAt.toISOString(),
+    updatedAt: offer.updatedAt.toISOString(),
+    seller: {
+      id: offer.user.id,
+      publicKey: offer.user.publicKey,
+      displayName: offer.user.displayName,
+      peerId: offer.user.peerId,
+      verified: offer.user.verified,
+      reputationScore: offer.user.reputationScore,
+      totalTrades: offer.user.totalTrades,
+      disputeRate: offer.user.totalTrades > 0 ? offer.user.disputeCount / offer.user.totalTrades : 0,
+    },
+  }
+}
+
 // Shared by getOffers()/countOffers() below — one source of truth for
 // "which offers match this asset/side/filters query," same reasoning as
 // mapOfferToLiquidityOffer() above (the mapping half of the same split).
@@ -355,20 +455,58 @@ export class LiquidityRouter {
   // getAggregatedOffers() only support asset+side listing, and the
   // aggregated LiquidityOffer summary shape they return is missing
   // several fields OfferDetail genuinely needs (network, description,
-  // the seller's displayName/verified/totalTrades). This is
-  // the persisted Offer row plus its real User relation, not a second
-  // aggregation-shaped summary.
-  async getOffer(offerId: string) {
+  // the seller's displayName/verified/totalTrades).
+  //
+  // Technical Debt #61 bounded remediation (2026-09-10) — this used to
+  // `include` the full raw Offer row (no `select`) plus a wide `user`
+  // projection, and return it directly to this route's unauthenticated
+  // caller. `Offer.paymentDetails` (the seller's real payment
+  // destination — bank/PIX/wallet instructions) flowed straight through:
+  // real payment-execution data reachable by anyone who could guess or
+  // enumerate an offer id, before any trade ever formed. `userId`,
+  // `moduleId`, `protocolVersion`, `intentType`, `intentId` were also raw
+  // persistence-only fields with no discovery/evaluation value.
+  //
+  // Fixed with an explicit `select` (never the bare row) mapped through
+  // mapOfferToPublicDetail() below — same "Persistence Row -> explicit
+  // projection -> HTTP" shape mapOfferToLiquidityOffer() above already
+  // established for discover()/getOrderBook(); new Prisma columns on
+  // Offer/User can never silently reach this route, since only fields
+  // named in the `select` are ever fetched, and only fields named in the
+  // mapper are ever returned.
+  //
+  // Seller disclosure is deliberately capped at (not merged beyond)
+  // this protocol's two other canonical public views — never a third,
+  // broader definition of "public participant profile":
+  // identity.service.ts's getPublicView() (id/publicKey/displayName/
+  // peerId/verified, GET /v1/identity/participants/:id) and
+  // reputation.service.ts's getScore() (reputationScore/totalTrades/
+  // disputeRate, GET /v1/reputation/:participantId). `disputeCount` is
+  // fetched (needed to derive `disputeRate` the same way getScore()
+  // does) but never included in the returned shape; `totalVolumeBtc`
+  // and `User.createdAt` are dropped entirely — neither canonical view
+  // exposes them, and no separate product decision has expanded them.
+  //
+  // `paymentDetails` remains reachable exactly once a trade actually
+  // forms, via the already-authorized path (tradeService.getTrade(),
+  // gated by requireAuth + an explicit buyer/seller ownership check —
+  // trade.routes.ts's own GET /v1/openp2p/trades/:id, SECURITY_AUDIT_REPORT.md
+  // §2) — unchanged by this remediation.
+  async getOffer(offerId: string): Promise<PublicOfferDetail> {
     const offer = await prisma.offer.findUnique({
       where: { id: offerId },
-      include: { user: { select: {
-        id: true, publicKey: true, displayName: true, peerId: true,
-        reputationScore: true, totalTrades: true, disputeCount: true,
-        totalVolumeBtc: true, verified: true, createdAt: true,
-      } } },
+      select: {
+        id: true, asset: true, side: true, priceUsd: true, priceBrl: true,
+        minAmount: true, maxAmount: true, paymentMethod: true, status: true,
+        network: true, description: true, createdAt: true, updatedAt: true,
+        user: { select: {
+          id: true, publicKey: true, displayName: true, peerId: true,
+          verified: true, reputationScore: true, totalTrades: true, disputeCount: true,
+        } },
+      },
     })
     if (!offer) throw new NotFoundError('Offer', offerId)
-    return offer
+    return mapOfferToPublicDetail(offer)
   }
 
   // Real gap found auditing packages/sails-ui's Profile screen

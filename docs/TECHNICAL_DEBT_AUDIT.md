@@ -2742,7 +2742,83 @@ defect into network-wide disclosure.
 Full sweep evidence:
 `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §13.
 
-**Status: OPEN.**
+**Remediation (Bounded, 2026-09-10).** Missão CTO de bounded
+implementation, precedida por duas passadas de discovery/arquitetura
+(seller-field-by-field disclosure matrix, comparação `LiquidityOffer`
+vs. `PublicOfferDetail` dedicado, matriz de campos do Offer).
+
+Fix implementado em `src/modules/open-liquidity/liquidity.service.ts`:
+`getOffer()` não faz mais `prisma.offer.findUnique` sem `select` — usa
+um `select` explícito (Offer: `id, asset, side, priceUsd, priceBrl,
+minAmount, maxAmount, paymentMethod, status, network, description,
+createdAt, updatedAt`; User: `id, publicKey, displayName, peerId,
+verified, reputationScore, totalTrades, disputeCount`) mapeado através
+de uma nova função `mapOfferToPublicDetail()` — mesmo padrão já
+estabelecido por `mapOfferToLiquidityOffer()` neste mesmo arquivo —
+para um novo tipo dedicado `PublicOfferDetail`/`PublicOfferSeller`,
+deliberadamente separado de `LiquidityOffer` (que continua servindo
+apenas discovery agregado/multi-provider). Nunca um raw Prisma row
+alcança a resposta HTTP; `select` explícito falha fechado contra
+expansão futura do schema — um novo campo do Prisma nunca é buscado, e
+mesmo que fosse, o mapper explícito nunca o incluiria na saída.
+
+**Propriedade nova, congelada por esta remediação:**
+
+> **PublicOfferDetail seller disclosure ≤ Canonical Public Identity +
+> Canonical Public Reputation disclosure.**
+
+A disclosure do vendedor em `PublicOfferDetail` nunca excede a união
+de `identity.service.ts`'s `getPublicView()` (`id/publicKey/
+displayName/peerId/verified`, `GET /v1/identity/participants/:id`) e
+`reputation.service.ts`'s `getScore()` (`reputationScore/totalTrades/
+disputeRate`, `GET /v1/reputation/:participantId`) — nunca uma
+terceira definição, mais ampla, de "perfil público de participante".
+`disputeCount` é buscado (necessário para derivar `disputeRate` pela
+mesma fórmula de `getScore()`) mas nunca incluído na saída;
+`totalVolumeBtc` e `User.createdAt` foram removidos por completo —
+nenhuma das duas views canônicas os expõe, e nenhuma decisão de
+produto separada os autorizou. Qualquer expansão futura requer decisão
+explícita de produto/protocolo, não uma adição silenciosa.
+
+**As três propriedades originais, verificadas como corrigidas para
+esta rota específica:**
+- *Public Offer View ≠ Raw Offer Row* — corrigida.
+- *Offer Discovery Data ≠ Payment Execution Data* — corrigida.
+- *Payment Destination Commitment ≠ Public Payment Destination* — corrigida.
+
+**`paymentDetails` — caminho autorizado confirmado, inalterado:**
+`GET /v1/openp2p/trades/:id` (`requireAuth` + checagem explícita
+`participantId === trade.buyerId || trade.sellerId`,
+`SECURITY_AUDIT_REPORT.md §2`) continua entregando `paymentDetails`
+real a um comprador/vendedor autenticado e real, e continua rejeitando
+um não-participante autenticado (403) e um chamador não-autenticado
+(401) — nenhuma mudança de comportamento nesse caminho.
+
+**Evidência real, testes adversariais novos
+(`tests/publicOfferDetailDisclosure.test.ts`, 11 testes):**
+`paymentDetails` nunca aparece mesmo quando o mock da persistência o
+inclui deliberadamente (prova que a fronteira é o `select`/mapper, não
+"o mock nunca manda"); `userId`/`moduleId`/`protocolVersion`/
+`intentType`/`intentId` nunca aparecem; `disputeCount`/
+`totalVolumeBtc`/`createdAt` do vendedor nunca aparecem; os 8 campos
+canônicos do vendedor aparecem exatamente, com `disputeRate` derivado
+corretamente; todos os campos de discovery esperados continuam
+presentes; allowlist exata de chaves no nível superior e do `seller`
+(prova de fail-closed contra expansão futura do schema); discovery
+agregado (`GET /offers`) inalterado; os 4 cenários de `GET /trades/:id`
+(comprador real, vendedor real, não-participante autenticado,
+não-autenticado) — todos corretos. Regressão completa (`npm run
+test:unit`): **157/157 suites, 2017/2017 testes, zero falhas.**
+`tsc --noEmit` limpo. `git diff --check` limpo.
+
+**Não se afirma:** que a arquitetura de privacidade mais ampla do
+protocolo está resolvida, nem que toda superfície pública futura segue
+automaticamente esta mesma disciplina — apenas que esta rota
+específica (`GET /v1/liquidity/offers/:id`) agora tem uma fronteira de
+disclosure explícita, testada e fail-closed.
+
+**Status: CLOSED (bounded) — evidência completa, ver retorno da missão
+para detalhes de PR/CI.**
 
 ## Ações Recomendadas por Prioridade
 
