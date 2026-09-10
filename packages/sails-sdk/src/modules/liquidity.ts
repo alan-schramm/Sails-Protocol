@@ -13,7 +13,7 @@
  * assumed from API_REFERENCE.md's prose).
  */
 import type { SailsTransport } from '../transport'
-import type { AssetType, Offer, PaymentMethod, Participant, TradeSide } from '../types'
+import type { AssetType, Offer, OfferStatus, PaymentMethod, TradeSide } from '../types'
 
 export interface PublishOfferInput {
   asset: AssetType
@@ -76,6 +76,49 @@ export interface MatchInput {
   amount: string
 }
 
+// getOffer()'s real return shape (Technical Debt #61 bounded remediation,
+// 2026-09-10) — deliberately NOT `Offer & { user: Participant }`. That
+// full row (including `Offer.paymentDetails` and the seller's
+// `disputeCount`/`totalVolumeBtc`/`createdAt`) is never returned to this
+// route's unauthenticated caller — GET /v1/liquidity/offers/:id must
+// work before any trade forms. `seller` here is capped at the union of
+// this protocol's two other canonical public views — identity.ts's
+// PublicParticipant (id/publicKey/displayName/peerId/verified) and
+// reputation.get()'s reputationScore/totalTrades/disputeRate — same
+// discipline `PublicParticipant` above already documents, applied here
+// too; see liquidity.service.ts's PublicOfferDetail/PublicOfferSeller
+// (the server-side source of this shape) and docs/TECHNICAL_DEBT_AUDIT.md
+// #61 for the full disclosure-boundary reasoning. `paymentDetails`
+// remains reachable only via the authenticated trade path
+// (settlement/trade module's own getTrade()-backed calls), unaffected.
+export interface PublicOfferSeller {
+  id: string
+  publicKey: string
+  displayName: string | null
+  peerId: string | null
+  verified: boolean
+  reputationScore: number
+  totalTrades: number
+  disputeRate: number
+}
+
+export interface PublicOfferDetail {
+  id: string
+  asset: AssetType
+  side: TradeSide
+  priceUsd: string
+  priceBrl: string | null
+  minAmount: string
+  maxAmount: string
+  paymentMethod: PaymentMethod
+  status: OfferStatus
+  network: string | null
+  description: string | null
+  createdAt: string
+  updatedAt: string
+  seller: PublicOfferSeller
+}
+
 export class SailsLiquidityModule {
   constructor(private readonly transport: SailsTransport) {}
 
@@ -99,15 +142,19 @@ export class SailsLiquidityModule {
   }
 
   /**
-   * Single-offer lookup with the seller's real public profile fields —
+   * Single-offer lookup with the seller's public profile fields —
    * genuinely didn't exist until packages/sails-ui's OfferDetail screen
    * needed it (real route added the same day: GET
    * /v1/liquidity/offers/:id, liquidity.routes.ts). Was
    * /v1/liquidity/offers/id/:id (redundant `id` segment) — renamed
    * PRODUCTION_READINESS_FIXES.md P1 item 12, closed 2026-08-08.
+   *
+   * Return type corrected (Technical Debt #61, 2026-09-10) from
+   * `Offer & { user: Participant }` to `PublicOfferDetail` — see that
+   * type's own comment above for exactly what changed and why.
    */
-  async getOffer(offerId: string): Promise<Offer & { user: Participant }> {
-    return this.transport.get<Offer & { user: Participant }>(`/v1/liquidity/offers/${offerId}`)
+  async getOffer(offerId: string): Promise<PublicOfferDetail> {
+    return this.transport.get<PublicOfferDetail>(`/v1/liquidity/offers/${offerId}`)
   }
 
   /** Requires an active session. */

@@ -2820,6 +2820,22 @@ disclosure explícita, testada e fail-closed.
 **Status: CLOSED (bounded) — evidência completa, ver retorno da missão
 para detalhes de PR/CI.**
 
+**Consumer migration (2026-09-10).** O único consumidor real deste
+endpoint — `packages/sails-ui`'s `OfferDetail.tsx`, via
+`@satsails/p2p-trading-sdk`'s `liquidity.getOffer()` — migrou
+atomicamente no mesmo PR, no mesmo commit que o contrato do backend:
+`getOffer()` do SDK agora tipa seu retorno como `PublicOfferDetail`
+(não mais `Offer & { user: Participant }`); `OfferDetail.tsx` lê
+`seller.*` em vez de `user`/`userId`; `raw.paymentDetails` não é mais
+lido em lugar nenhum. Exibições que dependiam de campos removidos
+("Membro desde", contagem crua de disputas, volume BTC) foram
+removidas, não reconstruídas — substituídas por Total de Trades / Taxa
+de Disputas (`disputeRate`, canônico) / Reputação, a mesma hierarquia
+desta nota. Nenhuma alegação de privacidade acima foi alterada por esta
+adenda — apenas registra que produtor e consumidor de primeira parte
+ficaram consistentes no mesmo merge, evitando `main` num estado
+conhecidamente inconsistente.
+
 ## Ações Recomendadas por Prioridade
 
 ### P0 — Antes de qualquer apresentação (1-2 dias)

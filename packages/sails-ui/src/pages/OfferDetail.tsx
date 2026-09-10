@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { AssetBadge, SideBadge, PaymentBadge, PowerTraderBadge } from '../components/ui/StatusBadges'
 import { UserAvatar } from '../components/ui/UserAvatar'
-import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { FavoriteButton } from '../components/ui/FavoriteButton'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -13,31 +12,45 @@ import { ArrowLeft, Check, Lock, AlertTriangle } from 'lucide-react'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
-import { SailsTransportError } from '@satsails/p2p-trading-sdk'
+import { SailsTransportError, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
-import { positiveFeedbackPct, isPowerTrader } from '../lib/reputation'
+import { disputeRatePct, isPowerTraderFromCanonical } from '../lib/reputation'
 import { useAuth } from '../context/AuthContext'
-import type { Offer, User } from '../types'
+import type { FiatCurrency } from '../types'
 
-function toOffer(raw: Awaited<ReturnType<typeof sailsClient.liquidity.getOffer>>): Offer {
-  const user: User = {
-    id: raw.user.id,
-    publicKey: raw.user.publicKey,
-    displayName: raw.user.displayName,
-    peerId: raw.user.peerId,
-    reputationScore: raw.user.reputationScore,
-    totalTrades: raw.user.totalTrades,
-    disputeCount: raw.user.disputeCount,
-    totalVolumeBtc: Number(raw.user.totalVolumeBtc),
-    verified: raw.user.verified,
-    createdAt: raw.user.createdAt,
-  }
+// Technical Debt #61 (2026-09-10) — this view model now maps directly
+// from the SDK's own PublicOfferDetail (liquidity.getOffer()'s real
+// return shape, docs/TECHNICAL_DEBT_AUDIT.md #61), not the app's shared
+// `Offer`/`User` types from ../types — those still correctly describe
+// OTHER data sources (an authenticated caller's own offers, `publish()`,
+// `updateStatus()`) that legitimately return the full raw row. Reusing
+// them here would either silently re-widen this screen back to fields
+// the public route no longer sends, or require fabricating values for
+// fields (paymentDetails, disputeCount, totalVolumeBtc, seller.createdAt,
+// country, tradedWithCurrentUser, blockedRelationship) this file never
+// actually read in its own render even before this remediation —
+// confirmed directly (grep across this file), not assumed.
+interface OfferDetailView {
+  id: string
+  seller: PublicOfferSeller
+  asset: PublicOfferDetail['asset']
+  side: PublicOfferDetail['side']
+  priceUsd: number
+  fiatCurrency: FiatCurrency
+  priceFiat: number
+  minAmount: number
+  maxAmount: number
+  paymentMethod: PublicOfferDetail['paymentMethod']
+  network?: string
+  description?: string
+}
+
+function toOfferDetailView(raw: PublicOfferDetail): OfferDetailView {
   const priceUsd = Number(raw.priceUsd)
   const priceBrl = raw.priceBrl ? Number(raw.priceBrl) : priceUsd
   return {
     id: raw.id,
-    userId: raw.userId,
-    user,
+    seller: raw.seller,
     asset: raw.asset,
     side: raw.side,
     priceUsd,
@@ -46,14 +59,8 @@ function toOffer(raw: Awaited<ReturnType<typeof sailsClient.liquidity.getOffer>>
     minAmount: Number(raw.minAmount),
     maxAmount: Number(raw.maxAmount),
     paymentMethod: raw.paymentMethod,
-    paymentDetails: raw.paymentDetails ?? undefined,
-    status: raw.status,
     network: raw.network ?? undefined,
     description: raw.description ?? undefined,
-    country: 'BR', // no real country field on Offer yet — same gap types.ts's header already discloses
-    tradedWithCurrentUser: false, // needs a real trade-history join this route doesn't do
-    blockedRelationship: false, // no real block-list backend yet
-    createdAt: raw.createdAt,
   }
 }
 
@@ -62,7 +69,7 @@ export function OfferDetail() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
-  const [offer, setOffer] = useState<Offer | null>(null)
+  const [offer, setOffer] = useState<OfferDetailView | null>(null)
   const [loading, setLoading] = useState(true)
   const [startingTrade, setStartingTrade] = useState(false)
   // fetchError (2026-08-02) — a genuine 404 (offer really doesn't exist/
@@ -88,7 +95,7 @@ export function OfferDetail() {
     setFetchError(false)
     sailsClient.liquidity
       .getOffer(id)
-      .then((raw) => { if (!cancelled) setOffer(toOffer(raw)) })
+      .then((raw) => { if (!cancelled) setOffer(toOfferDetailView(raw)) })
       .catch((err) => {
         if (cancelled) return
         setOffer(null)
@@ -119,7 +126,10 @@ export function OfferDetail() {
   // Real bug found in a cold-start UX walkthrough: nothing stopped a
   // user from starting a trade against their own offer — the trade
   // opened with the same person as buyer and seller on both sides.
-  const isOwnOffer = user?.id === offer.userId
+  // Technical Debt #61 — derived from the canonical seller identity
+  // (offer.seller.id) now that the raw offer.userId field is gone from
+  // the public response; same value, same check.
+  const isOwnOffer = user?.id === offer.seller.id
 
   const handleStartTrade = async () => {
     if (!user) {
@@ -179,50 +189,48 @@ export function OfferDetail() {
 
           <Card className="mt-4 p-5">
             <div className="flex items-center gap-3">
-              <UserAvatar user={offer.user} size="lg" />
+              <UserAvatar user={offer.seller} size="lg" />
               <div className="min-w-0 flex-1">
                 <div className="font-semibold flex items-center gap-1.5 flex-wrap text-brand-text">
-                  {offer.user.displayName}
-                  {offer.user.verified && (
+                  {offer.seller.displayName}
+                  {offer.seller.verified && (
                     <span title="Verificado">
                       <Check className="h-4 w-4 text-brand-orange-accent" />
                     </span>
                   )}
-                  {isPowerTrader(offer.user) && <PowerTraderBadge />}
-                </div>
-                <div className="text-xs text-brand-text-muted flex items-center gap-1">
-                  Membro desde {new Date(offer.user.createdAt).toLocaleDateString('pt-BR')}
-                  <InfoTooltip text="O ponto verde/cinza no avatar indica presença — ilustrativo nesta interface de referência, já que nenhuma rota real reporta o status de conexão P2P (Pears/Hyperswarm) até aqui ainda." />
+                  {isPowerTraderFromCanonical(offer.seller) && <PowerTraderBadge />}
                 </div>
               </div>
-              <FavoriteButton userId={offer.user.id} />
+              <FavoriteButton userId={offer.seller.id} />
             </div>
 
             <div className="mt-4">
               <div className="flex justify-between text-xs text-brand-text-muted mb-1">
-                <span className="flex items-center gap-1">
-                  {positiveFeedbackPct(offer.user)}% positivo
-                  <InfoTooltip text="Calculado a partir de trades concluídos sem disputa (totalTrades/disputeCount, campos reais) — não é um sistema de like/dislike por trade, que o backend ainda não expõe nesta UI (existe um rate() por estrelas 1-5, real, mas não conectado aqui)." />
-                </span>
-                <span className="font-semibold text-brand-text">{offer.user.reputationScore.toFixed(1)} / 100</span>
+                <span>Reputação</span>
+                <span className="font-semibold text-brand-text">{offer.seller.reputationScore.toFixed(1)} / 100</span>
               </div>
               <div className="h-1.5 bg-brand-elevated rounded-full">
-                <div className="h-1.5 bg-brand-orange-accent rounded-full" style={{ width: `${offer.user.reputationScore}%` }} />
+                <div className="h-1.5 bg-brand-orange-accent rounded-full" style={{ width: `${offer.seller.reputationScore}%` }} />
               </div>
             </div>
 
+            {/* Technical Debt #61 — Total Trades / Dispute Rate / Reputation,
+                exactly the canonical public disclosure contract's own
+                fields (docs/TECHNICAL_DEBT_AUDIT.md #61); raw disputeCount,
+                totalVolumeBtc, and "member since" are no longer part of the
+                public response and are not reconstructed here. */}
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
               <div className="bg-brand-elevated rounded-lg p-2">
-                <div className="font-bold text-brand-text">{offer.user.totalTrades}</div>
+                <div className="font-bold text-brand-text">{offer.seller.totalTrades}</div>
                 <div className="text-xs text-brand-text-muted">trades</div>
               </div>
               <div className="bg-brand-elevated rounded-lg p-2">
-                <div className="font-bold text-brand-text">{offer.user.disputeCount}</div>
-                <div className="text-xs text-brand-text-muted">disputas</div>
+                <div className="font-bold text-brand-text">{disputeRatePct(offer.seller.disputeRate)}%</div>
+                <div className="text-xs text-brand-text-muted">taxa de disputas</div>
               </div>
               <div className="bg-brand-elevated rounded-lg p-2">
-                <div className="font-bold text-brand-text">{offer.user.totalVolumeBtc.toFixed(2)}</div>
-                <div className="text-xs text-brand-text-muted">BTC vol</div>
+                <div className="font-bold text-brand-text">{offer.seller.reputationScore.toFixed(1)}</div>
+                <div className="text-xs text-brand-text-muted">reputação</div>
               </div>
             </div>
           </Card>
@@ -279,9 +287,9 @@ export function OfferDetail() {
 
               {/* HodlHodl/Binance P2P both show this exact caution before
                   a first trade with a brand-new counterparty — real data
-                  (offer.user.totalTrades), not mocked: a real 0 here means
+                  (offer.seller.totalTrades), not mocked: a real 0 here means
                   a real trader with no completed trades yet. */}
-              {offer.user.totalTrades === 0 && (
+              {offer.seller.totalTrades === 0 && (
                 <div className="mt-3 bg-yellow-500/10 border border-yellow-500/25 rounded-lg p-3 text-xs text-yellow-500 flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>Este vendedor ainda não concluiu nenhum trade — negocie com cautela, especialmente em valores maiores.</span>
