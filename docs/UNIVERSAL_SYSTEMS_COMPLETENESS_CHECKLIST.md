@@ -2396,6 +2396,179 @@ reconciliation before promotion to Master Backlog.**
 
 ---
 
+
+## 3.27 Incident Replay Case — lnp2pBot / Duplicate Economic Identifier Semantic Split
+
+This entry preserves a concrete external incident as an adversarial reference
+case for Sails Day-0 completeness.
+
+The purpose is not to make Lightning or BOLT11 part of Sails architecture.
+The purpose is to extract the violated property and replay that class of failure
+against every Sails technology boundary.
+
+### External incident pattern
+
+A downstream application and the execution system consumed the same economic
+object but derived different authoritative identifiers from it.
+
+In the cited lnp2pBot incident, a BOLT11 invoice containing duplicate
+`payment_hash` fields was interpreted differently across components:
+
+- the downstream parser/library selected one occurrence;
+- the Lightning node selected another;
+- both components operated on the same serialized object;
+- bookkeeping truth and settlement truth diverged.
+
+The relevant upstream parser correction changed behavior from overwriting the
+payment identifier on every occurrence to retaining the first observed
+identifier.
+
+Important lesson:
+
+> **Same bytes ≠ same semantic interpretation across components.**
+
+> **Cryptographically valid object ≠ semantically unambiguous object.**
+
+> **Component conformance ≠ composition safety.**
+
+> **Parsed economic identifier ≠ settlement identifier actually used by the rail.**
+
+### Day-0 property for Sails
+
+For every economically authoritative object crossing a trust boundary:
+
+> **Sails' interpretation must correspond exactly to the interpretation used by the component that actually executes or verifies the economic action.**
+
+No adapter/provider/parser may silently reinterpret a signed or committed
+economic object into a different value, identifier, destination, asset,
+network, rail, amount, policy, or authority domain.
+
+### Required adversarial questions
+
+For every parser/provider/rail/adapter boundary ask:
+
+- Can duplicate fields be accepted?
+- If duplicates exist, which occurrence wins?
+- Does Sails choose the same occurrence as the executing system?
+- Are unknown fields ignored, rejected, or preserved differently?
+- Can ordering alter meaning?
+- Can different parsers normalize the same bytes differently?
+- Can numeric coercion, whitespace, Unicode, case, encoding, or canonicalization
+  produce different interpretation?
+- Can one implementation accept what another rejects?
+- Can a provider execute a destination/identifier different from what Sails
+  persisted as the intended one?
+- Can parsing success occur while semantic equivalence is false?
+
+### Candidate mutation classes
+
+Future Red Team / conformance tests should generate, where applicable:
+
+- duplicate semantic identifiers;
+- duplicated fields with conflicting values;
+- repeated tags;
+- unknown fields;
+- out-of-order fields;
+- non-canonical encodings;
+- alternate but valid encodings;
+- boundary-size values;
+- numeric precision edge cases;
+- Unicode/lookalike data;
+- cross-version representations;
+- malformed-but-accepted objects;
+- valid-but-weird objects.
+
+The test question is not merely:
+
+> "Does Sails parse this?"
+
+It is:
+
+> **"Do Sails and the real executing/verifying component derive exactly the same economic meaning from this object?"**
+
+### Reconciliation lesson
+
+This incident also reinforces a second property:
+
+> **Intended action identity must be durably comparable with execution reality.**
+
+Where external execution occurs, Sails should be able to reconcile:
+
+```
+intended economic action
+→ durable intended identifier / commitment
+→ external execution
+→ externally observed authoritative result
+→ reconciliation
+→ divergence = explicit incident / fail-closed state
+```
+
+A parser-derived identifier must not be treated as sufficient proof of what the
+external rail actually executed.
+
+### Security-signaling lesson
+
+The incident also demonstrates an operational supply-chain risk:
+security-relevant behavior may change inside an ordinary dependency release
+without sufficiently explicit security signaling.
+
+Therefore dependency review should ask:
+
+- Did a release change security-relevant parsing or validation semantics?
+- Did the changelog disclose that significance?
+- Did the release combine a security correction with unrelated breaking
+  infrastructure changes?
+- Could maintainers downstream reasonably interpret the release as optional
+  maintenance rather than urgent remediation?
+
+This reinforces the previously registered technology-incident replay and
+dependency-monitoring obligations.
+
+### Sails application domains
+
+Replay this failure class against any relevant boundary including:
+
+- OfferEnvelope parsing;
+- trade-open anchors;
+- asset/network/rail identifiers;
+- quote and amount representation;
+- payment-destination commitments;
+- wallet adapters;
+- settlement providers;
+- WDK-backed actions;
+- Lightning/Spark integrations;
+- Liquid/Elements integrations;
+- EVM transaction intent/execution;
+- DePix/PIX provider payloads;
+- arbitration evidence/rulings;
+- identity and transport bindings;
+- future independent SDK implementations.
+
+No claim is made that any of these boundaries currently contain this flaw.
+
+### Institutional classification
+
+This is an **Incident Replay / Evidence Obligation seed**.
+
+It does not automatically create one implementation ticket per integration.
+
+During the Day-0 confrontation pass, classify each real boundary as:
+
+- structurally impossible;
+- already covered by canonical semantics/evidence;
+- requires adversarial conformance test;
+- current implementation defect;
+- provider-specific production gate;
+- not applicable.
+
+Preserve the compact rule:
+
+> **One serialized economic object must not have two authoritative meanings.**
+
+**BACKLOG DELTA: NOT YET DETERMINED by this incident-memory entry.**
+
+---
+
 # 4. How this checklist is used against Sails
 
 The execution flow is:
