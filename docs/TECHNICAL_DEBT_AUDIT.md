@@ -2421,6 +2421,30 @@ compreendido — não CLOSED.** Distinto da remediação bounded do
 Swagger-UI acima: TD #57 em si não é fechado por este item; apenas a
 fatia estreita do registro de Swagger-UI em testes é tratada.
 
+**CTO Gate FREEZE (2026-09-10).** PR #115 (`registerSwaggerUi`, HEAD
+`1509690`) aprovado e mesclado — commit de merge `8e12ffa`. Um último
+overclaim causal foi encontrado e corrigido antes do freeze: o
+comentário de `BuildAppOptions` em `src/app.ts` dizia que o Swagger-UI
+"is the demonstrated, measured-expensive boundary" e que seu registro
+"is what produced the demonstrated worker-count-driven contention" —
+excedia a fronteira de evidência congelada acima; corrigido para
+"performs real asynchronous bootstrap work and appears on the observed
+TD #57 failure path... marginal causal contribution... not isolated"
+(mesma correção replicada em dois comentários equivalentes em
+`tests/cors.test.ts`/`tests/securityHeaders.test.ts`). Mudança
+comment-only, zero diff funcional, verificado por diff completo antes
+do merge.
+
+**Status final: remediação bounded do Swagger-UI (PR #115) —
+CLOSED/FROZEN.** A propriedade estreita demonstrada e agora congelada é
+"`buildApp()` não registra mais `@fastify/swagger-ui` em nenhum dos 13
+call sites de teste Classificação C, sem perda de cobertura, com
+`tests/swaggerUiRegistration.test.ts` protegendo o caminho real de
+`/docs`." **TD #57, o fenômeno mais amplo de confiabilidade de
+teste/bootstrap paralelo, permanece explicitamente ABERTO / parcialmente
+compreendido — NÃO fechado por este freeze.** Nenhuma alegação de causa
+raiz completa foi feita ou é autorizada por esta nota.
+
 ### 58. `WDK_USDT_EVM`'s `releaseFunds()`/`refundFunds()`/`splitFunds()` — sweep de segurança de fund-moving operations, veredito por método (2026-09-08)
 
 **Classificação: investigação de produção-safety, obrigação derivada de
