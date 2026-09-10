@@ -45,6 +45,29 @@ Settlement-network expansion remains property-gated: a network is eligible
 because its primitives can satisfy the required Sails settlement semantics,
 not merely because an SDK or smart-contract platform exists.
 
+**Full Reference Wallet Day-0 Capability Target (added 2026-09-10,
+Product Direction freeze — Gate B; existing product/reference-wallet
+truth previously missing from this document's own network list, not new
+scope invented on this date).** `@sails/adapter-ethers`'s "EVM family,
+including BNB Smart Chain" line above named the family generically but
+never enumerated it — the Satsails Wallet V2 reference target requires
+USDT and/or USDC settlement across each of these individually-tracked
+EVM networks: **Ethereum, Base, Optimism, Polygon, Avalanche, Arbitrum,
+BNB Chain** — each with its own independent maturity/evidence/
+eligibility state (shared implementation, if one is chosen, does not
+imply shared maturity — see the architecture note in `docs/BACKLOG.md`
+Cold Sweep Loop 5, item 20). USDT additionally targets Solana, Tron, TON,
+and Liquid; USDC targets the six EVM networks above only (no Solana/Tron/
+TON/Liquid claim for USDC at this time). BTC's Day-0 target spans five
+distinct product capabilities — on-chain, Spark, Lightning, Arkade, and
+Liquid/L-BTC — never collapsed into one another by shared implementation
+(today's `LIGHTNING_HODL` provider is Ark-based; this does not make
+Lightning and Arkade the same capability). DePix targets both Liquid and
+Spark. XAUT (Tether Gold) targets Ethereum. None of this authorizes an
+`AssetType` change, a new provider, or a settlement-architecture
+decision — see `docs/BACKLOG.md`'s canonical matrix for the full,
+authoritative, current version of this target.
+
 ## Months 1-3 — Foundation (Commitment)
 
 - `@sails/protocol-spec` v0.1 published to npm (interfaces + event contracts only)

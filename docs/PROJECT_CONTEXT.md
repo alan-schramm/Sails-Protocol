@@ -481,15 +481,50 @@ Satsails is the environment where Sails Protocol proves integration with,
 as each rail's own real status allows (see "Rail readiness," `README.md`):
 
 - Bitcoin on-chain (✅ Proven, `MULTISIG`)
-- Spark (📋 Future — not yet implemented)
+- Spark (📋 Future — not yet implemented; distinct BTC product capability, not the same as Lightning/Arkade — see 2026-09-10 note below)
 - Liquid (📋 Designed — zero implementation)
+- Lightning (📋 Day-0 required — NOT IMPLEMENTED / NOT EVIDENCED as a distinct capability; corrected 2026-09-10, see note below)
+- Arkade (🏗️ Implemented, testnet-only, via `LIGHTNING_HODL` — see 2026-09-10 note below)
 - WDK-backed stablecoin stacks (🏗️ Implemented, testnet, server-custodial reference — `WDK_USDT_EVM`)
-- Tether Gold (📋 Future — not yet implemented)
-- future Arkade (🏗️ Lightning/Arkade path implemented testnet-only today; a dedicated Arkade settlement path beyond that is 📋 Future)
+- Tether Gold / XAUT (📋 Future — not yet implemented; network is Ethereum, per 2026-09-10 Product Direction)
+- DePix (📋 Future — not yet implemented; targets both Liquid and Spark, per 2026-09-10 Product Direction — added to this list, was previously absent)
+- USDC (📋 Future — not yet implemented; targets Ethereum, Base, Optimism, Arbitrum, Avalanche, Polygon — added to this list, was previously absent)
 - future RGB (📋 Future — not yet implemented)
 
 No rail listed here as future/planned is claimed as already implemented —
 each carries the same status legend used throughout this document (§4).
+
+**2026-09-10 Product Direction Freeze (Gate B) — note added, historical
+text above otherwise unchanged.** Two corrections: (1) DePix and USDC
+were missing from this "in view" list entirely before this date — added
+above as existing product/reference-wallet truth this document had not
+yet recorded, not new scope. (2) Lightning, Arkade, and Spark are three
+**distinct product capabilities** by Product Direction — the fact that
+today's single `LIGHTNING_HODL` provider happens to be implemented via
+the Ark protocol (its own header comment: real Lightning HTLCs have no
+genuine multi-party escrow primitive) does not make "Lightning" and
+"Arkade" the same capability, and does not imply Spark is served by
+that mechanism. Whether these become separately-provided capabilities,
+one capability with corrected naming, or something else is an open
+architecture question, not decided here.
+
+**Same-day maturity correction (semantic precision).** The line above
+this note first read "Lightning (🏗️ Implemented testnet-only... via
+`LIGHTNING_HODL`)" — that overclaimed the evidence. Shared current
+implementation cannot prove two distinct capabilities when the
+implementation only realizes one of them: `LIGHTNING_HODL`'s own header
+comment and a repository-wide search (no BOLT11/HTLC/LND code anywhere
+in `src/`, confirmed) show it is Ark-protocol VTXO/Taproot settlement,
+not plain-Lightning HTLC settlement. Corrected: **Arkade** is
+IMPLEMENTED/TESTNET-EVIDENCED; **Lightning**, as its own capability, is
+**NOT IMPLEMENTED/NOT EVIDENCED**. Lightning's Day-0 requirement is
+unchanged — only its current maturity claim moved to match actual
+evidence. Protocol family, implementation/client, settlement provider,
+and interoperability path are four distinct concepts, never collapsed
+into each other — interoperating with Lightning would not make Ark,
+Spark, or RGB "a Lightning implementation." Full canonical matrix and
+worked examples:
+`docs/BACKLOG.md` Cold Sweep Loop 5, item 20.
 
 **A successful Satsails production integration proves the reference
 implementation and real integration viability. It does not by itself

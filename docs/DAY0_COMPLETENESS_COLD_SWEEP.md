@@ -827,6 +827,24 @@ narrower test. The scope must be explicit; silence is not acceptable.
 
 The same rule applies to USDC, Tether Gold and every future asset.
 
+**SUPERSEDED (2026-09-10, Product Direction Freeze — Gate B).** The two
+paragraphs above correctly identified the open question on 2026-09-09 —
+preserved verbatim, not deleted. Product Direction has since closed it:
+the Day-0 target is not a choice among BTC-only / bounded BTC+USDT /
+DePix-inclusive scopes. It is the **Full Reference Wallet Day-0
+Capability Target** (BTC across on-chain/Spark/Lightning/Arkade/Liquid;
+DePix across Liquid **and** Spark, both required; USDT across eleven
+named networks; USDC across six; XAUT on Ethereum) — see the canonical
+matrix in `docs/BACKLOG.md`'s Cold Sweep Loop 5 entry (item 20) for the
+authoritative, current version. DePix is Day-0-required, not a
+later-scope item contingent on a narrower beta choice. The underlying
+gate this section names — that current absence from `AssetType` and
+absence of a production-eligible settlement path are blockers **to the
+production claim**, not to the scope itself — remains true and is
+restated, not weakened, by this freeze: immaturity does not remove a
+capability from scope (frozen product property, `docs/BACKLOG.md`
+item 20).
+
 ### 14.3 Quote-currency / market-pair discoverability
 
 The current aggregate `LiquidityOffer` public discovery shape exposes
