@@ -2237,11 +2237,80 @@ medidos preservados sem revisão):**
 **Item #57 permanece ABERTO / parcialmente compreendido — não CLOSED.**
 Nenhuma correção de código foi feita por esta nota (correção de
 registro/interpretação apenas, mesma disciplina de "Corrigido/
-Implementado [data]" já usada neste arquivo). Novo delta de backlog
-recomendado, não registrado nesta nota (fora do escopo desta correção
-de PR #114): investigação dedicada do mecanismo cross-worker acima, se
-o CTO julgar que vale o custo — não obrigatória para o fechamento desta
-correção.
+Implementado [data]" já usada neste arquivo).
+
+**CTO Gate Correction (2026-09-10, rodada 2) — retratação da hipótese
+cross-worker inválida + precisão causal do Swagger-UI.** Duas
+inconsistências de claim-integrity na rodada 1 acima, corrigidas por
+releitura da própria evidência já coletada (nenhum experimento novo
+executado ou exigido):
+
+- **Hipótese cross-worker inválida, retratada.** A rodada 1 propôs
+  "outras suites não citadas aqui, rodando em OUTROS workers paralelos
+  do mesmo `npm run test:unit`" como mecanismo especulativo. Isso
+  contradiz a própria evidência documentada duas seções acima: a
+  "Correção decisiva" re-executou **"o EXATO mesmo experimento das 10
+  suites"** (`--maxWorkers=10`/`15`, 86/86 testes — contagem que só
+  bate com as 10 suites nomeadas, não com a suíte completa). Não havia
+  suites-irmãs não nomeadas rodando naquele experimento específico —
+  determinado a partir do comando e da contagem de testes já registrados,
+  não por suposição. **Hipótese retratada, substituída pela versão
+  permitida e estreita:** dentro do PRÓPRIO experimento de 10 suites,
+  `fullTradeLifecycle.test.ts` é a única das 10 que exercita o módulo
+  real de Redis (auditoria de mocking, rodada 1 acima); é PLAUSÍVEL —
+  não comprovado — que o comportamento de conexão/retry eager do Redis
+  real dentro do worker que executa `fullTradeLifecycle.test.ts`
+  gere pressão de CPU/event-loop/rede suficiente para atrasar
+  `beforeAll()` em processos-irmãos que executam as outras 9 suites
+  (mockadas) no mesmo `--maxWorkers=10`. Rotulado explicitamente como
+  hipótese não testada, não promovida a fato.
+
+- **Precisão causal do Swagger-UI.** O stack trace (`ReferenceError...
+  at fastifySwaggerUi`, linha 2112-2117 acima) prova que o
+  `@fastify/swagger-ui` executa trabalho assíncrono real de bootstrap
+  (`fsPromises.readFile`) e que essa operação ainda estava em andamento
+  quando o Jest encerrou o ambiente — ou seja, **aparece no caminho de
+  falha observado**. Isso NÃO prova, por si só, que o Swagger-UI causou
+  o timeout, nem que contribuiu materialmente para ele — a própria
+  operação assíncrona pode ter sido atrasada por uma fonte de contenção
+  subjacente diferente (ex.: a mesma pressão de sistema do parágrafo
+  acima). As frases "confirma **Swagger-ui como causa real, não apenas
+  correlacionada**" (texto original, 2026-09-10) e "Swagger-ui como
+  fator contribuinte confirmado por evidência causal direta (stack
+  trace)" (Classificação final, texto original) e "Swagger-UI é
+  demonstrado independentemente como um custo real de registro
+  assíncrono e fator contribuinte" (Reclassificação, rodada 1 acima)
+  superestimavam o que o stack trace prova. **Substituídas por:**
+  Swagger-UI é demonstrado como um custo real de bootstrap assíncrono e
+  aparece no caminho de falha observado; sua contribuição causal
+  marginal para o timeout não foi isolada. Isto não invalida a
+  remediação bounded do PR #115 (`docs/TECHNICAL_DEBT_AUDIT.md` #57,
+  nota de remediação Swagger-UI) — testes que não precisam do Swagger UI
+  não deveriam registrá-lo continua sendo uma justificativa
+  arquitetural válida por si só, independente da causalidade do timeout
+  histórico, e a cobertura de regressão explícita (`tests/
+  swaggerUiRegistration.test.ts`) protege o caminho real do `/docs`.
+
+**Declaração final de causa-raiz (substitui a "Reclassificação" da
+rodada 1; números medidos preservados sem revisão em ambas as
+rodadas):**
+
+> TD #57 é um fenômeno de confiabilidade de teste/bootstrap paralelo
+> multi-fator. A falha histórica sensível a worker count é reproduzível.
+> Tornar a infraestrutura local alcançável se correlaciona com/altera
+> experimentalmente o resultado da falha sob a configuração testada, mas
+> o mecanismo não está isolado. A maioria das suites nomeadas mocka
+> database e Redis por completo. O comportamento de conexão eager do
+> Redis existe no código de produção, mas apenas 1 das 10 suites
+> nomeadas exercita mecanicamente o módulo real de Redis. A construção
+> do Prisma não é uma conexão de rede eager em `buildApp()`. O
+> Swagger-UI executa trabalho real de bootstrap assíncrono e aparece no
+> caminho de falha observado, mas sua contribuição causal marginal não
+> foi isolada.
+
+**Backlog: nenhum item novo criado ou recomendado por esta nota.** O
+item #57 já é o dono desta pergunta em aberto — não há obrigação
+duplicada a registrar.
 
 ### 58. `WDK_USDT_EVM`'s `releaseFunds()`/`refundFunds()`/`splitFunds()` — sweep de segurança de fund-moving operations, veredito por método (2026-09-08)
 
