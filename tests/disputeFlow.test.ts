@@ -227,14 +227,17 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     expect(mockOpenDispute).not.toHaveBeenCalled()
   })
 
-  it('resolveDispute RELEASE (buyer wins) releases the escrow and emits the ruling', async () => {
+  it('resolveDispute RELEASE (buyer wins) releases the escrow and emits the ruling — M8-R2: the caller-supplied releaseToAddress is never forwarded, escrowService resolves the buyer\'s own registered PayoutAddress instead', async () => {
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
 
     const [sig1, issuedAt1] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
+    // A real address is still supplied here (as an old/legacy caller
+    // would) specifically to prove it has NO effect — see the assertion
+    // below (docs/DESTINATION_AUTHORITY_ARCHITECTURE.md).
     await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyeraddress', undefined, undefined, sig1, issuedAt1)
 
-    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', 'bc1qbuyeraddress', 'arbiter-1')
+    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1')
     expect(mockEmit).toHaveBeenCalledWith(
       'dispute.resolved',
       expect.objectContaining({ ruling: 'RELEASE', tradeId: 'trade-1' }),
@@ -319,14 +322,14 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       expect(mockSplitFunds).not.toHaveBeenCalled()
     })
 
-    it('calls escrowService.splitFunds() directly for a MOCK/WDK-style escrow', async () => {
+    it('calls escrowService.splitFunds() directly for a MOCK/WDK-style escrow — M8-R2: buyer/seller destinations are each resolved independently from their own registered PayoutAddress, never the caller-supplied values', async () => {
       mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
       mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'SPLIT' })
 
       const [sig4, issuedAt4] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'SPLIT', 6000)
       await service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 6000, sig4, issuedAt4)
 
-      expect(mockSplitFunds).toHaveBeenCalledWith('escrow-1', 'bc1qbuyer', 'bc1qseller', 6000, 'arbiter-1')
+      expect(mockSplitFunds).toHaveBeenCalledWith('escrow-1', undefined, undefined, 6000, 'arbiter-1')
       expect(mockInitiateSplit).not.toHaveBeenCalled()
       expect(mockEmit).toHaveBeenCalledWith(
         'dispute.resolved',
@@ -335,7 +338,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       )
     })
 
-    it('routes to initiateSplit() instead for a signature-collection escrow (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM)', async () => {
+    it('routes to initiateSplit() instead for a signature-collection escrow (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM) — M8-R2: same destination-independence as the direct-call path above', async () => {
       mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
       mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'SPLIT' })
       mockIsSignatureCollectionType.mockReturnValueOnce(true)
@@ -343,7 +346,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       const [sig5, issuedAt5] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'SPLIT', 4000)
       await service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 4000, sig5, issuedAt5)
 
-      expect(mockInitiateSplit).toHaveBeenCalledWith('escrow-1', 'bc1qbuyer', 'bc1qseller', 4000, 'arbiter-1')
+      expect(mockInitiateSplit).toHaveBeenCalledWith('escrow-1', undefined, undefined, 4000, 'arbiter-1')
       expect(mockSplitFunds).not.toHaveBeenCalled()
     })
 
@@ -376,7 +379,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
   // all three rulings, not just SPLIT — see escrowService.
   // isSignatureCollectionType()'s own comment.
   describe('resolveDispute RELEASE/REFUND — signature-collection dispatch fix (RFC-021 D9)', () => {
-    it('routes RELEASE to initiateRelease() instead of releaseFunds() for a signature-collection escrow', async () => {
+    it('routes RELEASE to initiateRelease() instead of releaseFunds() for a signature-collection escrow — M8-R2: caller-supplied releaseToAddress still has no effect', async () => {
       mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
       mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
       mockIsSignatureCollectionType.mockReturnValueOnce(true)
@@ -384,7 +387,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       const [sig7, issuedAt7] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
       await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyeraddress', undefined, undefined, sig7, issuedAt7)
 
-      expect(mockInitiateRelease).toHaveBeenCalledWith('escrow-1', 'bc1qbuyeraddress', 'arbiter-1')
+      expect(mockInitiateRelease).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1')
       expect(mockReleaseFunds).not.toHaveBeenCalled()
     })
 
@@ -404,7 +407,19 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       expect(mockRefundFunds).not.toHaveBeenCalled()
     })
 
-    it('M8-RF: threads a caller-supplied refundToAddress through to initiateRefund() for this legacy (non-MULTISIG) signature-collection path — completes a parameter that already existed but was previously dropped for a pure REFUND ruling', async () => {
+    // Superseded 2026-09-11 (M8-R2, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md).
+    // This test previously proved the OPPOSITE property under the name
+    // "M8-RF: threads a caller-supplied refundToAddress through to
+    // initiateRefund() ... completes a parameter that already existed but
+    // was previously dropped" — i.e. that an arbiter-supplied
+    // refundToAddress WAS forwarded and governed execution for this
+    // legacy (non-MULTISIG) path. That was itself the Model-E vulnerability
+    // this later mission closes: Destination Authority belongs to the
+    // beneficiary (the seller, for a REFUND), never the arbiter's own
+    // request. Kept at the same name/location, corrected rather than
+    // deleted, per this repository's own never-silently-rewrite discipline
+    // for a test whose prior assertion is now the exact thing being fixed.
+    it('M8-R2: an arbiter-supplied refundToAddress has NO effect on initiateRefund() for this legacy (non-MULTISIG) signature-collection path — the seller\'s own registered PayoutAddress governs instead', async () => {
       mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
       mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'REFUND' })
       mockIsSignatureCollectionType.mockReturnValueOnce(true)
@@ -412,7 +427,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       const [sig, issuedAt] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'REFUND')
       await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, 'legacy-seller-address', undefined, sig, issuedAt)
 
-      expect(mockInitiateRefund).toHaveBeenCalledWith('escrow-1', 'arbiter-1', 'legacy-seller-address')
+      expect(mockInitiateRefund).toHaveBeenCalledWith('escrow-1', 'arbiter-1', undefined)
     })
   })
 })

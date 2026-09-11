@@ -24,19 +24,19 @@ import { Button } from '../components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet'
 import { ArrowRight, Bot, ShieldCheck, Scissors } from 'lucide-react'
 
-// Same disclosed-gap demo payout addresses Trade.tsx's own DEMO_RELEASE_*
-// constants use (no real per-user payout address onboarding yet in this
-// reference implementation) — duplicated here rather than imported since
-// this is a distinct, arbiter-triggered resolution path, not the buyer/
-// seller-triggered one Trade.tsx wires.
-const DEMO_ADDR: Record<EscrowType, string> = {
-  MULTISIG: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
-  LIGHTNING_HODL: '0014' + '00'.repeat(20),
-  SAFE_GUARD_EVM: '0x000000000000000000000000000000000000dead',
-  WDK_USDT_EVM: '0x000000000000000000000000000000000000dead',
-  LIQUID_COVENANT: 'demo-buyer-payout-address',
-  MOCK: 'demo-buyer-payout-address',
-}
+// Sails Core Implementation Program M8-R2 (Destination Authority
+// Conformance, disputed rails, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md)
+// — removed. This map used to supply a "destination" the arbiter would
+// pass to resolveDisputeWithWallet() for RELEASE/SPLIT, giving a false
+// impression that the arbiter chooses where the beneficiary's funds go.
+// The arbiter has Economic Disposition Authority (who is entitled, and
+// how much) — never Destination Authority (where they receive it), which
+// belongs to the beneficiary alone via their own registered
+// PayoutAddress. The server now ignores any address supplied here for
+// every rail (see dispute.service.ts's own applyRuling()/
+// applyRulingCoreAuthoritative() comments), so this console no longer
+// supplies one at all — the same pattern REFUND already used below,
+// unchanged, before this fix (it never passed an address either).
 
 // RFC-021 D9 — SPLIT only works for these three; SAFE_GUARD_EVM's
 // immutable Guard contract and LIGHTNING_HODL's fixed-leaf VtxoScript
@@ -83,10 +83,16 @@ export function Disputes() {
       .then(async (page) => {
         if (cancelled) return
         // One extra settlement.get() per dispute — needed functionally,
-        // not just cosmetically: resolveDispute()'s RELEASE/SPLIT rulings
-        // need a payout address in the right format for this specific
-        // escrow.type (bech32/script-hex/EVM-hex/arbitrary), so the type
-        // has to be known before a ruling button can even be built.
+        // not just cosmetically: whether SPLIT is offered at all
+        // (SPLIT_SUPPORTED), whether a RELEASE/SPLIT ruling starts a
+        // signature round (SIGNATURE_COLLECTION_TYPES, for the toast
+        // wording), and the asset/locked-amount display below all need
+        // this trade's real escrow.type/asset known before a ruling
+        // button can even be built. **Corrected 2026-09-11 (M8-R2):**
+        // this comment previously also cited needing a payout address "in
+        // the right format for this specific escrow.type" as a reason —
+        // stale now that this console no longer supplies a destination at
+        // all (see resolve()'s own comment below).
         const withEscrow = await Promise.all(
           page.disputes.map(async (dispute): Promise<Row> => {
             const escrow = await sailsClient.settlement.get(dispute.escrowId).catch(() => null)
@@ -136,18 +142,22 @@ export function Disputes() {
       toast.error('Nenhuma chave de assinatura disponível nesta sessão — reconecte sua carteira')
       return
     }
-    const addr = DEMO_ADDR[row.escrow.type]
     const needsSignature = SIGNATURE_COLLECTION_TYPES.has(row.escrow.type)
     setActing(true)
     try {
       if (ruling === 'RELEASE') {
-        await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'RELEASE', wallet, addr)
+        // No destination passed — the buyer's own registered PayoutAddress
+        // governs (server-enforced for every rail, not just MULTISIG).
+        await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'RELEASE', wallet)
         toast.success(needsSignature ? 'Resolvido a favor do comprador — aguardando assinatura pra liberar os fundos' : 'Resolvido a favor do comprador')
       } else if (ruling === 'REFUND') {
         await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'REFUND', wallet)
         toast.success('Resolvido a favor do vendedor')
       } else {
-        await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'SPLIT', wallet, addr, addr, 5000)
+        // Same reasoning as RELEASE above — buyer's and seller's own
+        // registered PayoutAddresses govern independently, never a value
+        // supplied here.
+        await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'SPLIT', wallet, undefined, undefined, 5000)
         toast.success(needsSignature ? 'Dividido 50/50 — aguardando assinatura pra liberar os fundos' : 'Dividido 50/50 entre comprador e vendedor')
       }
       setSelectedId(null)
