@@ -473,8 +473,24 @@ export class SailsSettlementModule {
     );
   }
 
-  /** Requires an active session. PAYMENT_PENDING (or PENDING_BANK_SETTLEMENT) -> COMPLETED. */
-  async release(escrowId: string, toAddress: string): Promise<Escrow> {
+  /**
+   * Requires an active session. PAYMENT_PENDING (or
+   * PENDING_BANK_SETTLEMENT) -> COMPLETED.
+   *
+   * Sails Core Implementation Program M8-R2 (Destination Authority
+   * Conformance, 2026-09-11, `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`)
+   * — `toAddress` is now optional and, if supplied, IGNORED by the
+   * server for this route. Destination Authority belongs to the buyer
+   * (the beneficiary of a release) alone: the server always resolves
+   * their own registered `PayoutAddress` (see `setPayoutAddress()`
+   * below) — the release-triggering counterparty (the seller) can no
+   * longer choose or substitute where funds go, closing the exact
+   * caller-supplied-execution-time-destination pattern
+   * (`docs/DESTINATION_AUTHORITY_ARCHITECTURE.md` Model E) that document
+   * already rejected. Kept in the signature only for source
+   * compatibility with existing callers; passing it has no effect.
+   */
+  async release(escrowId: string, toAddress?: string): Promise<Escrow> {
     return this.transport.post<Escrow>(
       `/v1/settlement/escrow/${escrowId}/release`,
       { toAddress },
@@ -547,10 +563,19 @@ export class SailsSettlementModule {
    * `submitTransactionSignature()` with their own signed copy
    * (`signEscrowPsbt()`, `escrow-key.ts`) before the release actually
    * completes.
+   *
+   * M8-R2 (2026-09-11) — same status as `release()`'s own `toAddress`
+   * above: optional, and ignored by the server. The buyer's own
+   * registered `PayoutAddress` is resolved and persisted onto the
+   * pending transaction's own `toAddress` at this exact call — before
+   * any signature is collected — and is never re-resolved afterward, so
+   * neither a later `PayoutAddress` rotation nor a retried
+   * `submitTransactionSignature()` call can change where this specific
+   * pending release pays out.
    */
   async initiateRelease(
     escrowId: string,
-    toAddress: string,
+    toAddress?: string,
   ): Promise<EscrowPendingTransaction> {
     return this.transport.post(
       `/v1/settlement/escrow/${escrowId}/initiate-release`,

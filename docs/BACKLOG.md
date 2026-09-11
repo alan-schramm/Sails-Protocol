@@ -2030,6 +2030,48 @@ or hidden operational conventions.
     only place this specific defect's scope is written down. Evidence
     obligation, severity CRITICAL.
 
+    **Correction (2026-09-11, F1 Destination Authority Conformance
+    discovery + implementation missions).** The paragraph above is
+    preserved verbatim, not deleted — it correctly identified the
+    defect's *symptom* but framed the fix incorrectly. **The obligation
+    is NOT "add address-entry UI."** Discovery found that
+    `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md` (Mission M8.5,
+    CTO-reviewed, 2026-08-30) had already adversarially selected and
+    partially implemented the correct model (F′: the beneficiary's own
+    registered `PayoutAddress`, snapshotted once at authorization time,
+    governs — never a value the release-triggering counterparty
+    supplies) for the MULTISIG-disputed path only. An address-entry text
+    field filled in by the seller at release time, as this entry
+    originally implied, would have been Model E — the exact
+    caller-supplied-execution-time-destination pattern that architecture
+    document already rejects as "the status quo vulnerability itself."
+    The real obligation is: **extend the already-approved F′ Destination
+    Authority model to the cooperative Reference Wallet payout path, and
+    remove caller-controlled destination authority from the
+    release-triggering party.** Implemented (bounded, cooperative-path
+    scope only — see PR for `fix/f1-destination-authority-conformance`):
+    `settlement.routes.ts`'s `/release` and `/initiate-release` no
+    longer forward a caller-supplied `toAddress` to `escrow.service.ts`;
+    the buyer registers their own destination via the already-existing
+    `sailsClient.settlement.setPayoutAddress()`, surfaced in a new
+    Reference UI card on the Trade screen; `Trade.tsx`'s `DEMO_RELEASE_*`
+    constants are removed entirely, not replaced with a text input.
+    **Residual, intentionally not closed by this bounded mission:** the
+    four non-MULTISIG rails' *disputed* path (`dispute.service.ts`'s
+    legacy `applyRuling()`) still accepts the arbiter's own
+    `releaseToAddress`/`refundToAddress` as an explicit override — the
+    same F′ migration MULTISIG already received, not yet extended to
+    LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK disputes. The
+    concrete Reference UI surface where this is actually exercised:
+    `packages/sails-ui/src/pages/Disputes.tsx`'s own `DEMO_ADDR` map
+    (arbiter-triggered resolution, a separate demo-address constant from
+    `Trade.tsx`'s, pre-existing, not touched by this mission — already
+    harmless/inert for `MULTISIG` per M8-R, still live for the other
+    four types). Out of scope here (arbitration architecture is
+    explicitly not this mission's target) — left open, not falsely
+    marked resolved. See the implementation mission's own report for the
+    full evidence chain.
+
     20.2. **Reference Wallet Day-0 capability integration coverage.**
     Spark is deliberately excluded from the Reference UI's asset picker
     (`packages/sails-ui/src/data/mock.ts:29-32`) despite being Day-0

@@ -74,8 +74,18 @@ export const createEscrowSchema = z.object({
   timelockHours: z.number().optional(),
 })
 
+// Sails Core Implementation Program M8-R2 (Destination Authority
+// Conformance, cooperative path) — `toAddress` is accepted-but-inert here,
+// same status `resolveDispute()`'s own `releaseToAddress` already has for
+// MULTISIG (see that route's own comment). Kept optional, never required,
+// purely so an existing caller that still sends one is not broken by a
+// 400 — the route handler below never reads this field. Destination
+// Authority belongs to the beneficiary (the buyer) alone, established via
+// their own registered PayoutAddress, never via a value the release-
+// triggering counterparty supplies in this request body. See
+// docs/DESTINATION_AUTHORITY_ARCHITECTURE.md.
 const releaseSchema = z.object({
-  toAddress: z.string().min(1),
+  toAddress: z.string().min(1).optional(),
 })
 
 // 33-byte compressed secp256k1 pubkey, hex — same pattern
@@ -95,8 +105,10 @@ const submitKeySchema = z.object({
   capabilityProfile: z.string().min(1).optional(),
 })
 
+// Same accepted-but-inert status as releaseSchema.toAddress above — see
+// that field's own comment.
 const initiateReleaseSchema = z.object({
-  toAddress: z.string().min(1),
+  toAddress: z.string().min(1).optional(),
 })
 
 // PSBT, base64-encoded — same format multisig.provider.ts's
@@ -303,13 +315,32 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send(success(escrow))
   })
 
+  // Sails Core Implementation Program M8-R2 (Destination Authority
+  // Conformance, cooperative path, 2026-09-11) — this route deliberately
+  // parses `releaseSchema` (so a legacy `toAddress` in the request body
+  // is accepted, not a 400) but never forwards `body.toAddress` to
+  // `escrowService.releaseFunds()`. Forwarding it would let the caller
+  // (the seller, per EscrowActions.tsx's own gating — never the buyer,
+  // who is the actual beneficiary of a release) unilaterally choose or
+  // substitute the buyer's payout destination — exactly Model E,
+  // adversarially rejected in docs/DESTINATION_AUTHORITY_ARCHITECTURE.md
+  // as "the status quo vulnerability itself." Passing `undefined` here
+  // makes `releaseFunds()`'s own `resolvePayoutAddress()` call always
+  // resolve the buyer's destination from their own registered
+  // `PayoutAddress` (or fail closed with a clear error if none is
+  // registered) — the beneficiary-controlled path F′ already requires.
+  // `releaseFunds()`'s own `toAddress` parameter is UNCHANGED and still
+  // honors an explicit value for its one remaining trusted-internal
+  // caller (`dispute.service.ts`'s legacy `applyRuling()`, for the three
+  // rails M8-R hasn't migrated yet — a disclosed residual gap, not
+  // reintroduced here).
   app.post('/v1/settlement/escrow/:id/release', {
     preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: releaseSchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
-    const body = releaseSchema.parse(request.body)
-    const escrow = await escrowService.releaseFunds(id, body.toAddress, participantId(request))
+    releaseSchema.parse(request.body ?? {})
+    const escrow = await escrowService.releaseFunds(id, undefined, participantId(request))
     return reply.code(200).send(success(escrow))
   })
 
@@ -318,13 +349,24 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // other escrow type with a clear error pointing back to the direct
   // /release route. See escrow.service.ts's own header comment on this
   // method for the full flow.
+  // Same M8-R2 conformance fix as /release above, applied to the
+  // signature-collection flow (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM) —
+  // `body.toAddress` is parsed (accepted, not a 400) but never forwarded.
+  // `escrowService.initiateRelease()`'s own resolution therefore always
+  // snapshots the buyer's registered PayoutAddress into
+  // `EscrowPendingTransaction.toAddress` at this exact moment, before any
+  // signature is collected — satisfying "bind before signing," and, since
+  // `submitTransactionSignature()` never re-resolves it, "retries and a
+  // later PayoutAddress rotation cannot rewrite an already-bound
+  // execution" for the same reason M8.5's MULTISIG-disputed binding
+  // already relies on.
   app.post('/v1/settlement/escrow/:id/initiate-release', {
     preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: initiateReleaseSchema }),
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
-    const body = initiateReleaseSchema.parse(request.body)
-    const pending = await escrowService.initiateRelease(id, body.toAddress, participantId(request))
+    initiateReleaseSchema.parse(request.body ?? {})
+    const pending = await escrowService.initiateRelease(id, undefined, participantId(request))
     return reply.code(201).send(success(pending))
   })
 
