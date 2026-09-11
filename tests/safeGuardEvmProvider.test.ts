@@ -190,6 +190,22 @@ describe('SafeGuardEvmProvider.buildUnsignedRelease / buildUnsignedRefund', () =
     expect(result.requiredSigners).toEqual(['buyer-1', 'seller-1'])
   })
 
+  // Sails Core Implementation Program M8-R2 (Destination Authority
+  // Conformance — per-rail evidence matrix, 2026-09-12). Same property as
+  // lightning-hodl.provider.ts's own analogous test: this provider's real
+  // buildUnsignedRefund(escrow) takes no destination parameter at all —
+  // a caller/arbiter-supplied second argument has no place to go and is
+  // simply never read, so the resulting address is unchanged and never
+  // equals the supplied value.
+  it('M8-R2: a caller-supplied second argument to buildUnsignedRefund() has NO effect — the seller-pubkey-derived address is unchanged', async () => {
+    const provider = new SafeGuardEvmProvider()
+    const escrow = baseEscrow({ status: 'FUNDS_LOCKED' })
+    const { toAddress: withoutArg } = await provider.buildUnsignedRefund(escrow)
+    const { toAddress: withBogusArg } = await (provider.buildUnsignedRefund as any)(escrow, '0x000000000000000000000000000000000000dead')
+    expect(withBogusArg).toBe(withoutArg)
+    expect(withBogusArg).not.toBe('0x000000000000000000000000000000000000dead')
+  })
+
   it('throws a clear error when the Safe address is not recorded (both pubkeys never submitted)', async () => {
     const provider = new SafeGuardEvmProvider()
     const escrow = baseEscrow({ multisigAddr: null })

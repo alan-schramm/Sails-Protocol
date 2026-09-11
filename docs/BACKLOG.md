@@ -2099,6 +2099,32 @@ or hidden operational conventions.
     disputed, all five rails) — see the implementation mission's own
     report for the full evidence chain and test list.
 
+    **Correction (2026-09-12, F1-R Evidence Completion — CTO gate).** The
+    paragraph above is preserved verbatim, not deleted. Its description
+    of the *fix* (`applyRuling()`'s own change, the REFUND findings, the
+    `Disputes.tsx` removal) was and remains accurate. Its **claim of
+    evidence** was premature: at the time it was written (PR #126), no
+    explicit per-rail adversarial matrix existed — LIGHTNING_HODL's own
+    disputed RELEASE binding/retry/rotation was proven directly, and MOCK
+    SPLIT was proven via the full lifecycle test, but SAFE_GUARD_EVM's
+    own disputed RELEASE, WDK_USDT_EVM's RELEASE/REFUND/SPLIT, MOCK's own
+    direct RELEASE/REFUND, and an explicit "arbiter-supplied value has no
+    effect" case for LIGHTNING_HODL/SAFE_GUARD_EVM's own REFUND
+    derivation were not yet independently evidenced — the CTO's own gate
+    on PR #126 caught exactly this gap ("implementation shape accepted,
+    evidence gap only"). That gap is now closed: a full per-rail matrix
+    (`tests/disputeDestinationAuthorityConformance.test.ts`'s per-rail
+    describe blocks, plus one new adversarial case each in
+    `tests/lightningHodlProvider.test.ts`/`tests/safeGuardEvmProvider.test.ts`)
+    proves every applicable cell — RELEASE/REFUND/SPLIT, binding, retry,
+    fail-closed — for all five rails, marking N/A precisely where a
+    property is structurally absent (e.g. SPLIT for LIGHTNING_HODL/
+    SAFE_GUARD_EVM; a separate destination-fail-closed case for their own
+    pubkey-derived REFUND) rather than inventing one. **F1 CLOSED now
+    rests on complete evidence**, not just an accepted implementation
+    shape — see the evidence-completion mission's own report for the
+    full per-rail matrix and exact test names.
+
     20.2. **Reference Wallet Day-0 capability integration coverage.**
     Spark is deliberately excluded from the Reference UI's asset picker
     (`packages/sails-ui/src/data/mock.ts:29-32`) despite being Day-0
