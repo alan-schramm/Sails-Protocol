@@ -2199,6 +2199,24 @@ or hidden operational conventions.
     already recorded immediately above in this same item — not new
     obligations.
 
+    **Status update (2026-09-12, ARCH-FREEZE — CTO Gate).** The
+    paragraph above is preserved verbatim — the obligation it describes
+    is now **ARCHITECTURE DECISION FROZEN / IMPLEMENTATION OPEN**, not
+    closed. `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
+    (companion evidence: `docs/ASSET_SETTLEMENT_RAIL_ARCHITECTURE_DISCOVERY_2026-09-12.md`;
+    companion Product Decision: `docs/PROJECT_CONTEXT.md` §2C) freezes
+    the mechanism this item left open: an additive `Asset + SettlementRail`
+    decomposition, a sparse `SettlementScope` registry, and a
+    conceptual (not required-runtime) Adapter/Provider distinction. **No
+    implementation is authorized by this status update** —
+    `AssetType`, `EscrowType`, `prisma/schema.prisma`, every SDK
+    contract, every QVAC schema, and the Reference Wallet are all
+    unchanged. Items 20.2 (Day-0 capability integration coverage) and
+    20.5 (QVAC Asset contract drift) remain explicitly **OPEN, not
+    closed** by this freeze — both become direct future *consumers* of
+    ADR-002's registry once a separate implementation mission is
+    authorized. 20.3 and 20.4 are unaffected.
+
     Full sweep record, methodology, false positives rejected, and
     legitimate deferrals confirmed (including RGB remaining
     📋 Future/roadmap, not Day-0):

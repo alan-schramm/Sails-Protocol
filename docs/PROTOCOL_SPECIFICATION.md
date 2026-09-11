@@ -1250,6 +1250,22 @@ commits to none of them specifically (`PRINCIPLES.md` principle 6,
 `SettlementAdapter` implementation, never a change to `SettlementProvider`
 itself or to any module that calls it.
 
+**Clarification (2026-09-12, ADR-002, `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`).**
+The `SettlementAdapter extends SettlementProvider` wording above is
+preserved verbatim, not rewritten — it is superseded in spirit, not in
+text, by ADR-002's own frozen Adapter/Provider relationship: a
+**Provider uses an Adapter** (composition), rather than an Adapter being
+a specialized kind of Provider (the IS-A relationship this section's
+own code sample expresses). The `chain`-qualification concept this
+section already anticipated survives unchanged in substance — it
+relocates conceptually onto the Adapter (or the `SettlementScope` key
+ADR-002 defines) rather than onto `SettlementProvider` itself. **Current
+runtime code, which co-locates both concerns in one class per rail
+(`multisig.provider.ts`, `lightning-hodl.provider.ts`, etc.), remains
+fully conformant** — this clarification does not require, and does not
+by itself authorize, any runtime separation. No `AssetType`,
+`EscrowType`, or provider code is changed by this note.
+
 ### OpenFinance Adapters — the module is a category, not an integration
 
 `REFERENCE_IMPLEMENTATIONS.md` describes Morpho, Hyperliquid, and Polymarket
