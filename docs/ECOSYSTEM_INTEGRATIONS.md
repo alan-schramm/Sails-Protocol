@@ -131,6 +131,21 @@ discovery-and-coordination layer sitting in front of it via a
 below exist in code. Where a network's own architecture is still evolving
 publicly (Spark), claims are deliberately phrased as conditional.
 
+**Scope note (2026-09-10, Product Truth Sweep, F10).** "None of the
+integrations below exist in code" refers specifically to the
+`SettlementAdapter`/discovery-and-coordination pattern this table
+proposes for each network — it is not a claim that no Bitcoin-L2-adjacent
+settlement code exists anywhere in this repository. `LIGHTNING_HODL`
+(`src/modules/open-settlement/lightning-hodl.provider.ts`) is a real,
+testnet-evidenced escrow provider settling via the Ark/Arkade protocol —
+a materially different design (VTXO-based multi-party escrow) from the
+Hold-Invoice/submarine-swap coordination pattern the Lightning row below
+describes. Spark's row is not merely "conditional" scope — Spark is
+Day-0-required for the Reference Wallet per `docs/BACKLOG.md` item 20;
+the conditional phrasing here describes only the maturity of Spark's own
+publicly-evolving protocol design, not whether Sails intends to support
+it.
+
 | Network | What it actually solves | Where Sails could sit (if built) |
 |---|---|---|
 | **Lightning Network** | Sub-second, sub-cent Bitcoin payments via payment channels | Off-chain intent matching + Hold-Invoice/submarine-swap coordination for a P2P fiat↔sats leg — inbound-liquidity and routing concerns stay entirely Lightning's, not something Sails models |

@@ -247,6 +247,15 @@ own `SettlementProvider` header comment for the full account. -->
 `MOCK` and `WDK_USDT_EVM` are the two real implementations today;
 `LIGHTNING_HODL` and `LIQUID_COVENANT` are named, typed, and stubbed —
 present in the enum, not yet backed by working code.
+
+**Correction (2026-09-10, Product Truth Sweep, F6).** The claim above
+about `LIGHTNING_HODL` is stale, preserved verbatim rather than deleted.
+`LIGHTNING_HODL` has been backed by working code since 2026-07-27,
+settling via the Ark/Arkade protocol (VTXO/Taproot), testnet-evidenced
+on Mutinynet — it is not plain Lightning HTLC settlement, and real
+Lightning-native settlement remains not yet implemented (see
+`docs/BACKLOG.md` item 20). `LIQUID_COVENANT` remains accurately
+described as stubbed/unbuilt.
 Every state-changing method (`lockFunds`/`releaseFunds`/`refundFunds`)
 claims its transition **atomically** via a conditional database update
 (`WHERE id = X AND status = <the status just read>`) before ever
@@ -602,7 +611,7 @@ was closed after this section was first written:
 | Core primitives | Identity, Intent, Discovery, Negotiation, Settlement, Reputation, Agent, Dispute | Proof's full service layer |
 | Modules | OpenIdentity, OpenReputation, OpenSettlement (testnet), OpenLiquidity, OpenP2P; OpenAgents' first capabilities | OpenFinance entirely; OpenAgents' full fraud-detection surface |
 | Transport | Pears/HyperDHT real connectivity, reconciliation on reconnect, WebSocket relay fallback on `start()`/`sendToPeer()` when Pears times out | Relay equivalent for DHT-topic operations (`join-trade`, `broadcast-offer`, marketplace discovery) |
-| Settlement | Mock + one real testnet provider (WDK), two-person control, atomic concurrency-safe transitions | Real non-custodial multisig/co-signing settlement; Lightning HODL and Liquid Covenant providers |
+| Settlement | Mock + real testnet providers (WDK, MULTISIG, and Ark/Arkade-based Lightning HODL — see F6 correction above) | Real non-custodial multi-party co-signing beyond MULTISIG; Liquid Covenant provider; genuine Lightning-native (non-Arkade) settlement |
 | Crypto | Ed25519 auth, sealed-box payload encryption, IntentEvent hash-chaining | General Timeline hash-chaining, verifiable timestamp anchoring |
 | SDK | `v1.0.0-rc1`, frozen API, real dogfooding, standalone-verified package, dual CJS/ESM build (tree-shakeable) | `negotiate`/`submitProof`/`releaseAsset` |
 | Security | Rate limiting, IDOR fixes, two-person control, Decimal precision, capability enforcement | Independent third-party audit, proactive timeout/refund sweep |

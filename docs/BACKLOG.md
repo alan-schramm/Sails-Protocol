@@ -1994,6 +1994,121 @@ or hidden operational conventions.
     `wdk-settlement.provider.ts`'s own parametrized-decimals precedent —
     also not decided or implemented here.
 
+    **Product Truth Sweep backlog delta (2026-09-10, institutionalization
+    of the frozen Institutional Scope & Product Truth Sweep — full
+    record: `docs/PRODUCT_TRUTH_SWEEP_2026-09-10.md`).** A full-repository
+    sweep for the same "implementation convenience silently becoming
+    Product Direction" blind-spot class that produced this item's own
+    Lightning/Arkade correction above found further instances. Per this
+    document's own Backlog Delta Discipline (DO NOT DUPLICATE / DO NOT
+    LOSE / DO NOT INFLATE / DO NOT HIDE), the sweep's 21 individual
+    findings are grouped into 6 obligations below, not listed as 21
+    separate backlog items. **Discovery findings ≠ implementation
+    authorization** — none of the following is a green light to modify
+    `Trade.tsx`, `AssetType`, the QVAC schema, or any settlement
+    provider; each requires its own separate, explicit CTO
+    authorization before implementation begins.
+
+    20.1. **Reference Wallet payout destination / end-to-end payout
+    truth.** `Trade.tsx`'s release-funds path (`handleReleaseFunds`)
+    sends a compile-time constant demo address
+    (`DEMO_RELEASE_ADDRESS_MULTISIG` / `DEMO_RELEASE_SCRIPT_HEX_ARKADE` /
+    `DEMO_RELEASE_ADDRESS_EVM` / `DEMO_RELEASE_ADDRESS`) to
+    `sailsClient.settlement.release()` for every escrow type that has a
+    real `SettlementProvider` today — there is no address-entry UI
+    anywhere in the Reference Wallet. The SDK itself is not the limiting
+    factor (`releaseAsset(intentId, toAddress)` already accepts a real
+    caller-supplied address). This is a **Product Reality defect**: a
+    technically complete settlement provider does not make the intended
+    Reference Wallet payout journey completable. Cross-linked, not
+    duplicated, to the pre-existing **Day-0 Production Reality Sweep**
+    obligation (mocks/stubs/fallbacks, referenced in the Issue #105
+    comment thread) — as of this date no dedicated
+    `docs/DAY0_PRODUCTION_REALITY_SWEEP.md` file could be located in this
+    repository or on the branch named in that comment; this entry and
+    `docs/PRODUCT_TRUTH_SWEEP_2026-09-10.md` §4 (F1) are, for now, the
+    only place this specific defect's scope is written down. Evidence
+    obligation, severity CRITICAL.
+
+    20.2. **Reference Wallet Day-0 capability integration coverage.**
+    Spark is deliberately excluded from the Reference UI's asset picker
+    (`packages/sails-ui/src/data/mock.ts:29-32`) despite being Day-0
+    required; DePix has no entry point in any real flow at all; the
+    Reference UI's asset→network mapping
+    (`packages/sails-ui/src/pages/PublishOffer.tsx:62-65`) is a fixed
+    1:1 lookup with no network selector, so a user cannot select Base,
+    Optimism, Polygon, Avalanche, Arbitrum, or BNB Chain for a USDT/USDC
+    trade. **This does not reopen Day-0 product scope** — every asset
+    and network named here is already Day-0-required per the canonical
+    matrix above. What remains open is architecture/integration
+    sequencing (see the existing architecture obligation immediately
+    above and 20.6 below), not whether these belong in scope.
+
+    20.3. **Institutional maturity/terminology reconciliation (one
+    correction family).** Beyond the Lightning/Arkade correction this
+    freeze already applied to `README.md`, `docs/BACKLOG.md`,
+    `docs/PROJECT_CONTEXT.md`, and `docs/DAY0_COMPLETENESS_COLD_SWEEP.md`
+    (PR #118), the same stale maturity/naming language persists in
+    `docs/DATABASE.md`, `docs/API_REFERENCE.md`,
+    `docs/GETTING_STARTED.md:206`, `docs/SDK_GUIDE.md:320`,
+    `docs/ARCHITECTURE.md:237,248`, the three whitepapers
+    (`docs/whitepapers/TECHNICAL_WHITEPAPER.md:247-249,605,128-132`,
+    `docs/whitepapers/SDK_PAPER.md:144-146`,
+    `docs/whitepapers/PROTOCOL_PAPER.md:267`,
+    `docs/whitepapers/MARKETING_WHITEPAPER.md:113,117-119`),
+    `docs/SDK_usecases.md:171`, `docs/ECOSYSTEM_INTEGRATIONS.md:131-140`,
+    `docs/REFERENCE_IMPLEMENTATIONS.md:38-59,56`,
+    `packages/sails-ui/src/lib/labels.ts:16,43`, and
+    `src/modules/open-settlement/wdk-settlement.provider.ts:4-7`'s own
+    stale header comment. Also includes the Liquid deferral scope
+    clarification (`docs/DATABASE.md:54-66`, `docs/TODO.md:193-200`,
+    `docs/ENGINEERING_GOVERNANCE.md:353-355`): the 2026-08-01 decision
+    not to build a Sails-Protocol-native Liquid settlement provider was a
+    legitimate engineering-prioritization call scoped to this
+    repository's own P2P-escrow rail — it is not a Product Direction
+    exclusion of Liquid, and does not conflict with Liquid being
+    Day-0-required, because **Satsails Wallet capability ≠ Sails
+    Protocol settlement provider maturity** (the wallet already has real
+    Liquid capability today via SideSwap/Boltz, non-Sails-Protocol
+    infra, per `docs/REFERENCE_IMPLEMENTATIONS.md`). Full finding-level
+    detail: `docs/PRODUCT_TRUTH_SWEEP_2026-09-10.md` §4 (F5-F14, F17).
+    Treated as one correction family, not duplicated debt.
+
+    20.4. **Cross-asset volume semantic debt.**
+    `recordTradeCompletion()` (`src/common/events/handlers.ts:106-133`)
+    adds `trade.amount` into `totalVolumeBtc` for every completed trade
+    regardless of `trade.asset` — satoshi-scale for BTC/LN_BTC,
+    6-decimal-USDT-scale for `USDT_ERC20`, with no unit discrimination.
+    No current consumer reads the field (confirmed, no blast radius
+    today), but it is a live correctness trap the moment one does.
+    Registered as Technical Debt requiring semantic/architecture review;
+    this entry does **not** choose the replacement metric or schema.
+
+    20.5. **QVAC Asset contract drift.** `qvac-agent.provider.ts`'s
+    `TRADE_INTENT_SCHEMA`/`OFFER_INTENT_SCHEMA` claim to be "kept in sync
+    with `AssetType`" but list 7 values against the real 10 — missing
+    `SPARK` (Day-0-required), `STACKS`, and `RSK_BTC`. Registered as
+    Technical Debt / contract drift. **Do not mechanically patch before
+    the Asset/Network semantic architecture decision (the open
+    architecture obligation immediately above) is resolved**, unless a
+    later CTO mission explicitly authorizes an interim mechanical fix.
+
+    20.6. **Existing Asset/Network/Settlement architecture obligation —
+    cross-link only, no new entry.** Single-EVM-network hardcoded config
+    (`config/index.ts`'s `wdk`/`safeGuardEvm` blocks), the
+    `PayoutAddress` uniqueness key missing a network dimension
+    (`(participantId, asset)` only), RFC-019/RFC-020 treating "EVM" as
+    one generic rail, and XAUT having zero references anywhere in
+    `packages/sails-sdk`, `packages/sails-ui`, or `examples/**` are all
+    concrete corroborating evidence for the architecture obligation
+    already recorded immediately above in this same item — not new
+    obligations.
+
+    Full sweep record, methodology, false positives rejected, and
+    legitimate deferrals confirmed (including RGB remaining
+    📋 Future/roadmap, not Day-0):
+    `docs/PRODUCT_TRUTH_SWEEP_2026-09-10.md`.
+
 21. **Canonical quote-currency discoverability — conditional Day-0
     blocker for multi-fiat beta.** Aggregate `LiquidityOffer` exposes
     `priceUsd`; persisted Offer has optional `priceBrl`; Intent has

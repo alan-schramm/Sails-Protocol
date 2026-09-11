@@ -2896,6 +2896,64 @@ dedicada.
 
 **Status: OPEN.**
 
+### 64. `recordTradeCompletion()` mistura unidades de asset diferentes em `totalVolumeBtc` (achado 2026-09-10, Institutional Scope & Product Truth Sweep, F15)
+
+**Classificação: cross-asset volume semantic debt — pré-existente.** Não
+duplicata do item #42 acima (`totalVolumeBtc` — semântica de volume após
+invalidação de settlement), que trata de uma questão diferente
+(timing/reconhecimento de volume relativo a reorg), não de conflação de
+unidade entre assets.
+
+**Achado, confirmado diretamente:**
+`src/common/events/handlers.ts:106-133,279,376` — `recordTradeCompletion()`
+é chamado incondicionalmente para todo trade completado,
+independentemente de `trade.asset`, somando `trade.amount` bruto numa
+coluna literalmente chamada `totalVolumeBtc`. Para BTC/`LN_BTC` a escala
+é satoshi; para `USDT_ERC20` (liquidado via `WdkSettlementProvider`) a
+escala é 6 decimais — sem nenhuma conversão ou comentário disclosing a
+mistura. Confirmado via grep: nenhum consumidor lê esse campo hoje em
+`src/` — limita o raio de explosão atual, mas é uma armadilha de
+correção real assim que qualquer leitor futuro existir.
+
+**Não corrigido nesta nota** — escolher a métrica/schema de substituição
+requer revisão semântica/arquitetural própria (ex: colunas por asset,
+normalização para uma unidade de referência, ou remoção do campo em
+favor de agregação por asset), explicitamente fora do escopo desta
+sweep de institucionalização (documentação apenas).
+
+**Fix recomendado (propriedade, não mecanismo):** nenhum prescrito
+aqui — decisão de schema requer sua própria missão dedicada.
+
+**Status: OPEN.**
+
+### 65. QVAC intent schemas ficaram fora de sincronia com `AssetType` (achado 2026-09-10, Institutional Scope & Product Truth Sweep, F16)
+
+**Classificação: contract drift — pré-existente.**
+
+**Achado, confirmado diretamente:**
+`src/modules/open-agents/qvac-agent.provider.ts:127-137,172-177` —
+`TRADE_INTENT_SCHEMA`/`OFFER_INTENT_SCHEMA` têm um comentário afirmando
+que o enum é "kept in sync with `common/types/index.ts`'s `AssetType`...
+by hand," mas o enum do schema tem 7 valores contra os 10 reais do
+`AssetType` — faltam `SPARK` (Day-0-required, ver `docs/BACKLOG.md` item
+20), `STACKS`, e `RSK_BTC`. Toda outra cópia manual deste mesmo enum no
+código (`intent.routes.ts`, `liquidity.routes.ts`, `agent.routes.ts`,
+`offer-envelope.ts`) lista corretamente os 10 valores — este arquivo é o
+único outlier confirmado.
+
+**Não corrigido nesta nota — intencionalmente.** A decisão arquitetural
+sobre Asset/Network (`docs/BACKLOG.md` item 20's própria obrigação de
+arquitetura em aberto) pode mudar a própria forma do enum antes que
+valha a pena sincronizá-lo mecanicamente. **Não corrigir mecanicamente
+antes dessa decisão**, a menos que uma missão futura autorize
+explicitamente um fix interino.
+
+**Fix recomendado (propriedade, não mecanismo):** nenhum prescrito
+aqui — sincronizar após a decisão de arquitetura Asset/Network, não
+antes.
+
+**Status: OPEN.**
+
 ## Ações Recomendadas por Prioridade
 
 ### P0 — Antes de qualquer apresentação (1-2 dias)

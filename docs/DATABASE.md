@@ -65,6 +65,21 @@ custody for them is unbuilt. Revisit when a real provider exists for one
 of them (`LIQUID_COVENANT` below is the natural candidate for
 `LIQUID_BTC`/`USDT_LIQUID` specifically).
 
+**Correction (2026-09-10, Product Truth Sweep, F6/F7).** `LN_BTC`'s
+provider, `LIGHTNING_HODL`, settles via the Ark/Arkade protocol
+(VTXO/Taproot, Mutinynet), not plain Lightning HTLCs — its own header
+comment discloses plain Lightning has no genuine multi-party escrow
+primitive, which is why it uses Ark instead. Stated precisely: **Arkade**
+is IMPLEMENTED/TESTNET-EVIDENCED; **Lightning**, as its own distinct
+product capability, is NOT IMPLEMENTED/NOT EVIDENCED — no genuine
+Lightning-specific settlement path exists in this repository (see
+`docs/BACKLOG.md` item 20). This does not change the 2026-08-01 decision
+above, which remains valid engineering-prioritization scoped to this
+repository's own P2P-escrow rail — it is not a Product Direction
+exclusion of Liquid; Liquid is Day-0-required for the Reference Wallet
+via non-Sails-Protocol infra already in production
+(`docs/REFERENCE_IMPLEMENTATIONS.md`).
+
 ```prisma
 enum TradeSide {
   BUY

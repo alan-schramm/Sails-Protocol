@@ -264,7 +264,7 @@ that specific combination matters is in
 |---|---|---|
 | **OpenIdentity** | Portable identity for every participant — one Identity, usable across every application module. | ✅ Proven |
 | **OpenReputation** | Portable, outcome-based reputation tied to the keypair, not the platform. | ✅ Proven |
-| **OpenSettlement** | Pluggable escrow (`SettlementProvider`: Mock → Multisig → Lightning HODL → Liquid Covenant) and dispute resolution. | ✅ Proven in testnet — see Section 8 for the real custody caveat on the one live provider |
+| **OpenSettlement** | Pluggable escrow (`SettlementProvider`: Mock → Multisig → Lightning HODL [Ark/Arkade-based, not plain Lightning — see `docs/BACKLOG.md` item 20] → Liquid Covenant) and dispute resolution. | ✅ Proven in testnet — see Section 8 for the real custody caveat on the one live provider |
 | **OpenLiquidity** | Discovery and routing — the order book lives here, not in OpenP2P, so future modules can reuse discovery without rebuilding it. | ✅ Proven |
 | **OpenProof** | Standardized `Claim → Proof → Verification` evidence — one format every other module's disputes and negotiations consume instead of inventing their own. | 🟡 Core service real (hash recompute, nonce anti-replay, time-lock); duplicate-evidence detection and external media adapters 📋 planned |
 | **OpenP2P** | Orchestrates the full trade lifecycle using every module above; owns the negotiation/chat channel. | ✅ Proven — the reference implementation's most complete module, and the one running in production today (Section 9) |

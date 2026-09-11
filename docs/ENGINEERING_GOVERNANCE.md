@@ -623,6 +623,52 @@ follow, not re-read in full for every future PR.
 
 ---
 
+## 10A. Product Reality Discipline (2026-09-10)
+
+Origin: the Institutional Scope & Product Truth Sweep
+(`docs/PRODUCT_TRUTH_SWEEP_2026-09-10.md`), frozen by CTO verdict as
+institutional truth. This addendum extends §10's Claim Discipline
+(OUTPUT ≠ EVIDENCE ≠ PROPERTY ≠ CLAIM) to product/UX journeys
+specifically, following the exact dated-addendum pattern established by
+§8A.
+
+**New Product Reality test:**
+
+> A technically complete subsystem cannot be considered product-complete
+> if the intended Reference Wallet user journey cannot complete
+> correctly.
+
+This is the product-journey analogue of §10's rule that a property
+demonstrated in one slice does not justify a universal claim. A
+`SettlementProvider` being testnet-evidenced (Evidence) demonstrates
+that *provider* can settle (Property) — it does not by itself demonstrate
+that a real end user can complete the *Reference Wallet's* declared
+journey through that provider (a broader Claim), because the journey
+includes every step the Reference UI actually exposes, not only the
+steps the provider's own test coverage exercises. The concrete worked
+example is F1 in the Product Truth Sweep: `Trade.tsx`'s release-funds
+path sends a hardcoded demo address for every escrow type with a real
+provider, because no address-entry UI exists — provider maturity is
+real, the Reference Wallet payout journey is not yet completable.
+
+**Restated governing rule, preserved from the sweep verbatim:**
+
+> Implementation convenience must never silently become Product
+> Direction.
+
+Also preserved: implementation ≠ truth; protocol identity ≠
+implementation identity; interoperability ≠ protocol identity; backend
+completion ≠ product journey completion.
+
+**Explicit placement note:** this property is Product/Engineering
+governance — it governs how completeness is *claimed and tracked*, not
+what makes Sails Sails. It is deliberately **not** added to
+`docs/SEMANTIC_KERNEL.md`, which answers a narrower, closed question
+(the protocol's own minimal identity-defining property set) that this
+discipline does not change.
+
+---
+
 ## 11. Evidence Classification
 
 Distinct evidence states, used in PRs, Issues, and canonical docs:

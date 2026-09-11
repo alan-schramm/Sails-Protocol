@@ -168,7 +168,7 @@ document.
 | Use case | Market equivalent | Similarity | Differentiator | Status |
 |---|---|---|---|---|
 | Trading | Binance P2P, Bisq, HodlHodl | P2P market, seller reputation, escrow | Embeddable library, not a platform; portable reputation via `peerId` | ✅ Proven — shipping today as the Sails P2P Trading SDK |
-| Settlement | Lightning (LDK), Liquid, Strike | On/off-chain settlement, fiat↔crypto rails | One interface across rails | 🏗️ Specified — WDK_USDT_EVM real, Lightning/Liquid still stubs |
+| Settlement | Lightning (LDK), Liquid, Strike | On/off-chain settlement, fiat↔crypto rails | One interface across rails | 🏗️ Specified — WDK_USDT_EVM and MULTISIG real; `LIGHTNING_HODL` real via Ark/Arkade (see this document's own 2026-09-06 correction above — **corrected 2026-09-10, Product Truth Sweep, F17**, this row previously said "Lightning/Liquid still stubs," contradicting that correction); Liquid Covenant still a stub |
 | Liquidity | 1inch, CowSwap, OTC books | Liquidity discovery, order matching | Fiat rails (PIX/BRL) first-class, not EVM-only | 🏗️ Specified — real order book, cross-rail *routing* not yet proven live |
 | Reputation | Binance P2P ratings, Bisq | Trade-history-based score | Portable across wallets via `peerId`, not platform-locked | ✅ Proven as a module / 📋 Aspirational as a standalone SDK |
 | Policy | Internal permission/rule engines | Capability/rule validation | Not KYC/AML — a reusable authorization primitive | Capability Registry ✅ Proven+enforced / Policy Engine 📋 Aspirational |

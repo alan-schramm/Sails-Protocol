@@ -110,8 +110,16 @@ Mainnet, EVM chains including Ethereum, TRON, TON, and Solana. Two of
 those — TON and Solana — aren't even in Sails Protocol's own asset
 list yet. Every network WDK already signs for is real infrastructure
 capacity waiting on adapter work, not a promise invented for this
-document; Satsails' own wallet stack separately reaches Liquid through
-Breez's SDK, alongside WDK. WDK's multi-token support goes further
+document; Satsails' own wallet stack separately reaches Liquid, alongside
+WDK — **correction (2026-09-10, Product Truth Sweep, F9):** this
+sentence previously named Breez's SDK as that path; `docs/REFERENCE_IMPLEMENTATIONS.md`'s
+own Existing Infrastructure Stack table attributes it instead to
+SideSwap (Liquid Network DEX) and Boltz Exchange (Lightning↔L-BTC atomic
+swaps) — two different, uncorroborated claims for the same capability.
+Neither is re-verified here; `docs/REFERENCE_IMPLEMENTATIONS.md` is
+treated as the more authoritative source pending direct verification,
+since it is this project's dedicated reference-implementation record.
+WDK's multi-token support goes further
 than chains, too: Tether's own WDK starter template lists **Tether
 Gold (XAU₮)** as a supported token alongside BTC and USD₮, and it's
 already load-bearing in production outside Sails — Tether's own

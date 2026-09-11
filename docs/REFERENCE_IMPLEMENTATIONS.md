@@ -53,7 +53,7 @@ fully non-custodial, consistent with the Sails Protocol's core guarantee
 |---|---|
 | **WDK (Tether)** | The wallet substrate — self-custodial keypair generation, multi-chain signing. Shared foundation across all three reference implementations (see `PROJECT_CONTEXT.md` section 3). |
 | **Plebank / Fitbank** | PIX receiving + KYC/AML — the fiat rail entry point for Brazilian users |
-| **Eulen** | Depix tokenizer — converts PIX-received BRL into an on-chain representation without the wallet ever custodying fiat |
+| **Eulen** | Depix tokenizer — converts PIX-received BRL into an on-chain representation without the wallet ever custodying fiat. **Note (2026-09-10, Product Truth Sweep, F14):** this row does not specify which chain(s) Eulen tokenizes to; DePix is Day-0-required on both Liquid and Spark per `docs/BACKLOG.md` item 20 — not re-verified here which network(s) this existing production integration actually covers. |
 | **SideSwap** | Liquid Network DEX — on-chain swap liquidity for Liquid-based assets |
 | **SideShift** | Permissionless cross-chain swap aggregator — broader cross-chain routing beyond Liquid Network |
 | **Boltz Exchange** | Atomic swaps between Lightning and Liquid BTC (L-BTC) — cross-network settlement without a trusted intermediary |
@@ -63,6 +63,14 @@ mechanics** described in `PROTOCOL_SPECIFICATION.md` section 4 — PIX comes
 in via Plebank/Fitbank, is tokenized by Eulen, and the wallet coordinates
 the rest without custody, exactly matching the protocol's behavioral
 guarantee.
+
+**Scope note (2026-09-10, Product Truth Sweep, F13).** This table
+documents the wallet's live PIX/DePix/Liquid fiat-settlement stack
+specifically — it is not, and was never intended as, an exhaustive list
+of every asset/network the Satsails Wallet or Sails Protocol supports.
+It does not name on-chain BTC, Spark, Arkade, USDC, XAUT, or most USDT
+networks, all of which are Day-0-required per `docs/BACKLOG.md` item 20
+but sit outside the PIX/DePix/Liquid flow this table describes.
 
 ### Users & Volume
 
