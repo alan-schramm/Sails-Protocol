@@ -76,6 +76,15 @@ alternative: policy-gated, opt-in per application/dispute-value threshold,
 the same pattern RFC-007 D8 already established for
 `trustedSettlementAcceleration`.
 
+**Historical correction (2026-09-10, Product Truth Sweep, F5).** The
+cost-tiered ladder above is preserved verbatim as illustrative of the
+*design pattern* (pluggable, cost-tiered providers), not as a claim that
+every named rung is implemented. `LIQUID_COVENANT` is a reserved
+`EscrowType` value with zero implementation file in this repository — no
+`LiquidCovenantProvider` exists (see `docs/BACKLOG.md` item 20). `MOCK`,
+`MULTISIG`, and `LIGHTNING_HODL` are real; `LIQUID_COVENANT` is not, as
+of this date.
+
 **A single global Merkle tree over all evidence in the system, one root
 for everyone.** Rejected — couples unrelated Intents into one growing
 structure, is a scalability bottleneck (verification requires a proof

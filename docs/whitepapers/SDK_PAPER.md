@@ -141,9 +141,14 @@ lifecycle above (`create`/`lock`/`release`) is real against every
 real transaction depends on the `SettlementProvider` configured behind
 it. `USDT_ERC20` settles for real, on testnet, via a real
 `@tetherto/wdk-wallet-evm` signature and broadcast — not a simulation.
-Lightning HODL and Liquid Covenant escrow are typed and named in the
-protocol but not yet backed by a working provider; calling them today
-resolves to a mock. A wallet integrating for real should know exactly
+Liquid Covenant escrow is typed and named in the protocol but not yet
+backed by a working provider; calling it today resolves to a mock.
+**Correction (2026-09-10, Product Truth Sweep, F6):** this previously
+grouped Lightning HODL with Liquid Covenant as equally unbuilt — stale
+since 2026-07-27. `LIGHTNING_HODL` is a real, testnet-evidenced provider
+(via the Ark/Arkade protocol, not plain Lightning HTLCs); genuine
+Lightning-native settlement remains not yet implemented (see
+`docs/BACKLOG.md` item 20). A wallet integrating for real should know exactly
 which asset path it's testing against before assuming production
 readiness — this SDK is honest about that distinction by design, not by
 omission.

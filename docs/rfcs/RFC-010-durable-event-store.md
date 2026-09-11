@@ -160,7 +160,18 @@ the `EventStore` interface, but both methods throw `'not yet
 implemented'` — the same pattern `escrow.service.ts`'s
 `LightningHodlProvider`/`LiquidCovenantProvider` already use for
 unverified providers, rather than shipping code that looks complete but
-was never exercised. Missing before this can be enabled for real:
+was never exercised.
+
+**Historical correction (2026-09-10, Product Truth Sweep, F5).** The
+reference to `LiquidCovenantProvider` above was already stale when
+written and is preserved verbatim, not deleted. No file implementing a
+`LiquidCovenantProvider` exists anywhere in this repository —
+`LIQUID_COVENANT` is a reserved `EscrowType` value with zero
+implementation (confirmed: no `*liquid*` file exists under
+`src/modules/open-settlement/`; see `docs/DATABASE.md` and
+`docs/BACKLOG.md` item 20). `LightningHodlProvider` is real and
+testnet-evidenced (via the Ark/Arkade protocol, not plain Lightning);
+`LiquidCovenantProvider` is not. Missing before this can be enabled for real:
 `XCLAIM`-based recovery for a consumer that crashes mid-handler (a failed
 handler today just leaves the message unacked, not yet redelivered by any
 mechanism), and integration testing against a live Redis. See Reference
