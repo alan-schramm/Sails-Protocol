@@ -260,12 +260,29 @@ export class DisputeService {
   // path; slashing/recordRuling/appeal-fee settlement are NOT here — those
   // are specific to a human arbiter's own track record and stay in
   // resolveDispute() itself.
+  // Sails Core Implementation Program M8-R2 (Destination Authority
+  // Conformance, disputed rails, 2026-09-11,
+  // docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) — `releaseToAddress`/
+  // `refundToAddress` REMOVED from this method's own parameters (unlike
+  // the public `resolveDispute()`, this is a private method with exactly
+  // one call site — resolveDispute() itself — so removing them here is a
+  // safe, non-breaking, purely internal cleanup, not the "large
+  // mechanical rename" that same public method's own comment explains
+  // for why ITS signature stays unchanged). This method now always lets
+  // `escrowService`'s own `resolvePayoutAddress()` resolve each
+  // beneficiary's destination from their registered `PayoutAddress` —
+  // exactly the same beneficiary-controlled, durably-bound-at-initiate-
+  // time path M8-R2's cooperative-release fix already proved correct
+  // (tests/escrowPendingReleaseDestinationBinding.test.ts), now reached
+  // by every rail this method still handles (LIGHTNING_HODL/
+  // SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK — MULTISIG has used
+  // `applyRulingCoreAuthoritative()` exclusively since M8-R). An
+  // arbiter's ruling decides economic disposition only; it never again
+  // carries any destination-authority channel for these rails either.
   private async applyRuling(
     dispute: { id: string; escrowId: string; tradeId: string; status: string },
     ruling: DisputeRuling,
-    releaseToAddress: string | undefined,
     triggeredBy: string,
-    refundToAddress?: string,
     splitBuyerBps?: number,
     // Missão 13 Fase 2 — present only for a caller that has already
     // independently verified an authority decision (resolveDispute()).
@@ -318,24 +335,22 @@ export class DisputeService {
       if (!escrow) throw new NotFoundError('Escrow', dispute.escrowId)
       const needsSignatureCollection = escrowService.isSignatureCollectionType(escrow.type)
 
+      // M8-R2 — every call below passes `undefined` where a destination
+      // parameter exists, on purpose: escrowService's own
+      // resolvePayoutAddress() (escrow-lifecycle.ts) then always resolves
+      // the beneficiary's registered PayoutAddress, exactly the same
+      // beneficiary-controlled path the cooperative release fix already
+      // proved durably-bound-before-signing and rotation/retry-immune.
+      // This ruling decided WHO is entitled and HOW MUCH — never WHERE.
       if (ruling === 'RELEASE') {
         if (needsSignatureCollection) {
-          await escrowService.initiateRelease(dispute.escrowId, releaseToAddress, triggeredBy)
+          await escrowService.initiateRelease(dispute.escrowId, undefined, triggeredBy)
         } else {
-          await escrowService.releaseFunds(dispute.escrowId, releaseToAddress, triggeredBy)
+          await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy)
         }
       } else if (ruling === 'REFUND') {
         if (needsSignatureCollection) {
-          // M8-RF (Destination Consistency) — refundToAddress was already
-          // a real parameter of this function (used for SPLIT's seller
-          // leg below) but was never threaded through for a pure REFUND
-          // ruling, silently dropped. For this LEGACY, non-Core-authoritative
-          // path (LIGHTNING_HODL/SAFE_GUARD_EVM — MULTISIG never reaches
-          // this branch), the caller-supplied destination is still
-          // "fully authoritative" by this file's own documented boundary
-          // (see resolveDispute()'s own @deprecated-for-MULTISIG comment)
-          // — completing that existing intent, not introducing a new one.
-          await escrowService.initiateRefund(dispute.escrowId, triggeredBy, refundToAddress)
+          await escrowService.initiateRefund(dispute.escrowId, triggeredBy, undefined)
         } else {
           await escrowService.refundFunds(dispute.escrowId, triggeredBy)
         }
@@ -347,18 +362,17 @@ export class DisputeService {
         // VtxoScript each have a real, provider-specific reason they
         // can't — see their own buildUnsignedSplit() overrides — surfaced
         // here as a normal thrown error (reverting this ruling below), not
-        // silently no-op'd. releaseToAddress/refundToAddress are no longer
-        // validated here (2026-08-04) — escrowService.initiateSplit()/
-        // splitFunds() resolve missing addresses against each party's own
-        // registered PayoutAddress and throw their own clear error only if
-        // that also comes up empty.
+        // silently no-op'd. Buyer and seller destinations are resolved
+        // INDEPENDENTLY, each from their own registered PayoutAddress
+        // (escrowService.initiateSplit()/splitFunds()'s own two separate
+        // resolvePayoutAddress() calls) — never collapsed into one value.
         if (splitBuyerBps === undefined) {
           throw new ValidationError('SPLIT requires splitBuyerBps')
         }
         if (needsSignatureCollection) {
-          await escrowService.initiateSplit(dispute.escrowId, releaseToAddress, refundToAddress, splitBuyerBps, triggeredBy)
+          await escrowService.initiateSplit(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
         } else {
-          await escrowService.splitFunds(dispute.escrowId, releaseToAddress, refundToAddress, splitBuyerBps, triggeredBy)
+          await escrowService.splitFunds(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
         }
       }
     } catch (err) {
@@ -394,9 +408,15 @@ export class DisputeService {
    * Core-authoritative replacement for `applyRuling()` above, used ONLY
    * for MULTISIG (`docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`,
    * `docs/M8_DISPATCH_GATE_FINDINGS.md`). LIGHTNING_HODL/SAFE_GUARD_EVM/
-   * MOCK/WDK_USDT_EVM disputes remain on `applyRuling()`, byte-for-byte
-   * unchanged — this mission's own scope is Mission13 MULTISIG disputed
-   * settlement, no other rail (mission §2/§38).
+   * MOCK/WDK_USDT_EVM disputes remain on `applyRuling()` — this mission's
+   * own scope was Mission13 MULTISIG disputed settlement, no other rail
+   * (mission §2/§38); it deliberately did not touch `applyRuling()`.
+   * **Note (M8-R2, 2026-09-11):** `applyRuling()` is no longer
+   * byte-for-byte what it was here — a later, separate mission extended
+   * Destination Authority conformance (never Economic Disposition
+   * Authority/dispatch semantics, which stay exactly as M8-R left them)
+   * to the four rails `applyRuling()` still handles. See its own header
+   * comment for that mission's full scope.
    *
    * `releaseToAddress`/`refundToAddress` are DELIBERATELY ABSENT from
    * this method's parameters — see `resolveDispute()`'s own comment for
@@ -509,34 +529,43 @@ export class DisputeService {
     // only if neither exists — this method no longer pre-validates
     // presence, since "missing" is no longer necessarily an error.
     //
-    // @deprecated for MULTISIG (Sails Core Implementation Program M8-R,
-    // 2026-08-30, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md). For a
-    // MULTISIG dispute this value is now COMPLETELY INERT — the
-    // beneficiary's own registered PayoutAddress, snapshotted atomically
-    // into the durable authoritative Outcome, is the ONLY destination
-    // that governs execution (Economic Disposition Authority — this
-    // ruling's own outcome/bps — is distinct from Destination Authority,
-    // which belongs to the beneficiary alone, never the arbiter's own
-    // request). Deliberately NOT removed from this signature: this SDK
-    // is workspace-internal and unpublished, but 61+ files (SDK, e2e
-    // tests, examples, unit tests) already call this method positionally
-    // — eliminating the parameter outright would be a large, purely
-    // mechanical rename exercise disproportionate to what M8-R's own
-    // mandate (a narrow, one-rail live migration) requires, and it would
-    // not have made the destination MORE authoritative, only differently
-    // shaped. Ambiguity is closed the way the mission's own §5 requires:
-    // not silently — see tests/disputeOutcomeMultisig.test.ts's "wrong
-    // legacy parameter is ignored" cases, which prove this value has
-    // zero effect on where MULTISIG funds go, whatever is supplied here.
-    // Still fully authoritative for LIGHTNING_HODL/SAFE_GUARD_EVM
-    // disputes (unmigrated, out of this mission's scope).
+    // @deprecated for EVERY rail (Sails Core Implementation Program
+    // M8-R, 2026-08-30, extended M8-R2, 2026-09-11 —
+    // docs/DESTINATION_AUTHORITY_ARCHITECTURE.md). This value is now
+    // COMPLETELY INERT regardless of escrow type — the beneficiary's own
+    // registered PayoutAddress is the ONLY destination that governs
+    // execution (Economic Disposition Authority — this ruling's own
+    // outcome/bps — is distinct from Destination Authority, which
+    // belongs to the beneficiary alone, never the arbiter's own
+    // request). For MULTISIG this is snapshotted atomically into the
+    // durable authoritative Outcome (`applyRulingCoreAuthoritative()`);
+    // for LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK it's resolved
+    // fresh at settlement time by `applyRuling()`'s own unchanged
+    // `resolvePayoutAddress()` fallback — different mechanism, same
+    // property (never the arbiter's own supplied value). Deliberately
+    // NOT removed from this signature: this SDK is workspace-internal
+    // and unpublished, but 61+ files (SDK, e2e tests, examples, unit
+    // tests) already call this method positionally — eliminating the
+    // parameter outright would be a large, purely mechanical rename
+    // exercise disproportionate to what either mission's own bounded
+    // mandate requires, and it would not have made the destination MORE
+    // authoritative, only differently shaped. Ambiguity is closed the
+    // way M8-R's own §5 required: not silently — see
+    // tests/destinationAuthorityDisputedRails.test.ts's own "arbiter-
+    // supplied destination is ignored" cases, covering all five rails.
+    // **Correction, M8-R2:** the prior text here read "Still fully
+    // authoritative for LIGHTNING_HODL/SAFE_GUARD_EVM disputes
+    // (unmigrated, out of this mission's scope)" — no longer true, and
+    // its own citation of `tests/disputeOutcomeMultisig.test.ts` was
+    // already stale before this correction (no file by that exact name
+    // exists in this repository).
     releaseToAddress: string | undefined,
     // RFC-021 D9 (2026-08-02) — seller's payout address for SPLIT only
     // (mirrors releaseToAddress's buyer role), same fallback as above.
     // splitBuyerBps has no such fallback — it's a ruling decision, not an
     // address, so it's still required up front for SPLIT.
     //
-    // @deprecated for MULTISIG — see releaseToAddress's own comment above; identical status.
+    // @deprecated for every rail — see releaseToAddress's own comment above; identical status.
     refundToAddress: string | undefined,
     splitBuyerBps: number | undefined,
     // Missão 13 Fase 2 — INV-12 closure. Required, never optional: the
@@ -603,9 +632,11 @@ export class DisputeService {
     // Sails Core Implementation Program M8-R — Mission13 MULTISIG
     // disputed settlement only (mission §2/§38: "no other rail").
     // LIGHTNING_HODL/SAFE_GUARD_EVM/MOCK/WDK_USDT_EVM disputes fall
-    // through to applyRuling() below, byte-for-byte unchanged — this is
-    // a deliberate, disclosed, narrow live-migration boundary, not an
-    // oversight (docs/DESTINATION_AUTHORITY_ARCHITECTURE.md §16).
+    // through to applyRuling() below — this remains a deliberate, narrow
+    // routing boundary (docs/DESTINATION_AUTHORITY_ARCHITECTURE.md §16),
+    // but as of M8-R2 (2026-09-11) both branches now equally ignore any
+    // caller-supplied releaseToAddress/refundToAddress for destination
+    // purposes — see applyRuling()'s own updated header comment.
     const escrowForBranch = await this.repo.findById(dispute.escrowId)
     if (!escrowForBranch) throw new NotFoundError('Escrow', dispute.escrowId)
 
@@ -624,12 +655,15 @@ export class DisputeService {
         escrowForBranch.asset as AssetType,
       )
     } else {
+      // M8-R2 — releaseToAddress/refundToAddress deliberately NOT passed
+      // through: applyRuling() no longer accepts them at all (see its own
+      // header comment). Still accepted by this public method's own
+      // signature below for source compatibility; still inert now for
+      // every rail, not just MULTISIG.
       updated = await this.applyRuling(
         dispute,
         ruling,
-        releaseToAddress,
         arbiterId,
-        refundToAddress,
         splitBuyerBps,
         { authoritySignature, authorityIssuedAt: new Date(authorityIssuedAt), authorityBuyerBps: payload.buyerBps }
       )

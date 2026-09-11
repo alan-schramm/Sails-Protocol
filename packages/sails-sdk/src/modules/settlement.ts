@@ -624,18 +624,27 @@ export class SailsSettlementModule {
   /**
    * Requires an active session AND that the caller is the dispute's
    * assigned arbiter (RFC-007 D4) — the server rejects this otherwise.
-   * `releaseToAddress` is required when `ruling` is `'RELEASE'`.
    *
-   * RFC-021 D9 (2026-08-02) — for `ruling: 'SPLIT'`, all three of
-   * `releaseToAddress` (buyer's payout), `refundToAddress` (seller's
-   * payout), and `splitBuyerBps` (buyer's share, out of 10000 — the
-   * seller gets the exact remainder) are required. Only supported for
-   * escrows backed by MOCK, WDK_USDT_EVM, or MULTISIG — SAFE_GUARD_EVM's
-   * immutable Guard contract and LIGHTNING_HODL's fixed-leaf VtxoScript
-   * each have a real, provider-specific reason they can't represent a
-   * partial payout (see each provider's own source for the full
-   * reasoning); the server returns a clear error for those, not a silent
-   * no-op.
+   * RFC-021 D9 (2026-08-02) — for `ruling: 'SPLIT'`, `splitBuyerBps`
+   * (buyer's share, out of 10000 — the seller gets the exact remainder)
+   * is required — a real ruling decision, not a destination. Only
+   * supported for escrows backed by MOCK, WDK_USDT_EVM, or MULTISIG —
+   * SAFE_GUARD_EVM's immutable Guard contract and LIGHTNING_HODL's
+   * fixed-leaf VtxoScript each have a real, provider-specific reason
+   * they can't represent a partial payout (see each provider's own
+   * source for the full reasoning); the server returns a clear error
+   * for those, not a silent no-op.
+   *
+   * **`releaseToAddress`/`refundToAddress` (2026-08-04, extended
+   * 2026-09-11, M8-R/M8-R2, `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`):
+   * accepted but INERT for every rail** — the beneficiary's own
+   * registered `PayoutAddress` (`setPayoutAddress()` below) is the only
+   * destination that ever governs a ruling's execution. This method no
+   * longer requires either for any ruling, including RELEASE/SPLIT —
+   * that requirement was removed here specifically because enforcing it
+   * client-side, after the server made the value inert, would force
+   * every caller to keep supplying a meaningless placeholder just to
+   * pass this check. Kept in the signature for source compatibility.
    *
    * Missão 13 Fase 2 (INV-12) — `docs/API_STABLE.md`'s own additive-only
    * precedent for this exact method (new params appended at the end,
@@ -657,22 +666,10 @@ export class SailsSettlementModule {
     authoritySignature?: string,
     authorityIssuedAt?: string,
   ): Promise<Dispute> {
-    if (ruling === "SPLIT") {
-      if (
-        !releaseToAddress ||
-        !refundToAddress ||
-        splitBuyerBps === undefined
-      ) {
-        throw new SailsValidationError(
-          'resolveDispute() with ruling "SPLIT" requires releaseToAddress, refundToAddress, and splitBuyerBps',
-        );
-      }
-    } else if (ruling === "RELEASE") {
-      if (!releaseToAddress) {
-        throw new SailsValidationError(
-          'resolveDispute() with ruling "RELEASE" requires releaseToAddress',
-        );
-      }
+    if (ruling === "SPLIT" && splitBuyerBps === undefined) {
+      throw new SailsValidationError(
+        'resolveDispute() with ruling "SPLIT" requires splitBuyerBps',
+      );
     }
     if (!authoritySignature || !authorityIssuedAt) {
       throw new SailsValidationError(

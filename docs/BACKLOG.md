@@ -2072,6 +2072,59 @@ or hidden operational conventions.
     marked resolved. See the implementation mission's own report for the
     full evidence chain.
 
+    **Status update (2026-09-11, F1-R Destination Authority Conformance
+    — Remaining Disputed Rails).** The residual named directly above is
+    now closed for RELEASE and SPLIT on every rail: `dispute.service.ts`'s
+    `applyRuling()` (LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK) no
+    longer accepts a destination parameter at all — it always lets
+    `escrowService`'s own `resolvePayoutAddress()` resolve each
+    beneficiary's registered `PayoutAddress`, the identical
+    beneficiary-controlled, durably-bound-before-signing mechanism
+    already proven for the cooperative path. REFUND was found, on direct
+    inspection, to already be conformant on every rail before this
+    mission touched anything: LIGHTNING_HODL/SAFE_GUARD_EVM's own
+    `buildUnsignedRefund()` implementations never accepted an external
+    destination parameter at all (they derive the seller's refund
+    address directly from their own client-submitted pubkey — a
+    different but equally beneficiary-controlled mechanism); MOCK/
+    WDK_USDT_EVM's refund paths have no caller-facing destination
+    concept either (WDK_USDT_EVM returns escrowed funds to the
+    protocol's own treasury, a separate, already-disclosed custody
+    limitation, not a Destination Authority gap). `Disputes.tsx`'s own
+    `DEMO_ADDR` map (the concrete Reference UI surface named above) is
+    removed entirely — the arbiter console no longer supplies a
+    destination for any ruling. MULTISIG's own disputed path
+    (`applyRulingCoreAuthoritative()`) is untouched. **F1 is now CLOSED**
+    for every currently-implemented settlement path (cooperative and
+    disputed, all five rails) — see the implementation mission's own
+    report for the full evidence chain and test list.
+
+    **Correction (2026-09-12, F1-R Evidence Completion — CTO gate).** The
+    paragraph above is preserved verbatim, not deleted. Its description
+    of the *fix* (`applyRuling()`'s own change, the REFUND findings, the
+    `Disputes.tsx` removal) was and remains accurate. Its **claim of
+    evidence** was premature: at the time it was written (PR #126), no
+    explicit per-rail adversarial matrix existed — LIGHTNING_HODL's own
+    disputed RELEASE binding/retry/rotation was proven directly, and MOCK
+    SPLIT was proven via the full lifecycle test, but SAFE_GUARD_EVM's
+    own disputed RELEASE, WDK_USDT_EVM's RELEASE/REFUND/SPLIT, MOCK's own
+    direct RELEASE/REFUND, and an explicit "arbiter-supplied value has no
+    effect" case for LIGHTNING_HODL/SAFE_GUARD_EVM's own REFUND
+    derivation were not yet independently evidenced — the CTO's own gate
+    on PR #126 caught exactly this gap ("implementation shape accepted,
+    evidence gap only"). That gap is now closed: a full per-rail matrix
+    (`tests/disputeDestinationAuthorityConformance.test.ts`'s per-rail
+    describe blocks, plus one new adversarial case each in
+    `tests/lightningHodlProvider.test.ts`/`tests/safeGuardEvmProvider.test.ts`)
+    proves every applicable cell — RELEASE/REFUND/SPLIT, binding, retry,
+    fail-closed — for all five rails, marking N/A precisely where a
+    property is structurally absent (e.g. SPLIT for LIGHTNING_HODL/
+    SAFE_GUARD_EVM; a separate destination-fail-closed case for their own
+    pubkey-derived REFUND) rather than inventing one. **F1 CLOSED now
+    rests on complete evidence**, not just an accepted implementation
+    shape — see the evidence-completion mission's own report for the
+    full per-rail matrix and exact test names.
+
     20.2. **Reference Wallet Day-0 capability integration coverage.**
     Spark is deliberately excluded from the Reference UI's asset picker
     (`packages/sails-ui/src/data/mock.ts:29-32`) despite being Day-0

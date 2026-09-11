@@ -329,6 +329,27 @@ describe('LightningHodlProvider — Phase 2 signature collection (buildUnsignedR
     expect(typeof toAddress).toBe('string')
   })
 
+  // Sails Core Implementation Program M8-R2 (Destination Authority
+  // Conformance — per-rail evidence matrix, 2026-09-12). This provider's
+  // own real method signature takes only ONE parameter (`escrow`) — a
+  // caller/arbiter-supplied destination has no PLACE to go, structurally.
+  // This proves that holds even if a caller (e.g. a future refactor of
+  // escrow-pending-tx.ts, or a differently-typed caller exploiting
+  // structural typing) passes a second argument anyway: JS simply never
+  // reads it, so the real returned destination is identical either way —
+  // still derived from the seller's own submitted pubkey, never the
+  // supplied value.
+  it('M8-R2: a caller-supplied second argument to buildUnsignedRefund() has NO effect — the seller-pubkey-derived address is unchanged', async () => {
+    const { lightningHodlProvider } = loadProvider({ ARKADE_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const { toAddress: withoutArg } = await lightningHodlProvider.buildUnsignedRefund({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+    const { toAddress: withBogusArg } = await (lightningHodlProvider.buildUnsignedRefund as any)(
+      { ...baseEscrow, status: 'FUNDS_LOCKED' },
+      'attacker-controlled-script-hex'
+    )
+    expect(withBogusArg).toBe(withoutArg)
+    expect(withBogusArg).not.toBe('attacker-controlled-script-hex')
+  })
+
   it('disputed refund: arbiter pre-signs immediately, only the seller remains a required client signer', async () => {
     const { lightningHodlProvider } = loadProvider({ ARKADE_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const { requiredSigners } = await lightningHodlProvider.buildUnsignedRefund({ ...baseEscrow, status: 'DISPUTED', triggeredBy: 'arb-1' })

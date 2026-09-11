@@ -146,6 +146,23 @@ const escrowFundingEvidence = makeTable('escrowFundingEvidence')
 // is a real answer too" convention this file already applies to
 // feePolicyVersion/vouch above.
 const escrowParticipantKeys = makeTable('escrowParticipantKey')
+// M8-R2 (2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) — a
+// dispute ruling's own RELEASE/REFUND/SPLIT settlement action no longer
+// accepts a caller/arbiter-supplied destination (see dispute.service.ts's
+// applyRuling()); it always resolves each beneficiary's own registered
+// PayoutAddress via this table instead. Real findUnique keyed by
+// {participantId, asset} (Prisma's own compound-unique shape), same
+// "every table round-trips for real" convention this file already uses.
+const payoutAddressRows = new Map<string, { participantId: string; asset: string; address: string }>()
+const payoutAddresses = {
+  findUnique: jest.fn(async ({ where }: { where: { participantId_asset: { participantId: string; asset: string } } }) => {
+    const key = `${where.participantId_asset.participantId}:${where.participantId_asset.asset}`
+    return payoutAddressRows.get(key) ?? null
+  }),
+}
+function registerPayoutAddress(participantId: string, asset: string, address: string) {
+  payoutAddressRows.set(`${participantId}:${asset}`, { participantId, asset, address })
+}
 
 // intentEvent's hash-chain (writeIntentEvent(), core/intent-engine.ts) needs
 // findFirst ordered by createdAt desc, not just any match — the generic
@@ -223,6 +240,7 @@ jest.mock('../src/common/database', () => ({
     escrowParticipantKey: escrowParticipantKeys,
     escrowFundingEvidence: escrowFundingEvidence,
     feePolicyVersion: feePolicyVersions,
+    payoutAddress: payoutAddresses,
     dispute: disputes,
     intent: intents,
     intentEvent: intentEvents,
@@ -513,18 +531,37 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     await escrowService.lockFunds(escrow.id, 'seller-1')
     await flush()
 
+    // M8-R2 — the buyer's and seller's own registered PayoutAddress rows,
+    // the ONLY destinations this ruling's settlement action may use.
+    registerPayoutAddress('buyer-1', 'USDT_ERC20', '0xBuyerRegisteredAddress')
+    registerPayoutAddress('seller-1', 'USDT_ERC20', '0xSellerRegisteredAddress')
+
     const disputeService = new DisputeService(new TrustedArbitratorProvider(['arbiter-1']))
     const dispute = await disputeService.raiseDispute(trade.id, 'buyer-1', 'PIX payment only partially confirmed')
     expect(escrows.rows.get(escrow.id)?.status).toBe('DISPUTED')
 
+    // M8-R2 — a real address is still supplied here (as a legacy/old
+    // caller would) specifically to prove it has NO effect: the
+    // MockSettlementProvider's own real splitFunds() bakes each
+    // destination into its returned txId (see the assertion below), so a
+    // wrong/attacker value here would be directly observable if it were
+    // ever actually used instead of the registered addresses above.
     const [splitSig, splitIssuedAt] = signArbiterDecision(dispute, 'arbiter-1', 'SPLIT', 6000)
-    const resolved = await disputeService.resolveDispute(dispute.id, 'arbiter-1', 'SPLIT', '0xBuyerAddress', '0xSellerAddress', 6000, splitSig, splitIssuedAt)
+    const resolved = await disputeService.resolveDispute(dispute.id, 'arbiter-1', 'SPLIT', '0xAttackerBuyerAddress', '0xAttackerSellerAddress', 6000, splitSig, splitIssuedAt)
     await flush()
 
     expect(resolved.status).toBe('RESOLVED')
     expect(resolved.ruling).toBe('SPLIT')
     expect(escrows.rows.get(escrow.id)?.status).toBe('SPLIT')
-    expect(escrows.rows.get(escrow.id)?.txReleaseId).toMatch(/mock-split-.*,mock-split-/) // real 2-transfer MockSettlementProvider.splitFunds()
+    // Real 2-transfer MockSettlementProvider.splitFunds() — each txId
+    // embeds the first 8 chars of the address it actually paid out to
+    // (escrow-providers.ts's own MockSettlementProvider.splitFunds()).
+    // Proves the REGISTERED addresses were used, not the ones supplied
+    // to resolveDispute() above.
+    const txReleaseId = escrows.rows.get(escrow.id)?.txReleaseId as string
+    expect(txReleaseId).toContain('0xBuyerR') // '0xBuyerRegisteredAddress'.slice(0, 8)
+    expect(txReleaseId).toContain('0xSeller') // '0xSellerRegisteredAddress'.slice(0, 8)
+    expect(txReleaseId).not.toContain('Attacker')
     expect(trades.rows.get(trade.id)?.status).toBe('COMPLETED')
 
     // RFC-021 D9 — neither party "lost" a split ruling; both score NEUTRAL.
