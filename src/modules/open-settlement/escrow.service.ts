@@ -531,6 +531,15 @@ export class EscrowService {
     return updated
   }
 
+  // `toAddress` is a TRUSTED-INTERNAL-CALLER value, never a raw HTTP
+  // request field — see escrow-lifecycle.ts's resolvePayoutAddress() own
+  // "AUTHORITY BOUNDARY" comment (M8-R2, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md).
+  // settlement.routes.ts's `/release` always passes undefined here, so a
+  // cooperative release resolves the buyer's own registered PayoutAddress.
+  // dispute.service.ts's legacy applyRuling() (LIGHTNING_HODL/
+  // SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK disputes, unmigrated) still passes
+  // the arbiter's own releaseToAddress here — a disclosed residual gap,
+  // not fixed by M8-R2 (out of that mission's bounded scope).
   async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'COMPLETED')

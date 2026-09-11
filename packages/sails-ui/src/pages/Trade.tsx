@@ -18,6 +18,7 @@ import { ChatWindow } from '../components/chat/ChatWindow'
 import { AgentRiskCard } from '../components/agent/AgentRiskCard'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { Lock, Banknote, Unlock, ArrowLeft } from 'lucide-react'
 import { formatDateTime } from '../lib/format'
@@ -25,30 +26,17 @@ import { formatByCurrency } from '../lib/currency'
 import { detectRiskLocally } from '../lib/socialEngineering'
 import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
 
-// A real buyer address doesn't exist yet in this reference implementation
-// (wdk-settlement.provider.ts's own doc comment: no per-user EVM address
-// onboarding) — same gap this whole project already discloses. Demo-only
-// placeholder; only MockSettlementProvider actually accepts an arbitrary
-// string here (WDK_USDT_EVM validates a real EVM address, MULTISIG/
-// LIGHTNING_HODL below use their own dedicated hex-script placeholder,
-// since a real bitcoin/Ark address wouldn't survive this reference
-// implementation's own address-format checks either).
-const DEMO_RELEASE_ADDRESS = 'demo-buyer-payout-address'
-
-// MULTISIG's Phase 2 initiateRelease() expects a real bech32 testnet
-// address (bitcoinjs-lib's Psbt.addOutput() decodes it); LIGHTNING_HODL's
-// expects a raw script hex instead (lightning-hodl.provider.ts's own
-// header comment / buildUnsignedSpend()). Both demo-only placeholders —
-// see DEMO_RELEASE_ADDRESS's own comment above for the broader gap.
-const DEMO_RELEASE_ADDRESS_MULTISIG = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
-const DEMO_RELEASE_SCRIPT_HEX_ARKADE = '0014' + '00'.repeat(20)
-
-// SAFE_GUARD_EVM's own signature-collection path (safe-guard-evm.provider.ts's
-// buildUnsignedRelease()/releaseFunds()) encodes toAddress into a real
-// ethers.js UserOperation — an all-lowercase hex address skips EIP-55
-// checksum validation entirely (ethers only enforces checksum on mixed-case
-// input), so this is a valid placeholder unlike DEMO_RELEASE_ADDRESS above.
-const DEMO_RELEASE_ADDRESS_EVM = '0x000000000000000000000000000000000000dead'
+// Sails Core Implementation Program M8-R2 (Destination Authority
+// Conformance, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) —
+// this page used to select one of several hardcoded demo payout
+// addresses here and pass it as the release destination. That was Model
+// E (caller-supplied execution-time destination), the exact pattern that
+// architecture document adversarially rejects: the seller (who triggers
+// release) has no Destination Authority over the buyer's own funds.
+// Removed entirely — handleReleaseFunds() below no longer supplies a
+// toAddress at all; the server always resolves the buyer's own
+// registered PayoutAddress (see the "Payout address" card further down,
+// which lets the buyer register it via sailsClient.settlement.setPayoutAddress()).
 
 // decryptIncoming/toUiMessage/toUiMessageFromEvent moved to
 // lib/tradeMessages.ts (2026-08-11, codebase-quality pass) — pure
@@ -143,6 +131,14 @@ export function Trade() {
   // on why null is a distinct "not yet observed" state, never guessed.
   const [counterpartyOnline, setCounterpartyOnline] = useState<boolean | null>(null)
   const channelRef = useRef<WebSocketChannel | null>(null)
+  // M8-R2 (2026-09-11) — the buyer's own registered payout destination
+  // for this trade's asset. null means "checked, none registered yet"
+  // (getPayoutAddress() 404s — see this page's own fetch effect below),
+  // distinct from undefined ("not checked yet"), the same non-guessed-
+  // state discipline UserAvatar.tsx already uses for presence.
+  const [payoutAddress, setPayoutAddress] = useState<{ address: string } | null | undefined>(undefined)
+  const [payoutAddressInput, setPayoutAddressInput] = useState('')
+  const [savingPayoutAddress, setSavingPayoutAddress] = useState(false)
 
   // Real fetch — openp2p.getTrade() + identity.get() for both real
   // parties + settlement.get() for the real escrow (if one exists yet)
@@ -234,6 +230,35 @@ export function Trade() {
   const counterpartyPublicKeyHex = isBuyer ? seller?.publicKey : isSeller ? buyer?.publicKey : undefined
   const counterpartyName = isBuyer ? seller?.displayName : isSeller ? buyer?.displayName : undefined
 
+  // M8-R2 — only the buyer needs to see/manage this (they're the
+  // beneficiary of a release for this trade); re-checked whenever the
+  // trade's asset or the logged-in user changes. A 404 (no PayoutAddress
+  // registered for this participant/asset yet) is the normal, expected
+  // "not registered" state, not an error to surface.
+  useEffect(() => {
+    if (!isBuyer || !user || !trade) return
+    let cancelled = false
+    sailsClient.settlement.getPayoutAddress(user.id, trade.asset)
+      .then((view) => { if (!cancelled) setPayoutAddress({ address: view.address }) })
+      .catch(() => { if (!cancelled) setPayoutAddress(null) })
+    return () => { cancelled = true }
+  }, [isBuyer, user, trade])
+
+  const handleSetPayoutAddress = async () => {
+    if (!trade || !payoutAddressInput.trim()) return
+    setSavingPayoutAddress(true)
+    try {
+      const record = await sailsClient.settlement.setPayoutAddress({ asset: trade.asset, address: payoutAddressInput.trim() })
+      setPayoutAddress({ address: record.address })
+      setPayoutAddressInput('')
+      toast.success('Endereço de recebimento salvo')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Falha ao salvar endereço')
+    } finally {
+      setSavingPayoutAddress(false)
+    }
+  }
+
   const events = useMemo(() => {
     if (!escrow) return []
     // No dedicated escrow-history endpoint is wired into this SDK yet —
@@ -285,11 +310,12 @@ export function Trade() {
     // still needs to open the page once to trigger their own auto-sign
     // (see the escrow-fetch effect above).
     if (escrow.type === 'MULTISIG' || escrow.type === 'LIGHTNING_HODL' || escrow.type === 'SAFE_GUARD_EVM') {
-      const toAddress =
-        escrow.type === 'MULTISIG' ? DEMO_RELEASE_ADDRESS_MULTISIG
-          : escrow.type === 'LIGHTNING_HODL' ? DEMO_RELEASE_SCRIPT_HEX_ARKADE
-            : DEMO_RELEASE_ADDRESS_EVM
-      await sailsClient.settlement.initiateRelease(escrow.id, toAddress)
+      // No toAddress passed — the server resolves the buyer's own
+      // registered PayoutAddress (M8-R2, see this file's own header
+      // comment above). If the buyer hasn't registered one yet, this
+      // throws a clear error caught by withGuard() below, surfaced as a
+      // toast — never a silent/guessed destination.
+      await sailsClient.settlement.initiateRelease(escrow.id)
       if (user) await signAndSubmitPendingTransactionIfNeeded(escrow.type, escrow.id, user.id).catch(ignoreExceptWrongPassphrase)
       const e = await sailsClient.settlement.get(escrow.id)
       setEscrow(e)
@@ -300,7 +326,7 @@ export function Trade() {
       )
       return
     }
-    const e = await sailsClient.settlement.release(escrow.id, DEMO_RELEASE_ADDRESS)
+    const e = await sailsClient.settlement.release(escrow.id)
     setEscrow(e)
     toast.success('Fundos liberados — trade concluído!')
   })
@@ -471,6 +497,41 @@ export function Trade() {
                   O vendedor não informou os dados de pagamento aqui — combine pelo chat.
                 </p>
               )}
+            </Card>
+          )}
+
+          {isBuyer && (
+            // M8-R2 (2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md)
+            // — this is the BENEFICIARY registering their OWN destination
+            // (sailsClient.settlement.setPayoutAddress()), never the seller
+            // choosing it. The seller has no UI to type or select this
+            // value anywhere in this page — see handleReleaseFunds()'s own
+            // comment above for why that's now a server-enforced rule, not
+            // just a UI convention.
+            <Card className="p-4 mt-3 border border-brand-orange-accent/30">
+              <p className="text-xs font-semibold text-brand-text-muted mb-2">
+                Seu endereço de recebimento — {ASSET_LABELS[trade.asset]}
+              </p>
+              {payoutAddress === undefined ? (
+                <p className="text-xs text-brand-text-muted">Verificando...</p>
+              ) : payoutAddress ? (
+                <p className="text-sm font-mono text-brand-text break-all mb-2">{payoutAddress.address}</p>
+              ) : (
+                <p className="text-xs text-brand-text-muted mb-2">
+                  Nenhum endereço registrado ainda — a liberação dos fundos vai falhar até você registrar um.
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  value={payoutAddressInput}
+                  onChange={(e) => setPayoutAddressInput(e.target.value)}
+                  placeholder={payoutAddress ? 'Atualizar endereço' : 'Seu endereço para receber'}
+                  className="text-sm"
+                />
+                <Button onClick={handleSetPayoutAddress} disabled={savingPayoutAddress || !payoutAddressInput.trim()} className="shrink-0 py-2 text-sm">
+                  {savingPayoutAddress ? 'Salvando...' : payoutAddress ? 'Atualizar' : 'Registrar'}
+                </Button>
+              </div>
             </Card>
           )}
 

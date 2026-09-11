@@ -498,6 +498,26 @@ export async function verifyEscrowEventChain(escrowId: string): Promise<EscrowCh
 // own registered PayoutAddress for this escrow's asset; absent BOTH,
 // throws a clear, specific error naming exactly what's missing rather
 // than guessing.
+//
+// AUTHORITY BOUNDARY (Sails Core Implementation Program M8-R2,
+// 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) — this
+// function's own "explicit wins" rule is a TRUSTED-INTERNAL-CALLER
+// contract, not a caller-facing one: `explicitAddress` must only ever be
+// a value the calling code has ALREADY independently verified/authorized
+// as belonging to `participantId`'s own Destination Authority (e.g. a
+// durable Outcome-commit snapshot, dispute.service.ts's own
+// `commitAuthoritativeDisputeRuling()` path for MULTISIG). No HTTP route
+// serving an untrusted, request-supplied destination for the cooperative
+// release/refund path may forward a raw request body value here —
+// settlement.routes.ts's `/release` and `/initiate-release` handlers
+// deliberately always pass `undefined`, so this function's fallback (the
+// participant's own registered PayoutAddress) is the only path a
+// cooperative release can ever resolve through. This function's own
+// signature is intentionally unchanged — see that mission's own report
+// for why relaxing this contract (e.g. requiring every explicit value to
+// re-verify its own provenance here) was rejected as unnecessary
+// complexity for what is, and remains, a small, explicit trust boundary
+// enforced entirely at each call site.
 export async function resolvePayoutAddress(explicitAddress: string | undefined, participantId: string, asset: AssetType): Promise<string> {
   if (explicitAddress) return explicitAddress
   const registered = await payoutAddressService.getPayoutAddress(participantId, asset)

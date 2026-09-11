@@ -50,6 +50,13 @@
  *     There is also no `Settlement` type anywhere in this codebase; the
  *     real return value is the `Escrow` `settlement.release()` itself
  *     returns.
+ *     Corrected 2026-09-11 (M8-R2, Destination Authority Conformance):
+ *     the "requires toAddress with no default" claim above is now stale
+ *     — the route accepts but ignores it (settlement.ts's own release()
+ *     comment has the full account). toAddress stays in this method's
+ *     signature for source compatibility but is optional; the buyer's
+ *     own registered PayoutAddress is what actually governs, never a
+ *     value supplied through this call.
  */
 import type { SailsTransport } from './transport'
 import { SailsNotImplementedError } from './errors'
@@ -177,8 +184,13 @@ export class SailsIntentFacade {
    * a breaking change). Resolves `intentId` to its Trade/Escrow the same
    * way `dispute()` below already does, then calls the one real release
    * route directly.
+   *
+   * `toAddress` made optional 2026-09-11 (M8-R2) — see this file's own
+   * header correction above. Passing it has no effect; the buyer's own
+   * registered `PayoutAddress` (`settlement.setPayoutAddress()`) is what
+   * actually determines where a release pays out.
    */
-  async releaseAsset(intentId: string, toAddress: string): Promise<Escrow> {
+  async releaseAsset(intentId: string, toAddress?: string): Promise<Escrow> {
     const trade = await this.transport.get<Trade>(`/v1/openp2p/trades/by-intent/${intentId}`, undefined, true)
     if (!trade.escrowId) {
       throw new SailsNotImplementedError(

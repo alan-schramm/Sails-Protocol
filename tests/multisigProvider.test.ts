@@ -619,6 +619,57 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     ).rejects.toThrow('no recorded funding txid')
   })
 
+  // Sails Core Implementation Program M8-R2 (Destination Authority
+  // Conformance, 2026-09-11) — provider-boundary proof (adversarial
+  // item 8): even a genuinely beneficiary-authorized destination (real
+  // Destination Authority, resolved from a real registered PayoutAddress
+  // — never a caller-supplied override) must still be REJECTED by the
+  // rail if it's malformed for that rail. Protocol truth (who owns
+  // Destination Authority) and Provider responsibility (translating the
+  // bound reference into a rail-valid execution target) are independent
+  // — a resolved-and-authorized reference is not automatically a
+  // valid one. `bitcoinjs-lib`'s own address decoding is the real,
+  // unmocked mechanism doing the rejecting here, exactly like the
+  // pubkey-length check above.
+  it('M8-R2: buildUnsignedRelease fails closed when the resolved destination is not a valid address for this network — wrong address family (an EVM-shaped hex string)', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    const txid = '5'.repeat(64)
+    mockUtxoFetch(txid, 100_000)
+    await expect(
+      multisigProvider.buildUnsignedRelease(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+        '0x000000000000000000000000000000000000dead' // an EVM address — wrong family for a BTC output
+      )
+    ).rejects.toThrow()
+  })
+
+  it('M8-R2: buildUnsignedRelease fails closed when the resolved destination is a mainnet address on a testnet-configured network — real network mismatch, not just a malformed string', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    const txid = '6'.repeat(64)
+    mockUtxoFetch(txid, 100_000)
+    await expect(
+      multisigProvider.buildUnsignedRelease(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+        'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx' // real mainnet bech32 address — this provider is configured testnet
+      )
+    ).rejects.toThrow()
+  })
+
+  it('M8-R2: buildUnsignedRelease fails closed on a plain malformed string', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    const txid = '7'.repeat(64)
+    mockUtxoFetch(txid, 100_000)
+    await expect(
+      multisigProvider.buildUnsignedRelease(
+        { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'PAYMENT_PENDING' },
+        'not-a-real-address'
+      )
+    ).rejects.toThrow()
+  })
+
   // Sails Core Implementation Program M8-RF (Destination Consistency,
   // 2026-08-31) — REPLACES the prior test of the same name area, which
   // proved buildUnsignedRefund() DERIVED the seller's refund address
