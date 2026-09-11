@@ -123,12 +123,20 @@ only:
 | **USDC** | `ETHEREUM`, `BASE`, `OPTIMISM`, `ARBITRUM`, `AVALANCHE`, `POLYGON` (6) |
 | **XAUT** | `ETHEREUM` (1) |
 
-**25 total rows.** Real registered Providers exist today for exactly
-`{BTC,BITCOIN_L1}` (MULTISIG), `{BTC,ARKADE}` (LIGHTNING_HODL — see §9
-on why this is `ARKADE`, not `LIGHTNING`), and `{USDT,ETHEREUM}`
-(WDK_USDT_EVM, testnet, server-custodial); `{USDT,TRON}` has schema-only
-representation, zero provider. The remaining ~21 rows have zero
-providers today — all valid, registered scope, none an error.
+**25 total rows.** No `SettlementScope`/Provider registry is implemented
+yet (§12) — concrete, current provider implementations correspond to
+these scopes: `{BTC,BITCOIN_L1}` → MULTISIG, `{BTC,ARKADE}` →
+LIGHTNING_HODL (see §11 on why this is `ARKADE`, not `LIGHTNING`), and
+`{USDT,ETHEREUM}` → WDK_USDT_EVM (testnet, server-custodial);
+`{USDT,TRON}` has schema-only representation, zero provider. The
+remaining ~21 rows have zero implementations today — all valid Day-0
+scope under this architecture, none an error.
+
+*(2026-09-11 correction: this row previously read "Real registered
+Providers exist today," implying a live `SettlementScope` registry.
+No such registry is implemented — §12 item 1 is the first step that
+would create one. The sentence above corrects this to describe current
+code reality without implying the registry exists.)*
 
 ## 6. Capability, Property, and Eligibility — Four Layers, Never Collapsed
 
@@ -271,13 +279,29 @@ authorized here):
    Provider registry **additively** — zero changes to `AssetType`,
    `EscrowType`, or `prisma/schema.prisma`.
 2. QVAC's schema is wired to derive its asset/rail enum from the new
-   registry instead of hand-duplicating `AssetType` (closes `BACKLOG.md`
-   20.5).
-3. The Reference UI's Day-0 scope display is wired to the new registry
-   (closes `BACKLOG.md` 20.2).
+   registry instead of hand-duplicating `AssetType`. Wiring QVAC to the
+   authoritative asset/rail source is the **expected implementation
+   path** to resolve `BACKLOG.md` 20.5; **20.5 closes only after
+   implementation and evidence confirm contract drift is eliminated** —
+   this step alone does not close it.
+3. The Reference UI's Day-0 scope display is wired to the new registry.
+   Wiring the Reference UI to `SettlementScope` **removes the
+   scope-visibility/product-truth defect and is a prerequisite/input**
+   to `BACKLOG.md` 20.2, but **does not itself close** Day-0 capability
+   integration coverage. **20.2 remains OPEN** until the required
+   journeys/capabilities are actually implemented and evidenced to
+   their claimed maturity.
 4. Legacy enum deprecation is explicitly **out of scope** for any near
    mission — a separate, later, CTO-authorized step, contingent on the
    `LN_BTC`/`STACKS`/`RSK_BTC` Product Decisions above.
+
+*(2026-09-11 correction: items 2 and 3 previously implied that wiring
+QVAC or the Reference UI to the new registry would itself "close"
+20.5/20.2. Corrected per CTO review — ARCH-FREEZE-R1 — to state that
+wiring is a necessary but not sufficient step; both items close only
+once implementation is complete and evidenced against their originally
+claimed maturity, consistent with §6/§7's evidence-never-automatic
+discipline applied to Backlog closure itself.)*
 
 ## 13. Non-Goals of This ADR
 
