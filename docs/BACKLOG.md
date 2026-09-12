@@ -2301,13 +2301,17 @@ obligation" is defined anywhere in this repository.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
 
-22. **Reference Components / White-label / Sails Web product layering —
+22. **Reference Components / White-label / Sails Market product layering —
     institutionalized, not implemented (2026-09-12).** `PRODUCT-DIRECTION-FREEZE-1`
     froze the three-layer product model (Reference Components /
-    White-label P2P Base / Sails Web) and the principles governing it —
-    full text: `docs/PROJECT_CONTEXT.md` §2D. This item records the
-    resulting implementation-facing backlog delta; none of it is closed
-    by the freeze itself:
+    White-label P2P Base / Sails Market) and the principles governing
+    it — full text: `docs/PROJECT_CONTEXT.md` §2D. **Naming note
+    (2026-09-12, `PRODUCT-DIRECTION-FREEZE-1-NAMING`):** the former
+    working label "Sails Web" is superseded by "Sails Market" for the
+    commercial product; "Sails Reference Web" is a separate,
+    non-commercial architectural role (§2D) introduced the same day.
+    This item records the resulting implementation-facing backlog
+    delta; none of it is closed by the freeze itself:
 
     - **FundingRequest UX — proven concrete gap (source-traced,
       `REFERENCE-UI-REALITY-1`), corrected scope (2026-09-12,
@@ -2340,7 +2344,7 @@ obligation" is defined anywhere in this repository.
       are single-deployment hardcoded.
     - **Dogfooding evidence obligation.** §2D item 3's non-privilege
       principle is not yet accompanied by any concrete evidence that
-      Satsails Wallet/Sails Web actually exercise only public SDK/API
+      Satsails Wallet/Sails Market actually exercise only public SDK/API
       surfaces — no audit for this has been performed.
     - **Private Markets composition proof.** §2D item 12 classifies
       Private Markets as a composition candidate over existing

@@ -285,7 +285,7 @@ enables and the explicit non-authorization of any such change here.
 
 ---
 
-## 2D. Product Decision — Reference Components / White-label / Sails Web Product Layering (2026-09-12)
+## 2D. Product Decision — Reference Components / White-label / Sails Market Product Layering (2026-09-12)
 
 **Status: institutionalized, product-layering only. No UI, SDK, or
 protocol change is authorized or made by this section.** Origin: CTO
@@ -325,7 +325,7 @@ layer rather than treating a non-existent document as prior art.
   is not ("stable semantics, replaceable edges" — the same discipline
   item 7 below extends from `PRINCIPLES.md`'s Interface Agnostic
   principle, applied here at the component level). A component must
-  remain reusable across Sails Web, white-label
+  remain reusable across Sails Market, white-label
   deployments, potentially other web/mobile interfaces, and tests/
   Storybook/reference demonstrations without every component owning its
   own transport/network integration. **Must not embed Sails commercial
@@ -336,67 +336,109 @@ layer rather than treating a non-existent document as prior art.
   that preserves Sails economic semantics. **Must not redefine**
   canonical Product Scope, Asset/SettlementRail meaning, custody
   semantics, finality, protocol authority rules, or evidence truth.
-- **Layer C — Sails Web.** The official Sails commercial product,
-  progressively composing OpenP2P/OpenLiquidity/OpenAgents/identity-
-  reputation/OTC/private markets/richer coordination surfaces. **May
-  differentiate aggressively at product level. Must not gain privileged
-  protocol semantics or private integration paths unavailable in
-  principle to third parties.**
+- **Layer C — Sails Market.** **Renamed (2026-09-12,
+  `PRODUCT-DIRECTION-FREEZE-1-NAMING`) — previously "Sails Web" in this
+  section; superseded, not a second concept.** The official first-party
+  commercial composition layer: Sails Protocol's official first-party
+  web product, initially centered on OpenP2P and capable of
+  progressively composing OpenLiquidity/OpenAgents/OTC/Private
+  Markets/identity-reputation/richer coordination surfaces. Public
+  positioning (product name + tagline, not protocol semantics): "Sails
+  Market — Economic Coordination." **May differentiate aggressively at
+  product level. Must not gain privileged protocol semantics or private
+  integration paths unavailable in principle to third parties.** Sails
+  Protocol itself is not renamed by this decision.
 
 No conflict found against frozen architecture, `PRINCIPLES.md`, or
 `BACKLOG.md` — formalized as stated.
 
-**Satsails Wallet / Sails Web relationship — RESOLVED (correction,
-2026-09-12, `PRODUCT-DIRECTION-FREEZE-1-CORRECTION`).** The prior
-version of this note left this relationship as an open Product
-Decision — corrected here, not silently: **Satsails Wallet and Sails
-Web are distinct first-party products.**
+**Satsails Wallet / Sails Market relationship — RESOLVED (correction,
+2026-09-12, `PRODUCT-DIRECTION-FREEZE-1-CORRECTION`; naming finalized
+the same day, `PRODUCT-DIRECTION-FREEZE-1-NAMING`).** The prior version
+of this note left this relationship as an open Product Decision —
+corrected here, not silently: **Satsails Wallet and Sails Market are
+distinct first-party products.**
 
-- **Satsails Wallet** = the first-party wallet/mobile product and
-  reference implementation/distribution surface — `docs/PROJECT_CONTEXT.md`
-  §3's existing "first reference implementation, first production
-  distribution surface, first multi-rail showcase" framing, unchanged.
-- **Sails Web** = a distinct first-party web product and broader
-  market/coordination composition surface (Layer C).
+- **Satsails Wallet** = first-party mobile/wallet product, reference
+  implementation/distribution surface, multi-rail wallet experience —
+  `docs/PROJECT_CONTEXT.md` §3's existing "first reference
+  implementation, first production distribution surface, first
+  multi-rail showcase" framing, unchanged.
+- **Sails Market** = first-party web product and broader economic-
+  coordination/market surface (Layer C) — may compose multiple Sails
+  modules, may differentiate commercially, does not define protocol
+  truth, receives no semantic privilege.
 - Both consume Sails Protocol/modules through the same semantic/public
   integration boundaries available in principle to third parties.
   Neither defines protocol truth. Neither gains semantic privilege.
-  They may share SDKs, components, design language, and capabilities
-  without becoming the same product.
+  They may share SDKs, Reference Components, design system,
+  capabilities/modules, identity/reputation surfaces, and settlement
+  primitives without becoming one product.
 
-**Institutional topology** (a product-capability relationship, not
-forced runtime inheritance — White-label is not necessarily a runtime
-parent of Wallet/Web if implementation structure differs):
+**Sails Reference Web — introduced (2026-09-12,
+`PRODUCT-DIRECTION-FREEZE-1-NAMING`).** An architectural/internal role,
+**not a commercial product name**, for the reusable/reference web
+implementation surface. Its role: reference integration, demonstrative
+flows, reusable examples, conformance/integration support, proving
+SDK/component interoperability. It must not be presented publicly as
+the main commercial brand unless a future Product Decision changes
+that. It is **not** a second commercial layer alongside Sails Market —
+it is a reference composition built from the same reusable layer (§8
+below extends "Reference UI role" to name this concretely) and is not
+a mandatory parent of Sails Market, Satsails Wallet, or any other
+product.
+
+**Institutional topology — corrected (2026-09-12,
+`PRODUCT-DIRECTION-FREEZE-1-NAMING`).** The prior linear diagram visually
+implied White-label P2P Base is a forced parent of every first-party
+and third-party product, even though the accompanying text already said
+otherwise — corrected so the diagram matches the text:
 
 ```
 Sails Protocol
-      |
-      v
-Modules / SDK / Reference Components
-      |
-      v
-White-label P2P Base
-      |
-      v
-First-party and third-party products
-
-Satsails Wallet   Sails Web   Partner Apps   Other Apps
+        |
+        v
+Modules / SDK / Product-facing Contracts
+        |
+        v
+Reusable Reference Components
+        |
+        v
+────────────────────────────────────────────
+|              |              |             |
+White-label   Satsails      Sails        Third-party
+P2P Base      Wallet        Market       Apps
 ```
 
+**Frozen: White-label reuse is optional composition, not architectural
+parenthood.** White-label P2P Base, Satsails Wallet, and Sails Market
+are each their own composition over the same reusable
+Modules/SDK/Reference Components layer — none is architecturally
+downstream of another. A third-party app may either build on the
+White-label P2P Base or integrate the SDK/Reference Components
+directly; neither path is privileged over the other. Sails Reference
+Web may exist as a reference composition around this same reusable
+layer, alongside the four compositions shown above — it is not drawn
+as a fifth sibling here only because it is not itself a commercial
+product, per its own definition above, not because it is subordinate to
+them.
+
 `docs/BACKLOG.md` item 22's prior "naming reconciliation required"
-sub-item is removed by this correction — resolved, not deferred.
+sub-item was removed by the 2026-09-12 correction — resolved, not
+deferred. Its commercial-name references are updated by this same-day
+naming finalization (see that item's own note).
 
 ### 2. Core product principle — FROZEN
 
-**Reference Components ≠ White-label Base ≠ Sails Web Product** — but
-all three share the same economic semantics and public integration
-boundaries. **Sails Web demonstrates and composes the protocol; it does
-not define protocol truth.**
+**Reference Components ≠ White-label Base ≠ Sails Market Product** —
+but all three share the same economic semantics and public integration
+boundaries. **Sails Market demonstrates and composes the protocol; it
+does not define protocol truth.**
 
 ### 3. Dogfooding / non-privilege principle — FROZEN (semantic form only)
 
-Satsails Wallet and Sails Web should operate as real participants using
-the same public protocol/SDK surfaces available to third-party
+Satsails Wallet and Sails Market should operate as real participants
+using the same public protocol/SDK surfaces available to third-party
 applications wherever technically possible. Where an operational
 exception is genuinely necessary (e.g. internal tooling, migrations,
 operational monitoring), it must be an **explicit, disclosed
@@ -405,7 +447,10 @@ protocol grants no first-party actor authority a third party could not
 in principle also hold. **Not frozen:** "zero internal API ever" as an
 absolute implementation slogan — that would be a false, unenforceable
 claim against real operational needs; the semantic non-privilege rule
-is what is frozen, not a literal API-surface ban.
+is what is frozen, not a literal API-surface ban. **Sails Reference
+Web**, where it exists, is treated the same way as any other
+integration surface for this principle — a conformance/reference
+surface, never a privileged first-party product.
 
 ### 4. White-label configuration boundary — FROZEN
 
@@ -425,13 +470,13 @@ future Provider Identity/routing decision, never by tenant config.
 
 ### 5. Agents / Liquidity correction — FROZEN
 
-**Rejected as institutional truth:** "OpenAgents = Sails Web only" and
-"OpenLiquidity = Sails Web only." **Correct principle, frozen instead:**
-capabilities/modules (OpenAgents, OpenLiquidity, and any other) may be
-exposed by Sails Web, a white-label deployment, a third-party
-application, an agent, a CLI, an MCP surface, or any other authorized
-interface. Sails Web may be the richest first-party composition; it is
-not the exclusive owner of any protocol capability.
+**Rejected as institutional truth:** "OpenAgents = Sails Market only"
+and "OpenLiquidity = Sails Market only." **Correct principle, frozen
+instead:** capabilities/modules (OpenAgents, OpenLiquidity, and any
+other) may be exposed by Sails Market, a white-label deployment, a
+third-party application, an agent, a CLI, an MCP surface, or any other
+authorized interface. Sails Market may be the richest first-party
+composition; it is not the exclusive owner of any protocol capability.
 
 ### 6. Funding / signing product principle — FROZEN (principle, not a mechanical rule)
 
@@ -462,11 +507,11 @@ this is its stated application, not a new principle): **interface
 sophistication may vary (UI, mobile, web, SDK, API, CLI, MCP/WebMCP,
 agents) without changing protocol meaning. Interfaces may multiply;
 semantics must not. Access does not imply authority** — a richer
-interface (e.g. Sails Web) reaching a capability does not grant it more
-protocol authority than a thinner one (e.g. a CLI) reaching the same
-capability through the same public contract.
+interface (e.g. Sails Market) reaching a capability does not grant it
+more protocol authority than a thinner one (e.g. a CLI) reaching the
+same capability through the same public contract.
 
-### 8. Reference UI role — FROZEN
+### 8. Reference UI role / Sails Reference Web — FROZEN
 
 "Reference UI" institutionally means: demonstrative, reusable,
 conformance-oriented, integration-supporting. It does **not**
@@ -474,16 +519,22 @@ automatically mean: official commercial product, a complete white-label
 product, canonical visual design, or protocol authority. (Mirrors
 `docs/PROJECT_CONTEXT.md` §3's existing "Satsails Wallet is a reference
 implementation, not protocol truth" — restated here at the UI-layer
-specifically, not a new claim.)
+specifically, not a new claim.) **Sails Reference Web** (introduced
+above) is the concrete name for this role's web instantiation —
+`packages/sails-ui` today is that reference surface. Whether Sails
+Reference Web and Sails Market ever share one codebase, one deployment,
+or remain separate is not decided here — an implementation detail left
+open, since this section institutionalizes the *role* distinction, not
+a repository/deployment structure.
 
-### 9. Sails Web role — FROZEN
+### 9. Sails Market role — FROZEN
 
-Sails Web **is**: the official product, a dogfooding surface, an
+Sails Market **is**: the official product, a dogfooding surface, an
 integration-proof surface, a product-innovation surface, a commercial-
-differentiation surface. Sails Web **is not**: the canonical protocol
-UI, a privileged settlement operator by definition, a mandatory
-frontend, a required market operator, or a source of protocol
-semantics.
+differentiation surface. Sails Market **is not**: the canonical
+protocol UI, a privileged settlement operator by definition, a
+mandatory frontend, a required market operator, or a source of
+protocol semantics.
 
 ### 10. Visual / navigation status — EXPLICITLY OPEN, not frozen
 
