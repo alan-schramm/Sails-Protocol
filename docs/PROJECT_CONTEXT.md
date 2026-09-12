@@ -1071,6 +1071,27 @@ capability-maturity item closed. `docs/BACKLOG.md` gets one new
 explicit item for this direction (see that file) — no existing item
 closed or altered in meaning.
 
+## 2G. Actor Experience Model — pointer (`MISSÃO 1`, 2026-09-12, corrected `ACTOR-EXPERIENCE-MODEL-R1`)
+
+`docs/PRODUCT_INTERACTION_MODEL.md` institutionalizes who interacts with
+Sails (USR/AGT/OPS/INT — User, Agent split into Assistive/Delegated-
+Authority, Operator split into Node/Arbiter/Reference-Deployment, and
+Integrator), an Actor Matrix, a Privacy Matrix, an Authority Matrix, an
+Information Density Model, and the Wallet vs. Service/Backend Integrator
+split — synthesizing already-frozen sources (this document's §2D/§2E/§2F,
+`docs/SAILS_DESIGN_LANGUAGE.md`, `docs/SEMANTIC_KERNEL.md` §26,
+`docs/adr/ADR-001-day0-multi-operator-network.md`,
+`docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5) rather than introducing new
+product/protocol truth. **`ACTOR-EXPERIENCE-MODEL-R1`** renamed the
+actor notation from `A/B/C/D` to `USR/AGT/OPS/INT` — `A/B/C/D` remains
+reserved exclusively for the identity taxonomy (Participant Economic
+Identity / Participant Transport Identity / Operational Sails Node
+Identity / Operator Economic Recipient, §2D/`ADR-001` §26.3), never the
+actor taxonomy; the two were conceptually distinct from the start, but
+sharing letters invited exactly the collapse both freezes independently
+warn against. **No new backend role, authority, or runtime is
+introduced.** Full text lives there, not duplicated here.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem
