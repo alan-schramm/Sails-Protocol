@@ -2451,4 +2451,56 @@ obligation" is defined anywhere in this repository.
     frozen. This is the next authorized implementation block, not yet
     started.
 
+26. **Responsive navigation architecture + Market filter UX —
+    corrected + institutionalized (2026-09-12).** `NAVIGATION-FILTER-1`
+    (continuing PR #134 after `UI-FOUNDATION-1`/`UI-FOUNDATION-1-VISUAL-CORRECTION`/
+    `DESIGN-LANGUAGE-1`) re-audited navigation end-to-end (confirmed
+    `DESIGN-LANGUAGE-1`'s `/profile` active-state fix is the only
+    `NavLink` usage in the app and needs no further instance fixed —
+    verified by grepping every `NavLink`/`isActive` usage in
+    `packages/sails-ui/src`), classified every current navigation
+    destination (Primary/Contextual/
+    Action/Utility/Profile-Account, see `docs/SAILS_DESIGN_LANGUAGE.md`
+    §16.2), confirmed `Topbar.tsx` already correctly scoped (no change
+    needed), and restructured `FilterPanel.tsx`: six labeled sections
+    (was six equal-weight blocks), a real payment-method grouping/
+    search/country-priority system (`lib/paymentMethodMeta.ts`, new —
+    replaces the flat 43-chip "wall"), corrected sort copy
+    (`Menor preço`/`Maior reputação`/`Mais trades`, with the price-sort
+    side-dependence gap explicitly registered, not fixed), an active-
+    filter-count summary + "Limpar tudo", and a sticky apply/clear
+    footer. Full text: `docs/SAILS_DESIGN_LANGUAGE.md` §16/§17.
+
+    **Also registered, product/architecture direction only, no runtime
+    built:** Market Context Navigation as a third layer distinct from
+    Primary Navigation and Screen Filters; Public Markets/Private
+    Markets (extends §2D item 12/§2E item 2, still a composition
+    candidate, still not proven); Public/Private Servers as an
+    infrastructure/topology concept distinct from the product concept
+    of a market; the architecture-vs-product-language naming split
+    (`server`/`node` may stay architecture vocabulary; user-facing copy
+    is explicitly OPEN, no default chosen). Full text:
+    `docs/PROJECT_CONTEXT.md` §2F. A future contextual-nav pattern (a
+    distinct top-level market selector, not a Sidebar/Topbar/filter-
+    toolbar entry) is recommended but not decided or built
+    (`docs/SAILS_DESIGN_LANGUAGE.md` §16.6).
+
+    **Explicitly not closed by this item:** 20.2, 20.5, 20.6, 22, 23,
+    24, 25 (all unaffected); no capability-maturity classification
+    changes. No `FundingInstruction`/`SigningRequest` implementation, no
+    OpenLiquidity/OpenAgents scope expansion, no Private Markets or
+    server-discovery runtime, no node registry, no protocol primitive.
+    No ADR (no architectural constraint introduced — §2F restates and
+    extends existing §2D/§2E classifications, it does not add new
+    architecture). No Semantic Kernel or Core change.
+
+    **Concrete remaining gaps, named not closed:** a truly side-aware
+    "best price" sort (currently always ascending regardless of BUY/
+    SELL side — `SAILS_DESIGN_LANGUAGE.md` §17.3); no test coverage for
+    either navigation bug fix (`packages/sails-ui` still has no unit-
+    test infrastructure, same evaluated non-overengineering call as
+    item 25); the Market Context Navigation switcher itself (pattern
+    recommended, not built); Public/Private Markets/Servers naming
+    (explicitly OPEN).
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**

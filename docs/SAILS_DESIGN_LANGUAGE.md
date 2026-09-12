@@ -409,7 +409,244 @@ item 1), stated here in visual-language terms:
   §2D's frozen topology: no forced parenthood between first-party
   products).
 
-## 15. Explicit non-goals of this foundation
+## 16. Responsive Navigation Grammar (`NAVIGATION-FILTER-1`)
+
+**North star, extended:** navigation hierarchy must remain semantically
+consistent across breakpoints, even when its visual representation
+changes. Responsive adaptation may change **presentation**, never
+**information hierarchy**. Desktop, tablet, and mobile may represent
+navigation differently; they may not change the product's mental map.
+
+### 16.1 Three distinct layers — must stay explicit, never merged
+
+- **Primary Product Navigation** — "where am I in the product?" Durable,
+  always-available top-level destinations. Today: Market, Trades
+  Ativos, Meus Trades, Disputas (auth-gated), Perfil.
+- **Market Context Navigation** — "which market / discovery context am
+  I exploring?" Not yet implemented (§17 registers the concept and
+  future pattern) — this is a **separate, higher layer** than either
+  Primary Navigation or Screen Filters, and must never collapse into
+  either. A future public/private market or community switcher belongs
+  here, never as a "payment method"-style filter chip.
+- **Screen Filters** — "how do I filter the content of the current
+  context?" Everything in `FilterPanel.tsx`/the Market toolbar (asset,
+  currency, payment method, amount, country, sort, side). Filters
+  narrow what's shown within a context; they never change which context
+  you're in.
+
+Conflating these (e.g. exposing a future market/community switcher as
+a filter chip) would misrepresent a navigation-level decision as a
+content-level one — this is the concrete failure mode this section
+exists to prevent, named directly because it was the risk flagged going
+into this mission.
+
+### 16.2 Current destination audit and classification
+
+| Destination | Surface(s) | Classification |
+|---|---|---|
+| Market | Sidebar, BottomNav, wordmark link | Primary Navigation |
+| Trades Ativos | Sidebar, BottomNav ("Ativos") | Primary Navigation |
+| Meus Trades | Sidebar, BottomNav ("Trades") | Primary Navigation |
+| Disputas | Sidebar (auth-gated) | Primary Navigation (conditional) |
+| Perfil | Sidebar, BottomNav, Topbar avatar | Primary Navigation **+** Profile/Account root (dual role, see below) |
+| Nova Oferta | Button inside Perfil | Action |
+| Tema (dark/light) | Topbar, mobile header | Utility |
+| Rever tour | Topbar, mobile header (auth only) | Utility |
+| Conectar / session avatar | Topbar, mobile header | Profile/Account entry point |
+| Asset/Currency/PaymentMethod pickers, Filtros, Ordenar, Buscar, side toggle | Market toolbar | Screen Filters |
+| Sails Agent panel | Market page | Contextual action surface (not navigation, not a filter) |
+
+**Note on Perfil's dual role:** it is simultaneously a persistent
+Primary Navigation item and the root of the Profile/Account area
+(reputation, my offers, Nova Oferta, dispute history). This is not a
+defect — most P2P reference products (Binance P2P, HodlHodl) do the
+same — but it's worth naming explicitly so a future Profile/Account
+redesign doesn't accidentally also change Primary Navigation's shape.
+
+### 16.3 Primary navigation minimal-set recommendation
+
+The current 5-item set (Market/Trades Ativos/Meus Trades/Disputas/
+Perfil) is coherent as Primary Navigation today — every item is a real,
+Journey-complete destination (`docs/PROJECT_CONTEXT.md` §2E's
+capability map), no placeholder was added. **Registered product
+recommendation, not implemented this mission (no route changed):**
+"Trades Ativos" and "Meus Trades" are two views over the same
+underlying concept (the current user's own trades, split by status) —
+a future consolidation into one "Meus Trades" destination with an
+Ativos/Histórico segmented control **inside** that screen is worth
+evaluating once/if Primary Navigation needs to make room for a Market
+Context Navigation entry (§17) or another real destination. Not done
+here: it would require an actual routing change, out of this mission's
+audit-and-document scope.
+
+### 16.4 Desktop / tablet / mobile grammar
+
+- **Desktop (`lg+`):** full `Sidebar.tsx` (icon + label, all 5 Primary
+  Navigation items visible) + `Topbar.tsx` (utilities only, §16.5).
+- **Tablet (`md`–`lg`):** `Sidebar.tsx`'s icon-rail mode — same items,
+  same order, same active-state treatment, labels hidden but available
+  via each link's `title` attribute (native tooltip on hover) — same
+  semantic hierarchy, denser presentation, not a different navigation.
+- **Mobile (`<md`):** `BottomNav.tsx` — Primary Navigation only, no
+  Topbar equivalent (a lightweight header carries brand + session +
+  theme instead, deliberately not a second nav surface, §16.5).
+  Current 4 unauthenticated / 5 authenticated items fit directly with
+  no overflow needed. **Overflow strategy, registered for when the set
+  grows:** once Primary Navigation would exceed roughly 5 mobile items,
+  the least-frequently-primary item(s) should move into a "Mais" sheet/
+  drawer entry (a 5th+6th BottomNav slot reading "Mais" that opens a
+  `Sheet` listing the overflow destinations) rather than shrinking touch
+  targets or wrapping to a second row — not needed today, not built.
+- **Labels may shorten, meaning must not change.** `BottomNav.tsx`'s
+  "Ativos"/"Trades" are compressed forms of Sidebar's "Trades Ativos"/
+  "Meus Trades" — same destination, same meaning, just terser for
+  mobile width. This is the existing, correct pattern (confirmed during
+  this mission's audit) — contrast with the "Comprar" vs "Market" case
+  `DESIGN-LANGUAGE-1` fixed, where the mobile label named a *different
+  concept* (an action) than the desktop label (a destination/space):
+  that was a semantic remapping, not a shortening, which is why it was
+  a bug and this is not.
+- **Responsive presentation ≠ semantic remapping.** The route each item
+  points to, and the active-state matching logic (`end: true`/`false`
+  per item, `DESIGN-LANGUAGE-1`'s own bug fix — re-audited this mission,
+  confirmed as the only `NavLink` usage in the app), are shared across
+  `Sidebar.tsx` and `BottomNav.tsx` — never independently re-derived per
+  breakpoint. A destination's meaning lives in its route, not its label
+  or icon.
+
+### 16.5 Topbar role — audited, confirmed correctly scoped
+
+`Topbar.tsx` was audited against its own stated purpose
+(session/identity, theme, help/utilities) — confirmed it does **not**
+duplicate Primary Navigation (no nav links live there, only
+`ThemeToggle`, the onboarding-replay utility, and the session/Conectar
+entry point) and does **not** carry a Search or Notifications entry
+that doesn't exist as a real capability yet
+(`docs/PROJECT_CONTEXT.md` §2E's capability map — Notifications remains
+Future/Planned). **No code change made** — this is confirmation of
+correct existing scope, not a new rule.
+
+### 16.6 Future Market Context Navigation pattern — evaluated, not implemented
+
+No runtime UI exists for this today (no public/private market switcher,
+no server/community selector) — this is a pattern evaluation only, so a
+future implementation starts from a considered default instead of an
+ad-hoc one. Options evaluated, desktop and mobile:
+
+- **Tabs / segmented control** (e.g. "Público" / "Privado" directly atop
+  the Market toolbar) — low implementation cost, reads clearly at both
+  breakpoints, but scales poorly past 2-3 contexts and visually
+  resembles a Screen Filter (§16.1's exact conflation risk) unless
+  deliberately styled distinctly from `.toolbar-chip`.
+- **Contextual Topbar selector** (a dropdown in `Topbar.tsx`, desktop
+  only) — keeps Market Context Navigation visually separate from both
+  Primary Navigation (Sidebar) and Screen Filters (toolbar), but needs
+  its own mobile equivalent (Topbar doesn't exist on mobile, §16.5).
+- **Sidebar secondary section** (a divider + a second, smaller group
+  below Primary Navigation) — best preserves the "separate layer" reading
+  at desktop/tablet, but has no direct mobile analogue (BottomNav has no
+  room for a second group) and would need a distinct mobile entry point.
+- **Market selector as its own top-level control**, above the Market
+  toolbar and visually distinct from it (e.g. a bordered dropdown with
+  its own icon language, not styled as a filter chip) — recommended
+  direction if/when this ships: reads as navigation-adjacent without
+  needing new Sidebar/Topbar real estate, translates to mobile as a
+  single control below the page header.
+
+**Recommendation, not a decision:** the last option (a distinct
+top-level market selector, not a Sidebar/Topbar/filter-toolbar entry)
+best satisfies §16.1's separation requirement at both breakpoints with
+the least structural disruption — registered for the CTO/product
+decision this needs before any implementation; see
+`docs/PROJECT_CONTEXT.md`'s Public/Private Markets and Servers product
+direction and `docs/BACKLOG.md` for the corresponding backlog item.
+
+## 17. Filter / Discovery UX Grammar (`NAVIGATION-FILTER-1`)
+
+### 17.1 Filter hierarchy
+
+`FilterPanel.tsx` is organized into six labeled sections, in this
+order: **A. Qualidade do anunciante** (negotiable-only, high-reputation,
+previously-traded) → **B. Valor** (amount + presets) → **C. Tempo de
+pagamento** → **D. País/Região** → **E. Método de pagamento** → **F.
+Ordenação**. Each section has a consistent title/spacing/divider
+treatment (a `Section` wrapper, not six independently-styled blocks) —
+this ordering and the underlying runtime fields are unchanged from
+before this mission, only the visual grouping and hierarchy are new.
+
+### 17.2 Grouped, searchable payment methods — country prioritizes, never restricts
+
+The prior flat "wall of chips" (all 43 filterable `PaymentMethod`
+values rendered at once) is replaced by:
+
+1. **Selected methods**, always visible, pinned first, removable
+   in-place (a small `×` on the chip).
+2. **Country-suggested methods** — when a country is selected and has a
+   registered priority list (`lib/paymentMethodMeta.ts`'s
+   `COUNTRY_PRIORITY_METHODS`), its most locally-relevant methods
+   surface next, still just ordinary toggleable chips.
+3. A collapsed-by-default **"Ver todos os métodos"** disclosure containing
+   a search field and the remaining methods grouped by category
+   (`PAYMENT_METHOD_CATEGORY_LABELS`: Transferência bancária, Carteiras
+   digitais, Dinheiro/presencial, Cripto/Lightning, Internacional/
+   remessas, Outros).
+
+**Frozen rule: country selection PRIORITIZES, it never RESTRICTS.** A
+country's priority list only reorders which methods surface first —
+`FilterPanel.tsx` never filters the underlying `PAYMENT_METHODS_FILTERABLE`
+list by country; every method remains reachable via "Ver todos" and
+searchable regardless of the selected country. There is no "resident of
+country X = only these methods" rule anywhere in this UI, and none is
+authorized — a Brazilian user can still find and select Wise, PayPal,
+or Revolut.
+
+**Categories are a frontend display grouping only** (`lib/paymentMethodMeta.ts`'s
+own header comment) — never protocol truth, never round-tripped to the
+backend, never read by `PublishOffer.tsx`'s real submission path (which
+keeps using the narrower real `PAYMENT_METHODS` enum, untouched).
+
+### 17.3 Sorting — copy must match actual behavior, not aspiration
+
+`trades`→"Mais trades" and `reputation`→"Maior reputação" are correctly
+"best-first" today (higher `totalTrades`/`reputationScore` is
+unambiguously better) regardless of context — their copy says so.
+`price` is `Menor preço` (lowest-first), **deliberately not** "Melhor
+preço" — the actual sort (`a.priceUsd - b.priceUsd`, always ascending)
+is only genuinely "best for the viewer" when browsing SELL-side offers
+(the viewer is buying, lowest price wins); for BUY-side offers (the
+viewer would be selling to the offer's maker) ascending surfaces the
+*worst* price first. **Registered gap, not fixed this mission:** a
+truly side-aware "best price" sort needs the comparator to flip
+direction based on the active side filter — a logic change, out of
+this pass's copy-and-hierarchy scope. Until that lands, sort labels
+must keep describing actual direction (`Menor`/`Maior`/`Mais`), never
+claim "melhor"/"best" where the implementation doesn't yet back it.
+
+### 17.4 Active-filter visibility and footer
+
+A proportional summary — "N filtros ativos" + a single "Limpar tudo"
+action — sits below the drawer title when at least one filter is
+active; this was judged sufficient without also duplicating every
+active filter as a second row of removable chips (the per-section
+toggle states already visible below already serve that purpose,
+avoiding redundant chrome). The drawer's footer (`Limpar` / `Aplicar
+filtros`) is now a sticky flex sibling of the scrolling content region,
+not part of the scrolling document — a mobile user never has to scroll
+to the bottom to act on it. `Limpar` resets every field that narrows
+results back to `DEFAULT_FILTERS`, while preserving the user's
+`saveForNext` preference and current sort choice (sort is display
+ordering, not a search criterion).
+
+### 17.5 Desktop vs. mobile
+
+Both breakpoints reuse the exact same `FilterPanel.tsx` — the Radix
+`Sheet` already renders full-height on mobile and a fixed-width side
+panel on desktop (`sm:max-w-sm`) via its own existing variant, so no
+mobile-specific filter component was needed; the sticky footer and
+collapsible payment-method section both work identically at both
+widths (verified live, §Evidence).
+
+## 18. Explicit non-goals of this foundation
 
 This document does **not**: implement `FundingInstruction` or
 `SigningRequest` UX, expand OpenLiquidity or OpenAgents protocol scope,
@@ -434,3 +671,7 @@ consistency), not a new architecture.
 - `docs/PROJECT_CONTEXT.md` §2D item 4 now cross-links here for the
   visual-layer instantiation of its frozen white-label configuration
   boundary — the functional boundary itself is unchanged.
+- `NAVIGATION-FILTER-1` (§16/§17) added Responsive Navigation Grammar
+  and Filter/Discovery UX Grammar — no runtime Market Context Navigation,
+  Private Markets, or server/community UI was implemented; §16.6's
+  pattern options are an evaluation for a future decision, not a build.

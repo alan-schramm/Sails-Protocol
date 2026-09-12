@@ -952,6 +952,96 @@ remain exactly as previously frozen.
 
 ---
 
+## 2F. Product Direction — Market Context Navigation, Public/Private Markets, Public/Private Servers (2026-09-12)
+
+`NAVIGATION-FILTER-1` registers a product/architecture **direction**
+for an evolving concept — public markets, private markets, communities,
+public/private servers, and their discovery/access topology. **Not
+runtime-implemented. Not naming-frozen.** Extends §2D item 12's Private
+Markets classification and §2E item 2's sharpening of it; does not
+replace either.
+
+### 1. Three distinct concerns — must not be conflated
+
+- **Primary Product Navigation** — "where am I in the product?"
+  (`docs/SAILS_DESIGN_LANGUAGE.md` §16.1 — Market, Trades Ativos, Meus
+  Trades, Disputas, Perfil today).
+- **Market Context Navigation** — "which market/discovery context am I
+  exploring?" A new, higher layer than Primary Navigation, not yet
+  implemented. This is what a future public/private market or
+  community switcher belongs to.
+- **Screen Filters** — "how do I filter the current context's content?"
+  (`FilterPanel.tsx`, the Market toolbar). A payment-method or country
+  filter is not, and must never become, a market-context selector.
+
+This mirrors `docs/SAILS_DESIGN_LANGUAGE.md` §16.1 exactly — registered
+here too because it is product truth, not only visual-language guidance.
+
+### 2. Public/Private Markets and Public/Private Servers — direction, not implementation
+
+Registered as backlog-facing product direction (`docs/BACKLOG.md`), no
+runtime built:
+
+- **Public Markets** — today's Marketplace is, in effect, the one
+  public market. Not renamed or restructured by this registration.
+- **Private Markets** — per §2D item 12, a composition candidate over
+  existing primitives (restricted discovery, `CapabilityGrant`-scoped
+  membership, per-deployment fee/dispute policy) — still not proven
+  concretely, still not implemented.
+- **Public Servers / Private Servers** — an infrastructure/topology
+  concept (nodes participating in discovery, potentially access-scoped)
+  distinct from the *product* concept of a market or community a user
+  browses. No node registry, no server-discovery backend, and no new
+  protocol primitive is created by this registration.
+- **Communities / access groups** — a product-facing grouping concept
+  that may or may not map 1:1 onto a "private market" or "private
+  server" — left open rather than prematurely equated with either.
+
+### 3. Architecture language vs. product/user-facing language — explicitly separated, naming OPEN
+
+**Architecture language** may use `server`/`node` — this is accurate,
+already-used infrastructure vocabulary (e.g. the P2P transport layer's
+own HyperDHT node concept) and is not being renamed.
+
+**Product/user-facing language** may prefer different words entirely —
+`Market`, `Community`, `Network`, `Workspace`, or something else — a
+non-technical user browsing Sails Market should never be required to
+understand "node" as a prerequisite to understanding "which market am I
+in." **This choice is explicitly OPEN, pending a real Product
+Decision** — no default is assumed or implied by this registration,
+including by the illustrative words listed above.
+
+### 4. Future contextual-navigation pattern — evaluated, not decided
+
+`docs/SAILS_DESIGN_LANGUAGE.md` §16.6 evaluates visual pattern options
+(tabs/segmented control, Topbar selector, Sidebar secondary section, a
+distinct top-level market selector) for a future Market Context
+Navigation switcher, recommending the last option as the best fit for
+the separation this section requires — a recommendation for the next
+Product/Architecture Decision, not a decision itself, and not
+implemented.
+
+### 5. Explicitly not done by this registration
+
+No `FundingInstruction`/`SigningRequest` implementation, no
+OpenLiquidity/OpenAgents protocol-scope expansion, no Private Markets
+runtime, no server-discovery backend, no node registry, no fake
+public/private tabs, no placeholder routes, no capability-maturity
+classification closed. Server/node identity is explicitly **not**
+Economic Identity — an infrastructure/topology concept is not an
+authority or settlement concept, and this registration does not blur
+that line.
+
+### Closing confirmations
+
+No protocol, SDK, Core, or architecture change. No new economic
+primitive. No naming frozen — §3 above is explicitly OPEN. No
+capability-maturity item closed. `docs/BACKLOG.md` gets one new
+explicit item for this direction (see that file) — no existing item
+closed or altered in meaning.
+
+---
+
 ## 3. Relationship to the Tether Ecosystem
 
 This is critical context for why this project exists and who it's for.

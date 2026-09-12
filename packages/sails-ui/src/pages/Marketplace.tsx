@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ASSETS_FILTERABLE, HIGH_REPUTATION_THRESHOLD, PAYMENT_METHODS_FILTERABLE } from '../data/mock'
 import { fetchOffers } from '../lib/realOffers'
+import { countActiveFilters } from '../lib/filters'
 import { OfferCard } from '../components/marketplace/OfferCard'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
@@ -54,15 +55,10 @@ export function Marketplace() {
     }
   }, [filters])
 
-  const activeFilterCount = [
-    filters.negotiableOnly,
-    filters.highReputationOnly,
-    filters.previouslyTradedOnly,
-    filters.amount !== '',
-    filters.paymentTimeLimit !== 'Todos',
-    filters.paymentMethods.length > 0,
-    filters.country !== 'Todos',
-  ].filter(Boolean).length
+  // NAVIGATION-FILTER-1 §4.5 — moved to lib/filters.ts so the toolbar
+  // badge here and FilterPanel's own in-drawer summary count the exact
+  // same thing, not two independently-maintained definitions.
+  const activeFilterCount = countActiveFilters(filters)
 
   // Real @satsails/p2p-trading-sdk liquidity.discover() calls (lib/realOffers.ts),
   // fanned out per asset/side since GET /v1/liquidity/offers only
