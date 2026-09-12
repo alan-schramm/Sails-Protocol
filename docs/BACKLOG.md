@@ -2603,4 +2603,61 @@ obligation" is defined anywhere in this repository.
     (`955520841befb41d4ae9d3d7734363ae330434fa`); this item is renumbered
     to **28** as part of rebasing onto the resulting `main`.
 
+29. **P2P Product Journey — institutionalized, not implemented
+    (2026-09-12, `MISSÃO 2`).** Created `docs/P2P_PRODUCT_JOURNEY.md`,
+    mapping the end-to-end P2P economic journey (Discovery → Offer
+    Evaluation → Economic Commitment → Trade Lifecycle →
+    Payment/Funding → Authorization → Settlement →
+    Outcome/Cancel/Dispute) onto `docs/PROTOCOL_SPECIFICATION.md`'s own
+    9-state Trade Lifecycle, verified directly against real, current
+    source (`prisma/schema.prisma`, `escrow-lifecycle.ts`,
+    `dispute.service.ts`, `trade.service.ts`, `sails-ui`,
+    `@satsails/p2p-schemas`), not deduced from documentation or UI
+    alone. Uses item 28's USR/AGT/OPS/INT notation throughout, adds none
+    new.
+
+    **Highest-priority real gap found:** `EscrowStatus.SPLIT` (RFC-021
+    D9, a real, terminal, economically-material partial-payout outcome)
+    is absent from `sails-ui`'s own `EscrowStatus` type
+    (`packages/sails-ui/src/types.ts`) and `StatusBadges.tsx`'s badge
+    map, and `@satsails/p2p-schemas`' `deriveTradeState()` mishandles it
+    two distinct ways — an already-resolved SPLIT dispute reports as
+    `dispute_opened` (still open) via the normal Dispute-row path, and
+    falls through to `open` (not yet started) via the Escrow-status-only
+    fallback path. The runtime has full information to represent this
+    correctly (`Escrow.status`, `Dispute.ruling`,
+    `EscrowPendingTransaction.toAddress`/`toAddressSecondary`) — this is
+    a pure product/UI-mirror gap, not an information gap. Not fixed
+    here, per the mission's own explicit instruction; named and
+    classified (Product truth omitted) for a future Tier-2 fix.
+
+    **Second finding, largely already closed:** the `WDK_USDT_EVM`
+    unknown-outcome/retry-safety gap (`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`)
+    is restated as this mission's Retry-Safety/Unknown-Outcome grounding
+    — already correctly classified and contained (boot-refused in
+    production) by prior work, not re-decided here. **Payment
+    Destination (F1: Economic Disposition Authority ≠ Destination
+    Authority ≠ Execution Authority) was found to be correctly modeled
+    AND, as of a 2026-09-11 fix (M8-R2,
+    `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`), genuinely enforced**
+    in the real dispute-resolution code path — better than the
+    architecture document's own original framing anticipated. Two
+    stale-comment/API-surface nits found during verification (an
+    outdated `escrow.service.ts` doc comment; `resolveDispute()`'s
+    HTTP schema still accepting now-ignored destination fields) are
+    named as documentation deltas, not security findings.
+
+    **Conceptual, not implemented:** `FundingInstruction`, `FundingState`,
+    and `SigningRequest` models (rail-agnostic product semantics,
+    confirmed absent from real code by direct search) — for a future
+    Wallet Partner Journey mission to reuse rather than re-derive.
+
+    **Explicitly not closed, not decided, not implemented:** no
+    Settlement architecture change, no cryptographic economic
+    commitment, no new authority role, no delegated agent authority, no
+    new provider, no Private Markets/Node discovery, no UI refactor, no
+    state invented without backing runtime truth. No Semantic Kernel or
+    Core change. Full text: `docs/P2P_PRODUCT_JOURNEY.md`; pointer added
+    at `docs/PROJECT_CONTEXT.md` §2H.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**

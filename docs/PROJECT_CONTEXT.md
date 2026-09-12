@@ -1092,6 +1092,30 @@ sharing letters invited exactly the collapse both freezes independently
 warn against. **No new backend role, authority, or runtime is
 introduced.** Full text lives there, not duplicated here.
 
+## 2H. P2P Product Journey — pointer (`MISSÃO 2`, 2026-09-12)
+
+`docs/P2P_PRODUCT_JOURNEY.md` institutionalizes the end-to-end P2P
+economic journey (Discovery → Offer Evaluation → Economic Commitment →
+Trade Lifecycle → Payment/Funding → Authorization → Settlement →
+Outcome/Cancel/Dispute), built on §2G's USR/AGT/OPS/INT notation: a
+Canonical Journey mapped onto `docs/PROTOCOL_SPECIFICATION.md`'s own
+9-state Trade Lifecycle, an Economic Commitment Boundary, an Economic
+Journey Grammar, Runtime/Product/User-facing State Inventories, a
+`SPLIT`-outcome gap analysis, a derived-state ambiguity analysis,
+conceptual (not implemented) `FundingInstruction`/`FundingState`/
+`SigningRequest` models, a Counterparty Experience model, a Dispute
+Journey model, Happy-Path/Interrupted-Path maps, a Retry-Safety model,
+and an Unknown-Outcome model — synthesizing already-frozen sources
+(`docs/PROTOCOL_SPECIFICATION.md`, `docs/DATABASE.md`,
+`docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`,
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`) plus direct, real-code
+verification (2026-09-12) rather than documentation or UI assumptions.
+**No new protocol, Settlement, authority, or runtime is introduced.**
+The mission's own most material finding — `EscrowStatus.SPLIT` missing
+from the UI's type/badge mirror and mishandled by the derived
+`TradeState` vocabulary — is named and classified, not fixed here. Full
+text lives there, not duplicated here.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem
