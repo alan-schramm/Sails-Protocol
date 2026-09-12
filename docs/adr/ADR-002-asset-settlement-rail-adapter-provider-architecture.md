@@ -295,6 +295,17 @@ authorized here):
    mission — a separate, later, CTO-authorized step, contingent on the
    `LN_BTC`/`STACKS`/`RSK_BTC` Product Decisions above.
 
+**Implementation status (2026-09-12, ARCH-IMPL-1): IMPLEMENTATION
+FOUNDATION STARTED.** Item 1 above has a first, additive, bounded
+implementation: `Asset`/`SettlementRail`/`SettlementScope` types
+(`src/common/types/settlement-scope.ts`) and the canonical 25-row
+registry with a pure query API and the §11 legacy-translation subset
+(`src/core/settlement-scope-registry.ts`), tested in
+`tests/settlementScopeRegistry.test.ts`. **No ProviderRegistration
+exists yet** — items 2-4 above remain future, separately-authorized
+missions, and this status note does not close `BACKLOG.md` 20.2 or
+20.5 (see that item's own 2026-09-12 ARCH-IMPL-1 status update).
+
 *(2026-09-11 correction: items 2 and 3 previously implied that wiring
 QVAC or the Reference UI to the new registry would itself "close"
 20.5/20.2. Corrected per CTO review — ARCH-FREEZE-R1 — to state that
