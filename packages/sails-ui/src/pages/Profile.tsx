@@ -307,7 +307,7 @@ export function Profile() {
         <Link to="/profile/history" className="text-sm text-brand-orange-accent underline flex items-center gap-0.5">
           Ver histórico completo de trades <ChevronRight className="h-4 w-4" />
         </Link>
-        {/* Mobile parity — TopNav (desktop-only) links here directly;
+        {/* Mobile parity — Sidebar (desktop-only) links here directly;
             BottomNav has no dedicated tab for this (a real, but
             infrequent, arbiter-only feature — see Disputes.tsx's own
             comment on why it has no client-side role gate either). */}

@@ -127,8 +127,8 @@ export function Marketplace() {
 
   return (
     <div>
-      <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Marketplace P2P</h1>
-      <p className="text-sm text-brand-text-muted mt-1">{offers.length} ofertas disponíveis · Non-custodial · Powered by Satsails</p>
+      <h1 className="text-page-title">Market</h1>
+      <p className="text-metadata mt-1">{offers.length} ofertas disponíveis · Non-custodial · Powered by Satsails</p>
 
       <div className="mt-4">
         <AgentIntentionPanel
@@ -220,7 +220,7 @@ export function Marketplace() {
           load successfully, since a total-outage message would be
           dishonest when some (asset, side) pairs actually succeeded. */}
       {!loadingOffers && offersError && offers.length > 0 && (
-        <div className="mt-4 flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/25 text-yellow-500 text-xs rounded-lg px-3.5 py-2.5">
+        <div className="mt-4 flex items-center gap-2 bg-brand-warning/10 border border-brand-warning/25 text-brand-warning text-xs rounded-lg px-3.5 py-2.5">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           Algumas ofertas podem não ter carregado — houve falha ao buscar parte do Marketplace.
         </div>
@@ -232,7 +232,7 @@ export function Marketplace() {
             mobile/tablet layout groups fields into paired rows instead of
             fixed columns, so column labels wouldn't line up with anything.
             Widths mirror OfferCard's own `lg:w-*` values exactly. */}
-        <div className="hidden lg:flex items-center gap-6 px-5 py-2 border-b border-brand-border text-xs font-medium text-brand-text-muted uppercase tracking-wider">
+        <div className="text-label hidden lg:flex items-center gap-6 px-5 py-2 border-b border-brand-border-subtle">
           <span className="w-44 shrink-0">Anunciante</span>
           <span className="w-48 shrink-0">Ativo</span>
           <span className="flex-1">Preço</span>

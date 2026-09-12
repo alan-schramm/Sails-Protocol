@@ -35,6 +35,15 @@ export default {
           // white body text), so dark mode can use the fuller vibrant hue
           // — see src/index.css's own comment on `--color-orange-accent`.
           'orange-accent': 'rgb(var(--color-orange-accent) / <alpha-value>)',
+          // UI-FOUNDATION-1 — semantic state colors (docs/SAILS_MARKET_DESIGN_DIRECTION.md
+          // §3's success/warning/danger/info categories). `danger` reuses
+          // the existing `--destructive` var rather than a second red —
+          // see index.css's own comment.
+          success: 'rgb(var(--color-success) / <alpha-value>)',
+          warning: 'rgb(var(--color-warning) / <alpha-value>)',
+          danger: 'rgb(var(--destructive) / <alpha-value>)',
+          info: 'rgb(var(--color-info) / <alpha-value>)',
+          'border-subtle': 'rgb(var(--color-border-subtle) / <alpha-value>)',
         },
         // shadcn/ui's expected token names (bg-background, bg-primary,
         // border-input, ring-ring, etc.) — aliased onto the same CSS vars
