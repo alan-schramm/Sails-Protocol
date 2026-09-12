@@ -245,6 +245,46 @@ Bitcoin or Ethereum.
 
 ---
 
+## 2C. Product Decision — Asset + SettlementRail as the Day-0 Destination Dimensions (2026-09-12)
+
+**Frozen, architecture-only — no implementation authorized by this
+section.** Full evidence and design record:
+`docs/ASSET_SETTLEMENT_RAIL_ARCHITECTURE_DISCOVERY_2026-09-12.md`.
+Architecture decision: `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`.
+Addresses `docs/BACKLOG.md` item 20.6's own "mechanism NOT frozen"
+clause.
+
+**Decision:** Day-0 settlement destination is expressed by exactly two
+product dimensions:
+
+> **Asset + SettlementRail.**
+
+- **`Asset`** means the economic unit being transferred (`BTC`, `USDT`,
+  `USDC`, `DEPIX`, `XAUT`), independent of how it moves.
+- **`SettlementRail`** means the settlement domain/network/protocol
+  through which that asset is represented or settled (`BITCOIN_L1`,
+  `LIGHTNING`, `ARKADE`, `LIQUID`, `SPARK`, `ETHEREUM`, `BASE`, `TRON`,
+  `SOLANA`, `TON`, and so on).
+
+**Separate `Protocol` and `Network` dimensions are explicitly NOT
+introduced at Day-0.** No row in the canonical Day-0 target (restated
+in `docs/BACKLOG.md` item 20.6 and ADR-002 §5) requires that split,
+while introducing it would add conceptual complexity no current case
+earns.
+
+**Naming rule:** the fully-qualified term `SettlementRail` is used
+everywhere this dimension is discussed — never bare `Rail`. `RFC-013`'s
+own `WalletCapabilitiesDeclaration.fiatRails` already uses "rail" for
+fiat payment methods (PIX, ACH, SEPA); `SettlementRail` stays textually
+distinct from that unrelated, already-established meaning.
+
+This decision does not by itself change `AssetType`, `EscrowType`,
+`prisma/schema.prisma`, any SDK contract, any QVAC schema, or the
+Reference Wallet — see ADR-002 for the architecture this decision
+enables and the explicit non-authorization of any such change here.
+
+---
+
 ## 3. Relationship to the Tether Ecosystem
 
 This is critical context for why this project exists and who it's for.
