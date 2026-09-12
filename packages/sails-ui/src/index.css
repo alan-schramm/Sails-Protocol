@@ -91,6 +91,25 @@
   --input: var(--color-border);
   --ring: var(--color-orange);
   --radius: 0.5rem; /* rounded-lg — matches the 2026-07-28 sharper-corners redesign */
+
+  /* UI-FOUNDATION-1 — semantic state tokens (docs/SAILS_MARKET_DESIGN_DIRECTION.md
+     §3's token category list: success/warning/danger/info, distinct from
+     `--color-orange`/`--primary` above, which is the sole BRAND/action
+     accent — PRODUCT-DIRECTION-FREEZE-1-CORRECTION's own "semantic state
+     colors are not competing brand accents" rule). Same methodology this
+     file's own orange/text/border tokens already use: a Tailwind "700"
+     shade for light-mode text/icon-on-white (this repo's own established
+     AA-safe pattern — see `--color-orange`'s comment above), not
+     independently re-verified with AxeBuilder in this pass (disclosed,
+     not silently assumed). `--danger` intentionally reuses `--destructive`
+     above rather than a second red — one danger color, not two. */
+  --color-success: 21 128 61;   /* green-700, #15803d */
+  --color-warning: 180 83 9;    /* amber-700, #b45309 */
+  --color-info: 29 78 216;      /* blue-700, #1d4ed8 */
+  /* Subtler than `--color-border` — for a divider WITHIN one surface
+     (e.g. a table's internal row lines) where the full border weight
+     would compete with the surface's own outer border. */
+  --color-border-subtle: 225 225 225; /* #e1e1e1, light mode */
 }
 
 :root.dark {
@@ -147,6 +166,14 @@
   --border: var(--color-border);
   --input: var(--color-border);
   --ring: var(--color-orange);
+
+  /* UI-FOUNDATION-1 — dark-mode semantic state tokens, same "brighter
+     shade against a near-black surface" methodology as
+     `--color-orange-accent` above. */
+  --color-success: 74 222 128;  /* green-400, #4ade80 */
+  --color-warning: 251 191 36;  /* amber-400, #fbbf24 */
+  --color-info: 96 165 250;     /* blue-400, #60a5fa */
+  --color-border-subtle: 45 45 45; /* #2d2d2d, dark mode */
 }
 
 body {
@@ -170,15 +197,27 @@ body {
      uniform bubble radius on every single container was called out
      directly as the main "generic AI-app" tell. Sharper corners read
      closer to the Binance/Airtm/El Dorado trading-density reference. */
+  /* UI-FOUNDATION-1-VISUAL-CORRECTION — border-brand-border (the bright,
+     WCAG-1.4.11-driven hairline) downgraded to border-brand-border-subtle
+     for these two purely DECORATIVE container shapes. That accessibility
+     fix stays fully intact where it actually matters — real interactive
+     component boundaries (Input/Button/Select, see .input-field below,
+     unchanged) — but a card that merely groups content is not itself the
+     kind of UI-component boundary 1.4.11 requires 3:1 contrast for, and
+     the bright border on every single panel was the literal cause of the
+     "wireframe" critique (bright outlines standing in for real surface
+     layering). Tonal contrast (bg-brand-surface against the page's
+     bg-brand-bg) now does more of the separating work; the border is a
+     quiet finishing line, not the main structural signal. */
   .card {
-    @apply bg-brand-surface border border-brand-border rounded-lg;
+    @apply bg-brand-surface border border-brand-border-subtle rounded-lg;
   }
   /* Tailwind v4 (Dependabot major-version bump, 2026-07-19): @apply can
      no longer chain through another custom @layer components class
      (v3 allowed `@apply card`) — inlined .card's own utility list
      directly rather than referencing it by name. */
   .card-hover {
-    @apply bg-brand-surface border border-brand-border rounded-lg transition-colors;
+    @apply bg-brand-surface border border-brand-border-subtle rounded-lg transition-colors;
   }
   .card-hover:hover {
     border-color: var(--color-orange-border);
@@ -197,13 +236,58 @@ body {
      overlapped). Tablet now gets the same paired-row mobile layout,
      which scales cleanly since it has no fixed column widths. */
   .offer-row {
-    @apply flex flex-col gap-2 border-b border-brand-border border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated lg:flex-row lg:items-center lg:gap-6 lg:px-5 lg:py-3.5;
+    @apply flex flex-col gap-2 border-b border-brand-border-subtle border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated lg:flex-row lg:items-center lg:gap-6 lg:px-5 lg:py-3.5;
   }
   .btn-dark {
     @apply bg-brand-text text-brand-bg hover:opacity-85 font-semibold rounded-lg transition-opacity;
   }
+  /* Real form inputs keep the full-strength, WCAG-1.4.11-fixed border —
+     unchanged. This IS the kind of interactive component boundary that
+     rule protects. */
   .input-field {
     @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-orange transition-colors;
+  }
+  /* UI-FOUNDATION-1-VISUAL-CORRECTION — toolbar chip: for a filter/sort
+     TRIGGER (AssetPicker/CurrencyPicker/PaymentMethodPicker), not a form
+     field — these were reusing .input-field, which reads as "an empty
+     text box," the exact "default-form-like" critique. A filled,
+     low-contrast chip (background does the work, not an outline) is the
+     Binance/Airtm toolbar convention this screen is otherwise already
+     modeled on. */
+  /* DESIGN-LANGUAGE-1 §2.4 — this class had no focus-visible treatment at
+     all; a keyboard user tabbing through the Market toolbar got no visual
+     signal which chip had focus (PopoverTrigger is a plain button with no
+     built-in ring). Same ring convention every other interactive
+     primitive here already uses (Input/Select/Checkbox/Switch). */
+  .toolbar-chip {
+    @apply bg-brand-elevated border border-brand-border-subtle text-brand-text rounded-lg px-3 py-2 text-sm transition-colors hover:border-brand-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  /* UI-FOUNDATION-1 — typography hierarchy (docs/SAILS_MARKET_DESIGN_DIRECTION.md
+     §9). Named classes, not a new type-scale plugin: the existing
+     display/body split (this file's own top `@import` + the `body` rule
+     above) already covers "display" and "body" — these fill in the
+     remaining named levels operational screens actually use today
+     (page/section title, label, metadata, tabular numeric emphasis),
+     nothing speculative beyond that. */
+  .text-page-title {
+    @apply font-display font-bold tracking-tight text-brand-text text-2xl;
+  }
+  .text-section-title {
+    @apply font-display font-semibold tracking-tight text-brand-text text-base;
+  }
+  .text-label {
+    @apply text-xs font-medium uppercase tracking-wider text-brand-text-muted;
+  }
+  .text-metadata {
+    @apply text-xs text-brand-text-muted;
+  }
+  /* Tabular numerals for anything scanned as a column of numbers
+     (price, amounts) — `OfferCard.tsx` already applies `tabular-nums`
+     ad hoc for its own price line; this is the same rule, named, for
+     reuse elsewhere without retyping the utility. */
+  .text-numeric {
+    @apply tabular-nums;
   }
 }
 

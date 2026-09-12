@@ -49,12 +49,20 @@ const sheetVariants = cva(
 
 interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
-    VariantProps<typeof sheetVariants> {}
+    VariantProps<typeof sheetVariants> {
+  // UI-POLISH-2 §2.1 — a Sheet that occupies the full mobile viewport
+  // reads as a full-screen secondary surface, not a dismissive overlay;
+  // Back semantics (a caller-supplied back arrow in its own header) fit
+  // that better than this built-in `X`, which stays correct for the
+  // narrower desktop drawer presentation. Default false — every other
+  // Sheet in the app (Disputes.tsx) keeps today's behavior unchanged.
+  hideDefaultClose?: boolean
+}
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, ...props }, ref) => (
+>(({ side = "right", className, children, hideDefaultClose, ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
     <SheetPrimitive.Content
@@ -66,10 +74,12 @@ const SheetContent = React.forwardRef<
       {/* h-8 w-8 flex (2026-08-01) — same real mobile touch-target fix as
           dialog.tsx's own Close (16px icon-only hit area, found testing
           this migration on an actual mobile viewport). */}
-      <SheetPrimitive.Close className="absolute right-4 top-4 h-8 w-8 flex items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
-        <X className="h-4 w-4" />
-        <span className="sr-only">Close</span>
-      </SheetPrimitive.Close>
+      {!hideDefaultClose && (
+        <SheetPrimitive.Close className="absolute right-4 top-4 h-8 w-8 flex items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
+          <X className="h-4 w-4" />
+          <span className="sr-only">Close</span>
+        </SheetPrimitive.Close>
+      )}
     </SheetPrimitive.Content>
   </SheetPortal>
 ))

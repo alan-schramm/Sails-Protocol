@@ -92,55 +92,75 @@ export function Login() {
           <ThemeToggle />
         </div>
 
-        {/* Real fix from a cold-start UX walkthrough: "Use seu keypair
-            Ed25519 para autenticar" and "Conectar com WDK" were the
-            FIRST and ONLY things a brand-new, non-technical user saw —
-            neither means anything without already knowing what this
-            product is. The technical detail is true and stays (this is
-            a reference implementation of real crypto, not a claim to
-            water down) but it now lives behind an info icon instead of
-            being the primary copy a first-time user has to parse. */}
-        <div className="flex items-center gap-1.5">
-          <h2 className="text-2xl font-display font-bold text-brand-text">Entrar</h2>
-          <InfoTooltip text="Tecnicamente: autenticação por assinatura de chave Ed25519 — sem senha, sem servidor guardando credenciais. Sua chave privada nunca sai do seu dispositivo." />
-        </div>
-        <p className="text-sm text-brand-text-muted mt-1">Conecte sua carteira para comprar e vender com segurança</p>
-
-        <div className="mt-6">
-          <label className="text-xs text-brand-text-muted mb-1.5 block">
-            <span className="flex items-center gap-1">
-              {isReturning ? 'Sua senha' : 'Crie uma senha'}
-              <InfoTooltip text={PASSPHRASE_EXPLAINER} />
-            </span>
-            <Input
-              type="password"
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !connecting && handleConnect()}
-              placeholder={isReturning ? 'Digite sua senha' : 'Crie uma senha para proteger sua chave'}
-              className="w-full mt-1.5"
-              autoComplete={isReturning ? 'current-password' : 'new-password'}
-            />
-          </label>
+        {/* UI-FOUNDATION-1-VISUAL-CORRECTION §4.7 — mobile/tablet has no
+            brand panel (that's `hidden lg:flex` above), so this was the
+            only breakpoint with zero Sails Market identity on the whole
+            screen. Same wordmark treatment as Sidebar.tsx's own header. */}
+        <div className="lg:hidden mb-8 font-display font-bold tracking-tight text-brand-text text-lg">
+          Sails <span className="text-brand-orange-accent">Market</span>
         </div>
 
-        <Button onClick={handleConnect} disabled={connecting || !passphrase} className="mt-4 h-14">
-          {connecting ? (
-            'Conectando...'
-          ) : (
-            <>
-              <KeyRound className="h-4 w-4" />
-              Conectar Carteira
-            </>
-          )}
-        </Button>
-        <p className="text-xs text-brand-text-muted text-center mt-2">Powered by Satsails</p>
+        {/* UI-FOUNDATION-1-VISUAL-CORRECTION §4.7 — the form used to float
+            directly on the page background with no surface of its own,
+            reading as unfinished next to the new shell's layered panels.
+            A bounded card gives it the same tonal weight as the rest of
+            the product. */}
+        <div className="w-full max-w-sm mx-auto lg:mx-0 rounded-2xl border border-brand-border-subtle bg-brand-surface p-6 sm:p-8">
+          {/* Real fix from a cold-start UX walkthrough: "Use seu keypair
+              Ed25519 para autenticar" and "Conectar com WDK" were the
+              FIRST and ONLY things a brand-new, non-technical user saw —
+              neither means anything without already knowing what this
+              product is. The technical detail is true and stays (this is
+              a reference implementation of real crypto, not a claim to
+              water down) but it now lives behind an info icon instead of
+              being the primary copy a first-time user has to parse. */}
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-page-title">Entrar</h2>
+            <InfoTooltip text="Tecnicamente: autenticação por assinatura de chave Ed25519 — sem senha, sem servidor guardando credenciais. Sua chave privada nunca sai do seu dispositivo." />
+          </div>
+          <p className="text-sm text-brand-text-muted mt-1.5">Conecte sua carteira para comprar e vender com segurança</p>
 
-        <div className="mt-8 bg-brand-elevated border border-brand-border rounded-lg p-4 flex gap-3">
-          <ShieldCheck className="h-4 w-4 text-brand-text-secondary shrink-0" />
-          <p className="text-xs text-brand-text-secondary">
-            Sua chave privada nunca sai do seu dispositivo. O Sails Protocol só verifica sua assinatura.
-          </p>
+          <div className="mt-7">
+            <label className="mb-1.5 block">
+              {/* DESIGN-LANGUAGE-1 §4.4 — was ad-hoc `text-xs text-brand-text-muted`;
+                  `.text-label` is the same typography level FilterPanel's
+                  section headers and Marketplace's column headers now use,
+                  so a form field label reads as the same design language
+                  rather than a one-off size/color pairing. */}
+              <span className="text-label flex items-center gap-1">
+                {isReturning ? 'Sua senha' : 'Crie uma senha'}
+                <InfoTooltip text={PASSPHRASE_EXPLAINER} />
+              </span>
+              <Input
+                type="password"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !connecting && handleConnect()}
+                placeholder={isReturning ? 'Digite sua senha' : 'Crie uma senha para proteger sua chave'}
+                className="w-full mt-1.5"
+                autoComplete={isReturning ? 'current-password' : 'new-password'}
+              />
+            </label>
+          </div>
+
+          <Button onClick={handleConnect} disabled={connecting || !passphrase} className="mt-5 w-full h-14">
+            {connecting ? (
+              'Conectando...'
+            ) : (
+              <>
+                <KeyRound className="h-4 w-4" />
+                Conectar Carteira
+              </>
+            )}
+          </Button>
+          <p className="text-xs text-brand-text-muted text-center mt-2">Powered by Satsails</p>
+
+          <div className="mt-7 bg-brand-elevated border border-brand-border-subtle rounded-lg p-4 flex gap-3">
+            <ShieldCheck className="h-4 w-4 text-brand-text-secondary shrink-0" />
+            <p className="text-xs text-brand-text-secondary">
+              Sua chave privada nunca sai do seu dispositivo. O Sails Protocol só verifica sua assinatura.
+            </p>
+          </div>
         </div>
       </div>
     </div>

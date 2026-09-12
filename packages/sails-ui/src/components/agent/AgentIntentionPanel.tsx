@@ -89,7 +89,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     // Real inference call now (2026-08-09) — requires an active session,
     // same as any other real @satsails/p2p-trading-sdk write/compute call in this app.
     if (!user) {
-      toast.error('Conecte sua carteira para usar o AI Negotiator')
+      toast.error('Conecte sua carteira para usar o Sails Agent')
       return
     }
     setLoading(true)
@@ -224,34 +224,61 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
   }
 
   return (
-    <Card className="p-4 mb-4">
+    // UI-FOUNDATION-1-VISUAL-CORRECTION §4.4 — was a bare shadcn Card
+    // (bg-card, generic "border") indistinguishable from any other panel;
+    // an orange-tinted icon badge + a two-line header (title/subtitle
+    // instead of one long run-on label) signals this is the market's one
+    // AI-assistance feature, not a generic bordered box.
+    <Card className="p-4 mb-4 border-brand-border-subtle bg-brand-surface">
       <div className="w-full flex items-center justify-between text-left">
         <button
           onClick={() => setOpen((o) => !o)}
-          className="flex items-center gap-2 text-sm font-semibold text-brand-text"
+          className="flex items-center gap-3 min-w-0 group"
+          aria-expanded={open}
         >
-          <Bot className="h-4 w-4 shrink-0" />
-          {/* Missão 07.3 — the previous subtitle ("negociação assistida
-              por IA (Agente QVAC)") attributed the whole flow to QVAC;
-              only the intent itself is AI-generated (real LLM call) —
-              the offer search/match that follows is deterministic, not
-              QVAC, per BOUNDARY_TEXT below. Kept the "AI Negotiator"
-              product name (the AI-generated-intent part is genuinely
-              real), fixed the subtitle to not over-attribute the search
-              step. */}
-          AI Negotiator — intenção gerada por IA, busca automática de oferta
+          <span className="flex items-center justify-center h-8 w-8 rounded-lg bg-brand-orange-accent/10 text-brand-orange-accent shrink-0">
+            <Bot className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <span className="min-w-0 text-left">
+            {/* DESIGN-LANGUAGE-1 §7 — "Sails Agent" is now the product-level
+                identity for AI/agent assistance across the Sails ecosystem
+                (docs/SAILS_DESIGN_LANGUAGE.md §7); this panel is one
+                composition of it, not the whole concept, hence "Market
+                Negotiation" rather than a flat rename. Renamed the visible
+                label only — component name, props, and the underlying
+                QVAC-backed intent/propose flow are unchanged.
+                UI-POLISH-2 §3.1 — was one `truncate`d line combining both
+                ("Sails Agent — Market Negotiati…"), so the identity itself
+                got clipped on narrow mobile widths. Product identity is
+                never truncated (Design Language's cross-platform
+                information-integrity rule): "Sails Agent" now stands alone
+                on its own line at full weight; the composition qualifier
+                moves into the secondary line below, which is genuinely
+                supplementary and safe to truncate. */}
+            <span className="block text-sm font-semibold text-brand-text">Sails Agent</span>
+            {/* Missão 07.3 — the previous subtitle ("negociação assistida
+                por IA (Agente QVAC)") attributed the whole flow to QVAC;
+                only the intent itself is AI-generated (real LLM call) —
+                the offer search/match that follows is deterministic, not
+                QVAC, per BOUNDARY_TEXT below. */}
+            <span className="block text-metadata truncate">Market Negotiation · Intenção gerada por IA, busca automática de oferta</span>
+          </span>
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 shrink-0 pl-2">
           <InfoTooltip text={BOUNDARY_TEXT} />
-          <button onClick={() => setOpen((o) => !o)} className="text-brand-text-muted text-xs flex items-center gap-1">
-            {open ? 'fechar' : 'abrir'}
-            {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          <button
+            onClick={() => setOpen((o) => !o)}
+            aria-label={open ? 'Fechar Sails Agent' : 'Abrir Sails Agent'}
+            aria-expanded={open}
+            className="flex items-center justify-center h-7 w-7 rounded-md text-brand-text-muted hover:bg-brand-elevated hover:text-brand-text transition-colors"
+          >
+            {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
         </div>
       </div>
 
       {open && (
-        <div className="mt-3">
+        <div className="mt-4 pt-4 border-t border-brand-border-subtle">
           {!result && (
             <>
               <div className="flex gap-1 bg-brand-elevated rounded-lg p-1 w-fit mb-2">
@@ -291,8 +318,8 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           )}
 
           {result && proposal === undefined && (
-            <div className="rounded-lg border border-brand-orange-accent/30 bg-brand-orange-accent/5 p-3">
-              <div className="text-xs font-semibold text-brand-orange-accent mb-2">Intenção estruturada gerada</div>
+            <div className="rounded-xl border border-brand-orange-accent/20 bg-brand-orange-accent/[0.04] p-4">
+              <div className="text-xs font-semibold text-brand-orange-accent mb-3">Intenção estruturada gerada</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
                 <Field label="Ativo" value={ASSET_LABELS[result.asset]} />
                 <Field label="Lado" value={result.side === 'BUY' ? 'Compra' : 'Venda'} />
@@ -311,7 +338,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                     <ArrowDown className="h-3 w-3" />
                   </button>
                 ) : (
-                  <div className="mb-3 rounded-md bg-brand-elevated border border-brand-border px-3 py-2 text-xs text-brand-text-secondary">
+                  <div className="mb-3 rounded-md bg-brand-elevated border border-brand-border-subtle px-3 py-2 text-xs text-brand-text-secondary">
                     Nenhuma oferta encontrada com {result.currency} + {ASSET_LABELS[result.asset]}
                     {onResetFilters && (
                       <button onClick={onResetFilters} className="ml-2 text-brand-orange-accent underline whitespace-nowrap">
@@ -322,7 +349,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 )
               )}
 
-              <div className="text-xs font-semibold text-brand-text mb-2">Mandato para o AI Negotiator</div>
+              <div className="text-xs font-semibold text-brand-text mb-2">Mandato para o Sails Agent</div>
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <label className="text-xs text-brand-text-muted">
                   Quantidade ({ASSET_SHORT_LABELS[result.asset]})
@@ -373,7 +400,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           )}
 
           {result && proposal !== undefined && (
-            <div className="rounded-lg border border-brand-orange-accent/30 bg-brand-orange-accent/5 p-3">
+            <div className="rounded-xl border border-brand-orange-accent/20 bg-brand-orange-accent/[0.04] p-4">
               {proposal ? (
                 <>
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-orange-accent mb-2">
@@ -445,7 +472,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-brand-surface rounded-md px-2 py-1.5 border border-brand-border">
+    <div className="bg-brand-surface rounded-md px-2.5 py-1.5 border border-brand-border-subtle">
       <div className="text-brand-text-muted">{label}</div>
       <div className="font-medium text-brand-text">{value}</div>
     </div>

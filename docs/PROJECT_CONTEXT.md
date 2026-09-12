@@ -468,6 +468,14 @@ or alter custody/finality semantics — those remain protocol-level,
 governed exclusively by the canonical registries (ADR-002) and any
 future Provider Identity/routing decision, never by tenant config.
 
+**Visual-layer instantiation (`DESIGN-LANGUAGE-1`, 2026-09-12):** this
+item governs functional/capability configuration; `docs/SAILS_DESIGN_LANGUAGE.md`
+§9 formalizes the same non-negotiable boundary specifically for visual
+theming (brand color/logo/typography/radius customizable; semantic
+state meaning, risk hierarchy, authority cues, and funding/signing
+semantic states are not) — a specialization of this frozen rule, not a
+new one.
+
 ### 5. Agents / Liquidity correction — FROZEN
 
 **Rejected as institutional truth:** "OpenAgents = Sails Market only"
@@ -933,6 +941,37 @@ not resolved by keeping a duplicate "23."
   constraint is introduced; items 4/12 restate ADR-002's own frozen
   distinctions at the product/UI level, they do not add to them.
 
+### 18. Agent economic authority — access ≠ authority, corrected from an overclaimed prohibition (`UI-POLISH-2`, 2026-09-12)
+
+**Frozen:** agent *access* (discovery, negotiation, analysis, proposal
+generation — what "Sails Agent" does today) never by itself confers
+economic *authority* (moving funds, signing, completing a trade).
+Authority is a separate grant, never an implicit side effect of access
+— restates item 7's "Access does not imply authority" specifically for
+an AI/agent identity rather than interface richness in general.
+
+**Corrected, not newly frozen:** `docs/SAILS_DESIGN_LANGUAGE.md` §8
+previously phrased the current human-approval requirement
+(`AgentIntentionPanel.tsx`'s `handleApprove` — today the only route
+from a QVAC-generated proposal to a real `Trade`/escrow call) as
+something an agent "can never" do without — an overclaim, since it
+described current implementation as a standing ban on all future
+delegated-authority designs. **Corrected statement:** *current Sails
+Market behavior requires human approval before a QVAC-generated
+proposal becomes real economic action — this is current
+implementation/product behavior, not a permanent prohibition on
+delegated agent authority.* A future, separately authorized economic
+authority for an agent remains possible, conditioned on being
+explicit, scoped, limited, observable, revocable, auditable, and
+governed (full text: `docs/SAILS_DESIGN_LANGUAGE.md` §8's own corrected
+passage).
+
+**Not implemented, not designed, not scheduled by this correction** —
+this item removes an institutional overclaim; it does not authorize,
+design, or schedule a delegated-authority mechanism. No `CapabilityGrant`
+extension, no new protocol primitive, no Semantic Kernel or Core
+change.
+
 ### Closing confirmations
 
 No React, CSS, SDK, protocol, `SettlementScope`, or provider-routing
@@ -941,6 +980,96 @@ signer implemented. PR #132 (`docs/SAILS_MARKET_DESIGN_DIRECTION.md`)
 is read as context only — not edited, not merged, by this section. No
 Semantic Kernel or Core impact. `docs/BACKLOG.md` 20.2/20.5/20.6/22/23
 remain exactly as previously frozen.
+
+---
+
+## 2F. Product Direction — Market Context Navigation, Public/Private Markets, Public/Private Servers (2026-09-12)
+
+`NAVIGATION-FILTER-1` registers a product/architecture **direction**
+for an evolving concept — public markets, private markets, communities,
+public/private servers, and their discovery/access topology. **Not
+runtime-implemented. Not naming-frozen.** Extends §2D item 12's Private
+Markets classification and §2E item 2's sharpening of it; does not
+replace either.
+
+### 1. Three distinct concerns — must not be conflated
+
+- **Primary Product Navigation** — "where am I in the product?"
+  (`docs/SAILS_DESIGN_LANGUAGE.md` §16.1 — Market, Trades Ativos, Meus
+  Trades, Disputas, Perfil today).
+- **Market Context Navigation** — "which market/discovery context am I
+  exploring?" A new, higher layer than Primary Navigation, not yet
+  implemented. This is what a future public/private market or
+  community switcher belongs to.
+- **Screen Filters** — "how do I filter the current context's content?"
+  (`FilterPanel.tsx`, the Market toolbar). A payment-method or country
+  filter is not, and must never become, a market-context selector.
+
+This mirrors `docs/SAILS_DESIGN_LANGUAGE.md` §16.1 exactly — registered
+here too because it is product truth, not only visual-language guidance.
+
+### 2. Public/Private Markets and Public/Private Servers — direction, not implementation
+
+Registered as backlog-facing product direction (`docs/BACKLOG.md`), no
+runtime built:
+
+- **Public Markets** — today's Marketplace is, in effect, the one
+  public market. Not renamed or restructured by this registration.
+- **Private Markets** — per §2D item 12, a composition candidate over
+  existing primitives (restricted discovery, `CapabilityGrant`-scoped
+  membership, per-deployment fee/dispute policy) — still not proven
+  concretely, still not implemented.
+- **Public Servers / Private Servers** — an infrastructure/topology
+  concept (nodes participating in discovery, potentially access-scoped)
+  distinct from the *product* concept of a market or community a user
+  browses. No node registry, no server-discovery backend, and no new
+  protocol primitive is created by this registration.
+- **Communities / access groups** — a product-facing grouping concept
+  that may or may not map 1:1 onto a "private market" or "private
+  server" — left open rather than prematurely equated with either.
+
+### 3. Architecture language vs. product/user-facing language — explicitly separated, naming OPEN
+
+**Architecture language** may use `server`/`node` — this is accurate,
+already-used infrastructure vocabulary (e.g. the P2P transport layer's
+own HyperDHT node concept) and is not being renamed.
+
+**Product/user-facing language** may prefer different words entirely —
+`Market`, `Community`, `Network`, `Workspace`, or something else — a
+non-technical user browsing Sails Market should never be required to
+understand "node" as a prerequisite to understanding "which market am I
+in." **This choice is explicitly OPEN, pending a real Product
+Decision** — no default is assumed or implied by this registration,
+including by the illustrative words listed above.
+
+### 4. Future contextual-navigation pattern — evaluated, not decided
+
+`docs/SAILS_DESIGN_LANGUAGE.md` §16.6 evaluates visual pattern options
+(tabs/segmented control, Topbar selector, Sidebar secondary section, a
+distinct top-level market selector) for a future Market Context
+Navigation switcher, recommending the last option as the best fit for
+the separation this section requires — a recommendation for the next
+Product/Architecture Decision, not a decision itself, and not
+implemented.
+
+### 5. Explicitly not done by this registration
+
+No `FundingInstruction`/`SigningRequest` implementation, no
+OpenLiquidity/OpenAgents protocol-scope expansion, no Private Markets
+runtime, no server-discovery backend, no node registry, no fake
+public/private tabs, no placeholder routes, no capability-maturity
+classification closed. Server/node identity is explicitly **not**
+Economic Identity — an infrastructure/topology concept is not an
+authority or settlement concept, and this registration does not blur
+that line.
+
+### Closing confirmations
+
+No protocol, SDK, Core, or architecture change. No new economic
+primitive. No naming frozen — §3 above is explicitly OPEN. No
+capability-maturity item closed. `docs/BACKLOG.md` gets one new
+explicit item for this direction (see that file) — no existing item
+closed or altered in meaning.
 
 ---
 

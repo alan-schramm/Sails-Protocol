@@ -9,7 +9,7 @@
  *
  * Shown automatically once per browser after a first successful login
  * (Layout.tsx owns that trigger + the localStorage flag, lib/onboarding.ts).
- * Replayable anytime via the "?" button in TopNav (desktop) and Layout's
+ * Replayable anytime via the "?" button in Topbar (desktop) and Layout's
  * own mobile header — this component itself is a plain controlled Dialog,
  * it doesn't know or care why it's open.
  */

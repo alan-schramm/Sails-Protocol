@@ -20,6 +20,7 @@ import type { AssetType } from '../../types'
 import { ASSET_LABELS } from '../../lib/labels'
 import { Input } from '../ui/input'
 import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover'
+import { AssetIcon } from '../ui/AssetIcon'
 import { ChevronDown } from 'lucide-react'
 
 interface Props {
@@ -49,8 +50,11 @@ export function AssetPicker({ assets, value, onChange }: Props) {
     // close, no ARIA. Trigger keeps its `.input-field` look (that part
     // was never the problem); only the dropdown mechanics changed.
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Ativo" className="input-field flex items-center gap-2 min-w-[140px] justify-between">
-        <span className="font-medium truncate">{value === 'Todos' ? 'Todos os ativos' : ASSET_LABELS[value]}</span>
+      <PopoverTrigger aria-label="Ativo" className="toolbar-chip flex items-center gap-2 min-w-[140px] justify-between">
+        <span className="flex items-center gap-1.5 min-w-0">
+          {value !== 'Todos' && <AssetIcon asset={value} />}
+          <span className="font-medium truncate">{value === 'Todos' ? 'Todos os ativos' : ASSET_LABELS[value]}</span>
+        </span>
         <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-2">
@@ -64,7 +68,7 @@ export function AssetPicker({ assets, value, onChange }: Props) {
         <div className="max-h-64 overflow-y-auto">
           <button
             onClick={() => select('Todos')}
-            className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated ${value === 'Todos' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
+            className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === 'Todos' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
           >
             Todos os ativos
           </button>
@@ -73,9 +77,10 @@ export function AssetPicker({ assets, value, onChange }: Props) {
               key={asset}
               onClick={() => select(asset)}
               title={asset}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated ${value === asset ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
+              className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === asset ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
             >
-              {ASSET_LABELS[asset]}
+              <AssetIcon asset={asset} />
+              <span className="truncate">{ASSET_LABELS[asset]}</span>
             </button>
           ))}
           {filtered.length === 0 && <p className="text-xs text-brand-text-muted px-3 py-2">Nenhum ativo encontrado.</p>}

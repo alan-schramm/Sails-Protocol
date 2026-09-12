@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, Outlet } from 'react-router'
-import { TopNav } from './TopNav'
+import { Sidebar } from './Sidebar'
+import { Topbar } from './Topbar'
 import { BottomNav } from './BottomNav'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { UserAvatar } from '../ui/UserAvatar'
@@ -38,42 +39,58 @@ export function Layout() {
   }
 
   return (
-    <div className="min-h-screen bg-brand-bg">
-      <TopNav onReplayTour={() => setTourOpen(true)} />
-      {/* Mobile-only bar — desktop nav (TopNav) already carries the
-          theme toggle; mobile needs its own since BottomNav is reserved
-          for primary navigation. */}
-      <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-brand-border sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
-        <Link to="/" className="font-display font-bold text-brand-text tracking-tight">
-          Sails <span className="text-brand-orange-accent">P2P</span>
-        </Link>
-        <div className="flex items-center gap-3">
-          {user && (
-            <button
-              type="button"
-              onClick={() => setTourOpen(true)}
-              title="Rever tour de boas-vindas"
-              aria-label="Rever tour de boas-vindas"
-              className="p-2 -m-2 text-brand-text-secondary hover:text-brand-text"
-            >
-              <HelpCircle className="h-4 w-4" />
-            </button>
-          )}
-          <ThemeToggle />
-          {user ? (
-            <Link to="/profile" className="flex items-center gap-1.5">
-              <UserAvatar user={user} size="sm" />
-            </Link>
-          ) : (
-            <Link to="/login" className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
-              Conectar
-            </Link>
-          )}
-        </div>
-      </header>
-      <main className="max-w-6xl mx-auto px-4 py-6 pb-20 md:pb-6">
-        <Outlet />
-      </main>
+    // UI-FOUNDATION-1 — hybrid sidebar + topbar shell
+    // (docs/SAILS_MARKET_DESIGN_DIRECTION.md §7a's recommended option):
+    // Sidebar is a fixed-height flex sibling (own `h-screen sticky`),
+    // not part of the scrolling document — the row layout below just
+    // reserves its width. Mobile is completely untouched: same header +
+    // BottomNav as before, `md:hidden`-gated exactly as they already were.
+    <div className="min-h-screen bg-brand-bg md:flex">
+      <Sidebar />
+      <div className="flex-1 min-w-0">
+        <Topbar onReplayTour={() => setTourOpen(true)} />
+        {/* Mobile-only bar — desktop nav now lives in Sidebar/Topbar;
+            mobile needs its own since BottomNav is reserved for primary
+            navigation. */}
+        <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
+          <Link to="/" className="font-display font-bold text-brand-text tracking-tight">
+            Sails <span className="text-brand-orange-accent">Market</span>
+          </Link>
+          <div className="flex items-center gap-3">
+            {user && (
+              <button
+                type="button"
+                onClick={() => setTourOpen(true)}
+                title="Rever tour de boas-vindas"
+                aria-label="Rever tour de boas-vindas"
+                className="p-2 -m-2 text-brand-text-secondary hover:text-brand-text"
+              >
+                <HelpCircle className="h-4 w-4" />
+              </button>
+            )}
+            <ThemeToggle />
+            {user ? (
+              <Link to="/profile" className="flex items-center gap-1.5">
+                <UserAvatar user={user} size="sm" />
+              </Link>
+            ) : (
+              <Link to="/login" className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
+                Conectar
+              </Link>
+            )}
+          </div>
+        </header>
+        {/* UI-FOUNDATION-1 — max-w-6xl -> max-w-7xl: the sidebar now
+            reserves its own width (Sidebar.tsx), so the old cap left a
+            visibly asymmetric empty band on the right at wide desktop
+            widths once content had a nav column beside it instead of
+            spanning edge-to-edge. A modest widen, not full-bleed —
+            dense market/table content still benefits from a line-length
+            cap, just a less conservative one now that a sidebar exists. */}
+        <main className="max-w-7xl mx-auto px-4 py-6 pb-20 md:pb-6">
+          <Outlet />
+        </main>
+      </div>
       <BottomNav />
       <OnboardingTour open={tourOpen} onOpenChange={closeTour} />
     </div>

@@ -2409,4 +2409,145 @@ obligation" is defined anywhere in this repository.
     in §2E restate ADR-002's own frozen distinctions at the product/UI
     level, they do not add to them).
 
+25. **Sails Design Language Foundation — institutionalized + minimally
+    implemented (2026-09-12).** `DESIGN-LANGUAGE-1` (continuing PR #134
+    after `UI-FOUNDATION-1`/`UI-FOUNDATION-1-VISUAL-CORRECTION`) fixed
+    the active-navigation route-matching bug (`/profile` prefix-matching
+    its own `/profile/active`/`/profile/history` children), standardized
+    the Market/mobile-nav naming ("Comprar"→"Market", no Product
+    Decision authorized a different name for the same destination),
+    replaced hand-rolled checkbox/switch controls in `FilterPanel.tsx`
+    with the real shadcn `Checkbox`(new)/`Switch` primitives, added
+    focus-visible states to `.toolbar-chip`, suppressed native number-
+    input spinner chrome on the shared `Input` primitive, introduced a
+    first `AssetIcon` monogram pattern (`AssetPicker.tsx`), renamed the
+    Marketplace AI surface's visible copy from "AI Negotiator" to "Sails
+    Agent — Market Negotiation," and created `docs/SAILS_DESIGN_LANGUAGE.md` —
+    the first reusable, cross-product design language (base identity,
+    semantic colors, surface system, typography levels, interaction
+    states, iconography evaluation, asset-icon strategy, Sails Agent
+    identity, QVAC representation rule, white-label theming contract,
+    token/theme architecture, OS-style design grammar, visual-reference
+    roles). Full text: `docs/SAILS_DESIGN_LANGUAGE.md`; cross-linked
+    from `docs/SAILS_MARKET_DESIGN_DIRECTION.md` §17/§19/§22/§24 and
+    `docs/PROJECT_CONTEXT.md` §2D item 4.
+
+    **Explicitly not closed by this item:** 20.2, 20.5, 20.6, 22, 23, 24
+    (all unaffected — still exactly as previously frozen); no capability-
+    maturity classification changes with this item (a CSS/UI/naming
+    pass does not move any capability's Implementation Reality/Journey
+    Reality/UX Evidence/Production Eligibility axis, per `PROJECT_CONTEXT.md`
+    §2E item 4's own rule). No `FundingInstruction`/`SigningRequest`
+    implementation, no OpenLiquidity/OpenAgents scope expansion, no new
+    protocol primitive. No ADR (no new architectural constraint — this
+    formalizes an already-implemented token pattern and its evaluated
+    boundaries, it does not introduce one). No Semantic Kernel or Core
+    change.
+
+    **Concrete remaining gap, named not closed:** the tenant-swappable
+    brand-token indirection layer (`SAILS_DESIGN_LANGUAGE.md` §11) —
+    white-label still has no *runtime* mechanism to swap the primary
+    accent color; only the contract for what would be swappable is
+    frozen. This is the next authorized implementation block, not yet
+    started.
+
+26. **Responsive navigation architecture + Market filter UX —
+    corrected + institutionalized (2026-09-12).** `NAVIGATION-FILTER-1`
+    (continuing PR #134 after `UI-FOUNDATION-1`/`UI-FOUNDATION-1-VISUAL-CORRECTION`/
+    `DESIGN-LANGUAGE-1`) re-audited navigation end-to-end (confirmed
+    `DESIGN-LANGUAGE-1`'s `/profile` active-state fix is the only
+    `NavLink` usage in the app and needs no further instance fixed —
+    verified by grepping every `NavLink`/`isActive` usage in
+    `packages/sails-ui/src`), classified every current navigation
+    destination (Primary/Contextual/
+    Action/Utility/Profile-Account, see `docs/SAILS_DESIGN_LANGUAGE.md`
+    §16.2), confirmed `Topbar.tsx` already correctly scoped (no change
+    needed), and restructured `FilterPanel.tsx`: six labeled sections
+    (was six equal-weight blocks), a real payment-method grouping/
+    search/country-priority system (`lib/paymentMethodMeta.ts`, new —
+    replaces the flat 43-chip "wall"), corrected sort copy
+    (`Menor preço`/`Maior reputação`/`Mais trades`, with the price-sort
+    side-dependence gap explicitly registered, not fixed), an active-
+    filter-count summary + "Limpar tudo", and a sticky apply/clear
+    footer. Full text: `docs/SAILS_DESIGN_LANGUAGE.md` §16/§17.
+
+    **Also registered, product/architecture direction only, no runtime
+    built:** Market Context Navigation as a third layer distinct from
+    Primary Navigation and Screen Filters; Public Markets/Private
+    Markets (extends §2D item 12/§2E item 2, still a composition
+    candidate, still not proven); Public/Private Servers as an
+    infrastructure/topology concept distinct from the product concept
+    of a market; the architecture-vs-product-language naming split
+    (`server`/`node` may stay architecture vocabulary; user-facing copy
+    is explicitly OPEN, no default chosen). Full text:
+    `docs/PROJECT_CONTEXT.md` §2F. A future contextual-nav pattern (a
+    distinct top-level market selector, not a Sidebar/Topbar/filter-
+    toolbar entry) is recommended but not decided or built
+    (`docs/SAILS_DESIGN_LANGUAGE.md` §16.6).
+
+    **Explicitly not closed by this item:** 20.2, 20.5, 20.6, 22, 23,
+    24, 25 (all unaffected); no capability-maturity classification
+    changes. No `FundingInstruction`/`SigningRequest` implementation, no
+    OpenLiquidity/OpenAgents scope expansion, no Private Markets or
+    server-discovery runtime, no node registry, no protocol primitive.
+    No ADR (no architectural constraint introduced — §2F restates and
+    extends existing §2D/§2E classifications, it does not add new
+    architecture). No Semantic Kernel or Core change.
+
+    **Concrete remaining gaps, named not closed:** a truly side-aware
+    "best price" sort (currently always ascending regardless of BUY/
+    SELL side — `SAILS_DESIGN_LANGUAGE.md` §17.3); no test coverage for
+    either navigation bug fix (`packages/sails-ui` still has no unit-
+    test infrastructure, same evaluated non-overengineering call as
+    item 25); the Market Context Navigation switcher itself (pattern
+    recommended, not built); Public/Private Markets/Servers naming
+    (explicitly OPEN).
+
+27. **UI polish: filter semantics, agent authority correction,
+    iconography, cross-platform information integrity (2026-09-12).**
+    `UI-POLISH-2` (continuing PR #134) fixed real defects rather than
+    only institutionalizing: `FilterPanel.tsx` converted from a false
+    live/staged hybrid (controls mutated real Market filters live while
+    an "Aplicar filtros" button implied a held-back commit) to a real
+    staged-draft model — verified live (draft edited, cancelled,
+    reopened confirming discard; draft edited again, applied,
+    toolbar badge confirming commit) on both desktop and mobile.
+    Mobile `FilterPanel` header changed from a bare `X` to Back
+    semantics (full-width mobile Sheet reads as a secondary surface,
+    not an overlay); desktop keeps `X` (genuine drawer). Fixed a real
+    information-integrity bug: `AgentIntentionPanel.tsx`'s "Sails Agent
+    — Market Negotiation" header truncated the product identity itself
+    on narrow mobile widths — corrected to a two-line layout ("Sails
+    Agent" never truncated, the composition qualifier moved into the
+    already-secondary subtitle line). Added icons to `StatusBadges.tsx`'s
+    Trade/Escrow/Offer status pills (was color+text only) and to
+    `FilterPanel.tsx`'s active-filter summary. **Corrected an
+    institutional overclaim**, not a new rule: `docs/SAILS_DESIGN_LANGUAGE.md`
+    §8's "Sails Agent... can never be granted authority" absolutized
+    current human-approval behavior into a standing prohibition on all
+    future delegated-agent-authority designs — corrected to "current
+    behavior, not a permanent prohibition," conditioned on any future
+    authority being explicit/scoped/limited/observable/revocable/
+    auditable/governed. Mirrored in `docs/PROJECT_CONTEXT.md` §2E item
+    18. Full text: `docs/SAILS_DESIGN_LANGUAGE.md` §19-§24.
+
+    **Explicitly not closed by this item:** 20.2, 20.5, 20.6, 22-26 (all
+    unaffected); no capability-maturity classification changes. No
+    delegated agent authority implemented (correction only, per its own
+    explicit text). No icon library change (Lucide re-evaluated, kept).
+    No typography change (audited, confirmed already correct). No
+    Private Markets/server runtime, no protocol primitive, no ADR (no
+    new architectural constraint — §2E item 18 corrects an overclaim in
+    existing text, it does not introduce architecture).
+
+    **Concrete remaining gaps, named not closed:** `StatusBadges.tsx`'s
+    new status icons were type-checked and built but not visually
+    verified against real trade/escrow data (no seeded trade existed in
+    this session's dev environment to render one) — verified by code
+    review and the existing exhaustive `Record<Status, ...>` type-safety
+    only, disclosed rather than silently assumed; rail/network icon
+    strategy registered, not built (no immediate need found); Market
+    Context Navigation, side-aware price sort, and Public/Private
+    Markets/Servers naming remain open exactly as item 26 left them.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**
