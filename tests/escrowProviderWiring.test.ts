@@ -308,6 +308,58 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
   })
 })
 
+describe('createEscrow() — BTC resolved via canonical SettlementScope/Provider registry (VERTICAL-SLICE-1)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+  })
+
+  it('resolves an omitted type to MULTISIG for BTC via the canonical registry (same outcome as before, new mechanism)', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-1', tradeId: 'trade-btc-1', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-btc-1', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
+  })
+
+  it('validates a client-supplied type "MULTISIG" for BTC against the canonical registry (simulates the SDK\'s own client-side default, the real Reference UI path)', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-2', tradeId: 'trade-btc-2', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-btc-2', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
+  })
+
+  it('rejects a client-supplied type for BTC that disagrees with the canonical registry (never silently trusts the caller)', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-btc-3', type: 'WDK_USDT_EVM' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    ).rejects.toThrow("type 'WDK_USDT_EVM' does not match 'MULTISIG'")
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('MOCK override for BTC still bypasses canonical resolution entirely (pre-existing escape hatch, unchanged)', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-4', tradeId: 'trade-btc-4', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-btc-4', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
+  })
+
+  it('does not affect LN_BTC or USDT_ERC20 resolution (out of this mission\'s bounded scope)', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-5', tradeId: 'trade-btc-5', type: 'LIGHTNING_HODL', asset: 'LN_BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-btc-5', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'LIGHTNING_HODL' }) }))
+  })
+})
+
 describe('recommendedEscrowType()', () => {
   it('matches the audited real-provider coverage exactly', () => {
     expect(recommendedEscrowType('BTC' as any)).toBe('MULTISIG')
