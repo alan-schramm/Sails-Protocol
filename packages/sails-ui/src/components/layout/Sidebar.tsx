@@ -33,9 +33,9 @@ export function Sidebar() {
   return (
     <aside
       aria-label="Navegação principal"
-      className="hidden md:flex md:flex-col md:w-16 lg:w-56 shrink-0 border-r border-brand-border bg-brand-surface h-screen sticky top-0"
+      className="hidden md:flex md:flex-col md:w-16 lg:w-56 shrink-0 border-r border-brand-border-subtle bg-brand-surface h-screen sticky top-0"
     >
-      <div className="h-14 flex items-center justify-center lg:justify-start lg:px-5 border-b border-brand-border shrink-0">
+      <div className="h-14 flex items-center justify-center lg:justify-start lg:px-5 border-b border-brand-border-subtle shrink-0">
         <NavLink to="/" className="font-display font-bold tracking-tight text-brand-text lg:text-lg" aria-label="Sails Market">
           <span className="lg:hidden">S</span>
           <span className="hidden lg:inline">Sails <span className="text-brand-orange-accent">Market</span></span>
@@ -49,10 +49,16 @@ export function Sidebar() {
             end={item.end}
             title={item.label}
             className={({ isActive }: { isActive: boolean }) =>
-              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors justify-center lg:justify-start ${
+              // UI-FOUNDATION-1-VISUAL-CORRECTION §4.2 — a plain elevated-bg
+              // active state read as "gray", not "active". Orange is the
+              // sole primary brand/action accent (design direction §5), so
+              // the active item gets an orange left rail + tinted orange
+              // background + orange icon/text; the inactive state reserves
+              // an equal-width transparent border so nothing shifts on toggle.
+              `flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors justify-center lg:justify-start ${
                 isActive
-                  ? 'bg-brand-elevated text-brand-text'
-                  : 'text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
+                  ? 'border-brand-orange-accent bg-brand-orange-accent/10 text-brand-orange-accent'
+                  : 'border-transparent text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
               }`
             }
           >

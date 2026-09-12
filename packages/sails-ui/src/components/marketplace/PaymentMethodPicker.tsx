@@ -40,7 +40,7 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Métodos de pagamento" className="input-field flex items-center gap-2 min-w-[170px] justify-between">
+      <PopoverTrigger aria-label="Métodos de pagamento" className="toolbar-chip flex items-center gap-2 min-w-[170px] justify-between">
         <span className={`truncate ${value.length > 0 ? 'font-medium text-brand-orange-accent' : ''}`}>{label}</span>
         <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
       </PopoverTrigger>
@@ -79,7 +79,7 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
         {value.length > 0 && (
           <button
             onClick={() => onChange([])}
-            className="w-full text-xs text-brand-text-muted hover:text-brand-text mt-1 pt-2 border-t border-brand-border"
+            className="w-full text-xs text-brand-text-muted hover:text-brand-text mt-1 pt-2 border-t border-brand-border-subtle"
           >
             Limpar seleção
           </button>

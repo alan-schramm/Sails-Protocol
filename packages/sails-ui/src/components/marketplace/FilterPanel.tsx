@@ -190,7 +190,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
 
 function ToggleRow({ label, info, checked, onChange }: { label: string; info: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-brand-border">
+    <div className="flex items-center justify-between py-2.5 border-b border-brand-border-subtle">
       <div className="flex items-center gap-1.5">
         <span className="text-sm text-brand-text">{label}</span>
         <InfoTooltip text={info} />
@@ -211,7 +211,7 @@ function ToggleRow({ label, info, checked, onChange }: { label: string; info: st
 
 function CheckRow({ label, info, checked, onChange }: { label: string; info: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="flex items-center gap-2 py-2.5 border-b border-brand-border cursor-pointer">
+    <label className="flex items-center gap-2 py-2.5 border-b border-brand-border-subtle cursor-pointer">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="accent-brand-orange-accent w-4 h-4" />
       <span className="text-sm text-brand-text flex-1">{label}</span>
       <InfoTooltip text={info} />

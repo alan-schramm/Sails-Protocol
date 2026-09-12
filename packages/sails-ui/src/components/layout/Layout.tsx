@@ -52,7 +52,7 @@ export function Layout() {
         {/* Mobile-only bar — desktop nav now lives in Sidebar/Topbar;
             mobile needs its own since BottomNav is reserved for primary
             navigation. */}
-        <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-brand-border sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
+        <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
           <Link to="/" className="font-display font-bold text-brand-text tracking-tight">
             Sails <span className="text-brand-orange-accent">Market</span>
           </Link>

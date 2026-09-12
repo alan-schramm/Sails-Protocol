@@ -11,7 +11,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
-import { SlidersHorizontal, AlertTriangle } from 'lucide-react'
+import { SlidersHorizontal, AlertTriangle, SearchX, Loader2 } from 'lucide-react'
 import type { AssetType, FiatCurrency, MarketplaceFilters, TradeSide } from '../types'
 import { DEFAULT_FILTERS } from '../types'
 
@@ -146,28 +146,36 @@ export function Marketplace() {
         />
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-2 items-center">
-        <AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} />
-        <CurrencyPicker value={currency} onChange={setCurrency} />
-        <PaymentMethodPicker
-          methods={PAYMENT_METHODS_FILTERABLE}
-          value={filters.paymentMethods}
-          onChange={(paymentMethods) => setFilters({ ...filters, paymentMethods })}
-        />
+      {/* UI-FOUNDATION-1-VISUAL-CORRECTION §4.3/§4.5 — the toolbar now
+          lives on its own tonal surface (bg-brand-surface + subtle
+          border), separating "controls" from "content" instead of every
+          control floating loose at equal weight against the page bg. */}
+      <div className="mt-4 flex flex-wrap gap-2 items-center rounded-xl border border-brand-border-subtle bg-brand-surface px-3 py-2.5">
+        <div className="flex flex-wrap gap-2 items-center">
+          <AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} />
+          <CurrencyPicker value={currency} onChange={setCurrency} />
+          <PaymentMethodPicker
+            methods={PAYMENT_METHODS_FILTERABLE}
+            value={filters.paymentMethods}
+            onChange={(paymentMethods) => setFilters({ ...filters, paymentMethods })}
+          />
 
-        <Button
-          variant="outline"
-          onClick={() => setFilterPanelOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm relative"
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          Filtros
-          {activeFilterCount > 0 && (
-            <span className="w-4 h-4 flex items-center justify-center bg-brand-orange text-white text-[10px] rounded-full">
-              {activeFilterCount}
-            </span>
-          )}
-        </Button>
+          <Button
+            variant="outline"
+            onClick={() => setFilterPanelOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm relative border-brand-border-subtle bg-brand-elevated hover:bg-brand-elevated hover:border-brand-border"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Filtros
+            {activeFilterCount > 0 && (
+              <span className="w-4 h-4 flex items-center justify-center bg-brand-orange-accent text-white text-[10px] rounded-full">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+        </div>
+
+        <div className="h-6 w-px bg-brand-border-subtle hidden sm:block" aria-hidden="true" />
 
         <div className="flex gap-1 bg-brand-elevated rounded-lg p-1">
           {SIDE_FILTERS.map((s) => (
@@ -175,7 +183,9 @@ export function Marketplace() {
               key={s.value}
               onClick={() => setSide(s.value)}
               className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                side === s.value ? 'bg-brand-surface shadow-sm font-medium text-brand-text' : 'text-brand-text-secondary'
+                side === s.value
+                  ? 'bg-brand-orange-accent/15 text-brand-orange-accent font-medium'
+                  : 'text-brand-text-secondary hover:text-brand-text'
               }`}
             >
               {s.label}
@@ -193,7 +203,10 @@ export function Marketplace() {
           value={filters.sortBy}
           onValueChange={(v) => setFilters({ ...filters, sortBy: v as MarketplaceFilters['sortBy'] })}
         >
-          <SelectTrigger aria-label="Ordenar por" className="text-sm w-auto">
+          <SelectTrigger
+            aria-label="Ordenar por"
+            className="text-sm w-auto min-w-0 bg-brand-elevated border-brand-border-subtle hover:border-brand-border"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -208,7 +221,7 @@ export function Marketplace() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por vendedor..."
           aria-label="Buscar por vendedor"
-          className="ml-auto"
+          className="ml-auto sm:max-w-[220px] bg-brand-elevated border-brand-border-subtle"
         />
       </div>
 
@@ -226,7 +239,11 @@ export function Marketplace() {
         </div>
       )}
 
-      <Card id="marketplace-offer-grid" className="mt-4 overflow-hidden [&>a:last-child]:border-b-0">
+      {/* border-brand-border-subtle overrides shadcn Card's own bare
+          "border" (card.tsx) — the wireframe look this mission targets
+          (§4.1) comes from that base border, not from the .card @layer
+          class already softened in index.css. */}
+      <Card id="marketplace-offer-grid" className="mt-4 overflow-hidden border-brand-border-subtle bg-brand-surface [&>a:last-child]:border-b-0">
         {/* Desktop-only column header (Binance P2P/HodlHodl/El Dorado all
             label their offer-list columns) — hidden below `lg` since the
             mobile/tablet layout groups fields into paired rows instead of
@@ -241,18 +258,36 @@ export function Marketplace() {
           <span className="w-28 shrink-0 text-right">Ação</span>
         </div>
         {loadingOffers ? (
-          <p className="text-center text-brand-text-muted py-10">Carregando ofertas...</p>
+          <div className="flex flex-col items-center justify-center gap-2 py-16">
+            <Loader2 className="h-5 w-5 text-brand-text-muted animate-spin" aria-hidden="true" />
+            <p className="text-metadata">Carregando ofertas...</p>
+          </div>
         ) : (
           <>
             {offers.map((offer) => (
               <OfferCard key={offer.id} offer={offer} />
             ))}
+            {/* UI-FOUNDATION-1-VISUAL-CORRECTION §4.6 — was a single flat
+                line of muted text; a market with zero results deserves the
+                same intentional-empty-state treatment as any real product
+                (icon + primary message + supporting detail), not something
+                that reads like an error the layout forgot to fill. */}
             {offers.length === 0 && (
-              <p className="text-center text-brand-text-muted py-10">
-                {offersError
-                  ? 'Não foi possível carregar as ofertas agora — verifique sua conexão e tente novamente.'
-                  : 'Nenhuma oferta encontrada com esses filtros.'}
-              </p>
+              <div className="flex flex-col items-center justify-center gap-3 py-16 px-6 text-center">
+                {offersError ? (
+                  <AlertTriangle className="h-8 w-8 text-brand-warning/70" aria-hidden="true" />
+                ) : (
+                  <SearchX className="h-8 w-8 text-brand-text-muted" aria-hidden="true" />
+                )}
+                <p className="text-section-title">
+                  {offersError ? 'Não foi possível carregar as ofertas' : 'Nenhuma oferta encontrada'}
+                </p>
+                <p className="text-metadata max-w-xs">
+                  {offersError
+                    ? 'Verifique sua conexão e tente novamente.'
+                    : 'Ajuste os filtros ou o ativo selecionado para ver mais resultados.'}
+                </p>
+              </div>
             )}
           </>
         )}

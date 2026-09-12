@@ -197,15 +197,27 @@ body {
      uniform bubble radius on every single container was called out
      directly as the main "generic AI-app" tell. Sharper corners read
      closer to the Binance/Airtm/El Dorado trading-density reference. */
+  /* UI-FOUNDATION-1-VISUAL-CORRECTION — border-brand-border (the bright,
+     WCAG-1.4.11-driven hairline) downgraded to border-brand-border-subtle
+     for these two purely DECORATIVE container shapes. That accessibility
+     fix stays fully intact where it actually matters — real interactive
+     component boundaries (Input/Button/Select, see .input-field below,
+     unchanged) — but a card that merely groups content is not itself the
+     kind of UI-component boundary 1.4.11 requires 3:1 contrast for, and
+     the bright border on every single panel was the literal cause of the
+     "wireframe" critique (bright outlines standing in for real surface
+     layering). Tonal contrast (bg-brand-surface against the page's
+     bg-brand-bg) now does more of the separating work; the border is a
+     quiet finishing line, not the main structural signal. */
   .card {
-    @apply bg-brand-surface border border-brand-border rounded-lg;
+    @apply bg-brand-surface border border-brand-border-subtle rounded-lg;
   }
   /* Tailwind v4 (Dependabot major-version bump, 2026-07-19): @apply can
      no longer chain through another custom @layer components class
      (v3 allowed `@apply card`) — inlined .card's own utility list
      directly rather than referencing it by name. */
   .card-hover {
-    @apply bg-brand-surface border border-brand-border rounded-lg transition-colors;
+    @apply bg-brand-surface border border-brand-border-subtle rounded-lg transition-colors;
   }
   .card-hover:hover {
     border-color: var(--color-orange-border);
@@ -224,13 +236,26 @@ body {
      overlapped). Tablet now gets the same paired-row mobile layout,
      which scales cleanly since it has no fixed column widths. */
   .offer-row {
-    @apply flex flex-col gap-2 border-b border-brand-border border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated lg:flex-row lg:items-center lg:gap-6 lg:px-5 lg:py-3.5;
+    @apply flex flex-col gap-2 border-b border-brand-border-subtle border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated lg:flex-row lg:items-center lg:gap-6 lg:px-5 lg:py-3.5;
   }
   .btn-dark {
     @apply bg-brand-text text-brand-bg hover:opacity-85 font-semibold rounded-lg transition-opacity;
   }
+  /* Real form inputs keep the full-strength, WCAG-1.4.11-fixed border —
+     unchanged. This IS the kind of interactive component boundary that
+     rule protects. */
   .input-field {
     @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-orange transition-colors;
+  }
+  /* UI-FOUNDATION-1-VISUAL-CORRECTION — toolbar chip: for a filter/sort
+     TRIGGER (AssetPicker/CurrencyPicker/PaymentMethodPicker), not a form
+     field — these were reusing .input-field, which reads as "an empty
+     text box," the exact "default-form-like" critique. A filled,
+     low-contrast chip (background does the work, not an outline) is the
+     Binance/Airtm toolbar convention this screen is otherwise already
+     modeled on. */
+  .toolbar-chip {
+    @apply bg-brand-elevated border border-brand-border-subtle text-brand-text rounded-lg px-3 py-2 text-sm transition-colors hover:border-brand-border;
   }
 
   /* UI-FOUNDATION-1 — typography hierarchy (docs/SAILS_MARKET_DESIGN_DIRECTION.md
