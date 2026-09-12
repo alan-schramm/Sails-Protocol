@@ -629,9 +629,11 @@ item 22 for the recorded backlog delta).
 **Status: institutionalized product/security truth. No UI, SDK,
 protocol, or runtime change is authorized or made by this section.**
 Origin: `PRODUCT-IMPLEMENTATION-READINESS-1`, following §2D's frozen
-three-layer model and the still-open (unmerged) `docs/SAILS_MARKET_DESIGN_DIRECTION.md`
-(PR #132 — read as design-direction context for this section, not
-edited or merged by it). Exists to prevent scope creep, product
+three-layer model and `docs/SAILS_MARKET_DESIGN_DIRECTION.md`
+(PR #132, still open/unmerged when this section was first written —
+read as design-direction context only, not edited or merged by this
+section itself; merged separately, `MERGE-SEQUENCE-1`, 2026-09-12).
+Exists to prevent scope creep, product
 overclaim, UI outrunning runtime truth, custody/signing ambiguity,
 first-party semantic privilege, SDK-monolith expansion, and design
 completion being mistaken for product completion.
@@ -661,7 +663,12 @@ own composition-candidate classification stands; not reopened here).
 Private Markets may appear in Sails Market as a richer *product*
 surface without becoming a separate *protocol* primitive — the product/
 protocol distinction is the operative one, not a claim that Private
-Markets are unimportant or deferred indefinitely.
+Markets are unimportant or deferred indefinitely. **Corrected wording
+(2026-09-12, `PRODUCT-IMPLEMENTATION-READINESS-1-CORRECTION`):** no
+dedicated Private Markets product/runtime composition exists yet.
+Existing OpenP2P primitives may be sufficient, but the composition
+proof is still missing — this is not the same claim as "no
+representation," which overstated the gap.
 
 ### 3. Sails Market boundary — restated (extends §2D items 1/9)
 
@@ -674,50 +681,94 @@ Market feature needing OpenLiquidity/OpenAgents capability consumes
 those modules' own (possibly future, possibly separate) SDKs/packages,
 never an expanded OpenP2P Trading SDK.
 
-### 4. Sails Market capability maturity model — FROZEN, eight classes, never collapsed
+### 4. Sails Market capability maturity model — CORRECTED, lifecycle separated from planning status
 
+**Corrected (2026-09-12, `PRODUCT-IMPLEMENTATION-READINESS-1-CORRECTION`):**
+the prior version incorrectly placed `Future / Planned` after
+`Production Eligible`, implying a linear lifecycle a capability could
+"fall into" after reaching production — corrected below.
+
+**Lifecycle / maturity, frozen, seven states, never collapsed:**
 `Product Direction` (a documented intent — e.g. this document's own
 §2C/§3 rail lists) → `Representable` (the canonical architecture, e.g.
 ADR-002's `SettlementScope`, can express it) → `Implemented` (real code
-exists) → `Real` (that code is exercised through a real, non-MOCK path
-— not merely unit-tested in isolation) → `Evidenced` (a specific,
-named test/experiment/audit demonstrates a specific property) →
-`Beta Eligible` → `Production Eligible` → `Future / Planned`. **Frozen:
-these states are never collapsed into each other.** `SettlementScope
-exists` does not mean "available"; provider registration
-(`src/common/settlement-provider-registry.ts`) does not mean
-"production-ready"; a passing test does not mean "security property
-proven" (item 11 below states this identically, for the specific case
-of rail maturity — restated here as the general rule this whole
-maturity model rests on). **The UI must never display a capability as
-operational merely because it exists in Product Direction.**
+exists) → `Real` (that code is exercised through a real, non-MOCK path)
+→ `Evidenced` (a specific, named test/experiment/audit demonstrates a
+specific property) → `Beta Eligible` → `Production Eligible`.
 
-### 5. Sails Market capability map (current truth, 2026-09-12)
+**Planning status — a separate axis, not a maturity level:** `Current`
+/ `Planned` / `Future` / `Deferred`. A capability does not become
+"Future" after passing Production Eligibility — `Future`/`Planned`
+describe a capability whose maturity lifecycle above has not yet
+started, or that has been explicitly deferred, never an end state of
+the lifecycle itself.
 
-Classified against the model in item 4, using only evidence already
-established in this mission chain (ARCH-IMPL-1/2, `VERTICAL-SLICE-1`,
-`REFERENCE-UI-REALITY-1`) — not re-derived here:
+**Four additional, orthogonal reality/evidence axes — introduced
+because "Real" alone conflated backend truth with user-facing truth
+(the specific defect this correction fixes):**
 
-| Surface | Current class | Basis |
-|---|---|---|
-| OpenP2P marketplace (discovery) | Real, Evidenced | `lib/realOffers.ts` → real `liquidity.discover()`, live-verified |
-| Offers (publish/detail) | Real, Evidenced | Real `liquidity.publish()`/`getOffer()`, live-verified (`packages/sails-ui/README.md`) |
-| Negotiation/chat | Real, Evidenced | Real `openp2p.chat()` WebSocket with presence |
-| Trade creation | Real, Evidenced | Real `openp2p.trade()`/`getTrade()` |
-| Settlement creation | Real, Evidenced (BTC leg only) | Real `settlement.create()` → canonical-registry-backed `resolveEscrowType()` (`VERTICAL-SLICE-1`, PR #130) for `{BTC,BITCOIN_L1}`; `LN_BTC`/`USDT_ERC20` Real but not canonical-registry-backed; every other legacy asset Implemented-but-inert (throws) |
-| Funding | **Implemented (backend), not Real (no UI path)** | `escrow.multisigAddr` exists, never rendered — `REFERENCE-UI-REALITY-1`'s proven gap |
-| Signing | **Real, not Evidenced-at-the-UX-level** | `useEscrowKey.ts` real crypto, zero user-facing feedback — same audit |
-| Release/refund | Real, Evidenced | Real `settlement.release()`/`initiateRelease()` |
-| Disputes | Real, Evidenced | Real `settlement.listDisputes/getDispute` + 4 actions |
-| Identity/reputation | Real, Evidenced | Real `identity.create/authenticate/me`; keypair custody demo-grade (item 8) |
-| Private Markets | Product Direction only | No representation, implementation, or UI — item 2 |
-| OpenLiquidity (beyond discovery) | Product Direction / partial Representable | Module exists; no Sails-Market-specific surface built |
-| OpenAgents | Real (backend), partial UI | `agent.routes.ts` real; `AgentIntentionPanel`/`AgentRiskCard` real; delegation-mandate simulation is not Real (client-side only) |
-| OTC | Product Direction only | Named in §2D's Layer C scope, nothing built |
-| Portfolio/Positions | Product Direction only | No surface exists |
-| Activity | Partial — `TradeHistory`/`ActiveTrades` Real, no cross-module activity feed | |
-| Notifications | **Future / Planned** | No notification system exists anywhere (`REFERENCE-UI-REALITY-1`) |
-| Rail-aware asset selection | Product Direction / Representable | ADR-002 registries exist and are Representable; zero UI wiring (`docs/BACKLOG.md` 20.2, still OPEN) |
+- **Implementation Reality** — non-MOCK code executes through a real
+  runtime path, regardless of whether any UI exists for it.
+- **Journey Reality** — the user can complete the declared product
+  journey end-to-end through a real path (UI included).
+- **UX Evidence** — concrete evidence demonstrates the user-visible
+  flow behaves as claimed.
+- **Production Eligibility** — a governed approval decision based on
+  required evidence/security/operations review, never inferred from
+  implementation alone (ADR-002 §6's own "Production Eligibility is a
+  governed decision, never `evidencePassed`" discipline, restated here
+  at the product/UX layer).
+
+**Frozen: Implementation Reality ≠ Journey Reality ≠ UX Evidence ≠
+Production Eligibility.** This preserves "implementation ≠ truth"
+while correcting the opposite error the prior version made: a
+capability whose backend is genuinely real through SDK/API/runtime
+must **not** be marked non-real merely because a UI is missing — that
+is a Journey Reality gap, reported separately from Implementation
+Reality, never conflated with it (item 5's corrected Funding row is the
+concrete case this fixes).
+
+Forbidden inferences (unchanged): `SettlementScope exists` → "available";
+provider registration → "production-ready"; test success → "security
+property proven" (item 12 restates this for rail maturity
+specifically). **The UI must never display a capability as operational
+merely because it exists in Product Direction.**
+
+### 5. Sails Market capability map (corrected, current truth 2026-09-12)
+
+Classified against the corrected model in item 4, using only evidence
+already established in this mission chain (ARCH-IMPL-1/2,
+`VERTICAL-SLICE-1`, `REFERENCE-UI-REALITY-1`) — not re-derived here.
+Columns kept to the smallest truthful structure (per this correction's
+own instruction): **Implementation Reality / Journey Reality / UX
+Evidence / Production Eligibility / Planning status** — "Product
+Direction" is not a separate column since every listed surface already
+has at least that status by virtue of appearing here.
+
+| Surface | Implementation Reality | Journey Reality | UX Evidence | Production Eligibility | Planning status |
+|---|---|---|---|---|---|
+| OpenP2P marketplace (discovery) | Yes — real `liquidity.discover()` | Yes | Yes (`packages/sails-ui/README.md`, live-verified) | Not established | Current |
+| Offers (publish/detail) | Yes — real `liquidity.publish()`/`getOffer()` | Yes | Yes (live-verified) | Not established | Current |
+| Negotiation/chat | Yes — real `openp2p.chat()` WebSocket | Yes | Yes | Not established | Current |
+| Trade creation | Yes — real `openp2p.trade()`/`getTrade()` | Yes | Yes | Not established | Current |
+| Settlement creation (BTC leg) | Yes — canonical-registry-backed `resolveEscrowType()` for `{BTC,BITCOIN_L1}` (PR #130) | Partial — creation itself succeeds; the wider settlement journey is blocked downstream at Funding (this same table) | Yes (automated tests + traced real code path) | Not established (testnet only, MULTISIG unaudited) | Current |
+| Settlement creation (LN_BTC/USDT_ERC20) | Yes, not canonical-registry-backed | Partial, same downstream block | Partial | Not established | Current |
+| Settlement creation (every other legacy asset) | No — throws by design | No | N/A | N/A | Deferred |
+| **Funding (BTC MULTISIG)** | **Yes — `escrow.multisigAddr` is a real, backend-derived address** | **No — no UI renders it; a user cannot complete this step through the product** | **Missing** | **Not established** | **Current (the proven gap, `docs/BACKLOG.md` item 22)** |
+| **Signing** | **Yes — `useEscrowKey.ts` performs real client-side crypto and submission** | **Yes — the real signing act completes end-to-end, automatically** | **Missing — no evidence the (barely-existent) user-visible flow behaves as claimed; zero user-facing feedback** | **Not established** | **Current** |
+| Release/refund | Yes — real `settlement.release()`/`initiateRelease()` | Yes | Yes | Not established | Current |
+| Disputes | Yes — real `listDisputes/getDispute` + 4 actions | Yes | Yes | Not established | Current |
+| Identity/reputation | Yes — real `identity.create/authenticate/me` | Yes | Yes | **Not established — keypair custody is demo-grade `localStorage`, a named production-eligibility blocker (§2E item 9)** | Current |
+| Private Markets | No | No | N/A | N/A | Planned/Future — composition candidate, not started (item 2) |
+| OpenLiquidity (beyond discovery) | Partial — module exists, no Sails-Market-specific surface | No | N/A | N/A | Planned |
+| **OpenAgents (structured-intent generation)** | **Yes — real `agent.routes.ts` + `AgentIntentionPanel`/`AgentRiskCard`** | **Yes, for structured-intent generation specifically** | **Yes** | **Not established** | **Current** |
+| **OpenAgents (full delegation/negotiation)** | **No — `aiNegotiator.ts` is a client-side simulation only, no backend accepts a delegation mandate** | **No** | **N/A** | **N/A** | **Planned** |
+| OTC | No | No | N/A | N/A | Future |
+| Portfolio/Positions | No | No | N/A | N/A | Future |
+| **Activity (per-module: `TradeHistory`/`ActiveTrades`)** | **Yes** | **Yes** | **Yes** | **Not established** | **Current** |
+| **Activity (cross-module aggregated feed)** | **No — does not exist** | **No** | **N/A** | **N/A** | **Future** |
+| Notifications | No — no notification system exists anywhere | No | N/A | N/A | Future |
+| Rail-aware asset selection | Partial — ADR-002 registries are real and Representable/Implemented, but nothing in the UI consumes them | No | N/A | N/A | Current (`docs/BACKLOG.md` 20.2, open, active) |
 
 ### 6. Product State ≠ Technical State — FROZEN
 
@@ -852,14 +903,17 @@ this distinction is not theoretical.)
 `docs/BACKLOG.md` 20.2 (Day-0 capability integration coverage), 20.5
 (QVAC Asset contract drift), 20.6 (architecture frozen / implementation
 in progress), item 22 (FundingRequest/SigningRequest/rail-aware UX/
-dogfooding/Private Markets composition proof), and PR #132's own new
-item (Sails Market design direction, numbered 23 on that still-unmerged
-branch) are all preserved and cross-linked — **none is closed by this
-section.** This section's own recorded delta lives at `docs/BACKLOG.md`'s
-own new item, numbered 23 on `main` at the time of this mission — see
-that item's own note on the resulting numbering collision with PR
-#132's independently-numbered item 23, to be resolved by renumbering
-whichever of the two PRs merges second.
+dogfooding/Private Markets composition proof), and item 23 (Sails
+Market design direction, merged) are all preserved and cross-linked —
+**none is closed by this section.** This section's own recorded delta
+lives at `docs/BACKLOG.md` item 24. **Numbering resolved
+(`MERGE-SEQUENCE-1`, 2026-09-12):** this item and PR #132's design-
+direction item were both independently numbered 23 on their own
+branches, from the same `main`-item-22 baseline — a foreseeable git-
+merge-order consequence, not a content conflict. Per the approved merge
+sequence, PR #132 merged first and retains item 23; this item is
+renumbered to **24** as part of rebasing onto the resulting `main` —
+not resolved by keeping a duplicate "23."
 
 ### 17. Classification of this section's deltas
 
