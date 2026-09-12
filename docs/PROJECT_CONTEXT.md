@@ -624,6 +624,272 @@ item 22 for the recorded backlog delta).
 
 ---
 
+## 2E. Product Decision — SDK Family Boundaries, Sails Market Capability Truth, and UI Implementation Guardrails (2026-09-12)
+
+**Status: institutionalized product/security truth. No UI, SDK,
+protocol, or runtime change is authorized or made by this section.**
+Origin: `PRODUCT-IMPLEMENTATION-READINESS-1`, following §2D's frozen
+three-layer model and the still-open (unmerged) `docs/SAILS_MARKET_DESIGN_DIRECTION.md`
+(PR #132 — read as design-direction context for this section, not
+edited or merged by it). Exists to prevent scope creep, product
+overclaim, UI outrunning runtime truth, custody/signing ambiguity,
+first-party semantic privilege, SDK-monolith expansion, and design
+completion being mistaken for product completion.
+
+### 1. Sails OpenP2P Trading SDK — final domain, FROZEN
+
+`@satsails/p2p-trading-sdk` is **the first SDK in the future Sails SDK
+family**. Its domain: public P2P markets; Private Markets within the
+P2P domain (item 2 below); offer discovery/publication; negotiation;
+trade coordination; settlement coordination; identity/reputation
+interactions required by P2P; access/membership/policy controls
+required by Private Markets; P2P-related node/server/network operation
+surfaces required for that domain. **Frozen: product expansion must
+not become SDK scope expansion** — Sails Market growing to compose
+OpenLiquidity/OpenAgents/OTC does not by itself enlarge this SDK's own
+domain. OpenLiquidity, OpenAgents, and future protocol modules **may**
+gain their own SDKs or integration packages once justified by maturity
+and product need — **none is created by this section.**
+
+### 2. Private Markets — classification sharpened (extends §2D item 12)
+
+**Frozen:** Private Markets belong first to the OpenP2P domain, as a
+composition of market visibility, membership/access policy, discovery,
+and existing economic semantics — not a new protocol module, unless a
+real composition attempt proves a genuine semantic gap (§2D item 12's
+own composition-candidate classification stands; not reopened here).
+Private Markets may appear in Sails Market as a richer *product*
+surface without becoming a separate *protocol* primitive — the product/
+protocol distinction is the operative one, not a claim that Private
+Markets are unimportant or deferred indefinitely.
+
+### 3. Sails Market boundary — restated (extends §2D items 1/9)
+
+Sails Market is the broader first-party product that may progressively
+compose OpenP2P, OpenLiquidity, OpenAgents, OTC, Private Markets,
+portfolio/activity, analytics, and future coordination surfaces (§2D
+item 1, unchanged). **Frozen, new:** Sails Market's own growth does not
+redefine `@satsails/p2p-trading-sdk`'s scope (item 1 above) — a Sails
+Market feature needing OpenLiquidity/OpenAgents capability consumes
+those modules' own (possibly future, possibly separate) SDKs/packages,
+never an expanded OpenP2P Trading SDK.
+
+### 4. Sails Market capability maturity model — FROZEN, eight classes, never collapsed
+
+`Product Direction` (a documented intent — e.g. this document's own
+§2C/§3 rail lists) → `Representable` (the canonical architecture, e.g.
+ADR-002's `SettlementScope`, can express it) → `Implemented` (real code
+exists) → `Real` (that code is exercised through a real, non-MOCK path
+— not merely unit-tested in isolation) → `Evidenced` (a specific,
+named test/experiment/audit demonstrates a specific property) →
+`Beta Eligible` → `Production Eligible` → `Future / Planned`. **Frozen:
+these states are never collapsed into each other.** `SettlementScope
+exists` does not mean "available"; provider registration
+(`src/common/settlement-provider-registry.ts`) does not mean
+"production-ready"; a passing test does not mean "security property
+proven" (item 11 below states this identically, for the specific case
+of rail maturity — restated here as the general rule this whole
+maturity model rests on). **The UI must never display a capability as
+operational merely because it exists in Product Direction.**
+
+### 5. Sails Market capability map (current truth, 2026-09-12)
+
+Classified against the model in item 4, using only evidence already
+established in this mission chain (ARCH-IMPL-1/2, `VERTICAL-SLICE-1`,
+`REFERENCE-UI-REALITY-1`) — not re-derived here:
+
+| Surface | Current class | Basis |
+|---|---|---|
+| OpenP2P marketplace (discovery) | Real, Evidenced | `lib/realOffers.ts` → real `liquidity.discover()`, live-verified |
+| Offers (publish/detail) | Real, Evidenced | Real `liquidity.publish()`/`getOffer()`, live-verified (`packages/sails-ui/README.md`) |
+| Negotiation/chat | Real, Evidenced | Real `openp2p.chat()` WebSocket with presence |
+| Trade creation | Real, Evidenced | Real `openp2p.trade()`/`getTrade()` |
+| Settlement creation | Real, Evidenced (BTC leg only) | Real `settlement.create()` → canonical-registry-backed `resolveEscrowType()` (`VERTICAL-SLICE-1`, PR #130) for `{BTC,BITCOIN_L1}`; `LN_BTC`/`USDT_ERC20` Real but not canonical-registry-backed; every other legacy asset Implemented-but-inert (throws) |
+| Funding | **Implemented (backend), not Real (no UI path)** | `escrow.multisigAddr` exists, never rendered — `REFERENCE-UI-REALITY-1`'s proven gap |
+| Signing | **Real, not Evidenced-at-the-UX-level** | `useEscrowKey.ts` real crypto, zero user-facing feedback — same audit |
+| Release/refund | Real, Evidenced | Real `settlement.release()`/`initiateRelease()` |
+| Disputes | Real, Evidenced | Real `settlement.listDisputes/getDispute` + 4 actions |
+| Identity/reputation | Real, Evidenced | Real `identity.create/authenticate/me`; keypair custody demo-grade (item 8) |
+| Private Markets | Product Direction only | No representation, implementation, or UI — item 2 |
+| OpenLiquidity (beyond discovery) | Product Direction / partial Representable | Module exists; no Sails-Market-specific surface built |
+| OpenAgents | Real (backend), partial UI | `agent.routes.ts` real; `AgentIntentionPanel`/`AgentRiskCard` real; delegation-mandate simulation is not Real (client-side only) |
+| OTC | Product Direction only | Named in §2D's Layer C scope, nothing built |
+| Portfolio/Positions | Product Direction only | No surface exists |
+| Activity | Partial — `TradeHistory`/`ActiveTrades` Real, no cross-module activity feed | |
+| Notifications | **Future / Planned** | No notification system exists anywhere (`REFERENCE-UI-REALITY-1`) |
+| Rail-aware asset selection | Product Direction / Representable | ADR-002 registries exist and are Representable; zero UI wiring (`docs/BACKLOG.md` 20.2, still OPEN) |
+
+### 6. Product State ≠ Technical State — FROZEN
+
+User-facing state communicates economic meaning; technical
+implementation state is secondary/advanced (§2D item 7's progressive-
+disclosure principle, restated as its own rule because implementation
+work needs it named explicitly, not only implied). User-facing
+examples: Awaiting funding, Funding detected, Action required,
+Signature required, Waiting for counterparty, Settlement pending,
+Completed, Disputed. Technical/advanced examples, never shown in normal
+UX merely because backend code exposes them: `EscrowType`, adapter
+identity, provider identity, internal routing, registry keys,
+implementation class, raw state IDs.
+
+### 7. FundingInstruction / FundingState — product-level contract, NOT IMPLEMENTED
+
+`FundingInstruction` — a rail-agnostic product concept (never assumes
+an address): may represent an address, an invoice, a payment request,
+a QR payload, an external-wallet action, a provider-specific non-
+address instruction, or another rail-native instruction. Required
+product semantics: asset, rail, amount, destination/instruction,
+expiry (if applicable), confirmation expectation, detected state,
+completion state, failure/retry guidance, what happens next.
+`FundingState` — the observable lifecycle a `FundingInstruction`
+passes through (none detected → detected/awaiting confirmation →
+confirmed/complete → failed/expired), always representable as
+*uncertain* per item 14 below, never forced into a binary. Mirrors and
+supersedes-in-detail `docs/SAILS_MARKET_DESIGN_DIRECTION.md` §14's
+"generic FundingInstruction model" (that document, pending its own PR
+#132 merge, remains the concrete UX elaboration of this product
+contract — reconciled, not duplicated, once it lands).
+
+### 8. SigningRequest / SigningState — product-level contract, NOT IMPLEMENTED
+
+`SigningRequest` must support explicit, delegated, automatic-under-
+prior-authority, and batched signing (identical to §2D item 6's
+authorization-model principle, restated as a named contract shape for
+implementation). Must preserve: authority already exists (never
+UI-granted); the material transition is observable; no hidden
+irreversible action; appropriate feedback; **no UI-created authority**
+— a `SigningRequest`'s existence never itself constitutes permission to
+sign, it only requests/coordinates an action whose authority comes from
+elsewhere (item 8's own custody boundary, below).
+
+### 9. Web signer / custody boundary — Security Constraint, FROZEN boundary / OPEN technology
+
+**Mandatory gate:** the current Reference UI's `localStorage`-held
+plain-hex keypair (`packages/sails-ui/src/context/AuthContext.tsx`,
+already disclosed as demo-only) **must not become production
+architecture by inertia.** **Frozen:** Sails Market UI must not own or
+silently improvise long-term custody/signing authority merely because
+the browser is capable of holding keys — **UI may request/coordinate
+signing; signer/custody authority is an explicit, replaceable
+boundary.** **Explicitly OPEN, not frozen:** which signer technology
+(external wallet signer, hardware signer, WebAuthn/passkey where
+authority-compatible, WDK/provider-backed signer boundaries, MPC only
+if justified, session-scoped signing authority, delegated-authority
+models) — none is chosen here; evidence, not convenience, must justify
+whichever is chosen in a future, separately-authorized mission.
+
+### 10. First real vertical journey — required before broad UI redesign
+
+Before redesigning every page, one real vertical journey is required
+first: discover/select offer → negotiate → create trade → settlement
+creation → funding instruction → funding detection → signing/
+authorization → release or refund → completion visible to the user.
+**Must use the most real currently supported settlement path — not a
+visually convenient mock path.** Per the capability map (item 5) and
+`VERTICAL-SLICE-1`'s own evidence, that is currently the BTC/`BITCOIN_L1`/
+`MULTISIG` path — the same one already canonically wired server-side
+(PR #130). This journey becomes the first implementation proof of any
+new Sails Market UI; **not implemented by this section.**
+
+### 11. Reality-based Definition of Done — FROZEN
+
+A screen is not complete because its layout is complete. For
+economically meaningful screens, completion requires alignment among:
+Product Direction, protocol representation, implementation/runtime,
+user-visible state, evidence, and eligibility/maturity claim (item 4's
+eight classes, collapsed to the six that matter for a "is this screen
+done" check). If any are missing, the surface must be classified
+honestly (using item 4's model) rather than presented as complete.
+
+### 12. Rail maturity / eligibility boundary — restated as its own rule
+
+**Product Scope ≠ Provider Availability ≠ Evidence ≠ Production
+Eligibility** (ADR-002 §4/§6/§7, restated here at the UI/product level
+because implementation work needs the UI-facing consequence spelled
+out, not only the architecture-level one). The UI must eventually
+receive **governed** capability availability rather than infer
+availability from enums or static asset lists. **Forbidden inferences,
+named explicitly:** `SettlementScope exists` → "available"; provider
+registration → "production-ready"; test success → "security property
+proven." None of these inferences may drive UI display logic, now or
+in any future implementation.
+
+### 13. Dogfooding evidence obligation — sharpened (extends §2D item 3)
+
+**Evidence obligation, not yet satisfied, not implemented here:**
+Satsails Wallet and Sails Market must eventually complete a real
+economic interaction through the same public semantic/integration
+boundaries available in principle to third parties. Operational
+exceptions may exist (§2D item 3); none may constitute hidden semantic
+privilege. This obligation is recorded, not discharged, by this
+section (`docs/BACKLOG.md` item 22 already carries the general form of
+this obligation — cross-linked, not duplicated).
+
+### 14. Operational observability obligation
+
+For any stuck economic flow, enough information must exist to answer:
+where did the trade stop; which participant/action is awaited; has
+funding been detected; has authorization occurred; is settlement
+pending; did a provider interaction fail; is the outcome unknown vs.
+failed (item 15); is operator intervention required. **Normal users
+must not become debuggers** — this obligation is satisfied by an
+advanced/operator view (§2D's progressive-disclosure Advanced depth),
+never by exposing this detail to a normal user by default.
+
+### 15. Outcome uncertainty — FROZEN
+
+**Failed call ≠ proven failed economic action. Unknown outcome ≠ failed
+economic action.** UI states must be able to represent uncertainty
+safely — an ambiguous provider/runtime response must never be collapsed
+into a generic "Failed" state when the actual economic outcome is
+unknown. (Direct product-level consequence of this codebase's own
+already-real M9 reconciliation discipline — `docs/BACKLOG.md`'s prior
+WDK retry-safety findings are the concrete backend precedent for why
+this distinction is not theoretical.)
+
+### 16. Backlog cross-links — none closed by this section
+
+`docs/BACKLOG.md` 20.2 (Day-0 capability integration coverage), 20.5
+(QVAC Asset contract drift), 20.6 (architecture frozen / implementation
+in progress), item 22 (FundingRequest/SigningRequest/rail-aware UX/
+dogfooding/Private Markets composition proof), and PR #132's own new
+item (Sails Market design direction, numbered 23 on that still-unmerged
+branch) are all preserved and cross-linked — **none is closed by this
+section.** This section's own recorded delta lives at `docs/BACKLOG.md`'s
+own new item, numbered 23 on `main` at the time of this mission — see
+that item's own note on the resulting numbering collision with PR
+#132's independently-numbered item 23, to be resolved by renumbering
+whichever of the two PRs merges second.
+
+### 17. Classification of this section's deltas
+
+- **Product Decision:** items 1 (SDK domain), 2 (Private Markets), 3
+  (Sails Market boundary), 6 (Product State ≠ Technical State), 12
+  (rail maturity/eligibility boundary UI consequence).
+- **Security Constraint:** item 9 (web signer/custody boundary).
+- **Design Rule:** items 7/8 (`FundingInstruction`/`SigningRequest`
+  product contracts — the concrete UX form belongs in
+  `docs/SAILS_MARKET_DESIGN_DIRECTION.md` once merged).
+- **Evidence Obligation:** items 10 (first real vertical journey), 13
+  (dogfooding), 14 (operational observability).
+- **OPEN:** item 9's specific signer technology; item 5's capability
+  map itself (a living document, not a one-time freeze — expected to
+  change as real implementation work lands).
+- **Architecture Decision:** none — no genuine new architectural
+  constraint is introduced; items 4/12 restate ADR-002's own frozen
+  distinctions at the product/UI level, they do not add to them.
+
+### Closing confirmations
+
+No React, CSS, SDK, protocol, `SettlementScope`, or provider-routing
+change. No new SDK created. No Sails Market module implemented. No
+signer implemented. PR #132 (`docs/SAILS_MARKET_DESIGN_DIRECTION.md`)
+is read as context only — not edited, not merged, by this section. No
+Semantic Kernel or Core impact. `docs/BACKLOG.md` 20.2/20.5/20.6/22/23
+remain exactly as previously frozen.
+
+---
+
 ## 3. Relationship to the Tether Ecosystem
 
 This is critical context for why this project exists and who it's for.

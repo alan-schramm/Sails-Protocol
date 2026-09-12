@@ -2378,4 +2378,35 @@ obligation" is defined anywhere in this repository.
     No ADR (no architectural constraint introduced). No Semantic Kernel
     or Core impact.
 
+24. **SDK family boundaries / Sails Market capability truth / UI
+    implementation guardrails — institutionalized, not implemented
+    (2026-09-12).** `PRODUCT-IMPLEMENTATION-READINESS-1` froze the
+    `@satsails/p2p-trading-sdk` domain boundary, the Sails Market
+    capability maturity model and current capability map, the Product
+    State ≠ Technical State rule, the `FundingInstruction`/
+    `SigningRequest` product contracts, the web signer/custody boundary
+    (a Security Constraint — signer technology left explicitly OPEN),
+    the required first real vertical journey (BTC/`BITCOIN_L1`/
+    `MULTISIG`, the most real currently supported path), a reality-based
+    Definition of Done, the rail maturity/eligibility UI-consequence
+    rule, a sharpened dogfooding evidence obligation, an operational-
+    observability obligation, and an outcome-uncertainty rule — full
+    text: `docs/PROJECT_CONTEXT.md` §2E. **Numbering resolved
+    (`MERGE-SEQUENCE-1`, 2026-09-12):** this item was originally
+    numbered 23 (computed against `main`'s own last item, 22, at the
+    time this mission started) while PR #132
+    (`docs/SAILS_MARKET_DESIGN_DIRECTION.md`) independently added its
+    own item 23 on its own branch from the same baseline — a
+    foreseeable git-merge-order consequence of two independent open
+    PRs, not a content conflict. Per the approved merge sequence, PR
+    #132 merged first and retains item 23 (above); this item is
+    renumbered to **24** as part of rebasing onto the resulting `main`.
+    Explicitly **not** closed by this item: 20.2, 20.5, 20.6, 22
+    (unaffected — still exactly as previously frozen), and item 23
+    (Sails Market design direction, now merged, still pending its own
+    separate implementation work). No Semantic Kernel or Core change;
+    no ADR required (no new architectural constraint introduced — items
+    in §2E restate ADR-002's own frozen distinctions at the product/UI
+    level, they do not add to them).
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**
