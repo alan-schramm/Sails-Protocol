@@ -89,7 +89,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     // Real inference call now (2026-08-09) — requires an active session,
     // same as any other real @satsails/p2p-trading-sdk write/compute call in this app.
     if (!user) {
-      toast.error('Conecte sua carteira para usar o AI Negotiator')
+      toast.error('Conecte sua carteira para usar o Sails Agent')
       return
     }
     setLoading(true)
@@ -240,7 +240,16 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
             <Bot className="h-4 w-4" aria-hidden="true" />
           </span>
           <span className="min-w-0 text-left">
-            <span className="block text-sm font-semibold text-brand-text">AI Negotiator</span>
+            {/* DESIGN-LANGUAGE-1 §7 — "Sails Agent" is now the product-level
+                identity for AI/agent assistance across the Sails ecosystem
+                (docs/SAILS_DESIGN_LANGUAGE.md §7); this panel is one
+                composition of it, not the whole concept, hence "— Market
+                Negotiation" rather than a flat rename. Renamed the visible
+                label only — component name, props, and the underlying
+                QVAC-backed intent/propose flow are unchanged. */}
+            <span className="block text-sm font-semibold text-brand-text truncate">
+              Sails Agent <span className="font-normal text-brand-text-muted">— Market Negotiation</span>
+            </span>
             {/* Missão 07.3 — the previous subtitle ("negociação assistida
                 por IA (Agente QVAC)") attributed the whole flow to QVAC;
                 only the intent itself is AI-generated (real LLM call) —
@@ -253,7 +262,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           <InfoTooltip text={BOUNDARY_TEXT} />
           <button
             onClick={() => setOpen((o) => !o)}
-            aria-label={open ? 'Fechar AI Negotiator' : 'Abrir AI Negotiator'}
+            aria-label={open ? 'Fechar Sails Agent' : 'Abrir Sails Agent'}
             aria-expanded={open}
             className="flex items-center justify-center h-7 w-7 rounded-md text-brand-text-muted hover:bg-brand-elevated hover:text-brand-text transition-colors"
           >
@@ -334,7 +343,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 )
               )}
 
-              <div className="text-xs font-semibold text-brand-text mb-2">Mandato para o AI Negotiator</div>
+              <div className="text-xs font-semibold text-brand-text mb-2">Mandato para o Sails Agent</div>
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <label className="text-xs text-brand-text-muted">
                   Quantidade ({ASSET_SHORT_LABELS[result.asset]})

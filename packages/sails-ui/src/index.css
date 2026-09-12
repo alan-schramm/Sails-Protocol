@@ -254,8 +254,13 @@ body {
      low-contrast chip (background does the work, not an outline) is the
      Binance/Airtm toolbar convention this screen is otherwise already
      modeled on. */
+  /* DESIGN-LANGUAGE-1 §2.4 — this class had no focus-visible treatment at
+     all; a keyboard user tabbing through the Market toolbar got no visual
+     signal which chip had focus (PopoverTrigger is a plain button with no
+     built-in ring). Same ring convention every other interactive
+     primitive here already uses (Input/Select/Checkbox/Switch). */
   .toolbar-chip {
-    @apply bg-brand-elevated border border-brand-border-subtle text-brand-text rounded-lg px-3 py-2 text-sm transition-colors hover:border-brand-border;
+    @apply bg-brand-elevated border border-brand-border-subtle text-brand-text rounded-lg px-3 py-2 text-sm transition-colors hover:border-brand-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
   }
 
   /* UI-FOUNDATION-1 — typography hierarchy (docs/SAILS_MARKET_DESIGN_DIRECTION.md

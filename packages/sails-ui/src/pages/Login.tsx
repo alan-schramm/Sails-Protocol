@@ -121,8 +121,13 @@ export function Login() {
           <p className="text-sm text-brand-text-muted mt-1.5">Conecte sua carteira para comprar e vender com segurança</p>
 
           <div className="mt-7">
-            <label className="text-xs text-brand-text-muted mb-1.5 block">
-              <span className="flex items-center gap-1">
+            <label className="mb-1.5 block">
+              {/* DESIGN-LANGUAGE-1 §4.4 — was ad-hoc `text-xs text-brand-text-muted`;
+                  `.text-label` is the same typography level FilterPanel's
+                  section headers and Marketplace's column headers now use,
+                  so a form field label reads as the same design language
+                  rather than a one-off size/color pairing. */}
+              <span className="text-label flex items-center gap-1">
                 {isReturning ? 'Sua senha' : 'Crie uma senha'}
                 <InfoTooltip text={PASSPHRASE_EXPLAINER} />
               </span>

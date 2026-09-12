@@ -2409,4 +2409,46 @@ obligation" is defined anywhere in this repository.
     in §2E restate ADR-002's own frozen distinctions at the product/UI
     level, they do not add to them).
 
+25. **Sails Design Language Foundation — institutionalized + minimally
+    implemented (2026-09-12).** `DESIGN-LANGUAGE-1` (continuing PR #134
+    after `UI-FOUNDATION-1`/`UI-FOUNDATION-1-VISUAL-CORRECTION`) fixed
+    the active-navigation route-matching bug (`/profile` prefix-matching
+    its own `/profile/active`/`/profile/history` children), standardized
+    the Market/mobile-nav naming ("Comprar"→"Market", no Product
+    Decision authorized a different name for the same destination),
+    replaced hand-rolled checkbox/switch controls in `FilterPanel.tsx`
+    with the real shadcn `Checkbox`(new)/`Switch` primitives, added
+    focus-visible states to `.toolbar-chip`, suppressed native number-
+    input spinner chrome on the shared `Input` primitive, introduced a
+    first `AssetIcon` monogram pattern (`AssetPicker.tsx`), renamed the
+    Marketplace AI surface's visible copy from "AI Negotiator" to "Sails
+    Agent — Market Negotiation," and created `docs/SAILS_DESIGN_LANGUAGE.md` —
+    the first reusable, cross-product design language (base identity,
+    semantic colors, surface system, typography levels, interaction
+    states, iconography evaluation, asset-icon strategy, Sails Agent
+    identity, QVAC representation rule, white-label theming contract,
+    token/theme architecture, OS-style design grammar, visual-reference
+    roles). Full text: `docs/SAILS_DESIGN_LANGUAGE.md`; cross-linked
+    from `docs/SAILS_MARKET_DESIGN_DIRECTION.md` §17/§19/§22/§24 and
+    `docs/PROJECT_CONTEXT.md` §2D item 4.
+
+    **Explicitly not closed by this item:** 20.2, 20.5, 20.6, 22, 23, 24
+    (all unaffected — still exactly as previously frozen); no capability-
+    maturity classification changes with this item (a CSS/UI/naming
+    pass does not move any capability's Implementation Reality/Journey
+    Reality/UX Evidence/Production Eligibility axis, per `PROJECT_CONTEXT.md`
+    §2E item 4's own rule). No `FundingInstruction`/`SigningRequest`
+    implementation, no OpenLiquidity/OpenAgents scope expansion, no new
+    protocol primitive. No ADR (no new architectural constraint — this
+    formalizes an already-implemented token pattern and its evaluated
+    boundaries, it does not introduce one). No Semantic Kernel or Core
+    change.
+
+    **Concrete remaining gap, named not closed:** the tenant-swappable
+    brand-token indirection layer (`SAILS_DESIGN_LANGUAGE.md` §11) —
+    white-label still has no *runtime* mechanism to swap the primary
+    accent color; only the contract for what would be swappable is
+    frozen. This is the next authorized implementation block, not yet
+    started.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**

@@ -6,6 +6,7 @@
  * own comment in types.ts) — real versions need a real block-list and
  * trade-history join, neither built in the backend yet.
  */
+import * as React from 'react'
 import type { FiatCurrency, MarketplaceFilters, PaymentMethod } from '../../types'
 import { AMOUNT_PRESETS, formatByCurrency } from '../../lib/currency'
 import { COUNTRIES, PAYMENT_METHODS_FILTERABLE } from '../../data/mock'
@@ -14,6 +15,8 @@ import { InfoTooltip } from '../ui/InfoTooltip'
 import { Button } from '../ui/button'
 import { badgeVariants } from '../ui/badge'
 import { Input } from '../ui/input'
+import { Switch } from '../ui/switch'
+import { Checkbox } from '../ui/checkbox'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select'
 import { cn } from '../../lib/utils'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet'
@@ -91,7 +94,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
 
         <div className="mt-5">
           <div className="flex items-center gap-1.5 mb-2">
-            <span className="text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">Quantidade</span>
+            <span className="text-label">Quantidade</span>
             <InfoTooltip text="A quantidade que você costuma negociar — usada para destacar ofertas com limites compatíveis." />
           </div>
           <Input
@@ -116,7 +119,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
 
         <div className="mt-5">
           <div className="flex items-center gap-1.5 mb-2">
-            <span className="text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">Tempo limite para pagamento</span>
+            <span className="text-label">Tempo limite para pagamento</span>
             <InfoTooltip text="Tempo máximo (em minutos) que o comprador tem para confirmar o pagamento antes que a ordem expire." />
           </div>
           <div className="flex gap-1.5 flex-wrap">
@@ -134,7 +137,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
 
         <div className="mt-5">
           <div className="flex items-center gap-1.5 mb-2">
-            <span className="text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">Método de pagamento</span>
+            <span className="text-label">Método de pagamento</span>
             <InfoTooltip text="Métodos populares indicados. As moedas serão liberadas imediatamente após a confirmação do pagamento." />
           </div>
           <div className="flex gap-1.5 flex-wrap">
@@ -151,7 +154,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
         </div>
 
         <div className="mt-5">
-          <span className="text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">País/Região</span>
+          <span className="text-label">País/Região</span>
           <Select value={filters.country} onValueChange={(v) => set('country', v)}>
             <SelectTrigger aria-label="País/Região" className="w-full mt-2">
               <SelectValue />
@@ -166,7 +169,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
         </div>
 
         <div className="mt-5">
-          <span className="text-xs font-semibold text-brand-text-secondary uppercase tracking-wider">Ordenar por</span>
+          <span className="text-label">Ordenar por</span>
           <div className="flex gap-1.5 flex-wrap mt-2">
             {SORT_OPTIONS.map((s) => (
               <button
@@ -188,33 +191,36 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
   )
 }
 
+// DESIGN-LANGUAGE-1 §2.3 — was a hand-rolled button+span pair reimplementing
+// a switch from scratch; the real shadcn `Switch` (packages/sails-ui/src/
+// components/ui/switch.tsx, already used by ChatWindow.tsx) exists and is
+// already brand-token-mapped (checked = --primary = Sails orange) — no
+// reason for a second, subtly-different-looking switch implementation.
 function ToggleRow({ label, info, checked, onChange }: { label: string; info: string; checked: boolean; onChange: (v: boolean) => void }) {
+  const id = React.useId()
   return (
     <div className="flex items-center justify-between py-2.5 border-b border-brand-border-subtle">
-      <div className="flex items-center gap-1.5">
+      <label htmlFor={id} className="flex items-center gap-1.5 cursor-pointer">
         <span className="text-sm text-brand-text">{label}</span>
         <InfoTooltip text={info} />
-      </div>
-      <button
-        onClick={() => onChange(!checked)}
-        aria-pressed={checked}
-        className={`w-10 h-5.5 rounded-full transition-colors relative shrink-0 ${checked ? 'bg-brand-orange-accent' : 'bg-brand-elevated border border-brand-border'}`}
-        style={{ height: '22px' }}
-      >
-        <span
-          className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
-        />
-      </button>
+      </label>
+      <Switch id={id} checked={checked} onCheckedChange={onChange} />
     </div>
   )
 }
 
+// Same rationale as ToggleRow: replaces a bare `<input type="checkbox">`
+// (unstyled native browser control, the most literal "looks like the
+// browser, not Sails Market" case flagged this mission) with the real
+// shadcn `Checkbox` primitive (new — packages/sails-ui/src/components/ui/checkbox.tsx,
+// same Radix family as the existing Switch/Select/Popover/Dialog).
 function CheckRow({ label, info, checked, onChange }: { label: string; info: string; checked: boolean; onChange: (v: boolean) => void }) {
+  const id = React.useId()
   return (
-    <label className="flex items-center gap-2 py-2.5 border-b border-brand-border-subtle cursor-pointer">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="accent-brand-orange-accent w-4 h-4" />
-      <span className="text-sm text-brand-text flex-1">{label}</span>
+    <div className="flex items-center gap-2.5 py-2.5 border-b border-brand-border-subtle">
+      <Checkbox id={id} checked={checked} onCheckedChange={(v) => onChange(v === true)} />
+      <label htmlFor={id} className="text-sm text-brand-text flex-1 cursor-pointer">{label}</label>
       <InfoTooltip text={info} />
-    </label>
+    </div>
   )
 }

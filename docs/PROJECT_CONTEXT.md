@@ -468,6 +468,14 @@ or alter custody/finality semantics — those remain protocol-level,
 governed exclusively by the canonical registries (ADR-002) and any
 future Provider Identity/routing decision, never by tenant config.
 
+**Visual-layer instantiation (`DESIGN-LANGUAGE-1`, 2026-09-12):** this
+item governs functional/capability configuration; `docs/SAILS_DESIGN_LANGUAGE.md`
+§9 formalizes the same non-negotiable boundary specifically for visual
+theming (brand color/logo/typography/radius customizable; semantic
+state meaning, risk hierarchy, authority cues, and funding/signing
+semantic states are not) — a specialization of this frozen rule, not a
+new one.
+
 ### 5. Agents / Liquidity correction — FROZEN
 
 **Rejected as institutional truth:** "OpenAgents = Sails Market only"

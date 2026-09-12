@@ -1,11 +1,26 @@
 import { NavLink } from 'react-router'
 import { ShoppingCart, Hourglass, ArrowLeftRight, User } from 'lucide-react'
 
+// DESIGN-LANGUAGE-1 §2.2 — this destination was labeled "Comprar" here but
+// "Market" everywhere else (Sidebar.tsx, page <h1>, wordmark): "Comprar"
+// names a specific action (buy), but the destination itself is the whole
+// market listing — it has its own Comprar/Vender side toggle inside the
+// page, so a buy-only label undersells and misdescribes what's actually
+// there. No Product Decision authorizes a different name per breakpoint
+// for the same destination, so this now matches Sidebar's "Market"
+// exactly. "Ativos"/"Trades"/"Perfil" are kept as-is: legitimate short
+// forms of "Trades Ativos"/"Meus Trades"/"Perfil" for the same meaning,
+// not a different name for the same place.
+//
+// §2.1 — `Perfil`'s `end` was `false`, so `/profile` (prefix-matched)
+// activated on `/profile/active` and `/profile/history` too, alongside
+// their own correct items. `end: true` restricts it to the exact
+// `/profile` path — same fix as Sidebar.tsx's own NAV_ITEMS.
 const items = [
-  { to: '/', label: 'Comprar', icon: ShoppingCart, end: true },
+  { to: '/', label: 'Market', icon: ShoppingCart, end: true },
   { to: '/profile/active', label: 'Ativos', icon: Hourglass, end: false },
   { to: '/profile/history', label: 'Trades', icon: ArrowLeftRight, end: false },
-  { to: '/profile', label: 'Perfil', icon: User, end: false },
+  { to: '/profile', label: 'Perfil', icon: User, end: true },
 ]
 
 export function BottomNav() {

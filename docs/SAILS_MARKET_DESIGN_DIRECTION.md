@@ -19,6 +19,15 @@ Nothing here authorizes implementation.
 SigningRequest gap). This document does not re-derive the Layer A/B/C
 model — it assumes it as given.
 
+**Reusable-layer counterpart (`DESIGN-LANGUAGE-1`, 2026-09-12):**
+`docs/SAILS_DESIGN_LANGUAGE.md` promotes this document's §17 (white-
+label visual boundary), §19 (component-library verdict), §22 (design
+tokens), and §24 (design-system sharing model) into a formal,
+cross-product design language — this document stays the Sails-Market-
+specific instantiation of that language; where the two could be read as
+duplicating each other, the Design Language doc is the reusable
+source of truth and this document narrows it to Sails Market.
+
 ---
 
 ## 1. Reference interpretation (principles, not pixels)
@@ -370,6 +379,10 @@ economic meaning, or funding/signing clarity (§14/§15) — these are
 protected token/behavior contracts, not stylable surfaces. Matches and
 extends `PRODUCT-DIRECTION-FREEZE-1` §2D item 4's existing
 configuration-boundary principle to the visual layer specifically.
+**Formalized cross-product (`DESIGN-LANGUAGE-1`):** the full
+customizable/non-customizable contract now lives in
+`docs/SAILS_DESIGN_LANGUAGE.md` §10 — this paragraph is its Sails-
+Market-specific summary, not a second independent definition.
 
 ## 18. Sails Market differentiation boundary
 
@@ -384,6 +397,11 @@ richer, opinionated screen. This mirrors `PRODUCT-DIRECTION-FREEZE-1`'s
 own Layer A/C boundary applied at the UI-composition level.
 
 ## 19. Existing component-library verdict
+
+**Iconography counterpart (`DESIGN-LANGUAGE-1`):** the same "retain by
+default, evaluate before replacing" discipline applied here to shadcn
+primitives is now applied to Lucide (icons) in
+`docs/SAILS_DESIGN_LANGUAGE.md` §6 — same principle, one level down.
 
 **Corrected rule (2026-09-12, `UI-DIRECTION-1-CORRECTION`):** the prior
 version asserted universal retention of every shadcn primitive without
@@ -458,7 +476,11 @@ data-dense multiplier from §10). Proposed structure: three layers —
 primitive (raw values) → semantic (§3's categories) → component
 (component-specific aliases of semantic tokens) — the same pattern
 already implied by the existing `--color-orange` custom-property
-system, formalized.
+system, formalized. **Formalized cross-product (`DESIGN-LANGUAGE-1`):**
+`docs/SAILS_DESIGN_LANGUAGE.md` §11 names this same primitive →
+semantic → component structure as already-implemented (not merely
+proposed) and identifies the one missing piece — a tenant-swappable
+brand-token indirection — as the concrete next implementation block.
 
 ## 23. Page archetype system
 
@@ -482,6 +504,12 @@ Private Markets) a coherent feel without redesigning per module.
 - **White-label configurable** (Layer B, per §17): allowed visual
   identity variables, enabled modules, theme preference, selected
   density presets.
+
+**Formalized cross-product (`DESIGN-LANGUAGE-1`):**
+`docs/SAILS_DESIGN_LANGUAGE.md` §14 restates this same three-way split
+in visual-language terms and adds Satsails Wallet explicitly as a
+fourth sibling that may reuse the shared layer without being forced to
+visually copy Sails Market.
 
 ## 25. Screen design review checklist
 

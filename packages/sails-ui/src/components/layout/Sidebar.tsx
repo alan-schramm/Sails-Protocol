@@ -17,13 +17,23 @@ import { useAuth } from '../../context/AuthContext'
  * `Disputas` keeps the same conditional-on-session guard `TopNav.tsx`
  * used — no admin/operator gate exists (`Disputes.tsx`'s own header
  * comment), a signed-out visitor simply doesn't see the entry.
+ *
+ * DESIGN-LANGUAGE-1 §2.1 — `Perfil`'s `end` was `false`, so react-router's
+ * default NavLink matching (active if the current path === `to` OR starts
+ * with `to + '/'`) made `/profile` match `/profile/active` and
+ * `/profile/history` too — both of those routes lit up BOTH their own
+ * item and `Perfil` simultaneously. `end: true` restricts `Perfil` to the
+ * exact `/profile` path, the standard react-router fix for a parent path
+ * that collides with its own children. `/profile/new-offer` (reached from
+ * inside Profile, not linked directly from this nav) now activates no
+ * item rather than a wrong one — a known, acceptable gap, not a new bug.
  */
 const NAV_ITEMS = [
   { to: '/', label: 'Market', icon: ShoppingCart, end: true, requiresAuth: false },
   { to: '/profile/active', label: 'Trades Ativos', icon: Hourglass, end: false, requiresAuth: false },
   { to: '/profile/history', label: 'Meus Trades', icon: ArrowLeftRight, end: false, requiresAuth: false },
   { to: '/disputes', label: 'Disputas', icon: Scale, end: false, requiresAuth: true },
-  { to: '/profile', label: 'Perfil', icon: User, end: false, requiresAuth: false },
+  { to: '/profile', label: 'Perfil', icon: User, end: true, requiresAuth: false },
 ] as const
 
 export function Sidebar() {
