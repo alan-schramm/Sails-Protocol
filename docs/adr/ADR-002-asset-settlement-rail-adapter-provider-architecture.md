@@ -313,6 +313,30 @@ yet** — items 2-4 above remain future, separately-authorized missions,
 and this status note does not close `BACKLOG.md` 20.2 or 20.5 (see
 that item's own 2026-09-12 ARCH-IMPL-1 status update).
 
+**Implementation status (2026-09-12, ARCH-IMPL-2): the "No
+ProviderRegistration exists yet" sentence above is no longer current —
+preserved verbatim, corrected here, not silently rewritten.** A first
+`SettlementProviderRegistration` layer now exists
+(`src/common/settlement-provider-registry.ts`), additive over the
+`SettlementScope` registry — a provider registration can never create
+Product Scope (enforced by a module-load-time invariant checked against
+`isSettlementScopeRegistered`, not just left as convention). Registered,
+each verified directly against its provider file: `MULTISIG` →
+`{BTC,BITCOIN_L1}`, `LIGHTNING_HODL` → `{BTC,ARKADE}`, `WDK_USDT_EVM` →
+`{USDT,ETHEREUM}`. Deliberately not registered: `MOCK` (test
+infrastructure — `getCustodyModelForType()` already returns `null` for
+it by design), `SAFE_GUARD_EVM` (real code, but its `lockFunds()`
+performs a native-EVM-currency balance check, not an ERC-20 USDT/USDC
+transfer — no canonical Day-0 `Asset` corresponds to native EVM
+currency, so registering it against any existing scope would be
+factually wrong; a genuine open question for a future Product/
+Architecture Decision, not guessed here), and `LIQUID_COVENANT` (an
+`EscrowType` value with zero implementation — no entry in
+`escrow-providers.ts`'s `PROVIDERS` map, no provider file). Items 2-4
+above (QVAC/Reference UI wiring, legacy deprecation) remain future,
+separately-authorized missions; this status note still does not close
+`BACKLOG.md` 20.2 or 20.5.
+
 *(2026-09-11 correction: items 2 and 3 previously implied that wiring
 QVAC or the Reference UI to the new registry would itself "close"
 20.5/20.2. Corrected per CTO review — ARCH-FREEZE-R1 — to state that
