@@ -44,8 +44,15 @@ no yellow-on-black (Binance's own accent), no DeFi-toy iconography.
 
 Dark premium base; **Sails orange** (`--color-orange`, `#f97316` —
 already the one constant across both themes per the existing
-`packages/sails-ui` design system) as the sole primary action/accent
-color; high-contrast typography; subtle 1px borders, never heavy
+`packages/sails-ui` design system) is **the sole primary brand/action
+accent** — **corrected (2026-09-12, `UI-DIRECTION-1-CORRECTION`):**
+this does not mean orange is the only color in the system. The
+semantic state colors (`success`/`warning`/`danger`/`info`, §3) are
+preserved and required (§13's "never color alone" rule depends on
+them existing as real, distinct colors) — **semantic state colors are
+not competing brand accents**; they communicate state, orange
+communicates "this is the primary action," and the two never overlap
+in meaning; high-contrast typography; subtle 1px borders, never heavy
 strokes; restrained corner radius (small-to-medium, never full-pill
 except on true pills — status chips, tags); minimal decorative
 gradients (a single subtle background gradient at most, never
@@ -123,32 +130,67 @@ preserves that, it does not newly establish it.
   principle (§2D item 7's "access does not imply authority" extended to
   *visibility* does not imply necessity).
 
-## 7. Navigation / shell — OPEN, two options compared, no freeze
+## 7. Navigation / shell and default entry point — OPEN, two separate decisions
 
-Not frozen, per the standing freeze (§2D item 10). Compared against
-future Sails Market scope (OpenP2P, OpenLiquidity, OpenAgents, OTC,
-Private Markets, Activity, Portfolio/Positions, Profile/Identity/
-Reputation, Settings):
+**Corrected (2026-09-12, `UI-DIRECTION-1-CORRECTION`): shell pattern and
+default entry point are two separate decisions, evaluated
+independently below** — the prior version of this section conflated
+them and leaned too heavily on the current UI and historical
+marketplace precedent rather than evaluating fresh against full future
+scope. Neither decision is frozen by this document (§2D item 10).
+Evaluated against the full future Sails Market scope: OpenP2P,
+OpenLiquidity, OpenAgents, OTC, Private Markets, Activity, Portfolio/
+Positions, Identity/Reputation, Settings, and future modules.
 
-- **Left sidebar + slim top bar (recommended):** scales cleanly to a
-  growing module list (each module = one sidebar section) without the
-  top nav becoming a crowded row of items — the single biggest reason
-  to prefer this once OTC/Private Markets/Agents/Portfolio all need a
-  first-class entry point simultaneously. Top bar stays reserved for
-  session/identity/theme/notifications only, mirroring the existing
-  `TopNav`'s narrow current role.
-- **Alternative — top navigation only (current pattern, `TopNav`/
-  `BottomNav`):** works today at 9 screens; would need either a mega-
-  menu or horizontal scroll once module count grows past ~5-6 items —
-  a real, foreseeable scaling risk, not a defect today.
+### 7a. Shell pattern
 
-Market-first entry (current `/` = Marketplace) is preserved as the
-recommended default over a dashboard-first entry — matches the
-already-validated P2P precedent research (Binance/Bisq/HodlHodl) this
-codebase performed before building `Marketplace.tsx`, and nothing in
-the new module scope changes that reasoning. **No shell is frozen by
-this document** — this is a comparison for CTO decision, per mission
-scope.
+| Option | Tradeoffs against full future scope |
+|---|---|
+| **Left sidebar (recommended)** | Scales cleanly to a growing module list (OpenP2P, OpenLiquidity, OpenAgents, OTC, Private Markets, Activity, Portfolio, Identity, Settings each map to one sidebar section) without a top row ever becoming crowded. Costs horizontal width on smaller desktop viewports; needs a collapse/rail state to stay worthwhile below ~1280px. |
+| **Top navigation only** | Works today at 9 screens (current `TopNav`/`BottomNav`). Would need a mega-menu or horizontal scroll once module count exceeds ~5-6 top-level items — a real, foreseeable scaling risk once OTC/Private Markets/Agents/Portfolio all need first-class entries simultaneously, not a defect today. Lowest implementation cost if module growth stays slow. |
+| **Hybrid sidebar + topbar** | Sidebar carries module-level navigation; topbar carries session/identity/theme/notifications/search — separates "where am I in the product" from "who am I / what do I need right now." Slightly more surface to design and maintain than either pure option, but avoids overloading either nav with two different jobs. |
+
+**Recommended: hybrid sidebar + topbar** — it is the only option that
+doesn't force module navigation and session/identity concerns to share
+one nav surface, which is the actual scaling constraint once the module
+count in scope is realistic (9+ named surfaces). **Viable alternative:
+top navigation only**, if module growth is deliberately staged slowly
+enough that a mega-menu is never required — a legitimate, lower-cost
+choice, not an inferior one, if that pacing is the actual product plan.
+Pure left-sidebar-with-no-topbar was evaluated and set aside only
+because it has no natural home for session/identity/theme without
+either cluttering the sidebar itself or duplicating the hybrid model
+without its benefit.
+
+### 7b. Default entry point
+
+**Corrected: market-first is a candidate default, not inherited
+truth.** The prior version over-relied on this codebase's own historical
+P2P-precedent research (Binance/Bisq/HodlHodl), performed before this
+product-layering freeze existed and before Sails Market's fuller module
+scope (OTC, Private Markets, Agents, Portfolio) was itself frozen —
+that research answered "what should a P2P marketplace open into," not
+"what should Sails Market, a multi-module economic coordination
+product, open into." Four candidates evaluated on their own terms:
+
+| Candidate | Tradeoffs |
+|---|---|
+| **Market** | Immediate, concrete value for a new or occasional user; the P2P precedent still applies as one input, not the deciding one. Weak for a returning user with active trades/positions elsewhere. |
+| **Overview** | A dashboard-style summary answers "what needs my attention" first — best for a returning, multi-module user. Weak/empty for a first-time user with nothing yet to summarize. |
+| **Portfolio** | Strongest for an active trader once OTC/Positions exist; too narrow as a *default* before those modules ship, since a new user has no portfolio yet. |
+| **Contextual last-used workspace** | Best per-user experience once returning-user data exists; the weakest *default-for-new-users* case, and adds real state/personalization cost before any module beyond OpenP2P exists. |
+
+**Recommended: Market**, specifically because it is the only candidate
+that works correctly for a first-time user *today*, with the other
+three explicitly named as the right defaults to revisit once Portfolio/
+Activity/multi-module usage data exists to justify them — this is a
+staged recommendation, not a permanent one. **Viable alternative:
+Overview**, if Sails Market's initial launch scope already includes
+enough cross-module state (multiple active trades, OTC positions) that
+a first-time user is unlikely in practice. **Market-first status:
+explicitly a candidate default pending CTO Gate, not frozen, not
+inherited authority from prior research** — corrected per this
+mission's own instruction.
 
 ## 8. Responsive strategy
 
@@ -343,6 +385,15 @@ own Layer A/C boundary applied at the UI-composition level.
 
 ## 19. Existing component-library verdict
 
+**Corrected rule (2026-09-12, `UI-DIRECTION-1-CORRECTION`):** the prior
+version asserted universal retention of every shadcn primitive without
+evidence. Corrected principle: **retain existing primitives by
+default; restyle through tokens; replace only where a concrete
+accessibility, interaction, density, responsiveness, or product-fit
+limitation is demonstrated** — retention is a default, not an
+absolute, and evidence (not the fact that shadcn is already installed)
+is what would justify replacing any specific component.
+
 `packages/sails-ui`'s shadcn-based primitives (`button`/`card`/`badge`/
 `input`/`dialog`/`sheet`/`select`/`popover`/`switch`/`textarea`/
 `tooltip`) and the trade/marketplace/chat component folders
@@ -351,20 +402,25 @@ own Layer A/C boundary applied at the UI-composition level.
 `CurrencyPicker`, `PaymentMethodPicker`, `ChatWindow`/`ChatMessage`) are
 classified, per component:
 
-- **Retain:** all shadcn primitives (`button`, `card`, `badge`,
-  `input`, `dialog`, `sheet`, `select`, `popover`, `switch`, `textarea`,
-  `tooltip`) — solid, accessible (Radix-based), no reason to replace.
-- **Restyle via tokens:** the same primitives, once the semantic token
-  system (§3, §21) exists — no structural change, only token
-  application.
+- **Retain:** `dialog`, `sheet`, `popover`, `tooltip`, `switch` —
+  Radix-based interaction primitives with no accessibility or
+  interaction concern found in this pass.
+- **Retain/restyle:** `button`, `card`, `badge`, `input`, `select`,
+  `textarea` — sound structurally, but their visual treatment (color,
+  radius, density) is exactly what the semantic token system (§3, §22)
+  should drive once it exists; no structural change expected.
 - **Extend:** `TradeCard`, `EscrowStateMachine`, `OfferCard` — real,
   reusable shapes that need new variants (density, the new status
   language of §13) rather than replacement.
-- **Replace only if justified:** none identified in this pass — no
-  component was found to be structurally wrong, only visually
-  unrefined or (for funding/signing) simply missing. shadcn is treated
-  as an implementation asset (already frozen, §2D item 11), never
-  product strategy.
+- **Candidate for replacement if evidence emerges:** none identified
+  with concrete evidence in this pass. The most likely future
+  candidates, named for future review rather than replaced now, are
+  `select`/`popover` in a future **data-dense** (§10) market/table
+  context, where a native or denser-purpose-built control might
+  outperform Radix's default sizing — no such limitation has actually
+  been demonstrated yet, so no replacement is recommended today. shadcn
+  is treated as an implementation asset (already frozen, §2D item 11),
+  never product strategy.
 
 ## 20. Motion principles
 
@@ -469,8 +525,13 @@ an operational financial product's component system.
   for every future screen.
 - **Design System rule (future, once tokens are implemented):** the
   token family/layer structure (§22).
-- **Product Decision required:** the navigation shell (§7 — two options
-  presented, neither frozen); dark-first-with-light-ready as the
+- **Product Decision required — explicitly still pending CTO freeze,
+  not frozen merely because recommended (corrected, 2026-09-12,
+  `UI-DIRECTION-1-CORRECTION`):** the navigation **shell pattern**
+  (§7a — hybrid sidebar+topbar recommended, top-nav-only viable
+  alternative); the **default entry point** (§7b — Market recommended
+  as a staged, revisitable default, not inherited truth; Overview named
+  as the viable alternative); dark-first-with-light-ready as the
   default (§3 — proposed, not frozen); Zest/Binance as the accepted
   reference pair (§1 — proposed, not frozen).
 - **Architecture Decision required:** none — no protocol/architecture
