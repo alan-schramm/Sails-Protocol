@@ -2248,6 +2248,24 @@ or hidden operational conventions.
     result, per the exact closure discipline ADR-002 §12 (as corrected,
     ARCH-FREEZE-R1) already froze. 20.3 and 20.4 remain unaffected.
 
+    **Status update (2026-09-12, ARCH-IMPL-2).** The paragraph above
+    said "no ProviderRegistration exists yet" — no longer current, not
+    silently changed: ADR-002 §12 item 1's `SettlementProviderRegistration`
+    layer now exists (`src/common/settlement-provider-registry.ts`),
+    additive over the `SettlementScope` registry (never able to create
+    Product Scope — enforced by a module-load-time invariant, not just
+    convention). Registered, evidence-verified: `MULTISIG` →
+    `{BTC,BITCOIN_L1}`, `LIGHTNING_HODL` → `{BTC,ARKADE}`, `WDK_USDT_EVM`
+    → `{USDT,ETHEREUM}`. Deliberately NOT registered: `MOCK` (test
+    infrastructure, not Product Scope truth), `SAFE_GUARD_EVM` (real
+    code, but settles native EVM currency — no canonical Day-0 asset
+    matches; a genuine finding requiring its own future Product/
+    Architecture Decision, not guessed here), and `LIQUID_COVENANT` (an
+    `EscrowType` value with zero implementation). This item's own status
+    stays **ARCHITECTURE FROZEN / IMPLEMENTATION IN PROGRESS** (not
+    complete). **20.2 and 20.5 remain explicitly OPEN** — unchanged by
+    this status update. 20.3 and 20.4 remain unaffected.
+
 21. **Canonical quote-currency discoverability — conditional Day-0
     blocker for multi-fiat beta.** Aggregate `LiquidityOffer` exposes
     `priceUsd`; persisted Offer has optional `priceBrl`; Intent has
