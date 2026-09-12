@@ -1,9 +1,13 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
 import { EscrowType } from '../../common/types/trade'
+import type { AssetType } from '../../common/types'
 import type { CreateEscrowInput } from '@satsails/p2p-schemas'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
+import { translateLegacyAssetType } from '../../common/settlement-scope-legacy'
+import { isSettlementScopeRegistered } from '../../common/settlement-scope-registry'
+import { listProvidersForScope } from '../../common/settlement-provider-registry'
 import {
   EscrowRecord,
   SettlementProvider,
@@ -176,6 +180,76 @@ function mapDistributionPolicyFreezesShape(escrow: any): any {
 // for the full rationale and scope.
 export type { CreateEscrowInput }
 
+// VERTICAL-SLICE-1 (2026-09-12) — the first point where ADR-002's
+// canonical SettlementScope/Provider registries become authoritative in
+// a real, running journey, not merely available-but-unused.
+//
+// Scoped ONLY to `asset === 'BTC'` — the one high-confidence legacy
+// mapping this mission is authorized to touch (ADR-002 §11). Every
+// other asset (`LN_BTC`, `USDT_ERC20`, everything else) still resolves
+// through the untouched `recommendedEscrowType()` below, exactly as
+// before this change.
+//
+// Why this must run even when `type` is already supplied, not only when
+// omitted: `packages/sails-sdk/src/modules/settlement.ts`'s own
+// `SailsSettlementModule.create()` resolves `type` CLIENT-SIDE, via its
+// own separately-hardcoded `RECOMMENDED_ESCROW_TYPE` map, before ever
+// calling this server — the real Reference UI (`Trade.tsx` -> SDK
+// `create()`) therefore always sends an explicit `type: 'MULTISIG'` for
+// a BTC escrow, and a resolution gated on `input.type` being *absent*
+// would never actually execute for that traffic (a real architectural
+// bypass, found during this mission's own discovery pass and documented
+// in its report). Making the canonical registry authoritative here —
+// validating whatever `type` arrives (client-supplied or defaulted)
+// against `{BTC, BITCOIN_L1}`'s own registered implementation — is what
+// makes it genuinely part of the real journey instead of a parallel,
+// never-exercised code path.
+//
+// The pre-existing, intentional `type: 'MOCK'` override escape hatch
+// (tests/escrowProviderWiring.test.ts's "an explicitly passed type is
+// never overridden" — used for fake/test escrows regardless of asset)
+// is preserved unconditionally, checked first, before any canonical
+// lookup — this mission does not touch MOCK's own behavior.
+function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
+  if (explicitType === 'MOCK') return 'MOCK'
+  if (!explicitType && config.features.mockEscrow) return 'MOCK'
+
+  if (asset === 'BTC') {
+    const scope = translateLegacyAssetType('BTC')
+    if (!scope) {
+      // Defensive only — ADR-002 §11 freezes BTC -> {BTC, BITCOIN_L1} as
+      // a high-confidence mapping; this function's own contract
+      // guarantees a value here. Never expected to actually throw.
+      throw new EscrowError("Internal error: legacy asset 'BTC' has no canonical SettlementScope mapping (ADR-002 §11)")
+    }
+    if (!isSettlementScopeRegistered(scope.asset, scope.rail)) {
+      throw new EscrowError(
+        `Canonical Product Scope {${scope.asset}, ${scope.rail}} is not registered — refusing to create a BTC escrow. This should never happen while ADR-002's frozen scope list is intact.`
+      )
+    }
+    const candidates = listProvidersForScope(scope.asset, scope.rail)
+    if (candidates.length !== 1) {
+      // Bounded, single-candidate resolution only (VERTICAL-SLICE-1 §7)
+      // — deliberately not a routing engine. If a future mission ever
+      // registers a second implementation for this scope, this must
+      // fail loudly and be resolved by that mission, never silently
+      // pick "first registered wins."
+      throw new EscrowError(
+        `Expected exactly one registered settlement implementation for {${scope.asset}, ${scope.rail}}, found ${candidates.length} — refusing to guess which one to use.`
+      )
+    }
+    const canonicalType = candidates[0].implementation
+    if (explicitType && explicitType !== canonicalType) {
+      throw new EscrowError(
+        `type '${explicitType}' does not match '${canonicalType}', the canonical settlement implementation registered for {${scope.asset}, ${scope.rail}} — refusing to create a semantically inconsistent BTC escrow.`
+      )
+    }
+    return canonicalType
+  }
+
+  return explicitType ?? recommendedEscrowType(asset)
+}
+
 export class EscrowService {
   constructor(private readonly repo: EscrowRepository = escrowRepository) {}
 
@@ -234,7 +308,7 @@ export class EscrowService {
     }
     if (trade.escrowId) throw new EscrowError('Trade already has an escrow')
 
-    const type = input.type ?? (config.features.mockEscrow ? 'MOCK' : recommendedEscrowType(input.asset))
+    const type = resolveEscrowType(input.asset, input.type)
 
     // Missão 11 Fase 4.1 §4 — computed BEFORE the escrow row exists and
     // folded into the SAME insert below, not a separate best-effort update

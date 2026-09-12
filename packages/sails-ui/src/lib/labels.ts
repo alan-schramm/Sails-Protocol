@@ -11,8 +11,16 @@
 import type { AssetType, PaymentMethod } from '../types'
 import type { DisputeRuling } from '@satsails/p2p-trading-sdk'
 
+// VERTICAL-SLICE-1 (2026-09-12) — BTC was the one Bitcoin-family label
+// with no rail qualifier (every sibling below already has one), leaving
+// a user unable to tell "Bitcoin" apart from "Bitcoin (Ark/Arkade)" as
+// two DIFFERENT settlement rails rather than one asset with a
+// vocabulary variant. Minimum representability fix for the frozen
+// {BTC, BITCOIN_L1} canonical scope this slice proves end-to-end —
+// not a general asset+rail selector (see ADR-002/PROJECT_CONTEXT.md §2C
+// for the still-open, separately-authorized full Day-0 selector work).
 export const ASSET_LABELS: Record<AssetType, string> = {
-  BTC: 'Bitcoin',
+  BTC: 'Bitcoin (on-chain)',
   LN_BTC: 'Bitcoin (Ark/Arkade)',
   LIQUID_BTC: 'Bitcoin (Liquid)',
   RSK_BTC: 'Bitcoin (RSK)',
