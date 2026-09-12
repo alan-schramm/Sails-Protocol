@@ -2361,3 +2361,21 @@ obligation" is defined anywhere in this repository.
     §2D's own closing confirmations).
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+23. **Sails Market visual system / UX direction — design direction only,
+    not implemented (2026-09-12).** `UI-DIRECTION-1` proposed a visual
+    character, anti-pattern list, information-hierarchy/progressive-
+    disclosure model, responsive/typography/spacing/card/table/status/
+    motion/accessibility principles, and a funding/signing/dispute UX
+    direction for Sails Market — full text:
+    `docs/SAILS_MARKET_DESIGN_DIRECTION.md`. **Not frozen** — visual
+    language, navigation shell, dark/light default, and exact token
+    values remain OPEN per `docs/PROJECT_CONTEXT.md` §2D item 10; this
+    is a proposal for CTO decision, not a design system. **Does not
+    close** item 22's FundingRequest/SigningRequest gaps — those remain
+    open implementation work this document only designs toward. No
+    React component, CSS, token, navigation, SDK, or protocol change.
+    No ADR (no architectural constraint introduced). No Semantic Kernel
+    or Core impact.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
