@@ -43,6 +43,18 @@ layer up:
   change brand, theme, and visual composition. Risk, authority,
   economic state, and action semantics may never change silently with
   branding.
+- **Technical sophistication should reduce user complexity, not expose
+  it** (`UI-POLISH-2`) — a powerful protocol should feel *simpler* than
+  the complexity it actually coordinates, not more intimidating for
+  reflecting it faithfully.
+- **Responsive adaptation may change layout, density, and presentation
+  — it must preserve meaning, priority, actionability, and state
+  visibility.** Critical product information must never depend on a
+  desktop-only spatial affordance (hover, a wide fixed column, a side-
+  by-side layout with no narrow-width equivalent) to remain reachable
+  or legible. Information may reflow across breakpoints; it must not
+  *fracture* semantically — see §19 (Cross-Platform Information
+  Integrity) for the concrete audit method and rules this implies.
 
 ## 1. Base visual identity — Sails brand
 
@@ -265,15 +277,37 @@ visible copy decision than this mission's classification work covers,
 and is not required by "Sails Agent" adoption.
 
 **Frozen principle:** **access does not imply economic authority.**
-Sails Agent (or any future agent identity) can be granted *access* to
-generate intentions, search offers, and present proposals — it can
-never be granted the *authority* to move funds, sign, or complete a
-trade without the explicit human approval step that already exists
-(`handleApprove` — the only route from a QVAC proposal to a real
-`Trade`/escrow call). This mirrors, at the product-naming level, the
-same boundary `docs/PROJECT_CONTEXT.md` §2E's Security Constraint (item
-9) already holds for signer technology: naming something "Agent" must
-never read as "Agent can act with economic authority."
+Sails Agent (or any future agent identity) being granted *access* to
+generate intentions, search offers, and present proposals never by
+itself confers *authority* to move funds, sign, or complete a trade —
+authority is a separate grant, never an implicit side effect of access.
+This mirrors, at the product-naming level, the same boundary
+`docs/PROJECT_CONTEXT.md` §2E's Security Constraint (item 9) already
+holds for signer technology: naming something "Agent" must never by
+itself read as "Agent already has economic authority."
+
+**Corrected `UI-POLISH-2` (2026-09-12) — this is not a permanent
+prohibition.** An earlier version of this section stated the human-
+approval step (`handleApprove` — currently the only route from a QVAC
+proposal to a real `Trade`/escrow call) as something Sails Agent "can
+never" do without, phrased as a standing ban on delegated agent
+authority. That overclaimed: it described today's implementation as if
+it were a frozen constraint on all future implementations. **Corrected
+statement:** *current Sails Market behavior requires human approval
+before a QVAC-generated proposal becomes real economic action — this
+is current implementation/product behavior, not a permanent
+prohibition on delegated agent authority.* A future, separately
+authorized economic authority for an agent may exist, provided it is:
+**explicit** (granted, not assumed), **scoped** (limited to a named
+capability/action set), **limited** (bounded amount/frequency/context),
+**observable** (its use is visible to the affected parties), **revocable**
+(can be withdrawn), **auditable** (a real record of what it did and
+when), and **governed** (subject to the same kind of capability-grant
+discipline `RFC-005`'s `CapabilityGrant` already models for other
+scoped permissions). **Not implemented, not designed, not scheduled by
+this correction** — this section only removes an institutional
+overclaim, it does not propose or authorize a delegated-authority
+mechanism.
 
 ## 9. QVAC representation
 
@@ -659,6 +693,173 @@ existing, already-implemented token/component pattern and extends it
 with a small, real proof (checkbox/switch/asset-icon/toolbar
 consistency), not a new architecture.
 
+## 19. Mobile Secondary Surface Semantics — Back vs. Close (`UI-POLISH-2`)
+
+**Rule:** a full-screen (or near-full-screen) mobile surface reached by
+drilling into a flow reads as a **secondary surface** — the user's
+mental model is "I went somewhere," not "something popped up over what
+I was doing." It uses **Back** semantics (an arrow, top-left, paired
+with the surface's title). A narrower, clearly-layered overlay/drawer/
+dialog — the same surface at `sm+`, or any true modal that doesn't
+consume the full viewport — uses **Close** semantics (`X`), since the
+mental model there genuinely is "something appeared over my content."
+
+**Do not** default to a component library's built-in dismiss control
+(e.g. Radix `Dialog`/`Sheet`'s own `X`) at every breakpoint just
+because it ships that way — check which mental model the surface
+actually presents at that breakpoint. `FilterPanel.tsx`'s `Sheet` is
+the concrete instance: full-width on mobile (a secondary surface — now
+a back arrow) vs. a `sm:max-w-sm` side drawer on desktop/tablet (a
+genuine overlay — `X` stays correct there). Both controls call the
+identical cancel handler; only the icon and position differ.
+
+**Both are still cancel/dismiss actions, not distinct behaviors** —
+this section is about which *icon and position* the shared dismiss
+action wears at a given breakpoint, not two different action semantics
+(see §21 for what "cancel" itself must and must not do when a surface
+holds a staged edit).
+
+## 20. Filter / Panel Commit Semantics — Live vs. Staged (`UI-POLISH-2`)
+
+**Rule, chosen for this app:** an advanced-filter (or similarly-scoped
+edit) panel that presents an explicit "Apply"-style action **must
+actually stage changes** — edits inside the panel affect a local draft
+only; the real, applied state changes exactly once, when the user
+confirms. A panel must never present staged-commit affordances while
+actually mutating live state as the user types/toggles — found and
+fixed in `FilterPanel.tsx` (§22 below) — that mismatch reads as a bug
+even when nothing is technically broken, because the UI's own language
+promised something the runtime didn't do.
+
+**If a future panel genuinely wants live filtering instead** (edits
+visibly affect results immediately, no separate confirmation step),
+that is a legitimate, different model — but it must **not** also show
+an "Apply" button that implies a held-back commit. Pick one model per
+surface and let its own controls honestly describe it; never a hybrid.
+
+**Required behavior once staged is chosen** (formalized here, applied
+in `FilterPanel.tsx`):
+- Opening the panel seeds a fresh draft from the real, currently-
+  applied state.
+- Every control inside edits the draft only.
+- Exactly one action commits the draft to real state (e.g. "Aplicar
+  filtros").
+- Every dismissal path — Back (mobile), Close/`X` (desktop), Escape,
+  clicking outside a modal overlay — discards the draft. None of them
+  may silently apply it.
+- A "Clear"/"Limpar" control inside the panel edits the draft the same
+  way every other control does; it does not affect real state until
+  the user also commits.
+
+## 21. Agent Authority Boundary (`UI-POLISH-2`, corrects `DESIGN-LANGUAGE-1` §8)
+
+Full text lives in §8, corrected this mission — named here as its own
+heading because it is a standing boundary this document enforces, not
+a one-time fix. In one line: **agent access ≠ agent authority; today's
+human-approval requirement is current product behavior, not a
+permanent prohibition on a future, properly-governed delegated
+authority** (explicit, scoped, limited, observable, revocable,
+auditable, governed — §8's own full list). Any future document,
+comment, or UI copy describing what an agent identity can or cannot do
+must use this framing, not an absolute "can never."
+
+## 22. Iconography Governance — system-level, not page-level (`UI-POLISH-2`, extends §6)
+
+**Rule:** an icon's meaning is decided once, for a category, at the
+design-system level — never re-decided per page or per component.
+Two different screens must never use different icons for the same
+status, action, or identity, and the same icon must never carry two
+different meanings across the app. §6 evaluated Lucide and named seven
+categories; this mission adds three the audit had missed and confirms
+current coverage:
+
+| Category | Coverage | Example |
+|---|---|---|
+| Primary Navigation | Lucide, sufficient | `Sidebar.tsx`'s 5 nav icons |
+| Actions | Lucide, sufficient | `KeyRound` (Conectar), `SlidersHorizontal` (Filtros) |
+| Status | Lucide, sufficient — **added this mission** | `StatusBadges.tsx`'s Trade/Escrow/Offer status pills now pair an icon with their existing color+text (was color+text only) |
+| Security / Authority | Lucide, sufficient | `ShieldCheck` (Login), `Scale` (Disputas), `Lock` (escrow funds-locked status) |
+| Agent / AI | Lucide, sufficient | `Bot` (Sails Agent) |
+| Empty / Loading / Error | Lucide, sufficient | `SearchX`, `Loader2`, `AlertTriangle` (Marketplace) |
+| Asset / Token | **Not Lucide's job** — a monogram registry (§7) | `AssetIcon.tsx` |
+| Rail / Network | Not yet needed (§7-adjacent, see below) | none today |
+| Operator / Diagnostic | Lucide, sufficient, lightly used | the QVAC inference-model diagnostic line (text only today — no icon judged necessary, low-frequency surface) |
+| Market Context / Access | **N/A — no runtime exists yet** (§16.1/§17) | reserved for whenever Market Context Navigation ships |
+
+**Icons reinforce meaning; they do not manufacture hierarchy.** An
+icon is added only where it demonstrably improves scanning, reduces
+ambiguity, reinforces an existing status, or aids mobile recognition —
+never decoratively. Important actions prefer **icon + label**; an
+important action is never hidden behind an icon-only control without a
+clear, obvious affordance (a labeled tooltip, sufficient size, and
+established convention — e.g. a lone `X` close control is
+conventional; a lone unlabeled action icon for something consequential
+is not).
+
+**Rail/network icon strategy (§4.5):** no logo invented for Bitcoin
+L1/Lightning/Spark/Arkade/Liquid/EVM chains/Solana/Tron/TON/BNB Chain —
+none is used visually today (rails are represented by label text only,
+e.g. "Bitcoin (Liquid)"). Direction registered, not built: if/when a
+rail needs its own icon (e.g. a future multi-rail selector), it should
+follow the same "real registry, swappable, evaluated before adopting a
+real logo source" pattern `AssetIcon.tsx` already established for
+assets — not a new, separate pattern.
+
+## 23. Cross-Platform Information Integrity (`UI-POLISH-2`)
+
+**Rule:** responsive adaptation may change **presentation** (layout,
+density, grouping, which controls are visible without scrolling) — it
+must never fracture **meaning** (what the user is looking at, what
+state something is in, what action is available, what is required).
+
+**Never silently truncated, at any breakpoint** — product identity
+(e.g. "Sails Agent"), economic state, a required action, critical
+counterparty information, authority/risk status, an asset or amount,
+an error state, or the currently-active destination. Ellipsis is
+permitted only for genuinely secondary information that has another
+way to be reached in full (a tooltip, an expanded view, a detail page)
+— found and fixed this mission: `AgentIntentionPanel.tsx`'s header
+used to truncate "Sails Agent — Market Negotiation" as one string on
+narrow widths, clipping the identity itself. Corrected to a two-line
+layout — see §16.4's own "labels may shorten, meaning must not change"
+rule for the navigation-specific version of this same principle.
+
+**Audit method used this mission** (repeatable for future surfaces):
+check desktop wide (≥1440px), desktop medium (~1024–1280px), tablet
+(~768–900px), and mobile (~360–430px) for: truncation, wrapping,
+title/subtitle integrity, action visibility, selected-state visibility,
+touch target size, focus visibility, tooltip availability on touch,
+hover-only affordances with no touch equivalent, horizontal overflow,
+CTA visibility, sticky-area behavior, and any information that is
+lost, duplicated, or silently reordered between breakpoints.
+
+**Example of correct reflow** (already true, confirmed this mission):
+a title/subtitle pair sits horizontally on desktop and stacks to two
+lines on mobile — same information, same order, no loss. **Example of
+incorrect reflow** (the bug this section exists to prevent): a full
+label on desktop silently becoming an unrecoverable ellipsis on mobile
+with no alternative access to the full text.
+
+## 24. Typography Preservation (`UI-POLISH-2`)
+
+**Typography is currently one of the strongest parts of the Sails
+Market visual system.** Preserve the current direction — display
+typeface for brand/headlines, system stack for body/density, the
+named type levels in §4 — unless there is concrete evidence of a
+readability, hierarchy, responsiveness, or accessibility problem. Do
+not change font, scale, or hierarchy for novelty or personal
+preference.
+
+**Audited this mission, not redesigned:** clipping, wrapping,
+responsive scale, line-height, hierarchy, contrast, numeric scanning,
+and localization resilience (Portuguese copy running measurably longer
+than English in several labels — already accommodated by existing
+wrap/truncate behavior, no overflow found). **No typography change was
+made** — the one real defect found and fixed this mission
+(`AgentIntentionPanel.tsx`'s identity truncation, §23) was a layout/
+truncation bug, not a typography defect; the type levels and scale
+themselves were never in question.
+
 ## Closing confirmations
 
 - Design Language ≠ Protocol Semantics — confirmed, no protocol/SDK/
@@ -675,3 +876,13 @@ consistency), not a new architecture.
   and Filter/Discovery UX Grammar — no runtime Market Context Navigation,
   Private Markets, or server/community UI was implemented; §16.6's
   pattern options are an evaluation for a future decision, not a build.
+- `UI-POLISH-2` (§19-§24) corrected an institutional overclaim (§8/§21
+  — Agent Authority is no longer phrased as a permanent prohibition),
+  fixed a real information-integrity bug (§23 — Sails Agent's mobile
+  identity truncation), converted `FilterPanel.tsx` from a false live/
+  staged hybrid to a real staged-draft model (§20), formalized Back-vs-
+  Close semantics (§19), extended iconography governance with three
+  categories the prior pass missed (§22), and reaffirmed typography as
+  already correct, unchanged (§24). No delegated agent authority, no
+  Private Markets/server runtime, no icon library or typography change
+  implemented by this mission.

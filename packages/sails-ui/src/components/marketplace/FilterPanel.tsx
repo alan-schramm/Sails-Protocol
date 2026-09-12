@@ -33,8 +33,8 @@ import { Switch } from '../ui/switch'
 import { Checkbox } from '../ui/checkbox'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select'
 import { cn } from '../../lib/utils'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet'
-import { Search, ChevronDown, ChevronUp, X } from 'lucide-react'
+import { Sheet, SheetContent, SheetTitle } from '../ui/sheet'
+import { Search, ChevronDown, ChevronUp, X, ArrowLeft, SlidersHorizontal } from 'lucide-react'
 import { DEFAULT_FILTERS } from '../../types'
 
 interface Props {
@@ -75,44 +75,104 @@ export const SORT_OPTIONS: { value: MarketplaceFilters['sortBy']; label: string 
   { value: 'trades', label: 'Mais trades' },
 ]
 
+// UI-POLISH-2 §2.2 — was a false "staged commit" UI: every control called
+// `onChange` (the real committed Market filters) immediately, live, while
+// an "Aplicar filtros" button implied edits were held until confirmed.
+// That mismatch is fixed by actually staging: `draft` is a local copy,
+// re-seeded from the real `filters` prop every time the sheet opens, and
+// every control below edits `draft` only. `onChange(draft)` fires exactly
+// once, from `applyAndClose`. No other path calls `onChange`.
 export function FilterPanel({ open, onClose, filters, onChange, currency }: Props) {
+  const [draft, setDraft] = React.useState<MarketplaceFilters>(filters)
+
+  React.useEffect(() => {
+    if (open) setDraft(filters)
+  }, [open, filters])
+
   const set = <K extends keyof MarketplaceFilters>(key: K, value: MarketplaceFilters[K]) =>
-    onChange({ ...filters, [key]: value })
+    setDraft((d) => ({ ...d, [key]: value }))
 
   const togglePaymentMethod = (method: PaymentMethod) => {
-    const has = filters.paymentMethods.includes(method)
-    set('paymentMethods', has ? filters.paymentMethods.filter((m) => m !== method) : [...filters.paymentMethods, method])
+    setDraft((d) => {
+      const has = d.paymentMethods.includes(method)
+      return { ...d, paymentMethods: has ? d.paymentMethods.filter((m) => m !== method) : [...d.paymentMethods, method] }
+    })
   }
 
-  const activeCount = countActiveFilters(filters)
+  const activeCount = countActiveFilters(draft)
 
-  // §4.6 — preserves the user's save-preference and current sort choice
-  // (not "filters" in the countActiveFilters sense — sort is display
-  // ordering, saveForNext is a meta-preference about persistence, not
-  // search criteria), clears everything that actually narrows results.
-  const clearAll = () => onChange({ ...DEFAULT_FILTERS, saveForNext: filters.saveForNext, sortBy: filters.sortBy })
+  // §2.2 — "Limpar" edits the draft only, same as every other control
+  // here; it takes effect on the real Market filters only via Apply,
+  // same as everything else in this panel. Preserves the draft's own
+  // save-preference and current sort choice (not "filters" in the
+  // countActiveFilters sense — sort is display ordering, saveForNext is
+  // a meta-preference about persistence, not search criteria).
+  const clearDraft = () => setDraft((d) => ({ ...DEFAULT_FILTERS, saveForNext: d.saveForNext, sortBy: d.sortBy }))
+
+  // §2.3 — the one path every dismissal (mobile Back, desktop X,
+  // Escape, overlay click — all route through Sheet's own
+  // `onOpenChange`) shares: discard the draft, never silently apply it.
+  const cancelAndClose = () => {
+    setDraft(filters)
+    onClose()
+  }
+
+  const applyAndClose = () => {
+    onChange(draft)
+    onClose()
+  }
 
   return (
     // Real Radix Sheet (2026-08-01) — replaces a hand-rolled `fixed inset-0`
     // backdrop with a manually added (but never wired) `role="dialog"
     // aria-modal="true"`: no real focus trap, no Escape-to-close. Same fix
     // as Disputes.tsx's own drawer — see feedback_slc_ui_philosophy memory.
-    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full max-w-sm p-0 flex flex-col">
-        <div className="flex-1 overflow-y-auto p-5">
-          <SheetHeader>
-            <SheetTitle>Filtros avançados</SheetTitle>
-          </SheetHeader>
+    <Sheet open={open} onOpenChange={(o) => !o && cancelAndClose()}>
+      <SheetContent side="right" hideDefaultClose className="w-full max-w-sm p-0 flex flex-col gap-0">
+        {/* UI-POLISH-2 §2.1 — full-width on mobile, this Sheet reads as a
+            full-screen secondary surface, not a dismissive overlay: Back
+            semantics (an arrow, same row as the title) fit that better
+            than the built-in `X`. At `sm+` it's a narrower side drawer —
+            genuinely dismissive overlay territory — where `X` stays
+            correct. Both buttons call the same cancelAndClose. */}
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-brand-border-subtle shrink-0">
+          {/* UI-POLISH-2 §5.1 — h-11 w-11 (44px) meets
+              `SAILS_MARKET_DESIGN_DIRECTION.md` §21's own minimum touch-
+              target rule; the icon stays visually 20px, only the hit
+              area grows. -ml-2.5 keeps the icon itself visually aligned
+              with the content below despite the larger tap target. */}
+          <button
+            onClick={cancelAndClose}
+            aria-label="Voltar"
+            className="sm:hidden -ml-2.5 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <SheetTitle className="flex-1">Filtros avançados</SheetTitle>
+          <button
+            onClick={cancelAndClose}
+            aria-label="Fechar"
+            className="hidden sm:flex h-8 w-8 items-center justify-center rounded-sm opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
+        <div className="flex-1 overflow-y-auto p-5">
           {/* §4.5 — proportional active-filter summary: a count + a single
               clear-all action, not a second set of removable chips
               duplicating the per-section toggles already visible below. */}
           {activeCount > 0 && (
-            <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="text-brand-text-secondary">
+            <div className="mb-2 flex items-center justify-between text-xs">
+              {/* UI-POLISH-2 §4.3 — same icon as the toolbar's own
+                  "Filtros" button (Marketplace.tsx), so this summary
+                  reads as "the same thing, staged" at a glance rather
+                  than a disconnected line of text. */}
+              <span className="flex items-center gap-1.5 text-brand-text-secondary">
+                <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
                 {activeCount} {activeCount === 1 ? 'filtro ativo' : 'filtros ativos'}
               </span>
-              <button onClick={clearAll} className="text-brand-orange-accent hover:underline font-medium">
+              <button onClick={clearDraft} className="text-brand-orange-accent hover:underline font-medium">
                 Limpar tudo
               </button>
             </div>
@@ -121,7 +181,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
           <ToggleRow
             label="Salvar filtro para o próximo"
             info="Mantém essas preferências de filtro salvas para a próxima vez que você visitar o Marketplace."
-            checked={filters.saveForNext}
+            checked={draft.saveForNext}
             onChange={(v) => set('saveForNext', v)}
           />
 
@@ -129,19 +189,19 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             <CheckRow
               label="Apenas anúncios negociáveis"
               info="Exclui usuários que você bloqueou ou que bloquearam você."
-              checked={filters.negotiableOnly}
+              checked={draft.negotiableOnly}
               onChange={(v) => set('negotiableOnly', v)}
             />
             <CheckRow
               label="Somente comerciantes com alta reputação"
               info="Mostra apenas comerciantes com excelentes pontuações e avaliações de alta reputação."
-              checked={filters.highReputationOnly}
+              checked={draft.highReputationOnly}
               onChange={(v) => set('highReputationOnly', v)}
             />
             <CheckRow
               label="Comerciantes com os quais você já negociou"
               info="Comerciantes frequentes com quem você negociou nos últimos meses."
-              checked={filters.previouslyTradedOnly}
+              checked={draft.previouslyTradedOnly}
               onChange={(v) => set('previouslyTradedOnly', v)}
               last
             />
@@ -149,7 +209,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
 
           <Section title="Valor" info="A quantidade que você costuma negociar — usada para destacar ofertas com limites compatíveis.">
             <Input
-              value={filters.amount}
+              value={draft.amount}
               onChange={(e) => set('amount', e.target.value)}
               type="number"
               placeholder="0.00"
@@ -160,7 +220,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
                 <button
                   key={preset}
                   onClick={() => set('amount', String(preset))}
-                  className={cn(badgeVariants({ variant: filters.amount === String(preset) ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
+                  className={cn(badgeVariants({ variant: draft.amount === String(preset) ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
                 >
                   {formatByCurrency(preset, currency)}
                 </button>
@@ -174,7 +234,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
                 <button
                   key={t.value}
                   onClick={() => set('paymentTimeLimit', t.value)}
-                  className={cn(badgeVariants({ variant: filters.paymentTimeLimit === t.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
+                  className={cn(badgeVariants({ variant: draft.paymentTimeLimit === t.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
                 >
                   {t.label}
                 </button>
@@ -183,7 +243,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
           </Section>
 
           <Section title="País/Região">
-            <Select value={filters.country} onValueChange={(v) => set('country', v)}>
+            <Select value={draft.country} onValueChange={(v) => set('country', v)}>
               <SelectTrigger aria-label="País/Região" className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -198,8 +258,8 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
 
           <Section title="Método de pagamento" info="Métodos populares indicados primeiro pelo país selecionado — os demais continuam disponíveis em 'Ver todos'. As moedas serão liberadas imediatamente após a confirmação do pagamento.">
             <PaymentMethodSection
-              country={filters.country}
-              value={filters.paymentMethods}
+              country={draft.country}
+              value={draft.paymentMethods}
               onToggle={togglePaymentMethod}
             />
           </Section>
@@ -210,7 +270,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
                 <button
                   key={s.value}
                   onClick={() => set('sortBy', s.value)}
-                  className={cn(badgeVariants({ variant: filters.sortBy === s.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
+                  className={cn(badgeVariants({ variant: draft.sortBy === s.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
                 >
                   {s.label}
                 </button>
@@ -224,10 +284,10 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             pinned to the bottom of the sheet regardless of scroll
             position — no more scrolling to the end to apply/clear. */}
         <div className="shrink-0 border-t border-brand-border-subtle p-4 flex gap-2 bg-brand-surface">
-          <Button variant="outline" onClick={clearAll} className="flex-1 py-2.5 text-sm">
+          <Button variant="outline" onClick={clearDraft} className="flex-1 py-2.5 text-sm">
             Limpar
           </Button>
-          <Button onClick={onClose} className="flex-1 py-2.5 text-sm">
+          <Button onClick={applyAndClose} className="flex-1 py-2.5 text-sm">
             Aplicar filtros
           </Button>
         </div>

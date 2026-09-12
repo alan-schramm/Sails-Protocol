@@ -243,19 +243,25 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
             {/* DESIGN-LANGUAGE-1 §7 — "Sails Agent" is now the product-level
                 identity for AI/agent assistance across the Sails ecosystem
                 (docs/SAILS_DESIGN_LANGUAGE.md §7); this panel is one
-                composition of it, not the whole concept, hence "— Market
+                composition of it, not the whole concept, hence "Market
                 Negotiation" rather than a flat rename. Renamed the visible
                 label only — component name, props, and the underlying
-                QVAC-backed intent/propose flow are unchanged. */}
-            <span className="block text-sm font-semibold text-brand-text truncate">
-              Sails Agent <span className="font-normal text-brand-text-muted">— Market Negotiation</span>
-            </span>
+                QVAC-backed intent/propose flow are unchanged.
+                UI-POLISH-2 §3.1 — was one `truncate`d line combining both
+                ("Sails Agent — Market Negotiati…"), so the identity itself
+                got clipped on narrow mobile widths. Product identity is
+                never truncated (Design Language's cross-platform
+                information-integrity rule): "Sails Agent" now stands alone
+                on its own line at full weight; the composition qualifier
+                moves into the secondary line below, which is genuinely
+                supplementary and safe to truncate. */}
+            <span className="block text-sm font-semibold text-brand-text">Sails Agent</span>
             {/* Missão 07.3 — the previous subtitle ("negociação assistida
                 por IA (Agente QVAC)") attributed the whole flow to QVAC;
                 only the intent itself is AI-generated (real LLM call) —
                 the offer search/match that follows is deterministic, not
                 QVAC, per BOUNDARY_TEXT below. */}
-            <span className="block text-metadata truncate">Intenção gerada por IA, busca automática de oferta</span>
+            <span className="block text-metadata truncate">Market Negotiation · Intenção gerada por IA, busca automática de oferta</span>
           </span>
         </button>
         <div className="flex items-center gap-1 shrink-0 pl-2">

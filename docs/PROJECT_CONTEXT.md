@@ -941,6 +941,37 @@ not resolved by keeping a duplicate "23."
   constraint is introduced; items 4/12 restate ADR-002's own frozen
   distinctions at the product/UI level, they do not add to them.
 
+### 18. Agent economic authority — access ≠ authority, corrected from an overclaimed prohibition (`UI-POLISH-2`, 2026-09-12)
+
+**Frozen:** agent *access* (discovery, negotiation, analysis, proposal
+generation — what "Sails Agent" does today) never by itself confers
+economic *authority* (moving funds, signing, completing a trade).
+Authority is a separate grant, never an implicit side effect of access
+— restates item 7's "Access does not imply authority" specifically for
+an AI/agent identity rather than interface richness in general.
+
+**Corrected, not newly frozen:** `docs/SAILS_DESIGN_LANGUAGE.md` §8
+previously phrased the current human-approval requirement
+(`AgentIntentionPanel.tsx`'s `handleApprove` — today the only route
+from a QVAC-generated proposal to a real `Trade`/escrow call) as
+something an agent "can never" do without — an overclaim, since it
+described current implementation as a standing ban on all future
+delegated-authority designs. **Corrected statement:** *current Sails
+Market behavior requires human approval before a QVAC-generated
+proposal becomes real economic action — this is current
+implementation/product behavior, not a permanent prohibition on
+delegated agent authority.* A future, separately authorized economic
+authority for an agent remains possible, conditioned on being
+explicit, scoped, limited, observable, revocable, auditable, and
+governed (full text: `docs/SAILS_DESIGN_LANGUAGE.md` §8's own corrected
+passage).
+
+**Not implemented, not designed, not scheduled by this correction** —
+this item removes an institutional overclaim; it does not authorize,
+design, or schedule a delegated-authority mechanism. No `CapabilityGrant`
+extension, no new protocol primitive, no Semantic Kernel or Core
+change.
+
 ### Closing confirmations
 
 No React, CSS, SDK, protocol, `SettlementScope`, or provider-routing

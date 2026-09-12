@@ -8,7 +8,9 @@ import type { AssetType, TradeSide, PaymentMethod, TradeStatus, EscrowStatus, Of
 import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { badgeVariants } from './badge'
 import { cn } from '../../lib/utils'
-import { Zap } from 'lucide-react'
+import {
+  Zap, Clock, CheckCircle2, AlertTriangle, XCircle, Circle, Lock, RotateCcw, PauseCircle, type LucideIcon,
+} from 'lucide-react'
 
 // Routes through badgeVariants' own base shape (shared with the generic
 // shadcn Badge) rather than a hardcoded string — but each call site below
@@ -16,9 +18,16 @@ import { Zap } from 'lucide-react'
 // blue=pagamento, etc.), since these are real domain-semantic colors
 // with no equivalent in Badge's own fixed default/secondary/destructive/
 // outline palette.
-function Pill({ children, className = '', title }: { children: React.ReactNode; className?: string; title?: string }) {
+// UI-POLISH-2 §4.3 — `icon` is optional and additive, never a
+// replacement for the text label (icon-only status would fail the
+// "icons reinforce meaning, they don't manufacture hierarchy" rule and
+// "important actions prefer icon+label"). Text alone already satisfies
+// "color is never the only cue"; the icon is a real scanning aid for
+// dense trade/escrow lists, not a requirement this component lacked.
+function Pill({ children, className = '', title, icon: Icon }: { children: React.ReactNode; className?: string; title?: string; icon?: LucideIcon }) {
   return (
-    <span title={title} className={cn(badgeVariants({ variant: 'outline' }), 'whitespace-nowrap rounded-full px-2.5 py-1', className)}>
+    <span title={title} className={cn(badgeVariants({ variant: 'outline' }), 'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1', className)}>
+      {Icon && <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />}
       {children}
     </span>
   )
@@ -50,8 +59,11 @@ const TRADE_STATUS_COLOR: Record<TradeStatus, string> = {
   DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-500',
   CANCELLED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
 }
+const TRADE_STATUS_ICON: Record<TradeStatus, LucideIcon> = {
+  PENDING: Clock, ACTIVE: Circle, COMPLETED: CheckCircle2, DISPUTED: AlertTriangle, CANCELLED: XCircle,
+}
 export function TradeStatusBadge({ status }: { status: TradeStatus }) {
-  return <Pill className={TRADE_STATUS_COLOR[status]}>{TRADE_STATUS_LABEL[status]}</Pill>
+  return <Pill className={TRADE_STATUS_COLOR[status]} icon={TRADE_STATUS_ICON[status]}>{TRADE_STATUS_LABEL[status]}</Pill>
 }
 
 // Missão 11 Fase 7.3 (cumulative audit) — EXPIRED added: a real
@@ -74,16 +86,23 @@ const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
   REFUNDED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
   EXPIRED: 'border-orange-500/25 bg-orange-500/10 text-orange-500',
 }
+const ESCROW_STATUS_ICON: Record<EscrowStatus, LucideIcon> = {
+  CREATED: Circle, FUNDS_LOCKED: Lock, PAYMENT_PENDING: Clock, COMPLETED: CheckCircle2,
+  DISPUTED: AlertTriangle, REFUNDED: RotateCcw, EXPIRED: XCircle,
+}
 export function EscrowStatusBadge({ status }: { status: EscrowStatus }) {
-  return <Pill className={ESCROW_STATUS_COLOR[status]}>{ESCROW_STATUS_LABEL[status]}</Pill>
+  return <Pill className={ESCROW_STATUS_COLOR[status]} icon={ESCROW_STATUS_ICON[status]}>{ESCROW_STATUS_LABEL[status]}</Pill>
 }
 
 export const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
   ACTIVE: 'Ativa', PAUSED: 'Pausada', COMPLETED: 'Concluída', CANCELLED: 'Cancelada',
 }
+const OFFER_STATUS_ICON: Record<OfferStatus, LucideIcon> = {
+  ACTIVE: Circle, PAUSED: PauseCircle, COMPLETED: CheckCircle2, CANCELLED: XCircle,
+}
 export function OfferStatusBadge({ status }: { status: OfferStatus }) {
   const color = status === 'ACTIVE' ? 'border-green-500/25 bg-green-500/10 text-green-500' : 'border-brand-border bg-brand-elevated text-brand-text-muted'
-  return <Pill className={color}>{OFFER_STATUS_LABEL[status]}</Pill>
+  return <Pill className={color} icon={OFFER_STATUS_ICON[status]}>{OFFER_STATUS_LABEL[status]}</Pill>
 }
 
 // Noones-inspired tenure/volume badge (lib/reputation.ts's own comment

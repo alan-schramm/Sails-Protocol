@@ -2503,4 +2503,51 @@ obligation" is defined anywhere in this repository.
     recommended, not built); Public/Private Markets/Servers naming
     (explicitly OPEN).
 
+27. **UI polish: filter semantics, agent authority correction,
+    iconography, cross-platform information integrity (2026-09-12).**
+    `UI-POLISH-2` (continuing PR #134) fixed real defects rather than
+    only institutionalizing: `FilterPanel.tsx` converted from a false
+    live/staged hybrid (controls mutated real Market filters live while
+    an "Aplicar filtros" button implied a held-back commit) to a real
+    staged-draft model — verified live (draft edited, cancelled,
+    reopened confirming discard; draft edited again, applied,
+    toolbar badge confirming commit) on both desktop and mobile.
+    Mobile `FilterPanel` header changed from a bare `X` to Back
+    semantics (full-width mobile Sheet reads as a secondary surface,
+    not an overlay); desktop keeps `X` (genuine drawer). Fixed a real
+    information-integrity bug: `AgentIntentionPanel.tsx`'s "Sails Agent
+    — Market Negotiation" header truncated the product identity itself
+    on narrow mobile widths — corrected to a two-line layout ("Sails
+    Agent" never truncated, the composition qualifier moved into the
+    already-secondary subtitle line). Added icons to `StatusBadges.tsx`'s
+    Trade/Escrow/Offer status pills (was color+text only) and to
+    `FilterPanel.tsx`'s active-filter summary. **Corrected an
+    institutional overclaim**, not a new rule: `docs/SAILS_DESIGN_LANGUAGE.md`
+    §8's "Sails Agent... can never be granted authority" absolutized
+    current human-approval behavior into a standing prohibition on all
+    future delegated-agent-authority designs — corrected to "current
+    behavior, not a permanent prohibition," conditioned on any future
+    authority being explicit/scoped/limited/observable/revocable/
+    auditable/governed. Mirrored in `docs/PROJECT_CONTEXT.md` §2E item
+    18. Full text: `docs/SAILS_DESIGN_LANGUAGE.md` §19-§24.
+
+    **Explicitly not closed by this item:** 20.2, 20.5, 20.6, 22-26 (all
+    unaffected); no capability-maturity classification changes. No
+    delegated agent authority implemented (correction only, per its own
+    explicit text). No icon library change (Lucide re-evaluated, kept).
+    No typography change (audited, confirmed already correct). No
+    Private Markets/server runtime, no protocol primitive, no ADR (no
+    new architectural constraint — §2E item 18 corrects an overclaim in
+    existing text, it does not introduce architecture).
+
+    **Concrete remaining gaps, named not closed:** `StatusBadges.tsx`'s
+    new status icons were type-checked and built but not visually
+    verified against real trade/escrow data (no seeded trade existed in
+    this session's dev environment to render one) — verified by code
+    review and the existing exhaustive `Record<Status, ...>` type-safety
+    only, disclosed rather than silently assumed; rail/network icon
+    strategy registered, not built (no immediate need found); Market
+    Context Navigation, side-aware price sort, and Public/Private
+    Markets/Servers naming remain open exactly as item 26 left them.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**
