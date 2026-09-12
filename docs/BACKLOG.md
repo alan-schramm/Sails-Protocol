@@ -2309,11 +2309,23 @@ obligation" is defined anywhere in this repository.
     resulting implementation-facing backlog delta; none of it is closed
     by the freeze itself:
 
-    - **FundingRequest UX (real gap, confirmed via source tracing,
-      `REFERENCE-UI-REALITY-1`).** `packages/sails-ui/src/pages/Trade.tsx`
-      never reads or renders `escrow.multisigAddr` — a user has no way
-      to learn where to send funds for a MULTISIG/LIGHTNING_HODL/
-      SAFE_GUARD_EVM escrow today. Layer A component, per §2D.
+    - **FundingRequest UX — proven concrete gap (source-traced,
+      `REFERENCE-UI-REALITY-1`), corrected scope (2026-09-12,
+      `PRODUCT-DIRECTION-FREEZE-1-CORRECTION`).** What is actually
+      proven: **BTC MULTISIG's funding destination exists backend-side
+      as `escrow.multisigAddr` but is not rendered anywhere by the
+      current UI** (`packages/sails-ui/src/pages/Trade.tsx` never reads
+      that field) — a user has no way to learn where to send BTC to fund
+      a MULTISIG escrow today. **Not proven, and no longer claimed:**
+      that this one address field represents every non-custodial rail.
+      **General product obligation, separate from the proven gap above:**
+      every settlement implementation requiring external funding
+      (LIGHTNING_HODL, SAFE_GUARD_EVM, and any future one) must expose
+      its own rail-appropriate funding instructions and observable
+      funding state — each must be validated independently against its
+      own real fields/flow before being claimed fixed, never assumed
+      solved by the BTC/MULTISIG fix alone. Layer A component(s), per
+      §2D.
     - **SigningRequest UX (real gap, same source).** Participant-key
       submission and signature collection (`useEscrowKey.ts`) both
       happen silently, with zero user-facing feedback — violates §2D
@@ -2326,10 +2338,6 @@ obligation" is defined anywhere in this repository.
       surface exists yet for §2D item 4's boundary (enabled assets/
       rails/payment methods/branding/etc.) — currently all such things
       are single-deployment hardcoded.
-    - **Sails Web / Satsails Wallet naming reconciliation (Product
-      Decision required, not made by this item).** `docs/PROJECT_CONTEXT.md`
-      §3 already names "Satsails Wallet"; §2D's "Sails Web" is not
-      asserted to be the same product — flagged, not resolved.
     - **Dogfooding evidence obligation.** §2D item 3's non-privilege
       principle is not yet accompanied by any concrete evidence that
       Satsails Wallet/Sails Web actually exercise only public SDK/API

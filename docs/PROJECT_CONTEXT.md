@@ -310,11 +310,26 @@ layer rather than treating a non-existent document as prior art.
 ### 1. Three product layers — FROZEN
 
 - **Layer A — Reusable Reference Components.** Reusable UX primitives
-  and canonical interaction patterns consuming public SDK/API contracts
-  only — asset/rail selection, offer cards, trade state, funding
-  request, signing request, settlement state, dispute state,
-  counterparty identity/reputation, status timeline, evidence/risk
-  display. **Must not embed Sails commercial product assumptions.**
+  and canonical interaction patterns — asset/rail selection, offer
+  cards, trade state, funding request, signing request, settlement
+  state, dispute state, counterparty identity/reputation, status
+  timeline, evidence/risk display. **Corrected (2026-09-12,
+  `PRODUCT-DIRECTION-FREEZE-1-CORRECTION`):** the prior wording ("consuming
+  public SDK/API contracts only") over-coupled this layer to a specific
+  integration mechanism. Frozen instead: **Reference Components
+  represent public product semantics through typed product-facing
+  state/interfaces and must not depend on Sails commercial
+  assumptions. Application adapters/hooks may connect those components
+  to public SDK/API contracts without introducing semantic
+  privilege** — semantic compatibility is required, direct SDK coupling
+  is not ("stable semantics, replaceable edges" — the same discipline
+  item 7 below extends from `PRINCIPLES.md`'s Interface Agnostic
+  principle, applied here at the component level). A component must
+  remain reusable across Sails Web, white-label
+  deployments, potentially other web/mobile interfaces, and tests/
+  Storybook/reference demonstrations without every component owning its
+  own transport/network integration. **Must not embed Sails commercial
+  product assumptions.**
 - **Layer B — White-label P2P Base.** A usable, brandable/configurable
   P2P market application (marketplace, offer creation, trade, chat,
   settlement, dispute, identity/reputation, configurable capabilities)
@@ -331,16 +346,45 @@ layer rather than treating a non-existent document as prior art.
 No conflict found against frozen architecture, `PRINCIPLES.md`, or
 `BACKLOG.md` — formalized as stated.
 
-**Naming note, not silently resolved:** `docs/PROJECT_CONTEXT.md` §3
-already names **Satsails Wallet** as "the first reference
-implementation, first production distribution surface, and first
-multi-rail showcase." This freeze's "Sails Web" (Layer C) and the
-existing "Satsails Wallet" concept are not asserted here to be the same
-product, the same codebase, or a rename of one into the other — that
-determination is a **Product Decision this section does not make**.
-Both concepts co-exist in this document until the CTO explicitly
-reconciles them (e.g., "Sails Web" = Satsails Wallet's web surface
-specifically, vs. a distinct future product). Cited, not collapsed.
+**Satsails Wallet / Sails Web relationship — RESOLVED (correction,
+2026-09-12, `PRODUCT-DIRECTION-FREEZE-1-CORRECTION`).** The prior
+version of this note left this relationship as an open Product
+Decision — corrected here, not silently: **Satsails Wallet and Sails
+Web are distinct first-party products.**
+
+- **Satsails Wallet** = the first-party wallet/mobile product and
+  reference implementation/distribution surface — `docs/PROJECT_CONTEXT.md`
+  §3's existing "first reference implementation, first production
+  distribution surface, first multi-rail showcase" framing, unchanged.
+- **Sails Web** = a distinct first-party web product and broader
+  market/coordination composition surface (Layer C).
+- Both consume Sails Protocol/modules through the same semantic/public
+  integration boundaries available in principle to third parties.
+  Neither defines protocol truth. Neither gains semantic privilege.
+  They may share SDKs, components, design language, and capabilities
+  without becoming the same product.
+
+**Institutional topology** (a product-capability relationship, not
+forced runtime inheritance — White-label is not necessarily a runtime
+parent of Wallet/Web if implementation structure differs):
+
+```
+Sails Protocol
+      |
+      v
+Modules / SDK / Reference Components
+      |
+      v
+White-label P2P Base
+      |
+      v
+First-party and third-party products
+
+Satsails Wallet   Sails Web   Partner Apps   Other Apps
+```
+
+`docs/BACKLOG.md` item 22's prior "naming reconciliation required"
+sub-item is removed by this correction — resolved, not deferred.
 
 ### 2. Core product principle — FROZEN
 
