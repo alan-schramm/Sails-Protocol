@@ -2300,3 +2300,52 @@ count, since no canonical counting model for "one institutional
 obligation" is defined anywhere in this repository.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+22. **Reference Components / White-label / Sails Web product layering —
+    institutionalized, not implemented (2026-09-12).** `PRODUCT-DIRECTION-FREEZE-1`
+    froze the three-layer product model (Reference Components /
+    White-label P2P Base / Sails Web) and the principles governing it —
+    full text: `docs/PROJECT_CONTEXT.md` §2D. This item records the
+    resulting implementation-facing backlog delta; none of it is closed
+    by the freeze itself:
+
+    - **FundingRequest UX (real gap, confirmed via source tracing,
+      `REFERENCE-UI-REALITY-1`).** `packages/sails-ui/src/pages/Trade.tsx`
+      never reads or renders `escrow.multisigAddr` — a user has no way
+      to learn where to send funds for a MULTISIG/LIGHTNING_HODL/
+      SAFE_GUARD_EVM escrow today. Layer A component, per §2D.
+    - **SigningRequest UX (real gap, same source).** Participant-key
+      submission and signature collection (`useEscrowKey.ts`) both
+      happen silently, with zero user-facing feedback — violates §2D
+      item 6's funding/signing principle (material state transitions
+      must not be silently ambiguous). Layer A component.
+    - **Rail-aware UX beyond the single BTC label fix.** PR #130 fixed
+      `ASSET_LABELS.BTC` only; the general asset+rail selector remains
+      explicitly deferred (ADR-002 §12, `docs/BACKLOG.md` 20.2).
+    - **White-label configuration model.** No tenant-configuration
+      surface exists yet for §2D item 4's boundary (enabled assets/
+      rails/payment methods/branding/etc.) — currently all such things
+      are single-deployment hardcoded.
+    - **Sails Web / Satsails Wallet naming reconciliation (Product
+      Decision required, not made by this item).** `docs/PROJECT_CONTEXT.md`
+      §3 already names "Satsails Wallet"; §2D's "Sails Web" is not
+      asserted to be the same product — flagged, not resolved.
+    - **Dogfooding evidence obligation.** §2D item 3's non-privilege
+      principle is not yet accompanied by any concrete evidence that
+      Satsails Wallet/Sails Web actually exercise only public SDK/API
+      surfaces — no audit for this has been performed.
+    - **Private Markets composition proof.** §2D item 12 classifies
+      Private Markets as a composition candidate over existing
+      OpenP2P discovery/`CapabilityGrant`/fee-policy primitives — not
+      yet demonstrated concretely; a real attempt could still surface a
+      genuine gap.
+
+    Explicitly **not** closed by this item: 20.2 (Day-0 capability
+    integration coverage), 20.5 (QVAC Asset contract drift), 20.6
+    (ARCHITECTURE FROZEN / IMPLEMENTATION IN PROGRESS) — all remain
+    exactly as previously frozen, unaffected by this product-layering
+    institutionalization. No Semantic Kernel or Core change; no ADR
+    required (no new architectural constraint was introduced — see
+    §2D's own closing confirmations).
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**

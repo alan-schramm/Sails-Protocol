@@ -285,6 +285,250 @@ enables and the explicit non-authorization of any such change here.
 
 ---
 
+## 2D. Product Decision — Reference Components / White-label / Sails Web Product Layering (2026-09-12)
+
+**Status: institutionalized, product-layering only. No UI, SDK, or
+protocol change is authorized or made by this section.** Origin: CTO
+mission chain (Product/UX discovery → `UX-PRODUCT-ARCH-1` →
+`PRODUCT-DIRECTION-FREEZE-1`). Full evidence trail (page-by-page reality
+audit, keep/refactor/redesign map, real-vs-mock dependency map):
+this mission's own delivered reports — not separately filed as a
+document, per the "avoid creating unnecessary docs" instruction this
+freeze was given; this section is the institutional home.
+
+**Documents consulted, none found in conflict:** `docs/BACKLOG.md`
+(item 20 family, this section's own new item 22), `docs/adr/ADR-001`/
+`ADR-002`, `docs/PRINCIPLES.md` (Principle 9, Interface Agnostic — see
+§7 below), `docs/PROJECT_CONTEXT.md` (this document, §1-§2C, §3's
+Satsails Wallet section), `docs/SEMANTIC_KERNEL.md` (K1-K3 — confirmed
+zero impact, see closing note). No `MULTI_INTERFACE_POSITIONING`
+document exists in this repository under that or any similar name
+(checked directly, not assumed) — the closest existing institutional
+content is Principle 9 itself; §7 below extends it to the product/UI
+layer rather than treating a non-existent document as prior art.
+
+### 1. Three product layers — FROZEN
+
+- **Layer A — Reusable Reference Components.** Reusable UX primitives
+  and canonical interaction patterns consuming public SDK/API contracts
+  only — asset/rail selection, offer cards, trade state, funding
+  request, signing request, settlement state, dispute state,
+  counterparty identity/reputation, status timeline, evidence/risk
+  display. **Must not embed Sails commercial product assumptions.**
+- **Layer B — White-label P2P Base.** A usable, brandable/configurable
+  P2P market application (marketplace, offer creation, trade, chat,
+  settlement, dispute, identity/reputation, configurable capabilities)
+  that preserves Sails economic semantics. **Must not redefine**
+  canonical Product Scope, Asset/SettlementRail meaning, custody
+  semantics, finality, protocol authority rules, or evidence truth.
+- **Layer C — Sails Web.** The official Sails commercial product,
+  progressively composing OpenP2P/OpenLiquidity/OpenAgents/identity-
+  reputation/OTC/private markets/richer coordination surfaces. **May
+  differentiate aggressively at product level. Must not gain privileged
+  protocol semantics or private integration paths unavailable in
+  principle to third parties.**
+
+No conflict found against frozen architecture, `PRINCIPLES.md`, or
+`BACKLOG.md` — formalized as stated.
+
+**Naming note, not silently resolved:** `docs/PROJECT_CONTEXT.md` §3
+already names **Satsails Wallet** as "the first reference
+implementation, first production distribution surface, and first
+multi-rail showcase." This freeze's "Sails Web" (Layer C) and the
+existing "Satsails Wallet" concept are not asserted here to be the same
+product, the same codebase, or a rename of one into the other — that
+determination is a **Product Decision this section does not make**.
+Both concepts co-exist in this document until the CTO explicitly
+reconciles them (e.g., "Sails Web" = Satsails Wallet's web surface
+specifically, vs. a distinct future product). Cited, not collapsed.
+
+### 2. Core product principle — FROZEN
+
+**Reference Components ≠ White-label Base ≠ Sails Web Product** — but
+all three share the same economic semantics and public integration
+boundaries. **Sails Web demonstrates and composes the protocol; it does
+not define protocol truth.**
+
+### 3. Dogfooding / non-privilege principle — FROZEN (semantic form only)
+
+Satsails Wallet and Sails Web should operate as real participants using
+the same public protocol/SDK surfaces available to third-party
+applications wherever technically possible. Where an operational
+exception is genuinely necessary (e.g. internal tooling, migrations,
+operational monitoring), it must be an **explicit, disclosed
+operational exception, not a hidden semantic privilege** — the
+protocol grants no first-party actor authority a third party could not
+in principle also hold. **Not frozen:** "zero internal API ever" as an
+absolute implementation slogan — that would be a false, unenforceable
+claim against real operational needs; the semantic non-privilege rule
+is what is frozen, not a literal API-surface ban.
+
+### 4. White-label configuration boundary — FROZEN
+
+Configurable by a white-label tenant: branding, enabled assets, enabled
+rails, supported payment methods, market visibility, enabled product
+capabilities/modules, fee presentation (where the protocol already
+permits fee configuration), dispute/arbitration policy (where the
+protocol already permits it — e.g. `ARBITRATION_MODE`,
+`TRUSTED_ARBITRATORS`), enabled settlement integrations, external
+signer choices, operational provider availability. **Frozen rule:
+configuration selects from valid, already-registered capabilities; it
+never creates new economic truth.** A tenant configuration **cannot**
+register a new `SettlementScope`, redefine an `Asset`/`SettlementRail`,
+or alter custody/finality semantics — those remain protocol-level,
+governed exclusively by the canonical registries (ADR-002) and any
+future Provider Identity/routing decision, never by tenant config.
+
+### 5. Agents / Liquidity correction — FROZEN
+
+**Rejected as institutional truth:** "OpenAgents = Sails Web only" and
+"OpenLiquidity = Sails Web only." **Correct principle, frozen instead:**
+capabilities/modules (OpenAgents, OpenLiquidity, and any other) may be
+exposed by Sails Web, a white-label deployment, a third-party
+application, an agent, a CLI, an MCP surface, or any other authorized
+interface. Sails Web may be the richest first-party composition; it is
+not the exclusive owner of any protocol capability.
+
+### 6. Funding / signing product principle — FROZEN (principle, not a mechanical rule)
+
+**Frozen:** economically material actions and states must be observable
+and understandable to the user. **Not frozen:** "every signature
+requires an explicit click" — the authorization model (not UX
+preference) determines whether signing may be automatic, delegated,
+batched, or explicit. Required test, applied per action: (a) authority
+for the action must already exist (never granted implicitly by the UI
+itself); (b) a material state transition must never be silently
+ambiguous; (c) the user/operator must receive appropriate feedback;
+(d) UX must never hide an irreversible decision in the name of
+simplicity. Preserves **simple, not simplified** (§7 below). This
+directly corrects the specific defect this mission chain found (real
+participant-key submission and signature collection happening with zero
+user-facing feedback in `packages/sails-ui/src/pages/Trade.tsx` today) —
+naming the defect, not yet fixing it; the fix is implementation, out of
+this institutionalization mission's scope.
+
+### 7. Interface depth principle — FROZEN, extends existing Principle 9
+
+`docs/PRINCIPLES.md` Principle 9 ("Interface Agnostic") already freezes,
+at the Core/primitive level: *"The Core models intentions, states, and
+events — never user interfaces."* This section extends the same
+discipline explicitly to the product/UI layer, without editing
+`PRINCIPLES.md` itself (the principle already says what is needed;
+this is its stated application, not a new principle): **interface
+sophistication may vary (UI, mobile, web, SDK, API, CLI, MCP/WebMCP,
+agents) without changing protocol meaning. Interfaces may multiply;
+semantics must not. Access does not imply authority** — a richer
+interface (e.g. Sails Web) reaching a capability does not grant it more
+protocol authority than a thinner one (e.g. a CLI) reaching the same
+capability through the same public contract.
+
+### 8. Reference UI role — FROZEN
+
+"Reference UI" institutionally means: demonstrative, reusable,
+conformance-oriented, integration-supporting. It does **not**
+automatically mean: official commercial product, a complete white-label
+product, canonical visual design, or protocol authority. (Mirrors
+`docs/PROJECT_CONTEXT.md` §3's existing "Satsails Wallet is a reference
+implementation, not protocol truth" — restated here at the UI-layer
+specifically, not a new claim.)
+
+### 9. Sails Web role — FROZEN
+
+Sails Web **is**: the official product, a dogfooding surface, an
+integration-proof surface, a product-innovation surface, a commercial-
+differentiation surface. Sails Web **is not**: the canonical protocol
+UI, a privileged settlement operator by definition, a mandatory
+frontend, a required market operator, or a source of protocol
+semantics.
+
+### 10. Visual / navigation status — EXPLICITLY OPEN, not frozen
+
+The following remain **open**, pending a dedicated Product/UX reference
+review — nothing below is frozen by this section, and no current state
+is to be read as final direction: final visual language, final
+navigation, final dashboard structure, marketplace-first vs.
+dashboard-first entry, sidebar vs. top-nav, page density, chart/table
+patterns, application shell, module navigation.
+
+### 11. Current UI library status — classified, not frozen as direction
+
+The existing `packages/sails-ui` component work (the shadcn-based
+primitive set — `button`/`card`/`badge`/`input`/`dialog`/`sheet`/
+`select`/`popover`/`switch`/`textarea`/`tooltip` — plus the trade/
+marketplace/chat component folders) is classified as an
+**implementation asset and reusable candidate**, not Product Direction.
+Neither "keep all current components" nor "replace all current
+components" is institutionalized — that determination belongs to the
+still-open visual/navigation review (§10).
+
+### 12. Private Markets — classified
+
+**Composition candidate**, not a confirmed real gap and not
+implemented here. A private market decomposes into: restricted
+discovery (who may see an offer — an `Offer`-visibility/filtering
+concern OpenLiquidity's discovery surface already models structurally),
+restricted membership (who may create/accept — `RFC-005`'s
+`CapabilityGrant` already models scoped permission), and policy (fee/
+dispute rules — `FeePolicyVersion`/`ARBITRATION_MODE` already exist as
+per-deployment configuration surfaces). No evidence was found this
+session that a new protocol module is required to represent a private
+market; the composition above should be the first thing evaluated by
+any future Private Markets mission before proposing a new primitive. If
+that composition is found insufficient, a Product Decision (defining
+what a private market must guarantee) would be needed before any
+Architecture Decision — neither is made here.
+
+### 13. Economic Authority lens — classified
+
+**B — useful architectural lens, not a new primitive.** Tested against
+existing concepts: Economic Disposition Authority, Destination
+Authority, and Execution Authority (`docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`,
+already a three-way split, F1-closed) already cover *who may direct
+disposition of funds*, *who receives them*, and *whose key executes
+settlement*, respectively; `CapabilityGrant` (RFC-005) covers *what an
+identity/agent is permitted to do*; Intent authority (RFC-012) covers
+*who may express a coordination-triggering Intent*; settlement
+authorization and evidence/finality are covered by the escrow lifecycle
+and M8/M9 conformance work already frozen elsewhere. The "economic
+authority" framing usefully **names the family these already-frozen
+concepts belong to** for teaching/organizing purposes — it does not
+surface anything unrepresented, and **no new primitive is
+authorized or found necessary** by this classification.
+
+### 14. Operator-disappearance test — adopted as a standing review question
+
+**Adopted, not claimed to be already satisfied everywhere:** *"If
+Sails, a frontend, or one operator disappears, which economic
+properties remain true?"* — a standing adversarial review question for
+future architecture/product work, distinguishing protocol truth (e.g.
+a broadcast Bitcoin settlement's finality — survives), application
+availability (a specific frontend disappearing — does not itself
+destroy on-chain state), discovery availability (depends on which
+discovery surface — the real, current default is a centralized HTTP
+API, not yet Pears/HyperDHT-backed for offer discovery itself), signer/
+provider availability (a real, already-disclosed limitation exists
+today: `multisig.provider.ts`'s single-arbiter-per-escrow design means
+the operator holding `MULTISIG_SEED` is a genuine single point of
+failure for that rail's disputed path — named here, not newly
+discovered, and not resolved by this section), and recoverability
+(covered by the existing M9 reconciliation mechanisms). **No claim is
+made that every workflow survives every operator's disappearance** —
+the question is adopted as a lens, its answers vary per property, and
+applying it fully to every subsystem is future work, not completed
+here.
+
+### Closing confirmations
+
+No Semantic Kernel change (`docs/SEMANTIC_KERNEL.md` K1-K3 untouched —
+this section is product/UX/commercial-layering, not a Core primitive).
+No Core impact. No `AssetType`/`EscrowType`/`prisma/schema.prisma`/SDK
+contract/QVAC schema change. No `SettlementScope`/Provider-registry
+architecture change — ADR-002 remains exactly as frozen. `BACKLOG.md`
+20.2/20.5/20.6 are **not** closed by this section (see `docs/BACKLOG.md`
+item 22 for the recorded backlog delta).
+
+---
+
 ## 3. Relationship to the Tether Ecosystem
 
 This is critical context for why this project exists and who it's for.
