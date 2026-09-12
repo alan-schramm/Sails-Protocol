@@ -2300,3 +2300,64 @@ count, since no canonical counting model for "one institutional
 obligation" is defined anywhere in this repository.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+22. **Reference Components / White-label / Sails Market product layering —
+    institutionalized, not implemented (2026-09-12).** `PRODUCT-DIRECTION-FREEZE-1`
+    froze the three-layer product model (Reference Components /
+    White-label P2P Base / Sails Market) and the principles governing
+    it — full text: `docs/PROJECT_CONTEXT.md` §2D. **Naming note
+    (2026-09-12, `PRODUCT-DIRECTION-FREEZE-1-NAMING`):** the former
+    working label "Sails Web" is superseded by "Sails Market" for the
+    commercial product; "Sails Reference Web" is a separate,
+    non-commercial architectural role (§2D) introduced the same day.
+    This item records the resulting implementation-facing backlog
+    delta; none of it is closed by the freeze itself:
+
+    - **FundingRequest UX — proven concrete gap (source-traced,
+      `REFERENCE-UI-REALITY-1`), corrected scope (2026-09-12,
+      `PRODUCT-DIRECTION-FREEZE-1-CORRECTION`).** What is actually
+      proven: **BTC MULTISIG's funding destination exists backend-side
+      as `escrow.multisigAddr` but is not rendered anywhere by the
+      current UI** (`packages/sails-ui/src/pages/Trade.tsx` never reads
+      that field) — a user has no way to learn where to send BTC to fund
+      a MULTISIG escrow today. **Not proven, and no longer claimed:**
+      that this one address field represents every non-custodial rail.
+      **General product obligation, separate from the proven gap above:**
+      every settlement implementation requiring external funding
+      (LIGHTNING_HODL, SAFE_GUARD_EVM, and any future one) must expose
+      its own rail-appropriate funding instructions and observable
+      funding state — each must be validated independently against its
+      own real fields/flow before being claimed fixed, never assumed
+      solved by the BTC/MULTISIG fix alone. Layer A component(s), per
+      §2D.
+    - **SigningRequest UX (real gap, same source).** Participant-key
+      submission and signature collection (`useEscrowKey.ts`) both
+      happen silently, with zero user-facing feedback — violates §2D
+      item 6's funding/signing principle (material state transitions
+      must not be silently ambiguous). Layer A component.
+    - **Rail-aware UX beyond the single BTC label fix.** PR #130 fixed
+      `ASSET_LABELS.BTC` only; the general asset+rail selector remains
+      explicitly deferred (ADR-002 §12, `docs/BACKLOG.md` 20.2).
+    - **White-label configuration model.** No tenant-configuration
+      surface exists yet for §2D item 4's boundary (enabled assets/
+      rails/payment methods/branding/etc.) — currently all such things
+      are single-deployment hardcoded.
+    - **Dogfooding evidence obligation.** §2D item 3's non-privilege
+      principle is not yet accompanied by any concrete evidence that
+      Satsails Wallet/Sails Market actually exercise only public SDK/API
+      surfaces — no audit for this has been performed.
+    - **Private Markets composition proof.** §2D item 12 classifies
+      Private Markets as a composition candidate over existing
+      OpenP2P discovery/`CapabilityGrant`/fee-policy primitives — not
+      yet demonstrated concretely; a real attempt could still surface a
+      genuine gap.
+
+    Explicitly **not** closed by this item: 20.2 (Day-0 capability
+    integration coverage), 20.5 (QVAC Asset contract drift), 20.6
+    (ARCHITECTURE FROZEN / IMPLEMENTATION IN PROGRESS) — all remain
+    exactly as previously frozen, unaffected by this product-layering
+    institutionalization. No Semantic Kernel or Core change; no ADR
+    required (no new architectural constraint was introduced — see
+    §2D's own closing confirmations).
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
