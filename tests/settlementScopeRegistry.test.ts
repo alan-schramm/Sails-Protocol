@@ -1,18 +1,23 @@
 /**
- * ARCH-IMPL-1 — first runtime implementation of ADR-002's SettlementScope
- * registry (`src/core/settlement-scope-registry.ts`). Proves the 25
- * canonical Day-0 rows, the sparse/no-cross-product property, the
- * providerless-is-valid-scope property, and that the registry cannot be
- * mutated by a consumer.
+ * ARCH-IMPL-1 / ARCH-IMPL-1-R1 — first runtime implementation of ADR-002's
+ * SettlementScope registry (`src/common/settlement-scope-registry.ts`,
+ * relocated out of `src/core/` and split from the legacy translator
+ * `src/common/settlement-scope-legacy.ts` in the R1 boundary correction).
+ * Proves the 25 canonical Day-0 rows, the sparse/no-cross-product
+ * property, the providerless-is-valid-scope property, that the registry
+ * cannot be mutated by a consumer, and that the canonical registry has
+ * no dependency on the legacy `AssetType`.
  */
+import * as fs from 'fs'
+import * as path from 'path'
 import type { SettlementScope } from '../src/common/types/settlement-scope'
 import {
   isSettlementScopeRegistered,
   listSettlementScopes,
   listSettlementRailsForAsset,
   listAssetsForSettlementRail,
-  translateLegacyAssetType,
-} from '../src/core/settlement-scope-registry'
+} from '../src/common/settlement-scope-registry'
+import { translateLegacyAssetType } from '../src/common/settlement-scope-legacy'
 
 describe('SettlementScope registry — canonical Day-0 rows', () => {
   it('contains exactly 25 rows', () => {
@@ -167,5 +172,64 @@ describe('SettlementScope — static architecture guard (ADR-002 §2/§4/§6/§7
         expect(Object.prototype.hasOwnProperty.call(row, key)).toBe(false)
       }
     }
+  })
+})
+
+describe('SettlementScope — legacy dependency boundary (ARCH-IMPL-1-R1)', () => {
+  const registrySource = fs.readFileSync(
+    path.join(__dirname, '../src/common/settlement-scope-registry.ts'),
+    'utf8',
+  )
+  const legacySource = fs.readFileSync(
+    path.join(__dirname, '../src/common/settlement-scope-legacy.ts'),
+    'utf8',
+  )
+
+  // Only real `import ...` statements count as a dependency — both
+  // files' header comments legitimately *discuss* AssetType/
+  // settlement-scope-legacy.ts in prose to document the dependency
+  // direction, which must not itself trip this guard. So this strips
+  // block/line comments before inspecting import statements, rather
+  // than grepping the raw file for identifier mentions anywhere.
+  function stripComments(source: string): string {
+    return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  }
+
+  const IMPORT_STATEMENT = /^import\s+(?:type\s+)?(?:\{([^}]*)\}|(\S+))\s+from\s+['"]([^'"]+)['"]/gm
+
+  function imports(source: string): Array<{ names: string[]; specifier: string }> {
+    const code = stripComments(source)
+    return [...code.matchAll(IMPORT_STATEMENT)].map((m) => ({
+      names: (m[1] ?? m[2] ?? '').split(',').map((n) => n.trim()).filter(Boolean),
+      specifier: m[3],
+    }))
+  }
+
+  it('the canonical registry has no import statement naming AssetType, EscrowType, Prisma, or the legacy translator', () => {
+    const registryImports = imports(registrySource)
+    for (const imp of registryImports) {
+      expect(imp.specifier).not.toMatch(/settlement-scope-legacy/)
+      expect(imp.specifier).not.toMatch(/[Pp]risma/)
+      expect(imp.names.join(',')).not.toMatch(/\bAssetType\b/)
+      expect(imp.names.join(',')).not.toMatch(/\bEscrowType\b/)
+    }
+  })
+
+  it('only settlement-scope-legacy.ts imports AssetType', () => {
+    const legacyImports = imports(legacySource)
+    const importsAssetType = legacyImports.some(
+      (imp) => imp.specifier === './types' && imp.names.some((n) => n.includes('AssetType')),
+    )
+    expect(importsAssetType).toBe(true)
+  })
+
+  it('canonical scope queries work with only the registry module required (no legacy import needed)', () => {
+    let registry: typeof import('../src/common/settlement-scope-registry')
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      registry = require('../src/common/settlement-scope-registry')
+    })
+    expect(registry!.listSettlementScopes()).toHaveLength(25)
+    expect(registry!.isSettlementScopeRegistered('BTC', 'BITCOIN_L1')).toBe(true)
   })
 })

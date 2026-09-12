@@ -2222,20 +2222,26 @@ or hidden operational conventions.
     📋 Future/roadmap, not Day-0):
     `docs/PRODUCT_TRUTH_SWEEP_2026-09-10.md`.
 
-    **Status update (2026-09-12, ARCH-IMPL-1).** **IMPLEMENTATION
-    FOUNDATION STARTED** — this item's own status changes from
-    ARCHITECTURE DECISION FROZEN / IMPLEMENTATION OPEN (above) to
-    **ARCHITECTURE FROZEN / IMPLEMENTATION IN PROGRESS**. The first
-    additive runtime piece of ADR-002 has landed: `Asset`/`SettlementRail`
-    types (`src/common/types/settlement-scope.ts`) and the canonical
-    25-row `SettlementScope` registry with a pure query API
-    (`src/core/settlement-scope-registry.ts`), plus a bounded, explicit
-    legacy-translation function for the 5 high-confidence mappings
-    ADR-002 §11 names. `AssetType`, `EscrowType`,
-    `prisma/schema.prisma`, every SDK contract, every QVAC schema, the
-    Reference Wallet, and existing provider behavior remain completely
-    unchanged and unwired to this registry — no ProviderRegistration
-    exists yet (ADR-002 §12 item 1 remains a separate, future mission).
+    **Status update (2026-09-12, ARCH-IMPL-1, boundary-corrected
+    ARCH-IMPL-1-R1).** **IMPLEMENTATION FOUNDATION STARTED** — this
+    item's own status changes from ARCHITECTURE DECISION FROZEN /
+    IMPLEMENTATION OPEN (above) to **ARCHITECTURE FROZEN / IMPLEMENTATION
+    IN PROGRESS**. The first additive runtime piece of ADR-002 has
+    landed: `Asset`/`SettlementRail` types
+    (`src/common/types/settlement-scope.ts`) and the canonical 25-row
+    `SettlementScope` registry with a pure query API
+    (`src/common/settlement-scope-registry.ts` — placed in
+    `src/common/`, not `src/core/`, since this is Product/Domain
+    infrastructure, not a formal Core component), plus a bounded,
+    explicit legacy-translation function for the 5 high-confidence
+    mappings ADR-002 §11 names, kept in its own file
+    (`src/common/settlement-scope-legacy.ts`) so the canonical registry
+    has no dependency on the legacy `AssetType`. `AssetType`,
+    `EscrowType`, `prisma/schema.prisma`, every SDK contract, every
+    QVAC schema, the Reference Wallet, and existing provider behavior
+    remain completely unchanged and unwired to this registry — no
+    ProviderRegistration exists yet (ADR-002 §12 item 1 remains a
+    separate, future mission).
     **20.2 and 20.5 remain explicitly OPEN** — this status update does
     not close either; both close only once a future, separately-
     authorized mission wires them to this registry and evidences the

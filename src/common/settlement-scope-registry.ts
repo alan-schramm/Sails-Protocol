@@ -1,9 +1,29 @@
 /**
  * SettlementScope registry — first runtime implementation of
  * `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
- * (ARCH-IMPL-1, additive, bounded). Freezes the 25 canonical Day-0
+ * (ARCH-IMPL-1, additive, bounded; relocated out of `src/core/` in
+ * ARCH-IMPL-1-R1 — see below). Freezes the 25 canonical Day-0
  * `{asset, rail}` rows from ADR-002 §5 as an explicit, sparse,
  * deterministic, read-only list.
+ *
+ * **Not in `src/core/`.** `src/core/README.md` defines that folder as
+ * the location of formal Core components (`ARCHITECTURE.md` §1B). ADR-002
+ * itself classifies this foundation as Product/Domain representation
+ * infrastructure and explicitly declares no Core/Semantic Kernel change
+ * (ADR-002 §13). Living in `src/common/` instead — the existing home for
+ * shared, non-Core infrastructure (`database`, `events`, `types`, etc.)
+ * — keeps file location from implying a Core/Semantic primitive that was
+ * never decided.
+ *
+ * **Canonical, not legacy-aware.** This file knows only `Asset`,
+ * `SettlementRail`, `SettlementScope`, the 25 canonical rows, and the
+ * query functions below. It deliberately has **no import of the legacy
+ * `AssetType`, `EscrowType`, Prisma, or any legacy provider map** — the
+ * dependency runs the other way: `settlement-scope-legacy.ts` depends on
+ * this file (and on legacy `AssetType`), never the reverse. See that
+ * file for the legacy-translation function, and
+ * `tests/settlementScopeRegistry.test.ts`'s "dependency boundary" suite
+ * for the static proof.
  *
  * This registry answers exactly one question: "is this {asset, rail}
  * pair in current Product Scope?" It does not, and must not, answer
@@ -26,8 +46,7 @@
  * (ADR-002 §12 items 2-3 remain future, separately-authorized missions;
  * `docs/BACKLOG.md` 20.2/20.5 stay OPEN).
  */
-import type { Asset, SettlementRail, SettlementScope } from '../common/types/settlement-scope'
-import type { AssetType } from '../common/types'
+import type { Asset, SettlementRail, SettlementScope } from './types/settlement-scope'
 
 function scope(asset: Asset, rail: SettlementRail): SettlementScope {
   return Object.freeze({ asset, rail })
@@ -81,30 +100,4 @@ export function listSettlementRailsForAsset(asset: Asset): readonly SettlementRa
 /** Assets registered for a given rail (empty array if the rail has no registered rows). */
 export function listAssetsForSettlementRail(rail: SettlementRail): readonly Asset[] {
   return CANONICAL_DAY0_SCOPES.filter((s) => s.rail === rail).map((s) => s.asset)
-}
-
-// --- Legacy compatibility: safe subset only (ADR-002 §11) ---
-//
-// Only the 5 high-confidence mappings ADR-002 §11 explicitly names.
-// Deliberately a plain lookup map, not a heuristic function: anything
-// not listed here (including the ambiguous LN_BTC/STACKS/RSK_BTC, and
-// every other legacy AssetType value not named by ADR-002 §11) returns
-// null by construction — there is no code path that could "guess" a
-// mapping for them.
-const LEGACY_ASSET_TYPE_TO_SCOPE: Partial<Record<AssetType, SettlementScope>> = {
-  BTC: scope('BTC', 'BITCOIN_L1'),
-  USDT_ERC20: scope('USDT', 'ETHEREUM'),
-  USDT_TRC20: scope('USDT', 'TRON'),
-  USDT_LIQUID: scope('USDT', 'LIQUID'),
-  LIQUID_BTC: scope('BTC', 'LIQUID'),
-}
-
-/**
- * Translates a legacy `AssetType` to its `SettlementScope`, for the 5
- * high-confidence mappings ADR-002 §11 names. Returns `null` for every
- * other legacy value, including the ambiguous `LN_BTC`/`STACKS`/`RSK_BTC`
- * — never a guessed or default mapping (ADR-002 §11).
- */
-export function translateLegacyAssetType(legacy: AssetType): SettlementScope | null {
-  return LEGACY_ASSET_TYPE_TO_SCOPE[legacy] ?? null
 }
