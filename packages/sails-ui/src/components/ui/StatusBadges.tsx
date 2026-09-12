@@ -1,8 +1,12 @@
 /**
  * Small badge/pill primitives. Semantic colors (green/red/yellow/blue)
- * are universal conventions, not brand decisions — orange is reserved
- * for the brand accent (primary actions, active states), never reused
- * here for a status meaning.
+ * are universal conventions, not brand decisions — the brand accent
+ * (`--color-orange-accent`, primary actions/active nav) is a separate
+ * role from `EXPIRED` below's plain `orange-500`, a narrow semantic use
+ * for an expiry-shaped meaning (docs/SAILS_DESIGN_LANGUAGE.md §1/§2,
+ * corrected `UI-GATE-CLOSE-1-R1` — an earlier version of this comment
+ * claimed orange was never reused for a status meaning here, which this
+ * file's own EXPIRED case already contradicted).
  */
 import type { AssetType, TradeSide, PaymentMethod, TradeStatus, EscrowStatus, OfferStatus } from '../../types'
 import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'

@@ -65,10 +65,30 @@ from four families: **black / charcoal / dark gray** (surfaces),
 `#f97316` dark-as-accent — both independently WCAG-AA-verified against
 their own surfaces). Orange is the **single primary brand/action
 accent** — it marks "this is the one thing to notice or act on," not a
-universal signifier. It is never repurposed as a semantic-state color
-(§2) and never used decoratively as a filler accent across a screen —
-overuse dilutes exactly the "one clear signal" property that makes it
-work as an active-nav/CTA accent.
+universal signifier. It is never used decoratively as a filler accent
+across a screen — overuse dilutes exactly the "one clear signal"
+property that makes it work as an active-nav/CTA accent.
+
+**Corrected `UI-GATE-CLOSE-1-R1` (2026-09-12) — brand orange and
+semantic orange are separate roles, not one exclusive claim.** An
+earlier version of this paragraph stated orange is "never repurposed
+as a semantic-state color," contradicted by `StatusBadges.tsx`'s own,
+already-shipped `EscrowStatus.EXPIRED` badge, which uses orange
+specifically to mean "expired" — a real, pre-existing semantic use
+this document had simply failed to account for. **Corrected rule:**
+**brand orange** (`--color-orange` / `--color-orange-accent`) represents
+primary brand/action emphasis — active navigation, primary CTAs, the
+one thing to notice — and stays reserved for that role, per §2's own
+axis separation. **Semantic orange** (a plain Tailwind `orange-500`
+utility, a deliberately different token than the brand accent above)
+may be used for warning/expiry-shaped states — `EXPIRED` is the one
+real instance today — where icon, text, and context already make the
+meaning unambiguous. **Semantic meaning must never depend on orange
+color alone**, same as every other semantic color (§5's "color is
+never the only cue") — `EXPIRED` already complies: it pairs the color
+with an `XCircle` icon and the text label "Expirado." No badge, token,
+or component changed by this correction — the visual result is
+unchanged; only the rule describing it was wrong.
 
 ## 2. Semantic colors — a separate axis from brand
 
@@ -91,6 +111,15 @@ visually indistinguishable) or drop the accompanying icon/text pairing
 that carries meaning for colorblind users (§6's accessibility rule —
 color is never the only cue). These four are not "branding
 alternatives" to be replaced by a tenant's palette; they are meaning.
+
+**Note (`UI-GATE-CLOSE-1-R1`):** this table names the four *tokenized*
+semantic categories — it is not a claim that no other semantic color
+use exists. `EscrowStatus.EXPIRED` (`StatusBadges.tsx`) uses a plain
+Tailwind `orange-500` for an expiry-shaped meaning distinct from these
+four and distinct from the brand accent (§1's own correction) — a
+narrow, single-purpose case, not a fifth formal token. The same rule
+still applies to it: icon + text must always accompany it, color alone
+is never sufficient.
 
 ## 3. Surface system
 
