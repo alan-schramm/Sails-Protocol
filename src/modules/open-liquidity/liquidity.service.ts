@@ -9,6 +9,7 @@ import type { TradeIntentPayload } from '../../common/types/intent'
 import type { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { qvacDetectionInvocationsTotal, qvacDetectionFailuresTotal } from '../../common/metrics'
+import { withIdempotency } from '../../common/idempotency'
 
 const log = childLogger('liquidity')
 
@@ -335,6 +336,9 @@ export interface CreateOfferInput {
   paymentDetails?: string
   network?: string
   description?: string
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37) — optional; omitted means
+  // exactly today's behavior. See src/common/idempotency.ts's own header.
+  idempotencyKey?: string
 }
 
 // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) — an Offer is
@@ -417,6 +421,26 @@ export class LiquidityRouter {
   }
 
   async createOffer(input: CreateOfferInput) {
+    return withIdempotency(
+      {
+        scope: 'liquidity.offer.create',
+        participantId: input.userId,
+        key: input.idempotencyKey,
+        requestPayload: {
+          asset: input.asset, side: input.side, priceUsd: input.priceUsd,
+          minAmount: input.minAmount, maxAmount: input.maxAmount, paymentMethod: input.paymentMethod,
+        },
+      },
+      () => this.createOfferUncached(input),
+      async (offerId) => {
+        const offer = await prisma.offer.findUnique({ where: { id: offerId } })
+        if (!offer) throw new NotFoundError('Offer', offerId)
+        return offer
+      }
+    )
+  }
+
+  private async createOfferUncached(input: CreateOfferInput) {
     const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId)
 
     const offer = await prisma.offer.create({

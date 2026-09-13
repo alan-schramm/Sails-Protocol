@@ -57,6 +57,10 @@ const createOfferSchema = z.object({
   paymentDetails: z.string().optional(),
   network: z.string().optional(),
   description: z.string().optional(),
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37) — optional; a caller
+  // that omits it gets exactly today's behavior. See
+  // src/common/idempotency.ts's own header for the full contract.
+  idempotencyKey: z.string().min(1).max(200).optional(),
 })
 
 const offerIdParamsSchema = z.object({ id: z.string().min(1) })

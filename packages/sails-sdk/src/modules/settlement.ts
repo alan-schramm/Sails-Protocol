@@ -156,15 +156,6 @@ export interface DisputeRulingSemanticRecord {
   outcome: DisputeRulingOutcome | null;
 }
 
-export interface ArbiterProfile {
-  participantId: string;
-  monetaryCollateral: string;
-  collateralAsset: string;
-  reputationScore: number;
-  activeDisputes: number;
-  registeredAt: string;
-}
-
 /**
  * BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04 —
  * see the server's payout-address.service.ts for the full rationale. One
@@ -780,14 +771,23 @@ export class SailsSettlementModule {
    * what existed at open time). May trigger a QVAC auto-resolution
    * attempt server-side (config-gated, opt-in per deployment) — this
    * call itself never returns a ruling, only the updated Dispute row.
+   *
+   * `idempotencyKey` (CROSS-LAYER-SEMANTIC-CORRECTIVE-1, item 37,
+   * 2026-09-13) — optional; omit it and a retry after a timeout can
+   * append a duplicate evidence entry (and re-trigger QVAC auto-
+   * resolution a second time for it). Pass a value your own application
+   * generates once per user-initiated evidence-submission attempt — see
+   * `SailsOpenP2PModule.trade()`'s own doc comment for the full
+   * contract.
    */
   async submitDisputeEvidence(
     disputeId: string,
     descriptor: { type: string; uri?: string; note?: string },
+    idempotencyKey?: string,
   ): Promise<Dispute> {
     return this.transport.post<Dispute>(
       `/v1/settlement/disputes/${disputeId}/evidence`,
-      descriptor,
+      { ...descriptor, idempotencyKey },
       true,
     );
   }
@@ -851,33 +851,27 @@ export class SailsSettlementModule {
     );
   }
 
-  /**
-   * RFC-021 D2 — permissionless arbiter registration. No approval
-   * step: the caller registers themselves, matching
-   * MarketArbitrationProvider's own real logic. Works regardless of
-   * config.settlement.arbitrationMode (a participant can register
-   * collateral/reputation ahead of a deployment switching modes) —
-   * only assign() itself is mode-gated.
-   */
-  async registerArbiter(input: {
-    monetaryCollateral: string;
-    collateralAsset?: string;
-  }): Promise<ArbiterProfile> {
-    return this.transport.post<ArbiterProfile>(
-      "/v1/settlement/arbitration/register",
-      input,
-      true,
-    );
-  }
-
-  /** Public read — no session required. */
-  async getArbiterProfile(
-    participantId: string,
-  ): Promise<ArbiterProfile | null> {
-    return this.transport.get<ArbiterProfile | null>(
-      `/v1/settlement/arbitration/profile/${participantId}`,
-    );
-  }
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 38, 2026-09-13) —
+  // registerArbiter()/getArbiterProfile()/ArbiterProfile removed from
+  // this module. They duplicated arbitration.ts's register()/getProfile()
+  // for the exact same two live routes
+  // (POST /v1/settlement/arbitration/register,
+  // GET /v1/settlement/arbitration/profile/:id) with a WRONG shape —
+  // different field names than the real response (`market-arbitration.provider.ts`'s
+  // toCandidate() returns participantId/monetaryCollateral/collateralAsset/
+  // arbiterReputation/effectiveStake, not this module's own
+  // reputationScore/activeDisputes/registeredAt), an incorrectly
+  // non-nullable collateralAsset, and an unreachable `| null` return type
+  // (this SDK's transport always throws SailsNotFoundError on a 404,
+  // never resolves null). Deletion, not deprecation: neither method nor
+  // `ArbiterProfile` was ever part of docs/API_STABLE.md's frozen
+  // contract (only arbitration.ts's register()/getProfile() → ArbiterCandidate
+  // are documented there), and grepping packages/sails-ui/src confirmed
+  // zero call sites for either. Use `arbitration.register()`/
+  // `arbitration.getProfile()` → `ArbiterCandidate` instead — the one
+  // canonical, correct, documented representation of this endpoint pair.
+  // See docs/CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md's CSC-D01 for the
+  // full evidence trail.
 
   /**
    * Requires an active session. Registers/overwrites the caller's own

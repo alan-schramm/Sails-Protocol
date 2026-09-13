@@ -154,7 +154,8 @@ export async function checkFundMovementCapability(
   const allowed = await capabilityRegistry.check(triggeredBy, capabilityName, scope)
   if (!allowed) {
     throw new ForbiddenError(
-      `${triggeredBy} has no active '${capabilityName}' capability grant covering '${scope}'`
+      `${triggeredBy} has no active '${capabilityName}' capability grant covering '${scope}'`,
+      'FORBIDDEN' // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — a real policy/CapabilityGrant denial, not a technical or maturity gap
     )
   }
 }

@@ -145,6 +145,18 @@ export function Trade() {
   // Shares `acting`/withGuard with the escrow actions below, not a
   // separate loading flag.
   const [evidenceNote, setEvidenceNote] = useState('')
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37, 2026-09-13) — one
+  // idempotency key per genuinely-new evidence-submission intent, reused
+  // across a manual retry of the SAME attempt (e.g. clicking "Enviar"
+  // again after a network error), regenerated whenever the note text
+  // itself changes. See `sailsClient.settlement.submitDisputeEvidence()`'s
+  // own doc comment for the full contract this closes — submitEvidence()
+  // had no idempotency at all before this mission (a retry could append
+  // a duplicate evidence entry and re-trigger QVAC auto-resolution).
+  const evidenceIdempotencyKeyRef = useRef<string>(crypto.randomUUID())
+  useEffect(() => {
+    evidenceIdempotencyKeyRef.current = crypto.randomUUID()
+  }, [evidenceNote])
   // Opt-in per BACKLOG.md's own note on chat-encryption.ts — encrypting
   // by default would silently change behaviour for every existing
   // plaintext history, so this starts off and only the sender's own new
@@ -383,7 +395,10 @@ export function Trade() {
       toast.error('Descreva a evidência antes de enviar')
       return
     }
-    const updated = await sailsClient.settlement.submitDisputeEvidence(dispute.id, { type: 'text', note: evidenceNote.trim() })
+    const updated = await sailsClient.settlement.submitDisputeEvidence(
+      dispute.id, { type: 'text', note: evidenceNote.trim() }, evidenceIdempotencyKeyRef.current
+    )
+    evidenceIdempotencyKeyRef.current = crypto.randomUUID() // this attempt is now settled — a new key for the next one
     patchDispute(updated)
     setEvidenceNote('')
     toast.success('Evidência enviada')

@@ -28,6 +28,7 @@ import { marketArbitrationProvider } from './market-arbitration.provider'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { isPartyOrAgent, asTrustedActor } from './escrow-lifecycle'
+import { withIdempotency } from '../../common/idempotency'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
 import type { EvidenceDescriptor, DisputeRuling } from '@satsails/p2p-schemas'
@@ -850,7 +851,33 @@ export class DisputeService {
    * module-boundary convention of reacting to events rather than one
    * module calling into another's service directly.
    */
-  async submitEvidence(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note'>) {
+  async submitEvidence(
+    disputeId: string,
+    submittedBy: string,
+    descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note'>,
+    idempotencyKey?: string
+  ) {
+    return withIdempotency(
+      {
+        scope: 'settlement.dispute.evidence',
+        participantId: submittedBy,
+        key: idempotencyKey,
+        // Deliberately excludes submittedAt (assigned at execution time,
+        // not part of the caller's own logical request) — a retry of the
+        // identical descriptor must hash identically regardless of how
+        // long the retry took to arrive.
+        requestPayload: { disputeId, type: descriptor.type, uri: descriptor.uri, note: descriptor.note },
+      },
+      () => this.submitEvidenceUncached(disputeId, submittedBy, descriptor),
+      async (resultDisputeId) => {
+        const dispute = await prisma.dispute.findUnique({ where: { id: resultDisputeId } })
+        if (!dispute) throw new NotFoundError('Dispute', resultDisputeId)
+        return dispute
+      }
+    )
+  }
+
+  private async submitEvidenceUncached(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note'>) {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
 

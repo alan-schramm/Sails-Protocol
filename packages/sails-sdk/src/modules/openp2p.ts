@@ -289,11 +289,25 @@ export class WebSocketChannel {
 export class SailsOpenP2PModule {
   constructor(private readonly transport: SailsTransport) {}
 
-  /** Requires an active session. See this file's header for the `amount` deviation from SDK_GUIDE.md. */
-  async trade(offerId: string, amount: string): Promise<Trade> {
+  /**
+   * Requires an active session. See this file's header for the `amount`
+   * deviation from SDK_GUIDE.md.
+   *
+   * `idempotencyKey` (CROSS-LAYER-SEMANTIC-CORRECTIVE-1, item 37,
+   * 2026-09-13) — optional; omit it and this call behaves exactly as
+   * before (a retry after a timeout can create a second Trade). Pass a
+   * value your own application generates once per user-initiated
+   * "accept this offer" attempt and reuses across your own retries of
+   * that SAME attempt (a new value for a genuinely new attempt) — the
+   * server then guarantees at most one Trade is created for that key,
+   * returning the original Trade on a safe replay instead of a second
+   * row. See `src/common/idempotency.ts`'s own header for the full
+   * server-side contract.
+   */
+  async trade(offerId: string, amount: string, idempotencyKey?: string): Promise<Trade> {
     return this.transport.post<Trade>(
       "/v1/openp2p/trades",
-      { offerId, amount },
+      { offerId, amount, idempotencyKey },
       true,
     );
   }

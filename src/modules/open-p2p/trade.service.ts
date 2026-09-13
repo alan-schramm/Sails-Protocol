@@ -14,11 +14,17 @@ import { intentEngine } from '../../core/intent-engine'
 import { tradeRepository, type TradeRepository } from './trade-repository'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeStatus } from '../../common/types'
+import { withIdempotency } from '../../common/idempotency'
 
 export interface CreateTradeInput {
   offerId: string
   counterpartyId: string // the participant accepting the offer (caller)
   amount: string          // decimal string — RFC-009
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37) — optional; omitted means
+  // exactly today's behavior (a retry can create a second Trade). See
+  // src/common/idempotency.ts's own header for why this is a caller-
+  // supplied key, not a composite-business-key uniqueness constraint.
+  idempotencyKey?: string
 }
 
 export interface TradePagination {
@@ -51,6 +57,31 @@ export class TradeService {
   constructor(private readonly repo: TradeRepository = tradeRepository) {}
 
   async createTrade(input: CreateTradeInput) {
+    return withIdempotency(
+      {
+        scope: 'openp2p.trade.create',
+        participantId: input.counterpartyId,
+        key: input.idempotencyKey,
+        // offerId + amount are the only fields that make two requests
+        // "the same logical attempt" for this operation — counterpartyId
+        // is already the scoping key itself, not part of the payload hash.
+        requestPayload: { offerId: input.offerId, amount: input.amount },
+      },
+      () => this.createTradeUncached(input),
+      async (tradeId) => {
+        const trade = await this.repo.findById(tradeId)
+        // The claim row's own resultRef only ever gets set to a real,
+        // just-created Trade's id (idempotency.ts's runAndSettle()) — a
+        // miss here means the Trade was deleted out-of-band after this
+        // idempotency key completed, a real data-integrity anomaly, not
+        // a normal "not found" the caller could have caused.
+        if (!trade) throw new NotFoundError('Trade', tradeId)
+        return trade
+      }
+    )
+  }
+
+  private async createTradeUncached(input: CreateTradeInput) {
     const offer = await this.repo.findOfferById(input.offerId)
     if (!offer) throw new NotFoundError('Offer', input.offerId)
     if (offer.status !== 'ACTIVE') {

@@ -12,17 +12,62 @@
 // this codebase already uses.
 export const ERROR_DOCS_URL = 'https://github.com/alan-schramm/Sails-Protocol/blob/main/docs/API_REFERENCE.md#9-error-response-shape'
 
+// CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39, 2026-09-13) — closes
+// `docs/BACKLOG.md` item 39, registered by
+// `docs/CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md`'s CSC-G01: six
+// structurally different underlying reasons an operation can be
+// unavailable (a real rail limitation, an unconfigured deployment, a
+// missing permission, a maturity/eligibility gate, a config toggle, an
+// unimplemented stub) all used to surface as similarly-worded plain
+// `EscrowError`/`Error` text with no way for a caller to mechanically
+// tell them apart short of parsing the message string. This is a
+// classificatory field added to the EXISTING error envelope — not a
+// second error framework, not a new error class per reason. A caller
+// (or the Reference UI) that doesn't recognize a `reason` value must
+// still work correctly: `reason` is always additive, `code`/`message`
+// remain exactly what they always were.
+//
+// Deliberately named after this mission's own required vocabulary, not
+// invented independently — reuse this exact set, never add a 7th
+// without updating this comment and every consuming layer:
+// - UNSUPPORTED    — a real, structural rail/technical limitation (this
+//                    will never work on this rail, not a config issue).
+// - UNAVAILABLE    — this deployment hasn't wired a provider/rail that
+//                    could exist (a structural absence, not a policy).
+// - FORBIDDEN      — a permission/`CapabilityGrant`/policy denial (the
+//                    actor lacks authorization, the operation itself is
+//                    real and configured). Distinct from the existing
+//                    `ForbiddenError` class (401/403 AUTHENTICATION
+//                    boundary) — this reason classifies a CAPABILITY
+//                    denial specifically, which may or may not also be
+//                    surfaced via `ForbiddenError`.
+// - INELIGIBLE     — a maturity/capability-profile/eligibility mismatch
+//                    (the actor or object doesn't yet qualify).
+// - DISABLED       — a deployment config toggle is off (would work if
+//                    enabled; this deployment chose not to).
+// - NOT_IMPLEMENTED — a genuine SDK/server stub with no real backing
+//                    implementation yet.
+export type CapabilityDenialReason =
+  | 'UNSUPPORTED'
+  | 'UNAVAILABLE'
+  | 'FORBIDDEN'
+  | 'INELIGIBLE'
+  | 'DISABLED'
+  | 'NOT_IMPLEMENTED'
+
 export class AppError extends Error {
   statusCode: number
   code: string
   details?: unknown
+  reason?: CapabilityDenialReason
 
-  constructor(message: string, statusCode = 500, code = 'INTERNAL_ERROR', details?: unknown) {
+  constructor(message: string, statusCode = 500, code = 'INTERNAL_ERROR', details?: unknown, reason?: CapabilityDenialReason) {
     super(message)
     this.name = this.constructor.name
     this.statusCode = statusCode
     this.code = code
     this.details = details
+    this.reason = reason
     Error.captureStackTrace?.(this, this.constructor)
   }
 
@@ -33,6 +78,7 @@ export class AppError extends Error {
       message: this.message,
       details: this.details ?? [],
       docsUrl: ERROR_DOCS_URL,
+      ...(this.reason ? { reason: this.reason } : {}),
     }
   }
 }
@@ -50,8 +96,13 @@ export class ValidationError extends AppError {
 }
 
 export class EscrowError extends AppError {
-  constructor(message: string) {
-    super(message, 409, 'ESCROW_ERROR')
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — optional `reason`
+  // (see `CapabilityDenialReason` above); most of CSC-G01's identified
+  // capability-denial throw sites already use this class, so it gets
+  // the field directly rather than every call site switching to raw
+  // `AppError`.
+  constructor(message: string, reason?: CapabilityDenialReason) {
+    super(message, 409, 'ESCROW_ERROR', undefined, reason)
   }
 }
 
@@ -62,8 +113,14 @@ export class AuthError extends AppError {
 }
 
 export class ForbiddenError extends AppError {
-  constructor(message = 'Not authorized for this action') {
-    super(message, 403, 'FORBIDDEN')
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — optional `reason`.
+  // Most `ForbiddenError` throws are a real auth-boundary denial (not a
+  // capability-denial reason at all — `reason` stays undefined for
+  // those, unchanged from before this mission). Only the capability-
+  // policy call sites this mission's own audit named (e.g.
+  // `checkFundMovementCapability()`) pass `'FORBIDDEN'` explicitly.
+  constructor(message = 'Not authorized for this action', reason?: CapabilityDenialReason) {
+    super(message, 403, 'FORBIDDEN', undefined, reason)
   }
 }
 
@@ -113,5 +170,21 @@ export class RateLimitExceededError extends AppError {
 export class RateLimitUnavailableError extends AppError {
   constructor() {
     super('Rate limiting store temporarily unavailable', 503, 'RATE_LIMIT_UNAVAILABLE')
+  }
+}
+
+// CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37, 2026-09-13) —
+// src/common/idempotency.ts's withIdempotency() throws this when a
+// concurrent, not-yet-resolved call already claimed the same
+// (scope, participantId, key). 409, not 500/503: this is a real,
+// well-formed conflict on the caller's own request, not a server fault
+// or a transient infra issue — the correct caller behavior is "wait and
+// re-check," not "retry immediately" or "treat as a different failure
+// class." Deliberately distinct from EscrowError's own 409 (settlement-
+// specific "invalid state for this action") — this is about the
+// idempotency claim itself, not any resource's business state.
+export class IdempotencyKeyConflictError extends AppError {
+  constructor(message: string) {
+    super(message, 409, 'IDEMPOTENCY_KEY_IN_PROGRESS')
   }
 }

@@ -20,6 +20,15 @@ export interface ArbiterCandidate {
   collateralAsset: string | null
   arbiterReputation: number
   effectiveStake: number
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 38, 2026-09-13) — added;
+  // was missing even from this, the correct half of CSC-D01's finding.
+  // `market-arbitration.provider.ts`'s own `toCandidate()` (the real,
+  // only source of this response) has always returned this field, and
+  // `settlement.routes.ts`'s register()/getProfile() handlers send the
+  // whole object as-is — this SDK type simply never declared it. RFC-021
+  // D4's cost-to-fabricate-reputation floor input, decimal string
+  // (RFC-009).
+  cumulativeFeesObserved: string
 }
 
 export class SailsArbitrationModule {

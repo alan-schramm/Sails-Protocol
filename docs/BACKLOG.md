@@ -3312,6 +3312,56 @@ obligation" is defined anywhere in this repository.
         one. Scope: add a client-supplied or server-derived idempotency
         key to the three POST routes.
 
+        **Implemented → Evidenced (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1`,
+        2026-09-13, pending CTO Gate before Frozen).** A client-supplied
+        idempotency key, deliberately not a composite-business-key
+        uniqueness constraint — the audit's own investigation found that
+        `(offerId, counterpartyId)` would incorrectly reject a
+        genuinely new, separate trade the same buyer legitimately
+        intends against the same still-`ACTIVE` offer later. New
+        `IdempotencyKey` Prisma model (`scope`, `participantId`, `key`,
+        `requestHash`, `status: IN_PROGRESS|COMPLETED|FAILED`,
+        `resultRef`), claimed atomically via the same insert-as-lock/
+        P2002 idiom `escrow-pending-tx.ts` already uses for a different
+        resource (`src/common/idempotency.ts`'s `withIdempotency()`).
+        Deliberately opt-in — a caller that omits the key gets exactly
+        today's unchanged behavior, full backward compatibility. Wired
+        into `createTrade()`, `createOffer()`, `submitEvidence()`
+        server-side; `SailsOpenP2PModule.trade()`,
+        `SailsLiquidityModule.publish()`,
+        `SailsSettlementModule.submitDisputeEvidence()` SDK-side; and the
+        three real UI call sites (`OfferDetail.tsx`'s
+        "Iniciar Trade", `PublishOffer.tsx`'s "Publicar", `Trade.tsx`'s
+        evidence submission) — each generates one key per genuinely-new
+        user intent (regenerated when the economically-relevant fields
+        change) and reuses it across a manual retry of the same
+        attempt. New `IdempotencyKeyConflictError` (409,
+        `IDEMPOTENCY_KEY_IN_PROGRESS`) for the genuine-concurrent-race
+        case. **Evidence:** `tests/idempotency.test.ts` — 10 tests
+        against a real, behaviorally-faithful in-memory store (not a
+        mock of the property being proved): first request succeeds;
+        exact retry does not duplicate; a "timeout-like" replay (retry
+        arrives while the original is still `IN_PROGRESS`) is rejected
+        as a conflict, never silently double-executed; three genuinely
+        concurrent identical requests (real `Promise.allSettled` race,
+        not a sequential simulation) still produce exactly one
+        execution; a different logical request (no key) remains fully
+        allowed; a different key is never blocked by an unrelated
+        claim; the same key reused for a different payload is rejected
+        as a client error; a `FAILED` prior attempt allows a genuine
+        retry to actually run; scope+participant isolation confirmed.
+        `npx tsc --noEmit` clean at repo root, `sails-sdk`, `sails-ui`,
+        `sails-p2p-schemas`; full suite 160 suites/2102 tests, 0
+        regressions (was 158/2086 before this mission).
+        `docs/RECOVERY_RECONCILIATION_CONFORMANCE_EVIDENCE.md`-style
+        real Postgres integration test **not** added — the concurrency
+        property is fully expressed in `withIdempotency()`'s own logic
+        layer (Postgres's real unique constraint is what the
+        `PrismaIdempotencyKeyStore` production implementation relies on,
+        proven correct by direct code inspection, not by a live-DB
+        test in this environment — disclosed as a known, bounded
+        residual, not hidden).
+
     38. **SDK Type-Shape Reconciliation (CSC-C01/D01).** Two real,
         confirmed SDK-internal disagreements: (a)
         `packages/sails-p2p-schemas`'s `DisputeStatus`/`DisputeStatusInput`
@@ -3330,6 +3380,38 @@ obligation" is defined anywhere in this repository.
         surface — but it would immediately mislead a partner
         integrator building against the documented (wrong) shape.
 
+        **Implemented → Evidenced (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1`,
+        2026-09-13, pending CTO Gate before Frozen).** (a) widened
+        `packages/sails-p2p-schemas/src/dispute.ts`'s `DisputeStatus`
+        from 4 to the real 6 values (`APPEALED`/`AUTO_PROPOSED` added),
+        reconciling it with the already-correct
+        `packages/sails-sdk/src/types.ts` copy. (b) deleted
+        `settlement.ts`'s `registerArbiter()`/`getArbiterProfile()`/
+        `ArbiterProfile` entirely (not deprecated — verified neither was
+        ever part of `docs/API_STABLE.md`'s frozen contract, and
+        grepping confirmed zero real callers), leaving
+        `arbitration.ts`'s `register()`/`getProfile()` →
+        `ArbiterCandidate` as the one canonical, documented surface.
+        **A third, smaller drift found and fixed while verifying (b):**
+        `arbitration.ts`'s own `ArbiterCandidate` was itself missing
+        `cumulativeFeesObserved` — a real field
+        `market-arbitration.provider.ts`'s `toCandidate()` has always
+        returned and the route sends as-is; added. **Evidence:**
+        `tests/sdkTypeShapeReconciliation.test.ts` — compile-time
+        two-way type-identity checks (fail to typecheck, not just fail
+        an assertion, if either package's `DisputeStatus` or the SDK's
+        `ArbiterCandidate` drifts from its real canonical source again)
+        plus a runtime check of the live Prisma enum's actual 6 values;
+        `packages/sails-sdk/tests/modules.test.ts` — 3 new
+        `SailsArbitrationModule` tests (register/getProfile against the
+        real response shape including the newly-added field; confirmed
+        `getProfile()` throws `SailsNotFoundError` on a 404, never
+        resolves `null`, closing the deleted duplicate's own unreachable
+        `| null` return type) replacing the 2 tests that exercised the
+        now-deleted methods. `npx tsc --noEmit` clean everywhere
+        (required rebuilding `packages/sails-sdk`'s `dist/` — `sails-ui`
+        resolves the SDK's published types, not its live source).
+
     39. **Capability-Denial Reason Structuring (CSC-G01).** Six
         structurally different underlying reasons a caller can be told
         "not supported"/"denied" (technical rail limitation, deployment
@@ -3340,6 +3422,49 @@ obligation" is defined anywhere in this repository.
         caller cannot mechanically distinguish them. Scope: add a
         `reason` category field to the existing error classes; reuses
         `EscrowError`/the generic error shape, no new taxonomy.
+
+        **Implemented → Evidenced (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1`,
+        2026-09-13, pending CTO Gate before Frozen).** Added
+        `CapabilityDenialReason` (`UNSUPPORTED | UNAVAILABLE | FORBIDDEN
+        | INELIGIBLE | DISABLED | NOT_IMPLEMENTED` — this mission's own
+        required vocabulary verbatim) as one optional field on the
+        existing `AppError`/`EscrowError`/`ForbiddenError` classes and
+        their JSON envelope (`toResponse()`'s `reason`, included only
+        when actually set) — no second error framework, no new error
+        class per reason. Wired 4 of 6 categories to real, concrete
+        throw sites the audit named: `UNSUPPORTED` (LIGHTNING_HODL/
+        SAFE_GUARD_EVM's own SPLIT-not-supported throws — a real
+        structural rail limitation), `UNAVAILABLE` (`escrow-providers.ts`'s
+        two "no provider wired" throws), `FORBIDDEN`
+        (`checkFundMovementCapability()`'s missing-`CapabilityGrant`
+        throw), `INELIGIBLE` (`escrow.service.ts`'s capability-profile-
+        mismatch throw, `findCapabilityCommitBlocker()`'s real consumer).
+        **Two categories deliberately left without a new throw site,
+        disclosed rather than forced:** `NOT_IMPLEMENTED` is already
+        correctly, distinctly signaled today via the pre-existing
+        client-side `SailsNotImplementedError` SDK class for genuine
+        no-server-round-trip stubs (a different, equally correct
+        mechanism — nothing to add); `DISABLED` has no natural throw
+        site today — `config.features.enforceCapabilities` being off
+        means enforcement is silently skipped, not that a "this is
+        disabled" error is ever thrown, a real, honestly-reported
+        residual, not claimed as closed. SDK mirrors the same
+        `CapabilityDenialReason` type and threads `reason` through
+        `errorFromResponseBody()` for `SailsEscrowError`/
+        `SailsForbiddenError` — verified the real HTTP round-trip
+        carries it (`body.reason` typed on `SailsErrorResponseBody`,
+        read by `transport.ts` with zero further changes needed).
+        Deliberately no UI surfacing added in this mission — confirmed
+        by inspection that no existing UI code reads `.reason` today, so
+        nothing needed to change to stay forward-compatible with it, and
+        deciding how (or whether) to show a reason to a human is a
+        product-copy decision outside a bounded corrective mission's
+        authority. **Evidence:** full suite (160 suites/2102 tests) and
+        `npx tsc --noEmit` (root + `sails-sdk` + `sails-ui`) both clean
+        with the new `reason` field threaded through every layer;
+        existing tests for the 4 wired throw sites confirmed unaffected
+        (their exact error message/shape assertions all still pass —
+        `reason` is additive, never replaces `message`/`code`).
 
     40. **Protocol Version / Cross-Implementation Readiness (CSC-H01/
         H02/H03).** A Decision Mission, not an implementation mission —

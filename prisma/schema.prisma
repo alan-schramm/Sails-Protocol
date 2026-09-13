@@ -2269,3 +2269,55 @@ model Verification {
   @@index([proofId])
   @@map("verifications")
 }
+
+// CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37, 2026-09-13) — the smallest
+// reusable seam for "one logical economic-coordination action must not
+// become multiple because transport was uncertain": a client-supplied
+// key, scoped per-caller and per-operation, claimed atomically via this
+// table's own unique constraint (the same insert-as-lock idiom
+// `escrow-pending-tx.ts`'s P2002 handling already uses for a different
+// resource). Deliberately NOT a composite business-key uniqueness
+// constraint (e.g. `(offerId, counterpartyId)` for trade creation) —
+// the audit that registered this item found that would incorrectly
+// reject a genuinely new, separate trade the same buyer legitimately
+// intends against the same still-ACTIVE offer at a later time
+// (`Offer.status` never transitions away from `ACTIVE` just because one
+// trade was created against it). Only a caller-supplied key can express
+// "this specific attempt," independent of what the request happens to
+// contain.
+//
+// `requestHash` lets a reused key be rejected as a genuine client bug
+// (reusing one key for two different logical requests) rather than
+// silently replaying the wrong result. `resultRef` is the created
+// resource's own id — recovery re-fetches that resource through the
+// normal repository, this table never duplicates its content.
+// `status` distinguishes three real states a concurrent or retried
+// caller can observe: `IN_PROGRESS` (a genuine race, not yet resolved —
+// the second caller must not proceed, and must not be told anything
+// succeeded or failed), `COMPLETED` (a safe, exact replay), `FAILED`
+// (the original attempt itself errored out — safe to retry with the
+// same key, since nothing durable was ever created).
+enum IdempotencyKeyStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model IdempotencyKey {
+  id            String               @id @default(uuid())
+  scope         String // e.g. 'openp2p.trade.create', 'liquidity.offer.create', 'settlement.dispute.evidence' — never a table/model name, a logical-operation name
+  participantId String // the caller — a key is only ever meaningful scoped to who used it, never globally unique on its own
+  key           String // the client-supplied idempotency key itself
+  requestHash   String // sha256 of the semantically-relevant request payload — see src/common/idempotency.ts
+  status        IdempotencyKeyStatus @default(IN_PROGRESS)
+  resultRef     String? // the created resource's own id, set once status = COMPLETED
+  createdAt     DateTime             @default(now())
+  completedAt   DateTime?
+
+  // The atomic claim primitive this whole mechanism depends on — a
+  // second `create()` for the same (scope, participantId, key) fails
+  // with Postgres's real unique-violation (P2002), which is how a
+  // concurrent or retried caller is told "someone already claimed this."
+  @@unique([scope, participantId, key])
+  @@map("idempotency_keys")
+}

@@ -11,12 +11,28 @@
  * error objects."
  */
 
+// CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39, 2026-09-13) — mirrors
+// src/common/errors/index.ts's own CapabilityDenialReason exactly (see
+// that file's header comment for the full reasoning behind each value).
+// Always additive/optional: a caller that doesn't recognize a value
+// still gets a correct, real error via `code`/`statusCode`/`message` —
+// this field only sharpens WHY an operation was denied, it never
+// changes whether one was.
+export type CapabilityDenialReason =
+  | 'UNSUPPORTED'
+  | 'UNAVAILABLE'
+  | 'FORBIDDEN'
+  | 'INELIGIBLE'
+  | 'DISABLED'
+  | 'NOT_IMPLEMENTED'
+
 export class SailsError extends Error {
   constructor(
     message: string,
     public readonly code: string,
     public readonly statusCode: number,
-    public readonly details: unknown[] = []
+    public readonly details: unknown[] = [],
+    public readonly reason?: CapabilityDenialReason
   ) {
     super(message)
     this.name = 'SailsError'
@@ -38,8 +54,12 @@ export class SailsNotFoundError extends SailsError {
 }
 
 export class SailsEscrowError extends SailsError {
-  constructor(message: string) {
-    super(message, 'ESCROW_ERROR', 409)
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — optional `reason`;
+  // most of the capability-denial throw sites the audit named use the
+  // server's own EscrowError, so this is where a caller actually reads
+  // `err.reason` for those.
+  constructor(message: string, reason?: CapabilityDenialReason) {
+    super(message, 'ESCROW_ERROR', 409, [], reason)
     this.name = 'SailsEscrowError'
   }
 }
@@ -52,8 +72,12 @@ export class SailsAuthError extends SailsError {
 }
 
 export class SailsForbiddenError extends SailsError {
-  constructor(message: string) {
-    super(message, 'FORBIDDEN', 403)
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — optional `reason`;
+  // `undefined` for a real auth-boundary denial (unchanged from before
+  // this mission), `'FORBIDDEN'` only for the capability-policy denials
+  // this mission's audit named (e.g. a missing CapabilityGrant).
+  constructor(message: string, reason?: CapabilityDenialReason) {
+    super(message, 'FORBIDDEN', 403, [], reason)
     this.name = 'SailsForbiddenError'
   }
 }
@@ -127,7 +151,17 @@ export class SailsNotImplementedError extends SailsError {
   }
 }
 
-const ERROR_CODE_MAP: Record<string, new (message: string, details?: unknown[]) => SailsError> = {
+// CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — `...args: any[]` is a
+// deliberate, narrow escape hatch: this map is genuinely heterogeneous
+// now (SailsValidationError takes `details?: unknown[]`,
+// SailsEscrowError/SailsForbiddenError take `reason?:
+// CapabilityDenialReason`, every other class ignores a second arg
+// entirely) — constructor-parameter contravariance means no single
+// concrete parameter type satisfies all of them simultaneously. Each
+// class's OWN constructor still enforces its own real parameter type at
+// its actual call site (below, and everywhere else in this file) — only
+// this registry's declared type is loosened, not any class itself.
+const ERROR_CODE_MAP: Record<string, new (message: string, ...args: any[]) => SailsError> = {
   VALIDATION_ERROR: SailsValidationError,
   NOT_FOUND: SailsNotFoundError,
   ESCROW_ERROR: SailsEscrowError,
@@ -142,6 +176,10 @@ export interface SailsErrorResponseBody {
   error: string
   message: string
   details?: unknown[]
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — mirrors
+  // src/common/errors/index.ts's AppError.toResponse(), which only
+  // includes this key when the thrown error actually carried a reason.
+  reason?: CapabilityDenialReason
 }
 
 // `statusCode` (DX audit, 2026-08-10 — previously not accepted here at
@@ -159,11 +197,17 @@ export function errorFromResponseBody(body: SailsErrorResponseBody, statusCode: 
     return new SailsValidationError(body.message, body.details ?? [])
   }
   if (ErrorClass) {
-    return new ErrorClass(body.message)
+    // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — `body.reason` is
+    // only ever read by SailsEscrowError/SailsForbiddenError's own
+    // constructors (the two classes whose real server counterpart can
+    // carry one); every other class's constructor takes a single
+    // `message` param and safely ignores the extra argument, so this
+    // stays one uniform call rather than a per-class branch.
+    return new ErrorClass(body.message, body.reason)
   }
   // An error code this SDK doesn't recognize yet — still a real,
   // well-formed Sails error response, just not one of the known
   // AppError subclasses. Surfaced as-is rather than forced into the
   // wrong bucket.
-  return new SailsError(body.message, body.error, statusCode, body.details ?? [])
+  return new SailsError(body.message, body.error, statusCode, body.details ?? [], body.reason)
 }

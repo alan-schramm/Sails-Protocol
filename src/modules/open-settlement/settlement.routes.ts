@@ -150,6 +150,10 @@ const submitEvidenceSchema = z.object({
   type: z.string().min(1),
   uri: z.string().optional(),
   note: z.string().optional(),
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37) — optional; a caller
+  // that omits it gets exactly today's behavior. See
+  // src/common/idempotency.ts's own header for the full contract.
+  idempotencyKey: z.string().min(1).max(200).optional(),
 })
 
 // RFC-021 D2 — permissionless arbiter registration.
@@ -666,7 +670,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = submitEvidenceSchema.parse(request.body)
-    const result = await getDisputeService().submitEvidence(id, participantId(request), body)
+    const result = await getDisputeService().submitEvidence(id, participantId(request), body, body.idempotencyKey)
     return reply.code(200).send(success(result))
   })
 

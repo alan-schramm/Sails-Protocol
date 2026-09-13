@@ -451,7 +451,8 @@ export function recommendedEscrowType(asset: AssetType): EscrowType {
   if (!type) {
     throw new EscrowError(
       `No real SettlementProvider is wired for asset '${asset}' yet — refusing to guess an escrow type. ` +
-      "Pass type: 'MOCK' explicitly if a fake/test escrow for this asset is actually intended."
+      "Pass type: 'MOCK' explicitly if a fake/test escrow for this asset is actually intended.",
+      'UNAVAILABLE' // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — this deployment hasn't wired a provider for this asset, not a technical impossibility or a policy denial
     )
   }
   return type
@@ -493,7 +494,8 @@ export function getSettlementProvider(type: string): SettlementProvider {
     // has, instead of quietly faking it.
     throw new EscrowError(
       `No SettlementProvider registered for escrow type '${type}' — refusing to silently fall back to MOCK for a type that claims to be real. ` +
-      "Create the escrow with type: 'MOCK' explicitly if a fake escrow is actually intended."
+      "Create the escrow with type: 'MOCK' explicitly if a fake escrow is actually intended.",
+      'UNAVAILABLE' // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — this deployment has no registered provider for this escrow type, not a technical impossibility or a policy denial
     )
   }
   return provider

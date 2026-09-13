@@ -448,7 +448,8 @@ export class LightningHodlProvider implements SettlementProvider {
     throw new EscrowError(
       `LIGHTNING_HODL (Arkade) provider: SPLIT is not supported for trade ${escrow.tradeId} — this provider's VtxoScript only has ` +
       'fixed 2-of-2 leaves (buyer+seller, buyer+arbiter, seller+arbiter), none of which let the arbiter co-sign a payout to both ' +
-      'parties at once. See this method\'s own comment for the full reasoning. Use RELEASE or REFUND instead.'
+      'parties at once. See this method\'s own comment for the full reasoning. Use RELEASE or REFUND instead.',
+      'UNSUPPORTED' // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — a real, structural rail limitation, not a config/policy/maturity gap
     )
   }
 

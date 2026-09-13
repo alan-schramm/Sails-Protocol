@@ -26,6 +26,12 @@ export interface PublishOfferInput {
   paymentDetails?: string
   network?: string
   description?: string
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37, 2026-09-13) — optional;
+  // omit it and this call behaves exactly as before (a retry after a
+  // timeout can create a second Offer). See
+  // `SailsOpenP2PModule.trade()`'s own doc comment for the full
+  // contract — the same rule applies here.
+  idempotencyKey?: string
 }
 
 // The shape GET /v1/liquidity/offers actually returns per item
