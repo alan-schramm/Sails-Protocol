@@ -790,21 +790,46 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send(success(record))
   })
 
-  // Public read — same "read by id needs no auth" precedent as
-  // GET /v1/settlement/escrow/:id — scoped by :participantId/:asset in
-  // the path rather than the caller's own identity, since a counterparty
-  // legitimately needs to look up who they're paying (e.g. a seller
-  // building a manual release outside escrowService's own fallback).
+  // F-06 (System Coherence & Integration Audit, 2026-09-13; Privacy
+  // Decision Review, COHERENCE-CORRECTIVE-1): was public, no auth —
+  // corrected to participant-scoped (requireAuth + self-check), same
+  // "read by id needs no auth, but the id itself must be the caller's
+  // own" convention GET /v1/settlement/escrow/:id already establishes
+  // above via isParty/isAssignedArbiter, narrowed here to isSelf since
+  // no real counterparty/arbiter consumer of this specific route was
+  // found (see below).
   //
-  // Missão 11 Fase 9.3.4 — INV-OP-10: response narrowed from the raw
-  // PayoutAddress row to getPublicView()'s projection (participantId/
-  // asset/address only — no id/moduleId/protocolVersion/createdAt/
-  // updatedAt). See that method's own comment for the full rationale;
-  // 404 shape is unchanged from before this phase.
+  // Superseded rationale, preserved for provenance, not deleted: this
+  // route's original comment claimed "a counterparty legitimately needs
+  // to look up who they're paying (e.g. a seller building a manual
+  // release outside escrowService's own fallback)." Verified false
+  // against real code during the Privacy Decision Review: every real
+  // release path (settlement.routes.ts's own /release route, M8-R2's
+  // applyRuling()) always passes `toAddress: undefined` and resolves
+  // the BENEFICIARY's own registered PayoutAddress server-side — no
+  // caller ever manually supplies one, so no "manual release" consumer
+  // exists to need this lookup. The one real, live SDK/UI consumer
+  // (packages/sails-ui/src/pages/Trade.tsx) calls
+  // getPayoutAddress(user.id, ...) — always self-referential, already
+  // holding an authenticated session — confirming self-scoped access is
+  // the correct minimal change, not a regression for any real caller.
+  // docs/PRODUCT_INTERACTION_MODEL.md §5's own Privacy Matrix already
+  // froze "Payout/destination address: Public ○" — this brings runtime
+  // into conformance with that already-decided intent, not a new
+  // decision. INV-OP-10 (minimum necessary disclosure on a public
+  // surface) is unaffected — this route is no longer a public surface
+  // at all, and getPublicView()'s already-minimal projection
+  // (participantId/asset/address only, still no id/moduleId/
+  // protocolVersion/createdAt/updatedAt) is unchanged.
   app.get('/v1/settlement/payout-addresses/:participantId/:asset', {
+    preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-settlement'], params: payoutAddressParamsSchema }),
   }, async (request, reply) => {
     const { participantId: targetId, asset } = payoutAddressParamsSchema.parse(request.params)
+    const callerId = participantId(request)
+    if (callerId !== targetId) {
+      throw new ForbiddenError(`${callerId} is not authorized to view payout address for ${targetId}`)
+    }
     const view = await payoutAddressService.getPublicView(targetId, asset as any)
     if (!view) {
       return reply.code(404).send({ success: false, error: 'NOT_FOUND', message: `No PayoutAddress for ${targetId}/${asset}`, details: [] })

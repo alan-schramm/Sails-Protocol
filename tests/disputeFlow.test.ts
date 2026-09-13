@@ -151,6 +151,52 @@ describe('deriveTradeState — Task 1 state vocabulary over the real columns', (
     expect(deriveTradeState({ status: 'CANCELLED' }, null, null)).toBe('cancelled')
     expect(deriveTradeState({ status: 'ACTIVE' }, { status: 'REFUNDED' }, null)).toBe('cancelled')
   })
+
+  // F-01 (System Coherence & Integration Audit, 2026-09-13) — a resolved
+  // SPLIT dispute previously fell through to 'dispute_opened' (still-open
+  // dispute) via this branch, or to 'open' (not-yet-started trade) via
+  // the escrow-status-only fallback below — both misreporting a real,
+  // terminal, partial-payout outcome. Every path this function can reach
+  // a SPLIT outcome through is exercised here adversarially, not just the
+  // happy one.
+  describe('SPLIT outcome — F-01 fix', () => {
+    it('maps a resolved SPLIT dispute to dispute_resolved_split, not dispute_opened (the exact defect this fix closes)', () => {
+      expect(
+        deriveTradeState({ status: 'COMPLETED' }, { status: 'SPLIT' }, { status: 'RESOLVED', ruling: 'SPLIT' })
+      ).toBe('dispute_resolved_split')
+    })
+
+    it('does not regress dispute_opened for a SPLIT ruling that has not resolved yet (still ARBITRATED/EVIDENCE_SUBMITTED/OPENED)', () => {
+      // A ruling may be recorded ahead of RESOLVED in some real flows —
+      // deriveTradeState() must still report the dispute as open until
+      // dispute.status itself says RESOLVED, exactly like RELEASE/REFUND
+      // already do.
+      expect(
+        deriveTradeState({ status: 'DISPUTED' }, { status: 'DISPUTED' }, { status: 'ARBITRATED', ruling: 'SPLIT' })
+      ).toBe('dispute_opened')
+    })
+
+    it('maps a SPLIT escrow with no Dispute row available (the escrow-status-only fallback path) to dispute_resolved_split, not open', () => {
+      // Mirrors the real caller shape that reaches this path (e.g. a
+      // read model that only has the Escrow row, not a joined Dispute
+      // row) — RFC-021 D9 makes SPLIT reachable exclusively via a
+      // dispute ruling, so this is unambiguous even without one.
+      expect(deriveTradeState({ status: 'COMPLETED' }, { status: 'SPLIT' }, null)).toBe('dispute_resolved_split')
+    })
+
+    it('does not fabricate a resolution for a RESOLVED dispute with neither a recognized ruling nor SPLIT (malformed/incomplete state)', () => {
+      expect(
+        deriveTradeState({ status: 'DISPUTED' }, { status: 'DISPUTED' }, { status: 'RESOLVED', ruling: null })
+      ).toBe('dispute_opened')
+    })
+
+    it('does not regress RELEASE/REFUND/cancelled/completed-without-dispute semantics', () => {
+      expect(deriveTradeState({ status: 'COMPLETED' }, { status: 'COMPLETED' }, { status: 'RESOLVED', ruling: 'RELEASE' })).toBe('dispute_resolved_buyer')
+      expect(deriveTradeState({ status: 'CANCELLED' }, { status: 'REFUNDED' }, { status: 'RESOLVED', ruling: 'REFUND' })).toBe('dispute_resolved_seller')
+      expect(deriveTradeState({ status: 'CANCELLED' }, null, null)).toBe('cancelled')
+      expect(deriveTradeState({ status: 'COMPLETED' }, { status: 'COMPLETED' }, null)).toBe('escrow_released')
+    })
+  })
 })
 
 describe('toOfferSchema — Task 1 Offer contract over the real Prisma shape', () => {

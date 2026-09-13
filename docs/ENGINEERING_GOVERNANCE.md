@@ -760,6 +760,70 @@ explicit so a future sweep has a fixed target to use.
 
 ---
 
+## 13A. System Coherence Discipline (2026-09-13)
+
+Origin: the System Coherence & Integration Audit
+(`docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md`) and its two bounded
+corrective missions (F-01 SPLIT representation, F-06 payout-address
+privacy — `COHERENCE-CORRECTIVE-1`). Extends §10/§10A's Claim Discipline
+from individual claims to the system as a whole, following the same
+dated-addendum pattern as §8A/§10A.
+
+> A system is not coherent because its parts are individually correct.
+> Coherence must be re-proven as the system evolves.
+
+> Every new layer creates new integration risk, even when no existing
+> layer changed.
+
+> Architecture can be coherent and still produce an incoherent
+> real-world experience.
+
+> Institutional truth should be easy to find, easy to read, and hard to
+> duplicate.
+
+> Documentation must compress knowledge, not merely accumulate it.
+
+**Three practices institutionalized by this addendum:**
+
+- **System Coherence Audit** — an adversarial, cross-layer audit
+  (Product → Architecture → Runtime → API/SDK → UI → Actor Visibility)
+  run at integration milestones, not only when something is suspected
+  broken. Its posture is to try to break the system, not confirm it
+  works — `docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md` is the worked
+  example, not re-read in full for every future milestone.
+- **Practical Reality Simulation / End-to-End Reality Test** —
+  simulating real use by USR/AGT/OPS/INT, a wallet, and a partner
+  integrator, checking whether the experience actually closes end to
+  end, not only that each layer's own contract is satisfied in
+  isolation.
+- **Documentation Coherence & Reduction Audit** — run periodically to
+  remove duplication, stale truth, and unnecessary intermediate
+  documents, and to improve the reading path for a third party. Restates
+  §14's "memory, not diary" principle as a recurring maintenance
+  obligation, not a one-time rule.
+
+**Benchmark rule, generalizing a pattern already applied informally
+across several missions:**
+
+> Benchmark the interaction reality, not the architecture.
+
+Zest, Sovryn, Hodl Hodl, Bisq, Binance P2P, and similar products may
+serve as practical references for interaction patterns — never as
+authority for copying custody, authority, or architecture models.
+
+**Frozen:**
+
+> Every frozen product model must survive an end-to-end reality
+> simulation before being treated as interaction-complete.
+
+**Explicit non-goal:** this addendum does not mandate a new document per
+audit, per §28 of the mission that produced it — `docs/BACKLOG.md` and
+`docs/PROJECT_CONTEXT.md` carry a pointer/summary only, never the full
+findings, consistent with §14's own "memory, not diary" rule applied to
+these three practices specifically.
+
+---
+
 ## 14. Repository Memory Principle
 
 > **GitHub is the memory of the architecture, not the diary of how we

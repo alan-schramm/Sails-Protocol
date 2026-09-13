@@ -2883,4 +2883,75 @@ obligation" is defined anywhere in this repository.
     change. Full text: `docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md`;
     pointer added at `docs/PROJECT_CONTEXT.md` §2K.
 
+    **F-01/F-06 corrected 2026-09-13 (`COHERENCE-CORRECTIVE-1`) — see
+    item 33.** This item's own findings/classifications/severity are
+    unchanged; only F-01/F-06's disposition is superseded — full closure
+    record in `docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md` §21A.
+
+33. **F-01 (SPLIT representation) + F-06 (payout-address privacy) —
+    corrected, tested, real code changes (2026-09-13,
+    `COHERENCE-CORRECTIVE-1`).** Bounded corrective mission closing the
+    two findings item 32's audit named as blocking Mission 3.
+
+    **F-01:** `packages/sails-p2p-schemas/src/trade.ts`'s
+    `deriveTradeState()` gained a real `dispute_resolved_split`
+    `TradeState` value, reached correctly from both the Dispute-row path
+    and the Escrow-status-only fallback — neither falls through to
+    `dispute_opened`/`open` anymore. `packages/sails-ui`'s `EscrowStatus`
+    type and `StatusBadges.tsx` gained `SPLIT` (label, violet color,
+    `Scissors` icon). New adversarial tests in `tests/disputeFlow.test.ts`
+    cover active dispute, resolved release/refund/split (both real
+    paths), completed-without-dispute, and a malformed-ruling case;
+    RELEASE/REFUND/CANCELLED semantics verified unchanged.
+
+    **F-06:** a short Privacy Decision Review (not a reflexive endpoint
+    change) found the route's own code comments justified public
+    reachability with two claims — both verified **false against real
+    code**: no real release path ever accepts a caller-supplied address
+    (M8-R2 resolves the beneficiary's own registered one server-side),
+    and the one real consumer (`Trade.tsx`) is always self-referential.
+    `GET /v1/settlement/payout-addresses/:participantId/:asset`
+    (`settlement.routes.ts`) now requires authentication and
+    self-scoping (`requireAuth` + `ForbiddenError` on a mismatched
+    caller, mirroring `GET /v1/settlement/escrow/:id`'s existing
+    convention); the SDK's `getPayoutAddress()` now sends the session
+    token. `INV-OP-10`'s field-minimization projection is unchanged —
+    only who may reach the route at all changed. New/updated adversarial
+    tests in `tests/routes.test.ts` (401 unauthenticated, 403
+    wrong-caller, 200 self, 404 self-unregistered) and
+    `tests/payoutAddress.test.ts` (comment corrected). `docs/API_STABLE.md`/
+    `docs/API_REFERENCE.md` corrected to match.
+
+    **Mini coherence re-check** (Product Truth → Architecture → Runtime
+    → API/SDK → UI → Actor Visibility, both findings): no new semantic
+    drift, no hidden coupling, no authority regression, no privacy
+    regression, no maturity claim altered — full table in
+    `docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md` §21A.
+
+    **Governance delta:** `docs/ENGINEERING_GOVERNANCE.md` gained a new
+    dated addendum, §13A "System Coherence Discipline" (following the
+    existing §8A/§10A pattern) — institutionalizing System Coherence
+    Audits, Practical Reality Simulation/End-to-End Reality Tests, and
+    Documentation Coherence & Reduction Audits as permanent practices,
+    plus the "benchmark the interaction reality, not the architecture"
+    rule and "every frozen product model must survive an end-to-end
+    reality simulation before being treated as interaction-complete."
+    No new document created — the existing canonical governance file
+    was found and extended.
+
+    **Verified, not asserted:** `npx tsc --noEmit` clean at repo root
+    and in `packages/sails-p2p-schemas`, `packages/sails-ui`,
+    `packages/sails-sdk`; full unit suite green (157 suites, 2069
+    tests, includes the new F-01/F-06 tests); `sails-ui` dev server
+    loads cleanly with the corrected `StatusBadges.tsx`/`types.ts` (no
+    new console errors beyond the pre-existing offline-backend ones).
+
+    **Explicitly not done:** Mission 3 not started; no external wallet
+    connector, passkey, `FundingInstruction`, `SigningRequest`,
+    delegated agent authority; no Semantic Kernel, Core, or Settlement
+    architecture change; no Sails Market redesign; F-04/F-05/F-07/F-08/
+    F-09/F-10 not touched. Full text:
+    `docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md` §21A/§22 (updated);
+    `docs/ENGINEERING_GOVERNANCE.md` §13A (new).
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**

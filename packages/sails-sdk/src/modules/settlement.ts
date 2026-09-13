@@ -182,15 +182,17 @@ export interface PayoutAddress {
 
 /**
  * Missão 11 Fase 9.3.4 — the shape `getPayoutAddress()` actually
- * returns. Deliberately NOT `PayoutAddress` — that full row (including
- * `id`/`createdAt`/`updatedAt`) is only ever returned to an
- * AUTHENTICATED, self-referential caller (`setPayoutAddress()`, where
- * the caller IS the participant registering their own address).
- * `getPayoutAddress()` is public-by-lookup (no session), so it returns
- * only what a counterparty needs to route a settlement: participantId/
- * asset (the lookup keys) and address (the committed payout
- * destination) — never internal bookkeeping. See
- * `src/modules/open-settlement/payout-address.service.ts`'s
+ * returns. Deliberately NOT `PayoutAddress` — the full row (including
+ * `id`/`createdAt`/`updatedAt`) is never returned by either method now:
+ * `setPayoutAddress()` and `getPayoutAddress()` are both authenticated
+ * and self-referential (the caller can only act on/read their own
+ * registered address — F-06, System Coherence & Integration Audit,
+ * 2026-09-13, corrected `getPayoutAddress()` from a public, no-session
+ * lookup to this same self-scoped shape). This projection returns only
+ * participantId/asset (the lookup keys) and address (the committed
+ * payout destination) — never internal bookkeeping, per INV-OP-10's
+ * minimum-necessary-disclosure rule, independent of the auth question.
+ * See `src/modules/open-settlement/payout-address.service.ts`'s
  * `PublicPayoutAddressView` (the server-side source of this shape).
  */
 export interface PublicPayoutAddress {
@@ -866,14 +868,23 @@ export class SailsSettlementModule {
   }
 
   /**
-   * Public read, no session required — a counterparty legitimately
-   * needs to look up who they're paying.
+   * Requires an active session, self-scoped — the server only permits a
+   * caller to look up their own registered payout address
+   * (F-06, System Coherence & Integration Audit, 2026-09-13; Privacy
+   * Decision Review, COHERENCE-CORRECTIVE-1).
+   *
+   * Corrected from "public read, no session required — a counterparty
+   * legitimately needs to look up who they're paying": that rationale
+   * described no real caller. Every real release path resolves the
+   * beneficiary's own registered address server-side (M8-R2) rather
+   * than accepting one from any caller, and this SDK's own only real
+   * consumer (packages/sails-ui/src/pages/Trade.tsx) always calls this
+   * with the logged-in user's own id.
    *
    * Missão 11 Fase 9.3.4 — narrowed from `PayoutAddress` to
    * `PublicPayoutAddress`: the server no longer returns `id`/
    * `createdAt`/`updatedAt` here at all (a privacy-minimization fix,
-   * not a client-side filter). No known caller of this SDK read those
-   * fields from this method's result.
+   * not a client-side filter, unchanged by the F-06 correction above).
    */
   async getPayoutAddress(
     participantId: string,
@@ -881,6 +892,8 @@ export class SailsSettlementModule {
   ): Promise<PublicPayoutAddress> {
     return this.transport.get<PublicPayoutAddress>(
       `/v1/settlement/payout-addresses/${participantId}/${asset}`,
+      undefined,
+      true,
     );
   }
 }

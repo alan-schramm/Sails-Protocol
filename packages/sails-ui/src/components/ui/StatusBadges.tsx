@@ -13,7 +13,7 @@ import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { badgeVariants } from './badge'
 import { cn } from '../../lib/utils'
 import {
-  Zap, Clock, CheckCircle2, AlertTriangle, XCircle, Circle, Lock, RotateCcw, PauseCircle, type LucideIcon,
+  Zap, Clock, CheckCircle2, AlertTriangle, XCircle, Circle, Lock, RotateCcw, PauseCircle, Scissors, type LucideIcon,
 } from 'lucide-react'
 
 // Routes through badgeVariants' own base shape (shared with the generic
@@ -74,12 +74,18 @@ export function TradeStatusBadge({ status }: { status: TradeStatus }) {
 // EscrowStatus value (../../types.ts, mirroring prisma/schema.prisma)
 // this Record was missing — TypeScript's own Record<EscrowStatus, ...>
 // exhaustiveness check would otherwise fail this package's build the
-// moment the type gained the value. SPLIT (RFC-021 D9) is a separate,
-// pre-existing gap in this same Record, unrelated to and predating this
-// fix — disclosed, not fixed here.
+// moment the type gained the value. SPLIT (RFC-021 D9) closed 2026-09-13
+// (F-01, System Coherence & Integration Audit) — a real, terminal,
+// partial-payout outcome, reachable only via a dispute ruling; distinct
+// from DISPUTED (still open) and from COMPLETED/REFUNDED (either party
+// received the full amount, not a share). violet is used for no other
+// status here, so this color is never ambiguous with an existing
+// meaning; the Scissors icon mirrors Disputes.tsx's own SPLIT action
+// button.
 const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
   CREATED: 'Criado', FUNDS_LOCKED: 'Fundos travados', PAYMENT_PENDING: 'Aguardando pagamento',
   COMPLETED: 'Concluído', DISPUTED: 'Em disputa', REFUNDED: 'Reembolsado', EXPIRED: 'Expirado',
+  SPLIT: 'Dividido entre as partes',
 }
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
   CREATED: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
@@ -89,10 +95,11 @@ const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
   DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-500',
   REFUNDED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
   EXPIRED: 'border-orange-500/25 bg-orange-500/10 text-orange-500',
+  SPLIT: 'border-violet-500/25 bg-violet-500/10 text-violet-500',
 }
 const ESCROW_STATUS_ICON: Record<EscrowStatus, LucideIcon> = {
   CREATED: Circle, FUNDS_LOCKED: Lock, PAYMENT_PENDING: Clock, COMPLETED: CheckCircle2,
-  DISPUTED: AlertTriangle, REFUNDED: RotateCcw, EXPIRED: XCircle,
+  DISPUTED: AlertTriangle, REFUNDED: RotateCcw, EXPIRED: XCircle, SPLIT: Scissors,
 }
 export function EscrowStatusBadge({ status }: { status: EscrowStatus }) {
   return <Pill className={ESCROW_STATUS_COLOR[status]} icon={ESCROW_STATUS_ICON[status]}>{ESCROW_STATUS_LABEL[status]}</Pill>
