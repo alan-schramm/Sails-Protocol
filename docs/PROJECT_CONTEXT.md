@@ -1159,6 +1159,35 @@ this document.** The network flywheel itself is explicitly labeled a
 product hypothesis, not a claim of achieved adoption. No protocol, SDK,
 Core, or UI change. Full text lives there, not duplicated here.
 
+## 2K. System Coherence & Integration Audit — pointer (`SYSTEM-COHERENCE-1`, 2026-09-13)
+
+`docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md` is an adversarial,
+cross-layer audit of everything institutionalized through §2A-§2J plus
+`docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
+(2026-09-12) against real, current runtime — not a re-confirmation that
+the system is correct. Headline findings: **`EscrowStatus.SPLIT`'s
+UI/schema gap has a precisely root-caused defect** (`deriveTradeState()`'s
+dispute-branch returns before ever consulting the already-correct
+`trade.status`, verified against `handlers.ts`'s real `settlement.escrow.split`
+handler); the payout-address privacy gap (§2I) remains registered, not
+resolved; ADR-002's new `Asset`/`SettlementRail`/`SettlementScope`
+architecture (frozen the same day as `MISSÃO 2`) is not yet
+cross-referenced in `docs/P2P_PRODUCT_JOURNEY.md` or
+`docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md`; and the canonical journey's
+own "Wallet/Signer Boundary" step has no real, separate instance in the
+reference UI (Identity and Wallet Connection remain one artifact, §2I's
+own finding, restated with a precise journey-step diagnosis). **Mission
+3 Gate verdict, corrected `SYSTEM-COHERENCE-GATE-R1`: MISSION 3 — HOLD
+FOR TWO BOUNDED CORRECTIVE MISSIONS** (supersedes this section's
+original "not blocked" reading) — F-01 (SPLIT) and F-06 (payout-address)
+may be fixed in parallel with each other, never in parallel with
+Mission 3, since Mission 3 would design directly on top of the two
+truths they prove are currently broken (*technical independence does
+not imply sequencing independence*). Sequencing: `#139 merge → #140
+freeze → F-01 → F-06 → bounded re-audit → Mission 3`. **No fix
+implemented, no runtime changed.** Full text lives there, not
+duplicated here.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem
