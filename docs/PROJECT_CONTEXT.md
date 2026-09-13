@@ -1138,6 +1138,27 @@ angled evidence) — not decided, not selected. **No authentication
 mechanism was implemented, changed, or removed; no UI was corrected.**
 Full text lives there, not duplicated here.
 
+## 2J. Sails Market Distribution & Network Flywheel — pointer (`P2P-JOURNEY-GATE-R1`, 2026-09-13)
+
+`docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md` institutionalizes how Sails
+Market (`sails-ui`) relates to Native SDK Participation and to
+External/Hardware Wallet Participation — as a distribution surface over
+one shared protocol contract, not a parent either other path depends
+on — with Mermaid diagrams for access topology, SDK-vs-universal-access
+convergence, the network flywheel, and capability-gated wallet
+participation. Preserves `WalletAdapter ≠ SettlementProvider`, `Access
+through Sails Market ≠ native adoption`, `Better integration ≠
+privileged semantics` (restating, not redefining,
+`docs/PROJECT_CONTEXT.md` §2D item 7 and
+`docs/PRODUCT_INTERACTION_MODEL.md` §6's own frozen rows), and *"One
+market. Many interfaces. Many wallet stacks. Shared economic meaning."*
+**`MetaMask`/`Xverse`/`OKX`/`Ledger`/`Trezor` are cited only as
+illustrative future-compatible example classes — no external wallet
+connector, passkey, or Breez Auth mechanism exists or is authorized by
+this document.** The network flywheel itself is explicitly labeled a
+product hypothesis, not a claim of achieved adoption. No protocol, SDK,
+Core, or UI change. Full text lives there, not duplicated here.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem

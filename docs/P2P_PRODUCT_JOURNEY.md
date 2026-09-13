@@ -59,8 +59,8 @@ material respect corrected below (§1.1).
 
 | # | Macro-stage (mission's vocabulary) | Trade Lifecycle (`PROTOCOL_SPECIFICATION.md` §3) | Product Direction | Representable | Implemented | Real | Evidenced | Beta Eligible | Production Eligible |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | Discovery | 01 OFFER CREATED, 02 COUNTERPARTY FOUND | ✅ | ✅ | ✅ | ✅ (`Offer` table, `Marketplace.tsx`) | ✅ | ✅ | ✅ |
-| 2 | Offer Evaluation | (within 02) | ✅ | ✅ | ✅ (`OfferDetail`-class screen, `FilterPanel.tsx`) | ✅ | ✅ | ✅ | ✅ |
+| 1 | Discovery | 01 OFFER CREATED, 02 COUNTERPARTY FOUND | ✅ | ✅ | ✅ | ✅ (`Offer` table, `Marketplace.tsx`) | ✅ | ✅ | ⚠️ — see §1.2 |
+| 2 | Offer Evaluation | (within 02) | ✅ | ✅ | ✅ (`OfferDetail`-class screen, `FilterPanel.tsx`) | ✅ | ✅ | ✅ | ⚠️ — see §1.2 |
 | 3 | Economic Commitment | 03 CHAT OPEN → 04 AGREEMENT CONFIRMED | ✅ | Partial — see §2 | Partial | Partial | Partial | ⚠️ | ⚠️ |
 | 4 | Trade Lifecycle (coordination) | 04→05, `Trade`/`TradeStatus` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ (see §4 provider caveats) |
 | 5 | Payment/Funding | 06 PAYMENT INITIATED | ✅ | Partial — see §9/§10 | Partial (fiat: chat+proof; crypto lock: real per-provider) | Partial | Partial | ⚠️ | ⚠️ |
@@ -103,6 +103,63 @@ here; its own text already described this as the target. Flagged in
 `PROTOCOL_SPECIFICATION.md` itself — not made here, since that document
 is outside this mission's own edit list (§22 of the mission brief).
 
+### 1.2 Maturity correction — Discovery / Offer Evaluation (`P2P-JOURNEY-GATE-R1`, 2026-09-13)
+
+**Original §1 table over-claimed Production Eligible ✅ for both rows
+without checking either real, applicable gate below.** Corrected here
+using GitHub Issue #105's own maturity discipline (*"EXISTS ≠
+IMPLEMENTED ≠ REAL ≠ EVIDENCED ≠ PRODUCTION ELIGIBLE"*, its own
+2026-09-10 comment).
+
+**Gate 1 — Technical Debt #61 (public Offer privacy defect), independently
+re-verified against real code, 2026-09-13 (not taken from either
+document's own claim):** `src/modules/open-liquidity/liquidity.service.ts`'s
+`getOffer()` (the real handler for `GET /v1/liquidity/offers/:id`,
+`OfferDetail.tsx`'s data source) uses an explicit Prisma `select` that
+excludes `paymentDetails` and every non-canonical `User` field, mapped
+through `mapOfferToPublicDetail()` into a dedicated `PublicOfferDetail`
+type — verified line-by-line, not inferred from the doc's own claim.
+**This defect is fixed, not open** — `docs/TECHNICAL_DEBT_AUDIT.md`
+item #61's own section **heading** still reads "— OPEN," but its body
+(the "Remediation (Bounded, 2026-09-10)" subsection, two paragraphs
+below the heading) already documents this exact fix with real
+evidence (`tests/publicOfferDetailDisclosure.test.ts`, 11 tests;
+157/157 suites green at the time). GitHub Issue #105's own item 37
+text ("Close Technical Debt #61 before Partner Beta... currently
+returns raw `Offer.paymentDetails`") is stale for the same reason —
+neither is corrected here (out of this document's own edit list), both
+are named as documentation deltas (§26). **Gate 1 does not block
+Production Eligible.**
+
+**Gate 2 — Day-0 Multi-Operator Network completion (Issue #105's own,
+much larger gate), the real reason Production Eligible does not
+apply:** Issue #105's own completion rule states *"this issue is not
+complete because tickets are closed. It is complete only when the
+named properties have evidence and the Partner Beta / Production gates
+accept that evidence."* Its ordered path (items 1-25) names portable
+signed Offers, persistent Transport Identity, propagation/bootstrap,
+anti-entropy/partition-healing, multi-node discovery/convergence, a
+self-authenticating Node Descriptor, cross-node trade-open handshake,
+and eleven required adversarial network tests (Late Join, Partition
+Heal, Tombstone Resurrection, Eclipse, Node-Key Rotation, ...) — **none
+of which exist in this single-node reference implementation** (already
+established, not re-derived here: `docs/PRODUCT_INTERACTION_MODEL.md`
+§3's own frozen A/B/C/D identity taxonomy confirms Operational Sails
+Node Identity, C, "does not exist yet," and `docs/DAY0_COMPLETENESS_COLD_SWEEP.md`
+is the full evidence trail). Discovery today means "discover offers on
+this one node's own database" — real, correct, and evidenced *for a
+single node* — not yet "discover offers across a Day-0 Multi-Operator
+Sails Network," which is what Issue #105's own title names as the
+Production gate. **This is the real, applicable reason Discovery/Offer
+Evaluation are Beta Eligible (single-node, real, evidenced) but not
+Production Eligible** — independent of, and unrelated to, Technical
+Debt #61.
+
+Corrected classification: **Discovery/Offer Evaluation: Beta Eligible
+✅ (single-node); Production Eligible ⚠️ gated on Day-0 Multi-Operator
+Network completion (Issue #105), not on Technical Debt #61 (verified
+closed).**
+
 ---
 
 ## 2. Economic Commitment Boundary
@@ -128,21 +185,20 @@ implemented or proposed here — only what the product must make legible.
 | Fee/policy version | `FeeCollectionEvidence.distributionPolicyVersionId`, frozen at `COLLECTED` time (`docs/DATABASE.md` §3) | ✅ for the *distribution* side; **`protocolFeeRate` itself defaults to `0`** in every environment this repo evidences | The mechanism to freeze a fee/policy version at commitment time is real and CTO-frozen (Missão 11 Fase 7.2) — but since `protocolFeeRate` has never been non-zero in evidence, this axis is real infrastructure with no live economic instance yet. Legitimate deferral (G). |
 | Arbitration authority/policy | `.env`'s `TRUSTED_ARBITRATORS`, `ARBITRATION_MODE` | ✅ but **not bound per-trade** — it is a deployment-wide setting, read at dispute time, not committed at trade-creation time | A participant commits to a trade without knowing, at that moment, which specific arbiter identity would resolve a future dispute (only that *some* trusted/market arbiter exists under the deployment's current policy). Legitimate deferral (G) — binding a specific arbiter ahead of any dispute would be over-engineering for a mechanism most trades never use. |
 
-### 2.2 The boundary itself
+### 2.2 Current Runtime Coordination Commitment (corrected `P2P-JOURNEY-GATE-R1`, 2026-09-13 — was mislabeled "the Economic Commitment Boundary")
 
-**The Economic Commitment Boundary is `Trade` creation** — the moment
-`POST` to create a Trade from an accepted Offer succeeds
-(`trade.service.ts`'s `createTrade()`). Before this moment: everything
-is `Offer` browsing, filtering, and chat-based negotiation — fully
-reversible, no economic exposure. At this moment: `Trade.amount`,
-`priceUsd`, `totalUsd`, `asset`, `offerId`, `buyerId`, `sellerId` are
-durably persisted and, where `offer.intentId` exists (§1.1), the Intent
-Engine transitions into `NEGOTIATING`. **This is a coordination
-commitment, not yet a funds commitment** — no asset has moved and no
-escrow has locked anything at `Trade` creation; that is `Escrow.status:
-FUNDS_LOCKED`, a later, separately-observable moment (Trade Lifecycle
-state 05). Two distinct commitment moments exist, and conflating them
-would violate the mission's own `Offer ≠ Trade ≠ Settlement` rule:
+**`Trade` creation is the Current Runtime Coordination Commitment — not
+a complete Economic Commitment Boundary.** The moment `POST` to create
+a Trade from an accepted Offer succeeds (`trade.service.ts`'s
+`createTrade()`): before it, everything is `Offer` browsing, filtering,
+and chat-based negotiation — fully reversible, no economic exposure.
+At this moment: `Trade.amount`, `priceUsd`, `totalUsd`, `asset`,
+`offerId`, `buyerId`, `sellerId` are durably persisted and, where
+`offer.intentId` exists (§1.1), the Intent Engine transitions into
+`NEGOTIATING`. **This is a coordination commitment, not yet a funds
+commitment** — no asset has moved and no escrow has locked anything at
+`Trade` creation; that is `Escrow.status: FUNDS_LOCKED`, a later,
+separately-observable moment (Trade Lifecycle state 05):
 
 ```
 Coordination commitment  →  Trade row created (reversible via CANCELLED
@@ -156,10 +212,61 @@ Funds commitment          →  Escrow.status: FUNDS_LOCKED (an asset is
                               at stake for whichever party funded it)
 ```
 
+**Neither of the above is the *complete* Economic Commitment Boundary
+this mission's own §2 question asked about.** §2.1's own table already
+found several of the terms Issue #105 requires bound are *not* yet
+durably bound at `Trade` creation (the accepted Offer revision/envelope
+itself; the payment-destination commitment; arbitration policy). §2.3
+names the real, target boundary these gaps are measured against.
+
 **Issue #105's own institutional truth, reapplied:** `Economic
 Disposition Authority ≠ Destination Authority ≠ Execution Authority`
 (F1 closure) governs *after* commitment, not the commitment moment
 itself — reconfirmed, not re-litigated, in §16.
+
+### 2.3 Target Economic Commitment Boundary (Issue #105, Cold Sweep Loops 2-3 — restated, not redesigned)
+
+**Definition:** the Target Economic Commitment Boundary is the point at
+which every material economic term Issue #105 requires is durably
+bound — not merely `Trade.amount`/`priceUsd`/`totalUsd` (already real,
+§2.1) but the full set below, verbatim from Issue #105's own Cold Sweep
+Loop 2 (item 27) and Loop 3 (items 30-36):
+
+> *"Trade-open anchor must bind exact accepted Offer revision/envelope
+> hash + amount + price + asset + network/rail + required payment
+> semantics + tradeId"* (item 27); *"Exact fiat amount/currency/
+> payment-method commitment before fiat payment becomes binding"* (30);
+> *"Privacy-preserving payment-destination commitment"* (31);
+> *"Authenticated amendment required for any post-commit
+> payment-instruction change"* (32); *"Selected settlement mechanism /
+> EscrowType / custody semantics bound before economic commitment"*
+> (33); *"Participant-facing fee/policy version frozen before
+> commitment"* (34); *"Cross-node arbitration authority/policy/appeal
+> semantics fixed by the trade/settlement agreement"* (35).
+
+**Preserved, verbatim:** *Offer Identity ≠ Accepted Offer Revision*;
+*Trade ID ≠ Economic Terms* (Issue #105, Cold Sweep Loop 2).
+
+**Current reality against this target (§2.1's table, restated as a
+gap list, nothing new):**
+
+| Issue #105 item | Bound today? |
+|---|---|
+| 27 — exact accepted Offer revision/envelope hash | **No** — `Trade.offerId` is a live FK, not a snapshotted hash of the exact revision shown at acceptance |
+| 27 — amount, price, asset, tradeId | **Yes** — `Trade.amount`/`priceUsd`/`totalUsd`/`asset`/`id` |
+| 27 — network/rail | **Partial** — `Trade.network` nullable; `Escrow.type` resolved system-side, not participant-chosen |
+| 30 — fiat amount/currency/payment-method | **Partial** — USD leg real; BRL (`priceBrl`) nullable |
+| 31 — payment-destination commitment | **No** — exchanged as free-text chat, not a structured, bound field |
+| 32 — authenticated amendment for post-commit payment-instruction change | **No** mechanism exists to bind or amend one at all yet (31 is a precondition) |
+| 33 — settlement mechanism/`EscrowType` bound before commitment | **Yes** — resolved and persisted at escrow-creation, immediately after `Trade` creation |
+| 34 — fee/policy version frozen | **Yes, mechanically** (`FeeCollectionEvidence.distributionPolicyVersionId`) — but never yet economically live (`protocolFeeRate` always `0`) |
+| 35 — arbitration authority/policy fixed per-trade | **No** — deployment-wide setting, read at dispute time |
+
+**No cryptographic anchor is implemented, designed, or proposed by this
+section** — per the mission's own explicit instruction, this maps only
+what the product must make legible; hashing/signing a trade-open anchor
+(item 27's own "hash") remains Issue #105's own future evidence
+obligation, not something this document builds toward a mechanism for.
 
 ---
 

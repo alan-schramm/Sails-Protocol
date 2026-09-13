@@ -66,18 +66,54 @@ narrower (§5.3).
 | `POST /v1/liquidity/offers` | **Yes** | Publish an offer — requires a real Participant to attribute it to |
 | `GET /v1/liquidity/offers/mine` | **Yes** | Participant-scoped, correctly |
 | `PATCH /v1/liquidity/offers/:id/status` | **Yes** | Mutates the caller's own offer |
-| `POST /v1/openp2p/trades` | **Yes** | **The Economic Commitment moment itself** (`docs/P2P_PRODUCT_JOURNEY.md` §2) |
+| `POST /v1/openp2p/trades` | **Yes** | **The Current Runtime Coordination Commitment** (`docs/P2P_PRODUCT_JOURNEY.md` §2.2 — corrected `P2P-JOURNEY-GATE-R1`: real and authenticated, but not the *complete* Target Economic Commitment Boundary, §2.3) |
 | `GET /v1/openp2p/trades/:id`, `GET /v1/openp2p/trades` | **Yes** | Contains negotiation + payment-instruction content — correctly participant-scoped (`trade.routes.ts`'s own comment cites a real, previously-fixed IDOR here) |
 | Every `/v1/settlement/escrow/*`, `/v1/settlement/disputes/*` write and detail route | **Yes**, uniformly | Once a trade/escrow/dispute exists, everything about it is participant- or arbiter-scoped |
 | `GET /v1/settlement/arbitration/profile/:participantId` | **No** | Public arbiter reputation lookup — a legitimate public trust signal, same register as an offer's seller reputation |
 | `GET /v1/settlement/payment-accounts/:accountHash` | **No** | Lookup by an already-privacy-preserving hash, not a raw identifier |
-| `GET /v1/settlement/payout-addresses/:participantId/:asset` | **No** | A registered payout address — no stronger privacy than any on-chain address already has once used |
+| `GET /v1/settlement/payout-addresses/:participantId/:asset` | **No** | A registered payout address — **current runtime reality, not evaluated as automatically legitimate; see §1.3.1** |
 
 **The real, current backend boundary is precisely: read = public where
 the content is inherently non-participant-private (offers, arbiter
-reputation, hashed payment-account lookups, payout addresses); write
-= authenticated, always.** This is not a partial or accidental
-boundary — it is applied consistently across every module audited.
+reputation, hashed payment-account lookups); write = authenticated,
+always.** This is not a partial or accidental boundary for offers/
+arbiter-reputation/payment-account-hash lookups — it is applied
+consistently across every module audited. **The payout-address route
+is a separate case, reconciled below (§1.3.1), not folded into this
+same "inherently non-private" framing without checking it first.**
+
+#### 1.3.1 Payout-address exposure, reconciled against the frozen Privacy Matrix (corrected `P2P-JOURNEY-GATE-R1`, 2026-09-13)
+
+**Correction to this document's own original framing:** the first pass
+above classified `GET /v1/settlement/payout-addresses/:participantId/:asset`
+as unproblematic ("no stronger privacy than any on-chain address
+already has once used") without checking it against
+`docs/PRODUCT_INTERACTION_MODEL.md` §5's own, already-frozen Privacy
+Matrix. Checked now: that matrix's own "Payout/destination address" row
+reads `● (own) | ○ (unless protocol requires disclosure to complete
+settlement) | ○ | ○ | ◐ (disputed case only) | ○ | ○ | ○` — i.e. the
+owner sees it fully, and every other actor including **Public** is
+frozen at `○` (no access) unless a specific, named exception applies.
+
+**Current runtime reality, stated plainly, not judged as legitimate or
+illegitimate by this document:** `GET /v1/settlement/payout-addresses/:participantId/:asset`
+has no `requireAuth` — any caller, including an unauthenticated one and
+the general public, can resolve any participant's registered payout
+address for a given asset today. This is a real, verified (2026-09-13)
+discrepancy between the already-frozen Privacy Matrix's own `Public: ○`
+column and the real, current route's actual `●`-equivalent behavior —
+not a case this document classifies as fine, and not one it decides how
+to close.
+
+**Privacy review gap, registered, not solved:** whether this route's
+current public reachability is an intentional, narrow exception (the
+same register as an on-chain address's own inherent post-use
+visibility — a plausible reading, but not decided here) or a real
+non-conformance with the frozen Privacy Matrix that should gain
+`requireAuth` (or an equivalent narrower disclosure rule, e.g. scoped
+to an active trade's own counterparty) is a genuine open question,
+registered as a Backlog delta (§8) for a future privacy review — **no
+mechanism is proposed, chosen, or implemented here.**
 
 ### 1.4 "Wallet Connection" does not exist as a separate step today
 
@@ -165,17 +201,20 @@ confirmed at both the routing layer (§1.1-1.2) and the backend layer
 (§1.3). No account, session, or identity of any kind is required to
 open the app, browse every offer, or view any offer's full detail.
 
-**Quais dados continuam privados mesmo com discovery público?**
-Everything `docs/PRODUCT_INTERACTION_MODEL.md` §5's Privacy Matrix and
-`docs/P2P_PRODUCT_JOURNEY.md` §17 already freeze: payment
-details/destination, payout address resolution logic (the address
-itself is publicly queryable by id+asset, but never derived or
-overridden by a non-owner), chat content, dispute evidence, a trade's
-own negotiation detail (`GET /v1/openp2p/trades/:id` requires auth
-specifically because it carries this). Public discovery never widens
-any of these — confirmed by the same route audit (§1.3): every route
-carrying such content already requires auth, independent of this
-mission's own findings about Discovery being public.
+**Quais dados continuam privados mesmo com discovery público?** Payment
+details/destination, chat content, dispute evidence, and a trade's own
+negotiation detail (`GET /v1/openp2p/trades/:id` requires auth
+specifically because it carries this) — everything
+`docs/PRODUCT_INTERACTION_MODEL.md` §5's Privacy Matrix and
+`docs/P2P_PRODUCT_JOURNEY.md` §17 already freeze, confirmed by the same
+route audit (§1.3): every route carrying such content already requires
+auth, independent of this mission's own findings about Discovery being
+public. **One exception, not folded into the above without
+qualification:** the registered payout *address* itself
+(`GET /v1/settlement/payout-addresses/:participantId/:asset`) is
+publicly queryable today, which is a real, verified discrepancy against
+the same Privacy Matrix's own `Public: ○` for that row — reconciled,
+not resolved, at §1.3.1.
 
 ---
 
@@ -253,12 +292,18 @@ Funds Authority` — checked one by one:
    of funds, which does not exist anywhere in this protocol's model
    (`docs/PRODUCT_INTERACTION_MODEL.md`'s own "no platform-operator
    visibility"/no-custody framing, restated not redefined).
-5. **Visibility does not imply authority** — real and enforced: every
-   public read route audited (§1.3) has no corresponding write
-   capability; `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`'s own
-   Economic Disposition Authority ≠ Destination Authority ≠ Execution
-   Authority distinction (restated in `docs/P2P_PRODUCT_JOURNEY.md` §16)
-   is the same principle one layer deeper in the journey.
+5. **Visibility does not imply authority** — real and enforced for
+   authority: every public read route audited (§1.3) has no
+   corresponding write capability; `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`'s
+   own Economic Disposition Authority ≠ Destination Authority ≠
+   Execution Authority distinction (restated in
+   `docs/P2P_PRODUCT_JOURNEY.md` §16) is the same principle one layer
+   deeper in the journey. **This principle is about authority, not
+   privacy** — the payout-address route (§1.3.1) shows visibility
+   itself can still exceed the already-frozen Privacy Matrix's own
+   intent even where no authority ever changes hands; the two questions
+   are independent and this finding does not weaken the authority
+   claim above.
 
 ---
 
@@ -299,6 +344,8 @@ explicit non-goal.
 | `AgentIntentionPanel.tsx`'s unauthenticated dead-end (toast, no redirect-with-return) | **H** — a minor, real implementation-consistency gap, not a security or product-truth issue |
 | No passkey/Breez-Auth-as-login candidate is registered anywhere (only as recovery-root evidence) | **A** — a real, narrow angle of product truth not yet named, now named here |
 | `WalletAdapter` (RFC-013) already supports decoupling identity from signing, unused today | **G** — legitimate deferral (no real external-wallet integration exists to need it yet) |
+| `GET /v1/settlement/payout-addresses/:participantId/:asset` is publicly reachable, contradicting `docs/PRODUCT_INTERACTION_MODEL.md` §5's own frozen `Public: ○` for that row (§1.3.1) | **A** — Product truth (the frozen Privacy Matrix) not enforced by real runtime behavior; registered as a privacy review gap, not solved here |
+| `docs/P2P_PRODUCT_JOURNEY.md`'s original labeling of `POST /v1/openp2p/trades` as "the Economic Commitment moment itself" | **H** — corrected upstream (`docs/P2P_PRODUCT_JOURNEY.md` §2.2, `P2P-JOURNEY-GATE-R1`) to Current Runtime Coordination Commitment; this document's own reference updated to match |
 
 ---
 
@@ -307,10 +354,14 @@ explicit non-goal.
 - **New:** this document, `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md`.
 - **`docs/PROJECT_CONTEXT.md`:** one short cross-link (§2I, below).
 - **`docs/BACKLOG.md`:** one new item registering §6's candidate and
-  §7's findings — no existing item altered.
+  §7's findings, plus the §1.3.1 privacy review gap — no existing item
+  altered.
 - **Not touched:** `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` (its §5.1
   is cited, not amended — its own framing is accurate for its own
-  scope and needs no correction).
+  scope and needs no correction); `docs/PRODUCT_INTERACTION_MODEL.md`
+  §5's Privacy Matrix (cited as the frozen reference the real route is
+  checked against, not amended — the matrix itself was already correct;
+  the runtime is what needs reconciling, not the frozen intent).
 
 ---
 

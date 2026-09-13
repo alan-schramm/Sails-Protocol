@@ -2707,4 +2707,85 @@ obligation" is defined anywhere in this repository.
     `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md`; pointer added at
     `docs/PROJECT_CONTEXT.md` §2I.
 
+31. **P2P Journey + Market Access Flywheel — reconciled, institutionalized,
+    not implemented (2026-09-13, `P2P-JOURNEY-GATE-R1`).** Four corrections
+    plus one new institutionalization, all docs-only:
+
+    **(a) Economic Commitment reframed.** `docs/P2P_PRODUCT_JOURNEY.md`
+    §2 previously labeled `Trade` creation "the Economic Commitment
+    Boundary." Corrected: `Trade` creation is the **Current Runtime
+    Coordination Commitment**; a new §2.3 defines the **Target Economic
+    Commitment Boundary** verbatim from GitHub Issue #105's own Cold
+    Sweep Loop 2 (item 27: exact accepted Offer revision/envelope hash +
+    amount + price + asset + network/rail + tradeId) and Loop 3 (items
+    30-36: fiat amount/currency/payment-method, payment-destination
+    commitment, settlement-mechanism binding, fee/policy-version freeze,
+    per-trade arbitration-policy binding), restated as a gap table
+    against §2.1's already-real bindings. No cryptographic anchor
+    implemented or designed.
+
+    **(b) Maturity corrected, with an independent verification that
+    contradicted the mission's own premise.** `docs/P2P_PRODUCT_JOURNEY.md`
+    §1's Discovery/Offer Evaluation rows were marked Production Eligible
+    without checking either real gate. Re-verified directly against
+    `src/modules/open-liquidity/liquidity.service.ts` (2026-09-13):
+    **Technical Debt #61 (public Offer privacy defect) is already fixed**
+    (`getOffer()`'s explicit `select` + `mapOfferToPublicDetail()`,
+    11 real adversarial tests) — `docs/TECHNICAL_DEBT_AUDIT.md` item
+    #61's own section *heading* and GitHub Issue #105's own item 37 text
+    are both stale relative to their own bodies/real code, named as
+    documentation deltas, not corrected here. The real, applicable gate
+    is different and larger: Issue #105's own Day-0 Multi-Operator
+    Network completion (items 1-25 — portable signed Offers, multi-node
+    discovery/gossip, eleven required adversarial network tests) does
+    not exist in this single-node reference implementation. Corrected
+    classification: Discovery/Offer Evaluation are **Beta Eligible**
+    (single-node, real, evidenced), **not Production Eligible**
+    (Day-0 Multi-Operator Network gate, unrelated to TD#61).
+
+    **(c) Payout-address framing corrected.** `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md`
+    originally judged `GET /v1/settlement/payout-addresses/:participantId/:asset`'s
+    public reachability as unproblematic without checking it against
+    `docs/PRODUCT_INTERACTION_MODEL.md` §5's own frozen Privacy Matrix.
+    Corrected (new §1.3.1): that matrix's own "Payout/destination
+    address" row freezes `Public: ○`; the real route is publicly
+    reachable today (`●`-equivalent) — a genuine, verified discrepancy
+    between frozen product intent and runtime reality, registered as a
+    **privacy review gap**, not solved or judged legitimate/illegitimate
+    here.
+
+    **(d) Sails Market Distribution & Network Flywheel institutionalized**
+    (new `docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md`, 4 Mermaid
+    diagrams): Native SDK Participation and Universal Market Access
+    (both real, shipped) vs. External/Hardware Wallet Participation
+    (RFC-013's `WalletAdapter` interface real, no connector implemented).
+    Preserves `WalletAdapter ≠ SettlementProvider`, `Access through
+    Sails Market ≠ native adoption`, `Better integration ≠ privileged
+    semantics` (restating `docs/PROJECT_CONTEXT.md` §2D item 7 and
+    `docs/PRODUCT_INTERACTION_MODEL.md` §6, not redefining them), and
+    *"One market. Many interfaces. Many wallet stacks. Shared economic
+    meaning."* `MetaMask`/`Xverse`/`OKX`/`Ledger`/`Trezor` appear only as
+    illustrative future-compatible example classes — no current or
+    planned support is claimed. The network flywheel diagram is labeled
+    an explicit product hypothesis, not achieved adoption.
+
+    **Merge sequencing:** PR #135 (Actor Experience Model, items 25-28's
+    home) was CTO-Frozen and independently re-verified
+    (`state: OPEN`, `mergeable: MERGEABLE`, all checks green) immediately
+    before merging — merged for real at `55706c2777dc2b4564f16bbbe781f14e7061b11a`
+    (two real parents confirmed). `docs/p2p-product-journey` (PR #139,
+    items 29-30's home) was rebased cleanly onto the resulting `main` —
+    zero conflicts (items 29/30 were already numbered correctly against
+    #135's own items 25-28, no renumbering needed this time) — then this
+    item's own corrections and new document were added on top and CI
+    re-run.
+
+    **Explicitly not implemented:** external wallet connectors, passkey,
+    Breez Auth, `FundingInstruction`, `SigningRequest`, new authority, UI
+    redesign. No Settlement architecture, Semantic Kernel, or Core
+    change. Full text: `docs/P2P_PRODUCT_JOURNEY.md` (corrected),
+    `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md` (corrected),
+    `docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md` (new); pointer added at
+    `docs/PROJECT_CONTEXT.md` §2J.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**
