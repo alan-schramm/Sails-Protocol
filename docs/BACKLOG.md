@@ -2550,4 +2550,57 @@ obligation" is defined anywhere in this repository.
     Context Navigation, side-aware price sort, and Public/Private
     Markets/Servers naming remain open exactly as item 26 left them.
 
+28. **Actor Experience Model — institutionalized, not implemented
+    (2026-09-12, corrected `ACTOR-EXPERIENCE-MODEL-R1`).** `MISSÃO 1`
+    created `docs/PRODUCT_INTERACTION_MODEL.md`, synthesizing the
+    USR/AGT/OPS/INT actor taxonomy (AGT split Assistive/Delegated-
+    Authority; OPS split Node/Arbiter/Reference-Deployment, all
+    evidence-based, none invented), an Actor Matrix, a Privacy Matrix, an
+    Authority Matrix, an Information Density Model, and the Wallet vs.
+    Service/Backend Integrator split — from already-frozen sources
+    (`docs/PROJECT_CONTEXT.md` §2D/§2E, `docs/SEMANTIC_KERNEL.md` §26,
+    `docs/adr/ADR-001-day0-multi-operator-network.md`,
+    `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5, GitHub Issues #99/#105/
+    #125/#86). Full text: `docs/PRODUCT_INTERACTION_MODEL.md`; pointer
+    added at `docs/PROJECT_CONTEXT.md` §2G. **`ACTOR-EXPERIENCE-MODEL-R1`**
+    renamed the actor notation from `A/B/C/D` to `USR/AGT/OPS/INT`
+    throughout — `A/B/C/D` remains reserved exclusively for the identity
+    taxonomy (Participant Economic Identity / Participant Transport
+    Identity / Operational Sails Node Identity / Operator Economic
+    Recipient); the two were never the same thing, but shared letters
+    invited exactly the collapse both this item and item 25's own A≠B≠C≠D
+    freeze independently warn against.
+
+    **Real gaps named, not closed:** Operator Surface (OPS's three
+    sub-roles) has no real implemented UI today; `ENFORCE_CAPABILITIES`
+    defaults `false` in this reference deployment — any future
+    Agent/Integrator-facing "capability scope" UI must reflect actual
+    per-deployment enforcement state, not assume it; Integrator-facing
+    capability/maturity documentation is real but scattered across
+    RFC-005/013/014 and `docs/PROJECT_CONTEXT.md` §2E — a documentation-
+    consolidation candidate, not a runtime gap.
+
+    **Explicitly not closed, not decided, not implemented:** Operational
+    Sails Node Identity (C) / Operator Economic Recipient (D) — remain
+    exactly as undesigned as `ADR-001` §26.3 already left them; recovery-
+    root/multi-protocol identity derivation (`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`) —
+    remains fully open, not touched; delegated-authority Agent Surface —
+    not designed, not authorized; any global Operator/participant-data
+    visibility — confirmed not to exist in the current codebase and not
+    proposed here. No `FundingInstruction`/`SigningRequest` implementation,
+    no Private Markets/server-discovery runtime, no new backend role or
+    auth system, no ADR (no new architectural constraint — this restates
+    and cross-references existing frozen distinctions, it does not add to
+    them). No Semantic Kernel or Core change.
+
+    **Numbering resolved (`ACTOR-EXPERIENCE-MODEL-R1`):** this item was
+    originally numbered 25 (computed against `main`'s own last item, 24,
+    at the time `MISSÃO 1` started) while PR #134's own
+    `NAVIGATION-FILTER-1` mission independently added its own item 25 on
+    its own branch from the same baseline — the same foreseeable
+    git-merge-order consequence `MERGE-SEQUENCE-1` resolved for items
+    23/24. PR #134 (occupying 25/26/27) merged first
+    (`955520841befb41d4ae9d3d7734363ae330434fa`); this item is renumbered
+    to **28** as part of rebasing onto the resulting `main`.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**
