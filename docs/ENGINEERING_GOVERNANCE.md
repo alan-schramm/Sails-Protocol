@@ -1161,16 +1161,63 @@ an error before a human sees it. The conceptual mapping a layer boundary
 must preserve:
 
 ```
-Runtime Code → SDK Type → Semantic Category → Retryability →
-Economic State Impact → Required Action → Product Presentation
+Runtime Code → API/Error Envelope → SDK Typed Error → Semantic Category
+→ Retryability → Economic State Impact → Required Recovery Action →
+Product Presentation
 ```
 
-A backend 401 becoming an SDK type that a UI then treats as "nothing to
+Each layer may add context; none may change the underlying meaning. A
+backend 401 becoming an SDK type that a UI then treats as "nothing to
 sign" (exactly `PRE-M3-REALITY-GATE-1`'s P3-F01/P3-F03 bug) is this rule
-being violated, not a UI wording choice — different products may word
-the resulting message however fits their audience, but they may not
-disagree on whether the situation is retryable, whether it implies an
-economic-state change, or what action it requires.
+being violated, not a UI wording choice — different products, partner
+wallets, and integrators may word the resulting message however fits
+their audience, but they may not disagree on whether the situation is
+retryable, whether it implies an economic-state change, or what action
+it requires.
+
+**Four preservation rules — restatements of the same principle at
+different points in the chain, not four new rules:**
+
+1. **Error meaning must survive translation.** An auth error must not
+   become a generic error when the correct recovery is reauthentication;
+   a forbidden must not become "try again" when the real problem is
+   authority; an external timeout must not become "transaction failed"
+   when the real outcome is unknown; a circuit breaker must not present
+   as a definitive economic failure.
+2. **Retryability is semantic, not an arbitrary UI choice** — e.g. auth
+   expired → recoverable after auth; forbidden → not retryable without
+   an authority change; rate limit → retryable later; transport failure
+   → potentially retryable, but economic side effects may need
+   reconciliation; internal/economic-integrity ambiguity → fail closed /
+   operator attention; absence → may be a legitimate no-op depending on
+   context. Illustrative, not an exhaustive or permanent taxonomy of
+   every protocol error.
+3. **Economic-state implication must remain explicit.** A technical
+   failure does not automatically define an economic outcome; an
+   unknown external outcome must not be rewritten as a failed economic
+   action — this section's Absence ≠ Failure ≠ Unknown, applied
+   specifically to an economic side effect.
+4. **Product copy is not protocol truth.** Human-facing copy is a
+   presentation layer over stable error semantics, not the canonical
+   error model itself. Sails Market, a partner wallet, and a direct API
+   integrator may each word a message differently — none may turn
+   rejected into unavailable, unknown into failed, pending into error,
+   hide an authority rejection as a connectivity issue, or treat absence
+   as success for convenience.
+
+**Current typed-parity gap — registered as a future audit obligation,
+not a runtime defect fixed here:** verified directly, not assumed —
+`src/common/errors/index.ts` defines real backend error codes
+(`ECONOMIC_AUTHORITY_AMBIGUITY`, `CIRCUIT_BREAKER_OPEN`,
+`RATE_LIMIT_UNAVAILABLE`, among others) that
+`packages/sails-sdk/src/errors.ts`'s `ERROR_CODE_MAP` does not yet map
+to a dedicated subclass; an unrecognized code falls through to the
+generic `SailsError` fallback in `errorFromResponseBody()` (that
+function's own comment: "still a real, well-formed Sails error
+response, just not one of the known AppError subclasses"). Information
+is preserved — the real `code`/`statusCode`/`message` are never lost —
+but typed parity across every backend code is incomplete. Registered as
+a backlog obligation (`docs/BACKLOG.md` item 34), not implemented here.
 
 ### 16.18 Agent Authority (extends §7)
 

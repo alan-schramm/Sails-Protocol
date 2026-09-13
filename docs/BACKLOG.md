@@ -2993,19 +2993,40 @@ obligation" is defined anywhere in this repository.
     itself. **Not a new macrofront** — reuses `docs/NORTE_FIXO.md` front
     21 (SDK/DX), the correct existing home for an SDK↔backend typed-
     contract parity concern; cross-referenced there rather than
-    duplicated. Scope for a future bounded mission: Backend↔SDK typed-
-    error parity (does every server error class the SDK's own
-    `packages/sails-sdk/src/errors.ts` hierarchy claims to cover actually
-    map 1:1, repo-wide, not just for the Settlement module this mission's
-    companion PR happened to touch); semantic category / retryability /
-    economic-state impact classification, made explicit per error type,
-    not left to each call site to infer; product-facing recovery
-    semantics (does a caught error actually tell the product what to do,
-    not just that something failed); Sails Market and partner UI
-    presentation consistency (no requirement for identical copy across
-    products — only that meaning/retryability/economic-state/recovery
-    never silently drift between them). **Explicitly not decided or
-    implemented here:** no runtime, API, SDK, or UI change; no new error
-    type; no new taxonomy beyond the one already named in §16.17.
+    duplicated. **Scope for a future bounded mission:**
+
+    1. Backend↔SDK typed-error parity audit — does every server error
+       code the SDK's `packages/sails-sdk/src/errors.ts` hierarchy claims
+       to cover actually map 1:1, repo-wide, not just for the Settlement
+       module `PRE-M3-REALITY-GATE-1`'s companion PR happened to touch;
+    2. semantic category mapping, made explicit per error type, not left
+       to each call site to infer;
+    3. retryability mapping, same as above;
+    4. economic-state implication mapping, same as above;
+    5. recovery-action semantics (does a caught error actually tell the
+       product what to do, not just that something failed);
+    6. Sails Market presentation consistency;
+    7. Partner Wallet presentation consistency;
+    8. direct API/integrator presentation implications;
+    9. an explicit rule that identical UI copy is not required — only
+       that meaning/retryability/economic-state/recovery never silently
+       drift between products.
+
+    **Current fact registered, not fixed here:** verified directly —
+    `src/common/errors/index.ts` defines real backend codes
+    (`ECONOMIC_AUTHORITY_AMBIGUITY`, `CIRCUIT_BREAKER_OPEN`,
+    `RATE_LIMIT_UNAVAILABLE`, among others) that
+    `packages/sails-sdk/src/errors.ts`'s `ERROR_CODE_MAP` does not map to
+    a dedicated subclass yet — an unrecognized code falls through to the
+    generic `SailsError` in `errorFromResponseBody()`, which already
+    preserves the real `code`/`statusCode`/`message` rather than losing
+    or misclassifying it. Information is preserved; typed parity is
+    incomplete — a future audit obligation (item 1 above), not a runtime
+    defect requiring correction now.
+
+    **Explicitly not decided or implemented here:** no runtime, API,
+    SDK, or UI change; no new error type; no new taxonomy beyond the one
+    already named in §16.17; no exhaustive table of every current
+    protocol error.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
