@@ -1184,8 +1184,18 @@ may be fixed in parallel with each other, never in parallel with
 Mission 3, since Mission 3 would design directly on top of the two
 truths they prove are currently broken (*technical independence does
 not imply sequencing independence*). Sequencing: `#139 merge → #140
-freeze → F-01 → F-06 → bounded re-audit → Mission 3`. **No fix
-implemented, no runtime changed.** Full text lives there, not
+freeze → F-01 → F-06 → bounded re-audit → Mission 3`.
+
+**Update (`COHERENCE-CORRECTIVE-1`, 2026-09-13): F-01 and F-06 are
+corrected** — `deriveTradeState()` now returns a real
+`dispute_resolved_split` state; `sails-ui`'s `EscrowStatus`
+type/`StatusBadges.tsx` render `SPLIT`; the payout-address route now
+requires authentication and self-scoping after a Privacy Decision
+Review found no real caller needed public access. Real code, tests, and
+docs changed (not this document) — see `docs/BACKLOG.md` item 33 and
+`docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md` §21A for the full closure
+record. Mission 3 itself was not started; the Gate's own sequencing
+precondition is satisfied, pending CTO Gate. Full text lives there, not
 duplicated here.
 
 ---

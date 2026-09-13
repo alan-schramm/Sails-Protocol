@@ -28,19 +28,27 @@ import type { AssetType } from '../../common/types'
 // Missão 11 Fase 9.3.4 — INV-OP-10 (Public Verification Surfaces
 // Disclose the Minimum Necessary Fact, Never the Underlying Row —
 // docs/PROTOCOL_INVARIANTS.md, Level 2 DP-6). The ONLY shape ever
-// returned to the unauthenticated GET route
-// (/v1/settlement/payout-addresses/:participantId/:asset). A payout
-// address IS itself a normative settlement fact — `participantId`/
-// `asset` are the explicit lookup keys the caller already supplied,
-// and `address` is the literal committed payout destination
-// `escrow.service.ts`'s `resolvePayoutAddress()` falls back to; a
-// counterparty genuinely needs all three to route a settlement. What's
-// deliberately excluded: `id` (internal relational identifier, zero
-// verification value), `moduleId`/`protocolVersion` (operator
-// bookkeeping), and `createdAt`/`updatedAt` (not required to construct
-// or verify a settlement transaction — see this method's own call site
-// for the "distinguish the committed destination from the persistence
-// row describing it" reasoning).
+// returned by GET /v1/settlement/payout-addresses/:participantId/:asset.
+// `participantId`/`asset` are the explicit lookup keys the caller
+// already supplied, and `address` is the literal committed payout
+// destination `escrow.service.ts`'s `resolvePayoutAddress()` falls back
+// to. What's deliberately excluded: `id` (internal relational
+// identifier, zero verification value), `moduleId`/`protocolVersion`
+// (operator bookkeeping), and `createdAt`/`updatedAt` (not required to
+// construct or verify a settlement transaction).
+//
+// F-06 (System Coherence & Integration Audit, 2026-09-13; Privacy
+// Decision Review, COHERENCE-CORRECTIVE-1) — corrected: this comment
+// previously called the GET route above "unauthenticated" and justified
+// it as "a counterparty genuinely needs all three to route a
+// settlement." Verified false against real code — no real release path
+// ever supplies a caller-provided `toAddress` (every one resolves the
+// beneficiary's own registered address server-side, M8-R2), and the one
+// real SDK/UI consumer (`Trade.tsx`) is always self-referential. The
+// route (`settlement.routes.ts`) now requires authentication and
+// self-scoping (caller's own participantId only) — this projection's
+// field minimization is unchanged and still governed by INV-OP-10; only
+// who may reach it at all has changed.
 export interface PublicPayoutAddressView {
   participantId: string
   asset: AssetType

@@ -1580,16 +1580,27 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     })
 
     // Missão 11 Fase 9.3.4 — CTO-mandated INV-OP-10 existing-surface
-    // conformance closure. This route stays deliberately unauthenticated
-    // (a counterparty legitimately needs to look up who they're paying)
-    // — what changed is the response shape, narrowed from the raw
+    // conformance closure narrowed the response shape from the raw
     // PayoutAddress row to getPublicView()'s privacy-preserving
     // projection. See payout-address.service.ts's PublicPayoutAddressView
-    // and docs/PROTOCOL_INVARIANTS.md's INV-OP-10 for the full rationale.
-    // tests/payoutAddress.test.ts proves the same boundary directly
-    // against the service; these prove it survives the real HTTP/JSON
-    // wire path end to end.
-    describe('GET /v1/settlement/payout-addresses/:participantId/:asset — privacy/verifiability boundary (Missão 11 Fase 9.3.4)', () => {
+    // and docs/PROTOCOL_INVARIANTS.md's INV-OP-10 for the full rationale
+    // — unaffected by the correction below.
+    //
+    // F-06 (System Coherence & Integration Audit, 2026-09-13; Privacy
+    // Decision Review, COHERENCE-CORRECTIVE-1) — corrected: this route
+    // was public/unauthenticated ("a counterparty legitimately needs to
+    // look up who they're paying"). Verified false against real code —
+    // no real release path ever supplies a caller-provided address
+    // (every one resolves the beneficiary's own registered PayoutAddress
+    // server-side, M8-R2), and the SDK's only real consumer
+    // (Trade.tsx) is always self-referential. Now requires
+    // authentication and self-scoping (same isParty-style convention
+    // GET /v1/settlement/escrow/:id already uses above, narrowed to
+    // isSelf since no counterparty/arbiter consumer of this specific
+    // route exists). tests/payoutAddress.test.ts proves the same field
+    // boundary directly against the service; these prove the corrected
+    // access boundary survives the real HTTP/JSON wire path end to end.
+    describe('GET /v1/settlement/payout-addresses/:participantId/:asset — privacy/verifiability boundary (Missão 11 Fase 9.3.4, corrected F-06)', () => {
       const fullRow = {
         id: 'internal-row-id-should-never-leak',
         participantId: 'buyer-1',
@@ -1601,17 +1612,23 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         updatedAt: new Date('2026-01-01T00:00:00.000Z'),
       }
 
-      it('an unauthenticated (public) caller receives only participantId/asset/address — id/moduleId/protocolVersion/createdAt/updatedAt never leak', async () => {
-        mockPayoutAddressFindUnique.mockResolvedValueOnce(fullRow)
+      it('rejects an unauthenticated caller — no longer a public route', async () => {
         const res = await app.inject({ method: 'GET', url: '/v1/settlement/payout-addresses/buyer-1/BTC' })
-        expect(res.statusCode).toBe(200)
-        const body = JSON.parse(res.body)
-        expect(Object.keys(body.data).sort()).toEqual(['address', 'asset', 'participantId'])
-        expect(body.data.address).toBe('tb1qxyz')
-        expect(res.body).not.toContain('internal-row-id-should-never-leak')
+        expect(res.statusCode).toBe(401)
+        expect(JSON.parse(res.body).error).toBe('AUTH_ERROR')
       })
 
-      it('a caller who supplies an authenticated session still gets the identical narrow projection — auth grants nothing extra on this route', async () => {
+      it('rejects an authenticated caller looking up a DIFFERENT participant\'s payout address — self-scoped, not counterparty-reachable', async () => {
+        const token = await authedSession('someone-else')
+        const res = await app.inject({
+          method: 'GET',
+          url: '/v1/settlement/payout-addresses/buyer-1/BTC',
+          headers: { authorization: `Bearer ${token}` },
+        })
+        expect(res.statusCode).toBe(403)
+      })
+
+      it('an authenticated caller looking up their OWN payout address receives only participantId/asset/address — id/moduleId/protocolVersion/createdAt/updatedAt never leak', async () => {
         const token = await authedSession('buyer-1')
         mockPayoutAddressFindUnique.mockResolvedValueOnce(fullRow)
         const res = await app.inject({
@@ -1619,13 +1636,21 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
           url: '/v1/settlement/payout-addresses/buyer-1/BTC',
           headers: { authorization: `Bearer ${token}` },
         })
+        expect(res.statusCode).toBe(200)
         const body = JSON.parse(res.body)
         expect(Object.keys(body.data).sort()).toEqual(['address', 'asset', 'participantId'])
+        expect(body.data.address).toBe('tb1qxyz')
+        expect(res.body).not.toContain('internal-row-id-should-never-leak')
       })
 
-      it('an unregistered (participantId, asset) pair returns the route\'s own existing 404 — no stack trace, no internal field names', async () => {
+      it('an unregistered (participantId, asset) pair returns the route\'s own existing 404 for the self-scoped caller — no stack trace, no internal field names', async () => {
+        const token = await authedSession('never-registered')
         mockPayoutAddressFindUnique.mockResolvedValueOnce(null)
-        const res = await app.inject({ method: 'GET', url: '/v1/settlement/payout-addresses/never-registered/BTC' })
+        const res = await app.inject({
+          method: 'GET',
+          url: '/v1/settlement/payout-addresses/never-registered/BTC',
+          headers: { authorization: `Bearer ${token}` },
+        })
         expect(res.statusCode).toBe(404)
         const body = JSON.parse(res.body)
         expect(body).not.toHaveProperty('stack')

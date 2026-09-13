@@ -20,6 +20,14 @@ export type TradeState =
   | 'dispute_opened'
   | 'dispute_resolved_buyer'
   | 'dispute_resolved_seller'
+  // RFC-021 D9 / F-01 (System Coherence & Integration Audit,
+  // 2026-09-13) — a resolved SPLIT dispute is a real, distinct,
+  // terminal economic outcome (both parties receive a share), not a
+  // still-open dispute and not a buyer-or-seller-exclusive win. Named
+  // explicitly rather than reusing dispute_resolved_buyer/seller (which
+  // would misstate who received what) or leaving it to fall through to
+  // dispute_opened (which would misstate whether it resolved at all).
+  | 'dispute_resolved_split'
   | 'cancelled'
 
 export interface TradeSchema {
@@ -40,13 +48,13 @@ export interface TradeStatusInput {
 
 // Missão 11 Fase 7.3 (cumulative audit) — EXPIRED added: a real Prisma
 // EscrowStatus value (schema.prisma) this input type had drifted behind.
-// SPLIT (RFC-021 D9) is a separate, PRE-EXISTING gap in this same type,
-// already silently falling through to deriveTradeState()'s generic
-// `default: return 'open'` below before this pass — disclosed here, not
-// fixed, since it predates and is unrelated to adding EXPIRED (out of
-// this audit's "fix only omissions caused directly by EXPIRED" scope).
+// SPLIT (RFC-021 D9) closed 2026-09-13 (F-01, System Coherence &
+// Integration Audit) — previously a separate, pre-existing gap in this
+// same type, silently falling through to deriveTradeState()'s generic
+// `default: return 'open'`; now a real member with its own switch case
+// below.
 export interface EscrowStatusInput {
-  status: 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'EXPIRED'
+  status: 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'EXPIRED' | 'SPLIT'
 }
 
 export interface DisputeStatusInput {
@@ -73,8 +81,17 @@ export function deriveTradeState(
     if (dispute.status === 'RESOLVED') {
       if (dispute.ruling === 'RELEASE') return 'dispute_resolved_buyer'
       if (dispute.ruling === 'REFUND') return 'dispute_resolved_seller'
-      // SPLIT has no buyer/seller-exclusive equivalent in this vocabulary —
-      // falls through to dispute_opened rather than fabricating a winner.
+      // F-01 fix (2026-09-13) — SPLIT previously fell through to
+      // dispute_opened, misreporting an already-resolved dispute as
+      // still open. It has a real, named equivalent now: neither party
+      // "won," so dispute_resolved_buyer/seller would misstate who
+      // received what, but the dispute is genuinely resolved, so
+      // falling through to dispute_opened misstated that just as badly.
+      if (dispute.ruling === 'SPLIT') return 'dispute_resolved_split'
+      // A RESOLVED dispute with neither a recognized ruling nor SPLIT
+      // is a malformed/incomplete state this vocabulary has no better
+      // answer for than "still open" — not fabricating a resolution
+      // outcome for data that doesn't actually carry one.
     }
     return 'dispute_opened'
   }
@@ -94,6 +111,15 @@ export function deriveTradeState(
       return 'cancelled'
     case 'DISPUTED':
       return 'dispute_opened' // reached only if the Dispute row lookup above missed it
+    case 'SPLIT':
+      // F-01 fix (2026-09-13) — reached only if the Dispute row lookup
+      // above missed it (same caveat as DISPUTED above). Unlike
+      // DISPUTED, SPLIT is unambiguous even without the Dispute row:
+      // RFC-021 D9 makes it reachable exclusively via a dispute ruling,
+      // so an escrow already at SPLIT is, with certainty, an already-
+      // resolved split outcome — never "still open," which the old
+      // `default: return 'open'` incorrectly implied.
+      return 'dispute_resolved_split'
     case 'EXPIRED':
       // Missão 11 Fase 7.3.3 — a real, permanent, disclosed limitation of
       // today's TradeState vocabulary: there is no dedicated "expired,

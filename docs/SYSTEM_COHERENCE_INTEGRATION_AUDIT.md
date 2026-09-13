@@ -583,6 +583,71 @@ flowchart LR
 | F-16 | Wallet-*kit* adapter naming (Issue #86: BDK/WDK/Breez/Spark/LDK) and wallet-*product* naming (Flywheel: MetaMask/Xverse/OKX/Ledger/Trezor) are two distinct, non-overlapping vocabularies used in adjacent documents without cross-reference | Documentation | Issue #86 vs. `SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md` §1 | H | Low | none | Documentation clarity improvement only |
 | F-17 | `OUTPUT ≠ EVIDENCE ≠ PROPERTY ≠ CLAIM` discipline is invoked independently by ADR-002 §6 (citing `ENGINEERING_GOVERNANCE.md` §10), Issue #125, and this mission's own brief, without this audit independently re-verifying `ENGINEERING_GOVERNANCE.md` §10's exact text | Documentation/audit-process honesty | Self-disclosed in §1 (Sources Consulted) | H | Observation | none | No action — disclosed limitation of this audit's own scope, not a system finding |
 
+**F-01 and F-06 status, corrected 2026-09-13 (`COHERENCE-CORRECTIVE-1`):
+CORRECTED.** Evidence, classification, and severity above are preserved
+verbatim, unaltered, per that mission's own explicit instruction — only
+their disposition changes. See §21A for the full closure record.
+
+---
+
+## 21A. F-01/F-06 Corrective Mission Closure (`COHERENCE-CORRECTIVE-1`, 2026-09-13)
+
+**F-01 — SPLIT representation, corrected.** `packages/sails-p2p-schemas/src/trade.ts`'s
+`deriveTradeState()` now returns a new, real `TradeState` value
+(`dispute_resolved_split`) for a resolved SPLIT dispute, reached via
+either the Dispute-row path or the Escrow-status-only fallback path —
+neither falls through to `dispute_opened` or `open` anymore.
+`packages/sails-ui`'s `EscrowStatus` type and `StatusBadges.tsx` gained
+`SPLIT` (label, a distinct violet color, `Scissors` icon matching
+`Disputes.tsx`'s own existing action). RELEASE/REFUND/CANCELLED/normal-
+dispute/no-dispute-completed semantics verified unchanged by new
+adversarial tests (`tests/disputeFlow.test.ts`). No economic semantics
+changed — this is a read-side representation fix only, exactly per this
+mission's own "Read-side representation must never contradict durable
+economic truth" principle.
+
+**F-06 — payout-address privacy, corrected after a Privacy Decision
+Review (not a reflexive endpoint change).** The review found the
+route's own code comments asserted two justifications for public
+reachability ("a counterparty legitimately needs to look up who they're
+paying"; "a seller building a manual release outside escrowService's
+own fallback") — both verified **false against real code**: every real
+release path resolves the beneficiary's own registered address
+server-side (M8-R2) and never accepts a caller-supplied one, and the
+one real SDK/UI consumer (`Trade.tsx`) is always self-referential
+(`getPayoutAddress(user.id, ...)`). No real counterparty, arbiter, or
+public consumer was found. This resolved what looked like it could be
+genuine Product Direction ambiguity into a clear, evidenced answer, so
+this mission proceeded rather than stopping for CTO input — disclosed
+here in full so that judgment call is reviewable. Minimal fix applied:
+`GET /v1/settlement/payout-addresses/:participantId/:asset` now
+requires authentication and self-scoping (`requireAuth` + a
+`ForbiddenError` when the caller's own id doesn't match the requested
+`:participantId`, mirroring `GET /v1/settlement/escrow/:id`'s existing
+`isParty`-style convention). The SDK's `getPayoutAddress()` now sends
+the session token; `PublicPayoutAddressView`'s field minimization
+(INV-OP-10) is unchanged — only who may reach the route at all changed.
+
+**Mini coherence re-check (Product Truth → Architecture → Runtime →
+API/SDK → UI → Actor Visibility), both findings:**
+
+| Layer | F-01 | F-06 |
+|---|---|---|
+| Product Truth | Unchanged — SPLIT was already real (RFC-021 D9) | Unchanged — Privacy Matrix's `Public: ○` was already frozen; runtime now conforms to it |
+| Architecture | Unchanged — no new state, no new invariant | Unchanged — INV-OP-10 (field minimization) untouched; this is a new, correct application of the already-frozen INV-01 (participant-bound authority), not a new rule |
+| Runtime | `Trade.status`/`Escrow.status`/Intent outcome already correct (confirmed at source, unchanged) | Route now requires `requireAuth` + self-check — the only real runtime behavior change in this mission |
+| API/SDK | New additive `TradeState` value; `EscrowStatus` already had `SPLIT` in the SDK, only `sails-ui`'s own hand-mirror was behind | `getPayoutAddress()` now sends auth — a theoretical breaking change with zero real broken callers (verified) |
+| UI | `sails-ui` badge/type mirror corrected | No UI change needed — `Trade.tsx`'s existing self-referential call pattern already satisfies the new requirement |
+| Actor Visibility | No visibility boundary changed — same viewers, correct label instead of blank/wrong one | Narrowed from Public to Owner-only, exactly matching the frozen Privacy Matrix — Counterparty/Arbiter/Operator/Integrator visibility unchanged (already `○`/N/A before and after) |
+
+**Confirmed for both findings:** no new semantic drift (no term
+redefined); no hidden coupling introduced; no authority regression (F-06
+is an authority-*alignment* improvement, not a new authority concept);
+no privacy regression (F-06 is a privacy improvement); no maturity claim
+altered (SPLIT's own settlement-capability scope, MOCK/WDK_USDT_EVM/
+MULTISIG only, is unchanged; `PayoutAddressService`'s own maturity is
+unchanged, only its access boundary).
+
 ---
 
 ## 22. Mission 3 Gate
@@ -653,6 +718,22 @@ drawn from them is corrected, per this mission's own explicit
 instruction not to alter finding evidence, A-J classification, or
 severity.
 
+**Gate sequencing update (`COHERENCE-CORRECTIVE-1`, 2026-09-13): the
+HOLD's own precondition is now satisfied.** F-01 and F-06 are both
+corrected (§21A), tested (145 tests across the two directly-affected
+suites, 2069 across the full unit suite, all green), and the mini
+coherence re-check above found no new drift, coupling, authority
+regression, privacy regression, or maturity misclaim. **This does not,
+by itself, authorize starting Mission 3** — per this corrective
+mission's own explicit "STOP. DO NOT START MISSION 3. WAIT FOR CTO
+GATE" instruction, that remains a separate, later CTO decision. What
+this closure changes is narrower and real: the specific sequencing
+blocker the Gate named (*Mission 3 would design directly on top of two
+truths known to be broken*) no longer applies, because those two truths
+are no longer broken. **Recommendation, not a decision:** Mission 3 is
+ready to be cleared by CTO Gate whenever reviewed; no further corrective
+mission is a precondition.
+
 ---
 
 ## 23. Backlog & Documentation Deltas
@@ -686,14 +767,19 @@ own base showing only new/modified documentation files.
 
 ## Closing confirmations
 
-No fix implemented for any finding above, including after
-`SYSTEM-COHERENCE-GATE-R1`'s sequencing correction (§22) — F-01 and
-F-06 remain unfixed by design, held for their own bounded corrective
-missions. No runtime, UI, SDK, Core, Semantic Kernel, or Settlement
-architecture change. No new auth, wallet connector, passkey,
+**Updated (`COHERENCE-CORRECTIVE-1`, 2026-09-13):** F-01 and F-06,
+which this document held unfixed through `SYSTEM-COHERENCE-GATE-R1`'s
+sequencing correction (§22), are now corrected — see §21A for the full
+closure record. Every other finding remains exactly as classified: no
+fix implemented for F-02 through F-17. No Core, Semantic Kernel, or
+Settlement architecture change. No new auth, wallet connector, passkey,
 `FundingInstruction`, `SigningRequest`, delegated agent authority, or
-provider created. This document only audits, proves (with direct
-source citations, not assertions), classifies, and institutionalizes
-findings — consistent with this mission's own explicit scope.
+provider created. Mission 3 itself was not started. This document
+audits, proves (with direct source citations, not assertions),
+classifies, institutionalizes, and — for exactly the two bounded
+findings this mission's own gate named — closes findings, consistent
+with each mission's own explicit scope in turn.
 
 **SYSTEM COHERENCE AUDIT BASELINE RECONCILED — MISSION 3 HELD FOR F-01/F-06 CORRECTIONS — READY FOR FINAL CTO FREEZE**
+
+**F-01/F-06 CORRECTED — COHERENCE RESTORED — READY FOR BOUNDED CTO RE-AUDIT**

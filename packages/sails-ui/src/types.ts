@@ -154,9 +154,11 @@ export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WD
 
 // Missão 11 Fase 7.3 (cumulative audit) — EXPIRED added: a real Prisma
 // EscrowStatus value (schema.prisma) this mirror had drifted behind.
-// SPLIT (RFC-021 D9) is a separate, pre-existing gap in this same type,
-// unrelated to and predating this fix — disclosed, not fixed here.
-export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'EXPIRED'
+// SPLIT (RFC-021 D9) closed 2026-09-13 (F-01, System Coherence &
+// Integration Audit) — previously a separate, pre-existing gap in this
+// same type; a real Escrow can reach this status (only via a dispute
+// ruling) and StatusBadges.tsx now renders it correctly.
+export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'EXPIRED' | 'SPLIT'
 
 // RFC-021 D7 (real peer vouching) — packages/sails-sdk/src/modules/
 // reputation.ts's vouchFor(voucheeId), backed by a real Vouch Prisma

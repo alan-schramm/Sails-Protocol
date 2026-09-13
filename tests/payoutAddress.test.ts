@@ -50,16 +50,24 @@ describe('PayoutAddressService — RFC-009/BACKLOG.md payout-address gap', () =>
 })
 
 // Missão 11 Fase 9.3.4 — CTO-mandated INV-OP-10 existing-surface
-// conformance closure. GET /v1/settlement/payout-addresses/:participantId/:asset
-// stays deliberately public (no requireAuth — a counterparty legitimately
-// needs to look up who they're paying), but the ROW previously returned
-// verbatim (`prisma.payoutAddress.findUnique(...)`) included `id`/
-// `moduleId`/`protocolVersion`/`createdAt`/`updatedAt` — none of which
-// this endpoint's own stated purpose (routing a settlement to the
-// committed payout destination) ever required. getPublicView() is now
-// the ONLY method the public route may call; these tests prove its
-// exact field boundary directly against the service (tests/routes.test.ts
-// covers the wire-level proof).
+// conformance closure. The ROW previously returned verbatim
+// (`prisma.payoutAddress.findUnique(...)`) included `id`/`moduleId`/
+// `protocolVersion`/`createdAt`/`updatedAt` — none of which this
+// endpoint's own stated purpose (routing a settlement to the committed
+// payout destination) ever required. getPublicView() is now the ONLY
+// method the route may call; these tests prove its exact field boundary
+// directly against the service, independent of the access-control
+// question. `tests/routes.test.ts` covers the wire-level proof,
+// including the F-06 auth/self-scoping tests below.
+//
+// F-06 (System Coherence & Integration Audit, 2026-09-13; Privacy
+// Decision Review, COHERENCE-CORRECTIVE-1) — corrected: this route was
+// "deliberately public (no requireAuth — a counterparty legitimately
+// needs to look up who they're paying)" until this pass. That rationale
+// described no real caller (verified against real code, not assumed);
+// the route now requires authentication and self-scoping. This
+// projection's field-minimization tests below are unaffected — the
+// shape returned to an authorized, self-scoped caller is unchanged.
 describe('PayoutAddressService — getPublicView() (Missão 11 Fase 9.3.4 privacy boundary)', () => {
   beforeEach(() => jest.clearAllMocks())
 
