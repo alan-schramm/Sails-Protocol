@@ -1217,7 +1217,7 @@ function's own comment: "still a real, well-formed Sails error
 response, just not one of the known AppError subclasses"). Information
 is preserved — the real `code`/`statusCode`/`message` are never lost —
 but typed parity across every backend code is incomplete. Registered as
-a backlog obligation (`docs/BACKLOG.md` item 34), not implemented here.
+a backlog obligation (`docs/BACKLOG.md` item 35), not implemented here.
 
 ### 16.18 Agent Authority (extends §7)
 
