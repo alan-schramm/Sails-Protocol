@@ -1198,6 +1198,25 @@ record. Mission 3 itself was not started; the Gate's own sequencing
 precondition is satisfied, pending CTO Gate. Full text lives there, not
 duplicated here.
 
+**Update (`PRE-M3-REALITY-GATE-1`, 2026-09-13): a further, independent
+preflight found and fixed 6 more real gaps before authorizing Mission 3**
+— an SDK↔server auth mismatch on two Settlement read methods
+(`getPendingTransaction()`/`getReleaseApprovals()`) that had silently
+disabled the entire client-signature-collection auto-sign flow for
+MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM; a bare catch in
+`useEscrowKey.ts` and a catch-all in `Trade.tsx` that both swallowed
+real failures as if they were legitimate absence; stale SPLIT/payout-
+address descriptions surviving in `docs/P2P_PRODUCT_JOURNEY.md` and
+`docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md` from before this same
+`COHERENCE-CORRECTIVE-1` fix; undocumented/stale `toAddress` and
+missing-auth-annotation gaps in `docs/API_STABLE.md`; and a partner-
+maturity wording ambiguity in `docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md`.
+**Two structural gaps were found and escalated, not fixed** (no
+app-wide session-expiry interceptor; no trade-context-preserving
+return path across a forced re-authentication) — both require a
+product/architecture decision, registered as `STOP` items, not decided
+here. Full text: `docs/BACKLOG.md` item 34.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem
