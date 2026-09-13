@@ -587,46 +587,71 @@ flowchart LR
 
 ## 22. Mission 3 Gate
 
-**Pode começar Mission 3 agora?** **Yes, with two named exceptions that
-should run as a corrective mission in parallel, not sequentially
-before it.**
+**Corrected (`SYSTEM-COHERENCE-GATE-R1`, 2026-09-13) — supersedes this
+section's original verdict, preserved in intent below, not silently
+rewritten.** The original text read *"Yes, with two named exceptions
+that should run as a corrective mission in parallel, not sequentially
+before it,"* effectively `NOT BLOCKED`. **Corrected verdict:**
 
-- **Blocking Mission 3: none.** No finding above requires Mission 3
-  (Wallet Partner Journey design work) to wait — Mission 3 is
-  architecture/product design, not implementation on top of the two
-  broken surfaces (F-01, F-06).
-- **Should run in parallel, not deferred indefinitely, because Mission
-  3's own design work will need to reference correct SPLIT/privacy
-  semantics to avoid designing around a known-wrong baseline:**
-  - **F-01 (SPLIT)** — a real implementation defect (not docs-only),
-    High severity, Must-fix-before-Partner-Beta. Root cause is now
-    precisely known (this audit); fixing it is a small, bounded,
-    separately-authorizable corrective mission.
-  - **F-06 (payout-address privacy)** — a real runtime gap against
-    frozen product intent, Medium severity, Must-fix-before-Partner-Beta.
-    Requires a privacy-review decision (not a mechanical fix) before
-    implementation.
-- **Can defer, genuinely unrelated to Mission 3's own scope:** F-04
-  (Target Economic Commitment — a Production-gate item), F-05 (Day-0
-  Multi-Operator Network — its own large, separately-tracked
-  initiative), F-07 (WDK unknown-outcome — already contained,
-  Production-gate item), F-08/F-09/F-10 (exactly what Mission 3 itself
-  should resolve, not a precondition for starting it), F-13/F-14/F-15
-  (confirmed-coherent or already-staged, no action needed).
-- **Documentation-correction-only, no mission needed:** F-02, F-03,
-  F-11, F-12, F-16, F-17 — can be folded into whichever mission next
-  touches each file, or a short dedicated documentation-hygiene pass
-  (Issue #125's own eventual reconciliation mission is the natural
-  home for F-02/F-03/F-16).
-- **Corrective-mission ordering that minimizes rework:** (1) F-01 fix
-  first (small, bounded, and Mission 3's own wallet-partner settlement
-  UX will need correct SPLIT semantics to design against); (2) F-06
-  privacy-review decision second (independent of F-01, can run in
-  parallel); (3) Mission 3 itself can start immediately and does not
-  need to wait for either — its early phases (actor/journey design)
-  don't depend on SPLIT or payout-address specifics, only its later
-  phases (wallet-facing settlement-status UX) would benefit from F-01
-  already being fixed by the time they're reached.
+> **MISSION 3 — HOLD FOR TWO BOUNDED CORRECTIVE MISSIONS.**
+
+**Why the correction, not merely a reword:** this audit exists
+precisely to prevent advancing while material truths the audit itself
+found remain broken. The original verdict reasoned from *technical*
+independence ("Mission 3 is design work, not implementation on top of
+F-01/F-06") and concluded sequencing independence followed from it. It
+does not. **Preserved distinction, added by this correction:**
+
+> **Technical independence does not imply sequencing independence.** A
+> finding may be non-blocking for final architecture while still
+> blocking the next Product/UX mission if that mission would consume
+> the broken truth. Mission 3 (Wallet Partner Journey) is exactly this
+> case: it will design wallet-facing settlement-status UX and
+> destination/payout-address disclosure semantics — the two surfaces
+> F-01 and F-06 respectively break. Starting Mission 3 before either is
+> corrected would mean designing against a truth already known, by this
+> audit's own evidence, to be wrong — the specific waste (rework) this
+> gate exists to prevent, not a hypothetical one.
+
+**New sequencing, institutionalized:**
+
+```
+PR #139 merge → PR #140 rebase/freeze → F-01 corrective mission
+   → F-06 corrective mission → bounded re-audit → Mission 3
+```
+
+`F-01` and `F-06` **may** run in parallel with each other (they are
+technically independent of one another — different layers, different
+fixes, no shared file). They **may not** run in parallel with Mission 3
+— Mission 3 consumes the exact truths they correct.
+
+**Bounded re-audit, named not designed:** after F-01 and F-06 land, a
+short, bounded re-audit (re-run only §7 Journey Break's SPLIT row and
+§13 Privacy Coherence's payout-address row, plus a fresh Finding
+Register entry closing F-01/F-06) confirms the correction actually
+closed what this audit found — not a repeat of the full audit.
+
+**Findings whose disposition is unchanged by this correction (per
+`SYSTEM-COHERENCE-GATE-R1`'s own explicit preservation instruction):**
+
+- **F-04, F-05, F-07 remain Production-gate items**, not Mission-3
+  blockers — Mission 3's own design work does not consume the Target
+  Economic Commitment Boundary, the Day-0 Multi-Operator Network, or
+  WDK's unknown-outcome gap as inputs the way it consumes SPLIT/
+  payout-address semantics.
+- **F-08/F-09/F-10 remain Mission 3's own scope to resolve** — they are
+  not preconditions for starting it, they are what it exists to design.
+- **F-13/F-14/F-15 remain deferred/staged**, confirmed coherent, no
+  action needed.
+- **Documentation-only findings (F-02, F-03, F-11, F-12, F-16, F-17)
+  remain non-blocking** for any mission — foldable into whichever
+  future pass next touches each file.
+
+**Evidence, classification, and severity for F-01 and F-06 themselves
+are unchanged by this correction** — only the *sequencing conclusion*
+drawn from them is corrected, per this mission's own explicit
+instruction not to alter finding evidence, A-J classification, or
+severity.
 
 ---
 
@@ -661,12 +686,14 @@ own base showing only new/modified documentation files.
 
 ## Closing confirmations
 
-No fix implemented for any finding above. No runtime, UI, SDK, Core,
-Semantic Kernel, or Settlement architecture change. No new auth, wallet
-connector, passkey, `FundingInstruction`, `SigningRequest`, delegated
-agent authority, or provider created. This document only audits,
-proves (with direct source citations, not assertions), classifies, and
-institutionalizes findings — consistent with this mission's own
-explicit scope.
+No fix implemented for any finding above, including after
+`SYSTEM-COHERENCE-GATE-R1`'s sequencing correction (§22) — F-01 and
+F-06 remain unfixed by design, held for their own bounded corrective
+missions. No runtime, UI, SDK, Core, Semantic Kernel, or Settlement
+architecture change. No new auth, wallet connector, passkey,
+`FundingInstruction`, `SigningRequest`, delegated agent authority, or
+provider created. This document only audits, proves (with direct
+source citations, not assertions), classifies, and institutionalizes
+findings — consistent with this mission's own explicit scope.
 
-**SYSTEM COHERENCE & INTEGRATION AUDIT COMPLETE — READY FOR CTO GATE**
+**SYSTEM COHERENCE AUDIT BASELINE RECONCILED — MISSION 3 HELD FOR F-01/F-06 CORRECTIONS — READY FOR FINAL CTO FREEZE**

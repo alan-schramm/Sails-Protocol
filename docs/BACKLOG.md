@@ -2849,12 +2849,34 @@ obligation" is defined anywhere in this repository.
     all remain coherent) — full detail, classification, and disposition
     for every one in the new document's Finding Register.
 
-    **Mission 3 Gate verdict: NOT BLOCKED.** No finding requires Mission
-    3 (Wallet Partner Journey) to wait. The SPLIT fix and the
-    payout-address privacy review should run as a corrective mission in
-    parallel with Mission 3's early design phases, completing before
-    Mission 3's own wallet-facing settlement-status UX work would need
-    correct SPLIT semantics to design against.
+    **Mission 3 Gate verdict, corrected (`SYSTEM-COHERENCE-GATE-R1`,
+    2026-09-13): MISSION 3 — HOLD FOR TWO BOUNDED CORRECTIVE MISSIONS**
+    — supersedes this item's original "NOT BLOCKED" text, preserved
+    below for provenance, not deleted. Sequencing: `#139 merge → #140
+    rebase/freeze → F-01 corrective mission → F-06 corrective mission →
+    bounded re-audit → Mission 3`. F-01 and F-06 may run in parallel
+    with each other; neither may run in parallel with Mission 3, since
+    Mission 3 would design wallet-facing settlement-status UX and
+    payout-address disclosure semantics directly on top of the two
+    truths these findings prove are currently broken. **Preserved
+    distinction:** *Technical independence does not imply sequencing
+    independence* — a finding may be non-blocking for final
+    architecture while still blocking the next Product/UX mission that
+    would consume the broken truth. F-04/F-05/F-07 remain
+    Production-gate-only (unchanged); F-08/F-09/F-10 remain Mission 3's
+    own scope to resolve, not a precondition (unchanged); F-13/F-14/F-15
+    remain deferred/staged (unchanged); documentation-only findings
+    remain non-blocking (unchanged). No finding's evidence, A-J
+    classification, or severity changed by this correction — only the
+    sequencing conclusion drawn from F-01/F-06.
+
+    *(Original text, superseded above, preserved verbatim: "Mission 3
+    Gate verdict: NOT BLOCKED. No finding requires Mission 3 to wait.
+    The SPLIT fix and the payout-address privacy review should run as a
+    corrective mission in parallel with Mission 3's early design
+    phases, completing before Mission 3's own wallet-facing
+    settlement-status UX work would need correct SPLIT semantics to
+    design against.")*
 
     **Explicitly not done:** no fix implemented for any finding; no
     runtime, UI, SDK, Core, Semantic Kernel, or Settlement architecture

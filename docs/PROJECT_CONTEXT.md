@@ -1177,10 +1177,16 @@ cross-referenced in `docs/P2P_PRODUCT_JOURNEY.md` or
 own "Wallet/Signer Boundary" step has no real, separate instance in the
 reference UI (Identity and Wallet Connection remain one artifact, §2I's
 own finding, restated with a precise journey-step diagnosis). **Mission
-3 Gate verdict: not blocked** — two findings (SPLIT, payout-address)
-should run as a corrective mission in parallel with Mission 3, not
-sequentially before it. **No fix implemented, no runtime changed.** Full
-text lives there, not duplicated here.
+3 Gate verdict, corrected `SYSTEM-COHERENCE-GATE-R1`: MISSION 3 — HOLD
+FOR TWO BOUNDED CORRECTIVE MISSIONS** (supersedes this section's
+original "not blocked" reading) — F-01 (SPLIT) and F-06 (payout-address)
+may be fixed in parallel with each other, never in parallel with
+Mission 3, since Mission 3 would design directly on top of the two
+truths they prove are currently broken (*technical independence does
+not imply sequencing independence*). Sequencing: `#139 merge → #140
+freeze → F-01 → F-06 → bounded re-audit → Mission 3`. **No fix
+implemented, no runtime changed.** Full text lives there, not
+duplicated here.
 
 ---
 
