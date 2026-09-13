@@ -40,7 +40,11 @@ leave them blank without saying why.
 
 <!-- Per docs/ENGINEERING_GOVERNANCE.md §11 — Hypothesis / Designed /
      Implemented / Supported / Demonstrated / Validated / Frozen.
-     State the level honestly; don't round up. -->
+     State the level honestly; don't round up. Use the weakest test
+     that can actually falsify the claim, then strengthen it if the
+     consequence demands more (§16.7/§16.17's harness/evidence ladders).
+     Don't collapse Absence/Failure/Unknown/Pending/Rejected/Unavailable
+     into each other (§16.17) — a swallowed error is not a success. -->
 
 ### Claims allowed / not demonstrated
 

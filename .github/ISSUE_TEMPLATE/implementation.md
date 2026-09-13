@@ -31,6 +31,12 @@ labels: enhancement
 
 ## Acceptance criteria
 
+<!-- Vertical Slice (docs/ENGINEERING_GOVERNANCE.md §16.9): what can be
+     demonstrated when this is done? Prefer an observable behavior/
+     property ("a participant can do X while preserving Y") over an
+     implementation layer ("add a service," "create a repository")
+     unless that layer itself proves an observable result. -->
+
 ## Evidence requirement
 
 <!-- What proves this is done — docs/ENGINEERING_GOVERNANCE.md §11. -->

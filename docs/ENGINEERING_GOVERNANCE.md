@@ -869,3 +869,332 @@ architecture, automatic World-C convergence) that this document
 deliberately does not promote to any status beyond "named, registered,
 undocumented." DLC has been removed from the roadmap and is not
 reintroduced by this document.
+
+---
+
+## 16. AI-Oriented Engineering Discipline (2026-09-13)
+
+Origin: `AI-ENGINEERING-DISCIPLINE-1`, absorbing properties learned from
+Sails' own mission history (`SYSTEM-COHERENCE-1`, `COHERENCE-CORRECTIVE-1`,
+`PRE-M3-REALITY-GATE-1`, and others) and from external engineering
+methodology — Loop Engineering, Spec-Driven Development, Harness
+Engineering, TDD, adversarial review, decision-frontier reasoning,
+research/prototype discipline, domain modeling, and industry benchmarks
+including AI Hero. **External methodology is evidence/input, never
+authority** — see §16.21. This section extends, and does not replace,
+§1 (challenge without unilateral redefinition), §4 (Consequence-Weighted
+Development), §6 (STOP > artificial PASS), §7 (Human + AI Contributor
+Model), §10/§10A (Claim Discipline), §11 (Evidence Classification), §12
+(Sacrifice Check), and §13A (System Coherence Discipline).
+
+> AI-assisted engineering is not about producing more code. It is about
+> reducing reasoning error before, during, and after code is produced.
+> Process must make wrong assumptions easier to expose than to
+> propagate.
+
+### 16.1 Decision Frontier Review
+
+A Decision Frontier is the set of decisions legitimately resolvable now,
+because their prerequisites are already established:
+
+```
+KNOWN TRUTH → OPEN DECISIONS → DEPENDENCIES → CURRENT DECISION FRONTIER
+→ GRILL / RESEARCH / PROTOTYPE → NEW FRONTIER
+```
+
+> Do not answer a downstream decision while an upstream decision it
+> depends on remains unresolved. Unknown prerequisites must not be
+> converted into convenient assumptions.
+
+Required before Protocol-semantics-or-above work (§4). A §6 STOP is
+frequently a Decision Frontier violation made visible.
+
+### 16.2 Grilling Discipline
+
+For a complex Product/Architecture decision, do not generate an
+indiscriminate question list. Ask first only what changes the decision,
+unblocks another decision, resolves an assumption, or materially narrows
+the solution space — then recompute the Decision Frontier (§16.1).
+
+> Questions earn their place by changing the decision space.
+
+### 16.3 Wayfinding — Mission / Decision Mission / Program
+
+- **Mission** — bounded execution fitting one controlled session/context.
+- **Decision Mission** — exists to resolve a decision required before
+  implementation, not to implement.
+- **Program / Decision Map** — a problem too large to resolve honestly in
+  one Mission. Represents destination, known truth, open decisions,
+  dependency graph, sequencing, STOP points, evidence needed, and which
+  executable Missions each decision unlocks.
+
+> Large problems should first be decomposed into decisions, not directly
+> into implementation tickets.
+
+`docs/GITHUB_PROJECT.md` §2's Bucket C ("Architectural fronts") is the
+existing structural home for a Program's Decision Map — this names the
+discipline for working a bucket-C front; it does not create a new
+backlog bucket.
+
+### 16.4 Spec-Driven Development
+
+> Resolved decisions become specification before consequential
+> implementation.
+
+```
+Problem → Desired Property → Decision → Spec/Contract → Acceptance
+Evidence → Implementation
+```
+
+This is §4's Consequence-Weighted Development restated as a pipeline,
+not a competing rule — `docs/GOVERNANCE.md` §3's table still governs
+when a full RFC is actually required. Implementation must not silently
+redefine the spec because it became easier to do so — that is a §6 STOP,
+not a judgment call. Preserved: Product defines what must exist and why;
+Architecture defines how meaning/boundaries/replaceability are
+preserved; Implementation proves what actually exists at runtime.
+
+### 16.5 Research Discipline
+
+Primary-source-first for architectural, capability, and security claims:
+protocol specification → official documentation → official source code
+→ official implementation/repository → measured runtime evidence →
+reputable secondary source → community discussion as supporting signal
+only. Every material conclusion separates **FACT / EVIDENCE / INFERENCE
+/ DECISION / UNKNOWN**.
+
+> Five agents reading weak evidence do not produce strong evidence.
+> External research may inform Sails truth. It cannot silently become
+> Sails truth.
+
+Operational home: `.github/ISSUE_TEMPLATE/research.md`.
+
+### 16.6 Prototype Discipline
+
+> A prototype answers a question. It does not become implementation
+> merely because it works. Prototype code is evidence until explicitly
+> promoted through the normal engineering process.
+
+Every prototype — including a throwaway branch, a provider PoC, or an
+external no-code/design tool output — states: the question being
+tested, its assumptions, what result would falsify the idea, whether it
+is disposable or promotable, and what property it does and does not
+prove. A working prototype is, at most, DEMONSTRATED per §11 — never
+FROZEN — until it is promoted through §16.4 and §16.10.
+
+### 16.7 Harness Engineering
+
+> Every material uncertainty should seek the shortest trustworthy
+> feedback loop available. If a bug is expensive to reproduce, the first
+> engineering task may be to make reproduction cheap.
+
+Feedback-loop ladder — adapt per case; never use a level smaller than
+the property actually requires:
+
+```
+focused unit test → focused integration test → curl/API script →
+deterministic fixture → CLI harness → headless browser → replay fixture
+→ throwaway harness → property/fuzz loop → differential old/new harness
+→ real external system → human-in-the-loop
+```
+
+### 16.8 TDD Discipline
+
+> Test the property at the narrowest seam that can actually prove it.
+> Do not mock the property you claim to prove.
+
+Before writing the test: which property is being proved; which seam can
+observe it; what must fail before the implementation exists; what mock
+would make the test stop proving the property. Preserve Red → Green →
+Refactor where applicable. A test that mirrors implementation is weaker
+evidence than one that challenges observable behavior — this restates
+§11's Evidence Classification at the level of a single test, not a new
+hierarchy.
+
+### 16.9 Vertical Demonstrable Slices
+
+> Implementation layers are means. Observable properties are completion
+> units.
+
+Every executable Mission/Issue answers: *what can be demonstrated when
+this is done?* The answer is behavior/property ("an authenticated
+participant can resume X after Y while preserving Z"), not a layer
+("create a repository," "add a service," "implement an abstraction")
+unless that layer itself proves an observable result. This sharpens
+§5's existing "the desired property is stated" minimum bar — it does not
+add a new Definition-of-Ready field.
+
+### 16.10 Quad Review
+
+Four independent review lenses; each can fail a PR that already passed
+the others:
+
+- **A. Spec Conformance** — did it implement exactly the authorized
+  behavior?
+- **B. Engineering Standards** — is it robust, simple, testable,
+  readable, maintainable?
+- **C. Product/Architecture Truth** — does it preserve Product
+  Direction, authority, semantics, UX, privacy, and architecture (§3)?
+- **D. Evidence/Claim** — does the evidence actually prove the property,
+  and does the claim not exceed it (§10)?
+
+> Correct implementation of an incorrect assumption is still incorrect.
+
+A+B passing does not imply C; A+B+C passing does not imply D.
+
+### 16.11 Loop Engineering
+
+```
+BUILD/ANALYZE → VERIFY → ATTACK → FINDINGS → CORRECT → RE-RUN →
+RE-ATTACK → STABILITY CHECK
+```
+
+No fixed loop count. Continue when a new pass finds a Critical, a High,
+a new material failure class, or a systemic contradiction. The stop
+condition is defined by the Mission (e.g. "no unresolved Critical/High
+affecting the declared property") — never "ran N times" as a substitute
+for stability. This names, as a reusable pattern, the loop
+`SYSTEM-COHERENCE-1` and `PRE-M3-REALITY-GATE-1` already ran ad hoc.
+
+### 16.12 Blind-Spot Review
+
+After a solution appears correct, ask: *what did we not ask because the
+current implementation made us think it was irrelevant? What would
+break, mislead, or silently weaken the next Mission if we continued
+now?* Look for hidden coupling, silent assumptions, stale truth, a
+missing actor, a missing interruption/recovery path, authority collapse,
+failure/absence collapse (§16.17), maturity overclaim, and false
+equivalence across providers/interfaces. This names, as a reusable step,
+the exact practice `docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md` and
+§13A's System Coherence Discipline already perform — not a new audit
+type.
+
+### 16.13 Domain Modeling / Ubiquitous Language
+
+> Vocabulary drift is architectural drift. A new term must sharpen the
+> model or not exist.
+
+Central terms (Intent, Offer, Trade, Settlement, Outcome, Authority,
+Capability, Eligibility, Asset, SettlementRail, SettlementScope,
+SettlementAdapter, SettlementProvider, Economic Identity, Transport
+Identity, Node Identity) each carry exactly one meaning. A term carrying
+two meanings is a §6 STOP, not a documentation nuance — reconcile before
+proceeding. Glossaries are compressed/reconciled periodically — §13A's
+Documentation Coherence & Reduction Audit is the existing mechanism, not
+a new one.
+
+### 16.14 Pre-Build Architecture Leverage Check
+
+Before a large block of work, ask: *what could we change now to make the
+upcoming work materially easier, safer, or more testable?* A prior
+refactor is justified only if it reduces risk, reduces repeated
+complexity, creates a better testing seam, eliminates directly relevant
+coupling, or simplifies the upcoming change — never for aesthetic
+abstraction.
+
+> Refactor when it reduces the cost or risk of real upcoming work, not
+> because a cleaner abstraction is aesthetically attractive.
+
+### 16.15 Agent Context Engineering
+
+> Instructions should maximize behavior change per unit of context.
+> Compress redundancy, not truth.
+
+Before extending a Mission brief, ask: if this instruction were removed,
+could agent behavior materially worsen or change? If not, compress or
+remove it — but never sacrifice a load-bearing constraint for brevity. A
+large Mission separates: authority, goal, baseline, constraints, known
+findings, allowed changes, forbidden changes, required evidence, STOP
+condition, required return.
+
+### 16.16 Context Handoff Discipline
+
+> A process that works only because one AI session remembers the
+> conversation is not an engineering process.
+
+A Mission must be resumable by a different agent without private memory
+of the prior session. For material work, register: baseline, current
+truth, decisions, unresolved decisions, evidence, STOPs, output, and
+next gate — the same discipline every Mission return in this
+repository's own history already follows (e.g. `docs/BACKLOG.md`'s dated
+append pattern); this names it as a general requirement, not a new
+format.
+
+### 16.17 Evidence Escalation & Failure Taxonomy
+
+Evidence strength should match the claim, not follow a fixed universal
+ladder:
+
+```
+typecheck < unit test < integration test < adversarial test <
+harness/replay < cross-implementation test < real-provider test <
+independent integration < controlled real-value evidence
+```
+
+> Use the weakest test capable of falsifying the claim, then strengthen
+> evidence when the consequence demands it.
+
+This refines §11's Evidence Classification with a companion notion of
+*how* evidence was produced — not a replacement for it.
+
+**Failure Taxonomy — never collapsed:** Absence ≠ Failure ≠ Unknown ≠
+Pending ≠ Rejected ≠ Unavailable — for APIs, provider calls, settlement,
+agents, UI, tests, and harnesses alike. A swallowed error does not
+become success; a timeout does not become a confirmed economic failure;
+a 404 does not automatically become UNKNOWN. `PRE-M3-REALITY-GATE-1`'s
+P3-F03 fix (`packages/sails-ui/src/hooks/useEscrowKey.ts`) is the
+concrete, checked-in worked example of this rule applied to a real bug.
+
+### 16.18 Agent Authority (extends §7)
+
+> Agent access ≠ Agent authority.
+
+An AI agent may investigate, propose, implement within scope, gather
+evidence, and attack assumptions. It does not thereby gain Product
+authority, Architecture authority, economic authority, merge authority,
+or claim authority — this restates §7's "AI generation ≠ permission" for
+*access* specifically; it is not a new rule.
+
+### 16.19 Architecture / Product Balance
+
+> No discipline defines the product alone. Each discipline protects part
+> of the truth. Local optimization must never become global product
+> truth.
+
+Restates §3.1's Authority-by-Discipline table as a single governing
+sentence: engineering simplicity does not redefine Product; UX
+simplicity does not eliminate authority/risk; security must not create
+disproportionate friction; architecture must not lose the real user
+journey; operations does not gain privileged authority because it would
+be convenient.
+
+### 16.20 How This Fits the Existing Flow
+
+Does not replace `MISSION → EVIDENCE → CTO GATE → FREEZE → BACKLOG
+DELTA → PROJECT SYNC → NEXT MISSION`. Expands the pre-implementation
+portion of that cycle:
+
+```
+ORIENT → DECISION FRONTIER/WAYFIND → RESEARCH/PROTOTYPE if needed → SPEC
+→ VERTICAL SLICE → HARNESS → IMPLEMENT/TDD → QUAD REVIEW →
+REALITY/BLIND-SPOT LOOP → EVIDENCE → CTO GATE → FREEZE → BACKLOG
+DELTA/PROJECT SYNC → KNOWLEDGE COMPRESSION
+```
+
+**Not every phase is mandatory for a trivial or reversible change** —
+§4's Consequence Weighting governs how much of this actually applies,
+exactly as it already governs §5 and §9. A typo fix or an additive,
+reversible change does not require a Decision Frontier review or a
+Harness; the more irreversible, financially material, authority-bearing,
+or protocol-meaning-affecting the change, the more of §16.1-§16.19
+applies.
+
+### 16.21 External Methodology Positioning
+
+External methodologies (Loop Engineering, Spec-Driven Development,
+Harness Engineering, TDD, adversarial review, decision-frontier
+reasoning, AI Hero, and any other industry practice) are evidence/input
+only — never architectural authority, never a mandatory dependency,
+never canonical Sails terminology. The vocabulary in this section (e.g.
+"Decision Frontier Review," not any external tool's own command name) is
+the vocabulary used in Sails Missions, Issues, and PRs going forward.

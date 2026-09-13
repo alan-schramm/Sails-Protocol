@@ -269,6 +269,10 @@ Project, `Status: Ready`, `Workstream: SDK`, `Priority: P0`,
   hardcoding, `disconnect()`, `@tanstack/react-query` peer dependency).
 
 ### C. Architectural fronts
+*(Wayfinding, `docs/ENGINEERING_GOVERNANCE.md` §16.3: a bucket-C front is
+a Program too large to resolve honestly in one Mission. Work it by
+decomposing into decisions first — Decision Frontier Review, §16.1 — not
+by writing implementation tickets directly against it.)*
 - `docs/BACKLOG.md`'s H1–H9 MULTISIG production-hardening debt
   (dust validation, `keyIndexFor()` collision strategy, outpoint
   persistence, client key recovery design).

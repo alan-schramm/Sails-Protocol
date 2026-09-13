@@ -289,4 +289,54 @@ follow-up mission — never as a side effect of an unrelated PR.
 Applies equally — `docs/ENGINEERING_GOVERNANCE.md` §7. AI-generated code
 satisfies the same Definition of Ready/Done, the same tests, the same
 STOP gates, and gets the same human review before merge as anyone else's.
-"An AI wrote it" is not evidence and is not authorization.
+"An AI wrote it" is not evidence and is not authorization. Agent access
+never implies agent authority — `docs/ENGINEERING_GOVERNANCE.md` §16.18.
+
+## 10. AI-Oriented Engineering Discipline — day-to-day (added `AI-ENGINEERING-DISCIPLINE-1`, 2026-09-13)
+
+Full methodology (why, wording, relationship to other governance) lives
+in `docs/ENGINEERING_GOVERNANCE.md` §16 — this is the operational
+checklist, consequence-weighted like everything else in this section.
+Not every step applies to every change; the more irreversible,
+financially material, or protocol-meaning-affecting the work, the more
+of this actually applies (§16.20).
+
+1. **Decision Frontier** — before answering a downstream question,
+   confirm its upstream prerequisites are already resolved. Don't
+   convert an unknown into a convenient assumption (§16.1). For a
+   complex decision, ask only questions that would change the decision
+   (§16.2, Grilling Discipline).
+2. **Spec before consequential implementation** — for Shared-application-
+   semantics work and above, write down Problem → Desired Property →
+   Decision → Spec/Contract → Acceptance Evidence before implementing
+   (§16.4). Don't silently redefine the spec because implementation got
+   easier — that's a STOP (§6), not a judgment call.
+3. **Harness first if reproduction is expensive** — pick the smallest
+   feedback loop that can actually falsify the claim (§16.7's ladder);
+   if a bug is expensive to reproduce, making reproduction cheap may be
+   the first task.
+4. **TDD seam** — before writing a test, name the property being proved
+   and the seam that can observe it. Never mock the property you're
+   trying to prove (§16.8).
+5. **Vertical slice** — an Issue/Mission should be completable as an
+   observable behavior ("X can do Y while preserving Z"), not just a
+   layer ("add a service," "create a repository") unless that layer
+   itself proves a result (§16.9).
+6. **Quad Review before calling something done** — Spec Conformance,
+   Engineering Standards, Product/Architecture Truth, Evidence/Claim
+   (§16.10). Passing the first two does not imply the other two.
+7. **Loop until stable, not until N runs** — for adversarial/attack work,
+   stop when no new Critical/High or systemic contradiction is found,
+   not after a fixed number of passes (§16.11).
+8. **Blind-spot pass before declaring done** — ask what wasn't asked
+   because the current implementation made it look irrelevant (§16.12).
+9. **Required handoff** — for material work, leave baseline, current
+   truth, decisions, unresolved decisions, evidence, STOPs, and next gate
+   written down, so a different agent (human or AI) could pick it up
+   cold (§16.16).
+
+**Vocabulary discipline:** a term (Intent, Offer, Trade, Settlement,
+Authority, Capability, Asset, SettlementRail/Scope/Adapter/Provider,
+Economic/Transport/Node Identity, etc.) carries exactly one meaning. If
+you find it carrying two, STOP and reconcile — don't add a third
+meaning to route around the conflict (§16.13).
