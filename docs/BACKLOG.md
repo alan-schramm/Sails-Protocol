@@ -3241,9 +3241,158 @@ obligation" is defined anywhere in this repository.
     incomplete — a future audit obligation (item 1 above), not a runtime
     defect requiring correction now.
 
+    **Updated 2026-09-13 (`CROSS-LAYER-SEMANTIC-CONTRACT-AUDIT-1`,
+    CSC-A01) — a 4th uncovered code found, not previously named here:**
+    `src/app.ts:280`'s error handler also produces a dynamic
+    `REQUEST_ERROR` code (any well-formed Fastify-plugin error not
+    otherwise classified) — likewise absent from the SDK's
+    `ERROR_CODE_MAP` and from `docs/API_REFERENCE.md` §9's own table
+    (which lists `REQUEST_ERROR` but, in a separate drift, omits
+    `RATE_LIMIT_UNAVAILABLE`). Same disposition as the other three: a
+    future audit obligation, not fixed here. Full evidence:
+    `docs/CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md` finding CSC-A01.
+
     **Explicitly not decided or implemented here:** no runtime, API,
     SDK, or UI change; no new error type; no new taxonomy beyond the one
     already named in §16.17; no exhaustive table of every current
     protocol error.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
+
+36. **Cross-Layer Semantic Contract Audit — repository-wide, 28
+    material findings mapped (domains A-I), 0 Critical, 0 implementation
+    changes
+    (2026-09-13, `CROSS-LAYER-SEMANTIC-CONTRACT-AUDIT-1`).** Full audit:
+    `docs/CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md`. Investigated whether
+    the same economic/technical meaning survives across Protocol →
+    Runtime → API → SDK → Reference UI → Partner/Integrator → future
+    Rust/Go implementations, across 10 domains (Error/Recovery,
+    Retry/Idempotency, State/Status, Null/Optional, Money/Precision,
+    Time/Expiry, Capability State, Version Negotiation,
+    Observability/Redaction, Cross-Implementation Readiness). Not
+    duplicated here — this item is a pointer plus the four new bounded
+    obligations it registers; every finding's full trace/evidence lives
+    in the audit document itself, not copied into this file.
+
+    **Count reconciled 2026-09-13 (`CROSS-LAYER-SEMANTIC-CONTRACT-AUDIT-1-R1`):**
+    28 is the canonical count of independently-investigated, severity-
+    tagged material findings (CSC-A01 through CSC-I03, domains A-I).
+    Domain J ("CSC-J01 through CSC-J05, Cross-Implementation Readiness")
+    is a synthesis pass over those same 28 findings, not a 29th
+    independent investigation — the audit document's own §J text states
+    this explicitly ("synthesis findings across A-I, not independent new
+    investigation"). An earlier draft of this item's own summary line
+    said "29 findings mapped," miscounting by including Domain J's
+    synthesis header as if it were a 29th material finding; corrected
+    here, no finding's severity, classification, scope, or
+    recommendation changed.
+
+    **No unresolved Critical found.** The two findings that could have
+    read as Critical were checked directly and found to be either
+    already-disclosed, already-tracked debt
+    (`docs/RECOVERY_RECONCILIATION_CONFORMANCE_EVIDENCE.md` §26/§28's
+    "LIGHTNING_HODL/SAFE_GUARD_EVM have zero automated crash-recovery,"
+    sharpened with a precise mechanism-level root cause, not newly
+    discovered — CSC-B03/B04) or mathematically bounded-safe today
+    (BTC's float-based sats conversion stays within float64's exact-
+    integer range for every realistic trade size — CSC-E01).
+
+    **Four new bounded backlog items registered** (proposed numbers
+    below continue this same numbering):
+
+    37. **Trade/Offer/Evidence Creation Idempotency (CSC-B01/B02).**
+        `createTrade()`, `createOffer()`, and `submitEvidence()` have no
+        idempotency mechanism at all — a network retry can create a
+        duplicate `Trade`/`Offer` row or double-append dispute evidence
+        (and double-fire its QVAC auto-resolution trigger). Genuinely
+        new findings, not named in any prior WDK/reconciliation
+        evidence doc (those scope to `open-settlement`'s fund-moving
+        paths, not `open-p2p`'s trade/offer creation). No funds move at
+        this step — a coordination-integrity risk, not a funds-loss
+        one. Scope: add a client-supplied or server-derived idempotency
+        key to the three POST routes.
+
+    38. **SDK Type-Shape Reconciliation (CSC-C01/D01).** Two real,
+        confirmed SDK-internal disagreements: (a)
+        `packages/sails-p2p-schemas`'s `DisputeStatus`/`DisputeStatusInput`
+        (4 values) vs. `packages/sails-sdk`'s `DisputeStatus` (6 values,
+        correct) — the p2p-schemas package's own header comment claims
+        parity with the real Prisma enum that its own code contradicts;
+        (b) `packages/sails-sdk/src/modules/settlement.ts`'s
+        `ArbiterProfile` vs. `arbitration.ts`'s `ArbiterCandidate` —
+        two different, incompatible type declarations for the same two
+        live arbitration routes, one correct (verified against the real
+        server response), one wrong (different field names, incorrectly
+        non-nullable `collateralAsset`, an unreachable `| null` return
+        type given the transport always throws on 404 rather than
+        resolving null). (b)'s blast radius today is zero — grepped,
+        no call site in `packages/sails-ui` uses either arbitration
+        surface — but it would immediately mislead a partner
+        integrator building against the documented (wrong) shape.
+
+    39. **Capability-Denial Reason Structuring (CSC-G01).** Six
+        structurally different underlying reasons a caller can be told
+        "not supported"/"denied" (technical rail limitation, deployment
+        not wired, policy/`CapabilityGrant` denial, immaturity/
+        capability-profile mismatch, config-toggle-off,
+        genuinely-unimplemented SDK stub) all surface as similarly-
+        worded plain-text errors with no structured discriminator — a
+        caller cannot mechanically distinguish them. Scope: add a
+        `reason` category field to the existing error classes; reuses
+        `EscrowError`/the generic error shape, no new taxonomy.
+
+    40. **Protocol Version / Cross-Implementation Readiness (CSC-H01/
+        H02/H03).** A Decision Mission, not an implementation mission —
+        must run before any Rust/Go SDK work begins, does **not** block
+        Mission 3. Three findings: no API/protocol versioning exists
+        beyond the literal `/v1/` URL prefix, with no mechanism for a
+        future `/v2/` to coexist without a hard cutover; the SDK
+        package version (`0.1.3`) and server package version (`0.1.1`)
+        have already diverged with nothing distinguishing "SDK version"
+        from "protocol semantic version" (`API_STABLE.md`'s freeze
+        commitment is stated purely in terms of the SDK's own npm
+        semver); Zod schemas silently strip unknown object keys by
+        default while explicitly rejecting unknown enum values — a
+        future client's additive field would be invisibly discarded
+        with no signal. Also carries the three concrete pre-Rust/Go
+        blockers the audit names: resolve the version conflation first,
+        write down the Decimal-serialization wire contract explicitly
+        (currently an emergent property of `decimal.js`'s own
+        behavior, never a stated contract), and document/resolve
+        `Escrow.expiresAt`'s two disjoint inclusive/exclusive boundary
+        conventions before a second implementation reproduces expiry
+        logic generically.
+
+    **Not registered as new items, bundled into "next time this file is
+    touched" instead** (each precisely named with its own recommended
+    action in the audit document, none large enough to justify its own
+    mission): stale `docs/DATABASE.md` `EscrowStatus`/transition tables;
+    missing `DisputeStatusBadge` in `sails-ui` (3 inconsistent
+    renderings, `APPEALED` has no distinct visual treatment anywhere);
+    `deriveTradeState()`/`TradeState` being currently-dead code (zero
+    production consumers — a Product Decision on whether to wire it in
+    or explicitly mark it forward-looking); the unguarded
+    `requiredSigners` empty-array case; inconsistent nullable-`displayName`
+    UI fallback handling; the float-based BTC→sats conversion
+    inconsistency (mathematically safe today, still worth aligning to
+    the SDK's own exact pattern); two stale comments describing the
+    now-dead legacy float `protocolFeeRate` as live; ADR-002's "zero
+    real registry consumers" claim now being partially stale (one real,
+    narrowly-BTC-scoped consumer exists since 2026-09-12); the two core
+    settlement/dispute services having zero logging; whether logging a
+    raw transaction id carries privacy consequences worth a formal
+    policy.
+
+    **Verification-first, not fix-first:** whether `src/app.ts`'s
+    request-logger config (missing the standalone logger's fuller
+    credential-scrubbing `redact`/`err`-serializer config) constitutes
+    an actual leak path is an open `EVIDENCE GAP` — the audit
+    deliberately did not assert a leak without a runtime check, and
+    registers verifying this (before any fix) as the correct next step.
+
+    **Explicitly not decided or implemented here:** no runtime, API,
+    SDK, protocol, or UI change of any kind; no new macrofront in
+    `docs/NORTE_FIXO.md`; P3-F08.1/F08.2 (`docs/BACKLOG.md` item 34)
+    restated as still-open, not duplicated or re-solved.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
