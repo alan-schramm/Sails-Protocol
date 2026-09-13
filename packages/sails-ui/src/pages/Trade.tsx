@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useNavigate, useLocation } from 'react-router'
 import { toast } from 'sonner'
 import type { Trade as SdkTrade, Escrow as SdkEscrow, WebSocketChannel, Dispute } from '@satsails/p2p-trading-sdk'
-import { encryptChatMessage } from '@satsails/p2p-trading-sdk'
+import { encryptChatMessage, SailsAuthError, SailsForbiddenError } from '@satsails/p2p-trading-sdk'
 import type { EscrowStatus, Message, MessageType, User } from '../types'
 import { useAuth, WrongPassphraseError } from '../context/AuthContext'
 import { useEscrowKey } from '../hooks/useEscrowKey'
@@ -91,16 +91,30 @@ export function Trade() {
   const { user, keypair, encryptionKey } = useAuth()
   const { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded } = useEscrowKey(encryptionKey)
 
-  // Both call sites below intentionally swallow errors — these are
-  // speculative/idempotent background calls (useEscrowKey.ts's own
-  // comments: "safe no-op when no round is in flight", etc.), so a
-  // network hiccup or "nothing to do" shouldn't interrupt the page.
-  // WrongPassphraseError is the one exception: it means this browser's
-  // escrow signing key genuinely could not be unlocked, which silently
-  // doing nothing would leave the user with zero explanation for why
-  // their trade stalled.
+  // P3-F04 (Pre-M3 Reality Gate, 2026-09-13) — corrected. These two call
+  // sites are speculative/idempotent background calls, and a genuine
+  // "nothing to do" (useEscrowKey.ts's own SailsNotFoundError → null
+  // path, P3-F03) correctly never reaches this catch at all. What
+  // previously reached here — and was silently dropped, no toast, no
+  // log, indistinguishable from "nothing to do" — included a session
+  // that expired mid-trade (401), a wrong-actor rejection (403), a
+  // network failure, a timeout, or a real server error. Absence ≠
+  // Failure ≠ Unknown: only a genuine absence (already filtered out
+  // before this function is ever called) may be silent; every other
+  // outcome must be visible, even though none of these calls are
+  // required for the page to keep rendering. `WrongPassphraseError`
+  // keeps its own specific message; every other real error gets a
+  // generic-but-honest one rather than none at all.
   const ignoreExceptWrongPassphrase = (err: unknown) => {
-    if (err instanceof WrongPassphraseError) toast.error(err.message)
+    if (err instanceof WrongPassphraseError) {
+      toast.error(err.message)
+    } else if (err instanceof SailsAuthError) {
+      toast.error('Sua sessão expirou — reconecte para continuar acompanhando a assinatura deste escrow.')
+    } else if (err instanceof SailsForbiddenError) {
+      toast.error('Não foi possível verificar sua permissão para assinar este escrow.')
+    } else {
+      toast.error('Não foi possível verificar se há uma assinatura pendente para você neste escrow — tente recarregar a página.')
+    }
   }
 
   const [trade, setTrade] = useState<SdkTrade | null>(null)

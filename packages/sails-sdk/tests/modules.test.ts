@@ -780,15 +780,42 @@ describe('SailsSettlementModule — RFC-021 settlement gaps', () => {
     expect(init.headers.authorization).toBe('Bearer session-abc')
   })
 
-  it('getReleaseApprovals() hits GET /v1/settlement/escrow/:id/release-approvals (no auth required)', async () => {
+  // P3-F02 (Pre-M3 Reality Gate, 2026-09-13) — corrected from "no auth
+  // required": that was already wrong when written (the comparison
+  // point, get() above, has itself required auth since Missão 06.8 —
+  // see its own "WITH auth" test below), and the real server route
+  // (settlement.routes.ts) independently requires requireAuth +
+  // party/arbiter scoping. Same class of bug Missão 07.1's own comment
+  // (below, on get()/getDispute()) already warns about: a passing
+  // 200-mock test stays green even with the bug, since fakeFetch
+  // doesn't enforce auth — asserting the header directly is the point.
+  it('getReleaseApprovals() hits GET /v1/settlement/escrow/:id/release-approvals WITH auth', async () => {
     const fetchImpl = fakeFetch(200, { success: true, data: { approvals: [{ id: 'appr-1', escrowId: 'escrow-1', approverId: 'participant-1', approvedAt: '2026-08-01T00:00:00Z' }], readyToRelease: true } })
-    const settlement = new SailsSettlementModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
 
     const result = await settlement.getReleaseApprovals('escrow-1')
 
     expect(result.readyToRelease).toBe(true)
-    const [url] = fetchImpl.mock.calls[0]
+    const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/settlement/escrow/escrow-1/release-approvals')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+  })
+
+  // P3-F01 (Pre-M3 Reality Gate, 2026-09-13) — getPendingTransaction()
+  // had no test coverage at all before this pass (same gap Missão 07.1
+  // found for get()/getDispute()) and, like getReleaseApprovals() above,
+  // was calling the server's party/arbiter-scoped pending-transaction
+  // route with no Authorization header — 401 for every real caller.
+  it('getPendingTransaction() hits GET /v1/settlement/escrow/:id/pending-transaction WITH auth', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'pending-1', escrowId: 'escrow-1', kind: 'release', toAddress: 'addr-1', unsignedPsbtBase64: 'cHNidA==', requiredSigners: ['buyer-1'], triggeredBy: 'buyer-1', createdAt: '2026-08-01T00:00:00Z', signatures: [] } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    const result = await settlement.getPendingTransaction('escrow-1')
+
+    expect(result.escrowId).toBe('escrow-1')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/escrow/escrow-1/pending-transaction')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
   })
 
   it('registerArbiter() posts to /v1/settlement/arbitration/register with auth', async () => {

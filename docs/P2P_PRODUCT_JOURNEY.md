@@ -364,11 +364,25 @@ only, disclosed as a separate role from brand orange — `UI-GATE-CLOSE-1-R1`).
 | `Escrow.status = REFUNDED` | `cancelled` | "Reembolsado" |
 | `Escrow.status = EXPIRED` | `open` (explicit decision, §7) | "Expirado" (own badge exists, distinct orange) |
 | `Dispute.status = RESOLVED`, `ruling = RELEASE` | `dispute_resolved_buyer` | "Em disputa" (Trade-level; `Disputes.tsx` shows the ruling directly) |
-| `Dispute.status = RESOLVED`, `ruling = SPLIT` | `dispute_opened` (mismapped — §7) | no dedicated Escrow-status copy (`SPLIT` absent from `StatusBadges.tsx`'s `Record<EscrowStatus,...>`) |
+| `Dispute.status = RESOLVED`, `ruling = SPLIT` | `dispute_opened` (mismapped — §7); **fixed 2026-09-13, see §6 correction: now `dispute_resolved_split`** | no dedicated Escrow-status copy (`SPLIT` absent from `StatusBadges.tsx`'s `Record<EscrowStatus,...>`); **fixed 2026-09-13, see §6 correction** |
 
 ---
 
 ## 6. SPLIT Analysis (mandatory, §6 of the mission brief)
+
+**Correction (P3-F05, Pre-M3 Reality Gate, 2026-09-13):** everything
+below in this section describes the gap **as it stood when this
+document was written**. It has since been fixed — `COHERENCE-CORRECTIVE-1`
+(PR #141, merged) closed it precisely along the lines this section
+itself recommended: `packages/sails-p2p-schemas/src/trade.ts`'s
+`deriveTradeState()` now returns a dedicated `'dispute_resolved_split'`
+`TradeState` (both via the `Dispute`-row path and the `Escrow.status`-only
+fallback switch), and `sails-ui`'s `EscrowStatus` type/`StatusBadges.tsx`
+now carry a real `SPLIT` entry (label, color, icon). The analysis is
+preserved below, unedited, as the historical record of the defect and
+its reasoning — it is no longer current runtime truth. See
+`docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md` §21A for the closure
+record.
 
 **Is `SPLIT` economically material?** Yes, unambiguously — it represents
 a real, on-chain-or-ledger partial payout to *both* parties (buyer and
@@ -465,7 +479,7 @@ honestly disclosed:
 |---|---|---|
 | `payment_sent` vs `payment_confirmed` | **No** — `EscrowStatus` has only one `PAYMENT_PENDING` value for both "buyer marked sent" and "seller acknowledged received" | **Honestly aliased**, disclosed in the schema's own comment: *"a real gap worth stating plainly rather than papering over... `payment_confirmed` is aliased to `payment_sent` below until a real intermediate confirmation step exists."* This is the mission's rule applied correctly: the runtime cannot distinguish the two, and the code does not pretend it can — it exposes the coarser, honest state. |
 | `EscrowStatus.EXPIRED` → `TradeState: open` | Distinction exists (`EXPIRED` is its own enum value) but is deliberately **not** surfaced as its own `TradeState` | **Honestly, explicitly collapsed** — the code's own comment: *"'open' is the honest closest fit... but this is an EXPLICIT decision, not a value silently caught by the generic default."* A real, disclosed simplification, not a false-certainty gap. Contrast with `SPLIT` below. |
-| `EscrowStatus.SPLIT` → `TradeState: dispute_opened` / `open` | Distinction exists and IS material (§6) | **Not honestly collapsed** — reached via a generic fallback (`default:` or an unhandled dispute-ruling branch), not a named, deliberate decision. This is the negative case the mission's rule warns against: the runtime *can* distinguish this state, and the derivation layer fails to preserve that distinction, rather than choosing not to. |
+| `EscrowStatus.SPLIT` → `TradeState: dispute_opened` / `open` | Distinction exists and IS material (§6) | **Was not honestly collapsed** — reached via a generic fallback (`default:` or an unhandled dispute-ruling branch), not a named, deliberate decision; this was the negative case the mission's rule warns against. **Fixed 2026-09-13** (see §6 correction) — `deriveTradeState()` now returns a dedicated `dispute_resolved_split` value on both paths, no longer a fallback. |
 | `funded` / `detected` / `completed` / `settled` / `failed` (mission's own listed terms) | Not uniform vocabulary in this codebase — `Escrow.status` values (`FUNDS_LOCKED`, `COMPLETED`) are the real backing states; "detected"/"settled"/"failed" as such do not exist as persisted values anywhere in this schema | No live collapse to audit — these terms appear only in the mission brief's own vocabulary and in the *analytical, not-implemented* funding-state model (§10), where they are kept intentionally distinct rather than aliased. |
 
 **Rule applied:** product-state granularity must not exceed observable

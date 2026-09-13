@@ -71,7 +71,7 @@ narrower (§5.3).
 | Every `/v1/settlement/escrow/*`, `/v1/settlement/disputes/*` write and detail route | **Yes**, uniformly | Once a trade/escrow/dispute exists, everything about it is participant- or arbiter-scoped |
 | `GET /v1/settlement/arbitration/profile/:participantId` | **No** | Public arbiter reputation lookup — a legitimate public trust signal, same register as an offer's seller reputation |
 | `GET /v1/settlement/payment-accounts/:accountHash` | **No** | Lookup by an already-privacy-preserving hash, not a raw identifier |
-| `GET /v1/settlement/payout-addresses/:participantId/:asset` | **No** | A registered payout address — **current runtime reality, not evaluated as automatically legitimate; see §1.3.1** |
+| `GET /v1/settlement/payout-addresses/:participantId/:asset` | **Yes, self-scoped** (fixed 2026-09-13, F-06 — see §1.3.1 correction) | A registered payout address — the caller may only read their own |
 
 **The real, current backend boundary is precisely: read = public where
 the content is inherently non-participant-private (offers, arbiter
@@ -83,6 +83,20 @@ is a separate case, reconciled below (§1.3.1), not folded into this
 same "inherently non-private" framing without checking it first.**
 
 #### 1.3.1 Payout-address exposure, reconciled against the frozen Privacy Matrix (corrected `P2P-JOURNEY-GATE-R1`, 2026-09-13)
+
+**Second correction (P3-F05, Pre-M3 Reality Gate, same day, later mission):**
+the analysis directly below — including the "registered, not solved"
+gap and the "no mechanism is proposed, chosen, or implemented here"
+line — describes the state that existed when this section was written.
+It has since been closed: `COHERENCE-CORRECTIVE-1` (PR #141, merged)
+added `requireAuth` plus a caller-must-equal-`:participantId`
+`ForbiddenError` check to this route, mirroring `GET /v1/settlement/escrow/:id`'s
+own `isParty`-style convention. `docs/API_REFERENCE.md`'s and
+`docs/API_STABLE.md`'s entries for this route were corrected in the
+same PR. The reasoning below is preserved as the historical record of
+*why* the fix was needed, not as a description of current behavior —
+current behavior is: **401 unauthenticated, 403 wrong caller, 200 self,
+404 self-unregistered.**
 
 **Correction to this document's own original framing:** the first pass
 above classified `GET /v1/settlement/payout-addresses/:participantId/:asset`
@@ -141,8 +155,10 @@ mismatch, not a missing feature (§5.4).
 (price, limits, payment method, asset, side, real seller reputation/
 trade-count/dispute-rate per offer); a single offer's full detail page;
 the aggregate order book; a best-match query; a public arbiter's
-profile; a payment account's signed/chargeback status by hash; a
-participant's registered payout address by id+asset.
+profile; a payment account's signed/chargeback status by hash.
+**No longer** a participant's registered payout address by id+asset —
+that route was fixed to self-scoped auth 2026-09-13 (F-06, see §1.3.1);
+listed here only until that fix, not current truth.
 
 **Qual ação realmente exige uma Economic Identity?** Publishing an
 offer, starting a trade (`POST /v1/openp2p/trades` — the real Economic
@@ -209,12 +225,12 @@ specifically because it carries this) — everything
 `docs/P2P_PRODUCT_JOURNEY.md` §17 already freeze, confirmed by the same
 route audit (§1.3): every route carrying such content already requires
 auth, independent of this mission's own findings about Discovery being
-public. **One exception, not folded into the above without
-qualification:** the registered payout *address* itself
-(`GET /v1/settlement/payout-addresses/:participantId/:asset`) is
-publicly queryable today, which is a real, verified discrepancy against
-the same Privacy Matrix's own `Public: ○` for that row — reconciled,
-not resolved, at §1.3.1.
+public. The registered payout *address* itself
+(`GET /v1/settlement/payout-addresses/:participantId/:asset`) **was**
+publicly queryable, a real, verified discrepancy against the same
+Privacy Matrix's own `Public: ○` for that row — **closed 2026-09-13
+(F-06), see the §1.3.1 correction; the route is now self-scoped like
+everything else in this list.**
 
 ---
 
@@ -299,11 +315,11 @@ Funds Authority` — checked one by one:
    Execution Authority distinction (restated in
    `docs/P2P_PRODUCT_JOURNEY.md` §16) is the same principle one layer
    deeper in the journey. **This principle is about authority, not
-   privacy** — the payout-address route (§1.3.1) shows visibility
-   itself can still exceed the already-frozen Privacy Matrix's own
-   intent even where no authority ever changes hands; the two questions
-   are independent and this finding does not weaken the authority
-   claim above.
+   privacy** — the payout-address route (§1.3.1) *had* shown visibility
+   itself could exceed the already-frozen Privacy Matrix's own intent
+   even where no authority ever changed hands (fixed 2026-09-13, F-06);
+   the two questions were, and remain, independent, and this finding
+   never weakened the authority claim above.
 
 ---
 
@@ -344,7 +360,7 @@ explicit non-goal.
 | `AgentIntentionPanel.tsx`'s unauthenticated dead-end (toast, no redirect-with-return) | **H** — a minor, real implementation-consistency gap, not a security or product-truth issue |
 | No passkey/Breez-Auth-as-login candidate is registered anywhere (only as recovery-root evidence) | **A** — a real, narrow angle of product truth not yet named, now named here |
 | `WalletAdapter` (RFC-013) already supports decoupling identity from signing, unused today | **G** — legitimate deferral (no real external-wallet integration exists to need it yet) |
-| `GET /v1/settlement/payout-addresses/:participantId/:asset` is publicly reachable, contradicting `docs/PRODUCT_INTERACTION_MODEL.md` §5's own frozen `Public: ○` for that row (§1.3.1) | **A** — Product truth (the frozen Privacy Matrix) not enforced by real runtime behavior; registered as a privacy review gap, not solved here |
+| `GET /v1/settlement/payout-addresses/:participantId/:asset` was publicly reachable, contradicting `docs/PRODUCT_INTERACTION_MODEL.md` §5's own frozen `Public: ○` for that row (§1.3.1) | **A** — Product truth (the frozen Privacy Matrix) not enforced by real runtime behavior at the time; **fixed 2026-09-13 (F-06, `COHERENCE-CORRECTIVE-1`, PR #141) — route is now `requireAuth` + self-scoped** |
 | `docs/P2P_PRODUCT_JOURNEY.md`'s original labeling of `POST /v1/openp2p/trades` as "the Economic Commitment moment itself" | **H** — corrected upstream (`docs/P2P_PRODUCT_JOURNEY.md` §2.2, `P2P-JOURNEY-GATE-R1`) to Current Runtime Coordination Commitment; this document's own reference updated to match |
 
 ---

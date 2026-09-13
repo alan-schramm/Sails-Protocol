@@ -24,7 +24,7 @@
  * integration could derive per-trade keys instead without changing
  * anything on the server side (it only ever sees a pubkey).
  */
-import { generateEscrowKeypair, verifyAndSignEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp } from '@satsails/p2p-trading-sdk'
+import { generateEscrowKeypair, verifyAndSignEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp, SailsNotFoundError } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from '../lib/sailsClient'
 import { encryptBytes, decryptBytes } from '../lib/keyEncryption'
 import { WrongPassphraseError } from '../context/AuthContext'
@@ -170,8 +170,22 @@ export function useEscrowKey(encryptionKey: CryptoKey | null) {
     let pending
     try {
       pending = await sailsClient.settlement.getPendingTransaction(escrowId)
-    } catch {
-      return null // no signing round in flight for this escrow — nothing to do
+    } catch (err) {
+      // P3-F03 (Pre-M3 Reality Gate, 2026-09-13) — "no signing round in
+      // flight" is a real, legitimate absence, but it is the ONLY thing
+      // this bare catch used to mean; a 401 (P3-F01, now fixed
+      // separately — this guard stays regardless, since it's the correct
+      // behavior independent of that bug), a 403, a network failure, a
+      // timeout, or a 500 all landed here too and were silently
+      // indistinguishable from "nothing to do." Only a genuine 404
+      // (SailsNotFoundError — escrow.service.ts's getPendingTransaction()
+      // throws this specifically when no pending round exists) may become
+      // a no-op; every other error must propagate so a real caller (e.g.
+      // signAndSubmitPendingTransactionIfNeeded()'s own callers in
+      // Trade.tsx) can distinguish "nothing to sign" from "something is
+      // actually wrong" — Absence ≠ Failure ≠ Unknown.
+      if (err instanceof SailsNotFoundError) return null
+      throw err
     }
     if (!pending.requiredSigners.includes(participantId)) return null
     if (!encryptionKey) throw new Error('No encryption key available — user is not authenticated')
