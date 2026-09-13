@@ -1159,6 +1159,29 @@ this document.** The network flywheel itself is explicitly labeled a
 product hypothesis, not a claim of achieved adoption. No protocol, SDK,
 Core, or UI change. Full text lives there, not duplicated here.
 
+## 2K. System Coherence & Integration Audit — pointer (`SYSTEM-COHERENCE-1`, 2026-09-13)
+
+`docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md` is an adversarial,
+cross-layer audit of everything institutionalized through §2A-§2J plus
+`docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
+(2026-09-12) against real, current runtime — not a re-confirmation that
+the system is correct. Headline findings: **`EscrowStatus.SPLIT`'s
+UI/schema gap has a precisely root-caused defect** (`deriveTradeState()`'s
+dispute-branch returns before ever consulting the already-correct
+`trade.status`, verified against `handlers.ts`'s real `settlement.escrow.split`
+handler); the payout-address privacy gap (§2I) remains registered, not
+resolved; ADR-002's new `Asset`/`SettlementRail`/`SettlementScope`
+architecture (frozen the same day as `MISSÃO 2`) is not yet
+cross-referenced in `docs/P2P_PRODUCT_JOURNEY.md` or
+`docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md`; and the canonical journey's
+own "Wallet/Signer Boundary" step has no real, separate instance in the
+reference UI (Identity and Wallet Connection remain one artifact, §2I's
+own finding, restated with a precise journey-step diagnosis). **Mission
+3 Gate verdict: not blocked** — two findings (SPLIT, payout-address)
+should run as a corrective mission in parallel with Mission 3, not
+sequentially before it. **No fix implemented, no runtime changed.** Full
+text lives there, not duplicated here.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem

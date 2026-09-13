@@ -2788,4 +2788,77 @@ obligation" is defined anywhere in this repository.
     `docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md` (new); pointer added at
     `docs/PROJECT_CONTEXT.md` §2J.
 
+32. **System Coherence & Integration Audit — 17 findings registered, none
+    fixed (2026-09-13, `SYSTEM-COHERENCE-1`).** Created
+    `docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md`, an adversarial,
+    cross-layer audit of every document institutionalized through items
+    25-31 plus `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
+    (2026-09-12) against real, current runtime — not a re-confirmation
+    that the system is correct. Full System Map, Central Coherence
+    Matrix (40+ concepts), and 15 named coherence tests (Orphan Concept,
+    Hidden Coupling, Semantic Drift, Journey Break, UI↔Runtime, Sails
+    Market, Wallet/Auth/Authority, Settlement, Actor, Privacy, Recovery,
+    Distribution Flywheel, Maturity, Claim, Goodhart/COBRA/Rube
+    Goldberg), 2 Mermaid diagrams (dependency graph, journey integration
+    graph), and a 17-row Finding Register (A-J classified, severity and
+    disposition assigned) — all in the new document.
+
+    **Highest-value finding — a precise root cause for item 29's
+    already-known `SPLIT` gap, not a new bug class:**
+    `@satsails/p2p-schemas`' `deriveTradeState()` returns
+    `'dispute_opened'` for a resolved `SPLIT` dispute **before ever
+    consulting `trade.status`**, even though `trade.status` is already,
+    correctly, `'COMPLETED'` at that point (`src/common/events/handlers.ts`'s
+    real `settlement.escrow.split` handler, verified fresh this audit,
+    line-by-line) — the entire backend Trade/Intent/Reputation layer
+    handles `SPLIT` correctly; the defect is confined to this one
+    function's branch order plus `sails-ui`'s type mirror. Classified
+    **A**, severity **High**, disposition **Must-fix-before-Partner-Beta**.
+
+    **Second real finding, newly registered:** `GET /v1/settlement/payout-addresses/:participantId/:asset`'s
+    public reachability (item 30's own finding) is reconfirmed as
+    unresolved — classified **A**, severity **Medium**, disposition
+    **Must-fix-before-Partner-Beta** (a privacy-review decision, not a
+    mechanical fix).
+
+    **Third finding: ADR-002 (2026-09-12) is not yet cross-referenced**
+    in `docs/P2P_PRODUCT_JOURNEY.md`'s Runtime State Inventory or
+    `docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md`'s Settlement
+    Compatibility layer — a real, very recent architecture freeze that
+    landed the same day as this session's own P2P Journey work, without
+    cross-pollination. Classified **A/H**, severity **Medium**,
+    documentation correction only.
+
+    **Fourth finding: three adjacent-but-distinct uses of "capability"**
+    (RFC-005's permission grant; ADR-002 §6's structural provider
+    feature; the Flywheel's signer technical ability, `MARKET-FLYWHEEL-R2`)
+    coexist without a single disambiguating glossary entry — a
+    semantic-drift **risk**, not yet actual drift (all three are
+    internally consistent). Classified **H + J**, severity Medium,
+    documentation correction only.
+
+    **13 further findings** (journey-step precision for the
+    Identity/Wallet-Connection conflation already named in item 30;
+    `AgentIntentionPanel.tsx`'s dead-end toast; Sails Market's
+    undisclosed BRL/PT-BR coupling; `SAFE_GUARD_EVM`'s unmapped
+    `SettlementScope`; the new `SettlementScope`/`SettlementProviderRegistration`
+    registry's own zero-consumer staging, already self-disclosed by
+    ADR-002; wallet-kit vs. wallet-product naming; and confirmations
+    that `FundingInstruction`/`SigningRequest`, Actor visibility
+    boundaries, Recovery durability, and the Flywheel's own mechanism
+    all remain coherent) — full detail, classification, and disposition
+    for every one in the new document's Finding Register.
+
+    **Mission 3 Gate verdict: NOT BLOCKED.** No finding requires Mission
+    3 (Wallet Partner Journey) to wait. The SPLIT fix and the
+    payout-address privacy review should run as a corrective mission in
+    parallel with Mission 3's early design phases, completing before
+    Mission 3's own wallet-facing settlement-status UX work would need
+    correct SPLIT semantics to design against.
+
+    **Explicitly not done:** no fix implemented for any finding; no
+    runtime, UI, SDK, Core, Semantic Kernel, or Settlement architecture
+    change. Full text: `docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md`;
+    pointer added at `docs/PROJECT_CONTEXT.md` §2K.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**
