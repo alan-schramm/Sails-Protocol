@@ -3259,8 +3259,9 @@ obligation" is defined anywhere in this repository.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
 
-36. **Cross-Layer Semantic Contract Audit — repository-wide, 29
-    findings mapped, 0 Critical, 0 implementation changes
+36. **Cross-Layer Semantic Contract Audit — repository-wide, 28
+    material findings mapped (domains A-I), 0 Critical, 0 implementation
+    changes
     (2026-09-13, `CROSS-LAYER-SEMANTIC-CONTRACT-AUDIT-1`).** Full audit:
     `docs/CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md`. Investigated whether
     the same economic/technical meaning survives across Protocol →
@@ -3272,6 +3273,19 @@ obligation" is defined anywhere in this repository.
     duplicated here — this item is a pointer plus the four new bounded
     obligations it registers; every finding's full trace/evidence lives
     in the audit document itself, not copied into this file.
+
+    **Count reconciled 2026-09-13 (`CROSS-LAYER-SEMANTIC-CONTRACT-AUDIT-1-R1`):**
+    28 is the canonical count of independently-investigated, severity-
+    tagged material findings (CSC-A01 through CSC-I03, domains A-I).
+    Domain J ("CSC-J01 through CSC-J05, Cross-Implementation Readiness")
+    is a synthesis pass over those same 28 findings, not a 29th
+    independent investigation — the audit document's own §J text states
+    this explicitly ("synthesis findings across A-I, not independent new
+    investigation"). An earlier draft of this item's own summary line
+    said "29 findings mapped," miscounting by including Domain J's
+    synthesis header as if it were a 29th material finding; corrected
+    here, no finding's severity, classification, scope, or
+    recommendation changed.
 
     **No unresolved Critical found.** The two findings that could have
     read as Critical were checked directly and found to be either
