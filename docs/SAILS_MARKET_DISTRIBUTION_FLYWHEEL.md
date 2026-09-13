@@ -122,7 +122,7 @@ flowchart LR
     V1["Visitor opens<br/>Sails Market (sails-ui)"] --> D1["Discovery/Offer Evaluation<br/>(public, no auth — verified<br/>docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md)"]
     V2["Partner wallet's own user,<br/>inside the partner's own app"] --> D2["Discovery/Offer Evaluation<br/>via the partner's own native<br/>@satsails/p2p-trading-sdk call"]
 
-    D1 --> C["Same Economic Commitment Boundary<br/>(docs/P2P_PRODUCT_JOURNEY.md §2)<br/>same POST /v1/openp2p/trades contract"]
+    D1 --> C["Same Current Runtime Coordination Commitment<br/>(docs/P2P_PRODUCT_JOURNEY.md §2.2)<br/>same POST /v1/openp2p/trades contract<br/>— Target Economic Commitment Boundary not<br/>fully implemented yet, see §2.3"]
     D2 --> C
 
     C --> T["Same Trade Lifecycle<br/>same EscrowStatus/DisputeStatus<br/>same Authority Matrix"]
