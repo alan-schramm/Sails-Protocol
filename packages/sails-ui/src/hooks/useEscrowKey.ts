@@ -24,11 +24,12 @@
  * integration could derive per-trade keys instead without changing
  * anything on the server side (it only ever sees a pubkey).
  */
-import { generateEscrowKeypair, verifyAndSignEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp, SailsNotFoundError } from '@satsails/p2p-trading-sdk'
+import { generateEscrowKeypair, verifyAndSignEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from '../lib/sailsClient'
 import { encryptBytes, decryptBytes } from '../lib/keyEncryption'
 import { WrongPassphraseError } from '../context/AuthContext'
 import { buildMultisigSigningIntent } from '../lib/multisigSigningIntent'
+import { classifyPendingTransactionError } from '../lib/escrowErrorClassification'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
 
@@ -184,7 +185,14 @@ export function useEscrowKey(encryptionKey: CryptoKey | null) {
       // signAndSubmitPendingTransactionIfNeeded()'s own callers in
       // Trade.tsx) can distinguish "nothing to sign" from "something is
       // actually wrong" — Absence ≠ Failure ≠ Unknown.
-      if (err instanceof SailsNotFoundError) return null
+      //
+      // PRE-M3-REALITY-GATE-1-R1 (2026-09-13) — the actual instanceof
+      // check now lives in the pure, dependency-free
+      // classifyPendingTransactionError() (lib/escrowErrorClassification.ts)
+      // so it can be unit-tested directly (this hook can't be rendered —
+      // packages/sails-ui has no test runner configured, TD#62/#63).
+      // Behavior here is unchanged.
+      if (classifyPendingTransactionError(err) === 'absence') return null
       throw err
     }
     if (!pending.requiredSigners.includes(participantId)) return null

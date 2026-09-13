@@ -43,6 +43,7 @@ import { generateKeypair, LocalKeypairWalletAdapter, type Ed25519Keypair, type W
 import type { User } from '../types'
 import { sailsClient } from '../lib/sailsClient'
 import { deriveKeyFromPassphrase, encryptBytes, decryptBytes } from '../lib/keyEncryption'
+import { WrongPassphraseError } from '../lib/errors'
 
 const KEYPAIR_STORAGE_KEY = 'sails_ui_keypair_secret_hex'
 
@@ -55,12 +56,18 @@ export function hasStoredIdentity(): boolean {
 // (same passphrase, different stored secret) — one error type so every
 // caller can catch it with a single `instanceof` check regardless of
 // which key failed to decrypt.
-export class WrongPassphraseError extends Error {
-  constructor(message = 'Senha incorreta.') {
-    super(message)
-    this.name = 'WrongPassphraseError'
-  }
-}
+//
+// PRE-M3-REALITY-GATE-1-R1 (2026-09-13) — moved to `lib/errors.ts` (a
+// leaf module with zero imports) so `lib/escrowErrorClassification.ts`'s
+// pure classification functions can `instanceof`-check it without
+// dragging this file's own React/`sailsClient`/`keyEncryption` imports
+// into a plain Jest test — see `lib/errors.ts`'s own header comment for
+// the full reasoning. Re-exported here unchanged so every existing
+// caller (Login.tsx, Trade.tsx, useEscrowKey.ts) keeps importing it from
+// `context/AuthContext` exactly as before — no call site changed. Also
+// used directly below (`loadStoredKeypair()`), hence the regular import
+// above rather than only a re-export.
+export { WrongPassphraseError }
 
 function toUser(participant: {
   id: string; publicKey: string; displayName: string | null; peerId: string | null

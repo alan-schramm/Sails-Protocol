@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useNavigate, useLocation } from 'react-router'
 import { toast } from 'sonner'
 import type { Trade as SdkTrade, Escrow as SdkEscrow, WebSocketChannel, Dispute } from '@satsails/p2p-trading-sdk'
-import { encryptChatMessage, SailsAuthError, SailsForbiddenError } from '@satsails/p2p-trading-sdk'
+import { encryptChatMessage } from '@satsails/p2p-trading-sdk'
 import type { EscrowStatus, Message, MessageType, User } from '../types'
 import { useAuth, WrongPassphraseError } from '../context/AuthContext'
 import { useEscrowKey } from '../hooks/useEscrowKey'
+import { classifySigningWatchError } from '../lib/escrowErrorClassification'
 import { sailsClient } from '../lib/sailsClient'
 import { toUiMessage, toUiMessageFromEvent } from '../lib/tradeMessages'
 import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/StatusBadges'
@@ -105,15 +106,26 @@ export function Trade() {
   // required for the page to keep rendering. `WrongPassphraseError`
   // keeps its own specific message; every other real error gets a
   // generic-but-honest one rather than none at all.
+  // PRE-M3-REALITY-GATE-1-R1 (2026-09-13) — the actual instanceof
+  // classification now lives in the pure, dependency-free
+  // classifySigningWatchError() (lib/escrowErrorClassification.ts) so it
+  // can be unit-tested directly (this page can't be rendered —
+  // packages/sails-ui has no test runner configured, TD#62/#63). This
+  // function still owns the toast text/side effect; the four toast
+  // strings below are byte-for-byte unchanged from before this refactor.
   const ignoreExceptWrongPassphrase = (err: unknown) => {
-    if (err instanceof WrongPassphraseError) {
-      toast.error(err.message)
-    } else if (err instanceof SailsAuthError) {
-      toast.error('Sua sessão expirou — reconecte para continuar acompanhando a assinatura deste escrow.')
-    } else if (err instanceof SailsForbiddenError) {
-      toast.error('Não foi possível verificar sua permissão para assinar este escrow.')
-    } else {
-      toast.error('Não foi possível verificar se há uma assinatura pendente para você neste escrow — tente recarregar a página.')
+    switch (classifySigningWatchError(err)) {
+      case 'wrong-passphrase':
+        toast.error((err as WrongPassphraseError).message)
+        break
+      case 'session-expired':
+        toast.error('Sua sessão expirou — reconecte para continuar acompanhando a assinatura deste escrow.')
+        break
+      case 'forbidden':
+        toast.error('Não foi possível verificar sua permissão para assinar este escrow.')
+        break
+      default:
+        toast.error('Não foi possível verificar se há uma assinatura pendente para você neste escrow — tente recarregar a página.')
     }
   }
 

@@ -3123,4 +3123,70 @@ obligation" is defined anywhere in this repository.
     `packages/sails-ui/src/hooks/useEscrowKey.ts`,
     `packages/sails-ui/src/pages/Trade.tsx`.
 
+    **Corrected/Implemented 2026-09-13 (`PRE-M3-REALITY-GATE-1-R1`,
+    CTO evidence-and-gate-closure review of this same mission) — Gate
+    wording above is self-contradictory and is corrected here, original
+    text preserved above rather than deleted.** "READY, conditioned on…"
+    and the F-08 paragraph's own "**STOP — PRODUCT/ARCHITECTURE DECISION
+    REQUIRED**" cannot both stand unqualified in the same item: a reader
+    skimming only the final line would reasonably conclude the gate is
+    simply open, losing the STOP. Two more things closed by this same
+    follow-up mission, both scoped by the CTO as evidence-and-wording
+    corrections only — no redesign of the P3-F01–F07 runtime/SDK fixes
+    above, which are accepted as-is: (1) automated evidence for P3-F03/
+    P3-F04's failure-classification property (absence vs. a real 401/403/
+    network-failure/timeout/5xx vs. wrong-passphrase vs. unknown) did not
+    exist before this pass — only the SDK's own auth-header test did
+    (`packages/sails-sdk/tests/modules.test.ts`). Closed by extracting
+    the pure, dependency-free classification logic out of
+    `useEscrowKey.ts`'s catch block and `Trade.tsx`'s
+    `ignoreExceptWrongPassphrase` into
+    `packages/sails-ui/src/lib/escrowErrorClassification.ts`
+    (`classifyPendingTransactionError()`, `classifySigningWatchError()`)
+    and unit-testing both directly — no new UI test runner installed
+    (TD#62/#63 stays exactly as disclosed), reusing the same
+    `**/tests/**/*.test.ts` root-Jest seam `packages/sails-sdk/tests/
+    modules.test.ts` already runs through:
+    `packages/sails-ui/tests/escrowErrorClassification.test.ts`, 16 cases,
+    covering genuine absence (`SailsNotFoundError`), session expiry
+    (`SailsAuthError`), forbidden actor (`SailsForbiddenError`), network
+    failure and timeout (both `SailsTransportError`, per
+    `packages/sails-sdk/src/transport.ts`), server 5xx
+    (`SailsInternalError`), rate limit (`SailsRateLimitError`),
+    wrong-passphrase (`WrongPassphraseError`, relocated to the new leaf
+    module `packages/sails-ui/src/lib/errors.ts` so the classifier can
+    `instanceof`-check it without importing `context/AuthContext.tsx`'s
+    own React/`import.meta.env`/localStorage dependencies into a plain
+    Jest test — re-exported from `AuthContext` unchanged, no call site
+    touched), and a genuinely unexpected/unrecognized error. Behavior of
+    both callers is unchanged — this was a pure extract-for-testability
+    refactor, verified by `tsc --noEmit` (repo root, `sails-ui`,
+    `sails-sdk`) and the full suite. (2) The Gate verdict itself is
+    corrected to the CTO's own preferred wording, replacing the
+    ambiguous "READY, conditioned on…" line above:
+    **PRE-M3 BOUNDED CORRECTIONS COMPLETE. NO KNOWN RUNTIME/SDK CRITICAL
+    OR HIGH BLOCKER REMAINS FOR STARTING MISSION 3 DESIGN. P3-F08.1
+    (app-wide session-expiry handling) AND P3-F08.2 (trade-context-
+    preserving re-auth return path) REMAIN OPEN PRODUCT/ARCHITECTURE
+    DECISIONS AND MUST BE CONSUMED EXPLICITLY BY MISSION 3.** Mission 3
+    may reason about and resolve F-08.1/F-08.2; their being open is not
+    evidence the current session lifecycle is complete, and this
+    correction is not itself a decision on either — both stay exactly as
+    escalated above, registered, not solved here. PR #143's own
+    description carries the same corrected line.
+
+    **Verified, not asserted (this follow-up pass):** `npx tsc --noEmit`
+    clean at repo root, `packages/sails-ui`, `packages/sails-sdk`; full
+    unit suite 158 suites / 2086 tests, 2082 passing including the 16 new
+    cases above — 4 pre-existing failures unrelated to this change
+    (`tests/expiryShadow.test.ts`, `tests/dispatchGate.test.ts`,
+    `tests/correspondenceEvaluator.test.ts`,
+    `tests/attributionEvaluator.test.ts`, all in `packages/sails-core`,
+    none touched by this pass), root-caused to this Windows checkout's
+    `core.autocrlf=true` giving those 4 files CRLF line endings their own
+    exact-string import-line assertions don't strip before comparing —
+    confirmed pre-existing and environment-only (not reproduced by this
+    branch's own green GitHub Actions CI, which checks out on Linux) —
+    not fixed here, out of this mission's bounded scope.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**
