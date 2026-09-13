@@ -1145,6 +1145,33 @@ a 404 does not automatically become UNKNOWN. `PRE-M3-REALITY-GATE-1`'s
 P3-F03 fix (`packages/sails-ui/src/hooks/useEscrowKey.ts`) is the
 concrete, checked-in worked example of this rule applied to a real bug.
 
+**Cross-layer rule (`AI-ENGINEERING-DISCIPLINE-1-R1`, 2026-09-13):**
+
+> Error semantics are cross-layer truth. Runtime, API, SDK, and Product
+> may expose different detail, but must preserve the same underlying
+> failure and recovery meaning.
+
+> UI copy may vary by product and actor. Error meaning, retryability,
+> economic-state implication, and recovery semantics may not.
+
+The Failure Taxonomy above is not only a per-layer discipline — the same
+distinction (Absence ≠ Failure ≠ Unknown ≠ Pending ≠ Rejected ≠
+Unavailable) must survive translation across every layer that touches
+an error before a human sees it. The conceptual mapping a layer boundary
+must preserve:
+
+```
+Runtime Code → SDK Type → Semantic Category → Retryability →
+Economic State Impact → Required Action → Product Presentation
+```
+
+A backend 401 becoming an SDK type that a UI then treats as "nothing to
+sign" (exactly `PRE-M3-REALITY-GATE-1`'s P3-F01/P3-F03 bug) is this rule
+being violated, not a UI wording choice — different products may word
+the resulting message however fits their audience, but they may not
+disagree on whether the situation is retryable, whether it implies an
+economic-state change, or what action it requires.
+
 ### 16.18 Agent Authority (extends §7)
 
 > Agent access ≠ Agent authority.

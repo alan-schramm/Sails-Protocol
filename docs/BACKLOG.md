@@ -2973,3 +2973,39 @@ obligation" is defined anywhere in this repository.
     `docs/ENGINEERING_GOVERNANCE.md` §13A (new).
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+34. **Unified Error & Recovery Semantics — registered, not implemented
+    (`AI-ENGINEERING-DISCIPLINE-1-R1`, 2026-09-13).** Generalizes a
+    concrete instance already found and fixed in a separate, companion
+    mission (`PRE-M3-REALITY-GATE-1`'s P3-F01/P3-F03: a backend 401
+    reaching the UI as an untyped "nothing to sign," fixed in
+    `packages/sails-ui/src/hooks/useEscrowKey.ts`/`Trade.tsx`) into a
+    standing obligation, per `docs/ENGINEERING_GOVERNANCE.md` §16.17's
+    new cross-layer rule: *error meaning, retryability, economic-state
+    implication, and recovery semantics must survive translation across
+    Runtime → API → SDK → Product; only presentation copy may vary.*
+    **Checked before registering, not assumed absent:** no existing
+    `docs/BACKLOG.md` item, `docs/TECHNICAL_DEBT_AUDIT.md` entry, or
+    `docs/NORTE_FIXO.md` macrofront already covers this generally — the
+    one close mention (`docs/PRODUCT_INTERACTION_MODEL.md`'s "error/
+    recovery semantics" in its Wallet Integrator evaluation-surface list)
+    names the *product* half only, not the cross-layer parity obligation
+    itself. **Not a new macrofront** — reuses `docs/NORTE_FIXO.md` front
+    21 (SDK/DX), the correct existing home for an SDK↔backend typed-
+    contract parity concern; cross-referenced there rather than
+    duplicated. Scope for a future bounded mission: Backend↔SDK typed-
+    error parity (does every server error class the SDK's own
+    `packages/sails-sdk/src/errors.ts` hierarchy claims to cover actually
+    map 1:1, repo-wide, not just for the Settlement module this mission's
+    companion PR happened to touch); semantic category / retryability /
+    economic-state impact classification, made explicit per error type,
+    not left to each call site to infer; product-facing recovery
+    semantics (does a caught error actually tell the product what to do,
+    not just that something failed); Sails Market and partner UI
+    presentation consistency (no requirement for identical copy across
+    products — only that meaning/retryability/economic-state/recovery
+    never silently drift between them). **Explicitly not decided or
+    implemented here:** no runtime, API, SDK, or UI change; no new error
+    type; no new taxonomy beyond the one already named in §16.17.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
