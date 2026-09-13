@@ -1092,6 +1092,96 @@ sharing letters invited exactly the collapse both freezes independently
 warn against. **No new backend role, authority, or runtime is
 introduced.** Full text lives there, not duplicated here.
 
+## 2H. P2P Product Journey — pointer (`MISSÃO 2`, 2026-09-12)
+
+`docs/P2P_PRODUCT_JOURNEY.md` institutionalizes the end-to-end P2P
+economic journey (Discovery → Offer Evaluation → Economic Commitment →
+Trade Lifecycle → Payment/Funding → Authorization → Settlement →
+Outcome/Cancel/Dispute), built on §2G's USR/AGT/OPS/INT notation: a
+Canonical Journey mapped onto `docs/PROTOCOL_SPECIFICATION.md`'s own
+9-state Trade Lifecycle, an Economic Commitment Boundary, an Economic
+Journey Grammar, Runtime/Product/User-facing State Inventories, a
+`SPLIT`-outcome gap analysis, a derived-state ambiguity analysis,
+conceptual (not implemented) `FundingInstruction`/`FundingState`/
+`SigningRequest` models, a Counterparty Experience model, a Dispute
+Journey model, Happy-Path/Interrupted-Path maps, a Retry-Safety model,
+and an Unknown-Outcome model — synthesizing already-frozen sources
+(`docs/PROTOCOL_SPECIFICATION.md`, `docs/DATABASE.md`,
+`docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`,
+`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`) plus direct, real-code
+verification (2026-09-12) rather than documentation or UI assumptions.
+**No new protocol, Settlement, authority, or runtime is introduced.**
+The mission's own most material finding — `EscrowStatus.SPLIT` missing
+from the UI's type/badge mirror and mishandled by the derived
+`TradeState` vocabulary — is named and classified, not fixed here. Full
+text lives there, not duplicated here.
+
+## 2I. Market Entry / Authentication Boundary — pointer (`MISSÃO 2A`, 2026-09-13)
+
+`docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md` verifies, against real
+current `sails-ui` routing/pages/`AuthContext.tsx` and the real backend
+route files, where the public-discovery/authentication/wallet-connection/
+funds-authority boundary already sits — not where it was assumed to
+sit. **Headline finding:** Market Discovery and Offer Evaluation
+(`Marketplace.tsx`, `OfferDetail.tsx`) already require no authentication
+at either the frontend-routing or backend-route layer — the
+`Open Market → Discovery → Offer Evaluation → Intent to Act →
+Authentication if required → Economic Commitment` target journey is
+already the real, shipped shape of this codebase for those stages, not
+a gap to open. The one real conflation found: Economic Identity and
+Wallet Connection are collapsed into a single `login()` step in this
+reference UI (a disclosed demo shortcut, not a protocol requirement —
+RFC-013's `WalletAdapter` already supports decoupling them). A passkey/
+Breez-Auth login candidate is registered (cross-referencing
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §5.1's existing, differently-
+angled evidence) — not decided, not selected. **No authentication
+mechanism was implemented, changed, or removed; no UI was corrected.**
+Full text lives there, not duplicated here.
+
+## 2J. Sails Market Distribution & Network Flywheel — pointer (`P2P-JOURNEY-GATE-R1`, 2026-09-13)
+
+`docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md` institutionalizes how Sails
+Market (`sails-ui`) relates to Native SDK Participation and to
+External/Hardware Wallet Participation — as a distribution surface over
+one shared protocol contract, not a parent either other path depends
+on — with Mermaid diagrams for access topology, SDK-vs-universal-access
+convergence, the network flywheel, and capability-gated wallet
+participation. Preserves `WalletAdapter ≠ SettlementProvider`, `Access
+through Sails Market ≠ native adoption`, `Better integration ≠
+privileged semantics` (restating, not redefining,
+`docs/PROJECT_CONTEXT.md` §2D item 7 and
+`docs/PRODUCT_INTERACTION_MODEL.md` §6's own frozen rows), and *"One
+market. Many interfaces. Many wallet stacks. Shared economic meaning."*
+**`MetaMask`/`Xverse`/`OKX`/`Ledger`/`Trezor` are cited only as
+illustrative future-compatible example classes — no external wallet
+connector, passkey, or Breez Auth mechanism exists or is authorized by
+this document.** The network flywheel itself is explicitly labeled a
+product hypothesis, not a claim of achieved adoption. No protocol, SDK,
+Core, or UI change. Full text lives there, not duplicated here.
+
+## 2K. System Coherence & Integration Audit — pointer (`SYSTEM-COHERENCE-1`, 2026-09-13)
+
+`docs/SYSTEM_COHERENCE_INTEGRATION_AUDIT.md` is an adversarial,
+cross-layer audit of everything institutionalized through §2A-§2J plus
+`docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
+(2026-09-12) against real, current runtime — not a re-confirmation that
+the system is correct. Headline findings: **`EscrowStatus.SPLIT`'s
+UI/schema gap has a precisely root-caused defect** (`deriveTradeState()`'s
+dispute-branch returns before ever consulting the already-correct
+`trade.status`, verified against `handlers.ts`'s real `settlement.escrow.split`
+handler); the payout-address privacy gap (§2I) remains registered, not
+resolved; ADR-002's new `Asset`/`SettlementRail`/`SettlementScope`
+architecture (frozen the same day as `MISSÃO 2`) is not yet
+cross-referenced in `docs/P2P_PRODUCT_JOURNEY.md` or
+`docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md`; and the canonical journey's
+own "Wallet/Signer Boundary" step has no real, separate instance in the
+reference UI (Identity and Wallet Connection remain one artifact, §2I's
+own finding, restated with a precise journey-step diagnosis). **Mission
+3 Gate verdict: not blocked** — two findings (SPLIT, payout-address)
+should run as a corrective mission in parallel with Mission 3, not
+sequentially before it. **No fix implemented, no runtime changed.** Full
+text lives there, not duplicated here.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem
