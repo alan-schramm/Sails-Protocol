@@ -1116,6 +1116,28 @@ from the UI's type/badge mirror and mishandled by the derived
 `TradeState` vocabulary — is named and classified, not fixed here. Full
 text lives there, not duplicated here.
 
+## 2I. Market Entry / Authentication Boundary — pointer (`MISSÃO 2A`, 2026-09-13)
+
+`docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md` verifies, against real
+current `sails-ui` routing/pages/`AuthContext.tsx` and the real backend
+route files, where the public-discovery/authentication/wallet-connection/
+funds-authority boundary already sits — not where it was assumed to
+sit. **Headline finding:** Market Discovery and Offer Evaluation
+(`Marketplace.tsx`, `OfferDetail.tsx`) already require no authentication
+at either the frontend-routing or backend-route layer — the
+`Open Market → Discovery → Offer Evaluation → Intent to Act →
+Authentication if required → Economic Commitment` target journey is
+already the real, shipped shape of this codebase for those stages, not
+a gap to open. The one real conflation found: Economic Identity and
+Wallet Connection are collapsed into a single `login()` step in this
+reference UI (a disclosed demo shortcut, not a protocol requirement —
+RFC-013's `WalletAdapter` already supports decoupling them). A passkey/
+Breez-Auth login candidate is registered (cross-referencing
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §5.1's existing, differently-
+angled evidence) — not decided, not selected. **No authentication
+mechanism was implemented, changed, or removed; no UI was corrected.**
+Full text lives there, not duplicated here.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem

@@ -2660,4 +2660,51 @@ obligation" is defined anywhere in this repository.
     Core change. Full text: `docs/P2P_PRODUCT_JOURNEY.md`; pointer added
     at `docs/PROJECT_CONTEXT.md` §2H.
 
+30. **Market Entry / Authentication Boundary — verified, not implemented
+    (2026-09-13, `MISSÃO 2A`).** Created
+    `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md`, auditing where the
+    public-discovery/authentication/wallet-connection/funds-authority
+    boundary actually sits in real, current `sails-ui` (routing, every
+    page's own `useAuth()` gate, `AuthContext.tsx`) and the real backend
+    route files (`preHandler: requireAuth` presence/absence read
+    directly, not assumed).
+
+    **Headline finding, inverting the mission's own conditional premise:**
+    Market Discovery and Offer Evaluation (`Marketplace.tsx`,
+    `OfferDetail.tsx`) already require zero authentication at both the
+    frontend-routing and backend-route layer today —
+    `GET /v1/liquidity/offers`, `/:id`, `/:asset/book`, and
+    `POST /v1/liquidity/match` all have no `requireAuth`; `Marketplace.tsx`
+    has no `useAuth()` reference at all; `OfferDetail.tsx` renders fully
+    public and gates only its "Iniciar Trade" click. The
+    `Open Market → Discovery → Offer Evaluation → Intent to Act →
+    Authentication if required → Economic Commitment` target journey
+    this mission asked to evaluate is already the real, shipped shape of
+    this codebase for those stages — not a login wall to open.
+
+    **Real conflation found, not fixed:** Economic Identity and Wallet
+    Connection are collapsed into a single `login()` step
+    (`AuthContext.tsx`) — a disclosed demo shortcut (the same identity
+    keypair doubles as a `WalletAdapter`), not a protocol requirement;
+    RFC-013's real `WalletAdapter` interface already supports decoupling
+    them, unused only because no real external-wallet integration exists
+    yet. A minor, real inconsistency also found: `AgentIntentionPanel.tsx`'s
+    unauthenticated action shows a dead-end toast, unlike
+    `OfferDetail.tsx`'s redirect-with-return pattern for the same class
+    of gate.
+
+    **Candidate authentication capability registered, not decided:** a
+    passkey (WebAuthn)/Breez-Auth-style login mechanism for
+    `Login.tsx`'s own session-establishment step — cross-referencing
+    `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §5.1's existing Breez
+    `passkey-login` evidence (cited there for a *recovery-root/
+    derivation* angle, not the *login UX* angle this mission raises) so
+    the two are linked, not duplicated. No email/password, passkey
+    scheme, or Breez Auth decision is made.
+
+    **Explicitly not done:** no authentication mechanism implemented,
+    changed, or removed; no UI corrected. Full text:
+    `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md`; pointer added at
+    `docs/PROJECT_CONTEXT.md` §2I.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**
