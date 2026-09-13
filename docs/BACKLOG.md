@@ -2603,4 +2603,189 @@ obligation" is defined anywhere in this repository.
     (`955520841befb41d4ae9d3d7734363ae330434fa`); this item is renumbered
     to **28** as part of rebasing onto the resulting `main`.
 
+29. **P2P Product Journey — institutionalized, not implemented
+    (2026-09-12, `MISSÃO 2`).** Created `docs/P2P_PRODUCT_JOURNEY.md`,
+    mapping the end-to-end P2P economic journey (Discovery → Offer
+    Evaluation → Economic Commitment → Trade Lifecycle →
+    Payment/Funding → Authorization → Settlement →
+    Outcome/Cancel/Dispute) onto `docs/PROTOCOL_SPECIFICATION.md`'s own
+    9-state Trade Lifecycle, verified directly against real, current
+    source (`prisma/schema.prisma`, `escrow-lifecycle.ts`,
+    `dispute.service.ts`, `trade.service.ts`, `sails-ui`,
+    `@satsails/p2p-schemas`), not deduced from documentation or UI
+    alone. Uses item 28's USR/AGT/OPS/INT notation throughout, adds none
+    new.
+
+    **Highest-priority real gap found:** `EscrowStatus.SPLIT` (RFC-021
+    D9, a real, terminal, economically-material partial-payout outcome)
+    is absent from `sails-ui`'s own `EscrowStatus` type
+    (`packages/sails-ui/src/types.ts`) and `StatusBadges.tsx`'s badge
+    map, and `@satsails/p2p-schemas`' `deriveTradeState()` mishandles it
+    two distinct ways — an already-resolved SPLIT dispute reports as
+    `dispute_opened` (still open) via the normal Dispute-row path, and
+    falls through to `open` (not yet started) via the Escrow-status-only
+    fallback path. The runtime has full information to represent this
+    correctly (`Escrow.status`, `Dispute.ruling`,
+    `EscrowPendingTransaction.toAddress`/`toAddressSecondary`) — this is
+    a pure product/UI-mirror gap, not an information gap. Not fixed
+    here, per the mission's own explicit instruction; named and
+    classified (Product truth omitted) for a future Tier-2 fix.
+
+    **Second finding, largely already closed:** the `WDK_USDT_EVM`
+    unknown-outcome/retry-safety gap (`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`)
+    is restated as this mission's Retry-Safety/Unknown-Outcome grounding
+    — already correctly classified and contained (boot-refused in
+    production) by prior work, not re-decided here. **Payment
+    Destination (F1: Economic Disposition Authority ≠ Destination
+    Authority ≠ Execution Authority) was found to be correctly modeled
+    AND, as of a 2026-09-11 fix (M8-R2,
+    `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`), genuinely enforced**
+    in the real dispute-resolution code path — better than the
+    architecture document's own original framing anticipated. Two
+    stale-comment/API-surface nits found during verification (an
+    outdated `escrow.service.ts` doc comment; `resolveDispute()`'s
+    HTTP schema still accepting now-ignored destination fields) are
+    named as documentation deltas, not security findings.
+
+    **Conceptual, not implemented:** `FundingInstruction`, `FundingState`,
+    and `SigningRequest` models (rail-agnostic product semantics,
+    confirmed absent from real code by direct search) — for a future
+    Wallet Partner Journey mission to reuse rather than re-derive.
+
+    **Explicitly not closed, not decided, not implemented:** no
+    Settlement architecture change, no cryptographic economic
+    commitment, no new authority role, no delegated agent authority, no
+    new provider, no Private Markets/Node discovery, no UI refactor, no
+    state invented without backing runtime truth. No Semantic Kernel or
+    Core change. Full text: `docs/P2P_PRODUCT_JOURNEY.md`; pointer added
+    at `docs/PROJECT_CONTEXT.md` §2H.
+
+30. **Market Entry / Authentication Boundary — verified, not implemented
+    (2026-09-13, `MISSÃO 2A`).** Created
+    `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md`, auditing where the
+    public-discovery/authentication/wallet-connection/funds-authority
+    boundary actually sits in real, current `sails-ui` (routing, every
+    page's own `useAuth()` gate, `AuthContext.tsx`) and the real backend
+    route files (`preHandler: requireAuth` presence/absence read
+    directly, not assumed).
+
+    **Headline finding, inverting the mission's own conditional premise:**
+    Market Discovery and Offer Evaluation (`Marketplace.tsx`,
+    `OfferDetail.tsx`) already require zero authentication at both the
+    frontend-routing and backend-route layer today —
+    `GET /v1/liquidity/offers`, `/:id`, `/:asset/book`, and
+    `POST /v1/liquidity/match` all have no `requireAuth`; `Marketplace.tsx`
+    has no `useAuth()` reference at all; `OfferDetail.tsx` renders fully
+    public and gates only its "Iniciar Trade" click. The
+    `Open Market → Discovery → Offer Evaluation → Intent to Act →
+    Authentication if required → Economic Commitment` target journey
+    this mission asked to evaluate is already the real, shipped shape of
+    this codebase for those stages — not a login wall to open.
+
+    **Real conflation found, not fixed:** Economic Identity and Wallet
+    Connection are collapsed into a single `login()` step
+    (`AuthContext.tsx`) — a disclosed demo shortcut (the same identity
+    keypair doubles as a `WalletAdapter`), not a protocol requirement;
+    RFC-013's real `WalletAdapter` interface already supports decoupling
+    them, unused only because no real external-wallet integration exists
+    yet. A minor, real inconsistency also found: `AgentIntentionPanel.tsx`'s
+    unauthenticated action shows a dead-end toast, unlike
+    `OfferDetail.tsx`'s redirect-with-return pattern for the same class
+    of gate.
+
+    **Candidate authentication capability registered, not decided:** a
+    passkey (WebAuthn)/Breez-Auth-style login mechanism for
+    `Login.tsx`'s own session-establishment step — cross-referencing
+    `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §5.1's existing Breez
+    `passkey-login` evidence (cited there for a *recovery-root/
+    derivation* angle, not the *login UX* angle this mission raises) so
+    the two are linked, not duplicated. No email/password, passkey
+    scheme, or Breez Auth decision is made.
+
+    **Explicitly not done:** no authentication mechanism implemented,
+    changed, or removed; no UI corrected. Full text:
+    `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md`; pointer added at
+    `docs/PROJECT_CONTEXT.md` §2I.
+
+31. **P2P Journey + Market Access Flywheel — reconciled, institutionalized,
+    not implemented (2026-09-13, `P2P-JOURNEY-GATE-R1`).** Four corrections
+    plus one new institutionalization, all docs-only:
+
+    **(a) Economic Commitment reframed.** `docs/P2P_PRODUCT_JOURNEY.md`
+    §2 previously labeled `Trade` creation "the Economic Commitment
+    Boundary." Corrected: `Trade` creation is the **Current Runtime
+    Coordination Commitment**; a new §2.3 defines the **Target Economic
+    Commitment Boundary** verbatim from GitHub Issue #105's own Cold
+    Sweep Loop 2 (item 27: exact accepted Offer revision/envelope hash +
+    amount + price + asset + network/rail + tradeId) and Loop 3 (items
+    30-36: fiat amount/currency/payment-method, payment-destination
+    commitment, settlement-mechanism binding, fee/policy-version freeze,
+    per-trade arbitration-policy binding), restated as a gap table
+    against §2.1's already-real bindings. No cryptographic anchor
+    implemented or designed.
+
+    **(b) Maturity corrected, with an independent verification that
+    contradicted the mission's own premise.** `docs/P2P_PRODUCT_JOURNEY.md`
+    §1's Discovery/Offer Evaluation rows were marked Production Eligible
+    without checking either real gate. Re-verified directly against
+    `src/modules/open-liquidity/liquidity.service.ts` (2026-09-13):
+    **Technical Debt #61 (public Offer privacy defect) is already fixed**
+    (`getOffer()`'s explicit `select` + `mapOfferToPublicDetail()`,
+    11 real adversarial tests) — `docs/TECHNICAL_DEBT_AUDIT.md` item
+    #61's own section *heading* and GitHub Issue #105's own item 37 text
+    are both stale relative to their own bodies/real code, named as
+    documentation deltas, not corrected here. The real, applicable gate
+    is different and larger: Issue #105's own Day-0 Multi-Operator
+    Network completion (items 1-25 — portable signed Offers, multi-node
+    discovery/gossip, eleven required adversarial network tests) does
+    not exist in this single-node reference implementation. Corrected
+    classification: Discovery/Offer Evaluation are **Beta Eligible**
+    (single-node, real, evidenced), **not Production Eligible**
+    (Day-0 Multi-Operator Network gate, unrelated to TD#61).
+
+    **(c) Payout-address framing corrected.** `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md`
+    originally judged `GET /v1/settlement/payout-addresses/:participantId/:asset`'s
+    public reachability as unproblematic without checking it against
+    `docs/PRODUCT_INTERACTION_MODEL.md` §5's own frozen Privacy Matrix.
+    Corrected (new §1.3.1): that matrix's own "Payout/destination
+    address" row freezes `Public: ○`; the real route is publicly
+    reachable today (`●`-equivalent) — a genuine, verified discrepancy
+    between frozen product intent and runtime reality, registered as a
+    **privacy review gap**, not solved or judged legitimate/illegitimate
+    here.
+
+    **(d) Sails Market Distribution & Network Flywheel institutionalized**
+    (new `docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md`, 4 Mermaid
+    diagrams): Native SDK Participation and Universal Market Access
+    (both real, shipped) vs. External/Hardware Wallet Participation
+    (RFC-013's `WalletAdapter` interface real, no connector implemented).
+    Preserves `WalletAdapter ≠ SettlementProvider`, `Access through
+    Sails Market ≠ native adoption`, `Better integration ≠ privileged
+    semantics` (restating `docs/PROJECT_CONTEXT.md` §2D item 7 and
+    `docs/PRODUCT_INTERACTION_MODEL.md` §6, not redefining them), and
+    *"One market. Many interfaces. Many wallet stacks. Shared economic
+    meaning."* `MetaMask`/`Xverse`/`OKX`/`Ledger`/`Trezor` appear only as
+    illustrative future-compatible example classes — no current or
+    planned support is claimed. The network flywheel diagram is labeled
+    an explicit product hypothesis, not achieved adoption.
+
+    **Merge sequencing:** PR #135 (Actor Experience Model, items 25-28's
+    home) was CTO-Frozen and independently re-verified
+    (`state: OPEN`, `mergeable: MERGEABLE`, all checks green) immediately
+    before merging — merged for real at `55706c2777dc2b4564f16bbbe781f14e7061b11a`
+    (two real parents confirmed). `docs/p2p-product-journey` (PR #139,
+    items 29-30's home) was rebased cleanly onto the resulting `main` —
+    zero conflicts (items 29/30 were already numbered correctly against
+    #135's own items 25-28, no renumbering needed this time) — then this
+    item's own corrections and new document were added on top and CI
+    re-run.
+
+    **Explicitly not implemented:** external wallet connectors, passkey,
+    Breez Auth, `FundingInstruction`, `SigningRequest`, new authority, UI
+    redesign. No Settlement architecture, Semantic Kernel, or Core
+    change. Full text: `docs/P2P_PRODUCT_JOURNEY.md` (corrected),
+    `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md` (corrected),
+    `docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md` (new); pointer added at
+    `docs/PROJECT_CONTEXT.md` §2J.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**
