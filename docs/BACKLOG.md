@@ -2973,3 +2973,220 @@ obligation" is defined anywhere in this repository.
     `docs/ENGINEERING_GOVERNANCE.md` §13A (new).
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+34. **Pre-M3 Reality Gate — 8 findings revalidated, 6 fixed, 1 confirmed
+    already-correct, 1 escalated with two structural sub-gaps
+    (2026-09-13, `PRE-M3-REALITY-GATE-1`).** Independent CTO/Owner
+    preflight run before authorizing Mission 3 (P2P End-to-End Product
+    Journey implementation), on the explicit governing principle *"green
+    CI is evidence of what was tested, not evidence that every important
+    question was asked."*
+
+    **P3-F01 (`getPendingTransaction()` SDK↔server auth mismatch) —
+    CONFIRMED, FIXED.** The server route (`settlement.routes.ts`) has
+    required `requireAuth` + party/arbiter scoping since "Missão 07.6";
+    the SDK method never sent the session token, so every real caller
+    401'd unconditionally. Fixed in `packages/sails-sdk/src/modules/settlement.ts`
+    (now sends `auth: true`). New SDK test added (`tests/modules.test.ts`).
+
+    **P3-F02 (`getReleaseApprovals()` same class of mismatch) —
+    CONFIRMED, FIXED.** Same root cause, same fix, same file. The SDK
+    method's own doc comment had ALSO compounded the error by citing
+    `get()` as a "same as, no auth" precedent — `get()` had required
+    auth since "Missão 06.8," so that comparison was already false when
+    written. Corrected doc comment; stale test rewritten from "no auth
+    required" to "WITH auth."
+
+    **P3-F03 (`useEscrowKey.ts`'s bare `catch { return null }`) —
+    CONFIRMED, FIXED, highest-impact finding of this mission.** Because
+    of F-01/F-02, this bare catch meant the entire client-signature-
+    collection auto-sign flow for MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM
+    had been silently, completely non-functional for as long as both
+    bugs coexisted — a 401 was indistinguishable from "nothing to sign."
+    Fixed: only `SailsNotFoundError` (genuine absence, verified against
+    the real backend's `getPendingTransaction()`) may now return `null`;
+    every other error propagates. *Absence ≠ Failure ≠ Unknown.*
+
+    **P3-F04 (`Trade.tsx`'s `ignoreExceptWrongPassphrase` catch-all) —
+    CONFIRMED, FIXED.** Silently dropped every error except
+    `WrongPassphraseError` at 3 call sites. Now surfaces `SailsAuthError`
+    (session-expired toast), `SailsForbiddenError` (permission toast),
+    and a generic-but-honest toast for any other error — silent only for
+    the correctly-filtered-upstream legitimate-absence case.
+
+    **P3-F05 (stale truth after PR #141) — CONFIRMED, FIXED in the 2
+    documents actually stale.** `docs/P2P_PRODUCT_JOURNEY.md` §6 still
+    described the SPLIT gap as live/unfixed — added a correction block,
+    preserved the original analysis as historical record (not deleted).
+    `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md` §1.3.1 and 4 other
+    passages still described the payout-address route as publicly
+    reachable — corrected all 6 locations, preserved original reasoning
+    as historical record. `docs/BACKLOG.md` item 32/33 and
+    `docs/TECHNICAL_DEBT_AUDIT.md` were checked and found already
+    correctly updated (no action needed there).
+
+    **P3-F06 (SDK stable contract obsolete semantics, `toAddress`) —
+    CONFIRMED, FIXED — but the underlying runtime/SDK semantics were
+    already correct.** `release()`/`initiateRelease()`'s own SDK doc
+    comments already fully and accurately disclosed M8-R2's
+    accepted-but-inert `toAddress` behavior (2026-09-11, two days before
+    this mission). The gap was entirely in `docs/API_STABLE.md`, which
+    documented both methods with zero mention of this — corrected both
+    lines, plus added the two entirely-undocumented methods
+    `getReleaseApprovals()`/`approveRelease()` and the missing auth
+    annotation on `getPendingTransaction()`'s own line.
+
+    **P3-F07 (partner maturity overclaim, Flywheel doc) — CONFIRMED,
+    FIXED.** "Native SDK Participation: Real, supported, evidenced"
+    collapsed three distinct claims into one, readable as independent
+    partner integration having occurred. Corrected to the mission's own
+    preferred three-tier wording (technical path real / internal
+    integration evidenced / independent partner integration not yet
+    evidenced), explicitly citing Issue #99's *"reference integration is
+    necessary but insufficient."*
+
+    **P3-F08 (session expiry reality test) — RUN, PARTIALLY ANSWERED BY
+    THE F-03/F-04 FIXES ABOVE, TWO STRUCTURAL GAPS ESCALATED, NOT
+    FIXED.** Confirmed directly against `AuthContext.tsx`: `user` stays
+    non-null after a server-side session expiry (nothing listens for
+    it); a page refresh always forces re-entering the passphrase
+    (by design, since 2026-08-11's encryption fix — the encryption key
+    cannot be re-derived without it), so "session silently expired in a
+    long-lived tab" was previously indistinguishable from "nothing to
+    do" — now closed for the 3 `Trade.tsx` call sites by F-03/F-04.
+    Escrow signing key access correctly survives a session expiry +
+    re-auth (keyed to the passphrase-derived encryption key, not the
+    session token) — verified, no gap. Wrong-passphrase vs.
+    expired-session are now correctly distinguishable in the UI (toast
+    text differs) — verified, no gap. **Two real structural gaps found,
+    NOT fixed here per this mission's own §25 correction-authority limit
+    (both require a product/architecture decision, not a bounded fix):**
+    (1) no app-wide interceptor exists that reacts to a `SailsAuthError`
+    from any page outside the 3 patched `Trade.tsx` call sites — every
+    other page's data-fetching call has no specific session-expiry
+    handling; (2) no return-path mechanism exists to preserve trade
+    context across a forced re-authentication (unlike `OfferDetail.tsx`'s
+    existing redirect-with-return pattern for the *initial* auth gate).
+    **STOP — PRODUCT/ARCHITECTURE DECISION REQUIRED** for both, per the
+    mission's own explicit rule; registered here, not decided.
+
+    **Known, disclosed, bounded limitation — not fixed, not silently
+    skipped:** `tests/routes.test.ts` has no existing HTTP-level test for
+    `GET .../pending-transaction` or `GET .../release-approvals` (neither
+    `prisma.escrowPendingTransaction` nor `prisma.escrowReleaseApproval`
+    is mocked anywhere in that file). The actual bug this mission fixed
+    was 100% client-side (the SDK not sending the auth header) — the
+    server's own pre-existing `requireAuth` requirement was never broken
+    and is unchanged — so the new SDK-level tests (asserting the
+    `Authorization` header is now sent) directly cover the fix made.
+    Adding new HTTP-route-level 401/403 tests for these two routes would
+    be valuable, real, additional coverage of already-correct,
+    unchanged server behavior — genuine new test-infrastructure work
+    (new Prisma mock wiring), not a "directly necessary test" for the
+    fix made here. Named explicitly rather than silently left out.
+
+    **`packages/sails-ui` still has no test runner configured**
+    (pre-existing TD#62/#63, unchanged) — the `useEscrowKey.ts`/
+    `Trade.tsx` fixes are verified by `tsc --noEmit` + direct code-trace
+    against the real backend + a live dev-server console/screenshot
+    check (no new console errors beyond the pre-existing offline-backend
+    ones), not by an automated UI test, consistent with this same
+    disclosed limitation from `COHERENCE-CORRECTIVE-1`.
+
+    **§8-13 boundary revalidations (Auth≠Identity≠Wallet≠Signer≠Funds-
+    Authority, Identity Safety Boundary, Transport Identity, Partner
+    Wallet Maturity, Service/Backend Integrator Path, External Wallet
+    Boundary) — all reconfirmed unchanged, not assumed.**
+    `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` re-checked directly:
+    still B/STOP. Repo-wide sweep for unqualified MetaMask/Xverse/OKX/
+    Ledger/Trezor support claims outside the Flywheel doc's own
+    explicit example-class framing: none found. No new C/D identity
+    design, no new settlement abstraction, no new authority primitive —
+    none authorized or attempted, per this mission's own non-goals.
+
+    **Verified, not asserted:** `npx tsc --noEmit` clean at repo root,
+    `packages/sails-ui`, `packages/sails-sdk`; full unit suite green
+    (157 suites, 2070 tests — one more than `COHERENCE-CORRECTIVE-1`'s
+    2069, the new `getPendingTransaction()` SDK test); `sails-ui` dev
+    server loads cleanly (no new console errors beyond the pre-existing
+    offline-backend `ERR_CONNECTION_REFUSED` ones).
+
+    **Mission 3 Gate: READY, conditioned on the CTO deciding disposition
+    of the two escalated F-08 structural gaps** — neither blocks Mission
+    3's *documentation/journey* work, but both should be decided before
+    or during Mission 3's own session-lifecycle design, not silently
+    inherited as "already handled." Full text:
+    `docs/API_STABLE.md`, `docs/P2P_PRODUCT_JOURNEY.md` §6,
+    `docs/MARKET_ENTRY_AUTHENTICATION_BOUNDARY.md` §1.3.1,
+    `docs/SAILS_MARKET_DISTRIBUTION_FLYWHEEL.md` §1,
+    `packages/sails-sdk/src/modules/settlement.ts`,
+    `packages/sails-ui/src/hooks/useEscrowKey.ts`,
+    `packages/sails-ui/src/pages/Trade.tsx`.
+
+    **Corrected/Implemented 2026-09-13 (`PRE-M3-REALITY-GATE-1-R1`,
+    CTO evidence-and-gate-closure review of this same mission) — Gate
+    wording above is self-contradictory and is corrected here, original
+    text preserved above rather than deleted.** "READY, conditioned on…"
+    and the F-08 paragraph's own "**STOP — PRODUCT/ARCHITECTURE DECISION
+    REQUIRED**" cannot both stand unqualified in the same item: a reader
+    skimming only the final line would reasonably conclude the gate is
+    simply open, losing the STOP. Two more things closed by this same
+    follow-up mission, both scoped by the CTO as evidence-and-wording
+    corrections only — no redesign of the P3-F01–F07 runtime/SDK fixes
+    above, which are accepted as-is: (1) automated evidence for P3-F03/
+    P3-F04's failure-classification property (absence vs. a real 401/403/
+    network-failure/timeout/5xx vs. wrong-passphrase vs. unknown) did not
+    exist before this pass — only the SDK's own auth-header test did
+    (`packages/sails-sdk/tests/modules.test.ts`). Closed by extracting
+    the pure, dependency-free classification logic out of
+    `useEscrowKey.ts`'s catch block and `Trade.tsx`'s
+    `ignoreExceptWrongPassphrase` into
+    `packages/sails-ui/src/lib/escrowErrorClassification.ts`
+    (`classifyPendingTransactionError()`, `classifySigningWatchError()`)
+    and unit-testing both directly — no new UI test runner installed
+    (TD#62/#63 stays exactly as disclosed), reusing the same
+    `**/tests/**/*.test.ts` root-Jest seam `packages/sails-sdk/tests/
+    modules.test.ts` already runs through:
+    `packages/sails-ui/tests/escrowErrorClassification.test.ts`, 16 cases,
+    covering genuine absence (`SailsNotFoundError`), session expiry
+    (`SailsAuthError`), forbidden actor (`SailsForbiddenError`), network
+    failure and timeout (both `SailsTransportError`, per
+    `packages/sails-sdk/src/transport.ts`), server 5xx
+    (`SailsInternalError`), rate limit (`SailsRateLimitError`),
+    wrong-passphrase (`WrongPassphraseError`, relocated to the new leaf
+    module `packages/sails-ui/src/lib/errors.ts` so the classifier can
+    `instanceof`-check it without importing `context/AuthContext.tsx`'s
+    own React/`import.meta.env`/localStorage dependencies into a plain
+    Jest test — re-exported from `AuthContext` unchanged, no call site
+    touched), and a genuinely unexpected/unrecognized error. Behavior of
+    both callers is unchanged — this was a pure extract-for-testability
+    refactor, verified by `tsc --noEmit` (repo root, `sails-ui`,
+    `sails-sdk`) and the full suite. (2) The Gate verdict itself is
+    corrected to the CTO's own preferred wording, replacing the
+    ambiguous "READY, conditioned on…" line above:
+    **PRE-M3 BOUNDED CORRECTIONS COMPLETE. NO KNOWN RUNTIME/SDK CRITICAL
+    OR HIGH BLOCKER REMAINS FOR STARTING MISSION 3 DESIGN. P3-F08.1
+    (app-wide session-expiry handling) AND P3-F08.2 (trade-context-
+    preserving re-auth return path) REMAIN OPEN PRODUCT/ARCHITECTURE
+    DECISIONS AND MUST BE CONSUMED EXPLICITLY BY MISSION 3.** Mission 3
+    may reason about and resolve F-08.1/F-08.2; their being open is not
+    evidence the current session lifecycle is complete, and this
+    correction is not itself a decision on either — both stay exactly as
+    escalated above, registered, not solved here. PR #143's own
+    description carries the same corrected line.
+
+    **Verified, not asserted (this follow-up pass):** `npx tsc --noEmit`
+    clean at repo root, `packages/sails-ui`, `packages/sails-sdk`; full
+    unit suite 158 suites / 2086 tests, 2082 passing including the 16 new
+    cases above — 4 pre-existing failures unrelated to this change
+    (`tests/expiryShadow.test.ts`, `tests/dispatchGate.test.ts`,
+    `tests/correspondenceEvaluator.test.ts`,
+    `tests/attributionEvaluator.test.ts`, all in `packages/sails-core`,
+    none touched by this pass), root-caused to this Windows checkout's
+    `core.autocrlf=true` giving those 4 files CRLF line endings their own
+    exact-string import-line assertions don't strip before comparing —
+    confirmed pre-existing and environment-only (not reproduced by this
+    branch's own green GitHub Actions CI, which checks out on Linux) —
+    not fixed here, out of this mission's bounded scope.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**

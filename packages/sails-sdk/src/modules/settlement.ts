@@ -614,12 +614,29 @@ export class SailsSettlementModule {
     );
   }
 
-  /** No active session required. Throws SailsNotFoundError if no signing round is in flight for this escrow. */
+  /**
+   * Requires an active session; only the escrow's trade party or
+   * assigned arbiter may read it (P3-F01, Pre-M3 Reality Gate,
+   * 2026-09-13). Throws `SailsNotFoundError` if no signing round is in
+   * flight for this escrow.
+   *
+   * Corrected from "No active session required": that was true when
+   * this method was first written, but the server route
+   * (`settlement.routes.ts`) was independently hardened to
+   * `requireAuth` + party/arbiter scoping (its own comment: "real
+   * financial data, readable by anyone who knew or guessed an
+   * escrowId") without this SDK method being updated to match — this
+   * call has 401'd unconditionally for every real caller since that
+   * server-side fix landed, the same class of drift `get()`/
+   * `getDispute()`/`listDisputes()` above were already corrected for.
+   */
   async getPendingTransaction(
     escrowId: string,
   ): Promise<EscrowPendingTransaction> {
     return this.transport.get(
       `/v1/settlement/escrow/${escrowId}/pending-transaction`,
+      undefined,
+      true,
     );
   }
 
@@ -812,12 +829,25 @@ export class SailsSettlementModule {
   /**
    * Returns the list of participants who have approved release for
    * this escrow, and whether enough approvals exist for the release
-   * to proceed. No active session required — same as get() above
-   * for escrows (read-only, no participant-scoping).
+   * to proceed. Requires an active session; only the escrow's trade
+   * party or assigned arbiter may read it (P3-F02, Pre-M3 Reality
+   * Gate, 2026-09-13).
+   *
+   * Corrected from "No active session required — same as get() above
+   * for escrows (read-only, no participant-scoping)": that comparison
+   * was already wrong when written — `get()` above requires an active
+   * session too (see its own comment) — and the server route itself
+   * (`settlement.routes.ts`) independently requires `requireAuth` +
+   * party/arbiter scoping ("who has approved a release is trade-party/
+   * arbiter-scoped information, not public"). This call has 401'd
+   * unconditionally for every real caller since that server-side fix
+   * landed.
    */
   async getReleaseApprovals(escrowId: string): Promise<ReleaseApprovalsResult> {
     return this.transport.get(
       `/v1/settlement/escrow/${escrowId}/release-approvals`,
+      undefined,
+      true,
     );
   }
 
