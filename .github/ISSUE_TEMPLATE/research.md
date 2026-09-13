@@ -21,3 +21,12 @@ labels: research
 
 <!-- What this investigation must not be read as deciding, even if it
      produces a strong result. -->
+
+<!-- Research Discipline: primary-source-first (spec → official docs →
+     official source → measured runtime evidence → secondary source →
+     community discussion as supporting signal only). Separate FACT /
+     EVIDENCE / INFERENCE / DECISION / UNKNOWN in your conclusion —
+     docs/ENGINEERING_GOVERNANCE.md §16.5. If this Issue produces a
+     prototype rather than a conclusion, it inherits Prototype
+     Discipline (§16.6) — a working prototype is evidence, not
+     implementation, until explicitly promoted. -->
