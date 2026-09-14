@@ -308,7 +308,7 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
   })
 })
 
-describe('createEscrow() — BTC resolved via canonical SettlementScope/Provider registry (VERTICAL-SLICE-1)', () => {
+describe('createEscrow() — resolved via canonical SettlementScope/Provider registry (VERTICAL-SLICE-1, generalized by Mission 4)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
@@ -350,13 +350,67 @@ describe('createEscrow() — BTC resolved via canonical SettlementScope/Provider
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
   })
 
-  it('does not affect LN_BTC or USDT_ERC20 resolution (out of this mission\'s bounded scope)', async () => {
+  it('does not affect LN_BTC resolution — no canonical mapping is authorized for it (ADR-002 §11, deliberately ambiguous)', async () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-5', tradeId: 'trade-btc-5', type: 'LIGHTNING_HODL', asset: 'LN_BTC', lockedAmount: '0.001' })
 
     await escrowService.createEscrow({ tradeId: 'trade-btc-5', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'buyer-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'LIGHTNING_HODL' }) }))
+  })
+
+  // Mission 4 (2026-09-14) — generalizes the canonical-registry path from
+  // BTC-only to every ADR-002 §11 legacy mapping. USDT_ERC20's final
+  // OUTCOME is unchanged (still WDK_USDT_EVM, already covered by the
+  // "asset-aware default type" describe block above) — these tests cover
+  // what's newly true: it now goes through the SAME mechanism as BTC
+  // (canonical-registry validation, not the separate flat
+  // RECOMMENDED_ESCROW_TYPE lookup), and three legacy assets that
+  // previously threw a generic "no real SettlementProvider is wired"
+  // error now throw a more precise, honest message distinguishing
+  // "registered Product Scope, zero providers" from "not wired at all."
+
+  it('validates a client-supplied type "WDK_USDT_EVM" for USDT_ERC20 against the canonical registry (same mechanism as BTC now)', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-usdt-1', tradeId: 'trade-usdt-1', type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', lockedAmount: '5' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-usdt-1', type: 'WDK_USDT_EVM' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'WDK_USDT_EVM' }) }))
+  })
+
+  it('rejects a client-supplied type for USDT_ERC20 that disagrees with the canonical registry', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-usdt-2', type: 'MULTISIG' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+    ).rejects.toThrow("type 'MULTISIG' does not match 'WDK_USDT_EVM'")
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('USDT_TRC20 is registered Product Scope ({USDT, TRON}) but has zero providers — precise error, not the generic "no provider wired" message', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-trc', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-usdt-trc', lockedAmount: '5', asset: 'USDT_TRC20' as any }, 'buyer-1')
+    ).rejects.toThrow('is registered Product Scope but has zero registered settlement implementations yet')
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('USDT_LIQUID is registered Product Scope ({USDT, LIQUID}) but has zero providers — same precise error', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-liquid', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-usdt-liquid', lockedAmount: '5', asset: 'USDT_LIQUID' as any }, 'buyer-1')
+    ).rejects.toThrow('is registered Product Scope but has zero registered settlement implementations yet')
+  })
+
+  it('LIQUID_BTC is registered Product Scope ({BTC, LIQUID}) but has zero providers — same precise error', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-liquid-btc', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-liquid-btc', lockedAmount: '0.001', asset: 'LIQUID_BTC' as any }, 'buyer-1')
+    ).rejects.toThrow('is registered Product Scope but has zero registered settlement implementations yet')
   })
 })
 

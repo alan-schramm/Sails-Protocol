@@ -1284,13 +1284,46 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     // escrowService.createEscrow() at all). This is the one integration
     // point safeGuardEvmProvider.test.ts's own unit tests can't cover —
     // the real HTTP request → zod validation → service call path.
-    it('accepts SAFE_GUARD_EVM as a real escrow type (RFC-020)', async () => {
+    //
+    // Mission 4 correction (2026-09-14, docs/ADAPTIVE_EXECUTION_CAPABILITY_ROUTING.md
+    // §13) — preserved verbatim above, corrected here, not silently
+    // rewritten: this test originally asserted 201 for `type:
+    // 'SAFE_GUARD_EVM'` against `asset: 'USDT_ERC20'`. That combination
+    // was always semantically wrong — `settlement-provider-registry.ts`'s
+    // own header comment explains SAFE_GUARD_EVM's `lockFunds()` checks a
+    // *native EVM currency* balance, never an ERC-20 USDT transfer, and
+    // deliberately excludes SAFE_GUARD_EVM from {USDT,ETHEREUM}'s
+    // registration for exactly that reason — but nothing validated the
+    // asset+type PAIR before this mission generalized `resolveEscrowType()`
+    // to every ADR-002 §11 legacy mapping (previously only BTC was
+    // checked against the canonical registry). Split into two tests: the
+    // schema/route still accepts the `SAFE_GUARD_EVM` type string at all
+    // (this test's original RFC-020 purpose, proven against `STACKS`, a
+    // legacy asset with no canonical scope mapping — so this mission's
+    // stricter check does not apply to it); the semantically-wrong
+    // USDT_ERC20 pairing is now correctly rejected (new test below).
+    it('accepts SAFE_GUARD_EVM as a real, schema-recognized escrow type for an asset with no canonical scope mapping (RFC-020)', async () => {
       const token = await authedSession('buyer-1')
       mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-safe-guard-1', tradeId: 'trade-1', status: 'CREATED',
-        type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'USDT_ERC20',
+        type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'STACKS',
       })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/escrow',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { tradeId: 'trade-1', type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'STACKS' },
+      })
+
+      expect(res.statusCode).toBe(201)
+      expect(JSON.parse(res.body).data.id).toBe('escrow-safe-guard-1')
+    })
+
+    it('rejects SAFE_GUARD_EVM for USDT_ERC20 — not the canonical {USDT,ETHEREUM} implementation (Mission 4 correction, previously silently accepted)', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
 
       const res = await app.inject({
         method: 'POST',
@@ -1299,8 +1332,8 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         payload: { tradeId: 'trade-1', type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'USDT_ERC20' },
       })
 
-      expect(res.statusCode).toBe(201)
-      expect(JSON.parse(res.body).data.id).toBe('escrow-safe-guard-1')
+      expect(res.statusCode).toBe(409)
+      expect(mockEscrowCreate).not.toHaveBeenCalled()
     })
 
     // RFC-021 D2 — the real HTTP request -> zod validation -> MarketArbitrationProvider
