@@ -9,12 +9,22 @@ implementation record, in the same institutional register as
 **Not authorized by this document:** Selection among multiple eligible
 execution candidates (no real case exists yet — see §3/§13); execution;
 risk policy implementation; any SDK/UI wiring beyond what §13 lists;
-agent-facing routing; any change to `AssetType`, `EscrowType`,
+agent-facing routing; a plugin framework, marketplace, or Conformance
+suite for §19's External Extensibility contract (architecture only —
+nothing in §19 is implemented); any change to `AssetType`, `EscrowType`,
 `prisma/schema.prisma`, `docs/SEMANTIC_KERNEL.md`, or Mission 3's frozen
 scope (Partner Wallet Integration architecture, WalletAdapter ≠
 SettlementProvider, partner parity direction, Economic Identity
 terminology, P3-F08.1/F08.2, session-expiry semantics, concurrent-expiry
 convergence, return-path continuity — all untouched).
+
+**Scope note (2026-09-14, same session):** §19 (External Extensibility /
+Open Integration Model) was added mid-mission, per explicit CTO
+instruction, as a required companion to the routing model §1-§18 define
+— how independent teams plug new capabilities into Sails without
+changing Core economic semantics. It is architecture only, grounded in
+the same current-state-audit-first discipline as the rest of this
+document; no code was added or changed for §19.
 
 ---
 
@@ -672,6 +682,243 @@ authoritative; create automatic post-commit retries without evidence
 (§9); introduce new custody; redefine economic authority; turn risk
 policy into protocol authority (§7).
 
+## 19. External Extensibility / Open Integration Model
+
+Added 2026-09-14, same session, CTO-directed extension to this mission.
+Defines how independent teams — wallets, settlement providers, rails,
+liquidity sources, custody/signing implementations, identity systems,
+reputation systems, arbitration/dispute systems, agents, market
+interfaces, risk-policy engines, evidence/data providers — plug new
+capabilities into Sails **without changing Core economic semantics**.
+
+> Open extension. Stable semantics. Governed compatibility.
+> Integration freedom ends where protocol meaning begins.
+
+### 19.1 Current-state audit — three real, inconsistent extensibility postures
+
+No general extension contract exists today. Three capability families
+each arrived at a **different**, organically-grown posture, verified
+directly against real code:
+
+- **SettlementProvider — monorepo-privileged, compile-time only.** A new
+  settlement implementation must satisfy the `SettlementProvider`
+  interface (`escrow-providers.ts`), be hand-added to the hardcoded
+  `PROVIDERS` record in that same file, and be hand-added to
+  `settlement-provider-registry.ts`'s `PROVIDER_REGISTRATIONS` array —
+  three edits inside this repository, by someone with commit access,
+  compiled into the same binary. **An independent developer cannot add a
+  settlement provider today without a PR into this monorepo.** This is a
+  real, disclosed gap against the "stranger developer" bar below, not a
+  design this mission is authorized to change (§13's slice touches
+  neither map).
+- **MarketArbitrationProvider — real runtime self-registration, one
+  capability family.** `register(participantId, monetaryCollateral,
+  collateralAsset?)` (RFC-021 D2/D3, `market-arbitration.provider.ts`)
+  lets **any participant** post collateral and become an eligible
+  arbiter candidate at runtime — no monorepo edit, no privileged support.
+  This is the one real precedent in this codebase for genuine external
+  participation in a capability family, and the closest existing model
+  to what this section formalizes.
+- **WalletAdapter — client-side interface, no server registration at
+  all.** `packages/sails-sdk/src/wallet-adapter.ts`'s `WalletAdapter`
+  interface (`getPeerId`/`getAddress`/`getBalance`/`signTransaction`/
+  `broadcastTransaction`/`getCapabilities(): Promise<WalletCapabilitiesDeclaration>`)
+  is implemented entirely in the *integrator's own client code* — Sails
+  Core never registers or even knows which concrete `WalletAdapter`
+  implementation a given user's client is running. `WalletCapabilitiesDeclaration`
+  (`{assets, fiatRails, supportsP2PTrading, supportsOnchainSettlement}`)
+  is the one existing **Capability Declaration** precedent in this
+  codebase — self-declared by the integrator, consumed by the SDK, never
+  server-verified (unlike `capability-profile.ts`'s server-side
+  fail-closed check, §2.5 of this document — a real, disclosed
+  inconsistency between two capability-declaration mechanisms that
+  already coexist).
+
+**Finding:** extensibility itself was never designed as a general
+contract — each family solved its own version of "how does an outside
+implementation participate" independently, with no shared vocabulary for
+Declaration, Constraints, Conformance, Evidence, or Eligibility. This
+section defines that shared vocabulary; it does not retrofit the three
+existing mechanisms above (out of this mission's bounded scope — a
+future migration mission would decide whether/how each one adopts it).
+
+### 19.2 The minimal extension contract
+
+Per the CTO's own required shape — deliberately not a universal plugin
+framework (§19.6):
+
+```
+External Capability → Public Contract → Capability Declaration →
+Constraints → Conformance → Evidence → Eligibility → Runtime Participation
+```
+
+- **External Capability** — the category of thing being extended
+  (settlement rail, wallet, identity system, reputation system,
+  arbitration mechanism, agent, market interface, risk-policy engine,
+  evidence/data provider). Not a new taxonomy invented here — these are
+  exactly the capability families ADR-002 (`SettlementAdapter`/
+  `SettlementProvider`), RFC-013 (`WalletAdapter`), and RFC-021
+  (`MarketArbitrationProvider`) already separately name.
+- **Public Contract** — a versioned, publicly documented interface a
+  third party implements against, published independently of this
+  monorepo's internals (e.g. an npm-published TypeScript interface, or a
+  versioned HTTP/JSON-RPC contract) — **never** "read the source of
+  `escrow-providers.ts` to infer the shape," which is the real, current
+  state for `SettlementProvider` (§19.1). Existing precedent for what a
+  real Public Contract already looks like: `@satsails/p2p-trading-sdk`'s
+  own `WalletAdapter` export and `docs/API_STABLE.md`'s frozen HTTP
+  surface.
+- **Capability Declaration** — the integrator's own, self-asserted
+  statement of what their implementation does (`WalletCapabilitiesDeclaration`,
+  `capability-profile.ts`'s profile string — both real precedent). A
+  declaration is a **claim**, never a **proof** (§19.3 invariant 2) —
+  distinguishing it from Conformance/Evidence below is the single most
+  important boundary this contract draws.
+- **Constraints** — structural limits the Public Contract itself imposes
+  (e.g. `PayoutAddress`'s `@@unique([participantId, asset])` already
+  constrains `WalletAdapter.getAddress()` to one address per asset,
+  §19.1) — protocol-level facts an integrator must satisfy, not
+  negotiable per-integration.
+- **Conformance** — an independently-checkable demonstration that a
+  declared capability actually behaves per the Public Contract (a
+  conformance test suite/vector set the integrator runs against their
+  own implementation and can show the result of) — **does not exist yet
+  for any capability family in this codebase** (a real, disclosed gap;
+  `tests/arbitrationAuthoritySdkParity.test.ts`-style parity tests are
+  the closest existing precedent, but they test this repo's *own* two
+  sides, not a third party's implementation).
+- **Evidence** — what has actually been demonstrated about a specific
+  deployed instance (an audit, a real operational track record, a
+  monitored incident-free period) — restates ADR-002 §6's own Security/
+  Evidence Property discipline, applied here to third-party
+  implementations specifically: **a third party may never self-declare a
+  Security/Evidence Property**, exactly as ADR-002 §6 already forbids a
+  first-party provider from doing so.
+- **Eligibility** — whether a specific, evidenced, conformant
+  implementation is allowed to actually participate for a given scope —
+  restates ADR-002 §6/§8's frozen distinction (Technical Capability ≠
+  Protocol Permission ≠ Economic Authority ≠ Settlement Eligibility;
+  Permission Policy ≠ Provider Selection Policy), now explicitly
+  extended to cover third-party-originated candidates, not only
+  first-party ones.
+- **Runtime Participation** — the mechanism by which an eligible external
+  implementation actually becomes reachable at runtime. Two real,
+  different existing shapes to choose from per capability family (not
+  decided uniformly here — Architecture Decision Required, §19.7):
+  self-registration (`MarketArbitrationProvider.register()` — permissionless,
+  runtime, real precedent) vs. client-side-only (`WalletAdapter` — no
+  server registration, the integrator's own client simply implements the
+  contract).
+
+### 19.3 Required Invariants
+
+1. **Third-party implementation ≠ protocol truth.** An external
+   `SettlementProvider`/`WalletAdapter`/arbiter/agent implementation
+   never becomes `SettlementScope`, `SettlementProviderRegistration`, or
+   any other canonical registry truth merely by existing or by declaring
+   itself — restates ADR-002 §4's "registration is explicit," now
+   applied to third-party origin specifically.
+2. **Interface compatibility ≠ security compatibility.** Implementing
+   the Public Contract's method signatures correctly says nothing about
+   whether the implementation is safe to trust with real value —
+   Conformance (behavioral correctness) and Evidence (demonstrated
+   security property) are separate, later gates, never implied by
+   type-checking against the interface.
+3. **Compatibility ≠ maturity.** A conformant implementation is not
+   thereby mature — restates ADR-002 §7's "maturity is separable facts,"
+   now explicit that Conformance is only one of those facts, never a
+   stand-in for the rest.
+4. **Maturity ≠ production eligibility.** Restates ADR-002 §6's own
+   "Production Eligibility... a governed decision informed by evidence
+   plus operational/security/product constraints, never a computed
+   function of evidence alone" — unchanged, now explicit that this
+   applies identically to a third-party-originated candidate as to a
+   first-party one; no lower (or higher) bar for an outside integrator.
+5. **A new integration may extend capability, but may not redefine
+   economic semantics.** Restates this mission's own §4 invariants (path
+   selection cannot redefine the asset, beneficiary, or required
+   conditions), now stated as a boundary on *what a third party's Public
+   Contract implementation is even structurally capable of doing* — the
+   contract itself must never expose a method that could substitute
+   asset/beneficiary/economic-outcome fields the caller didn't supply.
+
+### 19.4 What Sails may assume / must verify / stays implementation-private
+
+- **Sails may assume:** the Public Contract's method signatures are
+  implemented (type-level, checked at integration time); a Capability
+  Declaration exists and is well-formed (structurally, not truthfully).
+- **Sails must verify:** every claim beyond bare interface conformance —
+  Conformance (does it actually behave correctly, via an independently
+  runnable test/vector suite), Evidence (was a claimed security property
+  actually demonstrated, never self-declared per ADR-002 §6), and
+  Eligibility (is this specific evidenced instance actually authorized
+  for this scope) — restating, never re-deciding, the "unknown capability
+  = unsupported" fail-closed default `capability-profile.ts` already
+  established for the one real precedent that exists.
+- **Stays implementation-private:** everything behind the Public
+  Contract's interface boundary — an integrator's internal stack (key
+  management, infrastructure, language, hosting) is never Sails' concern
+  and never needs to be disclosed to Core, exactly as `WalletAdapter`
+  already proves today (Sails Core never asks what signs a transaction
+  internally, only that `signTransaction()` returns a result matching
+  the contract). **The Core must not require knowledge of an
+  implementation's internal stack to coordinate it** — this is already
+  true for `WalletAdapter` and `SettlementProvider`'s public methods; this
+  section generalizes it as a standing requirement for every future
+  capability family, not merely an accident of today's two interfaces.
+
+### 19.5 The "stranger developer" perspective
+
+Evaluated honestly against real code, per capability family:
+
+- **Arbitration** — **passes today.** An independent developer reading
+  only RFC-021 and calling `POST /v1/settlement/arbitration/register`
+  with collateral becomes a real, eligible arbiter candidate — no
+  monorepo access, no privileged support, verified against real, shipped
+  code (§19.1).
+- **Wallet** — **passes today, with a caveat.** An independent developer
+  implementing `WalletAdapter` from its published SDK interface (no
+  monorepo knowledge needed — it's a public, documented TypeScript
+  interface) can participate fully client-side. The caveat: `capability-profile.ts`'s
+  server-side fail-closed check (§2.5) currently recognizes exactly one
+  profile string (`MULTISIG_CAPABILITY_PROFILE_V1`) — a stranger's
+  genuinely new, correct `WalletAdapter` implementation for a *different*
+  capability shape would be rejected as "unknown = unsupported" until a
+  first-party mission adds their profile string, which is not something
+  a stranger can do unassisted today. Disclosed, not solved here.
+- **Settlement Provider** — **fails today.** §19.1 already establishes
+  this: three hand-edited, monorepo-internal maps, zero public Conformance
+  suite, zero self-registration path. A stranger literally cannot
+  participate without a PR and a maintainer's cooperation. This is the
+  sharpest concrete gap this section's contract (§19.2) is meant to
+  eventually close — **not closed by this mission** (§19.6).
+- **Every other family** (identity, reputation, agents, market
+  interfaces, risk-policy engines, evidence/data providers) — **no
+  extension surface exists at all** to evaluate a stranger against; these
+  are either fully first-party today (reputation, identity) or entirely
+  unbuilt (risk-policy engines, per §7 of this document).
+
+### 19.6 Non-goals confirmed for this section
+
+Not built: a universal plugin framework; a marketplace or plugin
+registry; a Conformance test-vector suite for any capability family; any
+change to `SettlementProvider`'s current monorepo-only registration
+(§19.1's own finding is disclosed, not fixed — fixing it is a real,
+separately-scoped future implementation mission); any new HTTP/SDK
+surface. This section is architecture — the shared vocabulary and
+invariant set a future implementation mission would build against — not
+product packaging, per the CTO's own explicit instruction.
+
+### 19.7 Backlog Delta (extensibility-specific additions)
+
+| Item | Classification |
+|---|---|
+| `SettlementProvider` registration is monorepo-privileged, not externally pluggable — fails the "stranger developer" bar | **Genuinely new obligation** (found this session) — Architecture Decision Required: design a real Public Contract + Runtime Participation mechanism for settlement providers, modeled on `MarketArbitrationProvider.register()`'s real precedent |
+| No Conformance suite exists for any capability family | **Genuinely new obligation** — Architecture Decision Required |
+| `WalletCapabilitiesDeclaration` (self-declared, unverified) vs. `capability-profile.ts` (self-declared, server-verified fail-closed) are two inconsistent Capability Declaration mechanisms | **Genuinely new obligation** (found this session) — Architecture Decision Required: decide whether these should converge |
+| Whether Runtime Participation should be self-registration (arbitration's model) or client-side-only (wallet's model) for each future capability family | **Architecture Decision Required per family**, not decided uniformly here |
+| Extension contract's interaction with Mission 4 §3's Execution Candidate model (does a third-party settlement provider become an `ExecutionCandidate`?) | **Architecture Decision Required** — this document deliberately does not merge the two models prematurely |
+
 ---
 
 ## Required Return
@@ -691,17 +938,39 @@ policy into protocol authority (§7).
   `resolveEscrowType()`), `tests/executionCandidates.test.ts` (new),
   `tests/escrowProviderWiring.test.ts` (5 new tests, describe-block title
   corrected), this document (new)
+  Also corrected this same session, per the CTO's mid-mission extension:
+  `tests/routes.test.ts` (one test corrected with a dated note — a real
+  pre-existing defect found while generalizing the gate, §13/§17; one new
+  test added proving the correct rejection).
 - **Tests/evidence:** §14; 56 pre-existing + 5 new tests in
   `escrowProviderWiring.test.ts` (all passing), 10 new tests in
-  `executionCandidates.test.ts` (all passing)
+  `executionCandidates.test.ts` (all passing), 136 tests in
+  `routes.test.ts` (all passing, including the corrected/new
+  SAFE_GUARD_EVM tests)
 - **Live/reality scenarios:** §15
-- **Backlog delta with duplicate analysis:** §17
+- **External Extensibility / Open Integration Model:** §19 — three
+  inconsistent existing extensibility postures audited
+  (SettlementProvider monorepo-privileged, MarketArbitrationProvider
+  real self-registration, WalletAdapter client-side-only); the minimal
+  8-stage extension contract defined (External Capability → Public
+  Contract → Capability Declaration → Constraints → Conformance →
+  Evidence → Eligibility → Runtime Participation); all 5 required
+  invariants restated and cross-checked; stranger-developer bar evaluated
+  per family (arbitration passes, wallet passes with a caveat, settlement
+  provider fails, every other family has no extension surface at all).
+  **Architecture only — no plugin framework, marketplace, or Conformance
+  suite implemented**, per explicit instruction.
+- **Backlog delta with duplicate analysis:** §17 (routing) + §19.7
+  (extensibility)
 - **Product Decisions required:** §17 (three rows)
-- **Architecture Decisions required:** §17 (five rows)
-- **What remains NOT FROZEN:** everything in §17's "Architecture/Product
-  Decision Required" rows; Selection among multiple candidates; Risk
-  Policy; Permission/Availability/Maturity filters; SDK/UI/partner/agent
-  wiring. Plus, restated unchanged from Mission 3's own freeze: §9
+- **Architecture Decisions required:** §17 (five rows) + §19.7 (five rows)
+- **What remains NOT FROZEN:** everything in §17/§19.7's "Architecture/
+  Product Decision Required" rows; Selection among multiple candidates;
+  Risk Policy; Permission/Availability/Maturity filters; SDK/UI/partner/
+  agent wiring; the entire External Extensibility contract (§19 is
+  architecture only, nothing in it is implemented or frozen);
+  `SettlementProvider`'s monorepo-privileged registration (disclosed, not
+  fixed). Plus, restated unchanged from Mission 3's own freeze: §9
   recovery hypotheses and `[NEW-G]` canonical Economic Identity
   abstraction remain OPEN — not touched, not dependent on, by this
   mission.
