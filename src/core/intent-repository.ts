@@ -43,6 +43,10 @@ export interface CreateIntentInput {
   payload: object
   status: string
   metadata: object
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R4 — see `prisma/schema.prisma`'s
+  // `Intent.idempotencyClaimId` doc comment. `undefined` for every
+  // caller outside the idempotency-protected `createOffer()` path.
+  idempotencyClaimId?: string
 }
 
 export interface CreateIntentEventInput {
@@ -58,6 +62,11 @@ export interface CreateIntentEventInput {
 export interface IntentRepository {
   create(input: CreateIntentInput): Promise<IntentRow>
   findById(intentId: string): Promise<IntentRow | null>
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R4 — see `prisma/schema.prisma`'s
+  // `Intent.idempotencyClaimId` doc comment for the durability guarantee
+  // this depends on (set atomically as part of the SAME `create()` call
+  // above, never a separate write).
+  findByIdempotencyClaimId(claimId: string): Promise<IntentRow | null>
   /** Atomic conditional update — returns the affected-row count (0 means a concurrent caller already transitioned this Intent). */
   claimTransition(intentId: string, fromStatus: string, toStatus: string): Promise<number>
   findLastEvent(intentId: string): Promise<IntentEventRow | null>
@@ -75,12 +84,17 @@ class PrismaIntentRepository implements IntentRepository {
         payload: input.payload,
         status: input.status as any,
         metadata: input.metadata,
+        idempotencyClaimId: input.idempotencyClaimId,
       },
     })
   }
 
   async findById(intentId: string): Promise<IntentRow | null> {
     return prisma.intent.findUnique({ where: { id: intentId } })
+  }
+
+  async findByIdempotencyClaimId(claimId: string): Promise<IntentRow | null> {
+    return prisma.intent.findUnique({ where: { idempotencyClaimId: claimId } })
   }
 
   async claimTransition(intentId: string, fromStatus: string, toStatus: string): Promise<number> {

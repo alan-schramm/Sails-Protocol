@@ -418,7 +418,8 @@ export class EscrowService {
           : `declared an incompatible capability profile ('${blocker.declared}')`
         throw new EscrowError(
           `Cannot commit escrow ${escrowId} to type '${escrow.type}': the ${blocker.role} ${detail} — ` +
-          `every participant must declare a compatible capability profile before this escrow type can commit.`
+          `every participant must declare a compatible capability profile before this escrow type can commit.`,
+          'INELIGIBLE' // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — a real maturity/capability-profile mismatch, not a technical, policy, or config gap
         )
       }
 

@@ -3312,6 +3312,736 @@ obligation" is defined anywhere in this repository.
         one. Scope: add a client-supplied or server-derived idempotency
         key to the three POST routes.
 
+        **Implemented → Evidenced (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1`,
+        2026-09-13, pending CTO Gate before Frozen).** A client-supplied
+        idempotency key, deliberately not a composite-business-key
+        uniqueness constraint — the audit's own investigation found that
+        `(offerId, counterpartyId)` would incorrectly reject a
+        genuinely new, separate trade the same buyer legitimately
+        intends against the same still-`ACTIVE` offer later. New
+        `IdempotencyKey` Prisma model (`scope`, `participantId`, `key`,
+        `requestHash`, `status: IN_PROGRESS|COMPLETED|FAILED`,
+        `resultRef`), claimed atomically via the same insert-as-lock/
+        P2002 idiom `escrow-pending-tx.ts` already uses for a different
+        resource (`src/common/idempotency.ts`'s `withIdempotency()`).
+        Deliberately opt-in — a caller that omits the key gets exactly
+        today's unchanged behavior, full backward compatibility. Wired
+        into `createTrade()`, `createOffer()`, `submitEvidence()`
+        server-side; `SailsOpenP2PModule.trade()`,
+        `SailsLiquidityModule.publish()`,
+        `SailsSettlementModule.submitDisputeEvidence()` SDK-side; and the
+        three real UI call sites (`OfferDetail.tsx`'s
+        "Iniciar Trade", `PublishOffer.tsx`'s "Publicar", `Trade.tsx`'s
+        evidence submission) — each generates one key per genuinely-new
+        user intent (regenerated when the economically-relevant fields
+        change) and reuses it across a manual retry of the same
+        attempt. New `IdempotencyKeyConflictError` (409,
+        `IDEMPOTENCY_KEY_IN_PROGRESS`) for the genuine-concurrent-race
+        case. **Evidence:** `tests/idempotency.test.ts` — 10 tests
+        against a real, behaviorally-faithful in-memory store (not a
+        mock of the property being proved): first request succeeds;
+        exact retry does not duplicate; a "timeout-like" replay (retry
+        arrives while the original is still `IN_PROGRESS`) is rejected
+        as a conflict, never silently double-executed; three genuinely
+        concurrent identical requests (real `Promise.allSettled` race,
+        not a sequential simulation) still produce exactly one
+        execution; a different logical request (no key) remains fully
+        allowed; a different key is never blocked by an unrelated
+        claim; the same key reused for a different payload is rejected
+        as a client error; a `FAILED` prior attempt allows a genuine
+        retry to actually run; scope+participant isolation confirmed.
+        `npx tsc --noEmit` clean at repo root, `sails-sdk`, `sails-ui`,
+        `sails-p2p-schemas`; full suite 160 suites/2102 tests, 0
+        regressions (was 158/2086 before this mission).
+        `docs/RECOVERY_RECONCILIATION_CONFORMANCE_EVIDENCE.md`-style
+        real Postgres integration test **not** added — the concurrency
+        property is fully expressed in `withIdempotency()`'s own logic
+        layer (Postgres's real unique constraint is what the
+        `PrismaIdempotencyKeyStore` production implementation relies on,
+        proven correct by direct code inspection, not by a live-DB
+        test in this environment — disclosed as a known, bounded
+        residual, not hidden).
+
+        **Corrected 2026-09-13 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R1`,
+        CTO review found two real correctness defects before Freeze) —
+        still Implemented → Evidenced, not yet Frozen.** Two defects in
+        the original design, both closed:
+
+        **Defect A — a successful `create()` could be relabeled
+        retryable `FAILED`.** The original `runAndSettle()` ran
+        `create()` and `store.markCompleted()` inside the same `try`
+        block, so a `create()` success followed by a `markCompleted()`
+        failure (a real, plausible transient DB error) hit the same
+        `catch` as a genuine `create()` failure — marking the claim
+        `FAILED` even though a durable side effect already existed, and
+        letting a future retry call `create()` again. Violated: *a
+        failed call is not proof of no side effect.* **Fix:** a new
+        4th state, `UNKNOWN` (Prisma enum + `IdempotencyKeyStatus`
+        type), reached only when `create()` already succeeded but the
+        `COMPLETED` write itself failed; a new `markUnknown()` store
+        method makes a best-effort, separately-named attempt to at
+        least persist `resultRef`; `UNKNOWN` is treated identically to
+        `COMPLETED` on a subsequent lookup (`recover()`, never
+        `create()` again). If even `markUnknown()` fails, the record is
+        left exactly where it was (`IN_PROGRESS`) rather than a false
+        `COMPLETED` or false `FAILED` — safe (blocks a duplicate via the
+        existing `IN_PROGRESS` conflict path) though it can get stuck
+        pending manual reconciliation, logged loudly
+        (`log.error(...)`), a disclosed residual, not a silent one. The
+        caller's own request always returns the real result regardless
+        of which write path succeeds — `create()` genuinely succeeded,
+        so the caller was never lied to.
+
+        **Defect B — `FAILED → retry` was a plain read-then-write, not
+        atomic.** The original code let any caller who observed
+        `status === 'FAILED'` proceed straight to `runAndSettle()` with
+        no compare-and-swap — two concurrent retries could both observe
+        `FAILED` and both execute `create()`; the code's own comment
+        claiming a second caller would see `IN_PROGRESS` was not true
+        for the actual code. **Fix:** a new `reclaimFailed()` store
+        method — a real, atomic `UPDATE ... WHERE status = 'FAILED'`
+        (`prisma.idempotencyKey.updateMany` + row-count check), the
+        exact same conditional-update idiom `escrow-lifecycle.ts`'s
+        `claimEscrowTransition()` already uses for `Escrow.status`.
+        Correct across concurrent requests on one instance and across
+        multiple application instances alike, since the atomicity is
+        Postgres's own, not an in-process lock — no process-local
+        mutex was introduced. A caller that loses the reclaim race
+        re-checks the record's new state (never assumes) and either
+        recovers a result that has since completed or is told to retry
+        again — never proceeds to execute `create()` itself.
+
+        **New tests** (`tests/idempotency.test.ts`, +5, all passing):
+        (A) `create()` succeeds, `markCompleted()` fails — proves the
+        claim becomes `UNKNOWN` (never `FAILED`), `create()` is not
+        called twice on retry, and the exact record state
+        (`status`/`resultRef`) is asserted directly, not inferred from
+        "no error was thrown"; a second test proves the doubly-degraded
+        case (both `markCompleted()` and `markUnknown()` fail) leaves
+        the record safely `IN_PROGRESS` and still returns the real
+        result to the original caller. (B) a first genuine failure
+        becomes retryable and a single retry succeeds normally; 4
+        genuinely concurrent retries (real `Promise.allSettled`
+        interleaving against one shared store instance, explicitly
+        modeling multiple application instances sharing durable state,
+        never a process-local mutex) after a real `FAILED` state result
+        in exactly one reclaim winning and exactly one `create()`
+        execution, with the 3 losers each rejected with
+        `IdempotencyKeyConflictError`; a direct regression-guard
+        assertion on `reclaimFailed()`'s own return value (two
+        concurrent calls against the same real `FAILED` row, exactly
+        one returns `true`). All pre-existing cases preserved
+        unchanged: first success, completed replay, `IN_PROGRESS`
+        conflict, different key allowed, same key/different payload
+        rejected, participant/scope isolation.
+
+        **Opt-in boundary — honestly registered, not silently
+        universal, per this correction's own explicit instruction:**
+        the idempotency guarantee applies **only when a caller actually
+        supplies a key** — a caller that omits one gets zero
+        protection, identical to this endpoint's behavior before item
+        37 ever existed. Stated explicitly in
+        `src/common/idempotency.ts`'s own header and
+        `WithIdempotencyParams.key`'s own doc comment. **Recommendation
+        (not decided here — a Product/API-contract question, explicitly
+        not resolved silently in this bounded correction):** keep the
+        API opt-in for backward compatibility (the status quo as of
+        this correction) for now; separately consider having the SDK
+        generate a key by default when a caller doesn't supply one
+        (protects every SDK-mediated caller automatically without
+        touching the wire contract), as a distinct, future, smaller
+        decision; do not make the key mandatory in a breaking contract
+        change without real usage data justifying it first. Three
+        candidate strategies named in full in
+        `src/common/idempotency.ts`'s own `withIdempotency()` doc
+        comment for whoever picks this up next.
+
+        **Verified, not asserted:** `npx tsc --noEmit` clean at repo
+        root and `packages/sails-sdk` (no SDK-facing type changed by
+        this correction — server-internal only); full unit suite 160
+        suites / 2107 tests (was 160/2102 before this correction, +5
+        matching the new tests above), 0 regressions.
+
+        **Items 38/39 unchanged** — this correction touched only
+        `prisma/schema.prisma`, `src/common/idempotency.ts`, and
+        `tests/idempotency.test.ts`; no contradiction with either item's
+        already-accepted work was found or needed. **Item 40 untouched.**
+
+        **Corrected 2026-09-13 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2`,
+        CTO review found a third real correctness defect before Freeze)
+        — still Implemented → Evidenced, not yet Frozen.** R1 correctly
+        separated "`create()` itself failed" from "`create()` succeeded
+        but bookkeeping failed," but still assumed **`create()` throwing
+        at all meant no durable object exists.** False for all three
+        protected operations — each `*Uncached()` function persists its
+        durable object, then performs MORE steps (event emission, intent
+        transitions, negotiation open) that can ALSO throw, after the
+        durable object already exists. A failure there used to hit
+        `runAndSettle()`'s single `create()` catch block and mark the
+        claim `FAILED` even though a Trade/Offer/evidence-append already
+        durably existed — letting a retry create a SECOND one. Violated
+        the same governing principle one level deeper: *a failed call is
+        not proof of no side effect.*
+
+        **Per-operation durable boundary, proven by direct code
+        inspection, not assumed:**
+        - **`createTrade()`** — the ENTIRE durable side effect is
+          validation reads (no writes) followed by exactly one write,
+          `this.repo.create({...})` (`trade.service.ts`'s new
+          `persistTrade()`). Before that call returns, no Trade row
+          exists anywhere. Everything after — `eventBus.emit()`, up to 3
+          `intentEngine.transition()` calls (RFC-018's DISCOVERING →
+          MATCHED → NEGOTIATING walk), `negotiationService.open()` — moved
+          to a new `postPersistTrade()`.
+        - **`createOffer()`** — the durable side effect is TWO writes
+          treated as one unit: `intentEngine.create()` (its own
+          internally-durable Intent row; deliberately NOT decomposed
+          further — a widely-shared function used by many other callers,
+          splitting it is out of this bounded mission's scope) followed
+          by `prisma.offer.create()` (`liquidity.service.ts`'s new
+          `persistOffer()`). `eventBus.emit()` moved to a new
+          `postPersistOffer()`; the pre-existing fire-and-forget
+          `screenOfferContent()` call (never awaited, already
+          self-contained error handling) stays there too, unchanged in
+          its own behavior.
+        - **`submitEvidence()`** — the durable side effect is validation
+          reads followed by exactly one write, `prisma.dispute.update()`,
+          which durably appends the evidence entry AND advances `status`
+          to `EVIDENCE_SUBMITTED` in the same statement
+          (`dispute.service.ts`'s new `persistEvidence()`). `eventBus.emit()`
+          (which triggers the QVAC auto-resolution pass) moved to a new
+          `postPersistEvidence()`.
+
+        **Fix — `persist`/`postPersist` split, the smallest correct
+        mechanism:** `withIdempotency()` now takes `persist: () =>
+        Promise<T>` (the ONLY code allowed to perform the durable write;
+        its failure is the ONLY legitimate `FAILED`) and `postPersist:
+        (result: T) => Promise<void>` (everything after). `runAndSettle()`
+        now settles the claim to `COMPLETED`/`UNKNOWN` (R1's own
+        machinery, unchanged) IMMEDIATELY after `persist()` succeeds —
+        BEFORE `postPersist()` ever runs. A `postPersist()` failure
+        propagates unchanged to the ORIGINAL caller (a real failure, never
+        swallowed — e.g. `submitEvidence()`'s QVAC auto-resolution pass
+        genuinely won't fire for that submission, a disclosed
+        consequence, not a silent one) but can never again touch the
+        idempotency record. A retry with the same key, once `persist()`
+        has ever succeeded, always recovers the real object via
+        `recover()` — it can never call `persist()` again, so it can
+        never duplicate the durable object. **Disclosed residual,
+        deliberately not solved here:** a recovered replay does NOT
+        re-run the failed `postPersist()` step — a Trade recovered after
+        a `postPersistTrade()` failure may still be missing its event
+        emission and/or intent transitions. Resuming a partially-failed
+        orchestration is a real, separate, larger question; three
+        strategies are not decided here, named in
+        `src/common/idempotency.ts`'s own header for whoever picks this
+        up next.
+
+        **New tests** (`tests/idempotency.test.ts`, +4, all passing,
+        scoped to the exact `openp2p.trade.create`/`liquidity.offer.create`/
+        `settlement.dispute.evidence` scope strings the real call sites
+        use): Trade-shaped, Offer-shaped, and Evidence-shaped cases each
+        prove `persist()` succeeds once, `postPersist()` throws, the
+        caller sees the real error, the record settles `COMPLETED` (not
+        `FAILED`), and a retry recovers the original object with
+        `persist()` still called exactly once (no duplicate) and
+        `postPersist()` never re-invoked. A 4th test proves R1 and R2
+        compose correctly: a `postPersist()` failure on top of an
+        injected `markCompleted()` failure still settles `UNKNOWN` (R1's
+        own fallback), never `FAILED`. All R1 tests preserved unchanged
+        (mechanically updated to the new 3-callback signature via a
+        shared `noopPostPersist` helper where they don't exercise this
+        property).
+
+        **Verified, not asserted:** `npx tsc --noEmit` clean at repo
+        root (server-internal only — no SDK-facing type changed); full
+        unit suite 160 suites / 2111 tests (was 160/2107 before this
+        correction, +4 matching the new tests above), 0 regressions. One
+        pre-existing test (`tests/disputeFlow.test.ts`'s
+        `submitEvidence()` event-emission assertion) initially broke
+        during this refactor because it relied on `prisma.dispute.update()`'s
+        mocked return value including `tradeId`/`escrowId` fields the
+        original code never actually sourced from there (it read them
+        from the pre-update `findUnique()` fetch) — fixed in
+        `persistEvidence()` by returning the update's result merged over
+        the pre-update fetch (`{ ...dispute, ...updated }`), so
+        `tradeId`/`escrowId` always survive regardless of what a given
+        Prisma client/mock/future `select` clause returns, restoring the
+        exact original data-sourcing behavior; not a property this
+        mission set out to change.
+
+        **Items 38/39 unchanged** — this correction touched only
+        `src/common/idempotency.ts`, `src/modules/open-p2p/trade.service.ts`,
+        `src/modules/open-liquidity/liquidity.service.ts`,
+        `src/modules/open-settlement/dispute.service.ts`, and
+        `tests/idempotency.test.ts`. **Item 40 untouched.**
+
+        **Corrected 2026-09-13 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3`,
+        CTO review found a fourth real correctness defect before Freeze)
+        — still Implemented → Evidenced, not yet Frozen. Superseded by
+        R4 below: the `PersistCheckpoint`/`checkpointRef` mechanism this
+        record originally described was itself found unsafe and has been
+        REMOVED — kept here as history of what was tried and why it
+        wasn't enough, not as a description of the current code.** R2 treated
+        `persistOffer()` as one indivisible unit — correct for
+        `createTrade()`/`submitEvidence()` (each has exactly ONE durable
+        write in `persist()`), but wrong for `createOffer()`, whose
+        `persistOffer()` performs TWO independently-durable writes:
+        `intentEngine.create()` (an Intent, durable the instant it
+        returns) then `prisma.offer.create()`. If the SECOND write
+        failed, `persist()` as a whole threw and the claim was marked
+        `FAILED` — even though the Intent already durably existed — so a
+        retry's `persist()` re-ran `intentEngine.create()` unconditionally,
+        producing a SECOND Intent for the same logical attempt. Same
+        governing principle, one level deeper still: *a failed `persist()`
+        call is not proof that none of its own internal writes durably
+        happened.*
+
+        **Fix — `PersistCheckpoint`, the smallest mechanism that proves
+        the property without an `intentEngine` refactor:** `persist()`
+        now receives a `checkpoint` argument
+        (`{ ref: string | null; set(ref): Promise<void> }`). A new
+        `checkpointRef` column on `IdempotencyKey`
+        (`prisma/schema.prisma`) durably records an intermediate result
+        BEFORE the next, separately-failure-prone write is attempted —
+        independent of `status`, so it survives a transition to `FAILED`
+        (unlike `resultRef`, only ever set once `persist()` as a whole
+        succeeds). `persistOffer()`: if `checkpoint.ref` is already set
+        (a prior attempt's Intent id), it's reused — `intentRepository.findById()`
+        re-verifies the Intent still exists first (never assumed, same
+        "never assume, always verify" discipline `recover()` callbacks
+        already apply to `resultRef`) — and `intentEngine.create()` is
+        skipped entirely; otherwise a new Intent is created and
+        `checkpoint.set(intent.id)` is called immediately, before
+        `prisma.offer.create()` is attempted. `idempotency.ts` itself
+        never interprets what a checkpoint IS — purely a generic,
+        call-site-owned mechanism.
+
+        **Per-operation proof:** (1) one logical `createOffer` attempt
+        produces at most one canonical Intent — the ONLY code path that
+        creates an Intent is the `!checkpoint.ref` branch, reached at
+        most once per idempotency key (every retry after the first
+        reaches `persistOffer()` only via the same atomic
+        `FAILED -> IN_PROGRESS` `reclaimFailed()` compare-and-swap every
+        other retry in this file already goes through, and
+        `checkpointRef` is never cleared once set); (2) at most one
+        Offer is created — `prisma.offer.create()` is the sole durable
+        write `persist()` is allowed to mark `COMPLETED`/`UNKNOWN`, and a
+        retry only ever reaches it again after a genuine prior failure,
+        never after a genuine prior success (which settles the claim
+        away from `FAILED` first); both properties hold identically
+        across Offer-DB-failure-after-Intent-success, retry-after-timeout,
+        concurrent retries (`reclaimFailed()`'s real atomic
+        compare-and-swap, the same Postgres-level mechanism Defect B
+        already proved cross-instance-safe), and application-restart/
+        multi-instance execution (the checkpoint lives in Postgres, not
+        process memory). **Explicitly NOT fixed** (unchanged,
+        pre-existing, out of scope): `intentEngine.create()`'s own
+        internal CREATED→VALIDATED→COORDINATED pipeline can itself
+        partially fail after its own first durable write — this
+        correction only guarantees `persistOffer()`'s OWN two top-level
+        writes are each attempted at most once per key, not that
+        `intentEngine.create()` is internally transactional.
+
+        **Request-hash field review (`createOffer()`'s
+        `requestPayload`):** `priceBrl`, `paymentDetails`, and `network`
+        added — all three are real execution-defining terms (a
+        different BRL price, a different real-world payment destination,
+        or a different settlement rail is a materially different offer)
+        that were previously silently ignored by the hash, meaning a
+        caller reusing a key across two requests differing only in one
+        of these fields would have silently gotten back the FIRST
+        request's terms via `recover()` — concretely, the seller's own
+        payment destination could silently stay stale on a retry that
+        intended to correct it. `description` added too, for consistency
+        with this hash's own existing scope (already includes
+        non-fund-moving fields like `paymentMethod` — never scoped to
+        "only funds-critical fields") — a genuine content edit deserves
+        a fresh key, not a silent no-op replay. Noted, not fixed (outside
+        this review's stated scope): `packages/sails-ui`'s
+        `PublishOffer.tsx` only regenerates its idempotency key when
+        `[asset, side, price, currency, minAmount, maxAmount, paymentMethod]`
+        change — NOT `paymentDetails`/`description` — so a user who edits
+        either between a failed submit and a manual retry will now get a
+        loud `ValidationError` (key reused for a different request)
+        instead of the old silent-stale-replay risk this hash fix
+        closes; correct/safe but a real UX rough edge, flagged for
+        whoever next touches that form, not fixed here (UI code, outside
+        this bounded server-side mission).
+
+        **New tests** (`tests/idempotency.test.ts`, +2, all passing,
+        scoped to `liquidity.offer.create`): one proves the exact
+        mission scenario (Intent succeeds, Offer fails, same-key retry)
+        — exactly one Intent ever created, the checkpoint survives the
+        `FAILED` transition, the retry's Offer write succeeds and is
+        associated with the original checkpointed Intent id, final
+        status `COMPLETED`; a second proves the same property under
+        genuine concurrent retries after a real `FAILED`+checkpoint
+        state (`Promise.allSettled` interleaving against one shared
+        store, modeling multi-instance execution) — exactly one Intent
+        ever created, exactly one retry wins the reclaim and performs
+        the Offer write, the winner's result is associated with the
+        original Intent. All R1/R2 tests preserved unchanged (the test
+        stores' `setCheckpoint()` addition is purely additive).
+
+        **Verified, not asserted:** `npx tsc --noEmit` clean at repo
+        root; `npx prisma generate` succeeds against the new
+        `checkpointRef` column; full unit suite 160 suites / 2113 tests
+        (was 160/2111 before this correction, +2 matching the new tests
+        above), 0 regressions. **Correction (R4, 2026-09-14): this
+        record originally claimed no migration file was needed because
+        "CI only runs `prisma generate`... never `migrate deploy`,
+        against no live Postgres." That claim was FALSE — CI's
+        `build`/`test` jobs run `npm run db:migrate` (`prisma migrate
+        deploy`) against a real ephemeral Postgres container before
+        testing. It went unnoticed here only because `checkpointRef`
+        lived on a table (`idempotency_keys`) no integration test's
+        fixture setup ever wrote to. R4's own schema change had no such
+        luck and surfaced this directly as a CI failure — see R4's own
+        record below for the real fix (an actual migration file) and
+        the corrected account of how this environment's migrations
+        actually work.**
+
+        **Items 38/39 unchanged, item 40 untouched** — this correction
+        touched only `prisma/schema.prisma`, `src/common/idempotency.ts`,
+        `src/modules/open-liquidity/liquidity.service.ts`, and
+        `tests/idempotency.test.ts`. Trade (`trade.service.ts`) and
+        Evidence (`dispute.service.ts`) were reviewed for the same
+        multi-write-persist() risk and confirmed NOT to have it — both
+        have exactly one durable write in their own `persist()` — so
+        neither was reopened.
+
+        **Corrected 2026-09-13 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R4`,
+        CTO review found R3's OWN fix unsafe before Freeze) — still
+        Implemented → Evidenced, not yet Frozen.** R3's `checkpoint.set()`
+        was a SEPARATE write from the Intent it was meant to checkpoint —
+        that write could itself fail, either definitely (nothing
+        committed) or ambiguously (the `UPDATE` may have committed but
+        the acknowledgement was lost) — reproducing the identical defect
+        one level deeper: *a failed checkpoint write is not proof the
+        checkpoint wasn't recorded, and is not proof the Intent it
+        describes wasn't created either.* Naively retrying
+        `intentEngine.create()` whenever `checkpoint.set()` failed would
+        have reproduced R3's own original bug.
+
+        **Fix — no separate checkpoint write at all.** `Intent` gained a
+        new `idempotencyClaimId String? @unique` column
+        (`prisma/schema.prisma`), set to the ORIGINATING `IdempotencyKey`
+        row's own `id` — already durable and already known in memory
+        before `persistOffer()` is ever invoked, requiring no extra read
+        or write — as PART OF the SAME `INSERT` that creates the Intent
+        (`intentEngine.create()` gained an optional 5th parameter,
+        threaded through `IntentRepository.create()`). There is no
+        window between "the Intent exists" and "its marker is durable"
+        for anything to fail inside, because they are the same
+        statement. A retry looks the marker up directly
+        (`IntentRepository.findByIdempotencyClaimId()`, new) BEFORE
+        attempting to create anything — durable truth read from one
+        already-committed row, never dependent on any OTHER table's
+        bookkeeping succeeding, and never dependent on correctly
+        interpreting what a PRIOR attempt's thrown error meant. A
+        genuine concurrent double-attempt (two application instances
+        racing the same reclaimed `FAILED` claim) is resolved by the
+        column's real `@unique` constraint: at most one
+        `intentEngine.create()` call with a given marker can land; the
+        loser catches Postgres's own P2002 (via the newly-exported
+        `isUniqueConstraintError()`) and reconciles via the identical
+        "insert-as-lock, catch P2002, look up the winner" idiom
+        `IdempotencyKey.claim()` itself already uses.
+        `PersistCheckpoint`/`checkpointRef`/`setCheckpoint()` — R3's own
+        mechanism — are REMOVED entirely (dead, superseded, never
+        shipped); `withIdempotency()`'s `persist()` callback now simply
+        receives `claimId: string | null`, a plain value requiring no
+        store interaction to obtain.
+
+        **Symmetric unknown-outcome case, explicitly proven, not just
+        argued:** the mechanism's correctness does not depend on
+        knowing whether a PRIOR attempt's `intentEngine.create()` call
+        actually succeeded, failed, or was ambiguous (committed, ack
+        lost) — every retry re-derives truth via a direct
+        `findByIdempotencyClaimId()` read before deciding whether to
+        create anything. If the Intent exists (committed despite a lost
+        acknowledgement to the ORIGINAL caller), it's found and reused;
+        if it doesn't, a new one is safely created. No duplicate Intent
+        can result in either case, and no process-local memory is
+        involved anywhere in the mechanism — every fact it depends on
+        (`claimId`, the Intent's own row) lives in Postgres.
+
+        **New tests** (`tests/idempotency.test.ts`, net +1 vs. R3 — 2
+        removed, 3 added, all passing, against a real in-memory
+        `FakeIntentStore` proving `idempotencyClaimId`'s own unique-
+        violation semantics, not a mock): (1) the exact mission scenario
+        (Intent succeeds, Offer fails, same-key retry) — exactly one
+        Intent ever created, retry reuses it, exactly one Offer
+        ultimately exists, associated with the original Intent; (2) the
+        symmetric ambiguous-acknowledgement case — the Intent-creating
+        write genuinely commits but the calling code throws anyway
+        (simulating a lost ack), and the retry still finds and reuses
+        the real Intent via direct lookup rather than assuming the
+        throw meant nothing was created; (3) genuine concurrent retries
+        after a real `FAILED` state (`Promise.allSettled` interleaving
+        against shared fake stores, modeling multi-instance execution)
+        still produce exactly one Intent and one winning Offer write.
+        All R1/R2 tests preserved unchanged.
+
+        **Schema/index changes:** `IdempotencyKey.checkpointRef` (R3)
+        removed; `Intent.idempotencyClaimId String? @unique` added.
+        **A real migration file was added** — `prisma/migrations/20260914000000_idempotency_keys_and_intent_claim_marker/migration.sql`
+        — capturing this correction's own `Intent.idempotencyClaimId`
+        column PLUS the entire, previously-unmigrated `idempotency_keys`
+        table and `IdempotencyKeyStatus` enum (item 37's original
+        mechanism and R1's `UNKNOWN` value, accumulated drift from
+        earlier rounds of this same mission that had never been given a
+        migration). See the "Verified" paragraph below for why this was
+        necessary and how the earlier "no migration needed" claims in
+        this item's own R2/R3 records were WRONG.
+
+        **Residual risks, disclosed:** `intentEngine.create()`'s own
+        internal CREATED→VALIDATED→COORDINATED pipeline can still
+        itself partially fail after its own first durable write (the
+        `repo.create()` call that now also stamps `idempotencyClaimId`)
+        — a retry that reconciles via `findByIdempotencyClaimId()` may
+        reuse an Intent stuck in an earlier lifecycle status if that
+        happens; a real, narrower, pre-existing gap, unchanged and out
+        of this bounded mission's scope (decomposing `intentEngine.create()`'s
+        own internals would be the "general intentEngine refactor"
+        every round of this mission has declined to do). Nothing in
+        `persistOffer()` currently checks the reused Intent's status
+        before creating the Offer against it — disclosed, not fixed.
+
+        **Verified, not asserted — and a real CI failure this correction
+        itself caused and then fixed, not just a clean first pass:** the
+        first push of this correction's code (schema + `intentEngine.ts`/
+        `liquidity.service.ts` changes, no migration file) passed
+        `npx tsc --noEmit` and the full LOCAL unit suite, but FAILED real
+        CI's `build`/`test` jobs — 8 suites / 45 tests failed with
+        `PrismaClientKnownRequestError: The column intents.idempotencyClaimId
+        does not exist in the current database`. Root cause: CI's
+        `build`/`test` jobs run `npm run db:migrate` (`prisma migrate
+        deploy`) against a REAL, ephemeral Postgres container
+        (`.github/workflows/ci.yml`) before testing — this environment
+        DOES apply real migrations to a real database, contradicting
+        this item's own R2/R3 records, which claimed otherwise. That
+        claim went unchallenged for two rounds only because
+        `IdempotencyKey` (item 37's original table) and its `UNKNOWN`
+        status (R1) live on a table no integration test's fixture setup
+        ever writes to (nothing in those fixtures supplies an
+        idempotency key) — so the missing table/column never surfaced.
+        `Intent.idempotencyClaimId` has no such luck: `intentEngine.create()`
+        is called as ordinary fixture setup by roughly a third of this
+        repo's real-Postgres integration suites, and the new column is
+        written on EVERY call (even as `undefined`) — so the gap
+        surfaced immediately, for real, in CI.
+        **Fix:** started a local Postgres container matching CI's exact
+        image/credentials (`postgres:16-alpine`), applied all 32
+        pre-existing migrations via `prisma migrate deploy`, generated
+        the true schema diff via `prisma migrate diff --from-config-datasource
+        --to-schema prisma/schema.prisma --script`, and committed that
+        SQL as a real migration file (see "Schema/index changes" above).
+        Re-verified `prisma migrate diff ... --exit-code` reports zero
+        remaining drift, then ran the FULL suite this correction's
+        commits had never actually exercised before: `npx tsc --noEmit`
+        clean; unit suite 160 suites / 2114 tests (was 160/2113), 0
+        regressions; **`npm run test:integration:postgres` against the
+        real, migrated local Postgres: 28 suites / 228 tests, 0
+        regressions** — the first time in this item's own correction
+        chain (R1 through R4) that the real-Postgres integration suite
+        was actually run locally before pushing, rather than assumed
+        unaffected.
+
+        **Items 38/39 unchanged, item 40 untouched** — this correction
+        touched `prisma/schema.prisma`, `prisma/migrations/20260914000000_idempotency_keys_and_intent_claim_marker/migration.sql`,
+        `src/common/idempotency.ts`, `src/core/intent-engine.ts`,
+        `src/core/intent-repository.ts`,
+        `src/modules/open-liquidity/liquidity.service.ts`, and
+        `tests/idempotency.test.ts`. `intent-engine.ts`/`intent-repository.ts`
+        changes are a single optional, additive parameter/method each —
+        every other existing caller of `intentEngine.create()`
+        (there are none outside `persistOffer()` today) and
+        `IntentRepository.create()` is unaffected. Trade and Evidence
+        were not reopened.
+
+        **Corrected 2026-09-14 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5`,
+        CTO review found one final unknown-outcome window before Freeze)
+        — still Implemented → Evidenced, not yet Frozen.** R4 closed the
+        Intent side's unknown-outcome window; the SECOND durable write,
+        `prisma.offer.create()` itself, had the identical gap one write
+        later: if the Offer INSERT genuinely committed but the caller
+        never learned that (a lost acknowledgement, not a real failure),
+        a naive retry would call `prisma.offer.create()` again against
+        the SAME reconciled Intent, producing a second Offer.
+
+        **Architecture truth check, answered by direct code inspection,
+        not assumed:** does one canonical `TradeIntent` map to at most
+        one local Offer? **Yes — genuinely, not merely "in practice."**
+        Every `createOffer()` call creates a BRAND NEW Intent for a
+        genuinely new logical attempt; the only way two Offer rows could
+        ever end up pointing at the same Intent is `persistOffer()`'s own
+        idempotent-retry reconciliation (R4), which by definition means
+        "the same logical attempt," never two independently-intended
+        offers. This is asymmetric with `Trade.intentId`, deliberately
+        left NOT unique: multiple Trades legitimately share one Intent
+        via a still-`ACTIVE` Offer (`Offer.status` never leaves `ACTIVE`
+        just because one Trade was created against it — the same reason
+        the original item 37 investigation rejected a composite-
+        business-key uniqueness constraint for Trade creation). Both
+        `prisma/schema.prisma`'s `Offer.intentId`/`Intent.offers`/
+        `Intent.trades` doc comments now record this reasoning
+        explicitly, not just "in practice."
+
+        **Fix — no separate Offer-side idempotency-claim column needed:**
+        `Offer.intentId` now carries a real `@unique` constraint
+        (Postgres's own NULL semantics mean any number of pre-Intent-
+        migration `NULL` rows still coexist freely). `intentId` is
+        ALREADY a 1:1 correlation key for "this logical attempt" once R4
+        made Intent itself uniquely tied to the idempotency claim, so no
+        new column is needed — `persistOffer()` now looks up an existing
+        Offer by `intentId` (`prisma.offer.findUnique({ where: { intentId } })`)
+        BEFORE attempting a new insert, the identical "ask the database
+        what actually exists, never trust a prior throw's implication"
+        discipline R4 already established for the Intent side; the
+        `isUniqueConstraintError()` catch handles the residual genuinely-
+        concurrent case (two application instances racing the same
+        reclaimed claim) via the same "insert-as-lock, catch P2002, look
+        up the winner" idiom used throughout this whole mechanism.
+
+        **Handling of committed-but-unacknowledged Offer insert:** proven
+        directly, not argued — a new test drives a REAL insert into a
+        fake store (the write genuinely lands) and then throws from the
+        calling code afterward (modeling a lost acknowledgement); the
+        retry's lookup-before-insert still finds and returns the real
+        row, never re-inserting. A true pre-commit failure (nothing ever
+        written) is proven separately to remain retryable via a fresh
+        insert.
+
+        **New tests** (`tests/idempotency.test.ts`, +3, all passing,
+        against a new `FakeOfferStore` proving `Offer.intentId`'s own
+        unique-violation semantics): (1) the exact mission scenario —
+        Offer INSERT commits, ack lost, retry recovers the existing
+        Offer, no second insert ever lands, final result points to the
+        original Intent; (2) a true pre-commit Offer failure (nothing
+        inserted) remains legitimately retryable via a fresh insert; (3)
+        genuinely concurrent retries against a shared store, reached only
+        via the same atomic `FAILED -> IN_PROGRESS` reclaim every other
+        retry in this mechanism already goes through, still produce
+        exactly one Offer. All R1-R4 tests preserved unchanged.
+
+        **Real-Postgres integration evidence — not solely in-memory, per
+        this mission's own explicit instruction:** new
+        `tests/integration/offerIntentIdempotencyUniqueness.test.ts` (3
+        tests, added to `test:integration:postgres`'s file list and
+        excluded from `test:unit`'s, matching every other real-Postgres
+        integration test's own convention): (1) a raw, direct
+        `prisma.offer.create()` with a duplicate `intentId` — deliberately
+        bypassing `persistOffer()`'s own application-level reconciliation
+        entirely — is rejected by Postgres's own unique constraint,
+        proving the DATABASE itself enforces this, not application code;
+        (2) the real, unmocked `liquidityRouter.createOffer()` end-to-end,
+        with a prior attempt's Intent AND Offer both staged as genuinely
+        already-committed (via real `intentEngine.create()`/
+        `prisma.offer.create()` calls) but its `IdempotencyKey` claim row
+        left `FAILED` (the real-world shape of a lost acknowledgement) —
+        a retry with the identical key/payload reconciles to the ONE
+        existing Offer, never inserts a duplicate, and settles the claim
+        away from `FAILED`; (3) an exact-retry sanity check via the
+        normal `COMPLETED` recovery path. Run against a local Postgres
+        container matching CI's own image/credentials, with all 34
+        migrations applied and zero schema drift confirmed via `prisma
+        migrate diff ... --exit-code` before testing.
+
+        **Migration/schema changes:** `Offer.intentId String? @unique`
+        (`prisma/migrations/20260914010000_offer_intent_id_unique`). A
+        real migration file was added, `prisma migrate deploy` was run
+        against a real local Postgres, and the full real-Postgres
+        integration suite was run against it (see above) — the exact
+        discipline R4's own record now documents as required in this
+        environment. **Historical-data compatibility, considered:** a
+        `CREATE UNIQUE INDEX` on an already-populated table fails if
+        duplicate non-null `intentId` values already exist; the
+        migration file's own header comment gives the exact `SELECT ...
+        GROUP BY ... HAVING count(*) > 1` query an operator must run
+        first against any real, populated database before applying this
+        — this session has no live production Postgres to check against
+        and does not assume the result. This environment's own ephemeral
+        CI/dev Postgres never has pre-existing data, so it was not
+        blocked here.
+
+        **Residual risks, disclosed:** `intentEngine.create()`'s own
+        internal partial-failure gap (unchanged since R4, out of scope);
+        the historical-data compatibility check above (a real production
+        Postgres, if one already has duplicate `intentId` values, would
+        need manual reconciliation before this migration could apply —
+        not evaluated, no access to such a database from this session).
+
+        **Verified, not asserted:** `npx tsc --noEmit` clean at repo
+        root; unit suite 160 suites / 2117 tests (was 160/2114 before
+        this correction), 0 regressions; real-Postgres integration suite
+        29 suites / 231 tests (was 28/228), 0 regressions.
+
+        **Items 38/39 unchanged, item 40 untouched** — this correction
+        touched `prisma/schema.prisma`,
+        `prisma/migrations/20260914010000_offer_intent_id_unique/migration.sql`,
+        `src/modules/open-liquidity/liquidity.service.ts`,
+        `tests/idempotency.test.ts`,
+        `tests/integration/offerIntentIdempotencyUniqueness.test.ts`, and
+        `package.json` (registering the new integration test file in the
+        existing `test:unit`/`test:integration:postgres` split). Trade
+        and Evidence were reviewed against the SAME "one canonical
+        parent maps to at most one child" question and confirmed to have
+        the OPPOSITE, already-correct answer (`Trade.intentId`
+        deliberately not unique) — not reopened.
+
+        **Corrected 2026-09-14 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5.1`,
+        CTO review found one unsupported evidence claim, no architecture
+        change) — no redesign required; R5's mechanism itself accepted
+        as-is.** R5's own real-Postgres item 3 test's name/comment
+        claimed to prove "a true pre-commit failure... remains
+        legitimately retryable" — WRONG. The test itself calls
+        `createOffer()` twice with an identical, always-succeeding
+        input; both calls succeed, proving ordinary exact-retry replay
+        via the `COMPLETED` path (`recover()`, never `persist()` again)
+        — a real, useful, but DIFFERENT property than a genuine pre-
+        commit failure. **Corrected the mislabeled comment/test name in
+        `tests/integration/offerIntentIdempotencyUniqueness.test.ts`
+        directly** (its own header comment now names this correctly) and
+        **added the missing test** (item 4): drives the real,
+        unmocked `createOffer()` -> `persistOffer()` -> `withIdempotency()`
+        orchestration against real Postgres for everything — the
+        canonical Intent's real creation, the `IdempotencyKey` claim
+        row's real `FAILED -> IN_PROGRESS` reclaim, and the retry's real
+        second `prisma.offer.create()` call. The ONLY simulated element
+        is the FIRST Offer INSERT's own outcome: `prisma.offer.create`
+        is spied on (delegating to the real implementation on every call
+        after the first) to reject exactly once with a plain, non-P2002
+        `Error`, modeling a genuine pre-commit rejection (e.g. a dropped
+        connection before the statement executed) — distinct from R5's
+        own item 2 test, which covers the "insert already committed,
+        acknowledgement lost" case, not this one. Asserts all 6 required
+        properties: the same canonical Intent is reused; exactly one
+        Offer ultimately exists; the retry itself succeeds; the claim
+        settles `COMPLETED`/`UNKNOWN`; no duplicate Intent; no duplicate
+        Offer. **Verified, not asserted:** `npx tsc --noEmit` clean;
+        `tests/integration/offerIntentIdempotencyUniqueness.test.ts`
+        alone: 4 suites/tests passing (was 3) against a real local
+        Postgres container matching CI's image/credentials; full unit
+        suite 160/2117 unchanged (this correction touched no unit-test
+        file); full real-Postgres integration suite 29 suites / 232
+        tests (was 231), 0 regressions. **No code in `src/` changed** —
+        the R5 mechanism itself needed no correction, only its own
+        evidence's accuracy. **Deployment precondition registered,
+        without blocking this PR's freeze:** before applying
+        `prisma/migrations/20260914010000_offer_intent_id_unique` to any
+        populated production database, an operator MUST run the
+        historical-duplicate query already documented in that migration
+        file's own header comment and resolve any duplicate non-null
+        `intentId` rows it returns — this remains unverified against any
+        real production database from this session, exactly as R5's own
+        record already disclosed, now re-affirmed rather than silently
+        dropped. **Items 38/39 unchanged, item 40 untouched, Trade/
+        Evidence not reopened** — this correction touched only
+        `tests/integration/offerIntentIdempotencyUniqueness.test.ts` and
+        this BACKLOG record.
+
     38. **SDK Type-Shape Reconciliation (CSC-C01/D01).** Two real,
         confirmed SDK-internal disagreements: (a)
         `packages/sails-p2p-schemas`'s `DisputeStatus`/`DisputeStatusInput`
@@ -3330,6 +4060,38 @@ obligation" is defined anywhere in this repository.
         surface — but it would immediately mislead a partner
         integrator building against the documented (wrong) shape.
 
+        **Implemented → Evidenced (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1`,
+        2026-09-13, pending CTO Gate before Frozen).** (a) widened
+        `packages/sails-p2p-schemas/src/dispute.ts`'s `DisputeStatus`
+        from 4 to the real 6 values (`APPEALED`/`AUTO_PROPOSED` added),
+        reconciling it with the already-correct
+        `packages/sails-sdk/src/types.ts` copy. (b) deleted
+        `settlement.ts`'s `registerArbiter()`/`getArbiterProfile()`/
+        `ArbiterProfile` entirely (not deprecated — verified neither was
+        ever part of `docs/API_STABLE.md`'s frozen contract, and
+        grepping confirmed zero real callers), leaving
+        `arbitration.ts`'s `register()`/`getProfile()` →
+        `ArbiterCandidate` as the one canonical, documented surface.
+        **A third, smaller drift found and fixed while verifying (b):**
+        `arbitration.ts`'s own `ArbiterCandidate` was itself missing
+        `cumulativeFeesObserved` — a real field
+        `market-arbitration.provider.ts`'s `toCandidate()` has always
+        returned and the route sends as-is; added. **Evidence:**
+        `tests/sdkTypeShapeReconciliation.test.ts` — compile-time
+        two-way type-identity checks (fail to typecheck, not just fail
+        an assertion, if either package's `DisputeStatus` or the SDK's
+        `ArbiterCandidate` drifts from its real canonical source again)
+        plus a runtime check of the live Prisma enum's actual 6 values;
+        `packages/sails-sdk/tests/modules.test.ts` — 3 new
+        `SailsArbitrationModule` tests (register/getProfile against the
+        real response shape including the newly-added field; confirmed
+        `getProfile()` throws `SailsNotFoundError` on a 404, never
+        resolves `null`, closing the deleted duplicate's own unreachable
+        `| null` return type) replacing the 2 tests that exercised the
+        now-deleted methods. `npx tsc --noEmit` clean everywhere
+        (required rebuilding `packages/sails-sdk`'s `dist/` — `sails-ui`
+        resolves the SDK's published types, not its live source).
+
     39. **Capability-Denial Reason Structuring (CSC-G01).** Six
         structurally different underlying reasons a caller can be told
         "not supported"/"denied" (technical rail limitation, deployment
@@ -3340,6 +4102,49 @@ obligation" is defined anywhere in this repository.
         caller cannot mechanically distinguish them. Scope: add a
         `reason` category field to the existing error classes; reuses
         `EscrowError`/the generic error shape, no new taxonomy.
+
+        **Implemented → Evidenced (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1`,
+        2026-09-13, pending CTO Gate before Frozen).** Added
+        `CapabilityDenialReason` (`UNSUPPORTED | UNAVAILABLE | FORBIDDEN
+        | INELIGIBLE | DISABLED | NOT_IMPLEMENTED` — this mission's own
+        required vocabulary verbatim) as one optional field on the
+        existing `AppError`/`EscrowError`/`ForbiddenError` classes and
+        their JSON envelope (`toResponse()`'s `reason`, included only
+        when actually set) — no second error framework, no new error
+        class per reason. Wired 4 of 6 categories to real, concrete
+        throw sites the audit named: `UNSUPPORTED` (LIGHTNING_HODL/
+        SAFE_GUARD_EVM's own SPLIT-not-supported throws — a real
+        structural rail limitation), `UNAVAILABLE` (`escrow-providers.ts`'s
+        two "no provider wired" throws), `FORBIDDEN`
+        (`checkFundMovementCapability()`'s missing-`CapabilityGrant`
+        throw), `INELIGIBLE` (`escrow.service.ts`'s capability-profile-
+        mismatch throw, `findCapabilityCommitBlocker()`'s real consumer).
+        **Two categories deliberately left without a new throw site,
+        disclosed rather than forced:** `NOT_IMPLEMENTED` is already
+        correctly, distinctly signaled today via the pre-existing
+        client-side `SailsNotImplementedError` SDK class for genuine
+        no-server-round-trip stubs (a different, equally correct
+        mechanism — nothing to add); `DISABLED` has no natural throw
+        site today — `config.features.enforceCapabilities` being off
+        means enforcement is silently skipped, not that a "this is
+        disabled" error is ever thrown, a real, honestly-reported
+        residual, not claimed as closed. SDK mirrors the same
+        `CapabilityDenialReason` type and threads `reason` through
+        `errorFromResponseBody()` for `SailsEscrowError`/
+        `SailsForbiddenError` — verified the real HTTP round-trip
+        carries it (`body.reason` typed on `SailsErrorResponseBody`,
+        read by `transport.ts` with zero further changes needed).
+        Deliberately no UI surfacing added in this mission — confirmed
+        by inspection that no existing UI code reads `.reason` today, so
+        nothing needed to change to stay forward-compatible with it, and
+        deciding how (or whether) to show a reason to a human is a
+        product-copy decision outside a bounded corrective mission's
+        authority. **Evidence:** full suite (160 suites/2102 tests) and
+        `npx tsc --noEmit` (root + `sails-sdk` + `sails-ui`) both clean
+        with the new `reason` field threaded through every layer;
+        existing tests for the 4 wired throw sites confirmed unaffected
+        (their exact error message/shape assertions all still pass —
+        `reason` is additive, never replaces `message`/`code`).
 
     40. **Protocol Version / Cross-Implementation Readiness (CSC-H01/
         H02/H03).** A Decision Mission, not an implementation mission —

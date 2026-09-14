@@ -3,12 +3,14 @@ import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { intentEngine } from '../../core/intent-engine'
+import { intentRepository } from '../../core/intent-repository'
 import { childLogger } from '../../common/logger'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeIntentPayload } from '../../common/types/intent'
 import type { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { qvacDetectionInvocationsTotal, qvacDetectionFailuresTotal } from '../../common/metrics'
+import { withIdempotency, isUniqueConstraintError } from '../../common/idempotency'
 
 const log = childLogger('liquidity')
 
@@ -335,6 +337,9 @@ export interface CreateOfferInput {
   paymentDetails?: string
   network?: string
   description?: string
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37) — optional; omitted means
+  // exactly today's behavior. See src/common/idempotency.ts's own header.
+  idempotencyKey?: string
 }
 
 // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) — an Offer is
@@ -417,25 +422,159 @@ export class LiquidityRouter {
   }
 
   async createOffer(input: CreateOfferInput) {
-    const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId)
-
-    const offer = await prisma.offer.create({
-      data: {
-        userId: input.userId,
-        asset: input.asset,
-        side: input.side,
-        priceUsd: input.priceUsd,
-        priceBrl: input.priceBrl,
-        minAmount: input.minAmount,
-        maxAmount: input.maxAmount,
-        paymentMethod: input.paymentMethod,
-        paymentDetails: input.paymentDetails,
-        network: input.network,
-        description: input.description,
-        intentId: intent.id,
+    return withIdempotency(
+      {
+        scope: 'liquidity.offer.create',
+        participantId: input.userId,
+        key: input.idempotencyKey,
+        // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 — request-hash field
+        // review. `priceBrl`, `paymentDetails`, and `network` are real
+        // execution-defining terms of the offer (a different BRL price,
+        // a different real-world payment destination, or a different
+        // settlement rail is a materially different offer, not a retry
+        // of the same one) — omitting them would let a caller reuse a
+        // key across two requests that genuinely differ in what's being
+        // offered, and silently get back the FIRST one's terms via
+        // recover() (e.g. the seller's actual payment destination
+        // silently staying whatever the first attempt said, even though
+        // the retried request asked for a different one — the exact
+        // "silent replay of a differing request" this key exists to
+        // prevent). `description` is included too: it's part of what
+        // the caller explicitly submitted as this offer's content, on
+        // the same footing as every other field already hashed here
+        // (this hash was never scoped to "only the fields that move
+        // funds" — `paymentMethod`, already present, isn't fund-moving
+        // either) — a genuine content edit deserves a fresh key, not a
+        // silent no-op replay.
+        requestPayload: {
+          asset: input.asset, side: input.side, priceUsd: input.priceUsd, priceBrl: input.priceBrl,
+          minAmount: input.minAmount, maxAmount: input.maxAmount, paymentMethod: input.paymentMethod,
+          paymentDetails: input.paymentDetails, network: input.network, description: input.description,
+        },
       },
-    })
+      (claimId) => this.persistOffer(input, claimId),
+      (offer) => this.postPersistOffer(input, offer),
+      async (offerId) => {
+        const offer = await prisma.offer.findUnique({ where: { id: offerId } })
+        if (!offer) throw new NotFoundError('Offer', offerId)
+        return offer
+      }
+    )
+  }
 
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2/R3/R4/R5 — the durable side
+  // effect of createOffer() is TWO independently-durable writes:
+  // `intentEngine.create()` (its own internally-durable Intent row — not
+  // decomposed further here; it is a widely-shared function used by many
+  // other callers, and splitting IT further is out of this bounded
+  // mission's scope) followed by `prisma.offer.create()`. R2 treated
+  // these as one unit; R3/R4 closed the Intent side's own unknown-outcome
+  // window (see `Intent.idempotencyClaimId`'s doc comment). R5 closes the
+  // SAME window one write later: if `prisma.offer.create()` itself
+  // genuinely commits but the caller never learns that (a lost
+  // acknowledgement, not a real failure), a naive retry would call
+  // `prisma.offer.create()` again against the SAME reconciled Intent,
+  // producing a SECOND Offer for the same logical attempt.
+  //
+  // Architecture truth check (not a convenience decision — see
+  // `Intent.offers`'s own doc comment for the full reasoning): one
+  // canonical Intent maps to AT MOST ONE Offer, genuinely, not merely
+  // "in practice" — every `createOffer()` call creates a brand-new
+  // Intent; the only way two Offers could ever share one Intent is
+  // exactly this reconciliation path, which by definition is the SAME
+  // logical attempt. `Offer.intentId` now carries a real `@unique`
+  // constraint reflecting that truth (this is asymmetric with
+  // `Trade.intentId`, deliberately NOT unique — multiple Trades
+  // legitimately share one Intent via a still-`ACTIVE` Offer).
+  //
+  // Fix: no separate Offer-side idempotency-claim column needed at all
+  // — `intentId` is ALREADY a 1:1 correlation key for "this logical
+  // attempt" once R4 made Intent itself uniquely tied to the idempotency
+  // claim. A retry looks up an existing Offer by `intentId` (a direct,
+  // already-committed-row read, exactly the same "ask the database what
+  // actually exists" discipline R4 uses for the Intent side, never
+  // "was the previous attempt's throw proof of anything") BEFORE
+  // attempting a new insert; the `isUniqueConstraintError()` catch below
+  // handles the residual, genuinely-concurrent case the same way R4's
+  // Intent-side reconciliation does.
+  private async persistOffer(input: CreateOfferInput, claimId: string | null) {
+    let intentId: string
+    if (!claimId) {
+      const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId)
+      intentId = intent.id
+    } else {
+      const existingIntent = await intentRepository.findByIdempotencyClaimId(claimId)
+      if (existingIntent) {
+        intentId = existingIntent.id
+      } else {
+        try {
+          const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId, undefined, claimId)
+          intentId = intent.id
+        } catch (err) {
+          if (!isUniqueConstraintError(err)) throw err
+          // A concurrent retry (or this same retry racing itself across
+          // two application instances) already won — reconcile to their
+          // Intent rather than assume ours failed for some other reason.
+          const winner = await intentRepository.findByIdempotencyClaimId(claimId)
+          if (!winner) throw err // genuinely unexpected — surface the original error rather than guess
+          intentId = winner.id
+        }
+      }
+    }
+
+    const offerData = {
+      userId: input.userId,
+      asset: input.asset,
+      side: input.side,
+      priceUsd: input.priceUsd,
+      priceBrl: input.priceBrl,
+      minAmount: input.minAmount,
+      maxAmount: input.maxAmount,
+      paymentMethod: input.paymentMethod,
+      paymentDetails: input.paymentDetails,
+      network: input.network,
+      description: input.description,
+      intentId,
+    }
+
+    if (!claimId) {
+      return prisma.offer.create({ data: offerData })
+    }
+
+    // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5 — the Intent above is
+    // canonical for this logical attempt; if an Offer already exists for
+    // it, a PRIOR attempt's `prisma.offer.create()` already durably
+    // succeeded (whether or not that attempt itself ever learned that),
+    // and this is that same Offer, recovered by direct lookup, never by
+    // re-running the insert.
+    const existingOffer = await prisma.offer.findUnique({ where: { intentId } })
+    if (existingOffer) return existingOffer
+
+    try {
+      return await prisma.offer.create({ data: offerData })
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err
+      // Genuinely concurrent race on the same reconciled Intent (two
+      // application instances retrying the same reclaimed claim) — the
+      // loser reconciles via the identical lookup, never assumes its own
+      // insert failing means nothing was created.
+      const winner = await prisma.offer.findUnique({ where: { intentId } })
+      if (!winner) throw err // genuinely unexpected — surface the original error rather than guess
+      return winner
+    }
+  }
+
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — runs AFTER the Offer already
+  // durably exists. `eventBus.emit()`'s failure is real and propagates
+  // to createOffer()'s original caller, but idempotency.ts's
+  // runAndSettle() has already settled the claim to COMPLETED/UNKNOWN by
+  // the time this runs — a retry with the same key always recovers the
+  // existing Offer via recover() above, never calls persistOffer() again,
+  // and can never create a second Offer row. screenOfferContent() was
+  // already fire-and-forget (never awaited, failures only logged/metered
+  // internally) before this correction and stays exactly that — moving
+  // it here changes nothing about its own error handling.
+  private async postPersistOffer(input: CreateOfferInput, offer: Awaited<ReturnType<LiquidityRouter['persistOffer']>>) {
     await eventBus.emit('liquidity.offer.created', {
       offerId: offer.id,
       userId: offer.userId,
@@ -445,8 +584,6 @@ export class LiquidityRouter {
     }, offer.id)   // correlationId (RFC-010) — no tradeId exists yet for an offer
 
     screenOfferContent(offer.id, offer.userId, input.description, input.paymentDetails)
-
-    return offer
   }
 
   // Real gap found wiring the first real caller (packages/sails-ui's

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { AssetBadge, SideBadge, PaymentBadge, PowerTraderBadge } from '../components/ui/StatusBadges'
@@ -88,6 +88,20 @@ export function OfferDetail() {
     return state?.amount ? String(state.amount) : ''
   })
 
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37, 2026-09-13) — one
+  // idempotency key per genuinely-new "start a trade" intent, reused
+  // across a manual retry of the SAME attempt (e.g. clicking the button
+  // again after a network error), regenerated whenever the amount
+  // itself changes (a different amount is a different logical intent,
+  // never a retry of the prior one). See
+  // `sailsClient.openp2p.trade()`'s own doc comment for the full
+  // contract this closes — createTrade() had no idempotency at all
+  // before this mission.
+  const tradeIdempotencyKeyRef = useRef<string>(crypto.randomUUID())
+  useEffect(() => {
+    tradeIdempotencyKeyRef.current = crypto.randomUUID()
+  }, [amount])
+
   useEffect(() => {
     if (!id) return
     let cancelled = false
@@ -156,7 +170,12 @@ export function OfferDetail() {
       // createTrade(), which also walks the offer's real Intent through
       // DISCOVERING -> MATCHED -> NEGOTIATING (RFC-018) — not a client-
       // side mock Trade built from whatever was picked here.
-      const trade = await sailsClient.openp2p.trade(offer.id, String(amountNum))
+      const trade = await sailsClient.openp2p.trade(offer.id, String(amountNum), tradeIdempotencyKeyRef.current)
+      // A NEW key for whatever this user does next — this one is now
+      // either COMPLETED or (if the whole request somehow still fails
+      // downstream of trade creation) irrelevant, since navigation below
+      // leaves this screen.
+      tradeIdempotencyKeyRef.current = crypto.randomUUID()
       toast.success('Trade iniciado')
       navigate(`/trade/${trade.id}`, { state: { offer, amount: amountNum } })
     } catch (err) {

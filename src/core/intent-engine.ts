@@ -46,7 +46,15 @@ export interface IntentEngine {
   // BuyerAgent/SellerAgent needed to record which agent produced an
   // Intent on a participant's behalf — filling in an already-specified
   // field, not introducing new protocol surface.
-  create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string, agentId?: string): Promise<Intent<T>>
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R4 — idempotencyClaimId is optional
+  // and additive, same posture as agentId above: filling in an
+  // idempotency-reconciliation identity for the one caller
+  // (liquidity.service.ts's persistOffer()) that needs this Intent to be
+  // deterministically re-discoverable after a later write in the SAME
+  // persist() attempt fails, without decomposing this function's own
+  // internal CREATED->VALIDATED->COORDINATED pipeline. See
+  // `prisma/schema.prisma`'s `Intent.idempotencyClaimId` doc comment.
+  create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string, agentId?: string, idempotencyClaimId?: string): Promise<Intent<T>>
   // cancelledBy added during a gap audit: this previously took only
   // intentId, with no check that the caller cancelling an Intent was the
   // participant who created it — any caller (via the equally-unauthenticated
@@ -172,7 +180,7 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
       }
     },
 
-    async create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string, agentId?: string) {
+    async create<T extends IntentPayload>(type: IntentType, payload: T, participantId: string, agentId?: string, idempotencyClaimId?: string) {
       const structural = validateStructure(type, payload)
       if (!structural.valid) {
         throw new ValidationError('Malformed Intent rejected at entry boundary', structural.errors)
@@ -212,6 +220,7 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
         payload: payload as object,
         status: 'CREATED' satisfies IntentStatus,
         metadata: {},
+        idempotencyClaimId,
       })
 
       await writeIntentEvent(record.id, null, 'CREATED', participantId)

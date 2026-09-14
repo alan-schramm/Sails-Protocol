@@ -534,7 +534,8 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     throw new EscrowError(
       `SAFE_GUARD_EVM provider: SPLIT is not supported for trade ${escrow.tradeId} — the deployed SailsEscrowSafe guard contract only ` +
       'authorizes a transfer of the exact full lockedAmount to one of its two immutable releaseTo/refundTo addresses (checkTransaction() ' +
-      'reverts WrongAmount() otherwise), by design, so no server-side change can make it accept a partial split. Use RELEASE or REFUND instead.'
+      'reverts WrongAmount() otherwise), by design, so no server-side change can make it accept a partial split. Use RELEASE or REFUND instead.',
+      'UNSUPPORTED' // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — a real, structural rail limitation, not a config/policy/maturity gap
     )
   }
 

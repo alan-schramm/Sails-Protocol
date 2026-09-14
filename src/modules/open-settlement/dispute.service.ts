@@ -28,6 +28,7 @@ import { marketArbitrationProvider } from './market-arbitration.provider'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { isPartyOrAgent, asTrustedActor } from './escrow-lifecycle'
+import { withIdempotency } from '../../common/idempotency'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
 import type { EvidenceDescriptor, DisputeRuling } from '@satsails/p2p-schemas'
@@ -850,7 +851,43 @@ export class DisputeService {
    * module-boundary convention of reacting to events rather than one
    * module calling into another's service directly.
    */
-  async submitEvidence(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note'>) {
+  async submitEvidence(
+    disputeId: string,
+    submittedBy: string,
+    descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note'>,
+    idempotencyKey?: string
+  ) {
+    return withIdempotency(
+      {
+        scope: 'settlement.dispute.evidence',
+        participantId: submittedBy,
+        key: idempotencyKey,
+        // Deliberately excludes submittedAt (assigned at execution time,
+        // not part of the caller's own logical request) — a retry of the
+        // identical descriptor must hash identically regardless of how
+        // long the retry took to arrive.
+        requestPayload: { disputeId, type: descriptor.type, uri: descriptor.uri, note: descriptor.note },
+      },
+      () => this.persistEvidence(disputeId, submittedBy, descriptor),
+      (dispute) => this.postPersistEvidence(dispute, submittedBy),
+      async (resultDisputeId) => {
+        const dispute = await prisma.dispute.findUnique({ where: { id: resultDisputeId } })
+        if (!dispute) throw new NotFoundError('Dispute', resultDisputeId)
+        return dispute
+      }
+    )
+  }
+
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — the durable side effect here
+  // is the validation reads (no writes) followed by exactly one durable
+  // write, `prisma.dispute.update(...)`, which durably appends the
+  // evidence entry AND advances `status` to `EVIDENCE_SUBMITTED` in the
+  // same statement. Before that call returns, no evidence has been
+  // durably appended — a throw anywhere above it (including the
+  // NotFoundError/ForbiddenError/ValidationError guards) genuinely means
+  // nothing durable happened, the only case safe to mark FAILED and
+  // retry via a fresh `persistEvidence()` call.
+  private async persistEvidence(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note'>) {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
 
@@ -872,14 +909,34 @@ export class DisputeService {
       data: { evidence: [...existing, entry] as unknown as object, status: 'EVIDENCE_SUBMITTED' },
     })
 
+    // `tradeId`/`escrowId` never change in this update (only `evidence`/
+    // `status` do) — merging over the already-validated pre-update
+    // `dispute` guarantees `postPersistEvidence()` below always has them,
+    // matching this method's pre-R2 behavior (which read them from this
+    // same pre-update fetch, never from `prisma.dispute.update()`'s own
+    // return value) regardless of whether a given Prisma client/mock/
+    // future `select` clause happens to return the full row.
+    return { ...dispute, ...updated }
+  }
+
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — runs AFTER the evidence is
+  // already durably appended. `eventBus.emit()`'s failure is real and
+  // propagates to submitEvidence()'s original caller (the QVAC
+  // auto-resolution pass this event triggers, per this method's own
+  // doc comment above, simply won't fire for this submission — a real,
+  // disclosed consequence, not a silent one), but idempotency.ts's
+  // runAndSettle() has already settled the claim to COMPLETED/UNKNOWN by
+  // the time this runs — a retry with the same key always recovers the
+  // already-updated Dispute via recover() above, never calls
+  // persistEvidence() again, and can never double-append the same
+  // evidence entry.
+  private async postPersistEvidence(dispute: Awaited<ReturnType<DisputeService['persistEvidence']>>, submittedBy: string) {
     await eventBus.emit('dispute.evidence_submitted', {
-      disputeId,
+      disputeId: dispute.id,
       settlementId: dispute.escrowId,
       tradeId: dispute.tradeId,
       triggeredBy: submittedBy,
     }, dispute.tradeId)
-
-    return updated
   }
 
   /**

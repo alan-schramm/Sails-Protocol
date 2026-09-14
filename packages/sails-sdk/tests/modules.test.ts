@@ -8,6 +8,7 @@
 import { SailsTransport } from '../src/transport'
 import { SailsLiquidityModule } from '../src/modules/liquidity'
 import { SailsSettlementModule, recommendedEscrowType, parseSafeGuardBundle } from '../src/modules/settlement'
+import { SailsArbitrationModule } from '../src/modules/arbitration'
 import { SailsPeersModule } from '../src/modules/peers'
 import { SailsOpenP2PModule, WebSocketChannel } from '../src/modules/openp2p'
 import { SailsReputationModule } from '../src/modules/reputation'
@@ -818,28 +819,13 @@ describe('SailsSettlementModule — RFC-021 settlement gaps', () => {
     expect(init.headers.authorization).toBe('Bearer session-abc')
   })
 
-  it('registerArbiter() posts to /v1/settlement/arbitration/register with auth', async () => {
-    const fetchImpl = fakeFetch(201, { success: true, data: { participantId: 'participant-1', monetaryCollateral: '1000000', collateralAsset: 'BTC', reputationScore: 0, activeDisputes: 0, registeredAt: '2026-08-01T00:00:00Z' } })
-    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
-
-    const result = await settlement.registerArbiter({ monetaryCollateral: '1000000' })
-
-    expect(result.participantId).toBe('participant-1')
-    const [url, init] = fetchImpl.mock.calls[0]
-    expect(url).toBe('http://localhost:3000/v1/settlement/arbitration/register')
-    expect(JSON.parse(init.body)).toEqual({ monetaryCollateral: '1000000', collateralAsset: undefined })
-  })
-
-  it('getArbiterProfile() hits GET /v1/settlement/arbitration/profile/:id (no auth required)', async () => {
-    const fetchImpl = fakeFetch(200, { success: true, data: { participantId: 'participant-1', monetaryCollateral: '1000000', collateralAsset: 'BTC', reputationScore: 85, activeDisputes: 2, registeredAt: '2026-08-01T00:00:00Z' } })
-    const settlement = new SailsSettlementModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
-
-    const result = await settlement.getArbiterProfile('participant-1')
-
-    expect(result?.reputationScore).toBe(85)
-    const [url] = fetchImpl.mock.calls[0]
-    expect(url).toBe('http://localhost:3000/v1/settlement/arbitration/profile/participant-1')
-  })
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 38, 2026-09-13) —
+  // registerArbiter()/getArbiterProfile() (this module's own, wrong-
+  // shaped duplicate of arbitration.ts's register()/getProfile()) were
+  // deleted — see settlement.ts's own removal comment for the full
+  // reasoning. The two tests that used to live here moved to
+  // `SailsArbitrationModule`'s own describe block below, testing the
+  // one canonical, correct, documented surface instead.
 
   // Missão 07.1 — get()/getDispute() were previously called with no `auth`
   // argument, so no Authorization header ever went out. Both backend routes
@@ -914,6 +900,51 @@ describe('SailsSettlementModule — RFC-021 settlement gaps', () => {
     const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
 
     await expect(settlement.getSemanticRecord('dispute-1', 5)).rejects.toMatchObject({ name: 'SailsNotFoundError' })
+  })
+})
+
+// CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 38, 2026-09-13) — the one
+// canonical SDK surface for the arbitration register/profile routes,
+// replacing SailsSettlementModule's own now-deleted, wrong-shaped
+// duplicate (registerArbiter()/getArbiterProfile()/ArbiterProfile — see
+// settlement.ts's own removal comment). Response shapes below match
+// market-arbitration.provider.ts's real toCandidate() field names
+// exactly (participantId/monetaryCollateral/collateralAsset/
+// arbiterReputation/effectiveStake), not the wrong shape the deleted
+// duplicate used to assert.
+describe('SailsArbitrationModule', () => {
+  it('register() posts to /v1/settlement/arbitration/register with auth, returning the real ArbiterCandidate shape', async () => {
+    const fetchImpl = fakeFetch(201, { success: true, data: { participantId: 'participant-1', monetaryCollateral: '1000000', collateralAsset: 'BTC', arbiterReputation: 0, effectiveStake: 1000000, cumulativeFeesObserved: '0' } })
+    const arbitration = new SailsArbitrationModule(authedTransport(fetchImpl))
+
+    const result = await arbitration.register('1000000')
+
+    expect(result).toEqual({ participantId: 'participant-1', monetaryCollateral: '1000000', collateralAsset: 'BTC', arbiterReputation: 0, effectiveStake: 1000000, cumulativeFeesObserved: '0' })
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/arbitration/register')
+    expect(JSON.parse(init.body)).toEqual({ monetaryCollateral: '1000000', collateralAsset: undefined })
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+  })
+
+  it('getProfile() hits GET /v1/settlement/arbitration/profile/:id with no auth header, returning a nullable collateralAsset and the real cumulativeFeesObserved field', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { participantId: 'participant-1', monetaryCollateral: '1000000', collateralAsset: null, arbiterReputation: 85, effectiveStake: 1000850, cumulativeFeesObserved: '12.5' } })
+    const arbitration = new SailsArbitrationModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
+
+    const result = await arbitration.getProfile('participant-1')
+
+    expect(result.collateralAsset).toBeNull()
+    expect(result.arbiterReputation).toBe(85)
+    expect(result.cumulativeFeesObserved).toBe('12.5')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/arbitration/profile/participant-1')
+    expect(init.headers.authorization).toBeUndefined()
+  })
+
+  it('getProfile() throws SailsNotFoundError on a 404 — never resolves null (the deleted duplicate\'s own `| null` return type was unreachable for exactly this reason)', async () => {
+    const fetchImpl = fakeFetch(404, { success: false, error: 'NOT_FOUND', message: 'ArbiterProfile not found: participant-2' })
+    const arbitration = new SailsArbitrationModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch }))
+
+    await expect(arbitration.getProfile('participant-2')).rejects.toMatchObject({ name: 'SailsNotFoundError' })
   })
 })
 

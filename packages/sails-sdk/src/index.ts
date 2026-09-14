@@ -60,7 +60,6 @@ export {
   recommendedEscrowType,
   type SafeGuardBundle,
   parseSafeGuardBundle,
-  type ArbiterProfile,
   type ReleaseApproval,
   type ReleaseApprovalsResult,
   MULTISIG_CAPABILITY_PROFILE_V1,

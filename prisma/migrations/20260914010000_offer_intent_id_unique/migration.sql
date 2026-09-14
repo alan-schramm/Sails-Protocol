@@ -1,0 +1,25 @@
+-- CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5 (2026-09-14) — closes the last
+-- unknown-outcome window in liquidity.service.ts's persistOffer(): a
+-- committed-but-unacknowledged prisma.offer.create() must not be
+-- allowed to duplicate on retry. This is a genuine domain-truth
+-- constraint, not a convenience index — see prisma/schema.prisma's own
+-- `Offer.intentId`/`Intent.offers` doc comments for the full reasoning:
+-- every createOffer() call creates a brand-new Intent, so the only way
+-- two Offer rows could ever share one Intent is persistOffer()'s own
+-- idempotent-retry reconciliation, which by definition is the SAME
+-- logical attempt. `NULL` values (pre-Intent-migration Offer rows) are
+-- exempt from this constraint under standard SQL/Postgres UNIQUE
+-- semantics — any number of NULLs may coexist.
+--
+-- Historical-data note (considered, not silently bypassed): this
+-- `CREATE UNIQUE INDEX` will fail to apply against a database that
+-- already contains two or more Offer rows sharing the same non-null
+-- `intentId` — before running this migration against a database with
+-- real historical data (this environment's own ephemeral CI/dev
+-- Postgres never has any), first run:
+--   SELECT "intentId", count(*) FROM "offers" WHERE "intentId" IS NOT NULL GROUP BY "intentId" HAVING count(*) > 1;
+-- and resolve any rows it returns (this mission has no live production
+-- Postgres to check against and does not assume the result).
+
+-- CreateIndex
+CREATE UNIQUE INDEX "offers_intentId_key" ON "offers"("intentId");

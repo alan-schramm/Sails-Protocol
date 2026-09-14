@@ -32,6 +32,10 @@ import { pearNodeRegistry } from '../../infrastructure/p2p/pear.service'
 const createTradeSchema = z.object({
   offerId: z.string().min(1),
   amount: z.string().min(1),
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37) — optional; a caller
+  // that omits it gets exactly today's behavior. See
+  // src/common/idempotency.ts's own header for the full contract.
+  idempotencyKey: z.string().min(1).max(200).optional(),
 })
 
 const updateStatusSchema = z.object({
@@ -81,6 +85,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
       offerId: body.offerId,
       counterpartyId: participantId,
       amount: body.amount,
+      idempotencyKey: body.idempotencyKey,
     })
     return reply.code(201).send({ success: true, data: trade })
   })

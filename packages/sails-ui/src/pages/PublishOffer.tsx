@@ -37,7 +37,7 @@
  * want to see what other sellers charge, not buyers' bids), unlike the
  * old mock filter, which ignored side entirely.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
@@ -106,6 +106,20 @@ export function PublishOffer() {
   // what other sellers charge, not the buy-side spread.
   const [suggestedRange, setSuggestedRange] = useState<{ min: number; max: number } | null>(null)
   const [loadingSuggestedRange, setLoadingSuggestedRange] = useState(false)
+
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37, 2026-09-13) — one
+  // idempotency key per genuinely-new "publish this offer" intent,
+  // reused across a manual retry of the SAME attempt, regenerated
+  // whenever an economically-relevant field changes (a different price/
+  // amount/payment method is a different logical offer, never a retry
+  // of the prior one) — mirrors the server's own requestHash fields in
+  // `liquidity.service.ts`'s `createOffer()`. See
+  // `sailsClient.liquidity.publish()`'s own doc comment for the full
+  // contract this closes.
+  const offerIdempotencyKeyRef = useRef<string>(crypto.randomUUID())
+  useEffect(() => {
+    offerIdempotencyKeyRef.current = crypto.randomUUID()
+  }, [asset, side, price, currency, minAmount, maxAmount, paymentMethod])
 
   useEffect(() => {
     if (asset === 'Todos' || currency === 'Todas') {
@@ -187,7 +201,9 @@ export function PublishOffer() {
         paymentDetails: paymentDetails.trim(),
         network: NETWORK_BY_ASSET[asset],
         description: description.trim() || undefined,
+        idempotencyKey: offerIdempotencyKeyRef.current,
       })
+      offerIdempotencyKeyRef.current = crypto.randomUUID() // this attempt is now settled — a new key for whatever comes next
       toast.success('Anúncio publicado!')
       navigate('/profile')
     } catch (err) {
