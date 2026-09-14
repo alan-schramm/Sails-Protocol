@@ -62,27 +62,65 @@ already correctly excluded, with its own comment citing a direct grep
 confirming zero settlement-provider wiring. **This existing discipline
 should be preserved, not reopened.**
 
-**The real gap:** among the 9 real, in-scope-enum assets `PublishOffer`
-*does* offer — `BTC`, `LN_BTC` (labeled "Bitcoin (Ark/Arkade)"),
-`LIQUID_BTC`, `RSK_BTC`, `STACKS`, `USDT_ERC20`, `USDT_LIGHTNING`,
-`USDT_LIQUID`, `USDT_TRC20` — only **three** (`BTC`, `LN_BTC`,
-`USDT_ERC20`) have any real, registered settlement provider today
-(Mission 4's own audit: `MULTISIG`/`LIGHTNING_HODL`/`WDK_USDT_EVM`).
-`LIQUID_BTC`/`USDT_TRC20`/`USDT_LIQUID` are registered Day-0 scope with
-**zero** providers; `RSK_BTC`/`STACKS` are explicitly named in ADR-002
-§11 as falling **outside** frozen Day-0 scope entirely, with "no
-automatic mapping authorized." The picker presents all nine with
-identical visual weight — no badge, grouping, or copy distinguishes
-"can settle today" from "cannot settle at all." A seller can publish a
-real, market-visible offer for an asset/rail pair that will fail the
-moment a counterparty tries to fund escrow — discovered only then, not
-at publish time. **This is a live, undiscovered instance of exactly the
-property Journey B asks to verify** — the UI does not collapse
-Asset/Rail into one label (it correctly shows both, e.g. "Bitcoin
-(Liquid)"), but it does collapse Product Scope with Settlement
-Eligibility, which Mission 4's own `execution-candidates.ts` (already
-frozen, already has the exact data) could resolve without inventing
-anything new.
+**R1 correction (CTO Gate Corrective, 2026-09-14) — the finding below is
+corrected, not withdrawn: real gap, wrong claimed strength.** The
+original version of this finding said assets without a registered
+provider "will fail" / "cannot settle at all," and named the fix a
+"Settlement Maturity Signal." Re-read directly against
+`src/common/execution-candidates.ts` and
+`src/common/settlement-provider-registry.ts` (both written this same
+session, Mission 4): `discoverExecutionCandidates()` computes
+**structural registration / capability compatibility only** — it
+explicitly does not evaluate permission, runtime availability, maturity/
+evidence, risk policy, full settlement eligibility, or production
+eligibility (that file's own header, and ADR-002 §6's frozen four-layer
+distinction: Technical Capability ≠ Protocol Permission ≠ Economic
+Authority ≠ Settlement Eligibility). Claiming a `SINGLE_STRUCTURALLY_COMPATIBLE_CANDIDATE`
+result means "sellable now," or that Candidate Discovery alone provides
+a "maturity signal," is the exact overclaim Mission 4 R1 already
+corrected once at the architecture layer (renaming `...Eligible...` to
+`...StructurallyCompatible...` throughout) — re-committed here at the
+Product/UI layer. Corrected below, using only what is actually proven.
+
+**The real, corrected gap:** among the 9 real, in-scope-enum assets
+`PublishOffer` *does* offer — `BTC`, `LN_BTC` (labeled "Bitcoin
+(Ark/Arkade)"), `LIQUID_BTC`, `RSK_BTC`, `STACKS`, `USDT_ERC20`,
+`USDT_LIGHTNING`, `USDT_LIQUID`, `USDT_TRC20` — only **three** (`BTC`,
+`LN_BTC`, `USDT_ERC20`) resolve to a `SINGLE_STRUCTURALLY_COMPATIBLE_CANDIDATE`
+via `discoverExecutionCandidates()` today. `LIQUID_BTC`/`USDT_TRC20`/
+`USDT_LIQUID` resolve to `SCOPE_REGISTERED_NO_PROVIDER`; `RSK_BTC`/
+`STACKS` are not even canonical Day-0 `SettlementScope` per ADR-002 §11
+(no legacy-to-scope mapping is authorized for either). **Corrected
+statement of the gap:** *`PublishOffer` allows offer creation using
+legacy asset/network values without checking whether the corresponding
+current `SettlementScope` has any structurally registered settlement
+implementation — the UI can publish an offer whose selected asset/
+network representation has no currently registered structural
+settlement path.* This is **not** the same claim as "can never settle" —
+that would require evidence this document does not have (e.g. proof no
+future provider registration or manual resolution path exists); the
+proven fact is narrower and is stated at exactly its proven strength.
+The picker presents all nine options with identical visual weight — no
+signal distinguishes a structurally registered path from an
+unregistered one, which is still a real Product Reality gap, just not
+the stronger one originally claimed.
+
+**Deeper architecture mismatch, classified explicitly, not silently
+folded into the finding above:** `PublishOffer.tsx` operates entirely on
+legacy `AssetType` values (`LN_BTC`, `LIQUID_BTC`, `USDT_ERC20`,
+`USDT_TRC20`, etc.) and derives network via its own `NETWORK_BY_ASSET`
+mapping — a representation that predates, and does not use, ADR-002's
+frozen `Asset ≠ SettlementRail ≠ SettlementScope` decomposition at all.
+This is **both** classification **B** (Engineering convenience promoted
+to Product decision — the flat legacy enum was the only representation
+available when this screen was built, and has not been revisited since
+ADR-002 froze the real decomposition) **and** classification **C**
+(Implementation truth mislabeled protocol/product truth — the picker's
+own "Bitcoin (Liquid)"-style labels imply a settled, canonical asset+
+rail model to the user, when the code underneath is still the
+pre-ADR-002 flat enum, not `{Asset, SettlementRail}`). **Not redesigned
+here** — named and classified only, per this correction's own
+instruction not to automatically redesign the picker in this audit.
 
 ### Journey C — Take Offer / Trade
 
@@ -174,10 +212,10 @@ pass; flagged as unverified, not asserted clean.
 
 | # | Journey | USER INTENT | UI CLAIMS | PROTOCOL KNOWS | AUTHORITY | EVIDENCE | ACTION POSSIBLE | CAN GO WRONG | USER SHOULD UNDERSTAND | Class |
 |---|---|---|---|---|---|---|---|---|---|---|
-| PR-1 | B | List an asset I can actually sell | All 9 listed assets are equally selectable | Only 3 of 9 have a live settlement provider (Mission 4) | None differentiated | None shown | Publish for any of the 9 | Offer goes live, settlement fails only when a counterparty tries to fund escrow | Which of these can actually complete a trade *right now* | B, E |
+| PR-1 | B | List an asset I can actually sell | All 9 listed assets are equally selectable | Only 3 of 9 resolve to a `SINGLE_STRUCTURALLY_COMPATIBLE_CANDIDATE`; the rest are `SCOPE_REGISTERED_NO_PROVIDER` or outside Day-0 `SettlementScope` entirely (Mission 4's own Candidate Discovery — structural fact, not a maturity/eligibility claim) | None differentiated | None shown | Publish for any of the 9 | Offer goes live for an asset/network representation with no currently registered structural settlement path — the real, downstream consequence is not asserted beyond that structural fact | Which of these currently has a registered structural settlement path | B, C, E (R1: corrected from "will fail" to the proven structural fact only — see Journey B) |
 | PR-2 | F | Understand why an action was denied | Whatever generic error text exists | A typed, 6-way reason (`CapabilityDenialReason`) | N/A | Reason exists, unused | None — no differentiated recovery guidance | User can't tell "try again later" from "this will never work" apart | Which denials are permanent vs. transient | A |
 | PR-3 | Any | Not be permanently locked out by a typo | — | Passphrase is a local AES-256-GCM key with no recovery path | Full — losing it loses fund access permanently | Disclosed, but only inside a tooltip | User can dismiss the tooltip without reading it | User loses funds access with no recourse, having never seen the warning surfaced prominently | The passphrase is unrecoverable *before* they commit to one | A |
-| PR-4 | Browse | See the market load reliably | Loading spinner, then results | The discovery fan-out (every asset × side) can exceed the backend's own rate limit under normal load | N/A | 267+ console errors, 1200+ requests observed in one session | Retries happen invisibly | A real user on a slower link could see a degraded/empty market with no explanation | (Engineering-facing, not user-facing per se) | B |
+| PR-4 | Browse | See the market load reliably | Loading spinner, then results | The discovery fan-out (every asset × side) can exceed the backend's own rate limit under normal load | N/A | 267+ console errors, 1200+ requests observed in one session | Retries happen invisibly | A real user on a slower link could see a degraded/empty market with no explanation | (Engineering-facing, not user-facing per se) — **institutionally landed, see §12a: OPEN, not sequenced first, must not be lost** | B |
 
 ## 5. Authority-Collapse Findings
 
@@ -260,16 +298,24 @@ reopened.
 
 ## 10. What Must Change Before Adding New Surfaces
 
-Two real, bounded, evidence-backed items — both consume already-frozen
-architecture, neither requires new mechanism:
+**R1 correction:** item 1 below is restated at its proven strength —
+structural scope-awareness, not a maturity/availability/eligibility
+claim. Two real, bounded, evidence-backed items — both consume already-
+frozen architecture, neither requires new mechanism:
 
-1. **PublishOffer's asset picker must surface settlement maturity**,
-   consuming Mission 4's already-frozen `discoverExecutionCandidates()`
-   — a scope with `SCOPE_REGISTERED_NO_PROVIDER` or outside Day-0 scope
-   entirely should not be presented with the same visual weight as a
-   scope with a real, registered provider. **Property, not mechanism,
-   frozen here:** the picker must distinguish "can settle today" from
-   "cannot" before a new offer-creation surface is built on top of it.
+1. **PublishOffer's asset picker must surface structural `SettlementScope`
+   registration status**, consuming Mission 4's already-frozen
+   `discoverExecutionCandidates()`. **Property, not mechanism, frozen
+   here, and the property itself is narrower than previously stated:**
+   the picker must distinguish "has a structurally registered settlement
+   implementation" from "does not" — it must **not** label either state
+   "eligible," "available," "mature," or "production-ready" unless
+   separate evidence for that specific claim exists (none does today).
+   This also does not yet resolve §3 Journey B's own deeper finding
+   (the picker's legacy `AssetType`/`NETWORK_BY_ASSET` representation
+   predates ADR-002's `Asset ≠ SettlementRail ≠ SettlementScope`
+   decomposition, classified B+C there) — that mismatch is named, not
+   fixed, by this item.
 2. **`CapabilityDenialReason` needs a first UI consumer** — even a
    minimal one (map the six reasons to six distinct, honest copy
    strings, never a shared generic message) before any new surface that
@@ -283,24 +329,41 @@ deployment exists); any change to the passphrase/identity flow itself
 
 ## 11. Next Bounded Product/UI Implementation Mission
 
-**"Settlement Maturity Signal in Offer Creation"** — scoped narrowly to
-finding #1 above. Wire `PublishOffer.tsx`'s asset selector to
-`discoverExecutionCandidates()` (already frozen, already real, no new
-mechanism): badge or group each of the 9 real assets by its real
-outcome (`SINGLE_STRUCTURALLY_COMPATIBLE_CANDIDATE` → sellable now;
-anything else → visually distinct, honestly labeled, e.g. "ainda não
-disponível para liquidação"). Does not require solving Selection among
-multiple candidates (no real case exists), does not touch the rate-limit
-fan-out (a separate, `discover()`-mechanism-level fix, not a picker
-concern), and does not build the `CapabilityDenialReason` UI consumer
-(a second, separately-scoped mission — the two are related but not the
-same bounded slice).
+**R1 correction — renamed and re-scoped, not to overclaim maturity:**
+
+**"Settlement Scope Awareness in Offer Creation"** (replaces "Settlement
+Maturity Signal in Offer Creation," which claimed more than Candidate
+Discovery proves). **Objective:** make offer creation consume the
+already-frozen `Asset / SettlementRail / SettlementScope / Candidate
+Discovery` truth without exposing unnecessary infrastructure complexity
+to the ordinary user (`Progressive disclosure of complexity. Constant
+sovereignty.`). The mission must answer, not assume:
+
+- How the current legacy `AssetType` picker (`PublishOffer.tsx`'s
+  `NETWORK_BY_ASSET`) maps to canonical `SettlementScope` — the B+C
+  architecture mismatch named in §3 Journey B is this mission's own
+  starting evidence, not a pre-decided redesign.
+- When rail choice is explicit vs. implicit to the user.
+- What `discoverExecutionCandidates()` can *truthfully* communicate —
+  and no more.
+- How to distinguish, in whatever the UI eventually shows: scope not
+  registered; scope registered, no provider; provider exists but
+  capability mismatch; one structural candidate; multiple structural
+  candidates — **without calling any of those "eligible," "available,"
+  "mature," or "production-ready" unless additional evidence exists**
+  for that specific claim.
+
+Does not require solving Selection among multiple candidates (no real
+case exists), does not touch the rate-limit fan-out (§12a — a separate,
+`discover()`-mechanism-level concern, not a picker concern), and does
+not build the `CapabilityDenialReason` UI consumer (a second,
+separately-scoped mission — related, not the same bounded slice).
 
 ## 12. Backlog Delta
 
 Both items in §10 are genuinely new, UI-specific obligations not
 previously registered anywhere in `docs/BACKLOG.md`'s own numbered
-items (confirmed: neither the asset-maturity-picker gap nor the
+items (confirmed: neither the asset-scope-awareness gap nor the
 zero-UI-consumption-of-`CapabilityDenialReason` gap is named there
 today, only the *existence* of `CapabilityDenialReason` itself and the
 disclosure that no UI reads it — item 40's own text already says this,
@@ -310,14 +373,53 @@ referencing this document once the next mission (§11) is authorized —
 not registered as a new top-level item here, since this mission's own
 scope is audit + next-mission-scoping, not backlog editing.
 
-## 13. Verdict
+### 12a. Institutional Landing — Rate-Limit Finding (OPEN, must not be lost)
 
-Findings are real but narrow and bounded — two concrete, well-evidenced
-Product/UI gaps (§10), both resolvable by consuming already-frozen
-architecture, neither requiring new mechanism, cryptographic work, or
-protocol change. No finding contradicts or requires reopening Mission
-3/4/PR #153/PR #154/PR #156's frozen semantics.
+**R1 addition, per explicit instruction: a finding must land
+institutionally even when it is not the next sequenced slice.** PR-4
+(§4) — the Market discovery fan-out (`lib/realOffers.ts`'s per-asset×side
+loop) generating 267+ console errors and 1200+ requests in one session,
+tripping the backend's own rate limiter under normal use — is accepted,
+real Product Reality / reliability evidence, **not fixed in this
+document, and explicitly not permitted to disappear because
+"Settlement Scope Awareness" (§11) is sequenced first.** Status:
+**OPEN, distinct obligation**, not previously registered in
+`docs/BACKLOG.md` (checked: no existing item names this fan-out/rate-
+limit interaction). Cross-reference for future pickup: this is a
+`discover()`-call-site-level concern (`packages/sails-ui/src/lib/realOffers.ts`),
+independent of, and not blocking, §11's own scope. Whichever mission
+next touches either `docs/BACKLOG.md` or `packages/sails-ui`'s Market
+data layer should register it as its own numbered item, cross-
+referencing this document rather than re-discovering it.
+
+## 13. Harness Root Cause (R1)
+
+Recorded per the harness's own requirement, not skipped: a structurally
+compatible candidate (`SINGLE_STRUCTURALLY_COMPATIBLE_CANDIDATE`, real
+and correctly named at the architecture layer since Mission 4 R1) was
+promoted into a maturity/availability/product-readiness claim ("sellable
+now," "Settlement Maturity Signal") one layer up, in this document's own
+Product/UI framing, because that framing was convenient for describing
+a UI decision. **Classification: E — maturity overclaim**, compounded by
+**C — implementation vocabulary (structural registration) treated as
+broader Product truth (settlement readiness)** where the legacy
+`AssetType`/`NETWORK_BY_ASSET` mismatch (§3 Journey B) was additionally
+folded into the same finding without being separately named. Both are
+corrected above (§3 Journey B, §4 PR-1, §10, §11) — the underlying
+Product Reality gap is real and kept; only its claimed strength and its
+architectural framing are corrected.
+
+## 14. Verdict
+
+Findings are real but narrow and bounded — two concrete, evidence-backed
+Product/UI gaps (§10), corrected to their proven strength (R1), both
+resolvable by consuming already-frozen architecture, neither requiring
+new mechanism, cryptographic work, or protocol change. The rate-limit
+finding (§12a) is institutionally landed as its own OPEN obligation, not
+lost by sequencing. No finding contradicts or requires reopening Mission
+3/4/PR #153/PR #154/PR #156's frozen semantics; no new blocker was
+discovered by this correction.
 
 **PRODUCT/UI FOUNDATION COHERENT — IMPLEMENT NEXT SLICE**
 
-PRODUCT/UI REALITY RETURN — READY FOR CTO GATE
+PRODUCT/UI REALITY RETURN R1 — READY FOR CTO RE-GATE
