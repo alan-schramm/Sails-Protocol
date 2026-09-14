@@ -4237,10 +4237,33 @@ obligation" is defined anywhere in this repository.
       reconciling all 12 obligations in Issue #152 without duplicating
       them.
 
-    **Genuinely new canonical-backlog obligation, not previously
-    represented here — Issue #99's Day-0 multi-node/shared-liquidity
-    property (institutionalized 2026-09-14 in that issue, absent from
-    this file until now):**
+    **R1 correction (CTO Gate Corrective, 2026-09-14) — reconciliation
+    authority set expanded; four classification errors fixed below, not
+    redesigned.** The version of this item CTO review corrected treated
+    Issue #99's multi-node/shared-liquidity framing as if this file had
+    no prior position — it does, extensively, and this correction's own
+    root cause was searching this file for mission/PR names without
+    separately searching for the underlying subject matter (multi-node,
+    bootstrap, restart/offline/resume) under the section names it
+    actually lives under. **Prior institutional authority now
+    acknowledged, not newly discovered:** this file already carries a
+    full **"Day-0 Multi-Node"** obligation (`### Node selection UX`,
+    `### Production bootstrap model`, `### Shared Market Universe`, and
+    surrounding sections, dated 2026-09-09, itself the product of an
+    earlier "Reconciliation pass, 2026-09-09" that already cross-linked
+    restart/offline/resume, capability/rail discovery, and the
+    independent-developer test into `docs/PARTNER_BETA_INTEGRATION_REALITY.md`
+    and `docs/adr/ADR-001-day0-multi-operator-network.md`), and
+    **Issue #105** ("[Day-0] Multi-Operator Network + Partner Beta
+    Completion Gate") is the canonical, already-existing, 25-item
+    ordered implementation/evidence path this obligation is tracked
+    against — neither was consulted before the corrected version below,
+    and that omission was itself a reconciliation defect this mission
+    exists to catch.
+
+    **Issue #99's multi-node/shared-liquidity property — CANONICAL AND
+    CURRENT / CROSS-REFERENCE RECONCILIATION, not new backlog truth.**
+    Its own governing lines —
 
     > Multiple independent operators must be able to participate in the
     > same economic network without a central authority being required
@@ -4248,29 +4271,46 @@ obligation" is defined anywhere in this repository.
     > Liquidity should be network-level; node operation should be
     > service-level.
 
-    Classified **PRODUCT/UI BLOCKER** — if left unresolved before the
-    next interface phase, it can force a real redesign: any UI that
-    renders offers as if a single node's own view were the whole market
-    (no cross-node discovery/federation model exists yet — Issue #99's
-    own disclosure) would need rework once cross-node propagation lands,
-    not merely a data-source swap. No mechanism (propagation, membership,
-    federation, reputation portability, anti-Sybil-across-nodes,
-    evidence sync, fee attribution, bootstrap, consistency model) is
-    chosen here — Issue #99 itself defers all of them pending a future,
-    separately-authorized mission.
+    — are, word for word, the same property this file's own `### Shared
+    Market Universe` section and `ADR-001-day0-multi-operator-network.md`
+    already freeze (`docs/BACKLOG.md`'s own text: *"Node choice must not
+    define market membership"* / *"Liquidity should be network-level;
+    node operation should be service-level"*). Issue #99 restates this
+    file's own already-frozen property; it does not add a new one.
+    **No claim that this was "absent from this file until now" or
+    "genuinely new" survives this correction.** What Issue #99's own
+    text does usefully add — cross-referenced, not re-registered — is
+    restating the property in the same vocabulary as Mission 4's
+    External Capability contract, useful for a reader arriving from that
+    side first.
 
     **Issue #99's seven real-world integration blind-spot checks,
-    reconciled against PR #153 findings to avoid duplication:**
+    reconciled against this file's own 2026-09-09 Day-0 Multi-Node
+    section, `docs/PARTNER_BETA_INTEGRATION_REALITY.md`, ADR-001, Issue
+    #105's ordered path, and PR #153 — corrected classifications:**
 
     | # | Item | Disposition |
     |---|---|---|
-    | 1 | Independent developer no-assistance integration | **DUPLICATED, cross-referenced** — same property as PR #153 §18's Stranger Developer prerequisites (arbitration passes today, wallet passes with a caveat, settlement provider fails); not re-derived here |
-    | 2 | Wallet/website/professional-provider participation without separate marketplaces | **FUTURE / NOT YET ACTIONABLE** — no mechanism chosen; depends on the multi-node property above |
-    | 3 | Network/bootstrap model for integrators | **MISSING FROM CANONICAL BACKLOG** — genuinely new, no prior entry in this file; **PRODUCT/UI BLOCKER** once a second node exists |
-    | 4 | `liquidity.discover()` pagination hard-cap | **PRODUCTION-ONLY** — a known, concrete, already-named defect (Issue #99's own text), does not block the next Product/UI phase by itself |
-    | 5 | Capability/rail discovery for developers | **DUPLICATED, cross-referenced** — same property PR #153 §18 and Mission 4 §16 (Documentation/DX) already register; "property first, mechanism second" applies identically |
-    | 6 | Restart / offline / resume UX | **MISSING FROM CANONICAL BACKLOG** — genuinely new; **PRODUCT/UI BLOCKER** (a real user-facing journey gap, distinct from PR #153 §8's *extension-registration* revalidation concern, which is provider-facing, not user-facing — the two must not be collapsed) |
-    | 7 | Real partner-wallet evidence (independent of Satsails) | **CANONICAL AND CURRENT** — already tracked as Mission 3's own disclosed residual (no external wallet integration exists yet); **PRODUCTION-ONLY**, not a Product/UI blocker for Sails' own next interface phase |
+    | 1 | Independent developer no-assistance integration | **CANONICAL AND CURRENT** — already the "No-assistance developer test" / Stranger Developer Test registered in this file's own Day-0 Multi-Node section (2026-09-09) and Issue #105 items 20-22 (Stranger Node Test, Independent Node Operator No-Assistance Test, Stranger Developer Test); PR #153 §18's own per-family evaluation cross-referenced, not a separate registration |
+    | 2 | Wallet/website/professional-provider participation without separate marketplaces | **CANONICAL AND CURRENT** — Issue #105 item 13, "Professional provider inventory reservation," already on the ordered path; no mechanism chosen (unchanged), but the obligation itself is not new |
+    | 3 | Network/bootstrap model for integrators | **CANONICAL AND CURRENT / PRODUCT-UI RELEVANT** — this file's own `### Production bootstrap model` section (2026-09-09) already asks, verbatim: *"Where does the SDK connect by default? Who operates the initial node(s)? Can a wallet run its own node? Can a web service run its own node? How does a new node enter the network?... What happens if the default node goes offline? Does node selection affect economic membership? Which data is local vs. network-visible?"* — the exact question set this correction's own CTO review cited. Issue #105 item 4 ("Propagation/bootstrap") and item 11 ("Capability/rail pre-creation discovery") are the same obligation on the ordered path. Issue #99's framing is cross-referenced, not registered as a duplicate. |
+    | 4 | `liquidity.discover()` pagination hard-cap / multi-source discovery | **PARTNER BETA BLOCKER** — Issue #105 item 12, "Pagination/multi-source discovery verification," sits directly on the ordered path before item 24 (First independent partner-wallet beta); Issue #99's own text already calls it *"a likely real marketplace-beta blocker."* Not "production-only" — corrected per the taxonomy below. |
+    | 5 | Capability/rail discovery for developers | **CANONICAL AND CURRENT** — Issue #105 item 11 ("Capability/rail pre-creation discovery"), this file's own Day-0 Multi-Node section, PR #153 §18, and Mission 4 §16 (Documentation/DX) all already register the same property; "property first, mechanism second" applies identically, cross-referenced not re-derived |
+    | 6 | Restart / offline / resume UX | **CANONICAL AND CURRENT / PRODUCT-UI BLOCKER FOR THE NEXT INTERFACE PHASE** — this file's own text already states *"user journey can resume after normal interruptions"* (`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §9, `ADR-001` §9) as part of the Partner Beta Readiness sub-gate, and Issue #105 item 14 is literally "Restart/offline/resume" on the canonical ordered path. Not missing — already canonical, and the Product/UI-blocking classification is preserved because no interface-level resume behavior is evidenced as built yet. Distinct from, and not to be collapsed with, PR #153 §8's *extension-registration* revalidation concern (provider-facing, not user-facing). |
+    | 7 | Real partner-wallet evidence (independent of Satsails) | **PARTNER BETA BLOCKER** — Issue #105 item 24, "First independent partner-wallet beta," is this obligation by definition — it is the Partner Beta gate itself, not a production-readiness afterthought. Also tracked as Mission 3's own disclosed residual (no external wallet integration exists yet). |
+
+    **Classification taxonomy correction, applied above and going
+    forward — `PRODUCTION-ONLY` retired from this item's own usage.**
+    "Production-only" was used loosely to mean "does not block the next
+    UI phase," collapsing a real, load-bearing distinction Issue #105's
+    own 25-item ordered path already draws between what gates the next
+    Product/UI phase, what gates Partner Beta, and what gates full
+    Production Readiness (item 25's own separate category: clock-health,
+    durable event consumption, payout activation, provider eligibility,
+    security/red-team/audit). Three distinct labels are used instead:
+    **NEXT PRODUCT/UI BLOCKER**, **PARTNER BETA BLOCKER**, **PRODUCTION
+    READINESS BLOCKER** — an item can be a Partner Beta blocker without
+    being a Production Readiness blocker, and neither implies the other.
 
     **Stale/semantic-drift finding, corrected by cross-reference only
     (`docs/ROADMAP.md`, not rewritten):** that file's own "Third-Party
@@ -4292,6 +4332,11 @@ obligation" is defined anywhere in this repository.
     `Registration ≠ Runtime Health` risks being read as more decided
     than intended — confirmed PR #153 R1's own property/mechanism
     separation already holds and is not disturbed by this item.
+    **R1's own root-cause finding, applied going forward:** "same word
+    must point to the same object" — searching this file for mission/PR
+    *names* is not a substitute for searching for the *subject matter*
+    a new obligation claims to introduce; every future reconciliation
+    pass must search both before classifying anything as new.
 
     **Historical OPEN items reconfirmed unchanged, not rediscovered as
     new, not resolved here:** Mission 3's own §9 recovery hypotheses and
@@ -4301,11 +4346,16 @@ obligation" is defined anywhere in this repository.
     mechanism (items 37-39 above, CLOSED/frozen, cited not reopened);
     Issue #123's dependency-security/fault-domain obligations (OPEN,
     untouched); Issue #150's privacy/canonicalization/risk-policy
-    principles (OPEN, untouched, already consumed by Mission 4 §7).
+    principles (OPEN, untouched, already consumed by Mission 4 §7);
+    Issue #105's own 25-item ordered Day-0 Multi-Node/Partner Beta path
+    (OPEN — "complete only when the named properties have evidence and
+    the Partner Beta / Production gates accept that evidence," per its
+    own completion rule; not advanced by this documentation-only item).
 
     **Explicitly not done:** no runtime, SDK, protocol, or UI change;
     no plugin framework; no registry service; no new mechanism for
     health, revalidation, versioning, or identity; no reopening of
-    Mission 3, Mission 4, or PR #153's frozen content.
+    Mission 3, Mission 4, PR #153's frozen content, or Issue #105's own
+    ordered path.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
