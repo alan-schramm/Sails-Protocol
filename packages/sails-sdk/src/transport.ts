@@ -17,7 +17,7 @@
  * environment-specific runtime dependencies beyond `tweetnacl` (pure JS,
  * identity.ts's Ed25519 signing).
  */
-import { errorFromResponseBody, SailsTransportError, type SailsErrorResponseBody } from './errors'
+import { errorFromResponseBody, SailsAuthError, SailsTransportError, type SailsErrorResponseBody } from './errors'
 
 export interface SailsTransportOptions {
   baseUrl: string
@@ -37,6 +37,18 @@ export interface SailsTransportOptions {
   timeoutMs?: number       // default 15000
   maxRetries?: number      // default 2 — GET only
   retryDelayMs?: number    // base delay for exponential backoff (doubles each attempt), default 300
+  // Mission 3 Slice 1 (docs/PARTNER_WALLET_INTEGRATION_IDENTITY_CONTINUITY.md
+  // §15) — closes P3-F08.1 ("no app-wide SailsAuthError reconciliation/
+  // interceptor"). Fires once per authenticated request that comes back
+  // as a genuine session-expiry (401 -> SailsAuthError), regardless of
+  // whether the calling code itself has a `.catch()` — found live that
+  // at least one real call site (packages/sails-ui's Trade.tsx primary
+  // fetch) had none at all, so a caller-local catch can never be the ONLY
+  // mechanism. This is a generic SDK capability, not a `sails-ui`-only
+  // one — any integrator gets the same signal. Deliberately narrow: it
+  // observes that authority was lost, never grants any new authority
+  // (see the design doc's own §12 security/privacy review).
+  onSessionExpired?: (err: SailsAuthError) => void
 }
 
 // 502/503/504 are the transient, infrastructure-level failures worth
@@ -70,12 +82,14 @@ export class SailsTransport {
   private readonly timeoutMs: number
   private readonly maxRetries: number
   private readonly retryDelayMs: number
+  private onSessionExpired?: (err: SailsAuthError) => void
 
   constructor(options: SailsTransportOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '')
     this.timeoutMs = options.timeoutMs ?? 15_000
     this.maxRetries = options.maxRetries ?? 2
     this.retryDelayMs = options.retryDelayMs ?? 300
+    this.onSessionExpired = options.onSessionExpired
     // Falls back to the global fetch — present in every modern browser
     // and Node 18+ — rather than bundling a polyfill this package
     // doesn't need in either target environment. Bound to globalThis,
@@ -110,6 +124,14 @@ export class SailsTransport {
 
   getSessionToken(): string | null {
     return this.sessionToken
+  }
+
+  /** Mission 3 Slice 1 — see `SailsTransportOptions.onSessionExpired`'s own
+   *  doc comment. Mirrors `setSessionToken()`'s escape-hatch shape so a
+   *  caller can (re)register or clear the handler after construction,
+   *  same as `SailsClient.setOnSessionExpired()` does for its own users. */
+  setOnSessionExpired(handler: ((err: SailsAuthError) => void) | undefined): void {
+    this.onSessionExpired = handler
   }
 
   private url(path: string): string {
@@ -209,7 +231,22 @@ export class SailsTransport {
       }
 
       if (!response.ok || (json as { success?: boolean }).success === false) {
-        throw errorFromResponseBody(json as SailsErrorResponseBody, response.status)
+        const error = errorFromResponseBody(json as SailsErrorResponseBody, response.status)
+        // Mission 3 Slice 1 — only an AUTHENTICATED call's own 401 means
+        // "a session that existed just went stale"; an unauthenticated
+        // call was never carrying a session to lose in the first place,
+        // so it must never fire this signal (see the design doc's own
+        // §11 failure matrix — a fresh, never-authenticated caller is a
+        // different case entirely, not a session expiry).
+        if (opts.auth && error instanceof SailsAuthError && this.onSessionExpired) {
+          try {
+            this.onSessionExpired(error)
+          } catch {
+            // A broken handler must never break the real request's own
+            // error propagation below — the caller still gets `error`.
+          }
+        }
+        throw error
       }
 
       return (json as SailsApiEnvelope<T>).data

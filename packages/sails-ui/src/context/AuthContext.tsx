@@ -38,8 +38,8 @@
  * feedback_no_platform_operator_visibility (memory) for the full
  * non-custodial reasoning.
  */
-import React, { createContext, useContext, useMemo, useState } from 'react'
-import { generateKeypair, LocalKeypairWalletAdapter, type Ed25519Keypair, type WalletAdapter } from '@satsails/p2p-trading-sdk'
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { generateKeypair, LocalKeypairWalletAdapter, type Ed25519Keypair, type WalletAdapter, type SailsAuthError } from '@satsails/p2p-trading-sdk'
 import type { User } from '../types'
 import { sailsClient } from '../lib/sailsClient'
 import { deriveKeyFromPassphrase, encryptBytes, decryptBytes } from '../lib/keyEncryption'
@@ -148,6 +148,18 @@ interface AuthContextType {
   // signMessage — this is still the demo-only localStorage key disclosed
   // above, not a step toward real wallet custody.
   wallet: WalletAdapter | null
+  // Mission 3 Slice 1 (docs/PARTNER_WALLET_INTEGRATION_IDENTITY_CONTINUITY.md
+  // §15) — closes P3-F08.1/F08.2. Set once per genuine, previously-active
+  // session going stale (never for an ordinary failed login attempt — see
+  // the effect below's own `user`-truthy guard). `path` is where the user
+  // was when it happened, consumed by SessionExpiryRedirect.tsx to send
+  // them back to the SAME page via Login.tsx's existing `{state:{from}}`
+  // return-path convention (OfferDetail.tsx already established this same
+  // pattern for the INITIAL auth gate — this reuses it, not a new one).
+  // `at` is a monotonic marker so the redirect effect can tell a NEW
+  // expiry apart from one it already handled, without needing its own
+  // separate "have I redirected yet" flag duplicated in two places.
+  sessionExpiry: { at: number; path: string } | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -157,7 +169,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [keypair, setKeypair] = useState<Ed25519Keypair | null>(null)
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null)
   const [loading, setLoading] = useState(false)
+  const [sessionExpiry, setSessionExpiry] = useState<{ at: number; path: string } | null>(null)
   const wallet = useMemo(() => (keypair ? new LocalKeypairWalletAdapter(keypair) : null), [keypair])
+
+  // Mission 3 Slice 1 (P3-F08.1) — a ref, not a dependency, so the
+  // handler registered below always sees the LATEST `user` without this
+  // effect re-registering (and potentially racing a request already
+  // in flight) on every login/logout. The guard itself — react only when
+  // there WAS an active session — is what keeps this from misfiring
+  // during an ordinary failed login attempt (Login.tsx's own catch block
+  // already handles that case; `user` is still null then, so this stays
+  // silent, exactly as designed).
+  const userRef = useRef(user)
+  useEffect(() => { userRef.current = user }, [user])
+
+  useEffect(() => {
+    sailsClient.setOnSessionExpired((_err: SailsAuthError) => {
+      if (!userRef.current) return // no previously-active session — not a real expiry, see guard note above
+      setUser(null)
+      setKeypair(null)
+      setEncryptionKey(null)
+      sailsClient.setSessionToken(null)
+      setSessionExpiry({ at: Date.now(), path: window.location.pathname + window.location.search })
+    })
+    return () => sailsClient.setOnSessionExpired(undefined)
+  }, [])
 
   const login = async (passphrase: string) => {
     setLoading(true)
@@ -199,7 +235,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // exposure this change closes, so it can't stay.)
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, keypair, encryptionKey, wallet }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, keypair, encryptionKey, wallet, sessionExpiry }}>
       {children}
     </AuthContext.Provider>
   )

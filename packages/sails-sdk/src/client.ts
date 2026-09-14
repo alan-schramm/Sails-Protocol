@@ -28,7 +28,7 @@ import type {
   WalletAdapter,
   WalletCapabilitiesDeclaration,
 } from "./wallet-adapter";
-import { SailsConfigError } from "./errors";
+import { SailsAuthError, SailsConfigError } from "./errors";
 
 export interface SailsClientOptions {
   /** e.g. 'http://localhost:3000' — never hardcoded (SDK_GUIDE.md section 6). */
@@ -47,6 +47,10 @@ export interface SailsClientOptions {
   timeoutMs?: number;
   maxRetries?: number;
   retryDelayMs?: number;
+  // Mission 3 Slice 1 (docs/PARTNER_WALLET_INTEGRATION_IDENTITY_CONTINUITY.md
+  // §15) — passed straight through to SailsTransport; see that class's
+  // own SailsTransportOptions.onSessionExpired doc for the full contract.
+  onSessionExpired?: (err: SailsAuthError) => void;
 }
 
 export class SailsClient {
@@ -126,6 +130,8 @@ export class SailsClient {
       transportOptions.maxRetries = options.maxRetries;
     if (options.retryDelayMs !== undefined)
       transportOptions.retryDelayMs = options.retryDelayMs;
+    if (options.onSessionExpired)
+      transportOptions.onSessionExpired = options.onSessionExpired;
     this.transport = new SailsTransport(transportOptions);
 
     this.identity = new SailsIdentityModule(this.transport);
@@ -238,6 +244,15 @@ export class SailsClient {
   /** Escape hatch for direct/advanced use not covered by a module above. */
   setSessionToken(token: string | null): void {
     this.transport.setSessionToken(token);
+  }
+
+  /** Mission 3 Slice 1 — see `SailsClientOptions.onSessionExpired`'s own
+   *  doc comment. Lets a caller register (or clear, via `undefined`) this
+   *  handler after construction — useful when the handler needs to close
+   *  over state (e.g. a React context's own setters) that isn't available
+   *  yet at `new SailsClient(...)` time. */
+  setOnSessionExpired(handler: ((err: SailsAuthError) => void) | undefined): void {
+    this.transport.setOnSessionExpired(handler);
   }
 
   /**

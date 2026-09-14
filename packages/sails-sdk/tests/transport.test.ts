@@ -5,7 +5,7 @@
  * `fetch`, so these tests never depend on jsdom/node-fetch internals.
  */
 import { SailsTransport } from '../src/transport'
-import { SailsTransportError, SailsValidationError, SailsNotFoundError } from '../src/errors'
+import { SailsAuthError, SailsForbiddenError, SailsTransportError, SailsValidationError, SailsNotFoundError } from '../src/errors'
 
 function fakeFetch(status: number, body: unknown): jest.Mock {
   return jest.fn().mockResolvedValue({
@@ -105,6 +105,81 @@ describe('SailsTransport', () => {
 
     await expect(transport.get('/health')).rejects.toThrow(SailsTransportError)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Mission 3 Slice 1 (docs/PARTNER_WALLET_INTEGRATION_IDENTITY_CONTINUITY.md
+ * §15/§16) — closes P3-F08.1. Proves the generic session-expiry signal
+ * fires ONLY for the real case it's meant to represent (an authenticated
+ * call's own session genuinely going stale), never for adjacent cases
+ * that would misrepresent what happened (an unauthenticated call, or a
+ * different error class entirely) — the same "don't collapse distinct
+ * failure classes into one signal" discipline this codebase's error
+ * taxonomy already enforces server-side, applied here to a client-side
+ * signal for the first time.
+ */
+describe('SailsTransport — onSessionExpired (Mission 3 Slice 1, P3-F08.1)', () => {
+  it('fires exactly once, with the real SailsAuthError, when an authenticated call receives a 401', async () => {
+    const fetchImpl = fakeFetch(401, { success: false, error: 'AUTH_ERROR', message: 'Session expired', details: [] })
+    const onSessionExpired = jest.fn()
+    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, onSessionExpired })
+    transport.setSessionToken('session-abc')
+
+    await expect(transport.get('/v1/identity/me', undefined, true)).rejects.toThrow(SailsAuthError)
+
+    expect(onSessionExpired).toHaveBeenCalledTimes(1)
+    expect(onSessionExpired.mock.calls[0][0]).toBeInstanceOf(SailsAuthError)
+    expect(onSessionExpired.mock.calls[0][0].message).toBe('Session expired')
+  })
+
+  it('does NOT fire for an unauthenticated call\'s error — there was no session to lose in the first place', async () => {
+    const fetchImpl = fakeFetch(401, { success: false, error: 'AUTH_ERROR', message: 'Session expired', details: [] })
+    const onSessionExpired = jest.fn()
+    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, onSessionExpired })
+
+    // auth=false (the default) — this call was never carrying a session.
+    await expect(transport.get('/v1/liquidity/offers')).rejects.toThrow(SailsAuthError)
+
+    expect(onSessionExpired).not.toHaveBeenCalled()
+  })
+
+  it('does NOT fire for a different error class on an authenticated call (e.g. SailsForbiddenError) — only a real session expiry qualifies', async () => {
+    const fetchImpl = fakeFetch(403, { success: false, error: 'FORBIDDEN', message: 'Not your trade', details: [] })
+    const onSessionExpired = jest.fn()
+    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, onSessionExpired })
+    transport.setSessionToken('session-abc')
+
+    await expect(transport.get('/v1/openp2p/trades/x', undefined, true)).rejects.toThrow(SailsForbiddenError)
+
+    expect(onSessionExpired).not.toHaveBeenCalled()
+  })
+
+  it('a handler that itself throws never breaks the real request\'s own error propagation', async () => {
+    const fetchImpl = fakeFetch(401, { success: false, error: 'AUTH_ERROR', message: 'Session expired', details: [] })
+    const onSessionExpired = jest.fn(() => { throw new Error('a broken handler') })
+    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, onSessionExpired })
+    transport.setSessionToken('session-abc')
+
+    // The caller must still see the REAL SailsAuthError, not the
+    // handler's own internal failure.
+    await expect(transport.get('/v1/identity/me', undefined, true)).rejects.toThrow(SailsAuthError)
+    expect(onSessionExpired).toHaveBeenCalledTimes(1)
+  })
+
+  it('setOnSessionExpired() registers a handler after construction, and passing undefined clears it', async () => {
+    const fetchImpl = fakeFetch(401, { success: false, error: 'AUTH_ERROR', message: 'Session expired', details: [] })
+    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    transport.setSessionToken('session-abc')
+
+    const onSessionExpired = jest.fn()
+    transport.setOnSessionExpired(onSessionExpired)
+    await expect(transport.get('/v1/identity/me', undefined, true)).rejects.toThrow(SailsAuthError)
+    expect(onSessionExpired).toHaveBeenCalledTimes(1)
+
+    transport.setOnSessionExpired(undefined)
+    await expect(transport.get('/v1/identity/me', undefined, true)).rejects.toThrow(SailsAuthError)
+    expect(onSessionExpired).toHaveBeenCalledTimes(1) // unchanged — the cleared handler was never called again
   })
 })
 
