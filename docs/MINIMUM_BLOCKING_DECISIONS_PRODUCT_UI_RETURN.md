@@ -33,91 +33,128 @@ own prior two corrective rounds established — not by mission/PR name.
 
 | Decision Area | Candidate blocker | Verdict |
 |---|---|---|
-| A — Restart/Offline/Resume | No named "Product State Model for Re-entry" | **Real, narrow gap — DECISION NOW (documentation only)** |
+| A — Restart/Offline/Resume | No named re-entry invariant; **R1: no universal Product State Model exists to name — the real gap is narrower than originally claimed** | **Real, narrow gap — DECISION NOW: freeze two invariants, no enum, honest gap statement (documentation only)** |
 | B — Network/Bootstrap Presentation | No frozen UI vocabulary for connected/degraded/reconnecting/etc. | **Not a current blocker — REMAIN OPEN (Watchlist)** |
-| C — Cross-Layer Error/Recovery Semantics | Two real denial/outcome vocabularies exist but their orthogonality is never stated | **Real, narrow gap — DECISION NOW (documentation only)** |
+| C — Cross-Layer Error/Recovery Semantics | Two real, independently-scoped denial/outcome vocabularies exist but their orthogonality is never stated | **Real, narrow gap — DECISION NOW (documentation only)** |
 | D — Economic Identity/Recovery | Mission 3 §9 / `[NEW-G]` still OPEN | **Not a current blocker — REMAIN OPEN, reconfirmed** |
 | E — Authority Representation in UI | All required distinctions already frozen and, as far as audited, not collapsed anywhere in real code | **Not a blocker — CANONICAL AND CURRENT** |
 
 Two decisions, both pure documentation freezes over already-existing,
-already-correct real code — no new type, no new state machine, no UI
-build.
+already-correctly-scoped real code — no new type, no new enum, no state
+machine, no UI build, and no implementation mechanism promoted to a
+broader semantic model than the real code actually supports.
 
 ## 2. Decision Area A — Restart / Offline / Resume
 
-**CLAIM:** Product/UI needs a named, minimal set of semantic states for
-"re-entry" (returning to the app after any interruption) that it must be
-able to distinguish, reusing existing real vocabulary rather than
-inventing one.
+**R1 correction (CTO Gate Corrective, 2026-09-14) — two overclaims
+found and fixed, not redesigned.** The version of this section CTO
+review corrected presented `IdempotencyKeyStatus` as if it were the
+"in-flight economic operation axis" of a general Product State Model,
+and presented a `NO_SESSION | SESSION_EXPIRED | SESSION_VALID` enum as
+"already real, Mission 3." Neither survives direct verification against
+the real code. **Root cause, recorded per the harness's own self-
+critique requirement:** a vocabulary useful for one bounded
+implementation concern was promoted into a broader Product semantic
+model because its names looked convenient — classification **C,
+implementation truth mislabeled protocol/product truth**. `Implementation
+≠ truth`; same-looking states do not imply the same object.
 
-**EXISTING INSTITUTIONAL TRUTH:**
+**CLAIM (corrected):** Product/UI needs the minimum *invariant* —
+not necessarily a new enum — that keeps re-entry from misrepresenting
+economic or session state, using only what real code actually proves.
+
+**EXISTING INSTITUTIONAL TRUTH, re-verified against source, not
+assumed:**
 - ADR-001 §9: *"a party must be able to reconstruct a trade's current
   state from artifacts it already holds plus the settlement provider's
   own authoritative record — never by guessing."*
 - `docs/PARTNER_BETA_INTEGRATION_REALITY.md` §9's own 13-row scenario
-  matrix (app close, escrow lock, connection drop, session expiry,
-  device change, provider slow, duplicate callback, process restart,
-  etc.) — **Verdict: B** in that document's own grading: the fund-moving/
-  settlement boundary is demonstrably safe (Postgres-durable, idempotent,
-  `WdkTransferAttempt`'s own PREPARED/SUBMITTED/SUBMISSION_UNKNOWN
-  mechanism); the one real, disclosed, bounded gap is **client-side
-  session/device resumption UX**, not backend safety.
-- Mission 3 (frozen): *No session ≠ Expired session* (`dispatchedWithSessionToken`
-  gate, R1) and *Request failure multiplicity ≠ session-expiry
-  multiplicity* (`sessionEpochGate.ts`, R2) — real, shipped, tested.
-- CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (frozen): `IdempotencyKeyStatus` —
-  `IN_PROGRESS` / `COMPLETED` / `UNKNOWN` / `FAILED` — real, shipped,
-  the actual mechanism behind *"Unknown outcome ≠ failed economic
-  action."*
+  matrix — **Verdict: B**: the fund-moving/settlement boundary is
+  demonstrably safe; the one real, disclosed, bounded gap is
+  client-side session/device resumption UX, not backend safety.
+- `src/common/idempotency.ts`'s own header, quoted verbatim:
+  *"Deliberately opt-in (a caller who never supplies a key gets today's
+  exact, unchanged behavior)... **Honestly bounded, not universal**: the
+  idempotency guarantee below applies ONLY when a caller actually
+  supplies a key — a caller that omits one gets no protection at all."*
+  `IdempotencyKeyStatus` (`IN_PROGRESS`/`COMPLETED`/`UNKNOWN`/`FAILED`)
+  is real and shipped, but it describes **the state of one idempotency
+  claim for one protected, opt-in attempt** — not the universal
+  lifecycle of a trade, escrow, or economic episode.
+  **`IdempotencyKeyStatus` ≠ Economic Operation State.** No canonical,
+  universal "in-flight economic operation state" enum exists anywhere
+  in this codebase today — said explicitly, not implied.
+- `packages/sails-ui/src/context/AuthContext.tsx`, re-read directly:
+  the real state is `user: User | null` (a locally held authenticated
+  context — presence does not prove the remote session is still valid),
+  `sessionExpiry: { episode: number; path: string } | null` (an
+  *observed expiry episode*, emitted only after a qualifying request
+  401s — `sessionEpochGate.ts`'s own convergence mechanism, Mission 3
+  R2), and no third state for "proven currently-valid." **No
+  `NO_SESSION | SESSION_EXPIRED | SESSION_VALID` enum exists in real
+  code.** A locally active session (`user !== null`) is not proof of a
+  currently-valid remote session — it can appear active right up until
+  the next authenticated request observes an expiry.
 
-**EVIDENCE:** all of the above verified directly against real, merged
-code and documentation this session (not re-derived) — see §0.
+**EVIDENCE:** direct source reads this pass — `src/common/idempotency.ts`'s
+own header comment; `AuthContext.tsx`'s real `useState` declarations and
+`AuthContextType` interface (`user`, `sessionExpiry: { episode, path } |
+null` — no other session field exists).
 
-**Precision correction, same-word-different-object check applied:** the
-mission brief's own phrase *"Pending ≠ Unknown ≠ Failed ≠ Rejected"* does
-not map to a single real four-state type. The real, shipped type is
-`IdempotencyKeyStatus` (`IN_PROGRESS`/`COMPLETED`/`UNKNOWN`/`FAILED` —
-three of the four words, one renamed: `IN_PROGRESS` is the real word for
-*Pending*). No real backend concept named `Rejected` exists for an
-in-flight economic operation's outcome — `REJECTED` in this codebase is
-`VerificationVerdict` (Sails OpenProof, an unrelated claim/proof
-verification concept). **A fifth state is not invented here** — naming
-one without a real backend fact behind it would be exactly the
-"inventing a new term for an object that already has a name" trap the
-mission's own self-critique warns against.
+**PRODUCT/UI CONSEQUENCE if left undecided:** the one real risk is a
+future screen rendering `UNKNOWN` (from whichever bounded mechanism
+actually produced it — idempotency-protected calls today) as if it were
+`FAILED` — exactly the defect class CROSS-LAYER-SEMANTIC-CORRECTIVE-1
+closed server-side. Inventing a universal enum to "complete the matrix"
+would create a second, worse risk: Product/UI code trusting a state
+model that does not correspond to any real backend guarantee for most
+operations (only idempotency-key-protected ones are actually covered).
 
-**PRODUCT/UI CONSEQUENCE if left undecided:** without a named minimum
-state set, a future screen could plausibly render `UNKNOWN` as if it
-were `FAILED` (exactly the defect class CROSS-LAYER-SEMANTIC-CORRECTIVE-1
-closed server-side) — the backend property is safe; nothing stops a UI
-built without this freeze from re-introducing the same confusion one
-layer up.
+**DECISION NOW — invariants only, no enum, no new mechanism, no
+implied universal coverage:**
 
-**DECISION NOW.** Freeze the minimum Product State Model for Re-entry —
-two independent axes, not one combined state machine, reusing existing
-real vocabulary only:
+1. **`UNKNOWN` must never be rendered as `FAILED` merely because a call
+   returned unsuccessfully or ambiguously** — frozen as a cross-layer
+   semantic invariant (restates `IdempotencyKeyStatus`'s own real
+   guarantee), not as a universal operation-state enum. This invariant
+   applies precisely where `IdempotencyKeyStatus` actually applies
+   today — an idempotency-key-protected attempt — and Product/UI must
+   not assume it covers every economic operation merely because it
+   sounds general.
+2. **Three session-related facts must not be collapsed into one
+   condition:** (a) no local session at all; (b) an observed
+   session-expiry episode (`sessionEpochGate.ts`'s real convergence
+   output); (c) a locally active authenticated context. (c) is
+   deliberately **not** named "valid" — a locally active context is not
+   proof the remote session still is. This is Option B from the
+   mission's own two offered shapes: the property is frozen, no new
+   enum is introduced, and nothing here is described as an existing
+   canonical vocabulary it is not.
+3. **Explicit, honest gap statement, not filled speculatively:** a
+   generic, canonical Product/UI re-entry operation-state model — one
+   that could describe *any* trade/escrow/economic episode's re-entry
+   state, not only idempotency-key-protected attempts — **does not
+   exist in canonical domain truth today.** Building one is real,
+   future Product/UI design work, not something this document can
+   freeze by relabeling a narrower mechanism.
 
-- **Session axis** (already real, Mission 3): `NO_SESSION` |
-  `SESSION_EXPIRED` | `SESSION_VALID`.
-- **In-flight economic operation axis** (already real,
-  `IdempotencyKeyStatus`, renamed only for UI-facing clarity — no new
-  backend concept): `PENDING` (`IN_PROGRESS`) | `COMPLETE` (`COMPLETED`)
-  | `UNKNOWN` | `FAILED`.
+**Not designed here:** which screens show which fact, copy, or visual
+treatment, or how a future universal operation-state model (if Product
+decides one is needed) would be shaped — genuinely a future Product/UI
+design task.
 
-These two axes are independent — a screen may need to represent, e.g.,
-`SESSION_VALID` + `UNKNOWN` (the session is fine, but a specific
-operation's outcome is not yet known) simultaneously. **Not designed
-here:** which screens show which axis, copy, or visual treatment — that
-is genuinely a Product/UI design task, correctly left to the next phase.
-
-**CONSISTENCY SWEEP:** checked against Mission 3's `sessionExpiry`
-state shape (`{episode, path} | null`) — compatible, not contradicted;
-checked against `IdempotencyKeyStatus`'s own real enum — reused
-verbatim in meaning, renamed only for UI legibility; checked against
-`docs/PARTNER_BETA_INTEGRATION_REALITY.md` §9 — this freeze names
-exactly the gap that document's own "Verdict: B" already identified,
-closing it at the semantic-naming level without re-auditing the
-underlying safety claim.
+**CONSISTENCY SWEEP:** checked against `docs/PARTNER_BETA_INTEGRATION_REALITY.md`
+§9's own "Verdict: B" — unaffected, that document never claimed a
+universal state enum either, only that the fund-moving boundary
+specifically is safe; checked against Mission 3's own R1/R2 text — both
+already correctly scoped their own claims to "session" and "expiry
+episode" specifically, never claimed a three-state enum exists, so this
+correction fixes this document's own overclaim, not a pre-existing one
+in Mission 3's frozen content; checked against
+`docs/BACKLOG.md` item 35 ("Unified Error & Recovery Semantics —
+registered, not implemented") — that item's own title already
+acknowledges no unification exists yet, consistent with this section's
+corrected finding, not contradicted by it.
 
 ## 3. Decision Area B — Network / Bootstrap Presentation
 
@@ -171,6 +208,16 @@ contradicts or duplicates them.
 
 ## 4. Decision Area C — Cross-Layer Error / Recovery Semantics
 
+**R1 precision correction (CTO Gate Corrective, 2026-09-14):**
+`IdempotencyKeyStatus`'s own description below is corrected to match
+§2's own R1 fix — it is the state of the bounded idempotency mechanism
+for one protected logical attempt, never described as the general
+outcome model of "an attempt that was made" across Sails. The
+orthogonality claim itself (kept below) does not depend on either
+vocabulary being universal — two bounded, correctly-scoped vocabularies
+can still be orthogonal to each other without either claiming to cover
+every case.
+
 **CLAIM:** determine whether Product/UI can consume the current error
 semantics as-is, or whether one bounded semantic correction is needed
 first.
@@ -180,13 +227,17 @@ vocabularies already exist, verified directly against source:
 
 - `CapabilityDenialReason` (`src/common/errors/index.ts`, mirrored in
   `packages/sails-sdk/src/errors.ts`, CROSS-LAYER-SEMANTIC-CORRECTIVE-1
-  item 39) — `UNSUPPORTED` / `UNAVAILABLE` / `FORBIDDEN` / `INELIGIBLE` /
-  `DISABLED` / `NOT_IMPLEMENTED`. Answers: *why was this operation never
-  attempted or allowed to begin.*
+  item 39) — the **typed reason a capability/action is denied,
+  unavailable, or ineligible**: `UNSUPPORTED` / `UNAVAILABLE` /
+  `FORBIDDEN` / `INELIGIBLE` / `DISABLED` / `NOT_IMPLEMENTED`.
 - `IdempotencyKeyStatus` (`src/common/idempotency.ts`,
-  CROSS-LAYER-SEMANTIC-CORRECTIVE-1) — `IN_PROGRESS` / `COMPLETED` /
-  `UNKNOWN` / `FAILED`. Answers: *what happened to an attempt that WAS
-  made.*
+  CROSS-LAYER-SEMANTIC-CORRECTIVE-1) — the **state of the bounded
+  idempotency mechanism for one protected logical attempt**:
+  `IN_PROGRESS` / `COMPLETED` / `UNKNOWN` / `FAILED`. Real only where a
+  caller actually supplied an idempotency key for an operation that
+  actually checks one (`src/common/idempotency.ts`'s own header:
+  "opt-in... honestly bounded, not universal") — **not** a general
+  outcome model for every attempted operation in Sails.
 - `docs/BACKLOG.md` item 35, "Unified Error & Recovery Semantics —
   registered, not implemented," already names the generalization need
   this Decision Area is asking about — not duplicated here.
@@ -196,29 +247,29 @@ vocabularies already exist, verified directly against source:
   exists yet.
 
 **EVIDENCE:** direct source read, `src/common/errors/index.ts:50-56`;
-`docs/BACKLOG.md` items 35/39/40.
+`src/common/idempotency.ts`'s own header comment; `docs/BACKLOG.md`
+items 35/39/40.
 
 **PRODUCT/UI CONSEQUENCE if left undecided:** the two vocabularies above
-are **orthogonal axes** — a request can fail `CapabilityDenialReason`
-before any attempt is made (nothing to retry, no operation exists to
-have an unknown outcome), or it can be attempted and land in
-`IdempotencyKeyStatus`'s own `UNKNOWN`/`FAILED` (the capability was
-never in question — the attempt itself has an ambiguous or negative
-result). Nothing in either type's own code states this relationship
-explicitly. A future UI error-handling layer built without this stated
-could plausibly try to render both through one flat "error code" concept
-— re-collapsing a distinction CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item
-39) specifically fixed at the server layer.
+are **orthogonal axes, each already correctly scoped to what it
+actually covers** — a request can fail `CapabilityDenialReason` before
+any attempt is made (nothing to retry, no idempotency claim was ever
+opened), or, for the narrower set of operations that supply an
+idempotency key, that protected attempt can land in
+`IdempotencyKeyStatus`'s own `UNKNOWN`/`FAILED`. Nothing in either
+type's own code states this relationship explicitly. A future UI
+error-handling layer built without this stated could plausibly try to
+render both through one flat "error code" concept — re-collapsing a
+distinction CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) specifically
+fixed at the server layer, and separately risk assuming
+`IdempotencyKeyStatus` covers operations it structurally does not.
 
 **DECISION NOW (documentation only, no code change — both types are
 already correct exactly as shipped).** Freeze the relationship, not a
-new mechanism: `CapabilityDenialReason` and `IdempotencyKeyStatus` are
-two independent axes and must never be collapsed into one Product/UI
-error state. A caller may need to represent both at once for a single
-economically material action (e.g., a capability was allowed, the
-attempt was made, and its outcome is now `UNKNOWN`) — no code exists
-today that conflates them, and this freeze exists to keep it that way
-once a real consuming UI is built. `docs/BACKLOG.md` item 35 remains the
+new mechanism, and not a broader scope than either type actually has:
+`CapabilityDenialReason` and `IdempotencyKeyStatus` are two distinct,
+independently-scoped vocabularies and must never be flattened into one
+generic Product/UI error code. `docs/BACKLOG.md` item 35 remains the
 correct, already-registered home for the eventual UI *presentation*
 layer over both — not re-registered or duplicated here.
 
@@ -309,33 +360,55 @@ Authority, and is consistent with this chain.
 
 ## 7. Self-Critique Applied
 
+**R1 root cause, recorded explicitly per the harness's own
+requirement:** the version of §2/§4 CTO review corrected took a
+vocabulary useful for one bounded implementation concern
+(`IdempotencyKeyStatus`, real only for idempotency-key-protected
+attempts; a session-expiry episode mechanism, real only as an
+observed-event signal) and promoted it into a broader Product semantic
+model — a universal operation-state enum and a canonical session-state
+enum — because the names looked convenient for completing a matrix.
+**Classification: C — implementation truth mislabeled protocol/product
+truth.** Fixed in §2/§4 by re-scoping both claims to exactly what the
+real code proves, and by stating explicitly that no universal
+re-entry-state model exists rather than inventing one to look complete.
+
 - *Is this actually blocking UI, or merely interesting architecture?*
-  Applied to reject Decision Area B as a current blocker (interesting,
-  not yet forcing) and to keep Decision Areas A/C narrowly scoped to
-  naming, not new mechanism.
+  Applied to reject Decision Area B as a current blocker and to keep
+  Decision Areas A/C narrowly scoped to invariants over already-correct
+  code, not new mechanism.
 - *Are we promoting a future production concern into present product
-  scope?* Applied directly against Decision Area B's own candidate
-  vocabulary — declined.
+  scope?* Applied against Decision Area B — declined. **R1: also
+  applied retroactively against Decision Area A's own original
+  overclaim** — presenting a bounded mechanism as a universal model was
+  exactly this trap, now fixed.
 - *Are we solving a mechanism where only a semantic property is needed?*
-  Both DECISION NOW items (A, C) are pure naming freezes over already-
-  correct code — no mechanism proposed.
+  Both DECISION NOW items (A, C) freeze invariants only — no enum, no
+  new mechanism, no code change.
 - *Are we inventing a new term for an object that already has a name?*
-  Caught directly in Decision Area A — declined to invent a "Rejected"
-  fifth state with no real backend referent.
+  Caught in Decision Area A (declined a "Rejected" fifth state). **R1:
+  caught a second, more serious instance of the same failure mode** —
+  reusing `IdempotencyKeyStatus`'s and the session-expiry mechanism's
+  own real names, but silently widening what they refer to, is the same
+  error in the opposite direction (not inventing a new name for an
+  existing object, but reusing an existing name for a broader object
+  than it actually names).
 - *Are we forcing infrastructure concepts into user UX unnecessarily?*
-  Applied against Decision Area B — declined; the existing "ordinary
-  user sees nothing about nodes" principle is reaffirmed instead.
-- *Are we confusing current implementation with protocol truth?* No —
-  every DECISION NOW item cites the real, current implementation
-  explicitly as the source, not an aspiration.
+  Applied against Decision Area B — declined.
+- *Are we confusing current implementation with protocol truth?*
+  **R1: yes, in the original A/C — corrected.** This is precisely
+  Classification C above; both sections now cite real code only for
+  exactly the scope that code actually covers.
 - *Are we preserving a previous CTO statement simply because we made
-  it?* This document is produced by the same session that wrote Mission
-  3/4/PR#153/PR#154 — each claim above was re-verified against source
-  in this pass, not assumed from memory (see §0's source list).
+  it?* No — this correction discards this document's own prior claims
+  where direct re-verification (`src/common/idempotency.ts`'s header,
+  `AuthContext.tsx`'s real state shape) contradicted them.
 - *Would leaving this OPEN actually cause expensive redesign later?*
-  The two DECISION NOW items pass this test directly (§2/§4's own
-  Product/UI Consequence sections); B, D, E fail it (no redesign risk
-  identified) and are correctly left open or closed as canonical.
+  The two corrected DECISION NOW items still pass this test (§2/§4's
+  own Product/UI Consequence sections) — but now via honest, narrower
+  invariants rather than an overclaimed enum, which itself would have
+  caused expensive redesign the moment Product/UI trusted it for an
+  operation outside idempotency's real, bounded coverage.
 
 ## 8. Required Output
 
@@ -350,14 +423,22 @@ Authority, and is consistent with this chain.
    to render); Decision Area D (recovery/identity — reconfirmed OPEN,
    no forcing UI work); Decision Area E (already canonical, no gap
    found).
-5. **Minimum decisions recommended for freeze:**
-   - A: the two-axis Product State Model for Re-entry (Session:
-     `NO_SESSION`/`SESSION_EXPIRED`/`SESSION_VALID`; Operation:
-     `PENDING`/`COMPLETE`/`UNKNOWN`/`FAILED`), both axes reusing 100%
-     existing real vocabulary.
-   - C: `CapabilityDenialReason` and `IdempotencyKeyStatus` are
-     orthogonal axes, never to be collapsed into one Product/UI error
-     state.
+5. **Minimum decisions recommended for freeze (R1-corrected — invariants,
+   not enums):**
+   - A: (i) `UNKNOWN` must never be rendered as `FAILED` — frozen as a
+     cross-layer semantic invariant scoped to where it actually applies
+     (idempotency-key-protected attempts today), not a universal
+     operation-state enum; (ii) no local session, an observed
+     session-expiry episode, and a locally active authenticated context
+     must not be collapsed into one condition — no new enum introduced;
+     (iii) explicit, honest statement that **no canonical, universal
+     Product/UI re-entry operation-state model exists in domain truth
+     today** — not invented here to complete a matrix.
+   - C: `CapabilityDenialReason` (typed denial reason) and
+     `IdempotencyKeyStatus` (bounded idempotency-claim state, not a
+     general attempt-outcome model) are distinct, independently-scoped
+     vocabularies, never to be flattened into one generic Product/UI
+     error code.
 6. **Exact OPEN items preserved:** Mission 3 §9 recovery hypotheses;
    `[NEW-G]`; `docs/BACKLOG.md` item 40 (protocol/API versioning);
    Decision Area B's multi-node presentation vocabulary (Watchlist);
@@ -376,9 +457,14 @@ Authority, and is consistent with this chain.
 9. **Whether code/docs changes are required:** documentation only — this
    new file. No existing file requires correction (no drift found in
    `BACKLOG.md`/`ROADMAP.md`/ADR-001/Mission 3/4 docs during this pass).
-10. **Recommendation:** all identified gaps are resolved by this
-    document's own two frozen decisions, both already reflecting
-    existing real code with no implementation debt behind them.
+10. **Recommendation:** Product/UI may proceed using existing
+    domain-specific economic states (`Trade`/`Escrow`/`Offer` status
+    fields, already real) plus the two invariants frozen in §2/§4 —
+    most centrally, `UNKNOWN` must never be rendered as `FAILED`. **A
+    universal re-entry operation-state enum is deliberately not frozen,
+    because no canonical one exists yet in domain truth** — that is the
+    honest outcome of this pass, preferable to inventing a false
+    unification. Nothing above blocks starting Product/UI work.
 
 **READY TO RETURN TO PRODUCT/UI**
 
