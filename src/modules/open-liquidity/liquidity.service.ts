@@ -3,13 +3,14 @@ import { prisma } from '../../common/database'
 import { NotFoundError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { intentEngine } from '../../core/intent-engine'
+import { intentRepository } from '../../core/intent-repository'
 import { childLogger } from '../../common/logger'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeIntentPayload } from '../../common/types/intent'
 import type { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { qvacDetectionInvocationsTotal, qvacDetectionFailuresTotal } from '../../common/metrics'
-import { withIdempotency } from '../../common/idempotency'
+import { withIdempotency, type PersistCheckpoint } from '../../common/idempotency'
 
 const log = childLogger('liquidity')
 
@@ -426,12 +427,32 @@ export class LiquidityRouter {
         scope: 'liquidity.offer.create',
         participantId: input.userId,
         key: input.idempotencyKey,
+        // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 — request-hash field
+        // review. `priceBrl`, `paymentDetails`, and `network` are real
+        // execution-defining terms of the offer (a different BRL price,
+        // a different real-world payment destination, or a different
+        // settlement rail is a materially different offer, not a retry
+        // of the same one) — omitting them would let a caller reuse a
+        // key across two requests that genuinely differ in what's being
+        // offered, and silently get back the FIRST one's terms via
+        // recover() (e.g. the seller's actual payment destination
+        // silently staying whatever the first attempt said, even though
+        // the retried request asked for a different one — the exact
+        // "silent replay of a differing request" this key exists to
+        // prevent). `description` is included too: it's part of what
+        // the caller explicitly submitted as this offer's content, on
+        // the same footing as every other field already hashed here
+        // (this hash was never scoped to "only the fields that move
+        // funds" — `paymentMethod`, already present, isn't fund-moving
+        // either) — a genuine content edit deserves a fresh key, not a
+        // silent no-op replay.
         requestPayload: {
-          asset: input.asset, side: input.side, priceUsd: input.priceUsd,
+          asset: input.asset, side: input.side, priceUsd: input.priceUsd, priceBrl: input.priceBrl,
           minAmount: input.minAmount, maxAmount: input.maxAmount, paymentMethod: input.paymentMethod,
+          paymentDetails: input.paymentDetails, network: input.network, description: input.description,
         },
       },
-      () => this.persistOffer(input),
+      (checkpoint) => this.persistOffer(input, checkpoint),
       (offer) => this.postPersistOffer(input, offer),
       async (offerId) => {
         const offer = await prisma.offer.findUnique({ where: { id: offerId } })
@@ -441,22 +462,48 @@ export class LiquidityRouter {
     )
   }
 
-  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — the durable side effect of
-  // createOffer() is TWO writes treated as one unit: `intentEngine.create()`
-  // (its own internally-durable Intent row — not decomposed further here;
-  // it is a widely-shared function used by many other callers, and
-  // splitting it is out of this bounded mission's scope) followed by
-  // `prisma.offer.create()`. Proof: before `prisma.offer.create()`
-  // returns, no Offer row exists, so a throw anywhere in this method
-  // (including from `intentEngine.create()` itself) genuinely means
-  // nothing offer-shaped is durable — the only case safe to mark FAILED
-  // and retry via a fresh `persistOffer()` call. A left-behind orphan
-  // Intent from a `prisma.offer.create()` failure is a real, narrow,
-  // pre-existing gap in `intentEngine.create()`'s own transactionality
-  // — not introduced or worsened by this correction, and out of item
-  // 37's scope to fix.
-  private async persistOffer(input: CreateOfferInput) {
-    const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId)
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2/R3 — the durable side effect of
+  // createOffer() is TWO independently-durable writes: `intentEngine.create()`
+  // (its own internally-durable Intent row — not decomposed further
+  // here; it is a widely-shared function used by many other callers,
+  // and splitting IT further is out of this bounded mission's scope)
+  // followed by `prisma.offer.create()`. R2 treated these as one unit;
+  // R3 (CTO review) found that was wrong — if `prisma.offer.create()`
+  // fails AFTER `intentEngine.create()` already succeeded, the whole
+  // `persistOffer()` call throws, and a retry would otherwise call
+  // `intentEngine.create()` again, producing a SECOND Intent for the
+  // same logical `createOffer` attempt (the Intent row is durable the
+  // moment `intentEngine.create()` returns — a failure one line later
+  // is not proof it didn't happen, same governing principle as every
+  // other defect this mission chain has closed).
+  //
+  // Fix: `checkpoint` (see `idempotency.ts`'s `PersistCheckpoint`)
+  // records the Intent's id durably on the idempotency row itself
+  // right after `intentEngine.create()` succeeds — BEFORE attempting
+  // `prisma.offer.create()`. A retry (reached only via the same atomic
+  // `FAILED -> IN_PROGRESS` reclaim every other retry here already
+  // goes through) sees `checkpoint.ref` already set and skips straight
+  // to `prisma.offer.create()`, reusing the SAME canonical Intent
+  // rather than creating a new one. `intentRepository.findById()`
+  // re-verifies the checkpointed Intent still exists before reuse —
+  // never assumed, same "never assume, always verify" discipline this
+  // file's own `recover()` callback above already applies to `resultRef`.
+  // An Intent genuinely missing at that point (a real data-integrity
+  // anomaly — Intents are never deleted by any code path in this
+  // codebase) surfaces loudly as a `NotFoundError` rather than silently
+  // creating a duplicate or silently proceeding with a dangling FK.
+  private async persistOffer(input: CreateOfferInput, checkpoint: PersistCheckpoint) {
+    let intentId = checkpoint.ref
+    if (intentId) {
+      const existingIntent = await intentRepository.findById(intentId)
+      if (!existingIntent) {
+        throw new NotFoundError('Intent', intentId)
+      }
+    } else {
+      const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId)
+      intentId = intent.id
+      await checkpoint.set(intentId)
+    }
 
     const offer = await prisma.offer.create({
       data: {
@@ -471,7 +518,7 @@ export class LiquidityRouter {
         paymentDetails: input.paymentDetails,
         network: input.network,
         description: input.description,
-        intentId: intent.id,
+        intentId,
       },
     })
 

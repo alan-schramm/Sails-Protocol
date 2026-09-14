@@ -104,6 +104,48 @@
  * unfired event) is a real, separate, larger question this bounded
  * correction does not solve; see each call site's own comment for the
  * disclosed residual this leaves.
+ *
+ * CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 (2026-09-13) — closes a fourth
+ * real defect: R2 treated `persist()` as a single, indivisible unit —
+ * correct for `createTrade()`/`submitEvidence()` (each has exactly ONE
+ * durable write in `persist()`), but NOT for `createOffer()`, whose
+ * `persistOffer()` performs TWO independently-durable writes:
+ * `intentEngine.create()` (an Intent, durable as soon as it returns),
+ * then `prisma.offer.create()` (the Offer). If the SECOND write fails,
+ * `persist()` as a whole throws, and `runAndSettle()` marks the claim
+ * `FAILED` — even though the FIRST write already durably succeeded. A
+ * retry then reclaims `FAILED` and calls `persist()` again, which
+ * unconditionally re-runs `intentEngine.create()`, producing a SECOND
+ * Intent for the same logical `createOffer` attempt. Same governing
+ * principle, one level deeper still: **a failed `persist()` call is not
+ * proof that NONE of persist()'s own internal writes durably happened.**
+ *
+ * **Fix — `PersistCheckpoint`, the smallest mechanism that proves the
+ * property without an intentEngine refactor:** `persist()` now receives
+ * a `checkpoint` argument. Before attempting a durable write it cannot
+ * safely repeat, `persist()` may call `checkpoint.set(ref)` to record
+ * that write's own result id on the idempotency row itself — durably,
+ * independently of `status` — via the new `checkpointRef` column
+ * (`prisma/schema.prisma`). If `persist()` is later retried (via
+ * `reclaimFailed()`, same as any other `FAILED` retry), it receives
+ * `checkpoint.ref` set to whatever the PRIOR attempt recorded, and can
+ * skip straight past the already-durable step instead of blindly
+ * re-running it. `checkpoint.ref` is `null` on a genuinely first
+ * attempt, and always `null` when no idempotency key was supplied at
+ * all (checkpointing requires a row to attach to). This is deliberately
+ * generic — `idempotency.ts` itself has no idea what a "checkpoint" IS
+ * (an Intent id, or anything else some future multi-write `persist()`
+ * needs) — the interpretation lives entirely in the call site
+ * (`liquidity.service.ts`'s `persistOffer()`).
+ *
+ * This does NOT make `intentEngine.create()` itself transactional or
+ * resumable internally (its own multi-step CREATED→VALIDATED→COORDINATED
+ * pipeline can itself partially fail after its first durable write —
+ * a real, narrower, pre-existing gap, unchanged and out of this
+ * mission's scope, same as R2 already disclosed). It only guarantees
+ * that `persistOffer()`'s OWN two top-level writes cannot each run more
+ * than once for the same idempotency key — the Intent `persistOffer()`
+ * itself creates is never duplicated by a retry of `createOffer()`.
  */
 import { createHash } from 'node:crypto'
 import { prisma } from './database'
@@ -123,6 +165,9 @@ export interface IdempotencyRecord {
   requestHash: string
   status: IdempotencyKeyStatus
   resultRef: string | null
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 — see this file's own header
+  // and `prisma/schema.prisma`'s `checkpointRef` doc comment.
+  checkpointRef: string | null
 }
 
 /**
@@ -152,6 +197,12 @@ export interface IdempotencyKeyStore {
    *  multiple application instances, since the atomicity is the
    *  database's own. */
   reclaimFailed(id: string): Promise<boolean>
+  /** CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 — records an intermediate
+   *  durable identity a multi-write persist() has already produced,
+   *  independent of `status`. Never overwrites `resultRef`/`status` —
+   *  a distinct field for a distinct purpose (see this file's own
+   *  header and `IdempotencyRecord.checkpointRef`). */
+  setCheckpoint(id: string, checkpointRef: string): Promise<void>
 }
 
 export class PrismaIdempotencyKeyStore implements IdempotencyKeyStore {
@@ -167,7 +218,7 @@ export class PrismaIdempotencyKeyStore implements IdempotencyKeyStore {
       where: { scope_participantId_key: { scope, participantId, key } },
     })
     if (!row) return null
-    return { id: row.id, requestHash: row.requestHash, status: row.status, resultRef: row.resultRef }
+    return { id: row.id, requestHash: row.requestHash, status: row.status, resultRef: row.resultRef, checkpointRef: row.checkpointRef }
   }
 
   async markCompleted(id: string, resultRef: string): Promise<void> {
@@ -195,6 +246,10 @@ export class PrismaIdempotencyKeyStore implements IdempotencyKeyStore {
     })
     return result.count === 1
   }
+
+  async setCheckpoint(id: string, checkpointRef: string): Promise<void> {
+    await prisma.idempotencyKey.update({ where: { id }, data: { checkpointRef } })
+  }
 }
 
 const defaultStore = new PrismaIdempotencyKeyStore()
@@ -218,6 +273,30 @@ export interface WithIdempotencyParams {
   requestPayload: unknown
   store?: IdempotencyKeyStore
 }
+
+/**
+ * CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 — see this file's own header.
+ * Passed to every `persist()` call so a `persist()` with more than one
+ * independently-durable internal write can record an intermediate
+ * result BEFORE attempting the next one, and reuse it on a later retry
+ * instead of re-running the already-durable step. `idempotency.ts`
+ * itself never interprets `ref`'s contents — it is whatever id the
+ * call site's own `persist()` decides is worth checkpointing.
+ */
+export interface PersistCheckpoint {
+  /** Whatever a PRIOR attempt at this same (scope, participantId, key)
+   *  already checkpointed via `set()`, or `null` on a genuinely first
+   *  attempt — and always `null` when no idempotency key was supplied
+   *  at all (there is no row to attach a checkpoint to). */
+  ref: string | null
+  /** Durably records `ref` on the idempotency row itself, independent of
+   *  `status` — survives a subsequent transition to `FAILED` (unlike
+   *  `resultRef`, which is only ever set once `persist()` as a whole has
+   *  succeeded). A no-op when no idempotency key was supplied. */
+  set(ref: string): Promise<void>
+}
+
+const noopCheckpoint: PersistCheckpoint = { ref: null, set: async () => {} }
 
 /**
  * Runs `persist()` at most once per (scope, participantId, key). A
@@ -266,7 +345,7 @@ export interface WithIdempotencyParams {
  */
 export async function withIdempotency<T extends { id: string }>(
   params: WithIdempotencyParams,
-  persist: () => Promise<T>,
+  persist: (checkpoint: PersistCheckpoint) => Promise<T>,
   postPersist: (result: T) => Promise<void>,
   recover: (resultId: string) => Promise<T>
 ): Promise<T> {
@@ -274,7 +353,7 @@ export async function withIdempotency<T extends { id: string }>(
   const store = params.store ?? defaultStore
 
   if (!key) {
-    const result = await persist()
+    const result = await persist(noopCheckpoint)
     await postPersist(result)
     return result
   }
@@ -344,21 +423,31 @@ export async function withIdempotency<T extends { id: string }>(
       )
     }
 
-    return runAndSettle(persist, postPersist, store, existing.id)
+    return runAndSettle(persist, postPersist, store, existing.id, existing.checkpointRef)
   }
 
-  return runAndSettle(persist, postPersist, store, claim.id)
+  return runAndSettle(persist, postPersist, store, claim.id, null)
 }
 
 async function runAndSettle<T extends { id: string }>(
-  persist: () => Promise<T>,
+  persist: (checkpoint: PersistCheckpoint) => Promise<T>,
   postPersist: (result: T) => Promise<void>,
   store: IdempotencyKeyStore,
-  claimId: string
+  claimId: string,
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 — `null` for a brand-new claim
+  // (nothing could have been checkpointed yet); whatever the PRIOR
+  // attempt recorded when this is a `FAILED -> IN_PROGRESS` reclaim
+  // (`checkpointRef` survives that transition — only `status` changes).
+  existingCheckpointRef: string | null
 ): Promise<T> {
+  const checkpoint: PersistCheckpoint = {
+    ref: existingCheckpointRef,
+    set: (ref: string) => store.setCheckpoint(claimId, ref),
+  }
+
   let result: T
   try {
-    result = await persist()
+    result = await persist(checkpoint)
   } catch (err) {
     // persist() itself never produced a durable object — this is the
     // ONLY branch allowed to mark the claim FAILED. Nothing past this

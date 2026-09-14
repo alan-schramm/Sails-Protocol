@@ -3576,6 +3576,131 @@ obligation" is defined anywhere in this repository.
         `src/modules/open-settlement/dispute.service.ts`, and
         `tests/idempotency.test.ts`. **Item 40 untouched.**
 
+        **Corrected 2026-09-13 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3`,
+        CTO review found a fourth real correctness defect before Freeze)
+        — still Implemented → Evidenced, not yet Frozen.** R2 treated
+        `persistOffer()` as one indivisible unit — correct for
+        `createTrade()`/`submitEvidence()` (each has exactly ONE durable
+        write in `persist()`), but wrong for `createOffer()`, whose
+        `persistOffer()` performs TWO independently-durable writes:
+        `intentEngine.create()` (an Intent, durable the instant it
+        returns) then `prisma.offer.create()`. If the SECOND write
+        failed, `persist()` as a whole threw and the claim was marked
+        `FAILED` — even though the Intent already durably existed — so a
+        retry's `persist()` re-ran `intentEngine.create()` unconditionally,
+        producing a SECOND Intent for the same logical attempt. Same
+        governing principle, one level deeper still: *a failed `persist()`
+        call is not proof that none of its own internal writes durably
+        happened.*
+
+        **Fix — `PersistCheckpoint`, the smallest mechanism that proves
+        the property without an `intentEngine` refactor:** `persist()`
+        now receives a `checkpoint` argument
+        (`{ ref: string | null; set(ref): Promise<void> }`). A new
+        `checkpointRef` column on `IdempotencyKey`
+        (`prisma/schema.prisma`) durably records an intermediate result
+        BEFORE the next, separately-failure-prone write is attempted —
+        independent of `status`, so it survives a transition to `FAILED`
+        (unlike `resultRef`, only ever set once `persist()` as a whole
+        succeeds). `persistOffer()`: if `checkpoint.ref` is already set
+        (a prior attempt's Intent id), it's reused — `intentRepository.findById()`
+        re-verifies the Intent still exists first (never assumed, same
+        "never assume, always verify" discipline `recover()` callbacks
+        already apply to `resultRef`) — and `intentEngine.create()` is
+        skipped entirely; otherwise a new Intent is created and
+        `checkpoint.set(intent.id)` is called immediately, before
+        `prisma.offer.create()` is attempted. `idempotency.ts` itself
+        never interprets what a checkpoint IS — purely a generic,
+        call-site-owned mechanism.
+
+        **Per-operation proof:** (1) one logical `createOffer` attempt
+        produces at most one canonical Intent — the ONLY code path that
+        creates an Intent is the `!checkpoint.ref` branch, reached at
+        most once per idempotency key (every retry after the first
+        reaches `persistOffer()` only via the same atomic
+        `FAILED -> IN_PROGRESS` `reclaimFailed()` compare-and-swap every
+        other retry in this file already goes through, and
+        `checkpointRef` is never cleared once set); (2) at most one
+        Offer is created — `prisma.offer.create()` is the sole durable
+        write `persist()` is allowed to mark `COMPLETED`/`UNKNOWN`, and a
+        retry only ever reaches it again after a genuine prior failure,
+        never after a genuine prior success (which settles the claim
+        away from `FAILED` first); both properties hold identically
+        across Offer-DB-failure-after-Intent-success, retry-after-timeout,
+        concurrent retries (`reclaimFailed()`'s real atomic
+        compare-and-swap, the same Postgres-level mechanism Defect B
+        already proved cross-instance-safe), and application-restart/
+        multi-instance execution (the checkpoint lives in Postgres, not
+        process memory). **Explicitly NOT fixed** (unchanged,
+        pre-existing, out of scope): `intentEngine.create()`'s own
+        internal CREATED→VALIDATED→COORDINATED pipeline can itself
+        partially fail after its own first durable write — this
+        correction only guarantees `persistOffer()`'s OWN two top-level
+        writes are each attempted at most once per key, not that
+        `intentEngine.create()` is internally transactional.
+
+        **Request-hash field review (`createOffer()`'s
+        `requestPayload`):** `priceBrl`, `paymentDetails`, and `network`
+        added — all three are real execution-defining terms (a
+        different BRL price, a different real-world payment destination,
+        or a different settlement rail is a materially different offer)
+        that were previously silently ignored by the hash, meaning a
+        caller reusing a key across two requests differing only in one
+        of these fields would have silently gotten back the FIRST
+        request's terms via `recover()` — concretely, the seller's own
+        payment destination could silently stay stale on a retry that
+        intended to correct it. `description` added too, for consistency
+        with this hash's own existing scope (already includes
+        non-fund-moving fields like `paymentMethod` — never scoped to
+        "only funds-critical fields") — a genuine content edit deserves
+        a fresh key, not a silent no-op replay. Noted, not fixed (outside
+        this review's stated scope): `packages/sails-ui`'s
+        `PublishOffer.tsx` only regenerates its idempotency key when
+        `[asset, side, price, currency, minAmount, maxAmount, paymentMethod]`
+        change — NOT `paymentDetails`/`description` — so a user who edits
+        either between a failed submit and a manual retry will now get a
+        loud `ValidationError` (key reused for a different request)
+        instead of the old silent-stale-replay risk this hash fix
+        closes; correct/safe but a real UX rough edge, flagged for
+        whoever next touches that form, not fixed here (UI code, outside
+        this bounded server-side mission).
+
+        **New tests** (`tests/idempotency.test.ts`, +2, all passing,
+        scoped to `liquidity.offer.create`): one proves the exact
+        mission scenario (Intent succeeds, Offer fails, same-key retry)
+        — exactly one Intent ever created, the checkpoint survives the
+        `FAILED` transition, the retry's Offer write succeeds and is
+        associated with the original checkpointed Intent id, final
+        status `COMPLETED`; a second proves the same property under
+        genuine concurrent retries after a real `FAILED`+checkpoint
+        state (`Promise.allSettled` interleaving against one shared
+        store, modeling multi-instance execution) — exactly one Intent
+        ever created, exactly one retry wins the reclaim and performs
+        the Offer write, the winner's result is associated with the
+        original Intent. All R1/R2 tests preserved unchanged (the test
+        stores' `setCheckpoint()` addition is purely additive).
+
+        **Verified, not asserted:** `npx tsc --noEmit` clean at repo
+        root; `npx prisma generate` succeeds against the new
+        `checkpointRef` column (no migration file added — consistent
+        with this mission's own established precedent: R1's `UNKNOWN`
+        enum value and `completedAt` column were likewise never given a
+        formal migration in this environment, since CI only runs `prisma
+        generate` against `schema.prisma` directly, never `migrate
+        deploy`, against no live Postgres — a disclosed, pre-existing
+        gap this correction did not introduce); full unit suite 160
+        suites / 2113 tests (was 160/2111 before this correction, +2
+        matching the new tests above), 0 regressions.
+
+        **Items 38/39 unchanged, item 40 untouched** — this correction
+        touched only `prisma/schema.prisma`, `src/common/idempotency.ts`,
+        `src/modules/open-liquidity/liquidity.service.ts`, and
+        `tests/idempotency.test.ts`. Trade (`trade.service.ts`) and
+        Evidence (`dispute.service.ts`) were reviewed for the same
+        multi-write-persist() risk and confirmed NOT to have it — both
+        have exactly one durable write in their own `persist()` — so
+        neither was reopened.
+
     38. **SDK Type-Shape Reconciliation (CSC-C01/D01).** Two real,
         confirmed SDK-internal disagreements: (a)
         `packages/sails-p2p-schemas`'s `DisputeStatus`/`DisputeStatusInput`
