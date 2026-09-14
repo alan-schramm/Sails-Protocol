@@ -18,6 +18,27 @@ already made — removed, see §6.2/§17. The session-expiry hook (§15) was
 also corrected to require an actually-established session token at
 dispatch time, not merely `auth: true` — see §15's own updated text.
 
+**Corrected 2026-09-14 (Mission 3 R2, CTO concurrency review):** this
+document previously implied (never stated outright, but never
+contradicted either) that `onSessionExpired` fires once, globally, per
+session expiry. **False, and now stated precisely:** the SDK hook fires
+once per QUALIFYING REQUEST — since multiple authenticated requests can
+legitimately share one session token, several of them can independently
+401 and each correctly invoke it for the SAME underlying expiry. A real
+concurrency defect followed from this in the reference UI's own reaction:
+the original guard (`userRef.current`, synced only via a `useEffect`
+running after React commits) could let more than one of those
+invocations pass before React ever caught up, each treating one expiry as
+a NEW episode. Fixed with `lib/sessionEpochGate.ts`, a small, pure,
+unit-tested, React-free mutual-exclusion mechanism — `login()`/`logout()`
+now update the authoritative session-active truth SYNCHRONOUSLY (never via
+an effect), and the handler synchronously claims the current episode
+before doing anything else, so concurrent observations of one expiry
+converge onto exactly one UI reaction. `sessionExpiry.at` (a `Date.now()`
+value inaccurately called "monotonic") is replaced by `sessionExpiry.episode`,
+a real, locally-unique, strictly-increasing counter — see §7/§15's own
+updated text.
+
 **Baseline:** `main@351ccea88815144ca4a805a10de6875558c1a4ac` (PR #146,
 CROSS-LAYER-SEMANTIC-CORRECTIVE-1 item 37, merged 2026-09-14).
 
@@ -428,6 +449,20 @@ doesn't depend on every future call site remembering to handle it
 individually (the failure mode found in §1.6 — one page's primary fetch
 had literally no `.catch()` at all).
 
+**Governing property (Mission 3 R2, stated explicitly so it is never
+re-violated by a future change):** many failed requests may observe one
+expired session. They must converge on one session-expiry episode.
+Request failure multiplicity ≠ session-expiry multiplicity. The SDK-level
+signal (`onSessionExpired`) is deliberately per-request — it does not,
+and should not, try to deduplicate at the transport layer, since the
+transport has no concept of "the same session episode" beyond the token
+value itself, which a UI consumer is better positioned to reason about
+alongside its own login/logout lifecycle. Convergence is therefore a
+product/UI-layer responsibility, done once, centrally, in
+`lib/sessionEpochGate.ts` — not re-implemented per call site, and not
+assumed away by treating the SDK hook as if it already had once-only
+semantics.
+
 **Q8, answered:** an SDK consumer (including `sails-ui`) can observe that
 a session expired (`onSessionExpired` fires) without gaining any new
 authority — the callback receives only the thrown `SailsAuthError`
@@ -678,14 +713,32 @@ protocol-level risk.
    generic SDK capability, available to every integrator, not a
    `sails-ui`-only mechanism** — directly satisfying §10's parity
    requirement for this fix.
-2. **`sails-ui`'s `AuthContext.tsx`:** registers the handler once. The
-   handler only reacts if there IS a previously-active session
-   (`user` is currently truthy) — this is the guard that keeps a genuine
-   session expiry distinct from an ordinary failed login attempt (§7, §11).
-   On a genuine expiry: clears `user`/`keypair`/`encryptionKey` (closing
-   the literal P3-F08.1 bug — "user stays non-null after a server-side
-   session expiry") and records a `sessionExpiry` signal (a monotonically
-   increasing marker plus the path the user was on).
+2. **`sails-ui`'s `AuthContext.tsx`:** registers the handler once — but
+   the handler itself can be CALLED more than once for the same
+   underlying expiry. **Stated precisely (Mission 3 R2 correction): the
+   SDK's `onSessionExpired` fires once per QUALIFYING REQUEST, not once
+   globally.** Multiple authenticated requests legitimately share one
+   session token; if it goes stale, several of them can independently
+   401 and each correctly reach this handler for the SAME episode — the
+   SDK is not wrong to call it more than once here, and this document
+   does not claim otherwise. Convergence to ONE UI reaction is a
+   **product/UI-layer responsibility**, not an SDK one: `lib/sessionEpochGate.ts`
+   (a small, pure, React-free module, unit-tested directly) is the sole
+   authoritative "is there an active session, and which one" truth —
+   `login()`/`logout()` call its `activate()`/`deactivate()` synchronously,
+   at the exact point they change session state (never inside a
+   `useEffect`, which only runs after React commits and cannot provide
+   mutual exclusion against several handler invocations arriving before
+   it does), and the handler calls its `claimExpiry()` — an atomic
+   check-then-clear, synchronous by construction — so only the FIRST
+   invocation for a given episode ever clears state and records a
+   `sessionExpiry` signal; every other concurrent invocation for that
+   same episode (and any late invocation after an explicit `logout()`)
+   correctly no-ops. `sessionExpiry.episode` is a real, locally-unique,
+   strictly-increasing counter, not a wall-clock timestamp (`Date.now()`
+   is neither guaranteed unique nor strictly monotonic for near-
+   simultaneous calls — precisely the case this mechanism has to get
+   right).
 3. **New `sails-ui` component** (mounted once, inside `<BrowserRouter>`,
    so it has router context): watches that signal, and on a NEW expiry
    (not already handled), shows one toast and navigates to `/login` with
@@ -723,6 +776,21 @@ related but distinct gap, registered in §17), no recovery-model work.
   a mocked response) while on `/trade/:id`, confirm the toast fires and the
   browser lands on `/login`, then confirm a successful login returns to
   the SAME `/trade/:id` URL.
+- Mission 3 R2 — the ONE piece of UI concurrency logic this mission
+  needed to prove could not honestly be left to "no test runner, so no
+  test": `lib/sessionEpochGate.ts` was extracted specifically so it could
+  be unit-tested directly (same extraction reasoning
+  `escrowErrorClassification.ts` already established), proving: (1) one
+  active session + one claim → exactly one non-null episode; (2) one
+  active session + several "concurrent" claims (simulating multiple
+  requests independently 401ing on the same expired token) → exactly ONE
+  claim succeeds, every other returns null; (3) a genuine re-login after
+  a claimed expiry produces a fresh, distinct, later episode, handled
+  normally; (4) logout followed by a late claim from a stale in-flight
+  request never manufactures a new episode; (5) a claim before any login
+  ever happened also returns null. Repeated the live browser re-auth
+  journey with GENUINE concurrent authenticated requests (not simulated
+  one-at-a-time) against the corrected mechanism.
 - Full backend unit suite unaffected (this slice touches no `src/` file) —
   re-run anyway as a regression check, since `packages/sails-sdk` is a
   workspace dependency of tests that import it.

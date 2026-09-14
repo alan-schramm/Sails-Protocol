@@ -16,6 +16,14 @@
  * context continuity here (Trade.tsx/OfferDetail.tsx/etc. all rebuild
  * their view from the URL param on mount) and what it deliberately does
  * NOT cover (in-memory draft state — disclosed there, not fixed here).
+ *
+ * Mission 3 R2 — AuthContext's own `sessionExpiry` is now set AT MOST
+ * ONCE per real expiry episode, even when several requests sharing one
+ * session independently 401 (`lib/sessionEpochGate.ts`'s own header has
+ * the full mechanism) — this component no longer needs to defend against
+ * receiving the SAME episode twice for that reason, but keeps the guard
+ * below anyway (cheap, and correct regardless of upstream behavior) using
+ * the real `episode` counter instead of a wall-clock timestamp.
  */
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router'
@@ -27,13 +35,14 @@ export function SessionExpiryRedirect() {
   const navigate = useNavigate()
   const location = useLocation()
   // Guards against redirecting twice for the SAME expiry (e.g. a second
-  // render before navigation commits) — compares the expiry's own `at`
-  // marker, not a boolean, so a genuinely NEW expiry later still fires.
-  const lastHandledAt = useRef<number | null>(null)
+  // render before navigation commits) — compares the expiry's own
+  // `episode` counter, not a boolean, so a genuinely NEW expiry later
+  // still fires.
+  const lastHandledEpisode = useRef<number | null>(null)
 
   useEffect(() => {
-    if (!sessionExpiry || sessionExpiry.at === lastHandledAt.current) return
-    lastHandledAt.current = sessionExpiry.at
+    if (!sessionExpiry || sessionExpiry.episode === lastHandledEpisode.current) return
+    lastHandledEpisode.current = sessionExpiry.episode
 
     if (location.pathname === '/login') return // already there — nothing to redirect away from
 
