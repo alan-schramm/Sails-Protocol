@@ -133,6 +133,41 @@ describe('SailsTransport — onSessionExpired (Mission 3 Slice 1, P3-F08.1)', ()
     expect(onSessionExpired.mock.calls[0][0].message).toBe('Session expired')
   })
 
+  it('Mission 3 R1 — auth:true with NO session token never reaches a 401 at all, and the hook never fires: "no session ≠ expired session"', async () => {
+    const fetchImpl = fakeFetch(401, { success: false, error: 'AUTH_ERROR', message: 'Session expired', details: [] })
+    const onSessionExpired = jest.fn()
+    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, onSessionExpired })
+    // Deliberately never calling setSessionToken() — this request was
+    // never carrying an established session to begin with.
+
+    await expect(transport.get('/v1/identity/me', undefined, true)).rejects.toThrow(SailsTransportError)
+
+    expect(fetchImpl).not.toHaveBeenCalled() // the transport's own pre-flight guard rejected this before any network call
+    expect(onSessionExpired).not.toHaveBeenCalled()
+  })
+
+  it('Mission 3 R1 — reasons from the token state captured AT DISPATCH time, not a later read: a token cleared WHILE this request is still in flight does not suppress the signal for the request that genuinely carried one', async () => {
+    const onSessionExpired = jest.fn()
+    let transport!: SailsTransport
+    // The fake fetch itself simulates "the token was cleared by a
+    // CONCURRENT logout()/onSessionExpired reaction elsewhere" partway
+    // through this SAME request's own network round-trip — proving the
+    // hook still fires correctly for THIS request (it dispatched with a
+    // real token) despite `this.sessionToken` being null by the time the
+    // response is actually processed.
+    const fetchImpl = jest.fn().mockImplementation(async () => {
+      transport.setSessionToken(null)
+      return { ok: false, status: 401, json: async () => ({ success: false, error: 'AUTH_ERROR', message: 'Session expired', details: [] }) }
+    })
+    transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, onSessionExpired })
+    transport.setSessionToken('session-abc')
+
+    await expect(transport.get('/v1/identity/me', undefined, true)).rejects.toThrow(SailsAuthError)
+
+    expect(onSessionExpired).toHaveBeenCalledTimes(1) // still fires — this request genuinely dispatched with a real token
+    expect(transport.getSessionToken()).toBeNull() // confirms the race actually happened, not a no-op
+  })
+
   it('does NOT fire for an unauthenticated call\'s error — there was no session to lose in the first place', async () => {
     const fetchImpl = fakeFetch(401, { success: false, error: 'AUTH_ERROR', message: 'Session expired', details: [] })
     const onSessionExpired = jest.fn()

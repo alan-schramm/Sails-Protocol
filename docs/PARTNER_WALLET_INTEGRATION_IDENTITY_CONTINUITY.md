@@ -5,6 +5,19 @@
 (§9) is explicitly hypotheses, not decisions — see that section's own
 banner.
 
+**Corrected 2026-09-14 (Mission 3 R1, CTO precision/reconciliation
+review):** this document's original version incorrectly equated Economic
+Identity with `User.id`, contradicting this repo's own already-
+institutionalized truth (Economic Identity is currently represented by
+`User.publicKey` — `DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5,
+`CRYPTOGRAPHIC_MODEL.md` §1) — corrected throughout, see §1.4's own
+precise four-way terminology. It also incorrectly claimed
+`CRYPTOGRAPHIC_MODEL.md` §1 was still stale and registered a duplicate
+backlog obligation for a correction PR #93 (merged 2026-09-08) had
+already made — removed, see §6.2/§17. The session-expiry hook (§15) was
+also corrected to require an actually-established session token at
+dispatch time, not merely `auth: true` — see §15's own updated text.
+
 **Baseline:** `main@351ccea88815144ca4a805a10de6875558c1a4ac` (PR #146,
 CROSS-LAYER-SEMANTIC-CORRECTIVE-1 item 37, merged 2026-09-14).
 
@@ -92,17 +105,59 @@ not yet cleanly support committing to a single final model"** verdict)
 confirms the current reality: the three domains have **zero cryptographic
 binding** today — association between a `User` row's `publicKey` and its
 `peerId` is "entirely server-mediated (a database row)," not proven by any
-signature or derivation. It also flags a live doc-drift bug:
-`CRYPTOGRAPHIC_MODEL.md` §1 still claims "the same keypair *is* the node's
-HyperDHT identity" — no longer true since `pear.service.ts`'s 2026-08-09
-fix made transport keys ephemeral per session. **This document's own §6
-below corrects that stale line rather than leaving it standing.**
+signature or derivation.
 
-**1.4 — Identity is already a real database row, not literally a key.**
-`src/modules/open-identity/identity.service.ts`'s `register()` creates a
-`User` row (`id String @id @default(uuid())`, `publicKey String @unique`,
-`peerId String? @unique`). Economic Identity is `User.id` — a UUID a
-`publicKey` is attached to, not the key itself. `packages/sails-sdk/src/modules/identity.ts`'s
+**Correction (Mission 3 R1, 2026-09-14): an earlier version of this
+document claimed `CRYPTOGRAPHIC_MODEL.md` §1 still carried a stale
+"one primitive, not two" claim about transport keys. That claim itself was
+stale — PR #93 (merged 2026-09-08, "institutional cold sweep... close
+#60") already corrected `CRYPTOGRAPHIC_MODEL.md` §1 directly, closing
+`docs/TECHNICAL_DEBT_AUDIT.md` item 60, with its own dated
+"Corrected/Current-truth update (2026-09-08, TECHNICAL_DEBT_AUDIT.md item
+60)" block stating, verbatim: "Economic identity = `User.publicKey`...
+Transport identity = a separate, ephemeral Ed25519 keypair (`User.peerId`)...
+The association between the two is server-mediated — a database row... not
+an independent cryptographic binding." This is EXACTLY §1.3's own citation
+above, already institutionalized. No further doc correction is owed here —
+see §17's own reconciliation of the duplicate obligation this earlier
+version mistakenly registered.**
+
+**1.4 — Terminology this document uses precisely from here on (the exact
+distinction Mission 3 R1 requires, stated once and then held to
+consistently) — four DIFFERENT things, never collapsed into one:**
+
+- **Participant record / durable database identifier** = `User.id` (a
+  UUID, `@id @default(uuid())`). This is what a Prisma foreign key
+  actually references, what reputation columns (`reputationScore`,
+  `totalTrades`, `disputeCount`, `cumulativeFeesObserved`) live on the
+  same row as, and what persists across sessions regardless of which key
+  authenticated into it.
+- **Current reference representation of Participant Economic Identity**
+  = `User.publicKey` (per §1.3's own DAY0_COMPLETENESS_COLD_SWEEP.md
+  citation and `CRYPTOGRAPHIC_MODEL.md` §1's own corrected text). This is
+  what a challenge-response login actually proves control of, and what an
+  outside observer verifies — nobody presents a UUID to authenticate.
+- **Participant Transport Identity** = `User.peerId`, a separate,
+  ephemeral Ed25519 keypair, cryptographically unrelated to `publicKey`
+  (§1.3 above).
+- **Funds Authority** = a distinct, transaction/settlement-specific
+  authority, proven per-transaction against whatever key a
+  `WalletAdapter`/`CustodyProvider` used to sign an `EscrowPendingTransaction`
+  — never assumed from either of the identity representations above (§5's
+  own Q3 answer covers this in full).
+
+**Database row identity ≠ automatically protocol Economic Identity** —
+stated explicitly because an earlier version of this document violated it:
+`User.id` is the durable record; `User.publicKey` is what this repo's own
+already-institutionalized truth (§1.3) currently designates as the
+Economic Identity representation attached to that record. This document
+does NOT invent a new semantic identity primitive, and does not silently
+promote `User.id` to be "the" Economic Identity — whether `User.id` SHOULD
+eventually become the canonical Economic-Identity abstraction (with
+`publicKey` demoted to "the currently-authenticating key," rotatable) is a
+real, undecided question, registered as an Architecture Decision Required
+in §14, not decided here. `src/modules/open-identity/identity.service.ts`'s
+`register()` creates the `User` row with both fields; `packages/sails-sdk/src/modules/identity.ts`'s
 `create()`/`createWithPublicKey()` never touch or transmit a secret key;
 auth is Ed25519 challenge-response, not wallet-address-based. A partner
 wallet can reproduce registration/auth with its own Ed25519 keypair without
@@ -177,7 +232,8 @@ already exist independently:
 ┌─────────────────────────────────────────────────────────────────┐
 │  Sails Protocol backend (this repo's `src/`)                     │
 │                                                                     │
-│   Identity (User row, publicKey)  — Economic Identity              │
+│   Identity (User.id record; User.publicKey = Economic Identity's    │
+│   current representation, §1.4)                                     │
 │   Session (Ed25519 challenge-response, bearer token) — Transport   │
 │                                                          auth        │
 │   SettlementProvider registry (MULTISIG / LIGHTNING_HODL /          │
@@ -205,7 +261,7 @@ partner's own `WalletAdapter`/`CustodyProvider` couldn't equally supply.**
 | Fund/sign | `EscrowPendingTransaction` (real name, not `FundingInstruction`/`SigningRequest` — see §6.1) via `initiateRelease()`/`initiateRefund()`/`getPendingTransaction()`, signed via `submitTransactionSignature()` | none in the mechanism; naming mismatch with mission brief noted |
 | Preserve trade context across interruption/re-auth | **Does not exist today for mid-flow expiry** (P3-F08.2) | **real gap — closed by Slice 1, §15** |
 | Complete/recover | Trade lifecycle unaffected by this mission | none |
-| Retain identity and reputation continuity | `User.id` persists across sessions; reputation (`reputation.service.ts`) is keyed to `User.id`, survives re-login with the SAME keypair | continuity across a **different** keypair/wallet is the unresolved recovery question — §9 |
+| Retain identity and reputation continuity | The durable Participant record (`User.id`) persists across sessions, and reputation columns live on that same row — but today the ONLY way back to that row is re-authenticating with the SAME `publicKey` (no rotation mechanism exists), so continuity is, in practice, continuity of the key, not yet a property of `User.id` independent of it | continuity across a **different** keypair/wallet is the unresolved recovery question — §9; whether `User.id` should become an abstraction independent of its authenticating key is §14's new architecture-decision item |
 
 ---
 
@@ -217,7 +273,7 @@ partner's own `WalletAdapter`/`CustodyProvider` couldn't equally supply.**
 | Initialize Sails | `new SailsClient({ baseUrl })` | none |
 | Provide wallet capability | Pass `{ wallet: MyWalletAdapter }` to the constructor, or call `sailsClient.setSessionToken`-style setters later | none |
 | Handle session/auth | `identity.create()`/`identity.authenticate()`; session token held in `SailsTransport`, sent as `Authorization: Bearer` on every `auth:true` call | **no app-wide session-expiry SIGNAL exists in the SDK today** — §15 adds one, generically, for every SDK consumer, not just `sails-ui` |
-| Expose Economic Identity | `identity.me()` / `identity.get()` return `PublicParticipant`/`Participant` keyed by `User.id` | none |
+| Expose Economic Identity | `identity.me()` / `identity.get()` return `PublicParticipant`/`Participant` — carries `id` (the durable record), `publicKey` (Economic Identity's current representation), and `peerId` (Transport Identity) together, §1.4 | none |
 | Receive `FundingInstruction`/`SigningRequest` | Real equivalent is `EscrowPendingTransaction` (§6.1) | naming only — mechanism is real and already public |
 | Sign through partner's own wallet stack | `WalletAdapter.signTransaction`/`signMessage`, or the escrow-key helpers in `packages/sails-sdk/src/...` (`generateEscrowKeypair`, `signEscrowPsbt`, `verifyAndSignEscrowPsbt`, etc.) — all public exports | none |
 | Observe settlement state | `settlement.get(escrowId)`, `getPendingTransaction()`, WS events | none |
@@ -250,9 +306,11 @@ NO implementation or server code asks it to do):**
   server-side registry decision (`settlement-provider-registry.ts`)
   against a `SettlementScope`, not something a client-side adapter is ever
   asked
-- Holding or attesting to Economic Identity — `WalletAdapter` signs; it
-  does not register, does not create a `User` row, does not claim to BE
-  the identity (§1.4 — the identity is the row, not the key)
+- Holding or attesting to Economic Identity — `WalletAdapter` signs
+  TRANSACTIONS; it does not register a Participant, does not create a
+  `User` row, and does not itself claim to BE the durable record OR the
+  Economic Identity representation attached to it (§1.4's own four-way
+  distinction)
 - Enforcing authorization/capability checks — those are `capabilityRegistry`
   checks server-side (RFC-013/RFC-005), never something a `WalletAdapter`
   is consulted about
@@ -264,16 +322,17 @@ Economic Identity?** Today's actual mechanism: Funds Authority is proven
 per-transaction, at signature-verification time, against whatever key a
 `WalletAdapter`/`CustodyProvider` used to sign — the protocol never asks
 "is this the SAME key as your Economic Identity's `publicKey`?" A
-participant's `User.id` (Economic Identity) can, in principle, be
+participant's Economic Identity (`User.publicKey`) can, in principle, be
 associated with signing authority delegated to a *different* key entirely
-(this is exactly what `SAFE_GUARD_EVM`/`RFC-020`'s KMS co-signer model
-already does — the escrow's signing key is not the participant's identity
-key). The binding is: Economic Identity says WHO is trading; a
-`WalletAdapter`/`CustodyProvider` signature proves WHOSE FUNDS moved for
+for a given escrow (this is exactly what `SAFE_GUARD_EVM`/`RFC-020`'s KMS
+co-signer model already does — the escrow's signing key is not the
+participant's own identity key). The binding is: Economic Identity says
+WHO is trading (backed by the durable `User.id` record it's attached to);
+a `WalletAdapter`/`CustodyProvider` signature proves WHOSE FUNDS moved for
 this specific transaction — the protocol verifies the signature against
-the transaction's own required-signer set, not against the identity
-record. **This separation already holds in code** (RFC-019/RFC-020's own
-stated purpose is closing the one place it didn't: `WdkSettlementProvider`
+the transaction's own required-signer set, never against the identity
+record itself. **This separation already holds in code** (RFC-019/RFC-020's
+own stated purpose is closing the one place it didn't: `WdkSettlementProvider`
 signing from one server-held seed — a disclosed, in-progress-remediation
 gap, not a design flaw in the adapter boundary itself).
 
@@ -292,29 +351,35 @@ consumed via `getPendingTransaction()`, and closed via
 where it clarifies intent, but the actual integration contract a partner
 implements against is `EscrowPendingTransaction`, not an invented type.
 
-**6.2 — The three-identity boundary, stated as this repo's own frozen
-truth (§1.3), with one correction:**
+**6.2 — The three-identity boundary, stated as this repo's own frozen,
+ALREADY-CORRECTED truth (§1.3/§1.4) — no correction owed here:**
 
-- **Economic Identity** = `User.id` (a UUID), with `publicKey` attached.
-  Non-custodial by requirement. This is WHO the protocol considers a
-  participant to be across sessions, trades, and reputation history.
+- **Economic Identity** — currently represented by `User.publicKey`,
+  attached to the durable Participant record `User.id`. Non-custodial by
+  requirement. `User.publicKey` is WHO the protocol currently recognizes a
+  participant to be across sessions, trades, and reputation history (in
+  practice, via that same durable row) — see §1.4's own explicit
+  "database row identity ≠ automatically protocol Economic Identity"
+  statement and §14's new architecture-decision item on whether that
+  should change.
 - **Funds Authority** = whoever can produce a valid signature satisfying an
   `EscrowPendingTransaction`'s `requiredSigners` for a specific asset/rail.
-  Proven per-transaction, never assumed from identity.
+  Proven per-transaction, never assumed from either identity
+  representation above.
 - **Transport Identity** = `User.peerId`, today an ephemeral, per-session
   P2P transport identifier (`pear.service.ts`, HyperDHT/Hyperswarm-based),
   **regenerated every session** since the 2026-08-09 fix that made
   `PearNode.start()` produce a fresh keypair each time.
 
-**Correction to standing docs, made here per this repo's own
-`docs/ENGINEERING_GOVERNANCE.md` §16 discipline (never a silent edit):**
-`docs/CRYPTOGRAPHIC_MODEL.md` §1 currently states *"the same keypair *is*
-the node's HyperDHT/Hyperswarm identity... the derived `peerId` is
-literally [the public key]."* **This is stale as of the 2026-08-09
-`pear.service.ts` fix** and should be corrected in that file directly (not
-done in this document, which is design-only — flagged here as a §17
-backlog item, since fixing it is a one-paragraph doc correction, not an
-architecture decision).
+**`CRYPTOGRAPHIC_MODEL.md`'s own corrected status (verified directly,
+2026-09-14):** `docs/CRYPTOGRAPHIC_MODEL.md` §1 carries a dated
+"Corrected/Current-truth update (2026-09-08, TECHNICAL_DEBT_AUDIT.md item
+60)" block (added by PR #93, merged 2026-09-08) stating exactly the
+`publicKey`/`peerId` split above, verbatim, including "the association
+between the two is server-mediated... not an independent cryptographic
+binding." **This document previously, incorrectly, claimed that file was
+still stale and registered a duplicate correction obligation — removed;
+see §17.**
 
 **6.3 — Q4/Q5, answered honestly as unresolved (see §9 for why this is not
 decided here):** there is currently **no relationship** between a recovery
@@ -407,14 +472,20 @@ What follows are candidate directions surfaced for a future, dedicated
 evidence-gathering pass — not a menu to pick from casually.
 
 - **Hypothesis R1 — Server-side recovery, out-of-band re-linking.** A
-  participant proves control of their EXISTING `User.id` via some
-  out-of-band channel (not yet specified — email/social/hardware-key are
-  all unexamined for this protocol's own threat model) and the server
-  re-associates a NEW `publicKey` with the same `User.id`. Preserves
+  participant proves control of their EXISTING durable Participant record
+  (`User.id`) via some out-of-band channel (not yet specified —
+  email/social/hardware-key are all unexamined for this protocol's own
+  threat model) and the server re-associates a NEW `publicKey` (a new
+  Economic Identity representation) with that same `User.id`. Preserves
   reputation continuity trivially (it's the same row). Risk: this is a
   centralization point and a real attack surface (account-takeover via
   whatever the out-of-band channel is) — explicitly flagged, not
-  minimized.
+  minimized. **Note:** R1 only makes sense as a recovery mechanism if
+  `User.id` is treated as a stable abstraction independent of whichever
+  key currently authenticates it — exactly the §14 architecture question
+  this document declines to pre-decide; R1 is presented as a hypothesis
+  that WOULD depend on that decision going a particular way, not as
+  evidence the decision has already been made.
 - **Hypothesis R2 — Deterministic derivation from a recovery root, with a
   DIFFERENT key per protocol/purpose.** A BIP-32-style hierarchical
   derivation where the Economic Identity key is one leaf and a wallet's
@@ -554,12 +625,17 @@ required asymmetry was found.**
    mechanism) rather than speculatively building a generic event bus; if
    more lifecycle signals are needed later, this is the natural extension
    point, not a redesign.
-3. **Whether `CRYPTOGRAPHIC_MODEL.md` §1's stale HyperDHT-identity claim
-   (§6.2) should be corrected as part of this mission's own PR, or as a
-   separate, smaller doc-only follow-up** — recommended as a separate,
-   trivial follow-up (registered in §17) since it's a one-paragraph
-   correction unrelated to the code change in Slice 1, and bundling it
-   would blur this PR's own diff.
+3. **Whether `User.id` (the durable Participant record) should become the
+   CANONICAL Economic Identity abstraction, with `User.publicKey` demoted
+   to "the key currently authenticating it" (rotatable), rather than
+   `publicKey` itself being the Economic Identity representation as it is
+   today (§1.4/§6.2).** Raised directly by Hypothesis R1 (§9) — R1 only
+   makes sense as a recovery mechanism under this reframing. Explicitly
+   NOT decided by this mission (Mission 3 R1's own correction instruction:
+   "do not silently freeze it") — this is a real architectural fork with
+   consequences for the recovery-model evidence pass (§9/§17) and for
+   every place this document (and this repo's own `DAY0_COMPLETENESS_COLD_SWEEP.md`
+   §3.5 taxonomy) currently states Economic Identity's representation.
 
 ---
 
@@ -584,14 +660,24 @@ protocol-level risk.
    `onSessionExpired?: (err: SailsAuthError) => void` constructor option
    and a `setOnSessionExpired()` setter (mirroring the existing
    `setSessionToken()` pattern). The transport's own request-handling code
-   invokes it whenever an **authenticated** call (`opts.auth === true`)
-   receives a response that maps to `SailsAuthError` — invoked before the
-   error is thrown, wrapped in its own try/catch so a broken handler can
-   never break the real request flow. `SailsClient` exposes the same
-   option/setter, delegating to the transport, exactly like
-   `setSessionToken()` already does. **This is a generic SDK capability,
-   available to every integrator, not a `sails-ui`-only mechanism** — directly
-   satisfying §10's parity requirement for this fix.
+   invokes it only when a request that **actually dispatched carrying an
+   established session token** receives a response that maps to
+   `SailsAuthError` — invoked before the error is thrown, wrapped in its
+   own try/catch so a broken handler can never break the real request
+   flow. **Corrected (Mission 3 R1):** the original condition
+   (`opts.auth === true`) was insufficient — an `auth: true` request can
+   exist with no session token at all, and "no session ≠ expired session."
+   The transport now captures whether THIS SPECIFIC request dispatched
+   with a real token in a local variable at header-construction time
+   (`dispatchedWithSessionToken`), and gates the hook on THAT captured
+   value — never on a later, possibly-mutated read of the transport's
+   current token (which could have changed, e.g. via a concurrent
+   `logout()`, while this same request's retries were still in flight).
+   `SailsClient` exposes the same option/setter, delegating to the
+   transport, exactly like `setSessionToken()` already does. **This is a
+   generic SDK capability, available to every integrator, not a
+   `sails-ui`-only mechanism** — directly satisfying §10's parity
+   requirement for this fix.
 2. **`sails-ui`'s `AuthContext.tsx`:** registers the handler once. The
    handler only reacts if there IS a previously-active session
    (`user` is currently truthy) — this is the guard that keeps a genuine
@@ -621,11 +707,15 @@ related but distinct gap, registered in §17), no recovery-model work.
 
 - `npx tsc --noEmit` clean at repo root, `packages/sails-sdk`,
   `packages/sails-ui`.
-- New SDK-level unit tests in `packages/sails-sdk/tests/` proving:
-  `onSessionExpired` fires exactly once per qualifying 401 on an
-  authenticated call; does NOT fire for a non-authenticated call's 401 (if
-  reachable); does NOT fire for `SailsForbiddenError`/`SailsNotFoundError`/etc.;
-  a handler that throws does not break the caller's own rejection.
+- New SDK-level unit tests in `packages/sails-sdk/tests/` proving the
+  corrected (Mission 3 R1) firing condition exactly: (1) `auth:true` +
+  a real session token + a 401 response → fires exactly once; (2)
+  `auth:true` + NO session token + a 401 → does not fire (this is the
+  case the original condition missed — "no session ≠ expired session");
+  (3) `auth:false` + a 401 → does not fire; (4) a 403 (or other error
+  class) on an authenticated call with a real session → does not fire;
+  (5) a handler that itself throws never replaces the real request's own
+  thrown error.
 - `packages/sails-ui` has no test runner (TD#62/#63, disclosed, pre-existing,
   unchanged by this mission) — verified instead via `tsc --noEmit` plus a
   live dev-server browser check: simulate an expired session (clear the
@@ -641,25 +731,39 @@ related but distinct gap, registered in §17), no recovery-model work.
 
 ## 17. Master Backlog Delta
 
-New items to register in `docs/BACKLOG.md` (not yet added — pending CTO
-Gate on this document; numbers are placeholders to be assigned at
-registration time, continuing from the current highest item):
+**Corrected 2026-09-14 (Mission 3 R1) — rebuilt after removing a duplicate
+obligation this document had mistakenly registered.** Each item below is
+classified per the CTO's own required categories: genuinely new
+obligation; already registered obligation / cross-reference only; Product
+Decision required; Architecture Decision required. Numbers remain
+placeholders, assigned at `docs/BACKLOG.md` registration time.
+
+**Reconciled, NOT a new obligation (duplicate found and removed):** the
+original version of this document registered a **[NEW-C]** item claiming
+`docs/CRYPTOGRAPHIC_MODEL.md` §1 still carried a stale identity claim and
+needed a correction PR. **This was wrong** — PR #93 (merged 2026-09-08,
+"institutional cold sweep... close #60") already corrected that exact
+file directly, closing `docs/TECHNICAL_DEBT_AUDIT.md` item 60, with a
+dated correction block already stating the current `publicKey`/`peerId`
+split this document itself relies on (§1.3, §6.2). **No backlog item is
+registered for this** — it is **already registered obligation / cross-
+reference only**, satisfied by PR #93 and TD#60, both closed. Any future
+reader of this document should treat `CRYPTOGRAPHIC_MODEL.md` §1 as
+current, not stale.
+
+**Genuinely new obligations:**
 
 - **[NEW-A] P3-F08.1/F08.2 closure — Slice 1 implementation record.**
-  Closed by this mission's Slice 1 (§15); full evidence per §16.
+  Closed by this mission's Slice 1 (§15); full evidence per §16. Register
+  as a closure record (these were escalated gaps, not previously-numbered
+  `BACKLOG.md` items, so this is the first formal entry for them).
 - **[NEW-B] Recovery model evidence-and-privacy pass (§9).** Dedicated
   future mission: evaluate R1/R2/R3 (or others) against the unlinkability
   requirement in §9's own closing paragraph, BEFORE any derivation scheme
   is prototyped. Explicitly blocked on nothing in this mission — can start
-  independently, whenever prioritized.
-- **[NEW-C] `CRYPTOGRAPHIC_MODEL.md` §1 stale HyperDHT-identity correction
-  (§6.2, §14.3).** One-paragraph doc fix, unrelated to Slice 1's code
-  change — recommended as its own tiny follow-up PR.
-- **[NEW-D] Reference-UI F-09 conflation (§10, §13.3).** Product decision
-  needed on whether `sails-ui`'s demo `login()` should visibly separate
-  identity-key creation from `WalletAdapter` construction, so the
-  reference implementation more faithfully models the intended partner
-  pattern (a real wallet's OWN key, not the same key twice).
+  independently, whenever prioritized. Depends on **[NEW-G]** below being
+  decided first, or at least held open alongside it (R1 specifically only
+  makes sense under one answer to that question — §9's own note).
 - **[NEW-E] Primary-fetch uncaught-rejection pattern, generalized beyond
   auth (§11).** `Trade.tsx`'s (and possibly other pages') top-level
   data-fetch effects have no `.catch()` for non-auth errors either
@@ -667,7 +771,28 @@ registration time, continuing from the current highest item):
   case via the new global interceptor; the broader "every page's primary
   fetch should have SOME user-visible failure state" pattern is a real,
   separate, larger UI-hardening item, not attempted here.
+
+**Product Decision required:**
+
+- **[NEW-D] Reference-UI F-09 conflation (§10, §13.3).** Whether
+  `sails-ui`'s demo `login()` should visibly separate identity-key
+  creation from `WalletAdapter` construction, so the reference
+  implementation more faithfully models the intended partner pattern (a
+  real wallet's OWN key, not the same key twice).
 - **[NEW-F] Draft/in-progress trade-context preservation (§8, §13.4).**
-  Product decision + design needed if chat drafts / evidence text /
-  unsubmitted form state should survive a forced re-auth, beyond the
-  URL-level continuity Slice 1 already provides.
+  Whether chat drafts / evidence text / unsubmitted form state should
+  survive a forced re-auth, beyond the URL-level continuity Slice 1
+  already provides.
+
+**Architecture Decision required:**
+
+- **[NEW-G] Canonical Economic Identity abstraction — `User.id` vs.
+  `User.publicKey` (§1.4, §6.2, §9's R1 note, §14.3).** Whether the
+  durable Participant record (`User.id`) should become the canonical
+  Economic Identity abstraction (with `publicKey` demoted to "the key
+  currently authenticating it," rotatable), or whether `publicKey` itself
+  should remain the Economic Identity representation, as this repo's own
+  `DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5 and `CRYPTOGRAPHIC_MODEL.md` §1
+  currently state. Explicitly NOT decided by this mission — raised by,
+  and blocking a real choice in, Hypothesis R1 of the recovery-model pass
+  (**[NEW-B]**).
