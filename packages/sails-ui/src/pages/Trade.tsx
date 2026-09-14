@@ -111,16 +111,26 @@ export function Trade() {
   // classifySigningWatchError() (lib/escrowErrorClassification.ts) so it
   // can be unit-tested directly (this page can't be rendered —
   // packages/sails-ui has no test runner configured, TD#62/#63). This
-  // function still owns the toast text/side effect; the four toast
-  // strings below are byte-for-byte unchanged from before this refactor.
+  // function still owns the toast text/side effect; the remaining toast
+  // strings below are byte-for-byte unchanged from before that refactor.
+  //
+  // Mission 3 Slice 1 (2026-09-14, docs/PARTNER_WALLET_INTEGRATION_IDENTITY_CONTINUITY.md
+  // §11/§15) — the 'session-expired' case that used to live here (a local
+  // toast only, page stayed put with a now-dead session) is REMOVED, not
+  // just silenced: AuthContext.tsx's new app-wide onSessionExpired
+  // interceptor now reacts to the SAME underlying SailsAuthError with a
+  // strictly better outcome (clears the stale session AND redirects to
+  // /login with a real path back to this exact trade), superseding this
+  // local toast rather than duplicating it. Every other case here is
+  // UNCHANGED — SailsForbiddenError/WrongPassphraseError/unknown are not
+  // session expiries and must keep their own distinct, local reactions.
   const ignoreExceptWrongPassphrase = (err: unknown) => {
     switch (classifySigningWatchError(err)) {
       case 'wrong-passphrase':
         toast.error((err as WrongPassphraseError).message)
         break
       case 'session-expired':
-        toast.error('Sua sessão expirou — reconecte para continuar acompanhando a assinatura deste escrow.')
-        break
+        break // handled globally — see this function's own comment above
       case 'forbidden':
         toast.error('Não foi possível verificar sua permissão para assinar este escrow.')
         break

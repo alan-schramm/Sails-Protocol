@@ -5,7 +5,7 @@
  * real once RFC-018's Intent -> Trade -> Escrow link existed).
  */
 import { SailsClient } from '../src/client'
-import { SailsNotImplementedError } from '../src/errors'
+import { SailsAuthError, SailsNotImplementedError } from '../src/errors'
 
 function fakeFetch(status: number, body: unknown): jest.Mock {
   return jest.fn().mockResolvedValue({ ok: status >= 200 && status < 300, status, json: async () => body })
@@ -248,6 +248,33 @@ it('exposes every Protocol SDK module (SDK_GUIDE.md section 2)', () => {
     await client.identity.me()
     const [, init] = fetchImpl.mock.calls[0]
     expect(init.headers.authorization).toBe('Bearer manually-set-token')
+  })
+
+  // Mission 3 Slice 1 (docs/PARTNER_WALLET_INTEGRATION_IDENTITY_CONTINUITY.md
+  // §15/§16, P3-F08.1) — SailsTransport's own tests already prove the
+  // signal's real semantics in depth; this only proves SailsClient wires
+  // both the constructor option and the post-construction setter through
+  // to the SAME shared transport, exactly like setSessionToken() above.
+  it('onSessionExpired passed at construction fires when an authenticated call gets a real session-expiry 401', async () => {
+    const fetchImpl = fakeFetch(401, { success: false, error: 'AUTH_ERROR', message: 'Session expired', details: [] })
+    const onSessionExpired = jest.fn()
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch, onSessionExpired })
+    client.setSessionToken('session-abc')
+
+    await expect(client.identity.me()).rejects.toThrow(SailsAuthError)
+    expect(onSessionExpired).toHaveBeenCalledTimes(1)
+  })
+
+  it('setOnSessionExpired() registers a handler on the shared transport after construction', async () => {
+    const fetchImpl = fakeFetch(401, { success: false, error: 'AUTH_ERROR', message: 'Session expired', details: [] })
+    const client = new SailsClient({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    client.setSessionToken('session-abc')
+
+    const onSessionExpired = jest.fn()
+    client.setOnSessionExpired(onSessionExpired)
+
+    await expect(client.identity.me()).rejects.toThrow(SailsAuthError)
+    expect(onSessionExpired).toHaveBeenCalledTimes(1)
   })
 })
 

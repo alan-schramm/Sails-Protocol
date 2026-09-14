@@ -5,6 +5,7 @@ import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import { TooltipProvider } from './components/ui/tooltip'
 import { Layout } from './components/layout/Layout'
+import { SessionExpiryRedirect } from './components/auth/SessionExpiryRedirect'
 
 // Route-level code splitting (2026-08-11) — vite build's own warning
 // (a single ~2.6MB chunk) was every page in one bundle regardless of
@@ -42,6 +43,7 @@ export default function App() {
         <TooltipProvider>
           <BrowserRouter>
             <ThemedToaster />
+            <SessionExpiryRedirect />
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route element={<Layout />}>

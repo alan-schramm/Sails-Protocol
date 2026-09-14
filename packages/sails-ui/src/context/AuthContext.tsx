@@ -38,12 +38,13 @@
  * feedback_no_platform_operator_visibility (memory) for the full
  * non-custodial reasoning.
  */
-import React, { createContext, useContext, useMemo, useState } from 'react'
-import { generateKeypair, LocalKeypairWalletAdapter, type Ed25519Keypair, type WalletAdapter } from '@satsails/p2p-trading-sdk'
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { generateKeypair, LocalKeypairWalletAdapter, type Ed25519Keypair, type WalletAdapter, type SailsAuthError } from '@satsails/p2p-trading-sdk'
 import type { User } from '../types'
 import { sailsClient } from '../lib/sailsClient'
 import { deriveKeyFromPassphrase, encryptBytes, decryptBytes } from '../lib/keyEncryption'
 import { WrongPassphraseError } from '../lib/errors'
+import { createSessionEpochGate } from '../lib/sessionEpochGate'
 
 const KEYPAIR_STORAGE_KEY = 'sails_ui_keypair_secret_hex'
 
@@ -148,6 +149,22 @@ interface AuthContextType {
   // signMessage — this is still the demo-only localStorage key disclosed
   // above, not a step toward real wallet custody.
   wallet: WalletAdapter | null
+  // Mission 3 Slice 1/R2 (docs/PARTNER_WALLET_INTEGRATION_IDENTITY_CONTINUITY.md
+  // §15) — closes P3-F08.1/F08.2. Set at most once per genuine session-
+  // expiry EPISODE (never for an ordinary failed login attempt, and never
+  // more than once for the SAME underlying expiry even when several
+  // authenticated requests sharing that session independently 401 — see
+  // `lib/sessionEpochGate.ts`'s own header for the concurrency mechanism
+  // that guarantees this). `path` is where the user was when it
+  // happened, consumed by SessionExpiryRedirect.tsx to send them back to
+  // the SAME page via Login.tsx's existing `{state:{from}}` return-path
+  // convention (OfferDetail.tsx already established this same pattern
+  // for the INITIAL auth gate — this reuses it, not a new one). `episode`
+  // is a real, locally-unique, strictly-increasing counter (never a
+  // wall-clock timestamp — see `sessionEpochGate.ts`'s own header for why
+  // `Date.now()` is imprecise for this) so the redirect effect can tell a
+  // NEW expiry apart from one it already handled.
+  sessionExpiry: { episode: number; path: string } | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -157,7 +174,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [keypair, setKeypair] = useState<Ed25519Keypair | null>(null)
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null)
   const [loading, setLoading] = useState(false)
+  const [sessionExpiry, setSessionExpiry] = useState<{ episode: number; path: string } | null>(null)
   const wallet = useMemo(() => (keypair ? new LocalKeypairWalletAdapter(keypair) : null), [keypair])
+
+  // Mission 3 R2 — the SOLE authoritative "is there an active session,
+  // and which one" truth, created once and never recreated for the
+  // lifetime of this provider. Deliberately NOT React state and NOT a
+  // ref synced via useEffect (that was the original, defective
+  // mechanism — see this file's own git history / the design doc's §7
+  // for the exact race it had): `login()`/`logout()` call
+  // `activate()`/`deactivate()` synchronously, in the same call, at the
+  // exact point they change session state, and the handler below calls
+  // `claimExpiry()` synchronously too — see `sessionEpochGate.ts`'s own
+  // header for the full concurrency argument.
+  const epochGateRef = useRef<ReturnType<typeof createSessionEpochGate> | null>(null)
+  if (epochGateRef.current === null) epochGateRef.current = createSessionEpochGate()
+
+  useEffect(() => {
+    sailsClient.setOnSessionExpired((_err: SailsAuthError) => {
+      // Multiple authenticated requests can legitimately share one
+      // session token; if it expires, several of them can independently
+      // reach this handler for the SAME underlying episode (the SDK's
+      // own onSessionExpired fires once per QUALIFYING REQUEST, not once
+      // globally — see SailsTransportOptions.onSessionExpired's own doc
+      // comment). claimExpiry() is what converges all of those
+      // observations onto AT MOST ONE reaction: only the first call
+      // reaching this line for the current epoch gets a non-null result;
+      // every other one (including a late call after an explicit
+      // logout() already ran) gets null and no-ops below.
+      const claimedEpoch = epochGateRef.current!.claimExpiry()
+      if (claimedEpoch === null) return
+      setUser(null)
+      setKeypair(null)
+      setEncryptionKey(null)
+      sailsClient.setSessionToken(null)
+      setSessionExpiry({ episode: claimedEpoch, path: window.location.pathname + window.location.search })
+    })
+    return () => sailsClient.setOnSessionExpired(undefined)
+  }, [])
 
   const login = async (passphrase: string) => {
     setLoading(true)
@@ -176,6 +230,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // transport for every subsequent authenticated call.
       await sailsClient.identity.authenticate(keypair)
       const participant = await sailsClient.identity.me()
+      // Mission 3 R2 — activate() BEFORE the React state setters below,
+      // synchronously, in this same function (never deferred to an
+      // effect): the epoch gate must already reflect "this session is
+      // active" the instant a caller could possibly observe `user`
+      // becoming non-null, since a request racing this same login could
+      // otherwise reach the onSessionExpired handler in between.
+      epochGateRef.current!.activate()
       setUser(toUser(participant))
       setKeypair(keypair)
       setEncryptionKey(derivedKey)
@@ -185,6 +246,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const logout = () => {
+    // Mission 3 R2 — deactivate() synchronously, same reasoning as
+    // activate() above: any request already in flight when logout()
+    // runs (e.g. a background fetch that hasn't resolved yet) must have
+    // its EVENTUAL 401 correctly treated as "no active session" rather
+    // than manufacturing a new expiry episode for a session the user
+    // just left on purpose.
+    epochGateRef.current!.deactivate()
     setUser(null)
     setKeypair(null)
     setEncryptionKey(null)
@@ -199,7 +267,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // exposure this change closes, so it can't stay.)
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, keypair, encryptionKey, wallet }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, keypair, encryptionKey, wallet, sessionExpiry }}>
       {children}
     </AuthContext.Provider>
   )
