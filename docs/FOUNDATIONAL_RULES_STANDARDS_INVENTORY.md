@@ -5,6 +5,8 @@
 **Prepared by**: Claude Code (Engenheiro Chefe), 2026-09-14.
 **Status**: Evidence only. No code, RFC, ADR, or governance document was modified to produce this report. No new standard is created by this document.
 
+> **Errata notice.** Three items below (F-02, F-08/F-08A, F-10) were refined by CTO Gate review after the original report and addenda A1-A7 were written. The original text is preserved unedited everywhere it appears; see **§A9 (Errata / Supersession Map)** near the end of this document for the current authoritative status of each, and the addendum section that carries the full correction.
+
 ---
 
 ## 1. Executive Finding
@@ -17,7 +19,7 @@ The real institutional problem is **not absence of rules** but **three specific,
 2. **A named methodology can be invoked as binding by CTO mission briefs across multiple missions this session while having zero canonical definition anywhere in governance.** The "Sails Engineering Harness" discipline (`CLAIM / EXISTING INSTITUTIONAL TRUTH / EVIDENCE / PRODUCT-UI CONSEQUENCE / DECISION / CONSISTENCY SWEEP`) is used in `docs/MINIMUM_BLOCKING_DECISIONS_PRODUCT_UI_RETURN.md` and in this session's own mission briefs, but `grep -rl "Sails Engineering Harness" docs/` returns exactly one file — the same output document that uses it (Finding F-02, preserved as instructed from the prior preliminary flag).
 3. **A real authority-enforcement mechanism can exist, be wired, and still not be active in the default deployment** — `config.features.enforceCapabilities` (INV-08) and dual-approval (INV-OP-2) both default to conditional/off, which is disclosed but has a real, live consequence: "capability does not imply authority" is a property that must be turned on, not one the system guarantees out of the box (Finding F-04).
 
-Two further items, flagged before this report was compiled as unresolved evidence candidates, are carried forward unresolved per instruction: possible canonicalization gap around the Sails Engineering Harness (same as F-02 above — the two are the same finding, now merged), and stale sequencing metadata in Issue #99 (Finding F-11).
+Two further items, flagged before this report was compiled as unresolved evidence candidates, are carried forward unresolved per instruction: possible canonicalization gap around the Sails Engineering Harness (same as F-02 above — the two are the same finding, now merged), and stale sequencing metadata in Issue #99 (Finding F-10).
 
 The dominant pattern found on inspection was **not** silent, hidden rule-making. The codebase's own convention — loud, dated, cross-referenced disclosure blocks for every known violation (e.g. `PROTOCOL_INVARIANTS.md` lines 125-146 on the `WdkSettlementProvider` custody violation, lines 246-283 on the dispute-service destination-authority gap) — is itself evidence of a functioning, if partially undocumented, institutional discipline. The report below treats that discipline as a model to preserve, not a gap to close.
 
@@ -37,7 +39,7 @@ The dominant pattern found on inspection was **not** silent, hidden rule-making.
 | `docs/API_STABLE.md` | Canonical SDK-surface freeze commitment | CANONICAL for SDK semver; explicitly NOT tied to protocol-level versioning |
 | `docs/SAILS_DESIGN_LANGUAGE.md`, `PRODUCT_INTERACTION_MODEL.md`, `packages/sails-ui/{PRODUCT,DESIGN}.md` | Human Interface Engineering principles (Pillar J) | PRESENT_BUT_DISPERSED — real content, no single index |
 | `docs/BACKLOG.md`, `docs/ROADMAP.md` | Obligation tracker, sequencing | CANONICAL for open-obligation status; must be cross-checked, not trusted by filename alone |
-| Issue #99 | Persistent CTO continuity marker | PARTIAL — content largely accurate but contains stale sequencing (F-11) |
+| Issue #99 | Persistent CTO continuity marker | PARTIAL — content largely accurate but contains stale sequencing (F-10) |
 | `docs/CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md` | Prior audit findings (e.g. CSC-I01 logging gap, CSC-H01/02/03 versioning) | CANONICAL for those specific findings |
 | Prisma schema inline comments (`prisma/schema.prisma`) | De facto canonical source for field-level provenance/versioning/immutability rules (e.g. `feePolicyVersionId`, DB trigger on `FeePolicyVersion`) | CANONICAL but undiscoverable except by reading the schema directly — no doc indexes these |
 | `src/common/events/handlers.ts` header comment | De facto canonical cross-module authority map for event-triggered state transitions | IMPLICIT — real and precise, but lives only as a code comment, never referenced from any doc |
@@ -65,7 +67,7 @@ Status vocabulary used exactly as specified: CANONICAL, PRESENT_BUT_DISPERSED, I
 | Offer publication/activation | **No separate step exists** — `Offer.status` defaults ACTIVE at creation | `liquidity.service.ts:667-684` | IMPLICIT (a real design choice, never stated as a rule anywhere) |
 | Offer/Trade acceptance → Trade creation | Code-only, `trade.service.ts:59-149` | Inline "Robustness-audit fix 2026-07-20" comment | IMPLICIT |
 | Cancellation (Trade) | Code + inline rationale, `trade.service.ts:35-54,276-315` | `MANUAL_TRADE_TRANSITIONS` map | PRESENT_BUT_DISPERSED (rule is explained but not doc-homed) |
-| Cancellation (Offer) | **No transition guard exists at all** | `liquidity.service.ts:667-684` | ABSENT (real gap, see F-05) |
+| Cancellation (Offer) | **No transition guard exists at all** | `liquidity.service.ts:667-684` | ABSENT (real gap, see F-03) |
 | Settlement/escrow initiation | Code-only for role split; `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` for reorg precondition | `escrow.service.ts:292-561` | PRESENT_BUT_DISPERSED |
 | Payout/destination-address mutation | `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md` | `escrow-lifecycle.ts:502-532`, `payout-address.service.ts` | CANONICAL, with one disclosed residual gap (F-06) |
 | Dispute/arbitration initiation & assignment | RFC-021 (D1-D3) | `dispute.service.ts:90-162`, `market-arbitration.provider.ts:109-227` | CANONICAL |
@@ -83,12 +85,12 @@ Status vocabulary used exactly as specified: CANONICAL, PRESENT_BUT_DISPERSED, I
 
 | Object | Enum location | Transition guard | Terminal states | Status |
 |---|---|---|---|---|
-| Offer | `schema.prisma:32-37` | **NONE** — no `VALID_TRANSITIONS` map exists | Not enforced (inferred only) | ABSENT — real gap (F-05) |
+| Offer | `schema.prisma:32-37` | **NONE** — no `VALID_TRANSITIONS` map exists | Not enforced (inferred only) | ABSENT — real gap (F-03) |
 | Trade | `schema.prisma:39-45` | Partial — `MANUAL_TRADE_TRANSITIONS` (`trade.service.ts:51-54`) covers only client-triggered edges; automatic edges driven by `handlers.ts`, not validated Trade-side | COMPLETED/CANCELLED terminal by omission, not explicit list | PARTIAL |
 | Escrow | `schema.prisma:56-87` | Explicit, rigorous, double-enforced (`VALID_TRANSITIONS` + atomic `claimEscrowTransition`) | Explicit: COMPLETED/REFUNDED/SPLIT | CANONICAL |
-| Dispute | `schema.prisma:1351-1364` | No single map — ad hoc per-method guards; `RESOLVED` is not strictly terminal (`appeal()` reopens it) | Not stated as a list; non-terminality of RESOLVED is a real, load-bearing fact not flagged as such anywhere | PARTIAL (F-07) |
+| Dispute | `schema.prisma:1351-1364` | No single map — ad hoc per-method guards; `RESOLVED` is not strictly terminal (`appeal()` reopens it) | Not stated as a list; non-terminality of RESOLVED is a real, load-bearing fact not flagged as such anywhere | PARTIAL (F-05) |
 | IdempotencyKey | `schema.prisma:2391-2396` | Explicit, carefully reasoned (`idempotency.ts`) | COMPLETED/UNKNOWN effectively terminal; FAILED reclaimable via CAS | CANONICAL |
-| EscrowPendingTransaction | `schema.prisma:2161-2226` | **No status enum at all** — existence/absence is the only state signal | N/A | ABSENT — real gap (F-08) |
+| EscrowPendingTransaction | `schema.prisma:2161-2226` | **No status enum at all** — existence/absence is the only state signal | N/A | ABSENT — real gap (F-07) |
 | WdkTransferAttempt | `schema.prisma:697-755` | Explicit, documented ordering; `SUBMISSION_UNKNOWN` is the canonical ambiguous-outcome state | CONFIRMED/REVERTED terminal per rail leg | CANONICAL |
 | Intent | `state-machine.ts:28-41` | Explicit, centralized, declared "the single source of truth" | Explicit: FULFILLED/EXPIRED/CANCELLED/FAILED | CANONICAL |
 | NegotiationChannel (in-memory) | `negotiation.service.ts:181-203` | Plain `Map`, never persisted, no transition validation | N/A | ABSENT — real gap, lower severity (ephemeral, not economically settled state) |
@@ -105,7 +107,7 @@ Status vocabulary used exactly as specified: CANONICAL, PRESENT_BUT_DISPERSED, I
 | Arbitrate vs. platform admin | **No platform-admin role/bypass found anywhere** — arbiters are permissionless-registered participants | IMPLICIT — absence itself is the finding, undocumented as a stated design decision anywhere outside RFC-021's general framing |
 | Change destination | `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md` | CANONICAL, with disclosed residual gap (F-06) |
 | Revoke (CapabilityGrant) | Code-only | IMPLICIT, real |
-| Revoke (session) | **ABSENT** — zero matches for session revocation anywhere | ABSENT (F-09) |
+| Revoke (session) | **ABSENT** — zero matches for session revocation anywhere | ABSENT (F-08A) |
 | Rotate (identity key) | **ABSENT**, explicitly disclosed as out of scope in `DESTINATION_AUTHORITY_ARCHITECTURE.md:302-307` ("OpenIdentity territory, not addressed here") | ABSENT, disclosed |
 | Renew authorization | **ABSENT** as a distinct concept — only expiry, no `renew()` | ABSENT |
 | Collapse check | One confirmed instance: the disclosed residual gap (F-06) where an arbiter's ruling request still carries destination authority for non-MULTISIG escrow types | CONTRADICTORY in that one narrow, already-disclosed scope only |
@@ -142,7 +144,7 @@ Status vocabulary used exactly as specified: CANONICAL, PRESENT_BUT_DISPERSED, I
 | Concept | Canonical home | Status |
 |---|---|---|
 | Event store durability | `event-store.ts` interface + header comments | CANONICAL — `durable: boolean` flag is an explicit, self-documenting design choice; `PostgresEventStore` is the wired default |
-| Hash-chain (`entryHash`/`prevHash`) | `event-store.ts` comment (lines 45-59) documents a real, closed architectural correction | CANONICAL, with one documented scope nuance: `IntentEvent`'s own chain is narrower than the general `DurableEventRecord` chain `Timeline.verifyChain()` actually walks — this is disclosed in the code comment but not cross-referenced from any doc (F-10) |
+| Hash-chain (`entryHash`/`prevHash`) | `event-store.ts` comment (lines 45-59) documents a real, closed architectural correction | CANONICAL, with one documented scope nuance: `IntentEvent`'s own chain is narrower than the general `DurableEventRecord` chain `Timeline.verifyChain()` actually walks — this is disclosed in the code comment but not cross-referenced from any doc (F-09) |
 | Dispute ruling reconstructibility | `arbitration-authority.ts` (Ed25519-signed, canonical serialization) | CANONICAL |
 | Escrow provenance/versioning | `Escrow.type` (permanent) + `feePolicyVersionId` (versioned) | PARTIAL — no field exists for "which version of the provider's code executed," only which type; explicitly disclosed as a non-gap in `EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md:369-379` |
 | Operational observability vs. economic evidence distinction | `docs/CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md` (CSC-I01) | CANONICAL — explicitly names the durable EventStore/Timeline as authoritative over the pino log stream |
@@ -500,8 +502,50 @@ No new debt category was created. No finding was force-fit where the evidence di
 
 **Not resolved by this correction.** Per every instruction so far in this mission: this correction does not canonicalize the Harness, does not merge Issue #155 into a standard, does not modify `ENGINEERING_GOVERNANCE.md`, and does not close or edit Issue #155 or #158. F-02 remains an unresolved evidence candidate — now with more accurate, and more complete, evidence than either the original report or A3 had.
 
+### A8. CTO GATE R1 SUPERSESSION — F-08 Classification Update
+
+**Added after CTO Gate R1.** The original F-08 finding text (line 258 above) and A1's full negative-evidence search are preserved unedited as historical record. This section records a classification update the CTO Gate made after reviewing that evidence, without rewriting either.
+
+**The distinction the CTO Gate drew, stated precisely:**
+
+> Client Logout ≠ Server Session Revocation
+> Local Session Exit ≠ Credential Invalidation
+
+A1 already established the facts this rests on (`AuthContext.tsx`'s `logout()` only clears local state and the transport's in-memory token field; no server endpoint is ever called; the Redis-stored session token remains valid until TTL). The CTO Gate's correction is to the **classification**, not the facts: this report's original A–J label for F-08A — **F** (maturity underclaim / hidden capability) — implies a capability quietly exists but is withheld or under-surfaced. That is not what this is. No hidden capability exists anywhere in the code; the capability itself was never built. The A–J scheme, designed for *protocol/business-rule* findings, does not have a clean slot for "a foundational operational capability was never built and its absence was never named" — which is a fair reason to look past it here rather than force a fit.
+
+**Superseding interpretation (CTO Gate, not adjudicated by the executor):** F-08A is better described by debt category than by the A–J letter scheme — **Security Debt, Institutional Debt, and Operational/Auth Debt**, simultaneously. This refines, and narrows, A6's own dual "Evidence Debt + Operational Debt" tag (row `F-08A` in A6's table above) — that tag stands as this executor's own candidate mapping; the CTO Gate's three-category framing is recorded here as the authoritative interpretation going forward.
+
+**What is reaffirmed:** the absence is real; it is undisclosed (no document anywhere names it as an accepted gap, unlike its key-rotation sibling); it is pre-production relevant; and it is bounded only by the default 1-hour TTL today — nothing here is walked back from A1.
+
+**What is corrected:** the original F-08 text's implicit framing that an Architecture Decision is the obvious next step is **not preserved as this report's forward-looking claim**. Per the CTO Gate: an Architecture Decision must not be assumed automatically required. The missing property, stated precisely and mechanism-independently:
+
+> **An authenticated session must have an explicit institutional answer for whether and how it can be invalidated before natural expiry.**
+
+A future mission may find the smallest correct fix is a simple server-side revocation endpoint, or may find broader architecture consequences once investigated — property first, mechanism second. This report does not pre-select which.
+
+**Preserved, not collapsed, per explicit instruction:** key rotation/renewal remains a *separate*, already-disclosed deferral (`DESTINATION_AUTHORITY_ARCHITECTURE.md:302-307`, named OpenIdentity territory) — untouched by this supersession, and not merged into F-08A's debt classification above.
+
+### A9. ERRATA / SUPERSESSION MAP
+
+A dedicated index so a future reader does not have to reconstruct which original statements were later refined, and from where. This map does not erase or edit any original statement; every row points to the addendum section that carries the full correction.
+
+**Current authoritative status, at a glance:**
+
+- **F-02**: `PRESENT_BUT_DISPERSED / IN-PROGRESS`. Harness absent = **false**. Harness fully canonical/frozen = **false**. Harness partially institutionalized and awaiting formalization = **true**. (Evidence: Issue #155 explicitly defines the concept and states it "already exists partially in practice," but the same issue explicitly defers formal Architecture Discovery/freeze to a future mission — see A7.)
+- **F-08A**: session revocation is absent, real, undisclosed, and pre-production relevant — reclassified by CTO Gate as Security Debt / Institutional Debt / Operational-Auth Debt rather than the original A–J letter **F** — see A8. No Architecture Decision is assumed required; the missing *property* is named, the mechanism is left open.
+- **F-10**: continuity-metadata drift in Issue #99's own internal sequencing narrative — explicitly not a protocol/architecture contradiction (no invariant, RFC, ADR, or code path conflicts with any other) — see A4.
+
+| Original item | Later evidence | Current interpretation |
+|---|---|---|
+| F-02 / A3 | A7 (Issue #155) | `PRESENT_BUT_DISPERSED / IN-PROGRESS` — not ABSENT, not canonical/frozen |
+| F-08 / F-08A | A1 (full negative-evidence search) + CTO Gate R1 | Session revocation absent, real, undisclosed; Security + Institutional + Operational/Auth Debt (not the original letter **F** classification); key rotation remains a separate, disclosed deferral, unaffected |
+| F-10 | A4 | Continuity-metadata drift in a governance-tracking artifact, not a protocol/architecture contradiction |
+| HARNESS-01 | This mission's own evidence-delivery sequence (direct-file-transfer attempts not independently inspectable from the CTO's environment; corrected by PR #159) | Evidence used for a gate must be independently inspectable by the gatekeeper through a durable, reproducible location — validated finding, candidate property for future Harness institutionalization, not yet written into `ENGINEERING_GOVERNANCE.md` |
+
+Nothing in this section modifies F-01 through F-12's original text, A1 through A7's original text, or any RFC, ADR, Issue, or governance document. It is an index layered on top of an unedited history.
+
 ---
 
-END OF POST-REPORT EVIDENCE ADDENDUM (A1-A7).
+END OF POST-REPORT EVIDENCE ADDENDUM (A1-A9).
 
 STOP. Awaiting full CTO Gate.
