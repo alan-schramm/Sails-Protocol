@@ -173,9 +173,15 @@ describe('Offer/Intent idempotency uniqueness — real Postgres (CROSS-LAYER-SEM
     expect(['COMPLETED', 'UNKNOWN']).toContain(finalClaim!.status)
   })
 
-  // Item 3 — a true pre-commit failure (no Intent, no Offer, nothing
-  // durable at all) remains legitimately retryable, proven against the
-  // real createOffer() path, not a simulation.
+  // Item 3 — CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5.1 CORRECTION
+  // (2026-09-14): this test's own name/comment previously claimed to
+  // prove "a true pre-commit failure... remains legitimately retryable"
+  // — WRONG. Both calls below succeed; this proves ordinary EXACT-RETRY
+  // replay via the COMPLETED path (recover(), never persist() again) —
+  // a real and useful property, but NOT a pre-commit-failure test. The
+  // genuine pre-commit-failure property is proven separately by the NEW
+  // test immediately below (item 4), added specifically because this
+  // one's claim was found to be unsupported by a CTO review.
   it('createOffer() with an idempotency key: an exact retry recovers the SAME Offer via the normal COMPLETED path, never creating a second one', async () => {
     requirePostgres('createOffer() exact-retry recovery')
 
@@ -194,5 +200,79 @@ describe('Offer/Intent idempotency uniqueness — real Postgres (CROSS-LAYER-SEM
 
     const offerCount = await prisma.offer.count({ where: { intentId: first.intentId! } })
     expect(offerCount).toBe(1)
+  })
+
+  // Item 4 — CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5.1 (2026-09-14): the
+  // genuine pre-commit-failure test item 3 was mislabeled as. Drives the
+  // REAL, unmocked createOffer() -> persistOffer() -> withIdempotency()
+  // orchestration against a REAL Postgres for everything — the canonical
+  // Intent's own creation, the IdempotencyKey claim row's real
+  // FAILED -> IN_PROGRESS reclaim, and the retry's real second
+  // `prisma.offer.create()` call. The ONLY simulated element is the
+  // FIRST Offer INSERT's own outcome: `prisma.offer.create` is spied on
+  // (not mocked away — the spy delegates to the real implementation on
+  // every call after the first) to reject exactly once with a plain,
+  // non-P2002 Error, modeling a genuine transient rejection BEFORE the
+  // statement would have executed (e.g. a dropped connection, a
+  // statement timeout) — indistinguishable, from persistOffer()'s own
+  // perspective, from any other real pre-commit failure, and NOT the
+  // "insert already committed" case items 2/3 above already cover.
+  it('createOffer() with an idempotency key: a genuine pre-commit Offer INSERT failure (before commit) leaves the claim retryable, and the retry succeeds by reusing the SAME canonical Intent — exactly one Intent and one Offer ultimately exist', async () => {
+    requirePostgres('createOffer() genuine pre-commit Offer failure retry')
+
+    const seller = await makeSeller('precommit-fail')
+    const idempotencyKey = `precommit-fail-${RUN_ID}`
+    const input = {
+      userId: seller.id, asset: 'BTC' as const, side: 'SELL' as const, priceUsd: '62000',
+      minAmount: '0.001', maxAmount: '0.01', paymentMethod: 'OTHER' as const, idempotencyKey,
+    }
+
+    const realOfferCreate = prisma.offer.create.bind(prisma.offer)
+    let offerCreateCalls = 0
+    const spy = jest.spyOn(prisma.offer, 'create').mockImplementation((async (...args: unknown[]) => {
+      offerCreateCalls++
+      if (offerCreateCalls === 1) {
+        throw new Error('simulated genuine pre-commit Offer INSERT failure — e.g. a dropped connection before the statement executed')
+      }
+      return (realOfferCreate as (...a: unknown[]) => unknown)(...args)
+    }) as typeof prisma.offer.create)
+
+    try {
+      // 1. First attempt: the Intent is created for real; the Offer
+      // INSERT itself genuinely never executes.
+      await expect(liquidityRouter.createOffer(input)).rejects.toThrow('simulated genuine pre-commit Offer INSERT failure')
+      expect(offerCreateCalls).toBe(1)
+
+      const intentAfterFailure = await prisma.intent.findFirst({
+        where: { participantId: seller.id, type: 'TradeIntent' },
+        orderBy: { createdAt: 'desc' },
+      })
+      expect(intentAfterFailure).toBeTruthy() // the canonical Intent genuinely exists
+
+      const offerCountAfterFailure = await prisma.offer.count({ where: { intentId: intentAfterFailure!.id } })
+      expect(offerCountAfterFailure).toBe(0) // nothing durable for the Offer — a REAL pre-commit failure, not a disguised success
+
+      const claimAfterFailure = await prisma.idempotencyKey.findUnique({
+        where: { scope_participantId_key: { scope: 'liquidity.offer.create', participantId: seller.id, key: idempotencyKey } },
+      })
+      expect(claimAfterFailure!.status).toBe('FAILED') // retryable, per Defect B's own atomic reclaim
+
+      // 2. Retry — the spy lets this second call through to the real insert.
+      const result = await liquidityRouter.createOffer(input)
+
+      expect(offerCreateCalls).toBe(2) // the retry's insert genuinely ran
+      expect(result.intentId).toBe(intentAfterFailure!.id) // (1) the SAME canonical Intent is reused
+
+      const finalOfferCount = await prisma.offer.count({ where: { intentId: intentAfterFailure!.id } })
+      expect(finalOfferCount).toBe(1) // (2) exactly one Offer ultimately exists — (6) no duplicate Offer
+
+      const finalIntentCount = await prisma.intent.count({ where: { idempotencyClaimId: claimAfterFailure!.id } })
+      expect(finalIntentCount).toBe(1) // (5) no duplicate Intent
+
+      const finalClaim = await prisma.idempotencyKey.findUnique({ where: { id: claimAfterFailure!.id } })
+      expect(['COMPLETED', 'UNKNOWN']).toContain(finalClaim!.status) // (4) the claim settles COMPLETED/UNKNOWN — (3) the retry itself succeeded (asserted above, `result` is a real Offer)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

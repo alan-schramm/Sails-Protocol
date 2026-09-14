@@ -3991,6 +3991,57 @@ obligation" is defined anywhere in this repository.
         the OPPOSITE, already-correct answer (`Trade.intentId`
         deliberately not unique) — not reopened.
 
+        **Corrected 2026-09-14 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5.1`,
+        CTO review found one unsupported evidence claim, no architecture
+        change) — no redesign required; R5's mechanism itself accepted
+        as-is.** R5's own real-Postgres item 3 test's name/comment
+        claimed to prove "a true pre-commit failure... remains
+        legitimately retryable" — WRONG. The test itself calls
+        `createOffer()` twice with an identical, always-succeeding
+        input; both calls succeed, proving ordinary exact-retry replay
+        via the `COMPLETED` path (`recover()`, never `persist()` again)
+        — a real, useful, but DIFFERENT property than a genuine pre-
+        commit failure. **Corrected the mislabeled comment/test name in
+        `tests/integration/offerIntentIdempotencyUniqueness.test.ts`
+        directly** (its own header comment now names this correctly) and
+        **added the missing test** (item 4): drives the real,
+        unmocked `createOffer()` -> `persistOffer()` -> `withIdempotency()`
+        orchestration against real Postgres for everything — the
+        canonical Intent's real creation, the `IdempotencyKey` claim
+        row's real `FAILED -> IN_PROGRESS` reclaim, and the retry's real
+        second `prisma.offer.create()` call. The ONLY simulated element
+        is the FIRST Offer INSERT's own outcome: `prisma.offer.create`
+        is spied on (delegating to the real implementation on every call
+        after the first) to reject exactly once with a plain, non-P2002
+        `Error`, modeling a genuine pre-commit rejection (e.g. a dropped
+        connection before the statement executed) — distinct from R5's
+        own item 2 test, which covers the "insert already committed,
+        acknowledgement lost" case, not this one. Asserts all 6 required
+        properties: the same canonical Intent is reused; exactly one
+        Offer ultimately exists; the retry itself succeeds; the claim
+        settles `COMPLETED`/`UNKNOWN`; no duplicate Intent; no duplicate
+        Offer. **Verified, not asserted:** `npx tsc --noEmit` clean;
+        `tests/integration/offerIntentIdempotencyUniqueness.test.ts`
+        alone: 4 suites/tests passing (was 3) against a real local
+        Postgres container matching CI's image/credentials; full unit
+        suite 160/2117 unchanged (this correction touched no unit-test
+        file); full real-Postgres integration suite 29 suites / 232
+        tests (was 231), 0 regressions. **No code in `src/` changed** —
+        the R5 mechanism itself needed no correction, only its own
+        evidence's accuracy. **Deployment precondition registered,
+        without blocking this PR's freeze:** before applying
+        `prisma/migrations/20260914010000_offer_intent_id_unique` to any
+        populated production database, an operator MUST run the
+        historical-duplicate query already documented in that migration
+        file's own header comment and resolve any duplicate non-null
+        `intentId` rows it returns — this remains unverified against any
+        real production database from this session, exactly as R5's own
+        record already disclosed, now re-affirmed rather than silently
+        dropped. **Items 38/39 unchanged, item 40 untouched, Trade/
+        Evidence not reopened** — this correction touched only
+        `tests/integration/offerIntentIdempotencyUniqueness.test.ts` and
+        this BACKLOG record.
+
     38. **SDK Type-Shape Reconciliation (CSC-C01/D01).** Two real,
         confirmed SDK-internal disagreements: (a)
         `packages/sails-p2p-schemas`'s `DisputeStatus`/`DisputeStatusInput`
