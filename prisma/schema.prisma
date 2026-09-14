@@ -2291,15 +2291,38 @@ model Verification {
 // silently replaying the wrong result. `resultRef` is the created
 // resource's own id — recovery re-fetches that resource through the
 // normal repository, this table never duplicates its content.
-// `status` distinguishes three real states a concurrent or retried
-// caller can observe: `IN_PROGRESS` (a genuine race, not yet resolved —
-// the second caller must not proceed, and must not be told anything
-// succeeded or failed), `COMPLETED` (a safe, exact replay), `FAILED`
-// (the original attempt itself errored out — safe to retry with the
-// same key, since nothing durable was ever created).
+//
+// CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R1 (2026-09-13) — `status` now
+// distinguishes FOUR real states, not three. The original three-state
+// design conflated two genuinely different failure domains: "create()
+// itself threw, nothing durable exists yet" (truly `FAILED`, safe to
+// retry) and "create() SUCCEEDED but the write recording that success
+// failed" (a real durable side effect exists; retrying would duplicate
+// it). `UNKNOWN` is that second case, named after this codebase's own
+// governing principle — Absence ≠ Failure ≠ Unknown — applied here to
+// the idempotency record itself, not just to a settlement outcome.
+// - `IN_PROGRESS` — a genuine race, not yet resolved; the second caller
+//   must not proceed, and must not be told anything succeeded or failed.
+// - `COMPLETED` — create() succeeded AND this row was durably updated to
+//   say so. A safe, exact replay via `resultRef`.
+// - `UNKNOWN` — create() succeeded (a durable side effect genuinely
+//   exists, `resultRef` is set) but the write finalizing this record as
+//   `COMPLETED` itself failed. Treated identically to `COMPLETED` for
+//   replay purposes (recover via `resultRef`, never re-run create()) —
+//   the ONLY thing unknown is whether this bookkeeping row itself says
+//   so cleanly, never whether the business action happened. See
+//   `src/common/idempotency.ts`'s `runAndSettle()` for the exact
+//   sequencing this depends on.
+// - `FAILED` — create() itself threw; no durable side effect was ever
+//   produced. Safe to retry, but ONLY via the atomic `FAILED ->
+//   IN_PROGRESS` compare-and-swap `reclaimFailed()` performs — never a
+//   plain read-then-write, which would let two concurrent retries both
+//   observe `FAILED` and both execute create() (CROSS-LAYER-SEMANTIC-
+//   CORRECTIVE-1-R1's own Defect B).
 enum IdempotencyKeyStatus {
   IN_PROGRESS
   COMPLETED
+  UNKNOWN
   FAILED
 }
 
@@ -2310,7 +2333,7 @@ model IdempotencyKey {
   key           String // the client-supplied idempotency key itself
   requestHash   String // sha256 of the semantically-relevant request payload — see src/common/idempotency.ts
   status        IdempotencyKeyStatus @default(IN_PROGRESS)
-  resultRef     String? // the created resource's own id, set once status = COMPLETED
+  resultRef     String? // the created resource's own id — set once status = COMPLETED or UNKNOWN (never FAILED/IN_PROGRESS)
   createdAt     DateTime             @default(now())
   completedAt   DateTime?
 

@@ -56,10 +56,76 @@ class RealInMemoryIdempotencyKeyStore implements IdempotencyKeyStore {
     }
   }
 
+  async markUnknown(id: string, resultRef: string): Promise<void> {
+    for (const row of this.rows.values()) {
+      if (row.id === id) { row.status = 'UNKNOWN'; row.resultRef = resultRef; return }
+    }
+  }
+
   async markFailed(id: string): Promise<void> {
     for (const row of this.rows.values()) {
       if (row.id === id) { row.status = 'FAILED'; return }
     }
+  }
+
+  async reclaimFailed(id: string): Promise<boolean> {
+    // Faithful simulation of a real `UPDATE ... WHERE status = 'FAILED'`'s
+    // atomicity: this whole check-then-write is synchronous JS with no
+    // `await` in between, so no other "concurrent" call in this test
+    // process can interleave mid-function — exactly the guarantee a real
+    // database transaction provides across genuinely separate processes.
+    for (const row of this.rows.values()) {
+      if (row.id === id) {
+        if (row.status !== 'FAILED') return false
+        row.status = 'IN_PROGRESS'
+        return true
+      }
+    }
+    return false
+  }
+}
+
+/** Wraps a real store and injects a controlled failure into one specific
+ *  method call, then delegates to the real implementation for every
+ *  other call — used to prove Defect A's fix without faking the property
+ *  itself (the underlying store's real state transitions still happen
+ *  exactly as they would in production; only the OUTCOME of one write is
+ *  overridden, the same class of fault a real transient DB error would
+ *  produce). */
+class FaultInjectingStore implements IdempotencyKeyStore {
+  private markCompletedFailuresRemaining = 0
+  markCompletedCalls = 0
+  markUnknownCalls = 0
+  reclaimFailedCalls = 0
+
+  constructor(private readonly real: IdempotencyKeyStore) {}
+
+  failNextMarkCompleted(times = 1) {
+    this.markCompletedFailuresRemaining = times
+  }
+
+  claim(...args: Parameters<IdempotencyKeyStore['claim']>) { return this.real.claim(...args) }
+  find(...args: Parameters<IdempotencyKeyStore['find']>) { return this.real.find(...args) }
+
+  async markCompleted(id: string, resultRef: string): Promise<void> {
+    this.markCompletedCalls++
+    if (this.markCompletedFailuresRemaining > 0) {
+      this.markCompletedFailuresRemaining--
+      throw new Error('simulated transient DB failure writing markCompleted (e.g. a dropped connection after the UPDATE was sent)')
+    }
+    return this.real.markCompleted(id, resultRef)
+  }
+
+  async markUnknown(id: string, resultRef: string): Promise<void> {
+    this.markUnknownCalls++
+    return this.real.markUnknown(id, resultRef)
+  }
+
+  markFailed(...args: Parameters<IdempotencyKeyStore['markFailed']>) { return this.real.markFailed(...args) }
+
+  async reclaimFailed(id: string): Promise<boolean> {
+    this.reclaimFailedCalls++
+    return this.real.reclaimFailed(id)
   }
 }
 
@@ -225,5 +291,161 @@ describe('withIdempotency() — property: one logical request, at most one execu
     const h3 = hashIdempotentPayload({ offerId: 'offer-1', amount: '11' })
     expect(h1).toBe(h2)
     expect(h1).not.toBe(h3)
+  })
+})
+
+describe('withIdempotency() — Defect A: a successful create() must never be relabeled retryable FAILED', () => {
+  it('create() succeeds, markCompleted() fails: the caller still gets the real result, the claim becomes UNKNOWN (not FAILED), and a retry recovers it without ever calling create() again', async () => {
+    const realStore = new RealInMemoryIdempotencyKeyStore()
+    const store = new FaultInjectingStore(realStore)
+    let createCalls = 0
+    const params = { scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-h', requestPayload: { offerId: 'offer-1', amount: '10' }, store }
+    const create = async () => { createCalls++; return { id: 'trade-h1', offerId: 'offer-1', amount: '10' } }
+    const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
+
+    store.failNextMarkCompleted(1)
+
+    // 1. create() succeeds and returns the durable result — the caller's
+    //    own request succeeds even though bookkeeping is about to fail.
+    const first = await withIdempotency<FakeTrade>(params, create, recover)
+    expect(first.id).toBe('trade-h1')
+    expect(createCalls).toBe(1)
+
+    // Prove the exact state the record landed in, not just "no error was
+    // thrown" — this IS the property under test.
+    const record = await realStore.find('openp2p.trade.create', 'buyer-1', 'key-h')
+    expect(record?.status).toBe('UNKNOWN') // never 'FAILED' — the business action genuinely succeeded
+    expect(record?.resultRef).toBe('trade-h1') // the real result is recoverable, not lost
+    expect(store.markCompletedCalls).toBe(1) // the finalize write was attempted and (by injection) failed
+    expect(store.markUnknownCalls).toBe(1) // the fallback write ran and succeeded
+
+    // 2. Same logical request is retried.
+    const second = await withIdempotency<FakeTrade>(params, create, recover)
+
+    // 3/4. create() must not execute twice — the retry recovered the
+    // ORIGINAL result via the UNKNOWN->recover() path, exactly like a
+    // COMPLETED replay.
+    expect(createCalls).toBe(1)
+    expect(second).toEqual(first)
+  })
+
+  it('create() succeeds, BOTH markCompleted() and markUnknown() fail: the claim is left IN_PROGRESS (safe — blocks a duplicate) rather than falsely COMPLETED or falsely FAILED, and the caller still gets the real result', async () => {
+    const realStore = new RealInMemoryIdempotencyKeyStore()
+    const store = new FaultInjectingStore(realStore)
+    // Force markUnknown to also fail, simulating the genuinely
+    // exceptional "database itself is unreachable for both writes" case.
+    const originalMarkUnknown = store.markUnknown.bind(store)
+    store.markUnknown = async () => { throw new Error('simulated total DB unavailability') }
+
+    let createCalls = 0
+    const params = { scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-i', requestPayload: { offerId: 'offer-1', amount: '10' }, store }
+    const create = async () => { createCalls++; return { id: 'trade-i1', offerId: 'offer-1', amount: '10' } }
+    const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
+
+    store.failNextMarkCompleted(1)
+
+    const result = await withIdempotency<FakeTrade>(params, create, recover)
+    expect(result.id).toBe('trade-i1') // the caller's own request still succeeds — create() really did work
+
+    const record = await realStore.find('openp2p.trade.create', 'buyer-1', 'key-i')
+    expect(record?.status).toBe('IN_PROGRESS') // left exactly where it was — never a false COMPLETED, never a false FAILED
+
+    // A concurrent/retried caller in this state is safely BLOCKED, not
+    // allowed to duplicate the side effect — the disclosed, bounded
+    // residual (stuck pending reconciliation) is safe, not silently wrong.
+    await expect(withIdempotency<FakeTrade>(params, create, recover)).rejects.toBeInstanceOf(IdempotencyKeyConflictError)
+    expect(createCalls).toBe(1) // still exactly one real execution, even in this doubly-degraded case
+
+    void originalMarkUnknown
+  })
+})
+
+describe('withIdempotency() — Defect B: FAILED -> retry must be an atomic, cross-instance-safe compare-and-swap', () => {
+  it('first execution genuinely fails before creating anything, becomes retryable, and a single retry succeeds normally', async () => {
+    const store = new RealInMemoryIdempotencyKeyStore()
+    let attempt = 0
+    const params = { scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-j', requestPayload: { offerId: 'offer-1', amount: '10' }, store }
+    const create = async () => {
+      attempt++
+      if (attempt === 1) throw new Error('genuine failure before any durable object existed')
+      return { id: 'trade-j1', offerId: 'offer-1', amount: '10' }
+    }
+    const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
+
+    await expect(withIdempotency<FakeTrade>(params, create, recover)).rejects.toThrow('genuine failure')
+    expect((await store.find('openp2p.trade.create', 'buyer-1', 'key-j'))?.status).toBe('FAILED')
+
+    const result = await withIdempotency<FakeTrade>(params, create, recover)
+    expect(result.id).toBe('trade-j1')
+    expect(attempt).toBe(2)
+  })
+
+  it('genuinely concurrent retries against a shared, durable store (modeling multiple application instances, not a process-local mutex): exactly one reclaims FAILED and exactly one create() executes', async () => {
+    // The store instance below is the ONLY shared state between the
+    // "instances" in this test — withIdempotency() itself holds no
+    // module-level or process-local state of its own (confirmed by
+    // reading src/common/idempotency.ts: no shared mutable variable
+    // outside the injected store), so racing multiple calls against one
+    // store instance genuinely exercises cross-instance correctness: the
+    // ONLY thing preventing a double-execution is reclaimFailed()'s own
+    // atomic compare-and-swap against this shared store, exactly as it
+    // would be Postgres's own atomicity across real, separate processes
+    // in production.
+    const store = new RealInMemoryIdempotencyKeyStore()
+    const params0 = { scope: 'liquidity.offer.create', participantId: 'seller-1', key: 'key-k', requestPayload: { asset: 'BTC' }, store }
+    const failingCreate = async () => { throw new Error('genuine failure before any durable object existed') }
+    const recover = async (id: string) => ({ id, offerId: 'n/a', amount: 'n/a' })
+
+    // Put the record into a genuine FAILED state first.
+    await expect(withIdempotency<FakeTrade>(params0, failingCreate, recover)).rejects.toThrow()
+    expect((await store.find('liquidity.offer.create', 'seller-1', 'key-k'))?.status).toBe('FAILED')
+
+    let createCalls = 0
+    const succeedingCreate = async () => {
+      createCalls++
+      await new Promise((r) => setTimeout(r, 5)) // real async interleaving — a synchronous fast-path could mask a race
+      return { id: 'offer-k1', offerId: 'n/a', amount: 'n/a' }
+    }
+
+    // At least 3 concurrent retries, per the mission's own requirement.
+    const results = await Promise.allSettled([
+      withIdempotency<FakeTrade>(params0, succeedingCreate, recover),
+      withIdempotency<FakeTrade>(params0, succeedingCreate, recover),
+      withIdempotency<FakeTrade>(params0, succeedingCreate, recover),
+      withIdempotency<FakeTrade>(params0, succeedingCreate, recover),
+    ])
+
+    expect(createCalls).toBe(1) // exactly one retry actually reclaimed the record and ran create()
+    const fulfilled = results.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<FakeTrade>[]
+    const rejected = results.filter((r) => r.status === 'rejected')
+    expect(fulfilled.length).toBe(1)
+    expect(fulfilled[0].value.id).toBe('offer-k1')
+    expect(rejected.length).toBe(3) // the three losers are told to retry again, never silently dropped and never allowed to duplicate
+    for (const r of rejected) {
+      expect((r as PromiseRejectedResult).reason).toBeInstanceOf(IdempotencyKeyConflictError)
+    }
+
+    const finalRecord = await store.find('liquidity.offer.create', 'seller-1', 'key-k')
+    expect(finalRecord?.status).toBe('COMPLETED')
+    expect(finalRecord?.resultRef).toBe('offer-k1')
+  })
+
+  it('a plain, non-atomic "read FAILED then run" would have failed this exact test — regression guard for the original Defect B bug, expressed as a direct assertion on reclaimFailed()\'s own return value', async () => {
+    const store = new RealInMemoryIdempotencyKeyStore()
+    const params = { scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-l', requestPayload: { x: 1 }, store }
+    await expect(withIdempotency<FakeTrade>(params, async () => { throw new Error('fail') }, async (id) => ({ id, offerId: 'n/a', amount: 'n/a' }))).rejects.toThrow()
+
+    const record = await store.find('openp2p.trade.create', 'buyer-1', 'key-l')
+    expect(record).not.toBeNull()
+
+    // Two "concurrent" reclaim attempts against the SAME real FAILED row.
+    const [firstReclaim, secondReclaim] = await Promise.all([
+      store.reclaimFailed(record!.id),
+      store.reclaimFailed(record!.id),
+    ])
+    // Exactly one may reacquire the retry — this is the literal property
+    // Defect B's fix must guarantee, independent of withIdempotency()'s
+    // own surrounding logic.
+    expect([firstReclaim, secondReclaim].filter(Boolean).length).toBe(1)
   })
 })

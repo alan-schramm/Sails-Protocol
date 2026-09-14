@@ -3362,6 +3362,111 @@ obligation" is defined anywhere in this repository.
         test in this environment — disclosed as a known, bounded
         residual, not hidden).
 
+        **Corrected 2026-09-13 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R1`,
+        CTO review found two real correctness defects before Freeze) —
+        still Implemented → Evidenced, not yet Frozen.** Two defects in
+        the original design, both closed:
+
+        **Defect A — a successful `create()` could be relabeled
+        retryable `FAILED`.** The original `runAndSettle()` ran
+        `create()` and `store.markCompleted()` inside the same `try`
+        block, so a `create()` success followed by a `markCompleted()`
+        failure (a real, plausible transient DB error) hit the same
+        `catch` as a genuine `create()` failure — marking the claim
+        `FAILED` even though a durable side effect already existed, and
+        letting a future retry call `create()` again. Violated: *a
+        failed call is not proof of no side effect.* **Fix:** a new
+        4th state, `UNKNOWN` (Prisma enum + `IdempotencyKeyStatus`
+        type), reached only when `create()` already succeeded but the
+        `COMPLETED` write itself failed; a new `markUnknown()` store
+        method makes a best-effort, separately-named attempt to at
+        least persist `resultRef`; `UNKNOWN` is treated identically to
+        `COMPLETED` on a subsequent lookup (`recover()`, never
+        `create()` again). If even `markUnknown()` fails, the record is
+        left exactly where it was (`IN_PROGRESS`) rather than a false
+        `COMPLETED` or false `FAILED` — safe (blocks a duplicate via the
+        existing `IN_PROGRESS` conflict path) though it can get stuck
+        pending manual reconciliation, logged loudly
+        (`log.error(...)`), a disclosed residual, not a silent one. The
+        caller's own request always returns the real result regardless
+        of which write path succeeds — `create()` genuinely succeeded,
+        so the caller was never lied to.
+
+        **Defect B — `FAILED → retry` was a plain read-then-write, not
+        atomic.** The original code let any caller who observed
+        `status === 'FAILED'` proceed straight to `runAndSettle()` with
+        no compare-and-swap — two concurrent retries could both observe
+        `FAILED` and both execute `create()`; the code's own comment
+        claiming a second caller would see `IN_PROGRESS` was not true
+        for the actual code. **Fix:** a new `reclaimFailed()` store
+        method — a real, atomic `UPDATE ... WHERE status = 'FAILED'`
+        (`prisma.idempotencyKey.updateMany` + row-count check), the
+        exact same conditional-update idiom `escrow-lifecycle.ts`'s
+        `claimEscrowTransition()` already uses for `Escrow.status`.
+        Correct across concurrent requests on one instance and across
+        multiple application instances alike, since the atomicity is
+        Postgres's own, not an in-process lock — no process-local
+        mutex was introduced. A caller that loses the reclaim race
+        re-checks the record's new state (never assumes) and either
+        recovers a result that has since completed or is told to retry
+        again — never proceeds to execute `create()` itself.
+
+        **New tests** (`tests/idempotency.test.ts`, +5, all passing):
+        (A) `create()` succeeds, `markCompleted()` fails — proves the
+        claim becomes `UNKNOWN` (never `FAILED`), `create()` is not
+        called twice on retry, and the exact record state
+        (`status`/`resultRef`) is asserted directly, not inferred from
+        "no error was thrown"; a second test proves the doubly-degraded
+        case (both `markCompleted()` and `markUnknown()` fail) leaves
+        the record safely `IN_PROGRESS` and still returns the real
+        result to the original caller. (B) a first genuine failure
+        becomes retryable and a single retry succeeds normally; 4
+        genuinely concurrent retries (real `Promise.allSettled`
+        interleaving against one shared store instance, explicitly
+        modeling multiple application instances sharing durable state,
+        never a process-local mutex) after a real `FAILED` state result
+        in exactly one reclaim winning and exactly one `create()`
+        execution, with the 3 losers each rejected with
+        `IdempotencyKeyConflictError`; a direct regression-guard
+        assertion on `reclaimFailed()`'s own return value (two
+        concurrent calls against the same real `FAILED` row, exactly
+        one returns `true`). All pre-existing cases preserved
+        unchanged: first success, completed replay, `IN_PROGRESS`
+        conflict, different key allowed, same key/different payload
+        rejected, participant/scope isolation.
+
+        **Opt-in boundary — honestly registered, not silently
+        universal, per this correction's own explicit instruction:**
+        the idempotency guarantee applies **only when a caller actually
+        supplies a key** — a caller that omits one gets zero
+        protection, identical to this endpoint's behavior before item
+        37 ever existed. Stated explicitly in
+        `src/common/idempotency.ts`'s own header and
+        `WithIdempotencyParams.key`'s own doc comment. **Recommendation
+        (not decided here — a Product/API-contract question, explicitly
+        not resolved silently in this bounded correction):** keep the
+        API opt-in for backward compatibility (the status quo as of
+        this correction) for now; separately consider having the SDK
+        generate a key by default when a caller doesn't supply one
+        (protects every SDK-mediated caller automatically without
+        touching the wire contract), as a distinct, future, smaller
+        decision; do not make the key mandatory in a breaking contract
+        change without real usage data justifying it first. Three
+        candidate strategies named in full in
+        `src/common/idempotency.ts`'s own `withIdempotency()` doc
+        comment for whoever picks this up next.
+
+        **Verified, not asserted:** `npx tsc --noEmit` clean at repo
+        root and `packages/sails-sdk` (no SDK-facing type changed by
+        this correction — server-internal only); full unit suite 160
+        suites / 2107 tests (was 160/2102 before this correction, +5
+        matching the new tests above), 0 regressions.
+
+        **Items 38/39 unchanged** — this correction touched only
+        `prisma/schema.prisma`, `src/common/idempotency.ts`, and
+        `tests/idempotency.test.ts`; no contradiction with either item's
+        already-accepted work was found or needed. **Item 40 untouched.**
+
     38. **SDK Type-Shape Reconciliation (CSC-C01/D01).** Two real,
         confirmed SDK-internal disagreements: (a)
         `packages/sails-p2p-schemas`'s `DisputeStatus`/`DisputeStatusInput`
