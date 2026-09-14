@@ -3189,6 +3189,17 @@ obligation" is defined anywhere in this repository.
     branch's own green GitHub Actions CI, which checks out on Linux) —
     not fixed here, out of this mission's bounded scope.
 
+    **Status update (2026-09-14, Post-Mission-4 Roadmap/Backlog
+    Reconciliation) — closure confirmed, not re-decided here.** This
+    item's own text above required P3-F08.1/P3-F08.2 to be "consumed
+    explicitly by Mission 3" — Mission 3 (Partner Wallet Integration &
+    Identity Continuity, PR #149, merged and CI-green) ran and did so:
+    Slice 1 closed both (`SessionExpiryRedirect.tsx`,
+    `sessionEpochGate.ts` for the concurrent-expiry-convergence R2
+    correction). See item 41 below for the full post-Mission-3/4
+    institutional sync this status update is part of. Nothing about
+    F-08.1/F-08.2's own resolution is reopened or reinterpreted here.
+
 **BACKLOG DELTA: DETECTED AND SYNCED.**
 
 35. **Unified Error & Recovery Semantics — registered, not implemented
@@ -4199,5 +4210,102 @@ obligation" is defined anywhere in this repository.
     SDK, protocol, or UI change of any kind; no new macrofront in
     `docs/NORTE_FIXO.md`; P3-F08.1/F08.2 (`docs/BACKLOG.md` item 34)
     restated as still-open, not duplicated or re-solved.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
+
+41. **Post-Mission-4 Roadmap/Backlog Reconciliation — institutional sync,
+    documentation only, no implementation (2026-09-14).** Per Issue #99's
+    own governance lifecycle (`MISSION → EVIDENCE → FREEZE → BACKLOG
+    DELTA → PROJECT SYNC → NEXT MISSION`), three consecutive missions ran,
+    merged, and went CI-green with no `BACKLOG DELTA` step ever landing
+    here — the gap this item closes. No frozen semantics from any of them
+    are reopened or reinterpreted.
+
+    **Missions confirmed merged, cross-referenced not restated:**
+    - Mission 3 (Partner Wallet Integration & Identity Continuity), PR
+      #149 — closed P3-F08.1/F08.2, see item 34's own 2026-09-14 status
+      update above.
+    - Mission 4 (Adaptive Execution / Capability Routing), PR #151, R1-
+      corrected — `src/common/execution-candidates.ts`'s five-outcome
+      Candidate Discovery layer, `docs/ADAPTIVE_EXECUTION_CAPABILITY_ROUTING.md`.
+      Its own frozen 8-stage External Extensibility contract (§19.2) is
+      restated verbatim, unmodified, for indexing purposes only: `External
+      Capability → Public Contract → Capability Declaration → Constraints
+      → Conformance → Evidence → Eligibility → Runtime Participation`.
+    - External Extensibility Blind-Spot & Precedent Consolidation, PR
+      #153, R1-corrected — `docs/EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md`,
+      reconciling all 12 obligations in Issue #152 without duplicating
+      them.
+
+    **Genuinely new canonical-backlog obligation, not previously
+    represented here — Issue #99's Day-0 multi-node/shared-liquidity
+    property (institutionalized 2026-09-14 in that issue, absent from
+    this file until now):**
+
+    > Multiple independent operators must be able to participate in the
+    > same economic network without a central authority being required
+    > to determine membership or truth.
+    > Liquidity should be network-level; node operation should be
+    > service-level.
+
+    Classified **PRODUCT/UI BLOCKER** — if left unresolved before the
+    next interface phase, it can force a real redesign: any UI that
+    renders offers as if a single node's own view were the whole market
+    (no cross-node discovery/federation model exists yet — Issue #99's
+    own disclosure) would need rework once cross-node propagation lands,
+    not merely a data-source swap. No mechanism (propagation, membership,
+    federation, reputation portability, anti-Sybil-across-nodes,
+    evidence sync, fee attribution, bootstrap, consistency model) is
+    chosen here — Issue #99 itself defers all of them pending a future,
+    separately-authorized mission.
+
+    **Issue #99's seven real-world integration blind-spot checks,
+    reconciled against PR #153 findings to avoid duplication:**
+
+    | # | Item | Disposition |
+    |---|---|---|
+    | 1 | Independent developer no-assistance integration | **DUPLICATED, cross-referenced** — same property as PR #153 §18's Stranger Developer prerequisites (arbitration passes today, wallet passes with a caveat, settlement provider fails); not re-derived here |
+    | 2 | Wallet/website/professional-provider participation without separate marketplaces | **FUTURE / NOT YET ACTIONABLE** — no mechanism chosen; depends on the multi-node property above |
+    | 3 | Network/bootstrap model for integrators | **MISSING FROM CANONICAL BACKLOG** — genuinely new, no prior entry in this file; **PRODUCT/UI BLOCKER** once a second node exists |
+    | 4 | `liquidity.discover()` pagination hard-cap | **PRODUCTION-ONLY** — a known, concrete, already-named defect (Issue #99's own text), does not block the next Product/UI phase by itself |
+    | 5 | Capability/rail discovery for developers | **DUPLICATED, cross-referenced** — same property PR #153 §18 and Mission 4 §16 (Documentation/DX) already register; "property first, mechanism second" applies identically |
+    | 6 | Restart / offline / resume UX | **MISSING FROM CANONICAL BACKLOG** — genuinely new; **PRODUCT/UI BLOCKER** (a real user-facing journey gap, distinct from PR #153 §8's *extension-registration* revalidation concern, which is provider-facing, not user-facing — the two must not be collapsed) |
+    | 7 | Real partner-wallet evidence (independent of Satsails) | **CANONICAL AND CURRENT** — already tracked as Mission 3's own disclosed residual (no external wallet integration exists yet); **PRODUCTION-ONLY**, not a Product/UI blocker for Sails' own next interface phase |
+
+    **Stale/semantic-drift finding, corrected by cross-reference only
+    (`docs/ROADMAP.md`, not rewritten):** that file's own "Third-Party
+    Sails Modules & Developer Extension Ecosystem" entry (Months 10-12)
+    and `docs/PROJECT_CONTEXT.md`'s "External Design Reference — WDK
+    Building Blocks" section both predate, and independently anticipate,
+    Mission 4's frozen contract and PR #153's precedent study — neither
+    document previously cross-linked the other. A short, dated
+    cross-reference paragraph is added to `ROADMAP.md`'s existing entry
+    (content and Aspirational status unchanged) pointing forward to
+    Mission 4/PR #153/Issue #99 — see that file's own dated note.
+
+    **CTO self-critique applied, not skipped:** re-examined whether
+    `ExecutionCandidate = SettlementProviderRegistration` is still
+    correctly treated as an implementation detail and not protocol
+    truth (Issue #152 item 6) — confirmed still true: no second real
+    candidate dimension exists in the registry as of this reconciliation,
+    so the caution remains live, not stale. Re-examined whether
+    `Registration ≠ Runtime Health` risks being read as more decided
+    than intended — confirmed PR #153 R1's own property/mechanism
+    separation already holds and is not disturbed by this item.
+
+    **Historical OPEN items reconfirmed unchanged, not rediscovered as
+    new, not resolved here:** Mission 3's own §9 recovery hypotheses and
+    `[NEW-G]` canonical Economic Identity abstraction (both OPEN);
+    `docs/BACKLOG.md` item 40 (protocol/API/versioning conflation, OPEN,
+    Decision Mission not yet run); the idempotency/`UNKNOWN`-outcome
+    mechanism (items 37-39 above, CLOSED/frozen, cited not reopened);
+    Issue #123's dependency-security/fault-domain obligations (OPEN,
+    untouched); Issue #150's privacy/canonicalization/risk-policy
+    principles (OPEN, untouched, already consumed by Mission 4 §7).
+
+    **Explicitly not done:** no runtime, SDK, protocol, or UI change;
+    no plugin framework; no registry service; no new mechanism for
+    health, revalidation, versioning, or identity; no reopening of
+    Mission 3, Mission 4, or PR #153's frozen content.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**

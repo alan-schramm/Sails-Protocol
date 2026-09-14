@@ -141,6 +141,21 @@ authoritative, current version of this target.
   Sails' own first-party adapters (`README.md`). Named here as a future
   direction only — no scaffolding, registry, manifest schema, or tooling
   code exists yet, and none is authorized by this entry.
+
+  **Cross-reference added 2026-09-14 (Post-Mission-4 Roadmap/Backlog
+  Reconciliation) — this entry's own Aspirational/Months-10-12 status
+  and content are otherwise unchanged.** This paragraph independently
+  anticipated a shape now studied and frozen in detail elsewhere: Mission
+  4 (`docs/ADAPTIVE_EXECUTION_CAPABILITY_ROUTING.md` §19.2) froze the
+  eight-stage extension contract `External Capability → Public Contract →
+  Capability Declaration → Constraints → Conformance → Evidence →
+  Eligibility → Runtime Participation`; the External Extensibility
+  Blind-Spot & Precedent Consolidation (`docs/EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md`)
+  independently studied WDK (this section's own inspiration) against real
+  external-precedent evidence and reconciled it with Issue #152. Neither
+  changes this entry's own Months-10-12/Aspirational placement or
+  authorizes any implementation now — see `docs/BACKLOG.md` item 41 for
+  the full reconciliation.
 - **Third-Party Liquidity & Economic Modules** — a future track built on
   top of the extension ecosystem above, not a separate mechanism. External
   providers may contribute liquidity, RFQ, OTC, lending, swap, bridge,
