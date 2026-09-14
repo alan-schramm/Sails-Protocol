@@ -3686,15 +3686,21 @@ obligation" is defined anywhere in this repository.
 
         **Verified, not asserted:** `npx tsc --noEmit` clean at repo
         root; `npx prisma generate` succeeds against the new
-        `checkpointRef` column (no migration file added — consistent
-        with this mission's own established precedent: R1's `UNKNOWN`
-        enum value and `completedAt` column were likewise never given a
-        formal migration in this environment, since CI only runs `prisma
-        generate` against `schema.prisma` directly, never `migrate
-        deploy`, against no live Postgres — a disclosed, pre-existing
-        gap this correction did not introduce); full unit suite 160
-        suites / 2113 tests (was 160/2111 before this correction, +2
-        matching the new tests above), 0 regressions.
+        `checkpointRef` column; full unit suite 160 suites / 2113 tests
+        (was 160/2111 before this correction, +2 matching the new tests
+        above), 0 regressions. **Correction (R4, 2026-09-14): this
+        record originally claimed no migration file was needed because
+        "CI only runs `prisma generate`... never `migrate deploy`,
+        against no live Postgres." That claim was FALSE — CI's
+        `build`/`test` jobs run `npm run db:migrate` (`prisma migrate
+        deploy`) against a real ephemeral Postgres container before
+        testing. It went unnoticed here only because `checkpointRef`
+        lived on a table (`idempotency_keys`) no integration test's
+        fixture setup ever wrote to. R4's own schema change had no such
+        luck and surfaced this directly as a CI failure — see R4's own
+        record below for the real fix (an actual migration file) and
+        the corrected account of how this environment's migrations
+        actually work.**
 
         **Items 38/39 unchanged, item 40 untouched** — this correction
         touched only `prisma/schema.prisma`, `src/common/idempotency.ts`,
@@ -3779,11 +3785,16 @@ obligation" is defined anywhere in this repository.
         All R1/R2 tests preserved unchanged.
 
         **Schema/index changes:** `IdempotencyKey.checkpointRef` (R3)
-        removed; `Intent.idempotencyClaimId String? @unique` added. No
-        migration file added — same established precedent as R1/R3's
-        own schema changes in this environment (CI only runs `prisma
-        generate` against `schema.prisma` directly, never `migrate
-        deploy`, against no live Postgres).
+        removed; `Intent.idempotencyClaimId String? @unique` added.
+        **A real migration file was added** — `prisma/migrations/20260914000000_idempotency_keys_and_intent_claim_marker/migration.sql`
+        — capturing this correction's own `Intent.idempotencyClaimId`
+        column PLUS the entire, previously-unmigrated `idempotency_keys`
+        table and `IdempotencyKeyStatus` enum (item 37's original
+        mechanism and R1's `UNKNOWN` value, accumulated drift from
+        earlier rounds of this same mission that had never been given a
+        migration). See the "Verified" paragraph below for why this was
+        necessary and how the earlier "no migration needed" claims in
+        this item's own R2/R3 records were WRONG.
 
         **Residual risks, disclosed:** `intentEngine.create()`'s own
         internal CREATED→VALIDATED→COORDINATED pipeline can still
@@ -3798,14 +3809,50 @@ obligation" is defined anywhere in this repository.
         `persistOffer()` currently checks the reused Intent's status
         before creating the Offer against it — disclosed, not fixed.
 
-        **Verified, not asserted:** `npx tsc --noEmit` clean at repo
-        root; `npx prisma generate` succeeds against the schema change;
-        full unit suite 160 suites / 2114 tests (was 160/2113 before
-        this correction), 0 regressions.
+        **Verified, not asserted — and a real CI failure this correction
+        itself caused and then fixed, not just a clean first pass:** the
+        first push of this correction's code (schema + `intentEngine.ts`/
+        `liquidity.service.ts` changes, no migration file) passed
+        `npx tsc --noEmit` and the full LOCAL unit suite, but FAILED real
+        CI's `build`/`test` jobs — 8 suites / 45 tests failed with
+        `PrismaClientKnownRequestError: The column intents.idempotencyClaimId
+        does not exist in the current database`. Root cause: CI's
+        `build`/`test` jobs run `npm run db:migrate` (`prisma migrate
+        deploy`) against a REAL, ephemeral Postgres container
+        (`.github/workflows/ci.yml`) before testing — this environment
+        DOES apply real migrations to a real database, contradicting
+        this item's own R2/R3 records, which claimed otherwise. That
+        claim went unchallenged for two rounds only because
+        `IdempotencyKey` (item 37's original table) and its `UNKNOWN`
+        status (R1) live on a table no integration test's fixture setup
+        ever writes to (nothing in those fixtures supplies an
+        idempotency key) — so the missing table/column never surfaced.
+        `Intent.idempotencyClaimId` has no such luck: `intentEngine.create()`
+        is called as ordinary fixture setup by roughly a third of this
+        repo's real-Postgres integration suites, and the new column is
+        written on EVERY call (even as `undefined`) — so the gap
+        surfaced immediately, for real, in CI.
+        **Fix:** started a local Postgres container matching CI's exact
+        image/credentials (`postgres:16-alpine`), applied all 32
+        pre-existing migrations via `prisma migrate deploy`, generated
+        the true schema diff via `prisma migrate diff --from-config-datasource
+        --to-schema prisma/schema.prisma --script`, and committed that
+        SQL as a real migration file (see "Schema/index changes" above).
+        Re-verified `prisma migrate diff ... --exit-code` reports zero
+        remaining drift, then ran the FULL suite this correction's
+        commits had never actually exercised before: `npx tsc --noEmit`
+        clean; unit suite 160 suites / 2114 tests (was 160/2113), 0
+        regressions; **`npm run test:integration:postgres` against the
+        real, migrated local Postgres: 28 suites / 228 tests, 0
+        regressions** — the first time in this item's own correction
+        chain (R1 through R4) that the real-Postgres integration suite
+        was actually run locally before pushing, rather than assumed
+        unaffected.
 
         **Items 38/39 unchanged, item 40 untouched** — this correction
-        touched `prisma/schema.prisma`, `src/common/idempotency.ts`,
-        `src/core/intent-engine.ts`, `src/core/intent-repository.ts`,
+        touched `prisma/schema.prisma`, `prisma/migrations/20260914000000_idempotency_keys_and_intent_claim_marker/migration.sql`,
+        `src/common/idempotency.ts`, `src/core/intent-engine.ts`,
+        `src/core/intent-repository.ts`,
         `src/modules/open-liquidity/liquidity.service.ts`, and
         `tests/idempotency.test.ts`. `intent-engine.ts`/`intent-repository.ts`
         changes are a single optional, additive parameter/method each —
