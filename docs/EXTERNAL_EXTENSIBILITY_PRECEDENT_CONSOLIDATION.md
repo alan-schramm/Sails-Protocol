@@ -207,7 +207,7 @@ choice, not a universal constant.
 - Compatible ≠ trusted (HashiCorp, reconfirms Issue #152 item 8).
 - A changing live extension/config state should fail toward the last known-good state, not blindly apply or crash (Envoy).
 - A minimal interface contract + explicit registration, with Core remaining technology-agnostic, is the right *shape* for a future settlement/wallet extension surface (WDK) — narrower than Sails' current monorepo-privileged reality.
-- Health is a continuous fact distinct from one-time registration (Kubernetes).
+- **Registration ≠ Runtime Health** — and, restated in full: **Supported ≠ Available ≠ Healthy ≠ Eligible** (Kubernetes' own `ListAndWatch` — a continuous stream, structurally distinct from the one-time registration call — is the evidence this distinction is real, not merely tidy vocabulary). Frozen strictly as a **property**: that registration and runtime health are two different facts that must never be read from the same signal. **No mechanism for observing, computing, or owning health is frozen alongside it** — polling vs. streaming vs. probes, the state model (if any), which layer owns the fact, and any threshold/debounce logic all remain fully OPEN (§7/§17/§26).
 
 **Rejected (mechanisms, not properties):**
 - Process-per-extension isolation (HashiCorp-style) — no current Sails property requires it; every real integration today is first-party and in-process.
@@ -288,6 +288,17 @@ is that four of the eight layers above (Available/Healthy/Eligible in the
 full sense, plus most of Verified) have **no owner at all** yet, not that
 an existing owner conflates them. This matches Mission 4's own disclosed-
 gap discipline exactly: absence is not the same defect as collapse.
+
+**Property vs. mechanism, stated once here and held consistent throughout
+this document (§5/§17/§25/§26):** both lines above — `Declared ≠ Verified
+≠ Currently Available` and `Supported ≠ Available ≠ Healthy ≠ Eligible`
+— are frozen strictly as **properties**: true distinctions this document
+asserts must never be collapsed by a future implementation. **Which
+layer eventually gets a real owner, and how that owner computes its
+answer (polling, a long-lived stream, a probe, a state model, thresholds)
+is not decided here and remains fully OPEN.** Freezing the distinction is
+not the same act as freezing, or even leaning toward, any mechanism for
+observing it.
 
 ## 8. Discovery → Execution Revalidation
 
@@ -561,7 +572,23 @@ mission's own brief.
 
 ## 17. Sails-Native Extension Model (smallest coherent future shape)
 
-The brief's own starting hypothesis:
+**R1 correction (CTO Gate Corrective, 2026-09-14):** the version of this
+section CTO review corrected claimed Mission 4 had "already independently
+arrived at" a seven-stage shape. That was factually wrong and is removed
+below, not repeated. Mission 4 §19.2
+(`docs/ADAPTIVE_EXECUTION_CAPABILITY_ROUTING.md`) froze an **eight**-stage
+contract, restated here verbatim, unmodified, not reopened or
+reinterpreted:
+
+```
+External Capability → Public Contract → Capability Declaration →
+Constraints → Conformance → Evidence → Eligibility → Runtime Participation
+```
+
+This mission's own brief (§17 of the CTO-issued corrective mission that
+produced this document) separately proposed a **nine**-stage starting
+hypothesis — a different list, not a restatement of Mission 4's own
+frozen one, and itself missing `Constraints`:
 
 ```
 External Capability → Public Contract → Capability Declaration →
@@ -569,38 +596,63 @@ Identity/Version → Conformance → Evidence → Runtime Health → Eligibility
 Runtime Participation
 ```
 
-Checked against everything found above — **modified, not adopted as-is:**
+Checked against everything found above, evaluating only this mission's
+own nine-stage hypothesis against Mission 4's already-frozen eight-stage
+one — **the correct reconciliation restores `Constraints` and declines
+to add `Identity/Version`/`Runtime Health` as separate stages,
+converging exactly onto Mission 4's own already-frozen shape — this
+document does not produce a new or shortened model:**
 
 ```
 External Capability → Public Contract → Capability Declaration →
-Conformance → Evidence → Eligibility → Runtime Participation
+Constraints → Conformance → Evidence → Eligibility → Runtime Participation
 ```
 
-**Runtime Health folded out as a separate top-level stage, not
-removed** — §7/§13 above found that Health has no owner today and no
-forcing case yet (every real scope is 0:1); promoting it to a permanent
-stage in the canonical diagram would describe a runtime observation layer
-that doesn't exist as evidenced necessity, the exact "symmetry for its
-own sake" the brief warns against. It remains a **real future concern**,
-folded into Runtime Participation's own eventual scope (a participating
-extension's health is what governs whether Runtime Participation
-continues, not a separate named stage before it).
+**`Constraints` restored, and kept distinct from `Public Contract`** —
+Mission 4 §19.2 itself already draws this line precisely: *"Constraints
+— structural limits the Public Contract itself imposes... protocol-level
+facts an integrator must satisfy, not negotiable per-integration"* (its
+own example: `PayoutAddress`'s `@@unique([participantId, asset])`
+constrains `WalletAdapter.getAddress()` to one address per asset, a fact
+about the protocol's data model, not a method signature). Public Contract
+answers *"what shape must your implementation expose"* (the interface);
+Constraints answers *"what structural, protocol-level facts must your
+implementation additionally respect, even though no interface method
+encodes them."* These are genuinely different questions — an
+implementation can satisfy every method signature in the Public Contract
+while still violating a Constraint (e.g., assuming multiple addresses per
+asset are representable when the protocol's own data model forbids it).
+Collapsing them would silently drop a real category of integrator
+obligation this document has no evidence justifies dropping.
 
-**Identity/Version folded into Public Contract, not given a separate
-stage** — §10/§11 above found neither has a real forcing case yet
-(no external implementer, no negotiation need); a Public Contract
-implicitly carries a version the moment it's published (WDK's own
-precedent: the orchestrator's own package version *is* its contract
-version, no separate mechanism needed) — inventing a distinct stage for
-this before a second real contract version exists would be exactly the
-premature complexity §5 already rejected in the Precedent Matrix.
+**`Runtime Health` not added as a separate stage** — §7/§13 above found
+Health has no owner today and no forcing case yet (every real scope is
+0:1). This is a **property vs. mechanism** decision (§5/§7), not a
+reason to remove the underlying distinction: `Registration ≠ Runtime
+Health` remains frozen as a property (§5); only its architectural
+placement as a *named stage in this diagram* is declined, for lack of
+evidence a dedicated stage (rather than an eventual property of Runtime
+Participation) is the right shape. Promoting it to a permanent diagram
+stage now would describe a runtime observation layer that doesn't exist
+as evidenced necessity — the "symmetry for its own sake" the brief warns
+against.
 
-This is a **hypothesis correction, still not authorized for
-implementation** — consistent with Mission 4's own extension contract
-(§19.2 of `ADAPTIVE_EXECUTION_CAPABILITY_ROUTING.md`), which already
-independently arrived at the same seven-stage shape this mission's own
-audit reconfirms is closer to evidenced reality than the brief's original
-nine-stage hypothesis.
+**`Identity/Version` not added as a separate stage** — §10/§11 above
+found neither has a real forcing case yet (no external implementer, no
+negotiation need); a Public Contract implicitly carries a version the
+moment it's published (WDK's own precedent: the orchestrator's own
+package version *is* its contract version, no separate mechanism
+needed) — inventing a distinct stage for this before a second real
+contract version exists would be exactly the premature complexity §5
+already rejected in the Precedent Matrix.
+
+This is a **reconciliation of this mission's own hypothesis against
+Mission 4's already-frozen contract, still not authorized for
+implementation, and not a reopening of Mission 4's frozen semantics** —
+Mission 4's own eight stages stand exactly as that mission froze them;
+this section only evaluates whether this (different, later) mission's
+own broader nine-stage hypothesis should expand them, and finds the
+evidence does not yet support doing so.
 
 ## 18. Stranger Developer Prerequisites (preparation only)
 
@@ -694,9 +746,13 @@ call, converting a real success into a false failure) — flagged
 explicitly here as a real risk for whichever future mission implements
 it, not glossed over.
 
-**Rube-Goldberg check:** §17's model is *shorter* than its own starting
-hypothesis (seven stages vs. nine), having removed two stages the
-evidence didn't support — the opposite of over-engineering.
+**Rube-Goldberg check:** §17's reconciled model is *shorter* than this
+mission's own nine-stage starting hypothesis (eight stages vs. nine —
+`Identity/Version` and `Runtime Health` declined for lack of evidence,
+`Constraints` restored because Mission 4 already froze it and no
+evidence supports dropping it) — the opposite of over-engineering, and
+exactly matches Mission 4's own already-frozen shape rather than
+inventing a new one.
 
 **Vendor-lock-in check:** no external system's specific mechanism
 (WDK's registration API shape, Kubernetes' socket protocol, HashiCorp's
@@ -784,16 +840,24 @@ work, explicitly not done here.
 
 - The current-state audit findings in §2 (a factual snapshot, verified
   directly against `main@b2d40a2877017462377710dd4fa1478b5ae4f48f`).
-- The four precedent lessons accepted in §5 (as properties, not
+- The five precedent lessons accepted in §5 (as properties, not
   mechanisms): registration is not eternal; compatible ≠ trusted; prefer
   fail-to-last-known-good over blind hot-swap or crash; minimal-interface-
-  plus-explicit-registration is the right future shape.
+  plus-explicit-registration is the right future shape; **`Registration ≠
+  Runtime Health`, restated in full as `Supported ≠ Available ≠ Healthy ≠
+  Eligible` (§5/§7)** — frozen strictly as a distinction, with every
+  mechanism for observing health left open (§26).
 - §16's `Extension` as the umbrella term (evidence-sufficient) and the
   continued protection of `Module` from collision.
-- §17's seven-stage corrected model, as the current best hypothesis for
-  a future Sails-native extension contract — still not authorized for
-  implementation, but the shape itself is ready to be built from once a
-  real implementation mission is authorized.
+- **Mission 4's own eight-stage extension contract (§19.2 of
+  `ADAPTIVE_EXECUTION_CAPABILITY_ROUTING.md`), restated and reconfirmed
+  unmodified by §17** — `External Capability → Public Contract →
+  Capability Declaration → Constraints → Conformance → Evidence →
+  Eligibility → Runtime Participation`. This document does not produce,
+  and does not claim Mission 4 already produced, any shorter or
+  different shape — still not authorized for implementation, but the
+  shape itself is ready to be built from once a real implementation
+  mission is authorized.
 
 ## 26. What Must Remain OPEN
 
@@ -803,7 +867,12 @@ work, explicitly not done here.
 - The exact revalidation mechanism (§8), in-flight provenance fields
   (§9), version-negotiation protocol (§10), and identity/namespace
   mechanism (§11) — properties are recorded, mechanisms are not chosen.
-- Runtime Health/Availability as a real, owned layer (§7) — Watchlist.
+- **Every mechanism for Runtime Health/Availability** — polling vs.
+  streaming vs. probes, any state model, which layer owns the fact, and
+  any threshold/debounce logic (§5/§7/§17) — Watchlist. Freezing
+  `Registration ≠ Runtime Health` as a property (§25) does not freeze,
+  or lean toward, any of these; whether Health ever becomes a named
+  stage in a future extension-model diagram is equally open (§17).
 - Restated, unchanged from Mission 4/Mission 3: §9 recovery hypotheses
   and `[NEW-G]` canonical Economic Identity abstraction remain OPEN —
   untouched, not dependent on, this document.
