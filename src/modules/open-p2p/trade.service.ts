@@ -67,7 +67,8 @@ export class TradeService {
         // is already the scoping key itself, not part of the payload hash.
         requestPayload: { offerId: input.offerId, amount: input.amount },
       },
-      () => this.createTradeUncached(input),
+      () => this.persistTrade(input),
+      (trade) => this.postPersistTrade(input, trade),
       async (tradeId) => {
         const trade = await this.repo.findById(tradeId)
         // The claim row's own resultRef only ever gets set to a real,
@@ -81,7 +82,17 @@ export class TradeService {
     )
   }
 
-  private async createTradeUncached(input: CreateTradeInput) {
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — this is the ENTIRE durable
+  // side effect of createTrade(): validation reads (no writes) followed
+  // by exactly one durable write, `this.repo.create(...)`. Nothing past
+  // that line may live in this function. Proof this boundary is correct:
+  // before `this.repo.create()` returns, no Trade row exists anywhere —
+  // a thrown error above that line genuinely means "nothing durable
+  // happened," which is the only case `runAndSettle()` is allowed to
+  // treat as FAILED (safe to retry via a fresh `persistTrade()` call).
+  // Once `this.repo.create()` returns, the Trade is real and permanent
+  // regardless of what `postPersistTrade()` below does next.
+  private async persistTrade(input: CreateTradeInput) {
     const offer = await this.repo.findOfferById(input.offerId)
     if (!offer) throw new NotFoundError('Offer', input.offerId)
     if (offer.status !== 'ACTIVE') {
@@ -134,9 +145,30 @@ export class TradeService {
       intentId: offer.intentId, // RFC-018 — carried over from the accepted Offer
     })
 
+    return trade
+  }
+
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — everything that must happen
+  // AFTER the Trade already durably exists: event emission, the RFC-018
+  // Intent walk, and opening the negotiation channel. Any of these can
+  // throw (event bus backpressure, an intent-engine transition
+  // conflict, a negotiation-channel error) — when one does, the error
+  // still propagates to createTrade()'s original caller (it is a real
+  // failure the caller must see), but `idempotency.ts`'s `runAndSettle()`
+  // has ALREADY settled the claim to COMPLETED/UNKNOWN by the time this
+  // runs, so a retry with the same key always recovers the existing
+  // Trade via `recover()` above — it can never call `persistTrade()`
+  // again and can never create a second Trade row. Recovering does NOT
+  // re-run this method — a Trade recovered after a postPersist failure
+  // may still be missing its event emission and/or intent transitions;
+  // that gap is the disclosed residual in `idempotency.ts`'s own header.
+  private async postPersistTrade(input: CreateTradeInput, trade: Awaited<ReturnType<TradeService['persistTrade']>>) {
+    const buyerId = trade.buyerId
+    const sellerId = trade.sellerId
+
     await eventBus.emit('openp2p.trade.created', {
       tradeId: trade.id,
-      offerId: offer.id,
+      offerId: trade.offerId,
       buyerId,
       sellerId,
       asset: trade.asset,
@@ -154,15 +186,15 @@ export class TradeService {
     // itself waits for escrow to actually lock
     // (common/events/handlers.ts's settlement.escrow.locked reaction) —
     // this mapping is PROTOCOL_SPECIFICATION.md §3.1's own table, not
-    // invented here. `offer.intentId` is null for any Offer created
-    // before this RFC landed — skipped entirely, not an error, same
+    // invented here. `intentId` is null for any Offer created before
+    // this RFC landed — skipped entirely, not an error, same
     // backward-compatible posture as every other nullable-FK migration
     // in this codebase.
-    if (offer.intentId) {
+    if (trade.intentId) {
       const triggeredBy = 'system:trade-lifecycle'
-      await intentEngine.transition(offer.intentId, 'DISCOVERING', triggeredBy, 'intent.discovering', { intentId: offer.intentId })
-      await intentEngine.transition(offer.intentId, 'MATCHED', triggeredBy, 'intent.matched', { intentId: offer.intentId, candidateIds: [input.counterpartyId] })
-      await intentEngine.transition(offer.intentId, 'NEGOTIATING', triggeredBy, 'intent.negotiating', { intentId: offer.intentId, negotiationId: trade.id })
+      await intentEngine.transition(trade.intentId, 'DISCOVERING', triggeredBy, 'intent.discovering', { intentId: trade.intentId })
+      await intentEngine.transition(trade.intentId, 'MATCHED', triggeredBy, 'intent.matched', { intentId: trade.intentId, candidateIds: [input.counterpartyId] })
+      await intentEngine.transition(trade.intentId, 'NEGOTIATING', triggeredBy, 'intent.negotiating', { intentId: trade.intentId, negotiationId: trade.id })
     }
 
     // Opens the negotiation channel's in-memory status tracking and emits
@@ -171,8 +203,6 @@ export class TradeService {
     // its own per-connection channel scoped to whichever participant is
     // actually connected via WebSocket, not the buyer specifically.
     await negotiationService.open(trade.id, buyerId, sellerId)
-
-    return trade
   }
 
   // Closes the real gap @satsails/p2p-trading-sdk's intent-facade.ts's dispute() needed:

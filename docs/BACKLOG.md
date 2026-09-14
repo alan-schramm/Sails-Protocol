@@ -3467,6 +3467,115 @@ obligation" is defined anywhere in this repository.
         `tests/idempotency.test.ts`; no contradiction with either item's
         already-accepted work was found or needed. **Item 40 untouched.**
 
+        **Corrected 2026-09-13 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2`,
+        CTO review found a third real correctness defect before Freeze)
+        — still Implemented → Evidenced, not yet Frozen.** R1 correctly
+        separated "`create()` itself failed" from "`create()` succeeded
+        but bookkeeping failed," but still assumed **`create()` throwing
+        at all meant no durable object exists.** False for all three
+        protected operations — each `*Uncached()` function persists its
+        durable object, then performs MORE steps (event emission, intent
+        transitions, negotiation open) that can ALSO throw, after the
+        durable object already exists. A failure there used to hit
+        `runAndSettle()`'s single `create()` catch block and mark the
+        claim `FAILED` even though a Trade/Offer/evidence-append already
+        durably existed — letting a retry create a SECOND one. Violated
+        the same governing principle one level deeper: *a failed call is
+        not proof of no side effect.*
+
+        **Per-operation durable boundary, proven by direct code
+        inspection, not assumed:**
+        - **`createTrade()`** — the ENTIRE durable side effect is
+          validation reads (no writes) followed by exactly one write,
+          `this.repo.create({...})` (`trade.service.ts`'s new
+          `persistTrade()`). Before that call returns, no Trade row
+          exists anywhere. Everything after — `eventBus.emit()`, up to 3
+          `intentEngine.transition()` calls (RFC-018's DISCOVERING →
+          MATCHED → NEGOTIATING walk), `negotiationService.open()` — moved
+          to a new `postPersistTrade()`.
+        - **`createOffer()`** — the durable side effect is TWO writes
+          treated as one unit: `intentEngine.create()` (its own
+          internally-durable Intent row; deliberately NOT decomposed
+          further — a widely-shared function used by many other callers,
+          splitting it is out of this bounded mission's scope) followed
+          by `prisma.offer.create()` (`liquidity.service.ts`'s new
+          `persistOffer()`). `eventBus.emit()` moved to a new
+          `postPersistOffer()`; the pre-existing fire-and-forget
+          `screenOfferContent()` call (never awaited, already
+          self-contained error handling) stays there too, unchanged in
+          its own behavior.
+        - **`submitEvidence()`** — the durable side effect is validation
+          reads followed by exactly one write, `prisma.dispute.update()`,
+          which durably appends the evidence entry AND advances `status`
+          to `EVIDENCE_SUBMITTED` in the same statement
+          (`dispute.service.ts`'s new `persistEvidence()`). `eventBus.emit()`
+          (which triggers the QVAC auto-resolution pass) moved to a new
+          `postPersistEvidence()`.
+
+        **Fix — `persist`/`postPersist` split, the smallest correct
+        mechanism:** `withIdempotency()` now takes `persist: () =>
+        Promise<T>` (the ONLY code allowed to perform the durable write;
+        its failure is the ONLY legitimate `FAILED`) and `postPersist:
+        (result: T) => Promise<void>` (everything after). `runAndSettle()`
+        now settles the claim to `COMPLETED`/`UNKNOWN` (R1's own
+        machinery, unchanged) IMMEDIATELY after `persist()` succeeds —
+        BEFORE `postPersist()` ever runs. A `postPersist()` failure
+        propagates unchanged to the ORIGINAL caller (a real failure, never
+        swallowed — e.g. `submitEvidence()`'s QVAC auto-resolution pass
+        genuinely won't fire for that submission, a disclosed
+        consequence, not a silent one) but can never again touch the
+        idempotency record. A retry with the same key, once `persist()`
+        has ever succeeded, always recovers the real object via
+        `recover()` — it can never call `persist()` again, so it can
+        never duplicate the durable object. **Disclosed residual,
+        deliberately not solved here:** a recovered replay does NOT
+        re-run the failed `postPersist()` step — a Trade recovered after
+        a `postPersistTrade()` failure may still be missing its event
+        emission and/or intent transitions. Resuming a partially-failed
+        orchestration is a real, separate, larger question; three
+        strategies are not decided here, named in
+        `src/common/idempotency.ts`'s own header for whoever picks this
+        up next.
+
+        **New tests** (`tests/idempotency.test.ts`, +4, all passing,
+        scoped to the exact `openp2p.trade.create`/`liquidity.offer.create`/
+        `settlement.dispute.evidence` scope strings the real call sites
+        use): Trade-shaped, Offer-shaped, and Evidence-shaped cases each
+        prove `persist()` succeeds once, `postPersist()` throws, the
+        caller sees the real error, the record settles `COMPLETED` (not
+        `FAILED`), and a retry recovers the original object with
+        `persist()` still called exactly once (no duplicate) and
+        `postPersist()` never re-invoked. A 4th test proves R1 and R2
+        compose correctly: a `postPersist()` failure on top of an
+        injected `markCompleted()` failure still settles `UNKNOWN` (R1's
+        own fallback), never `FAILED`. All R1 tests preserved unchanged
+        (mechanically updated to the new 3-callback signature via a
+        shared `noopPostPersist` helper where they don't exercise this
+        property).
+
+        **Verified, not asserted:** `npx tsc --noEmit` clean at repo
+        root (server-internal only — no SDK-facing type changed); full
+        unit suite 160 suites / 2111 tests (was 160/2107 before this
+        correction, +4 matching the new tests above), 0 regressions. One
+        pre-existing test (`tests/disputeFlow.test.ts`'s
+        `submitEvidence()` event-emission assertion) initially broke
+        during this refactor because it relied on `prisma.dispute.update()`'s
+        mocked return value including `tradeId`/`escrowId` fields the
+        original code never actually sourced from there (it read them
+        from the pre-update `findUnique()` fetch) — fixed in
+        `persistEvidence()` by returning the update's result merged over
+        the pre-update fetch (`{ ...dispute, ...updated }`), so
+        `tradeId`/`escrowId` always survive regardless of what a given
+        Prisma client/mock/future `select` clause returns, restoring the
+        exact original data-sourcing behavior; not a property this
+        mission set out to change.
+
+        **Items 38/39 unchanged** — this correction touched only
+        `src/common/idempotency.ts`, `src/modules/open-p2p/trade.service.ts`,
+        `src/modules/open-liquidity/liquidity.service.ts`,
+        `src/modules/open-settlement/dispute.service.ts`, and
+        `tests/idempotency.test.ts`. **Item 40 untouched.**
+
     38. **SDK Type-Shape Reconciliation (CSC-C01/D01).** Two real,
         confirmed SDK-internal disagreements: (a)
         `packages/sails-p2p-schemas`'s `DisputeStatus`/`DisputeStatusInput`

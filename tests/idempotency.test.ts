@@ -131,6 +131,12 @@ class FaultInjectingStore implements IdempotencyKeyStore {
 
 interface FakeTrade { id: string; offerId: string; amount: string }
 
+// CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — withIdempotency() now takes a
+// third callback, postPersist(), for tests that aren't specifically
+// exercising it; the R2-specific describe block below exercises it
+// directly, deliberately with a NON-noop implementation.
+const noopPostPersist = async () => {}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (err: unknown) => void
@@ -145,6 +151,7 @@ describe('withIdempotency() — property: one logical request, at most one execu
     const trade = await withIdempotency<FakeTrade>(
       { scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-a', requestPayload: { offerId: 'offer-1', amount: '10' }, store },
       async () => { createCalls++; return { id: 'trade-1', offerId: 'offer-1', amount: '10' } },
+      noopPostPersist,
       async (id) => ({ id, offerId: 'offer-1', amount: '10' })
     )
     expect(trade.id).toBe('trade-1')
@@ -158,8 +165,8 @@ describe('withIdempotency() — property: one logical request, at most one execu
     const create = async () => { createCalls++; return { id: 'trade-2', offerId: 'offer-1', amount: '10' } }
     const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
 
-    const first = await withIdempotency<FakeTrade>(params, create, recover)
-    const second = await withIdempotency<FakeTrade>(params, create, recover)
+    const first = await withIdempotency<FakeTrade>(params, create, noopPostPersist, recover)
+    const second = await withIdempotency<FakeTrade>(params, create, noopPostPersist, recover)
 
     expect(createCalls).toBe(1) // the real, economically-material assertion — create() ran exactly once
     expect(second).toEqual(first)
@@ -181,10 +188,10 @@ describe('withIdempotency() — property: one logical request, at most one execu
     }
     const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
 
-    const firstCall = withIdempotency<FakeTrade>(params, slowCreate, recover)
+    const firstCall = withIdempotency<FakeTrade>(params, slowCreate, noopPostPersist, recover)
     await firstCreateStarted.promise // the first call has genuinely claimed the key and is mid-flight
 
-    await expect(withIdempotency<FakeTrade>(params, slowCreate, recover)).rejects.toBeInstanceOf(IdempotencyKeyConflictError)
+    await expect(withIdempotency<FakeTrade>(params, slowCreate, noopPostPersist, recover)).rejects.toBeInstanceOf(IdempotencyKeyConflictError)
 
     firstCreateMayFinish.resolve()
     const firstResult = await firstCall
@@ -204,9 +211,9 @@ describe('withIdempotency() — property: one logical request, at most one execu
     const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
 
     const results = await Promise.allSettled([
-      withIdempotency<FakeTrade>(params, create, recover),
-      withIdempotency<FakeTrade>(params, create, recover),
-      withIdempotency<FakeTrade>(params, create, recover),
+      withIdempotency<FakeTrade>(params, create, noopPostPersist, recover),
+      withIdempotency<FakeTrade>(params, create, noopPostPersist, recover),
+      withIdempotency<FakeTrade>(params, create, noopPostPersist, recover),
     ])
 
     expect(createCalls).toBe(1) // exactly one of the three concurrent calls actually won the claim and executed
@@ -225,8 +232,8 @@ describe('withIdempotency() — property: one logical request, at most one execu
     const create = async () => { createCalls++; return { id: `trade-${createCalls}`, offerId: 'offer-1', amount: '10' } }
     const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
 
-    const a = await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-1', key: undefined, requestPayload: {}, store }, create, recover)
-    const b = await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-1', key: undefined, requestPayload: {}, store }, create, recover)
+    const a = await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-1', key: undefined, requestPayload: {}, store }, create, noopPostPersist, recover)
+    const b = await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-1', key: undefined, requestPayload: {}, store }, create, noopPostPersist, recover)
 
     expect(createCalls).toBe(2) // no idempotency requested — today's exact behavior, unchanged
     expect(a.id).not.toBe(b.id)
@@ -238,8 +245,8 @@ describe('withIdempotency() — property: one logical request, at most one execu
     const create = async () => { createCalls++; return { id: `trade-${createCalls}`, offerId: 'offer-1', amount: '10' } }
     const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
 
-    await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-e1', requestPayload: { a: 1 }, store }, create, recover)
-    await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-e2', requestPayload: { a: 2 }, store }, create, recover)
+    await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-e1', requestPayload: { a: 1 }, store }, create, noopPostPersist, recover)
+    await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-e2', requestPayload: { a: 2 }, store }, create, noopPostPersist, recover)
 
     expect(createCalls).toBe(2)
   })
@@ -251,8 +258,8 @@ describe('withIdempotency() — property: one logical request, at most one execu
     const create = async () => ({ id: 'trade-5', offerId: 'offer-1', amount: '10' })
     const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
 
-    await withIdempotency<FakeTrade>(params1, create, recover)
-    await expect(withIdempotency<FakeTrade>(params2, create, recover)).rejects.toBeInstanceOf(ValidationError)
+    await withIdempotency<FakeTrade>(params1, create, noopPostPersist, recover)
+    await expect(withIdempotency<FakeTrade>(params2, create, noopPostPersist, recover)).rejects.toBeInstanceOf(ValidationError)
   })
 
   it('a FAILED prior attempt (create() itself threw) allows a genuine retry with the same key to actually run — nothing durable was created the first time', async () => {
@@ -266,8 +273,8 @@ describe('withIdempotency() — property: one logical request, at most one execu
     }
     const recover = async (id: string) => ({ id, offerId: 'n/a', amount: 'n/a' })
 
-    await expect(withIdempotency<FakeTrade>(params, create, recover)).rejects.toThrow('simulated transient failure')
-    const result = await withIdempotency<FakeTrade>(params, create, recover)
+    await expect(withIdempotency<FakeTrade>(params, create, noopPostPersist, recover)).rejects.toThrow('simulated transient failure')
+    const result = await withIdempotency<FakeTrade>(params, create, noopPostPersist, recover)
 
     expect(attempt).toBe(2) // the retry actually executed — a FAILED claim never permanently blocks a genuine retry
     expect(result.id).toBe('offer-1')
@@ -279,8 +286,8 @@ describe('withIdempotency() — property: one logical request, at most one execu
     const create = async () => { createCalls++; return { id: `trade-${createCalls}`, offerId: 'offer-1', amount: '10' } }
     const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
 
-    await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'shared-key', requestPayload: { x: 1 }, store }, create, recover)
-    await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-2', key: 'shared-key', requestPayload: { x: 1 }, store }, create, recover)
+    await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'shared-key', requestPayload: { x: 1 }, store }, create, noopPostPersist, recover)
+    await withIdempotency<FakeTrade>({ scope: 'openp2p.trade.create', participantId: 'buyer-2', key: 'shared-key', requestPayload: { x: 1 }, store }, create, noopPostPersist, recover)
 
     expect(createCalls).toBe(2) // never collides across participants, even with an identical key string and payload
   })
@@ -307,7 +314,7 @@ describe('withIdempotency() — Defect A: a successful create() must never be re
 
     // 1. create() succeeds and returns the durable result — the caller's
     //    own request succeeds even though bookkeeping is about to fail.
-    const first = await withIdempotency<FakeTrade>(params, create, recover)
+    const first = await withIdempotency<FakeTrade>(params, create, noopPostPersist, recover)
     expect(first.id).toBe('trade-h1')
     expect(createCalls).toBe(1)
 
@@ -320,7 +327,7 @@ describe('withIdempotency() — Defect A: a successful create() must never be re
     expect(store.markUnknownCalls).toBe(1) // the fallback write ran and succeeded
 
     // 2. Same logical request is retried.
-    const second = await withIdempotency<FakeTrade>(params, create, recover)
+    const second = await withIdempotency<FakeTrade>(params, create, noopPostPersist, recover)
 
     // 3/4. create() must not execute twice — the retry recovered the
     // ORIGINAL result via the UNKNOWN->recover() path, exactly like a
@@ -344,7 +351,7 @@ describe('withIdempotency() — Defect A: a successful create() must never be re
 
     store.failNextMarkCompleted(1)
 
-    const result = await withIdempotency<FakeTrade>(params, create, recover)
+    const result = await withIdempotency<FakeTrade>(params, create, noopPostPersist, recover)
     expect(result.id).toBe('trade-i1') // the caller's own request still succeeds — create() really did work
 
     const record = await realStore.find('openp2p.trade.create', 'buyer-1', 'key-i')
@@ -353,7 +360,7 @@ describe('withIdempotency() — Defect A: a successful create() must never be re
     // A concurrent/retried caller in this state is safely BLOCKED, not
     // allowed to duplicate the side effect — the disclosed, bounded
     // residual (stuck pending reconciliation) is safe, not silently wrong.
-    await expect(withIdempotency<FakeTrade>(params, create, recover)).rejects.toBeInstanceOf(IdempotencyKeyConflictError)
+    await expect(withIdempotency<FakeTrade>(params, create, noopPostPersist, recover)).rejects.toBeInstanceOf(IdempotencyKeyConflictError)
     expect(createCalls).toBe(1) // still exactly one real execution, even in this doubly-degraded case
 
     void originalMarkUnknown
@@ -372,10 +379,10 @@ describe('withIdempotency() — Defect B: FAILED -> retry must be an atomic, cro
     }
     const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
 
-    await expect(withIdempotency<FakeTrade>(params, create, recover)).rejects.toThrow('genuine failure')
+    await expect(withIdempotency<FakeTrade>(params, create, noopPostPersist, recover)).rejects.toThrow('genuine failure')
     expect((await store.find('openp2p.trade.create', 'buyer-1', 'key-j'))?.status).toBe('FAILED')
 
-    const result = await withIdempotency<FakeTrade>(params, create, recover)
+    const result = await withIdempotency<FakeTrade>(params, create, noopPostPersist, recover)
     expect(result.id).toBe('trade-j1')
     expect(attempt).toBe(2)
   })
@@ -397,7 +404,7 @@ describe('withIdempotency() — Defect B: FAILED -> retry must be an atomic, cro
     const recover = async (id: string) => ({ id, offerId: 'n/a', amount: 'n/a' })
 
     // Put the record into a genuine FAILED state first.
-    await expect(withIdempotency<FakeTrade>(params0, failingCreate, recover)).rejects.toThrow()
+    await expect(withIdempotency<FakeTrade>(params0, failingCreate, noopPostPersist, recover)).rejects.toThrow()
     expect((await store.find('liquidity.offer.create', 'seller-1', 'key-k'))?.status).toBe('FAILED')
 
     let createCalls = 0
@@ -409,10 +416,10 @@ describe('withIdempotency() — Defect B: FAILED -> retry must be an atomic, cro
 
     // At least 3 concurrent retries, per the mission's own requirement.
     const results = await Promise.allSettled([
-      withIdempotency<FakeTrade>(params0, succeedingCreate, recover),
-      withIdempotency<FakeTrade>(params0, succeedingCreate, recover),
-      withIdempotency<FakeTrade>(params0, succeedingCreate, recover),
-      withIdempotency<FakeTrade>(params0, succeedingCreate, recover),
+      withIdempotency<FakeTrade>(params0, succeedingCreate, noopPostPersist, recover),
+      withIdempotency<FakeTrade>(params0, succeedingCreate, noopPostPersist, recover),
+      withIdempotency<FakeTrade>(params0, succeedingCreate, noopPostPersist, recover),
+      withIdempotency<FakeTrade>(params0, succeedingCreate, noopPostPersist, recover),
     ])
 
     expect(createCalls).toBe(1) // exactly one retry actually reclaimed the record and ran create()
@@ -433,7 +440,7 @@ describe('withIdempotency() — Defect B: FAILED -> retry must be an atomic, cro
   it('a plain, non-atomic "read FAILED then run" would have failed this exact test — regression guard for the original Defect B bug, expressed as a direct assertion on reclaimFailed()\'s own return value', async () => {
     const store = new RealInMemoryIdempotencyKeyStore()
     const params = { scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-l', requestPayload: { x: 1 }, store }
-    await expect(withIdempotency<FakeTrade>(params, async () => { throw new Error('fail') }, async (id) => ({ id, offerId: 'n/a', amount: 'n/a' }))).rejects.toThrow()
+    await expect(withIdempotency<FakeTrade>(params, async () => { throw new Error('fail') }, noopPostPersist, async (id) => ({ id, offerId: 'n/a', amount: 'n/a' }))).rejects.toThrow()
 
     const record = await store.find('openp2p.trade.create', 'buyer-1', 'key-l')
     expect(record).not.toBeNull()
@@ -447,5 +454,137 @@ describe('withIdempotency() — Defect B: FAILED -> retry must be an atomic, cro
     // Defect B's fix must guarantee, independent of withIdempotency()'s
     // own surrounding logic.
     expect([firstReclaim, secondReclaim].filter(Boolean).length).toBe(1)
+  })
+})
+
+/**
+ * CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 (2026-09-13) — proves the third
+ * defect a CTO review found in R1: `persist()` succeeding is NOT the
+ * same as the whole orchestration succeeding. `createTradeUncached()`,
+ * `createOfferUncached()`, and `submitEvidenceUncached()` each do real
+ * durable writes FOLLOWED by more steps (event emission, intent
+ * transitions, negotiation open) that can also throw — a failure there
+ * must still surface to the caller (it's a real failure), but must NOT
+ * cause the idempotency record to regress to FAILED (which would let a
+ * retry create a SECOND Trade/Offer or double-append evidence). These
+ * tests use the exact scope strings the real `openp2p.trade.create`,
+ * `liquidity.offer.create`, and `settlement.dispute.evidence` call sites
+ * use (see `trade.service.ts`, `liquidity.service.ts`,
+ * `dispute.service.ts`), proving the generic mechanism those three real
+ * `persist`/`postPersist` splits depend on.
+ */
+describe('withIdempotency() — R2: a postPersist() failure must not relabel an already-durable result FAILED, and must never cause a duplicate persist()', () => {
+  it('[Trade-shaped] persist() succeeds, postPersist() throws: the caller sees the real error, the record settles COMPLETED (not FAILED), and a retry recovers the original Trade without calling persist() again', async () => {
+    const store = new RealInMemoryIdempotencyKeyStore()
+    let persistCalls = 0
+    let postPersistCalls = 0
+    const params = { scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-trade-r2', requestPayload: { offerId: 'offer-1', amount: '10' }, store }
+    const persist = async () => { persistCalls++; return { id: 'trade-r2-1', offerId: 'offer-1', amount: '10' } }
+    const postPersist = async () => {
+      postPersistCalls++
+      if (postPersistCalls === 1) throw new Error('simulated negotiationService.open() failure — the Trade row already exists')
+    }
+    const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
+
+    // 1. The real failure propagates to the original caller — never swallowed.
+    await expect(withIdempotency<FakeTrade>(params, persist, postPersist, recover))
+      .rejects.toThrow('simulated negotiationService.open() failure')
+    expect(persistCalls).toBe(1) // the Trade was created exactly once
+
+    // 2. The durable Trade is NOT relabeled retryable — it settled COMPLETED,
+    //    because persist() itself succeeded; only the later step failed.
+    const record = await store.find('openp2p.trade.create', 'buyer-1', 'key-trade-r2')
+    expect(record?.status).toBe('COMPLETED')
+    expect(record?.resultRef).toBe('trade-r2-1')
+
+    // 3. A retry with the same key recovers the ORIGINAL Trade — it never
+    //    calls persist() again (no second Trade row), and never re-runs the
+    //    failed postPersist() step either (a real, disclosed residual).
+    const retried = await withIdempotency<FakeTrade>(params, persist, postPersist, recover)
+    expect(persistCalls).toBe(1) // still exactly one — no duplicate Trade
+    expect(postPersistCalls).toBe(1) // postPersist() is not re-invoked on a recovered replay
+    expect(retried.id).toBe('trade-r2-1')
+  })
+
+  it('[Offer-shaped] persist() succeeds, postPersist() throws: the caller sees the real error, the record settles COMPLETED (not FAILED), and a retry recovers the original Offer without calling persist() again', async () => {
+    const store = new RealInMemoryIdempotencyKeyStore()
+    let persistCalls = 0
+    let postPersistCalls = 0
+    const params = { scope: 'liquidity.offer.create', participantId: 'seller-1', key: 'key-offer-r2', requestPayload: { asset: 'BTC' }, store }
+    const persist = async () => { persistCalls++; return { id: 'offer-r2-1', offerId: 'n/a', amount: 'n/a' } }
+    const postPersist = async () => {
+      postPersistCalls++
+      if (postPersistCalls === 1) throw new Error('simulated eventBus.emit() failure — the Offer row already exists')
+    }
+    const recover = async (id: string) => ({ id, offerId: 'n/a', amount: 'n/a' })
+
+    await expect(withIdempotency<FakeTrade>(params, persist, postPersist, recover))
+      .rejects.toThrow('simulated eventBus.emit() failure')
+    expect(persistCalls).toBe(1)
+
+    const record = await store.find('liquidity.offer.create', 'seller-1', 'key-offer-r2')
+    expect(record?.status).toBe('COMPLETED')
+    expect(record?.resultRef).toBe('offer-r2-1')
+
+    const retried = await withIdempotency<FakeTrade>(params, persist, postPersist, recover)
+    expect(persistCalls).toBe(1) // no second Offer row was ever created
+    expect(postPersistCalls).toBe(1)
+    expect(retried.id).toBe('offer-r2-1')
+  })
+
+  it('[Evidence-shaped] persist() succeeds, postPersist() throws: the caller sees the real error, the record settles COMPLETED (not FAILED), and a retry recovers the original Dispute without double-appending evidence', async () => {
+    const store = new RealInMemoryIdempotencyKeyStore()
+    let persistCalls = 0
+    let postPersistCalls = 0
+    const params = { scope: 'settlement.dispute.evidence', participantId: 'buyer-1', key: 'key-evidence-r2', requestPayload: { disputeId: 'dispute-1', type: 'IMAGE', uri: 'ipfs://x', note: null }, store }
+    const persist = async () => { persistCalls++; return { id: 'dispute-1', offerId: 'n/a', amount: 'n/a' } }
+    const postPersist = async () => {
+      postPersistCalls++
+      if (postPersistCalls === 1) throw new Error('simulated eventBus.emit() failure — the evidence is already durably appended')
+    }
+    const recover = async (id: string) => ({ id, offerId: 'n/a', amount: 'n/a' })
+
+    await expect(withIdempotency<FakeTrade>(params, persist, postPersist, recover))
+      .rejects.toThrow('simulated eventBus.emit() failure')
+    expect(persistCalls).toBe(1) // the evidence array was appended exactly once
+
+    const record = await store.find('settlement.dispute.evidence', 'buyer-1', 'key-evidence-r2')
+    expect(record?.status).toBe('COMPLETED')
+    expect(record?.resultRef).toBe('dispute-1')
+
+    const retried = await withIdempotency<FakeTrade>(params, persist, postPersist, recover)
+    expect(persistCalls).toBe(1) // never double-appended — a retry recovers, it never re-runs persist()
+    expect(postPersistCalls).toBe(1)
+    expect(retried.id).toBe('dispute-1')
+  })
+
+  it('a postPersist() failure followed by ALSO a markCompleted() failure still settles UNKNOWN (Defect A\'s own machinery), never FAILED — proving R1 and R2 compose correctly rather than one undoing the other', async () => {
+    const realStore = new RealInMemoryIdempotencyKeyStore()
+    const store = new FaultInjectingStore(realStore)
+    store.failNextMarkCompleted(1)
+
+    let persistCalls = 0
+    let postPersistCalls = 0
+    const params = { scope: 'openp2p.trade.create', participantId: 'buyer-1', key: 'key-compose-r2', requestPayload: { offerId: 'offer-1', amount: '10' }, store }
+    const persist = async () => { persistCalls++; return { id: 'trade-compose-1', offerId: 'offer-1', amount: '10' } }
+    const postPersist = async () => {
+      postPersistCalls++
+      throw new Error('simulated postPersist failure, on top of a bookkeeping failure')
+    }
+    const recover = async (id: string) => ({ id, offerId: 'offer-1', amount: '10' })
+
+    await expect(withIdempotency<FakeTrade>(params, persist, postPersist, recover)).rejects.toThrow('simulated postPersist failure')
+
+    // The claim was already settled to UNKNOWN (R1's own fallback, since
+    // markCompleted() was injected to fail) BEFORE postPersist() ever ran
+    // — its failure afterward changes nothing about that settlement.
+    const record = await realStore.find('openp2p.trade.create', 'buyer-1', 'key-compose-r2')
+    expect(record?.status).toBe('UNKNOWN')
+    expect(record?.resultRef).toBe('trade-compose-1')
+    expect(persistCalls).toBe(1)
+
+    const retried = await withIdempotency<FakeTrade>(params, persist, postPersist, recover)
+    expect(persistCalls).toBe(1) // UNKNOWN recovers exactly like COMPLETED — no second persist()
+    expect(retried.id).toBe('trade-compose-1')
   })
 })

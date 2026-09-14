@@ -64,6 +64,46 @@
  * production store (`PrismaIdempotencyKeyStore` below) is a thin,
  * directly-inspectable wrapper over real, atomic Prisma operations —
  * not a second, competing idempotency mechanism.
+ *
+ * CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 (2026-09-13) — closes a third
+ * real defect R1 did not: R1 correctly separated "create() itself
+ * failed" from "create() succeeded but bookkeeping failed," but still
+ * assumed **create() throwing at all** meant no durable object exists.
+ * That assumption was false for every one of the three protected
+ * operations — `createTradeUncached()` persists the `Trade` row, then
+ * STILL performs `eventBus.emit()`, up to 3 `intentEngine.transition()`
+ * calls, and `negotiationService.open()`, any of which can throw AFTER
+ * the Trade already exists; `createOfferUncached()` persists the
+ * `Intent` and `Offer` rows before its own `eventBus.emit()`;
+ * `submitEvidenceUncached()` durably appends evidence via
+ * `prisma.dispute.update()` before its own `eventBus.emit()`. A failure
+ * in any of those later steps used to hit `runAndSettle()`'s single
+ * `create()` catch block and mark the claim `FAILED` — even though a
+ * durable business object already existed — letting a retry create a
+ * SECOND `Trade`/`Offer` or double-append evidence. Violated the same
+ * governing principle Defect A violated, one level deeper: **a failed
+ * call is not proof of no side effect**, and retryability must be
+ * derived from durable truth, not from whether the outer function
+ * threw.
+ *
+ * **Fix:** `withIdempotency()` now takes two callbacks instead of one —
+ * `persist()` (the ONLY code allowed to perform the durable business
+ * write; its own failure is the ONLY legitimate `FAILED`, since nothing
+ * durable exists yet) and `postPersist()` (everything that must happen
+ * AFTER the durable write — events, intent transitions, negotiation
+ * setup — whose failures are real and still propagate to the ORIGINAL
+ * caller, but can never regress the idempotency record). `runAndSettle()`
+ * now settles the record to `COMPLETED`/`UNKNOWN` (Defect A's own
+ * machinery, unchanged) IMMEDIATELY after `persist()` succeeds — BEFORE
+ * `postPersist()` ever runs — so the record reflects durable truth no
+ * matter what `postPersist()` does next. A retry with the same key,
+ * once `persist()` has ever succeeded, always recovers the real object
+ * via `recover()`; it never re-runs `persist()` again. This deliberately
+ * does NOT retry `postPersist()` on a recovered replay — resuming a
+ * partially-failed orchestration (a stuck negotiation channel, an
+ * unfired event) is a real, separate, larger question this bounded
+ * correction does not solve; see each call site's own comment for the
+ * disclosed residual this leaves.
  */
 import { createHash } from 'node:crypto'
 import { prisma } from './database'
@@ -180,24 +220,30 @@ export interface WithIdempotencyParams {
 }
 
 /**
- * Runs `create()` at most once per (scope, participantId, key). A
+ * Runs `persist()` at most once per (scope, participantId, key). A
  * concurrent or retried call with the SAME key and the SAME
  * `requestPayload` either waits out the race (`IdempotencyKeyConflictError`,
  * 409 — the caller's own job to decide whether to poll/retry) or, once
  * the original attempt has finished, gets the ORIGINAL result back via
- * `recover()` — never a second execution of `create()`. The SAME key
+ * `recover()` — never a second execution of `persist()`. The SAME key
  * with a DIFFERENT `requestPayload` is treated as a genuine client bug
  * (reusing an idempotency key for a new logical action), rejected with
  * `ValidationError` rather than silently replayed or silently allowed.
  *
- * `create()`'s own thrown errors propagate unchanged (this never turns
- * a real failure into a false idempotent success) — the claim row is
- * marked `FAILED` only when `create()` itself never produced a durable
- * result (see `runAndSettle()` for the `UNKNOWN` case this is no longer
- * conflated with), so a genuine retry with the same key after a real
- * failure is allowed to try again, not permanently blocked — but ONLY
- * via `reclaimFailed()`'s atomic compare-and-swap, never a bare
- * "I saw FAILED, so I'll just run it."
+ * CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — `persist()` and `postPersist()`
+ * are deliberately two separate callbacks, not one. `persist()` must
+ * contain ONLY the durable business write (and nothing that can be
+ * skipped without leaving a half-created object); its own thrown error
+ * is the ONLY thing that marks the claim `FAILED` (see `runAndSettle()`).
+ * `postPersist(result)` runs AFTER the claim has already been settled to
+ * `COMPLETED`/`UNKNOWN` — its failures propagate unchanged to the
+ * ORIGINAL caller of `withIdempotency()` (a real error, not swallowed),
+ * but can never regress the idempotency record, and are never re-run on
+ * a later replay with the same key (that replay goes straight to
+ * `recover()`). Getting this boundary right per call site is the
+ * caller's responsibility — see `trade.service.ts`, `liquidity.service.ts`,
+ * and `dispute.service.ts` for the three audited boundaries this
+ * mission established.
  *
  * **Opt-in boundary, stated plainly for whoever next has to decide this
  * Product question (not decided here):** today, an idempotency key is
@@ -220,13 +266,18 @@ export interface WithIdempotencyParams {
  */
 export async function withIdempotency<T extends { id: string }>(
   params: WithIdempotencyParams,
-  create: () => Promise<T>,
+  persist: () => Promise<T>,
+  postPersist: (result: T) => Promise<void>,
   recover: (resultId: string) => Promise<T>
 ): Promise<T> {
   const { scope, participantId, key, requestPayload } = params
   const store = params.store ?? defaultStore
 
-  if (!key) return create()
+  if (!key) {
+    const result = await persist()
+    await postPersist(result)
+    return result
+  }
 
   const requestHash = hashIdempotentPayload(requestPayload)
 
@@ -293,34 +344,36 @@ export async function withIdempotency<T extends { id: string }>(
       )
     }
 
-    return runAndSettle(create, store, existing.id)
+    return runAndSettle(persist, postPersist, store, existing.id)
   }
 
-  return runAndSettle(create, store, claim.id)
+  return runAndSettle(persist, postPersist, store, claim.id)
 }
 
 async function runAndSettle<T extends { id: string }>(
-  create: () => Promise<T>,
+  persist: () => Promise<T>,
+  postPersist: (result: T) => Promise<void>,
   store: IdempotencyKeyStore,
   claimId: string
 ): Promise<T> {
   let result: T
   try {
-    result = await create()
+    result = await persist()
   } catch (err) {
-    // create() itself never produced a durable object — this is the
+    // persist() itself never produced a durable object — this is the
     // ONLY branch allowed to mark the claim FAILED. Nothing past this
-    // point may ever do so again for this attempt.
+    // point (including postPersist(), which never even runs) may ever
+    // do so again for this attempt.
     await store.markFailed(claimId)
     throw err
   }
 
-  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R1 (Defect A) — create() already
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R1 (Defect A) — persist() already
   // succeeded; a durable side effect genuinely exists (`result.id`).
   // From here on, this function must return `result` to the caller no
-  // matter what happens next — the caller's own request DID succeed,
-  // full stop. What remains uncertain is only whether the bookkeeping
-  // write below itself lands cleanly.
+  // matter what happens next — the caller's own request DID durably
+  // succeed, full stop. What remains uncertain is only whether the
+  // bookkeeping write below itself lands cleanly.
   try {
     await store.markCompleted(claimId, result.id)
   } catch (finalizeErr) {
@@ -345,7 +398,7 @@ async function runAndSettle<T extends { id: string }>(
       // never rethrown, since the caller's own result is real and
       // already in hand.
       log.error({
-        msg: 'Idempotency bookkeeping could not be finalized after a successful create() — the business action succeeded, but this claim row may be stuck IN_PROGRESS pending manual reconciliation',
+        msg: 'Idempotency bookkeeping could not be finalized after a successful persist() — the business action succeeded, but this claim row may be stuck IN_PROGRESS pending manual reconciliation',
         claimId,
         resultId: result.id,
         markCompletedError: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
@@ -353,6 +406,19 @@ async function runAndSettle<T extends { id: string }>(
       })
     }
   }
+
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — the claim is ALREADY settled
+  // to COMPLETED/UNKNOWN above, before postPersist() ever runs. A
+  // postPersist() failure here is real and propagates unchanged to
+  // whichever caller (original or a `create()`-branch reclaim) invoked
+  // `runAndSettle()` — but it can never again touch this claim row. A
+  // retry with the same key will always take the COMPLETED/UNKNOWN
+  // branch in `withIdempotency()` above and call `recover()`, never
+  // re-run `persist()` — so a failed postPersist() can never duplicate
+  // the durable object. This deliberately does not retry postPersist()
+  // itself on that later replay; see this file's header comment for the
+  // disclosed residual that leaves.
+  await postPersist(result)
 
   return result
 }

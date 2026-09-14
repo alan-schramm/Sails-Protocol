@@ -431,7 +431,8 @@ export class LiquidityRouter {
           minAmount: input.minAmount, maxAmount: input.maxAmount, paymentMethod: input.paymentMethod,
         },
       },
-      () => this.createOfferUncached(input),
+      () => this.persistOffer(input),
+      (offer) => this.postPersistOffer(input, offer),
       async (offerId) => {
         const offer = await prisma.offer.findUnique({ where: { id: offerId } })
         if (!offer) throw new NotFoundError('Offer', offerId)
@@ -440,7 +441,21 @@ export class LiquidityRouter {
     )
   }
 
-  private async createOfferUncached(input: CreateOfferInput) {
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — the durable side effect of
+  // createOffer() is TWO writes treated as one unit: `intentEngine.create()`
+  // (its own internally-durable Intent row — not decomposed further here;
+  // it is a widely-shared function used by many other callers, and
+  // splitting it is out of this bounded mission's scope) followed by
+  // `prisma.offer.create()`. Proof: before `prisma.offer.create()`
+  // returns, no Offer row exists, so a throw anywhere in this method
+  // (including from `intentEngine.create()` itself) genuinely means
+  // nothing offer-shaped is durable — the only case safe to mark FAILED
+  // and retry via a fresh `persistOffer()` call. A left-behind orphan
+  // Intent from a `prisma.offer.create()` failure is a real, narrow,
+  // pre-existing gap in `intentEngine.create()`'s own transactionality
+  // — not introduced or worsened by this correction, and out of item
+  // 37's scope to fix.
+  private async persistOffer(input: CreateOfferInput) {
     const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId)
 
     const offer = await prisma.offer.create({
@@ -460,6 +475,20 @@ export class LiquidityRouter {
       },
     })
 
+    return offer
+  }
+
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — runs AFTER the Offer already
+  // durably exists. `eventBus.emit()`'s failure is real and propagates
+  // to createOffer()'s original caller, but idempotency.ts's
+  // runAndSettle() has already settled the claim to COMPLETED/UNKNOWN by
+  // the time this runs — a retry with the same key always recovers the
+  // existing Offer via recover() above, never calls persistOffer() again,
+  // and can never create a second Offer row. screenOfferContent() was
+  // already fire-and-forget (never awaited, failures only logged/metered
+  // internally) before this correction and stays exactly that — moving
+  // it here changes nothing about its own error handling.
+  private async postPersistOffer(input: CreateOfferInput, offer: Awaited<ReturnType<LiquidityRouter['persistOffer']>>) {
     await eventBus.emit('liquidity.offer.created', {
       offerId: offer.id,
       userId: offer.userId,
@@ -469,8 +498,6 @@ export class LiquidityRouter {
     }, offer.id)   // correlationId (RFC-010) — no tradeId exists yet for an offer
 
     screenOfferContent(offer.id, offer.userId, input.description, input.paymentDetails)
-
-    return offer
   }
 
   // Real gap found wiring the first real caller (packages/sails-ui's
