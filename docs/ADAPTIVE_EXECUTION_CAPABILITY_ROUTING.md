@@ -267,10 +267,12 @@ scope boundary; §17 backlog delta).
 
 **Not implemented by this mission.** The only "selection" this slice
 performs is the **degenerate, already-approved case**: exactly one
-eligible candidate ⇒ auto-resolved (same rule VERTICAL-SLICE-1 already
-proved for BTC, now general). More than one eligible candidate is a
-**terminal, explicit-refusal outcome** — `MULTIPLE_ELIGIBLE_CANDIDATES`,
-§13 — never silently resolved. A real Selection mechanism (scoring, cost/
+structurally compatible candidate ⇒ auto-resolved (same rule
+VERTICAL-SLICE-1 already proved for BTC, now general — never described
+as "eligible," R1 correction, §13). More than one structurally compatible
+candidate is a **terminal, explicit-refusal outcome** —
+`MULTIPLE_STRUCTURALLY_COMPATIBLE_CANDIDATES`, §13 — never silently
+resolved. A real Selection mechanism (scoring, cost/
 latency/liquidity weighting, user preference) is Architecture Decision
 Required (§17) once a real multi-candidate scope exists to design against
 — building one now, against zero real cases, would be exactly the
@@ -306,7 +308,11 @@ slice actually does:
    never represents.
 6. **Path selection cannot convert unavailable into unsupported,
    forbidden, ineligible, disabled, or not implemented.** This is the
-   property §13's four-outcome union directly proves — see §8.
+   property §13's five-outcome union directly proves — see §8. (R1: a
+   sixth-in-spirit distinction — "provider exists but lacks the required
+   capability" ≠ "no provider at all" — was itself found missing from
+   the original four-outcome version and is now its own outcome,
+   `NO_PROVIDER_WITH_REQUIRED_CAPABILITY`.)
 7. **A provider may satisfy an intent; it may not redefine the intent.**
    Preserved — `ExecutionCandidate` carries no field that could overwrite
    `asset`/`rail`.
@@ -317,7 +323,7 @@ slice actually does:
    Direction.** This is the exact defect §2.3 documents (loudly, not
    silently) and §13 partially closes for the server side.
 10. **The system may recommend a path. Recommendation ≠ authority.**
-    `resolveSingleEligibleImplementation()`'s single-candidate return is
+    `resolveSingleStructurallyCompatibleImplementation()`'s single-candidate return is
     an auto-resolution of a *degenerate* case (only one option exists at
     all), never a recommendation among real alternatives — no code in
     this slice recommends between two real options, because none exist
@@ -339,10 +345,14 @@ Outcome/Evidence Reconciliation
 ```
 
 **What this mission's slice actually builds:** `Intent` (as existing
-`asset`/`rail`, §3.1) → **Candidate Discovery** (`isSettlementScopeRegistered`)
-→ **Capability Filter** (`listProvidersForScope`'s own `requiredCapability`
-param) → **Eligible Candidate Set** (the four-outcome
-`CandidateDiscoveryResult`) → degenerate **Selection** (auto-resolve iff
+`asset`/`rail`, §3.1) → **Candidate Discovery** (`isSettlementScopeRegistered`
++ the unfiltered provider set, §13 R1) → **Capability Filter**
+(`discoverExecutionCandidates()`'s own `requiredCapability` param,
+applied only after the unfiltered set is known — R1's own fix) →
+**Structurally Compatible Candidate Set** (the five-outcome
+`CandidateDiscoveryResult` — named "structurally compatible," never
+"eligible": this slice evaluates Product Scope membership and structural
+capability only, §3.3) → degenerate **Selection** (auto-resolve iff
 exactly one candidate) → existing, unchanged **Execution**.
 
 **Permission Filter, Availability Filter, Maturity/Evidence Filter, and
@@ -389,22 +399,22 @@ no-implementation-authorized):
 > Risk Policy ≠ Economic Authority.
 
 **No risk-policy code is implemented by this mission.** Architecturally,
-a future Risk Policy Gate belongs **after** Eligible Candidate Set /
-Selection and **before** Execution — structurally separate from
-`SettlementScope` (Product Scope truth), `SettlementProviderRegistration`
-(structural capability truth), and any future Eligibility layer
-(permission/availability/maturity truth), the same way
-`assertRailCanActivateFeeCollection()` and
+a future Risk Policy Gate belongs **after** the Structurally Compatible
+Candidate Set / Selection and **before** Execution — structurally
+separate from `SettlementScope` (Product Scope truth),
+`SettlementProviderRegistration` (structural capability truth), and any
+future Eligibility layer (permission/availability/maturity truth), the
+same way `assertRailCanActivateFeeCollection()` and
 `assertArbitrationModeCompatibleWithAvailableRails()`
 (`escrow-providers.ts`) already exist as separate, later policy checks
 distinct from the provider registry itself — real precedent for keeping
 policy checks out of registry/capability truth. A Risk Policy Gate must
 never be able to rewrite `asset`, `rail`, beneficiary, or which
-`SettlementProviderRegistration` was found eligible — it may only ever
-add a *further* gate (delay, require review, refuse) on top of an
-already-determined eligible/selected candidate, never redefine the
-candidate itself. Architecture Decision Required before any
-implementation (§17).
+`SettlementProviderRegistration` was found structurally compatible — it
+may only ever add a *further* gate (delay, require review, refuse) on
+top of an already-determined structurally-compatible/selected candidate,
+never redefine the candidate itself. Architecture Decision Required
+before any implementation (§17).
 
 ## 8. Failure Semantics
 
@@ -414,12 +424,13 @@ The brief's required distinctions, mapped to real code state:
 |---|---|---|
 | No candidate supports the intent | Collapsed into `EscrowError('UNAVAILABLE')` | `SCOPE_NOT_REGISTERED` (distinct) |
 | Candidate supported but unavailable | Not distinguished from the above | `SCOPE_REGISTERED_NO_PROVIDER` (distinct — matches ADR-002 §4's own "valid, non-error" framing) |
+| Candidate(s) exist but none satisfy a required structural capability | **R1 fix — the original slice collapsed this into the row above** (`{BTC, ARKADE}` + `split` produced the same outcome as `{DEPIX, SPARK}`'s genuine zero-provider case, a false statement — CTO Gate Corrective, 2026-09-14) | `NO_PROVIDER_WITH_REQUIRED_CAPABILITY` (distinct — §13) |
 | Candidate available but forbidden | No permission layer exists (§3.3) | Not represented — future work |
 | Candidate implemented but immature | No maturity layer exists (§2.6) | Not represented — future work |
 | Candidate eligible but provider failed | Real, evidenced at the provider-call level (e.g. `"[handlers] autoSettleOnMatch failed... err: WDK provider unavailable"` — live log output, `src/common/events/handlers.ts`) | Unchanged by this slice — out of Candidate Discovery's scope; already exists one layer down |
 | Candidate execution outcome unknown | Real, evidenced, frozen — `src/common/idempotency.ts`'s `IdempotencyKeyStatus.UNKNOWN` (CROSS-LAYER-SEMANTIC-CORRECTIVE-1, merged) | Unchanged — **already institutionalized, not reinvented here** |
 | Selected provider disappeared mid-flow | Same idempotency/UNKNOWN mechanism governs this | Unchanged |
-| Fallback possible before execution | This slice's `MULTIPLE_ELIGIBLE_CANDIDATES` outcome is exactly this — no execution has occurred, refusal is free | Real, proven (§13) |
+| Fallback possible before execution | This slice's `MULTIPLE_STRUCTURALLY_COMPATIBLE_CANDIDATES` outcome is exactly this — no execution has occurred, refusal is free | Real, proven (§13) |
 | Fallback attempted after economic side effect | Governed entirely by the existing idempotency mechanism, never by this slice | Unchanged, correctly out of scope |
 
 **Governing invariant, restated and cross-linked, not reinvented:**
@@ -432,7 +443,7 @@ layer (§3.4, not built) must reuse it, never reimplement it.
 ## 9. Fallback Model
 
 - **Pre-commit fallback** — no economic side effect. This slice's own
-  `MULTIPLE_ELIGIBLE_CANDIDATES` refusal is a real (if currently
+  `MULTIPLE_STRUCTURALLY_COMPATIBLE_CANDIDATES` refusal is a real (if currently
   unreachable — §2.1) instance: discovering candidates has zero side
   effects, so refusing before selecting one is always safe. A future
   Selection layer choosing among real N>1 candidates, before calling
@@ -490,15 +501,38 @@ proven (VERTICAL-SLICE-1), generalized without redesign:
 
 - **New:** [`src/common/execution-candidates.ts`](../src/common/execution-candidates.ts)
   — pure, side-effect-free, never-throwing. `discoverExecutionCandidates(asset,
-  rail, requiredCapability?)` returns one of four exhaustive outcomes:
+  rail, requiredCapability?)` returns one of **five** exhaustive outcomes:
   `SCOPE_NOT_REGISTERED`, `SCOPE_REGISTERED_NO_PROVIDER`,
-  `SINGLE_ELIGIBLE_CANDIDATE`, `MULTIPLE_ELIGIBLE_CANDIDATES`. Composes
-  only the two existing registries — no new type, field, or registry of
-  its own. `resolveSingleEligibleImplementation()` is the convenience
-  wrapper `escrow.service.ts` consumes: returns `{implementation}` for
-  the degenerate single-candidate case, or a distinct, honest `{error}`
-  string for every other outcome — never the same string for two
-  different reasons.
+  `NO_PROVIDER_WITH_REQUIRED_CAPABILITY`,
+  `SINGLE_STRUCTURALLY_COMPATIBLE_CANDIDATE`,
+  `MULTIPLE_STRUCTURALLY_COMPATIBLE_CANDIDATES`. Composes only the two
+  existing registries — no new type, field, or registry of its own.
+  `resolveSingleStructurallyCompatibleImplementation()` is the
+  convenience wrapper `escrow.service.ts` consumes: returns
+  `{implementation}` for the degenerate single-candidate case, or a
+  distinct, honest `{error}` string for every other outcome — never the
+  same string for two different reasons.
+
+  **R1 correction (CTO Gate Corrective, 2026-09-14):** the original
+  version had four outcomes and a real semantic defect — it filtered
+  `listProvidersForScope()` by `requiredCapability` in the SAME call used
+  to detect "zero providers," so `{BTC, ARKADE}` + `requiredCapability:
+  'split'` (LIGHTNING_HODL *is* registered there, it simply doesn't
+  declare `split`) produced the identical `SCOPE_REGISTERED_NO_PROVIDER`
+  outcome as `{DEPIX, SPARK}` (genuinely zero providers registered at
+  all) — a false statement. Fixed by querying the registry **without**
+  a capability filter first, classifying the true zero-provider case from
+  that, and only then applying the capability filter — see the file's own
+  header for the full mechanism. The original outcome names
+  (`SINGLE_ELIGIBLE_CANDIDATE`/`MULTIPLE_ELIGIBLE_CANDIDATES`) and
+  function name (`resolveSingleEligibleImplementation()`) also overclaimed
+  "Eligibility" — §3.3 already disclosed that permission, wallet
+  capability, availability, and maturity/evidence are not evaluated here,
+  but the code's own naming didn't reflect that discipline. Renamed to
+  "structurally compatible" throughout, ADR-002 §6's own term for
+  exactly this layer, explicitly distinct from ADR-002's frozen
+  "Settlement Eligibility" (a later, more complete concept this file
+  still does not implement).
 - **Changed:** [`src/modules/open-settlement/escrow.service.ts`](../src/modules/open-settlement/escrow.service.ts)'s
   `resolveEscrowType()` — generalized from `if (asset === 'BTC')` to
   every ADR-002 §11 legacy mapping (`BTC`, `USDT_ERC20`, `USDT_TRC20`,
@@ -539,14 +573,16 @@ actually proves (narrowest trustworthy seam — unit tests over the real,
 unmocked registry code, following `tests/settlementProviderRegistry.test.ts`'s
 own established convention):
 
-1. **Same intent + different eligible providers preserves same economic
-   meaning** — N/A today (no scope has >1 real provider, §2.1);
-   structurally guaranteed by `ExecutionCandidate` never carrying an
-   asset/rail-mutating field (§4 invariant 2/3).
+1. **Same intent + different structurally compatible providers preserves
+   same economic meaning** — N/A today (no scope has >1 real provider,
+   §2.1); structurally guaranteed by `ExecutionCandidate` never carrying
+   an asset/rail-mutating field (§4 invariant 2/3).
 2. **Unavailable candidate is not mislabeled unsupported** —
-   `tests/executionCandidates.test.ts`: `SCOPE_NOT_REGISTERED` vs
-   `SCOPE_REGISTERED_NO_PROVIDER` produce distinct, asserted-different
-   error strings.
+   `tests/executionCandidates.test.ts`: `SCOPE_NOT_REGISTERED`,
+   `SCOPE_REGISTERED_NO_PROVIDER`, and `NO_PROVIDER_WITH_REQUIRED_CAPABILITY`
+   produce three distinct, asserted-different error strings (R1 — the
+   third of these was the exact defect the CTO's corrective mission
+   found and this evidence now proves fixed).
 3. **Forbidden candidate is not selected** — N/A, no permission layer
    exists to forbid anything yet (§3.3, honestly disclosed, not faked).
 4. **Immature candidate cannot silently become production-eligible** —
@@ -561,7 +597,7 @@ own established convention):
    and USDT_ERC20.
 7. **Automatic recommendation never creates authority** — structural, §4
    invariant 1; the function is read-only, returns data, calls nothing.
-8. **Safe pre-commit fallback preserves intent** — `MULTIPLE_ELIGIBLE_CANDIDATES`'s
+8. **Safe pre-commit fallback preserves intent** — `MULTIPLE_STRUCTURALLY_COMPATIBLE_CANDIDATES`'s
    own refusal-before-any-side-effect design (§9); real code path,
    currently unreachable against real data (disclosed in
    `tests/executionCandidates.test.ts`'s own comment, not silently
@@ -587,7 +623,7 @@ Evaluated against real code, not hypothetically:
 - **A (BTC, multiple rails available)** — real: BTC has 5 registered Day-0
   rails (`BITCOIN_L1`, `LIGHTNING`, `SPARK`, `ARKADE`, `LIQUID`), but only
   `BITCOIN_L1` (MULTISIG) and `ARKADE` (LIGHTNING_HODL) have any provider
-  — each independently a `SINGLE_ELIGIBLE_CANDIDATE` scope for its own
+  — each independently a `SINGLE_STRUCTURALLY_COMPATIBLE_CANDIDATE` scope for its own
   rail; there is no cross-rail "choose the best BTC rail" scenario in
   today's model (rail is caller-supplied context already, via
   `translateLegacyAssetType`'s legacy-asset-to-rail mapping — not decided
@@ -624,20 +660,23 @@ silently treated as "handled."
 
 - **Mental model:** §3 (Economic Intent = existing `asset`/`rail` fields
   today; Execution Candidate = `SettlementProviderRegistration`;
-  Eligibility = Product Scope + structural capability today, more
-  dimensions registered as future work; Selection = degenerate
-  single-candidate auto-resolution only).
+  **Structural Compatibility** — deliberately never called "Eligibility"
+  — = Product Scope + structural capability today, more dimensions
+  registered as future work toward real Eligibility; Selection =
+  degenerate single-candidate auto-resolution only).
 - **Capability vs availability vs permission vs maturity:** §3.3, §6 —
   explicitly, only two of the four are real runtime concepts today; the
   document does not pretend the other two exist.
-- **"Why was this candidate rejected?"** — `resolveSingleEligibleImplementation()`'s
-  `{error}` string, one of exactly three distinct messages
+- **"Why was this candidate rejected?"** — `resolveSingleStructurallyCompatibleImplementation()`'s
+  `{error}` string, one of exactly four distinct messages
   (`SCOPE_NOT_REGISTERED` / `SCOPE_REGISTERED_NO_PROVIDER` /
-  `MULTIPLE_ELIGIBLE_CANDIDATES`), never the old single generic
-  `'UNAVAILABLE'`.
+  `NO_PROVIDER_WITH_REQUIRED_CAPABILITY` /
+  `MULTIPLE_STRUCTURALLY_COMPATIBLE_CANDIDATES`), never the old single
+  generic `'UNAVAILABLE'` — and never "no provider" when the real reason
+  was "provider exists, wrong capability" (R1's own fix).
 - **"Why was this candidate selected?"** — only ever "it was the sole
-  eligible candidate for this registered scope" today; no real
-  recommendation reasoning exists yet to document further.
+  structurally compatible candidate for this registered scope" today; no
+  real recommendation reasoning exists yet to document further.
 - **"What can I safely retry?"** — unchanged from the existing
   idempotency documentation (`docs/CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md`
   and `src/common/idempotency.ts`'s own header) — this mission adds no
@@ -653,9 +692,10 @@ silently treated as "handled."
 |---|---|---|
 | Generalize `resolveEscrowType()` from BTC-only to all 5 ADR-002 §11 legacy mappings | **Genuinely new, closed by this mission** | §13; `tests/escrowProviderWiring.test.ts` |
 | **Real defect found and closed while generalizing the gate:** the HTTP route previously accepted `type: 'SAFE_GUARD_EVM'` for `asset: 'USDT_ERC20'` with zero validation — a semantically wrong pairing (`settlement-provider-registry.ts`'s own header: SAFE_GUARD_EVM settles native EVM currency, never an ERC-20 USDT transfer, deliberately excluded from `{USDT,ETHEREUM}`'s registration for exactly that reason). Now correctly rejected (409). | **Implementation defect, closed by this mission** | `tests/routes.test.ts` — one test corrected (dated note, not silently rewritten), one new test added proving the rejection |
-| `execution-candidates.ts` Candidate Discovery layer (4-outcome union) | **Genuinely new, closed by this mission** | §13; `tests/executionCandidates.test.ts` |
+| `execution-candidates.ts` Candidate Discovery layer (5-outcome union, R1-corrected) | **Genuinely new, closed by this mission** | §13; `tests/executionCandidates.test.ts` |
+| **R1 (CTO Gate Corrective):** original 4-outcome version collapsed "zero providers" with "provider(s) exist, none match required capability" into one false outcome | **Real semantic defect, found and closed same mission** | §13; `tests/executionCandidates.test.ts`'s "none of the five outcomes collapse" test |
 | Client SDK (`packages/sails-sdk/src/modules/settlement.ts`) still has its own separate, unmigrated `RECOMMENDED_ESCROW_TYPE` hardcoded map | **Genuinely new obligation** (found this mission, §2.3) | Not closed — future mission: wire the SDK's `create()` to a public candidate-discovery surface instead of a private hardcoded map |
-| Selection among multiple eligible candidates | **Architecture Decision Required** | §3.4 — no real multi-candidate scope exists to design against yet |
+| Selection among multiple structurally compatible candidates | **Architecture Decision Required** | §3.4 — no real multi-candidate scope exists to design against yet |
 | Permission Filter / Availability Filter / Maturity-Evidence Filter as real runtime stages | **Architecture Decision Required** | §5/§6 |
 | Risk Policy Gate placement and mechanism | **Architecture Decision Required** | §7, consumes Issue #150 |
 | Naming for a future dedicated Economic-Intent-for-routing type (must not collide with RFC-018's `Intent`) | **Architecture Decision Required** | §3.1, §3.5 naming note |
@@ -676,7 +716,7 @@ recovery (§9 of Mission 3's doc, untouched, still OPEN); create a
 universal optimizer (§3.4, explicitly not built); introduce ML/AI
 routing; hard-code Satsails Wallet assumptions (this slice touches no
 wallet-specific code at all); make one provider or rail canonical (the
-four-outcome union treats every scope identically); collapse provider and
+five-outcome union treats every scope identically); collapse provider and
 rail (ADR-002's distinction untouched); make fee optimization
 authoritative; create automatic post-commit retries without evidence
 (§9); introduce new custody; redefine economic authority; turn risk
@@ -923,6 +963,15 @@ product packaging, per the CTO's own explicit instruction.
 
 ## Required Return
 
+**R1 (CTO Gate Corrective, 2026-09-14):** `src/common/execution-candidates.ts`
+corrected — a real semantic defect (collapsing "zero providers" with
+"provider(s) exist, none match the required capability" into the same
+`SCOPE_REGISTERED_NO_PROVIDER` outcome) is fixed, and every
+"Eligible"-named identifier renamed to "Structurally Compatible" to stop
+overclaiming a full Eligibility this slice never evaluates. See §13's own
+R1 note for the full mechanism and `tests/executionCandidates.test.ts`
+for the required proof scenarios. No other Mission 4 scope changed.
+
 - **Baseline HEAD:** `main@3a0695deef925d6904718103caf8cb3aaef33ea5`
 - **Current-state audit:** §2
 - **Execution model:** §3
@@ -941,10 +990,15 @@ product packaging, per the CTO's own explicit instruction.
   Also corrected this same session, per the CTO's mid-mission extension:
   `tests/routes.test.ts` (one test corrected with a dated note — a real
   pre-existing defect found while generalizing the gate, §13/§17; one new
-  test added proving the correct rejection).
+  test added proving the correct rejection). **R1 (CTO Gate Corrective):**
+  `src/common/execution-candidates.ts` rewritten (5-outcome model,
+  renamed functions/types), `src/modules/open-settlement/escrow.service.ts`
+  (import/call site updated to the renamed function, zero behavior
+  change), `tests/executionCandidates.test.ts` rewritten (15 tests,
+  including the CTO's required scenarios), this document.
 - **Tests/evidence:** §14; 56 pre-existing + 5 new tests in
-  `escrowProviderWiring.test.ts` (all passing), 10 new tests in
-  `executionCandidates.test.ts` (all passing), 136 tests in
+  `escrowProviderWiring.test.ts` (all passing), 15 tests in
+  `executionCandidates.test.ts` (R1-rewritten, all passing), 136 tests in
   `routes.test.ts` (all passing, including the corrected/new
   SAFE_GUARD_EVM tests)
 - **Live/reality scenarios:** §15

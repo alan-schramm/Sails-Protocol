@@ -6,7 +6,7 @@ import type { CreateEscrowInput } from '@satsails/p2p-schemas'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
 import { translateLegacyAssetType } from '../../common/settlement-scope-legacy'
-import { resolveSingleEligibleImplementation } from '../../common/execution-candidates'
+import { resolveSingleStructurallyCompatibleImplementation } from '../../common/execution-candidates'
 import {
   EscrowRecord,
   SettlementProvider,
@@ -227,7 +227,7 @@ function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefine
 
   const scope = translateLegacyAssetType(asset)
   if (scope) {
-    const resolution = resolveSingleEligibleImplementation(scope.asset, scope.rail)
+    const resolution = resolveSingleStructurallyCompatibleImplementation(scope.asset, scope.rail)
     if ('error' in resolution) {
       throw new EscrowError(`Cannot create a ${asset} escrow: ${resolution.error}`)
     }
