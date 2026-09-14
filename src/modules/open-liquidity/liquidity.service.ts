@@ -10,7 +10,7 @@ import type { TradeIntentPayload } from '../../common/types/intent'
 import type { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { qvacDetectionInvocationsTotal, qvacDetectionFailuresTotal } from '../../common/metrics'
-import { withIdempotency, type PersistCheckpoint } from '../../common/idempotency'
+import { withIdempotency, isUniqueConstraintError } from '../../common/idempotency'
 
 const log = childLogger('liquidity')
 
@@ -452,7 +452,7 @@ export class LiquidityRouter {
           paymentDetails: input.paymentDetails, network: input.network, description: input.description,
         },
       },
-      (checkpoint) => this.persistOffer(input, checkpoint),
+      (claimId) => this.persistOffer(input, claimId),
       (offer) => this.postPersistOffer(input, offer),
       async (offerId) => {
         const offer = await prisma.offer.findUnique({ where: { id: offerId } })
@@ -462,47 +462,63 @@ export class LiquidityRouter {
     )
   }
 
-  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2/R3 — the durable side effect of
-  // createOffer() is TWO independently-durable writes: `intentEngine.create()`
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2/R3/R4 — the durable side effect
+  // of createOffer() is TWO independently-durable writes: `intentEngine.create()`
   // (its own internally-durable Intent row — not decomposed further
   // here; it is a widely-shared function used by many other callers,
   // and splitting IT further is out of this bounded mission's scope)
   // followed by `prisma.offer.create()`. R2 treated these as one unit;
-  // R3 (CTO review) found that was wrong — if `prisma.offer.create()`
-  // fails AFTER `intentEngine.create()` already succeeded, the whole
-  // `persistOffer()` call throws, and a retry would otherwise call
-  // `intentEngine.create()` again, producing a SECOND Intent for the
-  // same logical `createOffer` attempt (the Intent row is durable the
-  // moment `intentEngine.create()` returns — a failure one line later
-  // is not proof it didn't happen, same governing principle as every
-  // other defect this mission chain has closed).
+  // R3 found that if `prisma.offer.create()` fails AFTER `intentEngine.create()`
+  // already succeeded, a naive retry would re-run `intentEngine.create()`
+  // and produce a SECOND Intent. R3's own first attempt (a separate
+  // "checkpoint" write recording the Intent's id) turned out to have the
+  // identical defect one level deeper: that separate write could itself
+  // fail, definitely or ambiguously, with no safe way to tell which.
   //
-  // Fix: `checkpoint` (see `idempotency.ts`'s `PersistCheckpoint`)
-  // records the Intent's id durably on the idempotency row itself
-  // right after `intentEngine.create()` succeeds — BEFORE attempting
-  // `prisma.offer.create()`. A retry (reached only via the same atomic
-  // `FAILED -> IN_PROGRESS` reclaim every other retry here already
-  // goes through) sees `checkpoint.ref` already set and skips straight
-  // to `prisma.offer.create()`, reusing the SAME canonical Intent
-  // rather than creating a new one. `intentRepository.findById()`
-  // re-verifies the checkpointed Intent still exists before reuse —
-  // never assumed, same "never assume, always verify" discipline this
-  // file's own `recover()` callback above already applies to `resultRef`.
-  // An Intent genuinely missing at that point (a real data-integrity
-  // anomaly — Intents are never deleted by any code path in this
-  // codebase) surfaces loudly as a `NotFoundError` rather than silently
-  // creating a duplicate or silently proceeding with a dangling FK.
-  private async persistOffer(input: CreateOfferInput, checkpoint: PersistCheckpoint) {
-    let intentId = checkpoint.ref
-    if (intentId) {
-      const existingIntent = await intentRepository.findById(intentId)
-      if (!existingIntent) {
-        throw new NotFoundError('Intent', intentId)
-      }
-    } else {
+  // R4 fix: no separate checkpoint write at all. `claimId` — the
+  // ORIGINATING `IdempotencyKey` row's own `id` — is already durable and
+  // already known before `persistOffer()` is ever called (idempotency.ts's
+  // `runAndSettle()` passes it straight through); it requires no extra
+  // read or write to obtain. `Intent.idempotencyClaimId` stamps it onto
+  // the Intent as PART OF the same `intentEngine.create()` insert — not a
+  // second statement — so there is no window between "the Intent exists"
+  // and "its claim marker is durable" for anything to fail inside. A
+  // retry looks the marker up directly (`intentRepository.findByIdempotencyClaimId()`)
+  // BEFORE attempting to create anything, reusing the SAME canonical
+  // Intent instead of creating a new one — durable truth read from one
+  // already-committed row, with no dependency on any other table's
+  // bookkeeping succeeding. The `isUniqueConstraintError()` catch below
+  // handles the residual, genuinely-concurrent case (two application
+  // instances racing the same reclaimed `FAILED` claim): `Intent.idempotencyClaimId`'s
+  // real `@unique` constraint lets at most one `intentEngine.create()`
+  // call actually land; the loser reconciles via the identical
+  // "insert-as-lock, catch P2002, look up the winner" idiom
+  // `IdempotencyKey.claim()` itself already uses — never assumed, always
+  // re-verified via a real lookup, same discipline this file's own
+  // `recover()` callback above already applies to `resultRef`.
+  private async persistOffer(input: CreateOfferInput, claimId: string | null) {
+    let intentId: string
+    if (!claimId) {
       const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId)
       intentId = intent.id
-      await checkpoint.set(intentId)
+    } else {
+      const existingIntent = await intentRepository.findByIdempotencyClaimId(claimId)
+      if (existingIntent) {
+        intentId = existingIntent.id
+      } else {
+        try {
+          const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId, undefined, claimId)
+          intentId = intent.id
+        } catch (err) {
+          if (!isUniqueConstraintError(err)) throw err
+          // A concurrent retry (or this same retry racing itself across
+          // two application instances) already won — reconcile to their
+          // Intent rather than assume ours failed for some other reason.
+          const winner = await intentRepository.findByIdempotencyClaimId(claimId)
+          if (!winner) throw err // genuinely unexpected — surface the original error rather than guess
+          intentId = winner.id
+        }
+      }
     }
 
     const offer = await prisma.offer.create({

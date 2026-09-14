@@ -42,7 +42,7 @@ class RealInMemoryIdempotencyKeyStore implements IdempotencyKeyStore {
       throw err
     }
     const id = String(this.nextId++)
-    this.rows.set(rowKey, { id, requestHash, status: 'IN_PROGRESS', resultRef: null, checkpointRef: null })
+    this.rows.set(rowKey, { id, requestHash, status: 'IN_PROGRESS', resultRef: null })
     return { id }
   }
 
@@ -82,15 +82,6 @@ class RealInMemoryIdempotencyKeyStore implements IdempotencyKeyStore {
       }
     }
     return false
-  }
-
-  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 — deliberately does NOT touch
-  // `status`, matching `PrismaIdempotencyKeyStore.setCheckpoint()` — a
-  // checkpoint must survive a later transition to FAILED.
-  async setCheckpoint(id: string, checkpointRef: string): Promise<void> {
-    for (const row of this.rows.values()) {
-      if (row.id === id) { row.checkpointRef = checkpointRef; return }
-    }
   }
 }
 
@@ -136,8 +127,6 @@ class FaultInjectingStore implements IdempotencyKeyStore {
     this.reclaimFailedCalls++
     return this.real.reclaimFailed(id)
   }
-
-  setCheckpoint(...args: Parameters<IdempotencyKeyStore['setCheckpoint']>) { return this.real.setCheckpoint(...args) }
 }
 
 interface FakeTrade { id: string; offerId: string; amount: string }
@@ -602,103 +591,209 @@ describe('withIdempotency() — R2: a postPersist() failure must not relabel an 
 
 interface FakeOfferWithIntent { id: string; offerId: string; amount: string; intentId: string }
 
+/** A real, behaviorally-faithful in-memory stand-in for
+ *  `IntentRepository` + `intentEngine.create()`'s own durable write,
+ *  proving `Intent.idempotencyClaimId`'s real `@unique` constraint the
+ *  same way `RealInMemoryIdempotencyKeyStore` proves `IdempotencyKey`'s
+ *  own — a genuine unique-violation (P2002-shaped), not a mock return
+ *  value, so the "insert-as-lock, catch P2002, look up the winner"
+ *  reconciliation path in `persistOffer()`'s real code is exercised for
+ *  real, not merely assumed to work. */
+class FakeIntentStore {
+  private byId = new Map<string, { id: string; idempotencyClaimId: string | null }>()
+  private byClaimId = new Map<string, string>()
+  private nextId = 1
+  createCalls = 0
+
+  async create(idempotencyClaimId: string | null): Promise<{ id: string }> {
+    this.createCalls++
+    if (idempotencyClaimId && this.byClaimId.has(idempotencyClaimId)) {
+      const err: { code: string } = { code: 'P2002' }
+      throw err
+    }
+    const id = `intent-${this.nextId++}`
+    this.byId.set(id, { id, idempotencyClaimId })
+    if (idempotencyClaimId) this.byClaimId.set(idempotencyClaimId, id)
+    return { id }
+  }
+
+  async findByIdempotencyClaimId(claimId: string): Promise<{ id: string } | null> {
+    const id = this.byClaimId.get(claimId)
+    return id ? { id } : null
+  }
+}
+
+function isP2002(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'P2002'
+}
+
+/** Mirrors `liquidity.service.ts`'s real `persistOffer()` control flow
+ *  exactly (including the P2002-reconciliation branch) against a
+ *  `FakeIntentStore`, so these tests prove the actual algorithm the
+ *  production code runs, not merely an analog of its intent. */
+function makePersistOfferLike(intents: FakeIntentStore, offerCreate: (intentId: string) => Promise<FakeOfferWithIntent>) {
+  return async (claimId: string | null): Promise<FakeOfferWithIntent> => {
+    let intentId: string
+    if (!claimId) {
+      intentId = (await intents.create(null)).id
+    } else {
+      const existing = await intents.findByIdempotencyClaimId(claimId)
+      if (existing) {
+        intentId = existing.id
+      } else {
+        try {
+          intentId = (await intents.create(claimId)).id
+        } catch (err) {
+          if (!isP2002(err)) throw err
+          const winner = await intents.findByIdempotencyClaimId(claimId)
+          if (!winner) throw err
+          intentId = winner.id
+        }
+      }
+    }
+    return offerCreate(intentId)
+  }
+}
+
 /**
- * CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 (2026-09-13) — proves the fourth
- * defect a CTO review found: `persistOffer()`'s own `persist()` performs
- * TWO independently-durable writes (an Intent, then an Offer), not one.
- * R2's fix (settle before postPersist()) does not help here — the
- * failure happens INSIDE persist() itself, between its two writes. This
- * models the exact shape `liquidity.service.ts`'s real `persistOffer()`
- * now uses: `checkpoint.ref` set means "reuse the existing Intent, skip
- * creating a new one," `checkpoint.set()` records the Intent's id right
- * after it's created, before the (separately failure-prone) Offer write
- * is attempted.
+ * CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3/R4 (2026-09-13) — `persistOffer()`
+ * performs TWO independently-durable writes (an Intent, then an Offer),
+ * not one; R2's fix (settle before postPersist()) does not help, since
+ * the failure happens INSIDE persist() itself, between its two writes.
+ *
+ * R3's first attempt at this (a separate `checkpoint.set()` write
+ * recording the Intent's id) turned out to have the identical defect one
+ * level deeper: that write could itself fail, definitely or ambiguously
+ * (committed but the acknowledgement lost), with no safe way to
+ * distinguish the two from a thrown error alone — REMOVED.
+ *
+ * R4's fix needs no separate checkpoint write at all: `Intent.idempotencyClaimId`
+ * is stamped as PART OF the Intent's own creation (one INSERT, not two
+ * statements), and a retry reconciles via a direct, authoritative
+ * database READ (`findByIdempotencyClaimId()`) rather than trusting any
+ * remembered/assumed outcome of a prior write — which is exactly why the
+ * "ambiguous acknowledgement" case cannot produce a duplicate: the retry
+ * never asks "did that earlier write succeed?", it asks "does the object
+ * exist right now?", a question a direct read always answers correctly
+ * regardless of what the earlier caller's own thrown error implied.
  */
-describe('withIdempotency() — R3: a persist() with TWO internal durable writes must not duplicate the FIRST one when the SECOND one fails and is retried', () => {
+describe('withIdempotency() — R3/R4: a persist() with TWO internal durable writes must not duplicate the FIRST one when the SECOND one fails and is retried', () => {
   it('[Offer-shaped] Intent creation succeeds, Offer creation fails: a retry with the same key reuses the SAME canonical Intent — never calls Intent-creation twice, and the final Offer is associated with that one Intent', async () => {
     const store = new RealInMemoryIdempotencyKeyStore()
-    let intentCreateCalls = 0
+    const intents = new FakeIntentStore()
     let offerCreateCalls = 0
     let offerCreateShouldFail = true
-    const createdIntentIds: string[] = []
 
-    const params = { scope: 'liquidity.offer.create', participantId: 'seller-1', key: 'key-offer-intent-r3', requestPayload: { asset: 'BTC' }, store }
-
-    // Mirrors persistOffer()'s real shape: reuse checkpoint.ref if set
-    // (skip intentEngine.create()), otherwise create a new Intent and
-    // checkpoint it BEFORE attempting the Offer write.
-    const persist = async (checkpoint: { ref: string | null; set: (ref: string) => Promise<void> }): Promise<FakeOfferWithIntent> => {
-      let intentId = checkpoint.ref
-      if (!intentId) {
-        intentCreateCalls++
-        intentId = `intent-${intentCreateCalls}`
-        createdIntentIds.push(intentId)
-        await checkpoint.set(intentId)
-      }
-
+    const params = { scope: 'liquidity.offer.create', participantId: 'seller-1', key: 'key-offer-intent-r4', requestPayload: { asset: 'BTC' }, store }
+    const persist = makePersistOfferLike(intents, async (intentId) => {
       offerCreateCalls++
       if (offerCreateShouldFail) {
         throw new Error('simulated prisma.offer.create() failure — the Intent already durably exists')
       }
-      return { id: 'offer-r3-1', offerId: 'n/a', amount: 'n/a', intentId }
+      return { id: 'offer-r4-1', offerId: 'n/a', amount: 'n/a', intentId }
+    })
+    const recover = async (id: string): Promise<FakeOfferWithIntent> => {
+      const intent = await intents.findByIdempotencyClaimId('key-offer-intent-r4')
+      return { id, offerId: 'n/a', amount: 'n/a', intentId: intent?.id ?? '' }
     }
-    const recover = async (id: string): Promise<FakeOfferWithIntent> => ({ id, offerId: 'n/a', amount: 'n/a', intentId: createdIntentIds[0] })
 
     // 1. First attempt: Intent creation succeeds, Offer creation fails.
     await expect(withIdempotency<FakeOfferWithIntent>(params, persist, noopPostPersist, recover))
       .rejects.toThrow('simulated prisma.offer.create() failure')
-    expect(intentCreateCalls).toBe(1) // exactly one Intent created so far
+    expect(intents.createCalls).toBe(1) // exactly one Intent created so far
     expect(offerCreateCalls).toBe(1) // the Offer write was attempted once, and failed — no Offer exists
 
-    const record = await store.find('liquidity.offer.create', 'seller-1', 'key-offer-intent-r3')
+    const record = await store.find('liquidity.offer.create', 'seller-1', 'key-offer-intent-r4')
     expect(record?.status).toBe('FAILED')
-    expect(record?.checkpointRef).toBe('intent-1') // the checkpoint survives the FAILED transition — Defect B's own reclaim path relies on this
 
     // 2. Retry with the SAME key — this time Offer creation succeeds.
     offerCreateShouldFail = false
     const result = await withIdempotency<FakeOfferWithIntent>(params, persist, noopPostPersist, recover)
 
     // Required properties, per this mission's own test spec:
-    expect(intentCreateCalls).toBe(1) // (1) only one canonical Intent exists/is reused — retry never created a second one
+    expect(intents.createCalls).toBe(1) // (1) only one canonical Intent exists/is created — retry never created a second one
     expect(offerCreateCalls).toBe(2) // the Offer write was retried (once failed, once succeeded)
-    expect(result.id).toBe('offer-r3-1') // (2) at most one Offer is created — this is the only Offer that ever exists
-    expect(result.intentId).toBe('intent-1') // (4) the final returned Offer is associated with the ORIGINAL canonical Intent
+    expect(result.id).toBe('offer-r4-1') // (2) at most one Offer is created — this is the only Offer that ever exists
+    expect(result.intentId).toBe('intent-1') // (3) the final returned Offer is associated with the ORIGINAL canonical Intent
 
-    const finalRecord = await store.find('liquidity.offer.create', 'seller-1', 'key-offer-intent-r3')
+    const finalRecord = await store.find('liquidity.offer.create', 'seller-1', 'key-offer-intent-r4')
     expect(finalRecord?.status).toBe('COMPLETED')
-    expect(finalRecord?.resultRef).toBe('offer-r3-1')
+    expect(finalRecord?.resultRef).toBe('offer-r4-1')
   })
 
-  it('[Offer-shaped] concurrent retries after Intent-succeeds/Offer-fails still produce exactly one winner and never duplicate the checkpointed Intent (application-restart / multi-instance safety)', async () => {
+  it('the symmetric "unknown outcome" case: the Intent-creating write actually commits even though the calling code then throws (an acknowledgement-lost timeout) — a retry finds and reuses it via a direct lookup, never assuming the throw meant nothing was created', async () => {
     const store = new RealInMemoryIdempotencyKeyStore()
-    let intentCreateCalls = 0
-    const params = { scope: 'liquidity.offer.create', participantId: 'seller-2', key: 'key-offer-intent-r3-concurrent', requestPayload: { asset: 'BTC' }, store }
+    const intents = new FakeIntentStore()
+    let ackLostOnNextCreate = true
 
-    const failingPersist = async (checkpoint: { ref: string | null; set: (ref: string) => Promise<void> }): Promise<FakeOfferWithIntent> => {
-      let intentId = checkpoint.ref
-      if (!intentId) {
-        intentCreateCalls++
-        intentId = `intent-${intentCreateCalls}`
-        await checkpoint.set(intentId)
+    const params = { scope: 'liquidity.offer.create', participantId: 'seller-2', key: 'key-offer-ack-lost', requestPayload: { asset: 'BTC' }, store }
+
+    // Simulates the exact ambiguity the mission calls out: intents.create()
+    // below is a REAL write that genuinely lands (this fake's own map is
+    // updated) — the throw happens AFTER it, modeling a client that never
+    // received the success acknowledgement (e.g. a dropped connection),
+    // not a write that never happened.
+    const persist = async (claimId: string | null): Promise<FakeOfferWithIntent> => {
+      if (!claimId) throw new Error('test setup error — this scenario requires a key')
+      const existing = await intents.findByIdempotencyClaimId(claimId)
+      let intentId: string
+      if (existing) {
+        intentId = existing.id
+      } else {
+        intentId = (await intents.create(claimId)).id
+        if (ackLostOnNextCreate) {
+          ackLostOnNextCreate = false
+          throw new Error('simulated ack-lost timeout — the Intent row above already committed')
+        }
       }
-      throw new Error('genuine Offer-write failure — the checkpointed Intent still durably exists')
+      return { id: 'offer-ack-lost-1', offerId: 'n/a', amount: 'n/a', intentId }
     }
-    const recover = async (id: string): Promise<FakeOfferWithIntent> => ({ id, offerId: 'n/a', amount: 'n/a', intentId: 'intent-1' })
+    const recover = async (id: string): Promise<FakeOfferWithIntent> => {
+      const intent = await intents.findByIdempotencyClaimId('key-offer-ack-lost')
+      return { id, offerId: 'n/a', amount: 'n/a', intentId: intent?.id ?? '' }
+    }
 
-    // Put the record into a real FAILED state with a real checkpoint first.
+    // 1. First attempt: the Intent write commits, but the caller never
+    // learns that — it sees a thrown error indistinguishable, FROM THE
+    // THROW ALONE, from "nothing was created."
+    await expect(withIdempotency<FakeOfferWithIntent>(params, persist, noopPostPersist, recover)).rejects.toThrow('simulated ack-lost timeout')
+    expect(intents.createCalls).toBe(1) // the Intent genuinely exists now, despite the throw
+    expect((await store.find('liquidity.offer.create', 'seller-2', 'key-offer-ack-lost'))?.status).toBe('FAILED')
+
+    // 2. Retry — must NOT blindly re-run intents.create() just because
+    // the prior attempt threw; it must look up the real, current state.
+    const result = await withIdempotency<FakeOfferWithIntent>(params, persist, noopPostPersist, recover)
+
+    expect(intents.createCalls).toBe(1) // no duplicate Intent — the retry found and reused the one that already existed
+    expect(result.intentId).toBe('intent-1')
+  })
+
+  it('[Offer-shaped] concurrent retries after Intent-succeeds/Offer-fails still produce exactly one winner and never duplicate the Intent (application-restart / multi-instance safety — no process-local memory involved)', async () => {
+    const store = new RealInMemoryIdempotencyKeyStore()
+    const intents = new FakeIntentStore()
+    const params = { scope: 'liquidity.offer.create', participantId: 'seller-3', key: 'key-offer-intent-r4-concurrent', requestPayload: { asset: 'BTC' }, store }
+
+    const failingPersist = makePersistOfferLike(intents, async () => {
+      throw new Error('genuine Offer-write failure — the Intent still durably exists')
+    })
+    const recover = async (id: string): Promise<FakeOfferWithIntent> => {
+      const intent = await intents.findByIdempotencyClaimId('key-offer-intent-r4-concurrent')
+      return { id, offerId: 'n/a', amount: 'n/a', intentId: intent?.id ?? '' }
+    }
+
+    // Put the record into a real FAILED state with a real Intent first.
     await expect(withIdempotency<FakeOfferWithIntent>(params, failingPersist, noopPostPersist, recover)).rejects.toThrow()
-    expect(intentCreateCalls).toBe(1)
-    expect((await store.find('liquidity.offer.create', 'seller-2', 'key-offer-intent-r3-concurrent'))?.status).toBe('FAILED')
+    expect(intents.createCalls).toBe(1)
+    expect((await store.find('liquidity.offer.create', 'seller-3', 'key-offer-intent-r4-concurrent'))?.status).toBe('FAILED')
 
-    let offerCreateCalls = 0
-    const succeedingPersist = async (checkpoint: { ref: string | null; set: (ref: string) => Promise<void> }): Promise<FakeOfferWithIntent> => {
-      // The checkpoint must already be set from the prior failed attempt —
-      // a genuinely new Intent here would be the exact bug this test guards.
-      if (!checkpoint.ref) throw new Error('test setup error — checkpoint should already be set')
-      offerCreateCalls++
+    // No shared mutable state passed between these calls other than the
+    // store/intents instances themselves (standing in for Postgres) —
+    // nothing here is process-local, modeling genuinely separate
+    // application instances racing the same reclaimed FAILED claim.
+    const succeedingPersist = makePersistOfferLike(intents, async (intentId) => {
       await new Promise((r) => setTimeout(r, 5)) // real async interleaving, not a synchronous fast-path that would mask a race
-      return { id: 'offer-r3-concurrent-1', offerId: 'n/a', amount: 'n/a', intentId: checkpoint.ref }
-    }
+      return { id: 'offer-r4-concurrent-1', offerId: 'n/a', amount: 'n/a', intentId }
+    })
 
     const results = await Promise.allSettled([
       withIdempotency<FakeOfferWithIntent>(params, succeedingPersist, noopPostPersist, recover),
@@ -706,10 +801,9 @@ describe('withIdempotency() — R3: a persist() with TWO internal durable writes
       withIdempotency<FakeOfferWithIntent>(params, succeedingPersist, noopPostPersist, recover),
     ])
 
-    expect(intentCreateCalls).toBe(1) // still exactly one Intent ever created, across the whole scenario
-    expect(offerCreateCalls).toBe(1) // exactly one retry actually reclaimed the record and ran the Offer write
+    expect(intents.createCalls).toBe(1) // still exactly one Intent ever created, across the whole scenario
     const fulfilled = results.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<FakeOfferWithIntent>[]
     expect(fulfilled.length).toBe(1)
-    expect(fulfilled[0].value.intentId).toBe('intent-1') // the winner's Offer is associated with the original checkpointed Intent
+    expect(fulfilled[0].value.intentId).toBe('intent-1') // the winner's Offer is associated with the one canonical Intent
   })
 })

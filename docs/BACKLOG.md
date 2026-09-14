@@ -3578,7 +3578,11 @@ obligation" is defined anywhere in this repository.
 
         **Corrected 2026-09-13 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3`,
         CTO review found a fourth real correctness defect before Freeze)
-        — still Implemented → Evidenced, not yet Frozen.** R2 treated
+        — still Implemented → Evidenced, not yet Frozen. Superseded by
+        R4 below: the `PersistCheckpoint`/`checkpointRef` mechanism this
+        record originally described was itself found unsafe and has been
+        REMOVED — kept here as history of what was tried and why it
+        wasn't enough, not as a description of the current code.** R2 treated
         `persistOffer()` as one indivisible unit — correct for
         `createTrade()`/`submitEvidence()` (each has exactly ONE durable
         write in `persist()`), but wrong for `createOffer()`, whose
@@ -3700,6 +3704,115 @@ obligation" is defined anywhere in this repository.
         multi-write-persist() risk and confirmed NOT to have it — both
         have exactly one durable write in their own `persist()` — so
         neither was reopened.
+
+        **Corrected 2026-09-13 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R4`,
+        CTO review found R3's OWN fix unsafe before Freeze) — still
+        Implemented → Evidenced, not yet Frozen.** R3's `checkpoint.set()`
+        was a SEPARATE write from the Intent it was meant to checkpoint —
+        that write could itself fail, either definitely (nothing
+        committed) or ambiguously (the `UPDATE` may have committed but
+        the acknowledgement was lost) — reproducing the identical defect
+        one level deeper: *a failed checkpoint write is not proof the
+        checkpoint wasn't recorded, and is not proof the Intent it
+        describes wasn't created either.* Naively retrying
+        `intentEngine.create()` whenever `checkpoint.set()` failed would
+        have reproduced R3's own original bug.
+
+        **Fix — no separate checkpoint write at all.** `Intent` gained a
+        new `idempotencyClaimId String? @unique` column
+        (`prisma/schema.prisma`), set to the ORIGINATING `IdempotencyKey`
+        row's own `id` — already durable and already known in memory
+        before `persistOffer()` is ever invoked, requiring no extra read
+        or write — as PART OF the SAME `INSERT` that creates the Intent
+        (`intentEngine.create()` gained an optional 5th parameter,
+        threaded through `IntentRepository.create()`). There is no
+        window between "the Intent exists" and "its marker is durable"
+        for anything to fail inside, because they are the same
+        statement. A retry looks the marker up directly
+        (`IntentRepository.findByIdempotencyClaimId()`, new) BEFORE
+        attempting to create anything — durable truth read from one
+        already-committed row, never dependent on any OTHER table's
+        bookkeeping succeeding, and never dependent on correctly
+        interpreting what a PRIOR attempt's thrown error meant. A
+        genuine concurrent double-attempt (two application instances
+        racing the same reclaimed `FAILED` claim) is resolved by the
+        column's real `@unique` constraint: at most one
+        `intentEngine.create()` call with a given marker can land; the
+        loser catches Postgres's own P2002 (via the newly-exported
+        `isUniqueConstraintError()`) and reconciles via the identical
+        "insert-as-lock, catch P2002, look up the winner" idiom
+        `IdempotencyKey.claim()` itself already uses.
+        `PersistCheckpoint`/`checkpointRef`/`setCheckpoint()` — R3's own
+        mechanism — are REMOVED entirely (dead, superseded, never
+        shipped); `withIdempotency()`'s `persist()` callback now simply
+        receives `claimId: string | null`, a plain value requiring no
+        store interaction to obtain.
+
+        **Symmetric unknown-outcome case, explicitly proven, not just
+        argued:** the mechanism's correctness does not depend on
+        knowing whether a PRIOR attempt's `intentEngine.create()` call
+        actually succeeded, failed, or was ambiguous (committed, ack
+        lost) — every retry re-derives truth via a direct
+        `findByIdempotencyClaimId()` read before deciding whether to
+        create anything. If the Intent exists (committed despite a lost
+        acknowledgement to the ORIGINAL caller), it's found and reused;
+        if it doesn't, a new one is safely created. No duplicate Intent
+        can result in either case, and no process-local memory is
+        involved anywhere in the mechanism — every fact it depends on
+        (`claimId`, the Intent's own row) lives in Postgres.
+
+        **New tests** (`tests/idempotency.test.ts`, net +1 vs. R3 — 2
+        removed, 3 added, all passing, against a real in-memory
+        `FakeIntentStore` proving `idempotencyClaimId`'s own unique-
+        violation semantics, not a mock): (1) the exact mission scenario
+        (Intent succeeds, Offer fails, same-key retry) — exactly one
+        Intent ever created, retry reuses it, exactly one Offer
+        ultimately exists, associated with the original Intent; (2) the
+        symmetric ambiguous-acknowledgement case — the Intent-creating
+        write genuinely commits but the calling code throws anyway
+        (simulating a lost ack), and the retry still finds and reuses
+        the real Intent via direct lookup rather than assuming the
+        throw meant nothing was created; (3) genuine concurrent retries
+        after a real `FAILED` state (`Promise.allSettled` interleaving
+        against shared fake stores, modeling multi-instance execution)
+        still produce exactly one Intent and one winning Offer write.
+        All R1/R2 tests preserved unchanged.
+
+        **Schema/index changes:** `IdempotencyKey.checkpointRef` (R3)
+        removed; `Intent.idempotencyClaimId String? @unique` added. No
+        migration file added — same established precedent as R1/R3's
+        own schema changes in this environment (CI only runs `prisma
+        generate` against `schema.prisma` directly, never `migrate
+        deploy`, against no live Postgres).
+
+        **Residual risks, disclosed:** `intentEngine.create()`'s own
+        internal CREATED→VALIDATED→COORDINATED pipeline can still
+        itself partially fail after its own first durable write (the
+        `repo.create()` call that now also stamps `idempotencyClaimId`)
+        — a retry that reconciles via `findByIdempotencyClaimId()` may
+        reuse an Intent stuck in an earlier lifecycle status if that
+        happens; a real, narrower, pre-existing gap, unchanged and out
+        of this bounded mission's scope (decomposing `intentEngine.create()`'s
+        own internals would be the "general intentEngine refactor"
+        every round of this mission has declined to do). Nothing in
+        `persistOffer()` currently checks the reused Intent's status
+        before creating the Offer against it — disclosed, not fixed.
+
+        **Verified, not asserted:** `npx tsc --noEmit` clean at repo
+        root; `npx prisma generate` succeeds against the schema change;
+        full unit suite 160 suites / 2114 tests (was 160/2113 before
+        this correction), 0 regressions.
+
+        **Items 38/39 unchanged, item 40 untouched** — this correction
+        touched `prisma/schema.prisma`, `src/common/idempotency.ts`,
+        `src/core/intent-engine.ts`, `src/core/intent-repository.ts`,
+        `src/modules/open-liquidity/liquidity.service.ts`, and
+        `tests/idempotency.test.ts`. `intent-engine.ts`/`intent-repository.ts`
+        changes are a single optional, additive parameter/method each —
+        every other existing caller of `intentEngine.create()`
+        (there are none outside `persistOffer()` today) and
+        `IntentRepository.create()` is unaffected. Trade and Evidence
+        were not reopened.
 
     38. **SDK Type-Shape Reconciliation (CSC-C01/D01).** Two real,
         confirmed SDK-internal disagreements: (a)

@@ -1829,6 +1829,34 @@ model Intent {
   fulfilledBy    String?
   metadata       Json      @default("{}")
 
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R4 (2026-09-13) — closes item 37's
+  // remaining partial-durability window in `createOffer()`. Some
+  // `persist()` implementations (`liquidity.service.ts`'s `persistOffer()`)
+  // create an Intent as the FIRST of two independently-durable writes,
+  // then a second object (an Offer) referencing it — if the SECOND write
+  // fails, a retry must reuse the SAME Intent rather than creating a new
+  // one. `idempotencyClaimId` is that Intent's own idempotency-claim
+  // identity, set to the ORIGINATING `IdempotencyKey` row's own `id`
+  // (never the caller-supplied string itself, which is only unique
+  // within one (scope, participantId) pair, not globally) at the exact
+  // moment this row is inserted — the SAME statement that creates the
+  // Intent, not a separate follow-up write, so there is no window at all
+  // between "Intent exists" and "its claim marker is durable." A retry
+  // looks this column up directly (`IntentRepository.findByIdempotencyClaimId()`)
+  // BEFORE attempting to create a new Intent — durable truth from a
+  // single already-committed row, never dependent on any OTHER table's
+  // bookkeeping succeeding. `@unique` is real defense-in-depth, not just
+  // documentation: even a genuine concurrent double-attempt (two
+  // application instances racing on the same reclaimed claim) can only
+  // ever let ONE `prisma.intent.create()` with a given
+  // `idempotencyClaimId` actually land; the loser sees Postgres's own
+  // P2002 and reconciles via the same column, the identical "insert-as-
+  // lock, catch P2002, look up the winner" idiom `IdempotencyKey.claim()`
+  // itself already uses. `null` for every Intent created outside this
+  // idempotency-protected path (the overwhelming majority — Trade/other
+  // Intent-creating flows never pass one).
+  idempotencyClaimId String? @unique
+
   events IntentEvent[]
   // RFC-018 — back-relations for Offer.intentId/Trade.intentId above.
   // In practice one Intent maps to at most one Offer and one Trade
@@ -2334,25 +2362,22 @@ model IdempotencyKey {
   requestHash   String // sha256 of the semantically-relevant request payload — see src/common/idempotency.ts
   status        IdempotencyKeyStatus @default(IN_PROGRESS)
   resultRef     String? // the created resource's own id — set once status = COMPLETED or UNKNOWN (never FAILED/IN_PROGRESS)
-  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 (2026-09-13) — an OPTIONAL,
-  // intermediate durable identity a multi-write persist() may record
-  // partway through, BEFORE it's known whether the whole persist()
-  // attempt will succeed. Exists because some persist() implementations
-  // (liquidity.service.ts's persistOffer(): intentEngine.create() then
-  // prisma.offer.create()) perform more than one independently-durable
-  // write — if the SECOND write fails, the FIRST write's result must not
-  // be silently re-created by a retry (that would violate the same
-  // "failed call ≠ proof of no side effect" principle `resultRef`/
-  // `UNKNOWN` above already close for the single-write case, one level
-  // deeper: a MID-persist() checkpoint, not the final result). Distinct
-  // from `resultRef`: `resultRef` names the FINAL resource returned to
-  // the caller (only ever set once persist() as a whole has succeeded);
-  // `checkpointRef` may be set while status is still `IN_PROGRESS`
-  // (before persist() has finished at all) and, unlike `resultRef`,
-  // survives a transition back to `FAILED` — it is read by a RETRY's own
-  // persist() call to skip re-doing whichever earlier write already
-  // durably succeeded. See `src/common/idempotency.ts`'s `PersistCheckpoint`.
-  checkpointRef String?
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R3 (2026-09-13) introduced a
+  // `checkpointRef` column here — a mid-persist() checkpoint a multi-
+  // write persist() could record before its second write. R4 (2026-09-13,
+  // CTO review) found that mechanism itself unsafe: `checkpointRef`
+  // required its OWN separate write (`setCheckpoint()`) to succeed, and
+  // that write could itself fail definitely OR ambiguously (committed
+  // but the acknowledgement lost) — reintroducing the exact "a failed
+  // call is not proof of no side effect" defect one level deeper, now
+  // against the checkpoint write itself. REMOVED, superseded by a
+  // strictly stronger mechanism that needs no separate bookkeeping write
+  // at all: the durable object a multi-write persist() creates first
+  // (e.g. an Intent) now carries its own idempotency-claim marker,
+  // written atomically as part of the SAME insert that creates it — see
+  // `Intent.idempotencyClaimId` below and `liquidity.service.ts`'s
+  // `persistOffer()`. No code references `checkpointRef` any more; this
+  // model never shipped with it in production.
   createdAt     DateTime             @default(now())
   completedAt   DateTime?
 
