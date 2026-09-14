@@ -3861,6 +3861,136 @@ obligation" is defined anywhere in this repository.
         `IntentRepository.create()` is unaffected. Trade and Evidence
         were not reopened.
 
+        **Corrected 2026-09-14 (`CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5`,
+        CTO review found one final unknown-outcome window before Freeze)
+        — still Implemented → Evidenced, not yet Frozen.** R4 closed the
+        Intent side's unknown-outcome window; the SECOND durable write,
+        `prisma.offer.create()` itself, had the identical gap one write
+        later: if the Offer INSERT genuinely committed but the caller
+        never learned that (a lost acknowledgement, not a real failure),
+        a naive retry would call `prisma.offer.create()` again against
+        the SAME reconciled Intent, producing a second Offer.
+
+        **Architecture truth check, answered by direct code inspection,
+        not assumed:** does one canonical `TradeIntent` map to at most
+        one local Offer? **Yes — genuinely, not merely "in practice."**
+        Every `createOffer()` call creates a BRAND NEW Intent for a
+        genuinely new logical attempt; the only way two Offer rows could
+        ever end up pointing at the same Intent is `persistOffer()`'s own
+        idempotent-retry reconciliation (R4), which by definition means
+        "the same logical attempt," never two independently-intended
+        offers. This is asymmetric with `Trade.intentId`, deliberately
+        left NOT unique: multiple Trades legitimately share one Intent
+        via a still-`ACTIVE` Offer (`Offer.status` never leaves `ACTIVE`
+        just because one Trade was created against it — the same reason
+        the original item 37 investigation rejected a composite-
+        business-key uniqueness constraint for Trade creation). Both
+        `prisma/schema.prisma`'s `Offer.intentId`/`Intent.offers`/
+        `Intent.trades` doc comments now record this reasoning
+        explicitly, not just "in practice."
+
+        **Fix — no separate Offer-side idempotency-claim column needed:**
+        `Offer.intentId` now carries a real `@unique` constraint
+        (Postgres's own NULL semantics mean any number of pre-Intent-
+        migration `NULL` rows still coexist freely). `intentId` is
+        ALREADY a 1:1 correlation key for "this logical attempt" once R4
+        made Intent itself uniquely tied to the idempotency claim, so no
+        new column is needed — `persistOffer()` now looks up an existing
+        Offer by `intentId` (`prisma.offer.findUnique({ where: { intentId } })`)
+        BEFORE attempting a new insert, the identical "ask the database
+        what actually exists, never trust a prior throw's implication"
+        discipline R4 already established for the Intent side; the
+        `isUniqueConstraintError()` catch handles the residual genuinely-
+        concurrent case (two application instances racing the same
+        reclaimed claim) via the same "insert-as-lock, catch P2002, look
+        up the winner" idiom used throughout this whole mechanism.
+
+        **Handling of committed-but-unacknowledged Offer insert:** proven
+        directly, not argued — a new test drives a REAL insert into a
+        fake store (the write genuinely lands) and then throws from the
+        calling code afterward (modeling a lost acknowledgement); the
+        retry's lookup-before-insert still finds and returns the real
+        row, never re-inserting. A true pre-commit failure (nothing ever
+        written) is proven separately to remain retryable via a fresh
+        insert.
+
+        **New tests** (`tests/idempotency.test.ts`, +3, all passing,
+        against a new `FakeOfferStore` proving `Offer.intentId`'s own
+        unique-violation semantics): (1) the exact mission scenario —
+        Offer INSERT commits, ack lost, retry recovers the existing
+        Offer, no second insert ever lands, final result points to the
+        original Intent; (2) a true pre-commit Offer failure (nothing
+        inserted) remains legitimately retryable via a fresh insert; (3)
+        genuinely concurrent retries against a shared store, reached only
+        via the same atomic `FAILED -> IN_PROGRESS` reclaim every other
+        retry in this mechanism already goes through, still produce
+        exactly one Offer. All R1-R4 tests preserved unchanged.
+
+        **Real-Postgres integration evidence — not solely in-memory, per
+        this mission's own explicit instruction:** new
+        `tests/integration/offerIntentIdempotencyUniqueness.test.ts` (3
+        tests, added to `test:integration:postgres`'s file list and
+        excluded from `test:unit`'s, matching every other real-Postgres
+        integration test's own convention): (1) a raw, direct
+        `prisma.offer.create()` with a duplicate `intentId` — deliberately
+        bypassing `persistOffer()`'s own application-level reconciliation
+        entirely — is rejected by Postgres's own unique constraint,
+        proving the DATABASE itself enforces this, not application code;
+        (2) the real, unmocked `liquidityRouter.createOffer()` end-to-end,
+        with a prior attempt's Intent AND Offer both staged as genuinely
+        already-committed (via real `intentEngine.create()`/
+        `prisma.offer.create()` calls) but its `IdempotencyKey` claim row
+        left `FAILED` (the real-world shape of a lost acknowledgement) —
+        a retry with the identical key/payload reconciles to the ONE
+        existing Offer, never inserts a duplicate, and settles the claim
+        away from `FAILED`; (3) an exact-retry sanity check via the
+        normal `COMPLETED` recovery path. Run against a local Postgres
+        container matching CI's own image/credentials, with all 34
+        migrations applied and zero schema drift confirmed via `prisma
+        migrate diff ... --exit-code` before testing.
+
+        **Migration/schema changes:** `Offer.intentId String? @unique`
+        (`prisma/migrations/20260914010000_offer_intent_id_unique`). A
+        real migration file was added, `prisma migrate deploy` was run
+        against a real local Postgres, and the full real-Postgres
+        integration suite was run against it (see above) — the exact
+        discipline R4's own record now documents as required in this
+        environment. **Historical-data compatibility, considered:** a
+        `CREATE UNIQUE INDEX` on an already-populated table fails if
+        duplicate non-null `intentId` values already exist; the
+        migration file's own header comment gives the exact `SELECT ...
+        GROUP BY ... HAVING count(*) > 1` query an operator must run
+        first against any real, populated database before applying this
+        — this session has no live production Postgres to check against
+        and does not assume the result. This environment's own ephemeral
+        CI/dev Postgres never has pre-existing data, so it was not
+        blocked here.
+
+        **Residual risks, disclosed:** `intentEngine.create()`'s own
+        internal partial-failure gap (unchanged since R4, out of scope);
+        the historical-data compatibility check above (a real production
+        Postgres, if one already has duplicate `intentId` values, would
+        need manual reconciliation before this migration could apply —
+        not evaluated, no access to such a database from this session).
+
+        **Verified, not asserted:** `npx tsc --noEmit` clean at repo
+        root; unit suite 160 suites / 2117 tests (was 160/2114 before
+        this correction), 0 regressions; real-Postgres integration suite
+        29 suites / 231 tests (was 28/228), 0 regressions.
+
+        **Items 38/39 unchanged, item 40 untouched** — this correction
+        touched `prisma/schema.prisma`,
+        `prisma/migrations/20260914010000_offer_intent_id_unique/migration.sql`,
+        `src/modules/open-liquidity/liquidity.service.ts`,
+        `tests/idempotency.test.ts`,
+        `tests/integration/offerIntentIdempotencyUniqueness.test.ts`, and
+        `package.json` (registering the new integration test file in the
+        existing `test:unit`/`test:integration:postgres` split). Trade
+        and Evidence were reviewed against the SAME "one canonical
+        parent maps to at most one child" question and confirmed to have
+        the OPPOSITE, already-correct answer (`Trade.intentId`
+        deliberately not unique) — not reopened.
+
     38. **SDK Type-Shape Reconciliation (CSC-C01/D01).** Two real,
         confirmed SDK-internal disagreements: (a)
         `packages/sails-p2p-schemas`'s `DisputeStatus`/`DisputeStatusInput`

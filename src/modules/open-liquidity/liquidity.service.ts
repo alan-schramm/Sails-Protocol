@@ -462,40 +462,41 @@ export class LiquidityRouter {
     )
   }
 
-  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2/R3/R4 — the durable side effect
-  // of createOffer() is TWO independently-durable writes: `intentEngine.create()`
-  // (its own internally-durable Intent row — not decomposed further
-  // here; it is a widely-shared function used by many other callers,
-  // and splitting IT further is out of this bounded mission's scope)
-  // followed by `prisma.offer.create()`. R2 treated these as one unit;
-  // R3 found that if `prisma.offer.create()` fails AFTER `intentEngine.create()`
-  // already succeeded, a naive retry would re-run `intentEngine.create()`
-  // and produce a SECOND Intent. R3's own first attempt (a separate
-  // "checkpoint" write recording the Intent's id) turned out to have the
-  // identical defect one level deeper: that separate write could itself
-  // fail, definitely or ambiguously, with no safe way to tell which.
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2/R3/R4/R5 — the durable side
+  // effect of createOffer() is TWO independently-durable writes:
+  // `intentEngine.create()` (its own internally-durable Intent row — not
+  // decomposed further here; it is a widely-shared function used by many
+  // other callers, and splitting IT further is out of this bounded
+  // mission's scope) followed by `prisma.offer.create()`. R2 treated
+  // these as one unit; R3/R4 closed the Intent side's own unknown-outcome
+  // window (see `Intent.idempotencyClaimId`'s doc comment). R5 closes the
+  // SAME window one write later: if `prisma.offer.create()` itself
+  // genuinely commits but the caller never learns that (a lost
+  // acknowledgement, not a real failure), a naive retry would call
+  // `prisma.offer.create()` again against the SAME reconciled Intent,
+  // producing a SECOND Offer for the same logical attempt.
   //
-  // R4 fix: no separate checkpoint write at all. `claimId` — the
-  // ORIGINATING `IdempotencyKey` row's own `id` — is already durable and
-  // already known before `persistOffer()` is ever called (idempotency.ts's
-  // `runAndSettle()` passes it straight through); it requires no extra
-  // read or write to obtain. `Intent.idempotencyClaimId` stamps it onto
-  // the Intent as PART OF the same `intentEngine.create()` insert — not a
-  // second statement — so there is no window between "the Intent exists"
-  // and "its claim marker is durable" for anything to fail inside. A
-  // retry looks the marker up directly (`intentRepository.findByIdempotencyClaimId()`)
-  // BEFORE attempting to create anything, reusing the SAME canonical
-  // Intent instead of creating a new one — durable truth read from one
-  // already-committed row, with no dependency on any other table's
-  // bookkeeping succeeding. The `isUniqueConstraintError()` catch below
-  // handles the residual, genuinely-concurrent case (two application
-  // instances racing the same reclaimed `FAILED` claim): `Intent.idempotencyClaimId`'s
-  // real `@unique` constraint lets at most one `intentEngine.create()`
-  // call actually land; the loser reconciles via the identical
-  // "insert-as-lock, catch P2002, look up the winner" idiom
-  // `IdempotencyKey.claim()` itself already uses — never assumed, always
-  // re-verified via a real lookup, same discipline this file's own
-  // `recover()` callback above already applies to `resultRef`.
+  // Architecture truth check (not a convenience decision — see
+  // `Intent.offers`'s own doc comment for the full reasoning): one
+  // canonical Intent maps to AT MOST ONE Offer, genuinely, not merely
+  // "in practice" — every `createOffer()` call creates a brand-new
+  // Intent; the only way two Offers could ever share one Intent is
+  // exactly this reconciliation path, which by definition is the SAME
+  // logical attempt. `Offer.intentId` now carries a real `@unique`
+  // constraint reflecting that truth (this is asymmetric with
+  // `Trade.intentId`, deliberately NOT unique — multiple Trades
+  // legitimately share one Intent via a still-`ACTIVE` Offer).
+  //
+  // Fix: no separate Offer-side idempotency-claim column needed at all
+  // — `intentId` is ALREADY a 1:1 correlation key for "this logical
+  // attempt" once R4 made Intent itself uniquely tied to the idempotency
+  // claim. A retry looks up an existing Offer by `intentId` (a direct,
+  // already-committed-row read, exactly the same "ask the database what
+  // actually exists" discipline R4 uses for the Intent side, never
+  // "was the previous attempt's throw proof of anything") BEFORE
+  // attempting a new insert; the `isUniqueConstraintError()` catch below
+  // handles the residual, genuinely-concurrent case the same way R4's
+  // Intent-side reconciliation does.
   private async persistOffer(input: CreateOfferInput, claimId: string | null) {
     let intentId: string
     if (!claimId) {
@@ -521,24 +522,46 @@ export class LiquidityRouter {
       }
     }
 
-    const offer = await prisma.offer.create({
-      data: {
-        userId: input.userId,
-        asset: input.asset,
-        side: input.side,
-        priceUsd: input.priceUsd,
-        priceBrl: input.priceBrl,
-        minAmount: input.minAmount,
-        maxAmount: input.maxAmount,
-        paymentMethod: input.paymentMethod,
-        paymentDetails: input.paymentDetails,
-        network: input.network,
-        description: input.description,
-        intentId,
-      },
-    })
+    const offerData = {
+      userId: input.userId,
+      asset: input.asset,
+      side: input.side,
+      priceUsd: input.priceUsd,
+      priceBrl: input.priceBrl,
+      minAmount: input.minAmount,
+      maxAmount: input.maxAmount,
+      paymentMethod: input.paymentMethod,
+      paymentDetails: input.paymentDetails,
+      network: input.network,
+      description: input.description,
+      intentId,
+    }
 
-    return offer
+    if (!claimId) {
+      return prisma.offer.create({ data: offerData })
+    }
+
+    // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5 — the Intent above is
+    // canonical for this logical attempt; if an Offer already exists for
+    // it, a PRIOR attempt's `prisma.offer.create()` already durably
+    // succeeded (whether or not that attempt itself ever learned that),
+    // and this is that same Offer, recovered by direct lookup, never by
+    // re-running the insert.
+    const existingOffer = await prisma.offer.findUnique({ where: { intentId } })
+    if (existingOffer) return existingOffer
+
+    try {
+      return await prisma.offer.create({ data: offerData })
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err
+      // Genuinely concurrent race on the same reconciled Intent (two
+      // application instances retrying the same reclaimed claim) — the
+      // loser reconciles via the identical lookup, never assumes its own
+      // insert failing means nothing was created.
+      const winner = await prisma.offer.findUnique({ where: { intentId } })
+      if (!winner) throw err // genuinely unexpected — surface the original error rather than guess
+      return winner
+    }
   }
 
   // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — runs AFTER the Offer already

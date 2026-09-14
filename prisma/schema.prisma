@@ -162,8 +162,33 @@ model Offer {
   // the real Intent row this Offer was created from (createOffer() ->
   // intentEngine.create()). Nullable: pre-migration Offer rows have no
   // Intent behind them and remain fully valid, same backward-compatible
-  // pattern RFC-008 used for entryHash/prevHash.
-  intentId        String?
+  // pattern RFC-008 used for entryHash/prevHash. Postgres's own UNIQUE
+  // semantics allow any number of `NULL` rows alongside a real
+  // constraint on every non-null value, so this is fully compatible
+  // with those pre-migration rows — never a reason to avoid enforcing
+  // uniqueness on the ones that DO have a real Intent behind them.
+  //
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5 (2026-09-14) — `@unique` added.
+  // This is a genuine domain-truth check, not a convenience decision:
+  // every Offer-creating code path (`createOffer()`) creates a BRAND
+  // NEW Intent for a genuinely new logical attempt — the ONLY way two
+  // Offer rows could ever end up pointing at the SAME Intent is via
+  // `persistOffer()`'s own idempotent-retry reconciliation
+  // (`IntentRepository.findByIdempotencyClaimId()`, R4), which by
+  // definition means "the same logical `createOffer` attempt," not two
+  // independently-intended offers. "In practice one Intent maps to at
+  // most one Offer" (comment below, on `Intent.offers`) was already
+  // true by construction before this constraint — this makes Postgres
+  // itself enforce what was already always true, closing the Offer
+  // INSERT's own unknown-outcome window: `persistOffer()` now recovers
+  // an existing Offer for a canonical Intent by a direct, unique lookup
+  // (`prisma.offer.findUnique({ where: { intentId } })`), the exact same
+  // "insert-as-lock, catch P2002, look up the winner" idiom this whole
+  // idempotency mechanism already uses, needing no separate Offer-side
+  // idempotency-claim column at all — `intentId` itself is already a
+  // 1:1 correlation key for "this logical attempt" once R4 made Intent
+  // itself uniquely tied to the idempotency claim.
+  intentId        String?       @unique
   intent          Intent?       @relation(fields: [intentId], references: [id])
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -1859,10 +1884,26 @@ model Intent {
 
   events IntentEvent[]
   // RFC-018 — back-relations for Offer.intentId/Trade.intentId above.
-  // In practice one Intent maps to at most one Offer and one Trade
-  // (TradeIntentPayload's current scope), but modeled as arrays since
-  // that's the FK direction Prisma requires, not a claim that more than
-  // one of each is expected.
+  // Modeled as arrays since that's the FK direction Prisma requires, but
+  // the two sides are NOT symmetric, confirmed by direct code
+  // inspection (CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5, 2026-09-14):
+  // - `offers`: at most ONE Offer per Intent, genuinely, not just "in
+  //   practice" — `Offer.intentId` carries a real `@unique` constraint.
+  //   Every `createOffer()` call creates a brand-new Intent; the only
+  //   way two Offer rows could share one Intent is `persistOffer()`'s
+  //   own idempotent-retry reconciliation, which by definition IS the
+  //   same logical attempt.
+  // - `trades`: MULTIPLE Trades legitimately share one Intent, via the
+  //   Intent's owning Offer — `Offer.status` never leaves `ACTIVE` just
+  //   because one Trade was created against it (`trade.service.ts`'s own
+  //   `createTradeUncached()`), so a still-`ACTIVE` offer can
+  //   legitimately accumulate more than one real Trade, each carrying
+  //   the SAME `offer.intentId`. `Trade.intentId` is deliberately NOT
+  //   unique — this asymmetry with `Offer.intentId` is intentional, not
+  //   an oversight (the original item 37 investigation already rejected
+  //   a composite-business-key uniqueness constraint on Trade creation
+  //   for exactly this reason — see `src/common/idempotency.ts`'s own
+  //   header).
   offers Offer[]
   trades Trade[]
 
