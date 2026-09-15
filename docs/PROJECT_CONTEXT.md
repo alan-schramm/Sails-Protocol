@@ -1310,10 +1310,12 @@ executor needs without opening either are restated here:
   map. Offer's Product truth (A3) now runs ahead of its own
   implementation — a decision exists where the code does not yet
   enforce it.
-- **Offer A3 remains frozen, unchanged** — a published Offer is one
-  concrete publication instance; `CANCELLED`/`COMPLETED → ACTIVE`
-  remain invalid Product truth; the implementation delta is registered
-  (`docs/BACKLOG.md` item 44), not fixed.
+- **Offer A3 remains frozen, unchanged, and remains owned by
+  `docs/BACKLOG.md` item 43** — a published Offer is one concrete
+  publication instance; `CANCELLED`/`COMPLETED → ACTIVE` remain invalid
+  Product truth; the implementation delta is registered there, not
+  fixed. Item 44 (this sync) only cross-references it — ownership is
+  not transferred.
 - **`Offer.PAUSED` is an open Product Decision** — is it a legitimately
   reactivatable state distinct from A3's terminal values, or should its
   semantics change? Not decided; owned by `docs/BACKLOG.md` item 44.

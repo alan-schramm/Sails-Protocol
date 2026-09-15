@@ -4564,11 +4564,14 @@ obligation" is defined anywhere in this repository.
 
 44. **State & Lifecycle Backlog Delta — institutional ownership
     reconciliation, documentation only, no implementation (2026-09-15).**
-    Evidence: `docs/STATE_LIFECYCLE_DISCOVERY.md` (PR #164, merged into
-    `main@0096c477...`). Per that mission's own governance rule (finding
-    ≠ backlog item), every frozen finding was checked against existing
-    ownership before anything was added here — most are already owned;
-    three genuinely new obligations are registered below.
+    Evidence: `docs/STATE_LIFECYCLE_DISCOVERY.md` — PR #164, based on
+    `main@0096c477...` (that commit's own pre-merge baseline; preserved
+    here only as historical provenance), merged producing
+    **`main@00a4f274...`**, this mission's own actual baseline. Per that
+    mission's own governance rule (finding ≠ backlog item), every frozen
+    finding was checked against existing ownership before anything was
+    added here — most are already owned; **six** genuinely new
+    obligations are registered below.
 
     **Already owned, cross-referenced not duplicated:**
     - Offer A3's implementation delta — owned by item 43 above.
