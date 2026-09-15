@@ -1297,6 +1297,70 @@ are restated here:
   Evidence/Auditability → Human Interface Engineering`), not executor
   convenience.
 
+## 2M. State & Lifecycle Discovery — pointer (2026-09-15)
+
+`docs/STATE_LIFECYCLE_DISCOVERY.md` (PR #164) ran, froze, and merged —
+the domain named "next" at the end of §2L above. Full text lives there
+and in `docs/BACKLOG.md` item 44; only the durable pointers a future
+executor needs without opening either are restated here:
+
+- **Canonical rigor is mixed by subdomain, not uniform.** Escrow and
+  Intent both have real, explicit, centrally-enforced transition maps.
+  Dispute has a real enum with scattered per-method guards, no single
+  map. Offer's Product truth (A3) now runs ahead of its own
+  implementation — a decision exists where the code does not yet
+  enforce it.
+- **Offer A3 remains frozen, unchanged, and remains owned by
+  `docs/BACKLOG.md` item 43** — a published Offer is one concrete
+  publication instance; `CANCELLED`/`COMPLETED → ACTIVE` remain invalid
+  Product truth; the implementation delta is registered there, not
+  fixed. Item 44 (this sync) only cross-references it — ownership is
+  not transferred.
+- **`Offer.PAUSED` is an open Product Decision** — is it a legitimately
+  reactivatable state distinct from A3's terminal values, or should its
+  semantics change? Not decided; owned by `docs/BACKLOG.md` item 44.
+- **Seller release during an open Dispute is a confirmed implementation
+  violation of already-existing institutional truth**, not a new
+  Product Decision — `docs/PROTOCOL_SPECIFICATION.md` §1.9 and
+  `docs/BACKLOG.md`'s own dispute-persistence entry both already state
+  that opening a Dispute freezes the Escrow; the authorization code
+  does not enforce this. Registered as a concrete implementation
+  obligation, including regression-test expectations, in
+  `docs/BACKLOG.md` item 44 — not fixed by this sync.
+- **Appeal vs. a prior ruling's live pending fund-movement instruction
+  (`LIGHTNING_HODL`/`SAFE_GUARD_EVM`) requires an Architecture
+  Decision** — no existing truth decides whether `appeal()` should
+  invalidate, hold, version, or reconcile it. Owned by `docs/BACKLOG.md`
+  item 44, flagged as a likely input to Authority Model Discovery
+  rather than a precondition blocking it.
+- **Dispute→Escrow crash-window non-atomicity and the MULTISIG-only
+  reconciliation boundary remain open** — the former is queued as a
+  future Temporal & Concurrency domain input; the latter is a
+  disclosed, legitimate deferral whose fail-closed behavior must be
+  proven by Beta validation, not assumed. Both in `docs/BACKLOG.md`
+  item 44.
+- **F-07 is refined**: `EscrowPendingTransaction` has no status field,
+  but its own create/delete lifecycle has real, dedicated recovery
+  machinery; residual risk is narrower and rail-scoped, not "no status
+  field, therefore ambiguous."
+- **No standalone State & Lifecycle Standard is justified** — the
+  canonical homes that already exist (Escrow's transition map, Intent's
+  state machine, `PROTOCOL_INVARIANTS.md`) are sufficient; the gap was
+  in decisions and cross-referencing, now addressed above.
+- **A Beta Readiness Validation Gate now exists** — Issue
+  [#165](https://github.com/alan-schramm/Sails-Protocol/issues/165)
+  ("Sails Beta Readiness — Integration & Reality Validation Gate"), a
+  living scenario registry (Protocol/SDK, Sails Market, Satsails, QVAC
+  Runtime Harness, Failure/Recovery Campaign), not yet executed or
+  scored. It is the future owner for integration/reality evidence this
+  and prior missions' findings feed into — including the seller-
+  release fix's regression test and the MULTISIG-only reconciliation's
+  fail-closed proof.
+- **Decision-sequencing verdict: `PROCEED_TO_AUTHORITY`.** None of the
+  three open State & Lifecycle decisions blocks starting Authority
+  Model Discovery — see `docs/BACKLOG.md` item 44's full reasoning. No
+  short Decision Gate mission is interposed.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem
