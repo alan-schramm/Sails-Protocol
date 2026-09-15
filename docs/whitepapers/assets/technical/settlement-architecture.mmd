@@ -1,0 +1,10 @@
+%% Visual translation only. Canonical source: docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md §§2-8.
+flowchart TD
+  A["Asset"] --> S["SettlementScope\n{asset, rail}"]
+  R["SettlementRail"] --> S
+  S --> P["SettlementProvider\ncapability execution"]
+  AD["SettlementAdapter\ntranslation"] --> P
+  P --> X["External Settlement Mechanism"]
+  E["Evidence / Security Properties"] -. "inform" .-> PE["Production Eligibility"]
+  S -. "scope does not imply" .-> PE
+  P -. "implementation does not imply" .-> PE

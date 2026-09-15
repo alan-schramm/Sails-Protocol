@@ -1,0 +1,8 @@
+%% Visual translation only. Canonical source: docs/CORE_ARCHITECTURE.md §7.
+flowchart TD
+  M["Modules / Rulesets\nDomain meaning"] --> C["Pure Sails Core\nSemantic evaluation"]
+  C --> T["Transition Record"]
+  T --> R["Runtime\nCommit · ordering · dispatch · recovery"]
+  R --> P["Providers\nExecute and report"]
+  P --> X["External World"]
+  X -. "execution-report Assertion" .-> C

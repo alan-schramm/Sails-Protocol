@@ -1,0 +1,9 @@
+%% Visual translation only. Canonical basis: SDK_GUIDE.md; API_STABLE.md; SAILS_P2P_TRADING_SDK_PAPER.md.
+flowchart LR
+  W["Wallet / App"] --> SDK["Sails P2P Trading SDK"]
+  SDK --> N["Sails Node / API"]
+  N --> M["Protocol Modules"]
+  M --> C["Coordination semantics"]
+  M --> S["Settlement capabilities"]
+  M --> R["Reputation / Evidence"]
+  M --> A["Assistive Agents"]

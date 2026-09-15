@@ -1,0 +1,12 @@
+%% Visual translation only. Canonical basis: AUTHORITY_MODEL_DISCOVERY.md §4 and DESTINATION_AUTHORITY_ARCHITECTURE.md.
+flowchart LR
+  I["Identity"] --> AU["Authentication"]
+  AU --> AZ["Authorization"]
+  AZ --> EA["Economic Disposition Authority"]
+  DA["Destination Authority"]
+  XA["Execution Authority"]
+  EA -. "distinct" .- DA
+  EA -. "distinct" .- XA
+  DA -. "distinct" .- XA
+  Q["Recommendation / QVAC"] -. "does not create" .-> EA
+  C["Capability Grant"] -. "does not equal" .-> EA

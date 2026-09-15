@@ -8,6 +8,18 @@ The public explanatory architecture is intentionally limited to three canonical 
 2. [`SAILS_TECHNICAL_PAPER.md`](SAILS_TECHNICAL_PAPER.md) — Technical companion: Semantic Kernel, Pure Core, Runtime, Modules, Providers, Authority, Eligibility, Evidence, Recovery, Security, Temporal/Concurrency, and engineering governance.
 3. [`SAILS_P2P_TRADING_SDK_PAPER.md`](SAILS_P2P_TRADING_SDK_PAPER.md) — Product/integration companion: why integrate, responsibility boundaries, real SDK capabilities, developer journey, economics, and Day-0 integration reality.
 
+## Visual companions
+
+The following files are **non-canonical visual translations** of the same Institutional Truth, intended for dynamic reading, GitBook, slides, site content, partner decks, and derived marketing/sales material:
+
+1. [`SAILS_PROTOCOL_WHITEPAPER_VISUALS.md`](SAILS_PROTOCOL_WHITEPAPER_VISUALS.md)
+2. [`SAILS_TECHNICAL_PAPER_VISUALS.md`](SAILS_TECHNICAL_PAPER_VISUALS.md)
+3. [`SAILS_P2P_TRADING_SDK_PAPER_VISUALS.md`](SAILS_P2P_TRADING_SDK_PAPER_VISUALS.md)
+
+Editable Mermaid sources and reusable SVG renders live under [`assets/`](assets/README.md), separated by paper/domain.
+
+> **Documents define the architecture. Diagrams represent it. If a diagram conflicts with canonical documentation, the documentation governs.**
+
 ## Truth model
 
 All three papers are parallel translations of the same Institutional Truth:
