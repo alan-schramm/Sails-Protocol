@@ -1230,12 +1230,17 @@ lives in those two files and `docs/BACKLOG.md` item 42; only the
 durable pointers a future reader needs without opening either report
 are restated here:
 
-- **Open Product Decision — Offer status lifecycle.** Whether
-  `OfferStatus` transitions (`COMPLETED`/`CANCELLED` → `ACTIVE`) should
-  be guarded is not decided. The reference UI's own copy already
-  claims a cancelled offer "cannot be reactivated"; the backend and
-  SDK do not currently enforce that. `docs/BACKLOG.md` item 42 carries
-  the full evidence. Not resolved by this pointer.
+- **Offer lifecycle — DECIDED (CTO Decision Gate, 2026-09-15): A3.** A
+  published `Offer` is one concrete publication instance of economic
+  terms. `CANCELLED → ACTIVE` and `COMPLETED → ACTIVE` are not valid
+  Product truth; re-entry into the market is a new publication/
+  republication, not a reactivation of an old instance. This does
+  **not** authorize importing the `OfferEnvelope` revision mechanism
+  into the local `Offer` model. **The current local implementation
+  still permits both invalid transitions — a confirmed, registered
+  implementation delta against this Product truth, not yet closed.**
+  No transition guard is implemented by this decision. Full evidence:
+  `docs/PRE_STATE_LIFECYCLE_DECISION_GATE.md`, `docs/BACKLOG.md` item 43.
 - **F-05 is superseded** (Foundational Inventory): the `Dispute` schema
   comment itself concerns row cardinality only (`@@unique([tradeId])`
   — whether a second `Dispute` row is ever created for a trade; it
@@ -1262,9 +1267,18 @@ are restated here:
   confirmed no step-up/re-authentication mechanism exists anywhere —
   this sharpens what the absence exposes; it does not reduce the
   frozen severity and does not imply MFA/step-up as the fix.
-- **RFC-021 governance remains unresolved.** Fully implemented
-  (D1-D9), never formally accepted per `docs/GOVERNANCE.md` §5/§6A.
-  Not ratified or rejected by either evidence mission or this sync.
+- **RFC-021 governance — DECIDED (CTO Decision Gate, 2026-09-15): B2,
+  Correction Required Before Acceptance.** RFC-021 remains
+  `IMPLEMENTED / TESTED / EVIDENCED / FORMALLY PROPOSED` — **not
+  rejected, not Accepted.** Before it may become Accepted it must add
+  the mandatory `## Implementation Impact` section, execute the Core
+  RFC Review Checklist, reconcile any resulting canonical-document
+  impact, add the uncapped appeal-round behavior (`BRD-03`) to Known
+  Risks, and distinguish that disclosure from any design correction —
+  then return to CTO Gate. RFC-021's own file and `**Status:**` line
+  are unchanged by this decision; the correction pass itself has not
+  started. Full evidence: `docs/PRE_STATE_LIFECYCLE_DECISION_GATE.md`,
+  `docs/BACKLOG.md` item 43.
 - **Business Rules is not getting a duplicative standalone rulebook**,
   per current evidence — it remains a normative architecture domain; a
   thin discoverability index may be justified later, not built now.

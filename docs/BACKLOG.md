@@ -4479,3 +4479,85 @@ obligation" is defined anywhere in this repository.
     made on Offer's behalf; no Business Rules index/Standard created.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+43. **Decision Institutionalization Delta — CTO Decision Gate outcomes for
+    Offer lifecycle and RFC-021 governance, documentation only, no
+    implementation (2026-09-15).** Evidence: `docs/PRE_STATE_LIFECYCLE_DECISION_GATE.md`
+    (PR #162, merged into `main@0699a44b...`), prepared per item 42's own
+    "resolve or explicitly defer before State & Lifecycle" recommendation.
+    The CTO has now decided both questions that report left open. This
+    entry records the decisions; it does not implement either.
+
+    **A. Offer lifecycle — `PRODUCT DECISION`, made.**
+
+    > **A3 — asymmetric lifecycle with terminal publication instances and
+    > explicit republication. A published `Offer` is one concrete
+    > publication instance of economic terms.** `CANCELLED → ACTIVE` is
+    > not valid Product truth. `COMPLETED → ACTIVE` is not valid Product
+    > truth. Returning to the market must happen through a new
+    > publication/republication, not by silently reactivating an old
+    > publication instance. Persistent economic identity may exist across
+    > publications in the future, but that does not make an old
+    > publication instance reusable.
+
+    This is a semantic/Product decision only — it does **not** authorize
+    importing the `OfferEnvelope` revision mechanism (`logicalOfferId`,
+    `revision`, migration design) into the current local `Offer` model.
+    Those remain a separate, later consideration if ever taken up.
+
+    `IMPLEMENTATION DELTA` — **registered, not fixed:** the current local
+    `Offer` model (`liquidity.service.ts`'s `updateOfferStatus()`) still
+    permits both `CANCELLED → ACTIVE` and `COMPLETED → ACTIVE`, with no
+    transition-validity check beyond ownership (`BR-OFFER-03`,
+    `docs/BUSINESS_RULES_DISCOVERY.md`). This is now a confirmed delta
+    against Product truth, not merely an unresolved question — the
+    Product Decision above states what the system *should* do; the
+    system does not yet do it. No transition guard is implemented by
+    this entry. A future implementation mission owns closing this delta.
+
+    **B. RFC-021 governance — `GOVERNANCE DECISION`, made.**
+
+    > **B2 — CORRECTION REQUIRED BEFORE ACCEPTANCE.** RFC-021 remains
+    > `IMPLEMENTED / TESTED / EVIDENCED / FORMALLY PROPOSED`. RFC-021 is
+    > **not rejected**. RFC-021 is **not Accepted**. Implementation
+    > completeness does not, by itself, change governance status. Before
+    > RFC-021 may become Accepted, it must: (1) add the mandatory
+    > `## Implementation Impact` section (`docs/GOVERNANCE.md` §6A); (2)
+    > execute the Core RFC Review Checklist explicitly (six items,
+    > `docs/GOVERNANCE.md` §6A); (3) reconcile any resulting
+    > canonical-document impact in the same pass; (4) add the uncapped
+    > appeal-round behavior to Known Risks; (5) distinguish risk
+    > disclosure from design correction while doing so; (6) return to
+    > CTO Gate for final acceptance.
+
+    `EVIDENCE POINTER` — **BRD-03 attached to this same obligation, not a
+    separate item:** appeal rounds currently have no explicit hard cap;
+    cost escalates per round (`PANEL_SIZE_BASE × 2^round`,
+    `APPEAL_FEE_MULTIPLIER`); RFC-021's own "Known Risks" section does
+    not currently disclose this. Disclosure is required before
+    acceptance per B2 item 4 above. **This does not, by itself, mean the
+    uncapped-round mechanism must change** — B2 requires the risk be
+    named, not that the mechanism be redesigned; whether a cap is
+    warranted is a separate, later design question if the disclosure
+    itself surfaces one.
+
+    `NO ACTION` on RFC-021's own file in this pass: the correction items
+    above are not performed here — this entry tracks the obligation, it
+    does not execute the correction pass. `docs/rfcs/RFC-021-...md`'s
+    `**Status:**` line is unchanged (`Proposed`) and is not edited by
+    this entry.
+
+    **Reused, not duplicated:** this entry is the sole tracking location
+    for both decisions — `docs/PROJECT_CONTEXT.md` §2L is updated (not
+    duplicated) to reflect both as decided rather than open; item 42
+    above is left as the historical record of the evidence-gathering
+    state before either decision existed, not rewritten to look as if
+    the decision already existed when that item was written.
+
+    **Explicitly not done:** no Offer transition guard implemented; no
+    UI change; no RFC-021 content or status edit; no Core RFC Review
+    Checklist executed; no `Implementation Impact` section added; no
+    State & Lifecycle mission started; no `OfferEnvelope` machinery
+    introduced into the local model.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
