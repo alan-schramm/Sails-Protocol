@@ -1460,6 +1460,108 @@ executor needs without opening either are restated here:
   Discovery — see `docs/BACKLOG.md` item 45's full reasoning. No short
   Decision Gate mission is interposed.
 
+## 2O. Policy/Eligibility/Risk Discovery & External P2P Day-0 Baseline
+     Capability Gate — pointer (2026-09-15)
+
+`docs/POLICY_ELIGIBILITY_RISK_DISCOVERY.md` (PR #169) and a supplemental
+external-precedent sweep (Bisq/Hodl Hodl/Mostro/Anoma —
+`EXTERNAL PRECEDENT / DESIGN INPUT` only, never normative Sails truth,
+no concrete mechanism copied) ran, froze, and were reconciled together
+into `docs/BACKLOG.md` item 46. Full text lives there; only the durable
+pointers a future executor needs without opening either are restated
+here:
+
+- **Policy/Eligibility/Risk domain assessment is `MIXED`, leaning
+  `PRESENT_BUT_DISPERSED`.** Real canonical homes exist for the
+  domain's strongest mechanisms (RFC-021's arbiter-eligibility formula
+  and vouching bar, ADR-002 §6's capability-layering ruling), but no
+  single document indexes Policy/Eligibility/Risk truth the way
+  `docs/BUSINESS_RULES_DISCOVERY.md` does for business rules.
+- **The settlement-eligibility pipeline has a confirmed, self-disclosed
+  missing Policy/Availability/Maturity stage** between structural-
+  compatibility resolution and execution — `src/common/execution-candidates.ts`'s
+  own header states this outright. No live-code conflation of
+  structural compatibility with eligibility was found; one historical
+  documentation-layer instance was found already self-corrected before
+  either mission began.
+- **The capability-grant temporal-meaning question remains genuinely
+  undocumented anywhere** (RFC-005/013/014,
+  `PROTOCOL_SPECIFICATION.md` §1.10) — carried forward from
+  `docs/AUTHORITY_MODEL_DISCOVERY.md`, confirmed still open, not solved.
+- **No settlement provider/rail has any runtime health model** —
+  `Registration ≠ Configured ≠ Reachable ≠ Healthy ≠ Eligible ≠
+  Selected`, confirmed for every rail. Building proactive health
+  monitoring Day-0 is a legitimate deferral (no multi-provider fallback
+  target exists yet to route to); surfacing an unreachable-provider
+  failure as something more specific than a generic `INTERNAL_ERROR` is
+  a narrow, separate, still-open Day-0 decision, owned by
+  `docs/BACKLOG.md` item 46.
+- **The payment-account graduated trade-limit ramp (RFC-021 D5) is
+  fully computed but was never enforced** — `docs/BACKLOG.md` item 46
+  gives this defect its first real owner, confirmed still unowned as of
+  this pointer's writing (checked against both document content and
+  git history). Not an implementation authorized by either mission —
+  registered only.
+- **`CapabilityDenialReason` has two dead values (`DISABLED`,
+  `NOT_IMPLEMENTED`) and two of three real capability-denial call sites
+  discard their reason** before it reaches the caller — a narrow,
+  low-severity implementation-defect candidate, not yet given a
+  dedicated owner beyond this pointer's cross-reference.
+- **Anti-griefing/no-show economics has no institutional answer today**
+  — a participant may repeatedly accept and abandon trades with zero
+  reputation, rate, or cooldown consequence, distinct from the
+  dispute-outcome-scoped reputation asymmetry that already exists.
+  Registered as a Day-0 decision + Red Team input, `docs/BACKLOG.md`
+  item 46 — bonds/deposits are explicitly not assumed to be the answer.
+- **Economic spam/fake activity has no cost gate for five of six
+  activities checked** (Offer/Intent creation, trade accept-abandon,
+  identity/reputation farming); dispute spam alone has a partial,
+  ex-post-only consequence (a lost ruling costs reputation, filing
+  itself costs nothing). Sybil-resistant staking is already named as
+  future, not-yet-built work by `docs/security/SYBIL_MITIGATION.md` —
+  a genuine legitimate deferral, not a silent gap.
+- **A delayed/reordered `settlement.escrow.locked` event can silently
+  regress `Trade.status` backward** — `common/events/handlers.ts`'s
+  handler performs an unconditional write with no check against an
+  already-terminal Trade. This is a new, concrete instance of the same
+  general problem class the already-owned non-MULTISIG old-arbiter race
+  instantiates for Dispute rulings; no document anywhere states "events
+  may be delayed/duplicated/reordered" as a single, general, named
+  assumption. Registered jointly under `docs/BACKLOG.md` items 44/45/46
+  as a Temporal/Concurrency input, not solved.
+- **`IdempotencyKeyStatus.UNKNOWN` has no automated reconciliation job**
+  despite a code comment implying one exists — a narrow, new,
+  previously-undisclosed residual, distinct from the already-owned
+  MULTISIG-only settlement-reconciliation mechanisms.
+- **Lifecycle-scoped information disclosure and pre-dispute cooperative
+  recovery are both already adequately covered** — two frozen,
+  cross-referenced disclosure documents exist
+  (`docs/PRODUCT_INTERACTION_MODEL.md` §5,
+  `docs/P2P_PRODUCT_JOURNEY.md` §17), the one real historical
+  over-disclosure (the payout-address route) was already found and
+  closed as F-06, and cooperative pre-dispute communication is already
+  structurally possible via the existing, ungated chat channel — a
+  Product/UX question, not a protocol gap.
+- **The solver/proposer/authority/executor separation Anoma raises is
+  already cleanly maintained in every live mechanism checked**
+  (Intent→QVAC-negotiation→human-approved-Trade; QVAC-agent-output→
+  CISO-gated persistence; arbiter-assignment→signed-ruling→
+  escrow-execution) — independently re-verified, not merely re-cited,
+  with no violation found. The future OpenAgents delegated-mandate
+  direction (`docs/BACKLOG.md` item 45) is refined, not superseded, by
+  one new dimension: tracking whether a specific delegated action was
+  agent-self-discovered or principal-directed, alongside mandate scope.
+- **No standalone Policy/Eligibility/Risk Standard or new
+  external-precedent research document is justified.** Consolidation
+  over proliferation, consistent with every prior mission's own
+  conclusion in this chain.
+- **No Issue #165 changes made by either mission** — Policy/Eligibility
+  Discovery's own candidate scenarios and this sweep's Red-Team/beta
+  inputs are recorded in their respective evidence artifacts and in
+  `docs/BACKLOG.md` item 46 only, not added to the issue directly, per
+  each mission's own instruction not to touch it unless specifically
+  necessary.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem

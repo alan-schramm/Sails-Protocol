@@ -5095,3 +5095,343 @@ obligation" is defined anywhere in this repository.
     mission started.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+46. **External P2P Day-0 Baseline Capability Gate — institutional
+    reconciliation, documentation only, no implementation (2026-09-15).**
+    Evidence: a supplemental sweep comparing Sails against external P2P
+    marketplace precedent (Bisq, Hodl Hodl, Mostro, Anoma — recorded
+    throughout as `EXTERNAL PRECEDENT / DESIGN INPUT` only, never
+    normative Sails truth, no concrete mechanism of theirs copied),
+    building directly on `docs/POLICY_ELIGIBILITY_RISK_DISCOVERY.md`
+    (PR #169, `main@191a79589030eaaac9c06ae8dbe09334002b6c1e`, this
+    mission's own baseline). Governing principle applied throughout:
+    Day-0 does not require implementing every mechanism mature P2P
+    systems have; it requires an explicit institutional answer — one of
+    implemented+evidenced, decision-frozen+beta-scheduled, or a
+    legitimate deferral with rationale/residual-risk/trigger/owner — for
+    every material problem class those systems have already
+    demonstrated. Ten benchmark hypotheses were investigated; per this
+    file's own governance rule (finding ≠ backlog item), each was
+    checked against existing ownership before anything was added.
+    **Six are already adequately owned or are Product/protocol-boundary
+    non-issues; four surface genuinely new, currently-unowned
+    obligations, consolidated below as sub-obligations of this single
+    entry rather than ten separate items.**
+
+    **Already covered / correctly out of scope, cross-referenced not
+    duplicated:**
+    - **Provider runtime health (general absence)** — already registered
+      as Architecture Decision Required at
+      `docs/ADAPTIVE_EXECUTION_CAPABILITY_ROUTING.md:379` and
+      cross-referenced at `docs/POLICY_ELIGIBILITY_RISK_DISCOVERY.md`
+      §17. Building proactive health-check/circuit-breaker/failover
+      machinery Day-0 is a `LEGITIMATE_DEFERRAL`: every rail today has
+      zero-or-one active provider (`docs/POLICY_ELIGIBILITY_RISK_DISCOVERY.md`'s
+      own Provider Eligibility Matrix), so there is no fallback target
+      such a mechanism would route to yet, consistent with the same
+      single-instance-deployment posture already applied to
+      `escrowCircuitBreaker`. **Residual risk**: an operator cannot
+      currently distinguish "provider unreachable" from "internal bug"
+      in production logs/alerts — narrowed and registered as a new
+      sub-obligation below, not left unowned.
+    - **Provider/operator quality (evidence-based selection)** —
+      `PARTIALLY_COVERED`: "Selection among multiple candidates" is
+      already Architecture Decision Required
+      (`docs/ADAPTIVE_EXECUTION_CAPABILITY_ROUTING.md:698`,
+      `src/common/execution-candidates.ts:49-58`), but the existing §6
+      context table (`ADAPTIVE_EXECUTION_CAPABILITY_ROUTING.md:369-386`)
+      does not name provider operational quality (success/timeout/
+      unknown-outcome/reconciliation/dispute rate) as one of its listed
+      future dimensions. `LEGITIMATE_DEFERRAL` for building any
+      quality-based selection logic Day-0 — with ≤1 real provider per
+      scope today, the selection mechanism this would feed does not yet
+      exist to be fed. **Registered, not implemented**: a future
+      Backlog Delta that eventually resolves the Selection Architecture
+      Decision should add "provider operational quality/reputation" as
+      a named dimension to that existing table — a one-line addition to
+      an existing document, not a new mechanism or standard.
+    - **Recovery as economic-truth reconstruction** — `ALREADY_COVERED`
+      for the MULTISIG-only reconciliation boundary and every other
+      rail's fail-closed-to-manual-review posture: both are already
+      owned by Issue #165 Section E (cross-referencing
+      `docs/STATE_LIFECYCLE_DISCOVERY.md` §12.4) and explicitly marked
+      `BETA_VALIDATION_REQUIRED` there — must be *proven*, not merely
+      claimed in a code comment, before Beta Ready. Direct re-verification
+      this mission confirms MULTISIG and WDK's `SUBMITTED`-with-txHash
+      case genuinely query external settlement truth (not just re-read
+      the DB) before writing anything. **One genuinely new residual**:
+      `IdempotencyKeyStatus.UNKNOWN` (`src/common/idempotency.ts:454-484`)
+      has no automated reconciliation despite its own code comment
+      naming "manual/scheduled reconciliation" — no such job exists
+      anywhere in `src/`/`scripts/`. Registered as a new sub-obligation
+      below.
+    - **Lifecycle-scoped information disclosure** — `ALREADY_COVERED`,
+      twice over: `docs/PRODUCT_INTERACTION_MODEL.md` §5 (by
+      information-type) and `docs/P2P_PRODUCT_JOURNEY.md` §17 (by
+      journey-stage) are both frozen, cross-referenced, stage-by-stage
+      disclosure documents, and the one real historical violation this
+      class of question would have caught — the payout-address route
+      leaking to any unauthenticated caller — was already found and
+      closed as F-06 (`COHERENCE-CORRECTIVE-1`, 2026-09-13), independently
+      corroborated across three documents. `PARTIALLY_COVERED` only in
+      the narrow sense that not every remaining Privacy Matrix cell
+      (reputation, node identity, fees/policy, proof/evidence metadata)
+      was independently re-verified against current code in this pass —
+      those remain matrix claims, not freshly re-checked facts; no new
+      obligation is registered for this narrow residual, since the
+      matrix's own text already discloses this limit and invites
+      per-cell verification rather than presenting itself as
+      self-certifying. `BETA_VALIDATION_REQUIRED` (low severity, already
+      named, not newly discovered): `resolveDispute()`'s HTTP schema
+      still accepts-but-silently-discards `releaseToAddress`/
+      `refundToAddress`, per `docs/P2P_PRODUCT_JOURNEY.md:817-833`'s own
+      "minor API-surface honesty gap" framing.
+    - **Pre-dispute cooperative recovery** — `PRODUCT_UI_INPUT` /
+      `NOT_APPLICABLE` at the protocol-primitive layer, not a protocol
+      gap. `docs/PROJECT_CONTEXT.md` §2's Level 1/Level 2/Product-layer
+      boundary places "let two parties informally resolve a problem
+      before escalating" squarely at the Product/UX layer unless it
+      requires a genuinely new economically-meaningful state (e.g. one
+      that pauses a timelock or expiry clock) — no evidence any such
+      state is needed or was ever considered. The existing WebSocket
+      chat channel (`chat.routes.ts`) is not gated by `Trade.status`/
+      `Escrow.status` and is therefore already structurally usable for
+      informal pre-dispute communication at any stage, though this
+      capability is incidental (inherited from pre-trade negotiation,
+      `negotiation.service.ts`'s own `NegotiationStatus` stops at
+      `TERMS_AGREED`) rather than purpose-built. No new protocol
+      obligation registered. A future Product/UX mission may choose to
+      surface this capability more deliberately (e.g. "message your
+      counterparty" prompting before the dispute button) — a Product
+      decision, not an Architecture or Policy one, and not decided here.
+    - **Solver / proposed-solution separation (Anoma precedent)** —
+      `ALREADY_COVERED` for every live mechanism checked: the Intent→
+      QVAC-negotiation→human-approved-Trade path
+      (`src/core/intent.routes.ts:131-142`'s own explicit doc comment:
+      "QVAC gets discovery/negotiation authority, never settlement
+      authority — those are two separably-gated capabilities, not
+      one"), QVAC-agent-output→CISO-gated Intent persistence, and
+      arbiter-assignment→signed-ruling→escrow-execution
+      (`market-arbitration.provider.ts`'s own header: "an arbiter never
+      moves funds directly") all keep discover/propose explicitly and
+      namedly distinct from authorize and from execute — independently
+      re-verified against current import lists and call boundaries this
+      mission, not merely re-cited; no violation found. `Recommendation
+      ≠ Authority` and `Agent Access ≠ Agent Authority`
+      (`docs/AUTHORITY_MODEL_DISCOVERY.md`) already state the governing
+      principle these mechanisms instantiate. `PARTIALLY_COVERED` only
+      for the future case: item 45's own OpenAgents delegated-autonomy
+      text (`docs/BACKLOG.md`, above) states mandate-scope/attribution
+      exhaustively but does not yet track "was this specific action
+      agent-self-discovered or principal-directed" as its own explicit
+      dimension, distinct from "is this actor's mandate broad enough to
+      cover it." **Recorded as a refinement note against item 45's
+      existing text, not a new obligation**: a future delegation/mandate
+      design (still unbuilt, still without an implementation owner per
+      item 45's own "OWNER TO BE ESTABLISHED WHEN DAY-0 OPENAGENTS
+      EXECUTION IS SCHEDULED") should track action-provenance as a
+      dimension alongside mandate-scope, consistent with and extending
+      today's already-clean live-code separation. No solver architecture,
+      module, or implementation is authorized by this note.
+
+    **Four genuinely new, currently-unowned sub-obligations —
+    consolidated here as one entry's worth of registration, not four
+    separate items:**
+
+    - **Anti-griefing / no-show economics — `DAY0_DECISION_REQUIRED` +
+      `RED_TEAM_INPUT`, genuinely unowned.** A participant may accept a
+      Trade and then simply abandon it — no escrow, no fee, no hold on
+      either party at `PENDING` (`trade.service.ts:59-149`); manual
+      cancellation (`trade.service.ts:276-315`) is symmetric and
+      reputation-neutral by design (already independently documented as
+      `BR-TRADE-03`/`BR-REP-03`,
+      `docs/BUSINESS_RULES_DISCOVERY.md:152-164,371-376`: cancelling
+      before an escrow ever locks fires no reputation event of any
+      kind); no rate-limit, cooldown, or per-participant volume cap
+      exists on trade creation/cancellation beyond the generic IP-based
+      limiter; `suspicious-activity.ts`'s three tracked kinds
+      (`AUTH_FAILURE`/`NOT_FOUND_CLUSTER`/`RATE_LIMITED`) do not include
+      any cancellation/no-show signal. This is a distinct mechanism from
+      the dispute-rate/reputation-asymmetry protection already covered
+      by `docs/security/SYBIL_MITIGATION.md` and
+      `docs/THREAT_MODEL.md`'s "Arbitration Griefing" entry (both scoped
+      to dispute *outcomes*, not pre-escrow acceptance/abandonment).
+      Searched and confirmed absent from `docs/BACKLOG.md`,
+      `docs/THREAT_MODEL.md`, `docs/security/SYBIL_MITIGATION.md`. **Not
+      registered as an implementation requirement** — bonds/deposits are
+      explicitly not assumed to be the answer, per this mission's own
+      instruction; whether existing reputation/lifecycle behavior should
+      be extended, or whether Sails deliberately accepts this risk
+      Day-0 (offers remain discoverable regardless, per `BR-OFFER-03`,
+      so a no-show does not remove market liquidity from view), is the
+      open decision. Flagged for Red Team scoring as an explicit
+      "economically costly, non-dispute-worthy" attack class not
+      previously named in any resilience-review registry found.
+    - **Economic spam / fake economic activity — `DAY0_DECISION_REQUIRED`
+      for five of six activities checked; `PARTIALLY_COVERED` for the
+      sixth (dispute spam); `LEGITIMATE_DEFERRAL` sub-component
+      (staking) already named.** Creating an Offer, creating an Intent,
+      accepting-then-abandoning a Trade, and creating a new identity are
+      all confirmed zero-cost (`liquidity.service.ts:424-463`,
+      `intent-engine.ts:183`, `trade.service.ts:59-149`,
+      `identity.service.ts:52-64` — the last explicitly self-disclosed
+      as costing nothing by `docs/security/SYBIL_MITIGATION.md:69-71`:
+      "creating a new identity costs nothing today... no bond, no fee,
+      no proof of anything"). Raising the *initial* dispute is protected
+      only by the generic IP/route-keyed `criticalRateLimit`
+      (DoS-shaped, not economic) — in direct, citable contrast to the
+      real economic cost already charged on an *appeal*
+      (`dispute.service.ts:64,796,805-810`,
+      `APPEAL_FEE_MULTIPLIER = 2`, a real `DisputeAppealFee` row,
+      forfeited on denial). Dispute spam therefore classifies as
+      `PARTIALLY_COVERED`: an ex-post, conditional consequence exists
+      (a lost, ruled-against dispute costs `NEGATIVE_DELTA = -5`
+      reputation, per `THREAT_MODEL.md:29`) but nothing costs the act of
+      *filing* itself. Sybil-resistant staking (§3 of
+      `docs/security/SYBIL_MITIGATION.md`) is already explicitly named
+      as future, not-yet-built, RFC-track work
+      (`SYBIL_MITIGATION.md:33-34,131-134`, "Planned, no code exists
+      yet") — that sub-component is a genuine `LEGITIMATE_DEFERRAL`,
+      already disclosed as such by its own owning document; it is the
+      remaining five-of-six activities' total absence of any Day-0
+      institutional answer (accept the risk / defer explicitly with
+      rationale / build something narrower than staking) that is
+      registered here as the open decision.
+    - **Provider-unreachable failure surfaced as generic `INTERNAL_ERROR`
+      — `DAY0_DECISION_REQUIRED`, narrow, genuinely unowned.** Traced
+      concretely, not assumed: `escrow.service.ts:529-537`'s `catch`
+      block re-throws a provider call failure unchanged
+      (`throw err` at line 536); for MULTISIG, an unreachable RPC
+      produces `bounded-rpc.ts`'s `BoundedRpcTimeoutError` (a plain
+      `Error`, not an `AppError` subtype, confirmed never caught or
+      reclassified anywhere in `src/`); `app.ts`'s global error handler
+      has no branch for it and falls through to the fully generic
+      `{error: 'INTERNAL_ERROR', message: 'Internal server error'}`,
+      HTTP 500 — byte-for-byte identical to any other unhandled
+      programming bug. This is a distinct, smaller, separable question
+      from building health-monitoring machinery (already a
+      `LEGITIMATE_DEFERRAL`, above): whether an already-thrown,
+      already-distinguishable error class should be classified into the
+      existing `AppError`/`CapabilityDenialReason`-adjacent taxonomy so
+      operators can tell "provider unreachable" apart from "internal
+      bug" in logs/alerts/support triage — no proactive polling, no
+      multi-provider routing, no new mechanism. Searched
+      `docs/BACKLOG.md` in full (5097 lines) for
+      `health|availability|unreachable|circuit breaker` — no existing
+      registration covers this specific error-taxonomy question; items
+      44/45 confirmed, by direct reading, not to touch it.
+    - **`IdempotencyKeyStatus.UNKNOWN` has no automated reconciliation
+      job, despite its own code comment implying one exists —
+      `DAY0_DECISION_REQUIRED`, narrow, genuinely unowned.** When both
+      `markCompleted` and `markUnknown` fail inside `runAndSettle()`
+      (`src/common/idempotency.ts:454-484`), the record is left exactly
+      as it was, with the comment stating this "can get durably stuck
+      pending manual/scheduled reconciliation — a real, disclosed
+      residual." No cron/sweep job referencing `idempotencyKey` exists
+      anywhere in `src/` or `scripts/` (searched exhaustively) — the
+      "scheduled reconciliation" the comment names does not exist in
+      code today. Distinct from, and not covered by, the MULTISIG-only
+      settlement-reconciliation mechanisms already owned above (those
+      reconcile Escrow/PSBT state against chain truth; this is a
+      separate, request-level bookkeeping mechanism with its own,
+      currently-unaddressed stuck-state failure mode).
+
+    **Trade-status overwrite on a delayed/reordered
+    `settlement.escrow.locked` event — new evidence for the already-owned
+    message-delay/duplication/reordering problem class, registered as a
+    sub-obligation of items 44/45's Temporal/Concurrency input, not a
+    new standalone entry.** `common/events/handlers.ts:246-268`'s
+    `settlement.escrow.locked` handler executes an **unconditional**
+    `prisma.trade.update({ data: { status: 'ACTIVE' } })` with no check
+    that `Trade.status` isn't already `COMPLETED`/`DISPUTED`/`CANCELLED`
+    — if this event were delayed and delivered after a later event had
+    already made the Trade terminal, it would silently regress
+    `Trade.status` backward. This is a **new, concrete instance** of the
+    same general problem class the old-arbiter race
+    (`docs/AUTHORITY_MODEL_DISCOVERY.md`, already owned by items 44/45)
+    instantiates for Dispute rulings — confirmed, this mission, that no
+    single document anywhere states "any economically relevant
+    event/message may be delayed, duplicated, or reordered" as a
+    general, named assumption with a general handling doctrine (searched
+    `docs/PROTOCOL_INVARIANTS.md`, `docs/ARCHITECTURE.md`,
+    `docs/CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md` — zero hits for
+    "reorder"/"out-of-order" in any of the three). The Escrow row itself
+    is protected against this exact failure mode
+    (`claimEscrowTransition()`'s conditional `updateMany`,
+    `docs/PROTOCOL_INVARIANTS.md:1173-1187`) — this protection does not
+    extend to the Trade-status writes performed directly in
+    `handlers.ts`, which remain unconditional. `withIdempotency`
+    (`common/idempotency.ts`) protects duplicate *requests*, a distinct
+    problem from reordered *events* — confirmed by its own
+    `CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md` origin (CSC-B01/B02, a
+    client-retry scenario). Classification: `TEMPORAL_CONCURRENCY_INPUT`
+    + `DAY0_DECISION_REQUIRED`, registered jointly under items 44/45
+    (Authority's own old-arbiter race is the twin instance of this
+    class) and as an explicit future Temporal/Concurrency domain input —
+    consolidated there, not duplicated as a second entry.
+
+    **Payment-account trade-limit enforcement —
+    `DAY0_IMPLEMENTATION_REQUIRED`, confirmed still genuinely unowned,
+    given an owner here.** `docs/POLICY_ELIGIBILITY_RISK_DISCOVERY.md`
+    (PR #169) already established the defect itself (the graduated
+    trust ramp — `payment-account.service.ts`'s `computeTradeLimit()` —
+    is fully computed but never enforced anywhere in trade/escrow
+    creation) and named it that mission's highest-priority recommendation
+    for a future Backlog Delta to register. **Confirmed, by both document
+    content and git history, that no backlog entry or amendment
+    addressing it was created between that mission's merge (`892f777`)
+    and this one** (`git log 892f777..HEAD -- docs/BACKLOG.md` returns
+    zero commits touching this file before this entry). This mission's
+    external-precedent sweep (benchmark hypothesis 9) treats the
+    comparison to mature P2P systems' trust-tiering mechanisms as
+    additional evidence that the *property* — whatever trust-tier limit
+    Sails claims to enforce must actually constrain economic execution —
+    is economically meaningful, not merely cosmetic. **The eventual
+    Day-0 requirement is not "copy Bisq" or any other external system's
+    concrete mechanism** — it is that Sails' own already-designed,
+    already-coded ramp actually gate the trade amounts it is meant to
+    gate. Given an owner here as an `IMPLEMENTATION_DEFECT`, not a
+    Product or Architecture question — the ramp's tiers, thresholds, and
+    chargeback-downgrade logic are already fully designed; only the
+    enforcement call site (in `trade.service.ts`'s `createTrade()` or
+    `escrow.service.ts`'s `createEscrow()`/`lockFunds()`) is missing.
+
+    **Day-0 Exit Rule status, all ten benchmark hypotheses — no
+    `UNKNOWN`/`NOT CONSIDERED` remains for any of them, per this
+    mission's own governing rule:**
+
+    | # | Hypothesis | Disposition |
+    |---|---|---|
+    | 1 | Anti-griefing/no-show | `DAY0_DECISION_REQUIRED` + `RED_TEAM_INPUT`, registered above |
+    | 2 | Pre-dispute cooperative recovery | `PRODUCT_UI_INPUT`/`NOT_APPLICABLE` (protocol layer), no new obligation |
+    | 3 | Provider runtime health | `ALREADY_COVERED` (general) + `LEGITIMATE_DEFERRAL` (mechanism) + `DAY0_DECISION_REQUIRED` (error taxonomy, registered above) |
+    | 4 | Provider/operator quality | `PARTIALLY_COVERED` + `LEGITIMATE_DEFERRAL`, one-line future addition noted, no new obligation |
+    | 5 | Delayed/duplicated/reordered messages | `TEMPORAL_CONCURRENCY_INPUT` + `DAY0_DECISION_REQUIRED`, registered under items 44/45 above |
+    | 6 | Recovery as economic-truth reconstruction | `ALREADY_COVERED` + `BETA_VALIDATION_REQUIRED` (Issue #165) + one new residual (`IdempotencyKeyStatus.UNKNOWN`) registered above |
+    | 7 | Lifecycle-scoped information disclosure | `ALREADY_COVERED` (twice over) + narrow `BETA_VALIDATION_REQUIRED`, no new obligation |
+    | 8 | Economic spam/fake activity | `DAY0_DECISION_REQUIRED` (5 of 6 activities) + `PARTIALLY_COVERED` (dispute spam) + `LEGITIMATE_DEFERRAL` (staking sub-component), registered above |
+    | 9 | Payment-account trade-limit enforcement | `DAY0_IMPLEMENTATION_REQUIRED`, given an owner here |
+    | 10 | Solver/proposer/authority/executor separation | `ALREADY_COVERED` (live code) + `PARTIALLY_COVERED` (future OpenAgents text, refinement note against item 45) |
+
+    **RED TEAM PRINCIPLE, preserved as stated, not weakened:** this
+    sweep raises the baseline being attacked; it does not itself prove
+    security. Coverage of the ten benchmark classes above frees Red Team
+    effort to concentrate on composed attacks, cross-module semantic
+    breaks, concurrency races, authority supersession, incentive
+    manipulation, provider inconsistency, multi-node behavior, evidence
+    attacks, autonomous-agent abuse/collusion, and novel economic
+    attacks — not on rediscovering baseline P2P-marketplace failure
+    classes mature systems have already exposed.
+
+    **Explicitly not done:** no implementation of any kind (anti-griefing
+    mechanism, economic-spam cost, error-taxonomy extension,
+    idempotency-reconciliation job, trade-limit enforcement, Trade-status
+    reordering guard); no Product Decision made on pre-dispute recovery's
+    behalf; no Architecture Decision made on provider health/quality
+    selection's behalf; no RFC/ADR/UI/schema/state-machine change; no new
+    standard created (Bisq/Hodl Hodl/Mostro/Anoma remain external
+    precedent/design input only, never imported as Sails architecture);
+    no child issue created under #165; no solver module or architecture
+    implemented.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
