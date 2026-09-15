@@ -4561,3 +4561,162 @@ obligation" is defined anywhere in this repository.
     introduced into the local model.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+44. **State & Lifecycle Backlog Delta — institutional ownership
+    reconciliation, documentation only, no implementation (2026-09-15).**
+    Evidence: `docs/STATE_LIFECYCLE_DISCOVERY.md` (PR #164, merged into
+    `main@0096c477...`). Per that mission's own governance rule (finding
+    ≠ backlog item), every frozen finding was checked against existing
+    ownership before anything was added here — most are already owned;
+    three genuinely new obligations are registered below.
+
+    **Already owned, cross-referenced not duplicated:**
+    - Offer A3's implementation delta — owned by item 43 above.
+    - `Dispute.ARBITRATED`'s vestigial status — already tracked by
+      `docs/CROSS_LAYER_SEMANTIC_CONTRACT_AUDIT.md`'s own CSC-C02
+      finding (searched and confirmed the code-level fact independently
+      in the State & Lifecycle mission; CSC-C02 already owns the UI
+      consequence).
+    - Trade terminal while its linked Escrow is non-terminal — already
+      disclosed, by name, in `trade.service.ts`'s own "Missão 04
+      hardening finding" comment as an accepted, deliberate scope
+      limitation ("not a path to re-move funds... a real state-
+      integrity/audit-trail corruption"); the disclosure itself is the
+      institutional record. No further backlog ownership needed beyond
+      registering it as a Beta Gate scenario (Issue #165, Section E).
+    - MULTISIG-only automated settlement reconciliation — already
+      self-disclosed in `escrow-settlement-reconciliation.service.ts`'s
+      own header comment as a deliberate boundary ("every other rail
+      fails closed to manual review"). `LEGITIMATE DEFERRAL / KNOWN
+      BOUNDARY` — not converted into a defect. Its concrete beta
+      obligation (prove the fail-closed behavior actually holds) is
+      registered as a Failure & Recovery Campaign scenario in Issue
+      #165, not a separate backlog item.
+
+    **New obligations, verified absent from this file, `docs/ROADMAP.md`,
+    and open Issues before adding (`gh issue list --search` covering
+    "Offer PAUSED", "release dispute", "appeal pending",
+    "EscrowPendingTransaction" — no existing hits):**
+
+    - **`Offer.PAUSED` semantics — `PRODUCT DECISION REQUIRED BEFORE
+      IMPLEMENTATION`.** Is `PAUSED` a legitimately reactivatable state
+      for the same publication instance, distinct from A3's terminal
+      `CANCELLED`/`COMPLETED`, or should its semantics change to match?
+      A3's own text never mentions `PAUSED`. Full evidence:
+      `docs/STATE_LIFECYCLE_DISCOVERY.md` §5. Not decided here.
+    - **Seller release during an open Dispute — `IMPLEMENTATION DEFECT`,
+      already semantically decided, not a Product Decision.**
+      `docs/PROTOCOL_SPECIFICATION.md` §1.9 and this file's own
+      dispute-persistence entry above both already state that opening a
+      Dispute "freezes" via the Escrow `DISPUTED` transition.
+      `isSellerOrAssignedArbiter()` (`escrow-lifecycle.ts:115-119`) does
+      not enforce this — it authorizes the seller unconditionally,
+      querying `Dispute` only on the arbiter branch. **This is
+      economically material and is not generic technical debt**: the
+      fix must (a) make `releaseFunds()`/`initiateRelease()` (and the
+      equivalent refund/split paths, per the same freeze principle)
+      check for an open Dispute before authorizing a seller-triggered
+      transition, and (b) ship with a regression test asserting release
+      is rejected while `Dispute.status` is `OPENED`/`EVIDENCE_SUBMITTED`/
+      `AUTO_PROPOSED`. Full evidence: `docs/STATE_LIFECYCLE_DISCOVERY.md`
+      §11 item 2, §18. Not fixed by this entry.
+    - **Appeal leaving a prior ruling's pending fund-movement instruction
+      live (`LIGHTNING_HODL`/`SAFE_GUARD_EVM`) — `ARCHITECTURE DECISION
+      REQUIRED`.** No existing document decides whether `appeal()`
+      should invalidate, hold, version, or otherwise reconcile the
+      original ruling's still-live `EscrowPendingTransaction`. The
+      eventual decision must preserve: economic disposition correctness;
+      no conflicting executable authority; no duplicate/obsolete
+      fund-movement instruction remaining executable; evidence of which
+      ruling currently governs execution. Full evidence:
+      `docs/STATE_LIFECYCLE_DISCOVERY.md` §11 item 3, §17. Not decided
+      here. **Interaction with the next domain mission**: this question
+      is fundamentally about who holds valid executable authority once
+      two rulings exist — an Authority-domain-shaped question. Recommend
+      Authority Model Discovery treat this as one of its own inputs
+      rather than requiring it resolved first (see this mission's
+      decision-sequencing verdict below).
+    - **Dispute→Escrow crash-window non-atomicity — `ARCHITECTURE /
+      TEMPORAL-CONCURRENCY DECISION REQUIRED`, explicitly queued as a
+      future Temporal & Concurrency domain input, not owned as
+      standalone State/Lifecycle follow-up.** A process crash between
+      the Dispute→`RESOLVED` write and the corresponding Escrow
+      settlement call has no restart-reconciliation mechanism analogous
+      to `escrow-settlement-reconciliation.service.ts`'s MULTISIG-scoped
+      one. This is fundamentally a Temporal/Concurrency-domain property
+      (atomicity across a crash), not a State & Lifecycle question in
+      its own right — registered here now so it is not lost, owned by
+      whichever mission runs the Temporal & Concurrency domain. Full
+      evidence: `docs/STATE_LIFECYCLE_DISCOVERY.md` §12.3, §17.
+    - **Cooperative `EscrowPendingTransaction` abandonment —
+      `IMPLEMENTATION DEBT / AVAILABILITY-RECOVERY GAP`, not fund-safety.**
+      A non-disputed pending row with zero collected signatures has no
+      cleanup/timeout mechanism and permanently blocks a fresh
+      `initiate*` call for that escrow until manual database
+      intervention. **No timeout semantics are invented here** — only
+      the gap itself is registered; a future mission designs the actual
+      recovery mechanism. Full evidence:
+      `docs/STATE_LIFECYCLE_DISCOVERY.md` §12.1, §18.
+    - **Intent `EXPIRABLE_STATES` vs. `VALID_TRANSITIONS` inconsistency —
+      `TARGETED VERIFICATION REQUIRED`, not an implementation task yet.**
+      `EXPIRABLE_STATES` includes `COMMITTED`/`SETTLING`, but
+      `VALID_TRANSITIONS` has no `EXPIRED` edge from either — whether
+      this is ever actually reachable in real code paths is unconfirmed
+      (no test found exercising it). The next step is narrowly-scoped
+      reachability verification, not a state-machine correction, a
+      documentation fix, or "no action" — the reachability question
+      itself must be answered first. Full evidence:
+      `docs/STATE_LIFECYCLE_DISCOVERY.md` §9, §18.
+
+    **F-07's refined interpretation — carried into institutional
+    continuity for the first time (not a correction of stale wording,
+    since `docs/PROJECT_CONTEXT.md` never previously summarized F-07 at
+    all).** Current interpretation, per `docs/STATE_LIFECYCLE_DISCOVERY.md`'s
+    own refinement: `EscrowPendingTransaction` has no status field, but
+    its own existence-based create/delete lifecycle has real, dedicated
+    recovery machinery (`escrow-settlement-reconciliation.service.ts`);
+    the residual risk is narrower and rail-scoped (MULTISIG-only
+    automatic coverage), not "no status field, therefore ambiguous."
+
+    **Beta Readiness Validation Gate registered — Issue
+    [#165](https://github.com/alan-schramm/Sails-Protocol/issues/165)
+    ("Sails Beta Readiness — Integration & Reality Validation Gate").**
+    Searched before creating: Issue #105 (Day-0 Multi-Operator/Partner
+    Beta Completion Gate) is the closest existing owner but is scoped to
+    multi-node/network concerns specifically, not single-node core
+    economic journey validation, Sails Market/Satsails integration-
+    quality proof, or QVAC Runtime Harness validation; Issue #78 (Sails
+    Sandbox/Playground/Test Harness) is a future tooling horizon, not a
+    validation-evidence registry. Neither is an adequate existing owner
+    for the general gate; #165 cross-references both rather than
+    duplicating their scope. #165 is a living registry, not an
+    implementation epic — no child issues were created in this pass, no
+    scenario is scored yet, and its exit sequence (`Protocol/SDK → Sails
+    Market → Satsails → QVAC Runtime Harness → Failure/Recovery Campaign
+    → Beta Gate Review → BETA READY`) explicitly forbids declaring Beta
+    Ready from CI/unit-tests/demo/assertion alone.
+
+    **Decision-sequencing verdict: `PROCEED_TO_AUTHORITY`.** None of the
+    three open decisions above (`Offer.PAUSED`, appeal/pending-instruction,
+    Dispute/Escrow crash-window) structurally blocks starting Authority
+    Model Discovery: `Offer.PAUSED` is narrow and Product-scoped, orthogonal
+    to how authorization mechanisms work; the crash-window question belongs
+    to a later domain (Temporal/Concurrency) entirely; the appeal/pending-
+    instruction question is itself Authority-shaped and is better treated
+    as an input Authority Model Discovery investigates directly, not a
+    precondition to starting it. The seller-release defect is already
+    semantically decided (not a Product Decision blocker, per its own
+    classification above) and needs an implementation owner, not a Decision
+    Gate. No short Decision Gate mission is recommended before Authority
+    Model Discovery.
+
+    **Explicitly not done:** no implementation of any kind (the seller-
+    release fix, the `EscrowPendingTransaction` timeout mechanism, the
+    Intent reachability fix, and the appeal/pending-instruction
+    reconciliation are all registered, none built); no Product Decision
+    made on `Offer.PAUSED`'s behalf; no Architecture Decision made on
+    appeal/pending-instruction or crash-consistency's behalf; no RFC/ADR/
+    UI/schema/state-machine/QVAC-runtime change; no child issue created
+    under #165; no Authority Model Discovery mission started.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
