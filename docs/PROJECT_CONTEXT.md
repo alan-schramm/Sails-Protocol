@@ -1425,10 +1425,17 @@ executor needs without opening either are restated here:
   fund-moving call. **Future OpenAgents may execute autonomously only
   within an explicit, bounded economic mandate attributable to a
   principal** — autonomy originates from that delegation, never from
-  QVAC's own intelligence, which never creates authority on its own. Not
-  implemented; no implementation authorization exists yet
-  (`docs/BACKLOG.md` item 45, cross-referencing this section's own SDK
-  use-case reality table above and Issue #155).
+  QVAC's own intelligence, which never creates authority on its own.
+  Maturity is expected to stage: an initial *delegated autonomous
+  negotiation + human-confirmed final execution* level, ahead of a later
+  *delegated autonomous negotiation + delegated autonomous execution*
+  level, both still strictly bounded by the mandate. Not implemented; no
+  implementation authorization exists yet (`docs/BACKLOG.md` item 45,
+  cross-referencing this section's own SDK use-case reality table above
+  and Issue #155). KaleidoMind is recorded there as an external
+  precedent/design input only, not copied mechanically. Whether/when this
+  direction becomes a Day-0 product commitment is a Product/Roadmap
+  sequencing decision this section does not make.
 - **No standalone Authority Model Standard is justified.** The existing
   canonical homes (`PROTOCOL_INVARIANTS.md` INV-01/INV-12,
   `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`) already state the

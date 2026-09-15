@@ -4942,11 +4942,83 @@ obligation" is defined anywhere in this repository.
       > autonomy does not erase Sails' own State/Lifecycle, Policy,
       > Evidence, or settlement constraints. This direction requires a
       > future delegation/mandate design (schema, revocation,
-      > scope-boundary enforcement) that does not exist yet.
+      > scope-boundary enforcement) that does not exist yet. **Maturity is
+      > expected to stage, not arrive whole**: an initial maturity level
+      > of *delegated autonomous negotiation + human-confirmed final
+      > execution* (the agent negotiates within its mandate; a human
+      > confirms before economic effect) is the natural predecessor to a
+      > later *delegated autonomous negotiation + delegated autonomous
+      > execution* level (execution itself proceeds without a further
+      > human confirmation step, still strictly bounded by the same
+      > mandate). Naming this staging does not authorize building either
+      > level now, and does not collapse the distinction above: even at
+      > the later, fully-autonomous-execution stage, authority still
+      > originates from the mandate, never from the model.
+
+      **External precedent, added per supplemental CTO direction
+      (2026-09-15) — `EXTERNAL PRECEDENT / DESIGN INPUT`, not canonical
+      Sails architecture, not copied mechanically:** KaleidoMind (pinned
+      to `@qvac/sdk 0.13.5`, older than this repository's own
+      `@qvac/sdk ^0.15.0`, `package.json:75`) is cited as evidence that
+      the general shape above is buildable in practice, for these
+      specific transferable patterns only: local/on-device QVAC
+      inference; LLM reasoning kept separate from deterministic
+      wallet/tool code (already this codebase's own boundary — QVAC never
+      directly moves funds, `docs/AUTHORITY_MODEL_DISCOVERY.md` §12);
+      tool-constrained agents rather than asking a model to implement
+      financial mechanics itself; explicit confirmation boundaries around
+      economic side effects (directly consonant with the
+      negotiation-then-human-confirmed-execution staging above); bounded
+      autonomous tasks with risk limits; and a reproducible evaluation
+      harness recording model, QVAC SDK version, configuration, hardware,
+      and raw evidence together — a pattern worth keeping in mind for
+      whichever future mission designs QVAC Runtime Harness validation
+      (Issue #165 Section D), not adopted as a requirement by this entry.
+      No Kaleido-specific implementation choice (its own tool schema,
+      prompt design, or SDK version pin) is imported as a Sails
+      requirement.
+
+      **Framing cross-reference, not a new framework:** the supplemental
+      direction's `Human / Wallet / Agent → Intent → Authority →
+      Conditions → Evidence → Outcome` chain is consistent with, and
+      extends to agents, truth already frozen in this file: `"stable
+      semantics, replaceable edges"` (`docs/PROJECT_CONTEXT.md` §2D item
+      7) and `"One market. Many interfaces. Many wallet stacks. Shared
+      economic meaning."` (`docs/PROJECT_CONTEXT.md`, External/Hardware
+      Wallet Participation). It also rhymes with, but is a different kind
+      of sequence than, the already-frozen mission-domain order
+      (`Domain & Invariants → Business Rules → State & Lifecycle →
+      Authority → Policy/Eligibility/Risk → Temporal/Concurrency →
+      Evidence/Auditability → Human Interface Engineering`,
+      `docs/PROJECT_CONTEXT.md` §2L/§2M) — the mission-domain order is
+      about which discovery mission runs when; the Intent→Authority→
+      Conditions→Evidence→Outcome chain is about how one economic action
+      flows through roles at runtime. Recorded here as a cross-reference
+      only; no new canonical framework document is created.
 
       Cross-referenced to Issue #155 and to `docs/PROJECT_CONTEXT.md`'s
       existing "Planned" row for full delegation/negotiation — not a new
       standalone backlog item.
+
+      **Out of scope for this entry, future owner named rather than
+      forced in:** the supplemental direction's Day-0 QVAC feature-scope
+      list (natural-language interaction, Intent creation, Offer
+      preparation, market/offer explanation, counterparty comparison,
+      risk/context explanation, Trade monitoring, recovery assistance,
+      state interpretation, negotiation assistance) and the question of
+      whether/when OpenAgents' initial maturity level should actually be
+      promoted to a Day-0 product commitment are **Product/Roadmap
+      sequencing decisions, not Authority ownership questions** — the
+      supplemental direction's own text names them "subject to
+      Product/Engineering sequencing." Absorbing them here would expand
+      this Authority-scoped mission into general AI product strategy and
+      risk a second source of truth alongside `docs/ROADMAP.md`'s
+      existing Months 7-9 "Intelligence Layer" entry. **Not decided or
+      sequenced by this entry** — the appropriate future owner is a
+      Product Decision / Roadmap-sequencing mission, scoped explicitly to
+      that question, which can then update `docs/ROADMAP.md` with an
+      actual commitment rather than this Authority mission asserting one
+      by inclusion.
 
     **QVAC positioning reconfirmed, not changed.** Current QVAC Runtime
     operates in observe/infer/recommend/propose/prepare only, with no
