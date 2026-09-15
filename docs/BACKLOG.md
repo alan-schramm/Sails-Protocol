@@ -4823,23 +4823,45 @@ obligation" is defined anywhere in this repository.
     only class that could construct an `agent:...` identity, is never
     instantiated anywhere in production `src/`. Inflating a non-live,
     non-exploitable surface into a standalone backlog item would be
-    disproportionate. Natural future owner, cross-referenced not
-    duplicated: Issue
+    disproportionate. **CTO Gate R1 correction**: Issue
     [#155](https://github.com/alan-schramm/Sails-Protocol/issues/155)
     ("Sails AI Harnesses — Engineering Harness, QVAC Runtime Harness & AI
-    Governance Contract"), whenever OpenAgents/`WalletAgent` execution
-    moves from theoretical to live. No item registered here.
+    Governance Contract") is a governance/harness dependency and
+    constraint owner for this field — it is **not** the implementation
+    owner for actually activating `WalletAgent`/`sellerAgentId` in
+    production. Searched `gh issue list --search` ("OpenAgents",
+    "WalletAgent", "delegated mandate", "agent negotiation", "agent
+    activation") and `docs/BACKLOG.md`/RFC-005/RFC-006/RFC-007/RFC-016
+    for an existing OpenAgents-activation-specific implementation owner
+    before falling back to the CTO Gate's own wording — none exists;
+    Issue #99 is explicitly a non-implementation-authorizing continuity
+    marker, not an owner. `OWNER TO BE ESTABLISHED WHEN DAY-0 OPENAGENTS
+    EXECUTION IS SCHEDULED.` No implementation issue is created by this
+    correction pass. No item registered here now; Issue #155 remains
+    cross-referenced only as the governance/harness constraint this
+    future activation work will need to satisfy, not as its owner.
 
-    **The one consolidated new obligation cluster — extends item 44's
-    existing Architecture Decision, does not duplicate it.** Item 44
-    already registered "Appeal leaving a prior ruling's pending
-    fund-movement instruction live (`LIGHTNING_HODL`/`SAFE_GUARD_EVM`) —
-    `ARCHITECTURE DECISION REQUIRED`" and explicitly recommended Authority
-    Model Discovery treat it as an input rather than a precondition.
-    Authority Discovery did exactly that and returned a sharper causal
-    diagnosis, plus two closely related sub-findings. Classification:
-    **`REFINEMENT_OF_EXISTING_OWNER`** — item 44 remains the sole owner;
-    the obligation below extends its formulation, verified searched
+    **One consolidated Authority refinement cluster is synchronized
+    below under existing ownership — this is not a new obligation owner.
+    CTO Gate R1 correction:** the prior wording of this entry ("the one
+    consolidated new obligation cluster") was ambiguous about whether
+    item 45 itself becomes an owner. It does not. **Item 44 remains the
+    sole, canonical owner of the appeal/pending-instruction family in its
+    entirety** — the finalize/Economic Disposition Authority formulation,
+    the old-arbiter race, and the correspondence-check finding below are
+    not a parallel obligation and do not migrate ownership; item 45's own
+    role here is institutional synchronization/cross-reference only —
+    recording the Authority-layer refinement and its cross-domain inputs
+    against item 44's existing entry, not owning them. Item 44 already
+    registered "Appeal leaving a prior ruling's pending fund-movement
+    instruction live (`LIGHTNING_HODL`/`SAFE_GUARD_EVM`) — `ARCHITECTURE
+    DECISION REQUIRED`" and explicitly recommended Authority Model
+    Discovery treat it as an input rather than a precondition. Authority
+    Discovery did exactly that and returned a sharper causal diagnosis,
+    plus two closely related sub-findings, synchronized here.
+    Classification: **`REFINEMENT_OF_EXISTING_OWNER`** — item 44 remains
+    the sole owner; the synchronized findings below extend its
+    formulation, verified searched
     (`gh issue list --search` for "old arbiter race", "Economic
     Disposition Authority", "PSBT finalize authority", "sellerAgentId" —
     no adequate existing owner found for any of the three sub-points
@@ -4996,9 +5018,17 @@ obligation" is defined anywhere in this repository.
       flows through roles at runtime. Recorded here as a cross-reference
       only; no new canonical framework document is created.
 
-      Cross-referenced to Issue #155 and to `docs/PROJECT_CONTEXT.md`'s
-      existing "Planned" row for full delegation/negotiation — not a new
-      standalone backlog item.
+      Cross-referenced to `docs/PROJECT_CONTEXT.md`'s existing "Planned"
+      row for full delegation/negotiation — not a new standalone backlog
+      item. **CTO Gate R1 correction:** Issue #155 is cross-referenced
+      elsewhere in this entry only as a governance/harness dependency and
+      constraint owner (Engineering Harness, QVAC Runtime Harness, AI
+      Governance Contract) — it is not the implementation owner for this
+      delegated-mandate direction itself. No adequate existing
+      OpenAgents-activation-specific implementation owner was found
+      (search recorded above); per the same correction,
+      `OWNER TO BE ESTABLISHED WHEN DAY-0 OPENAGENTS EXECUTION IS
+      SCHEDULED`.
 
       **Out of scope for this entry, future owner named rather than
       forced in:** the supplemental direction's Day-0 QVAC feature-scope

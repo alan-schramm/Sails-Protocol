@@ -1431,11 +1431,17 @@ executor needs without opening either are restated here:
   *delegated autonomous negotiation + delegated autonomous execution*
   level, both still strictly bounded by the mandate. Not implemented; no
   implementation authorization exists yet (`docs/BACKLOG.md` item 45,
-  cross-referencing this section's own SDK use-case reality table above
-  and Issue #155). KaleidoMind is recorded there as an external
-  precedent/design input only, not copied mechanically. Whether/when this
-  direction becomes a Day-0 product commitment is a Product/Roadmap
-  sequencing decision this section does not make.
+  cross-referencing this section's own SDK use-case reality table above).
+  Issue #155 (Sails AI Harnesses) is a governance/harness dependency and
+  constraint owner for OpenAgents/QVAC work generally — it is **not**
+  the implementation owner for this delegated-mandate direction, and no
+  adequate existing implementation owner was found for OpenAgents/
+  `WalletAgent` production activation (`OWNER TO BE ESTABLISHED WHEN
+  DAY-0 OPENAGENTS EXECUTION IS SCHEDULED`, `docs/BACKLOG.md` item 45).
+  KaleidoMind is recorded there as an external precedent/design input
+  only, not copied mechanically. Whether/when this direction becomes a
+  Day-0 product commitment is a Product/Roadmap sequencing decision this
+  section does not make.
 - **No standalone Authority Model Standard is justified.** The existing
   canonical homes (`PROTOCOL_INVARIANTS.md` INV-01/INV-12,
   `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`) already state the
