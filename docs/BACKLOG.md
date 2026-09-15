@@ -4382,8 +4382,12 @@ obligation" is defined anywhere in this repository.
       not a security finding." Both Business Rules Discovery findings
       (BRD-01, and the F-06 supersession recorded in that report's own
       "Prior Frozen Findings Superseded" table) restate facts this file
-      already had right, months before the Foundational Inventory's own
-      F-06 conclusion went stale at its own baseline. **Institutional
+      already had right, already recorded before the Foundational
+      Inventory's own baseline (Destination Authority closure and this
+      file's own update: 2026-09-11; Foundational Inventory baseline:
+      2026-09-14 — days, not months) — the F-06 conclusion was already
+      stale at that mission's own baseline, not overtaken long after it.
+      **Institutional
       lesson, recorded once, not re-litigated per finding:** freeze
       preserves institutional history; it does not make a frozen factual
       claim immutable — a later mission may find the claim was already

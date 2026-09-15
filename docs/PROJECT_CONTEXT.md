@@ -1221,8 +1221,9 @@ here. Full text: `docs/BACKLOG.md` item 34.
 
 Two evidence-only missions ran, froze, and merged: `docs/FOUNDATIONAL_RULES_STANDARDS_INVENTORY.md`
 (PR #159) and `docs/BUSINESS_RULES_DISCOVERY.md` (PR #160, building on
-the first), both merged into `main` (current tip `c873b866...` as of
-this sync). Neither authorized, nor performed, any Product/UI,
+the first) — PR #160 merged into `main@c873b866...`, the baseline from
+which this institutional sync (PR #161) was itself produced. Neither
+evidence mission authorized, nor performed, any Product/UI,
 protocol, or governance implementation — both are evidence artifacts
 for future missions to build on, not new runtime behavior. Full text
 lives in those two files and `docs/BACKLOG.md` item 42; only the
@@ -1235,11 +1236,16 @@ are restated here:
   claims a cancelled offer "cannot be reactivated"; the backend and
   SDK do not currently enforce that. `docs/BACKLOG.md` item 42 carries
   the full evidence. Not resolved by this pointer.
-- **F-05 is superseded** (Foundational Inventory): the `Dispute`
-  schema comment conflated row-cardinality (`@@unique([tradeId])`) with
-  `DisputeStatus` transition semantics — `RESOLVED → APPEALED` was
-  never actually contradicted; the original framing was imprecise, not
-  the code. This file never repeated the superseded reading.
+- **F-05 is superseded** (Foundational Inventory): the `Dispute` schema
+  comment itself concerns row cardinality only (`@@unique([tradeId])`
+  — whether a second `Dispute` row is ever created for a trade; it
+  never is). `appeal()` concerns a state transition on that same row
+  (`RESOLVED → APPEALED`). The Foundational Inventory's prior
+  interpretation conflated those two distinct concepts and read the
+  comment as contradicting `appeal()`'s behavior; re-read precisely,
+  it does not. The source comment itself is not considered
+  contradictory — the superseded reading was the interpretation, not
+  the comment. This file never repeated the superseded reading.
 - **F-06 is superseded** (Foundational Inventory): the Destination
   Authority residual-gap conclusion was already stale at that mission's
   own baseline — the gap had already been closed (commit `e4cd207`,
