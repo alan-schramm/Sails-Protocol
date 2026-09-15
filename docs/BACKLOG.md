@@ -5098,16 +5098,23 @@ obligation" is defined anywhere in this repository.
 
 46. **External P2P Day-0 Baseline Capability Gate — institutional
     reconciliation, documentation only, no implementation (2026-09-15,
-    extended at CTO Gate R1, same date).** Evidence: a supplemental
-    sweep comparing Sails against the **seven-project external P2P
-    marketplace benchmark set — Bisq, Hodl Hodl, Mostro, Anoma
-    (first-pass, original); RoboSats, Peach Bitcoin, OpenBazaar
-    (second-pass, added at CTO Gate R1)** — recorded throughout, all
-    seven, as `EXTERNAL PRECEDENT / DESIGN INPUT` only, never normative
-    Sails truth, no concrete mechanism of any of them copied. Any
-    reading of this entry (or of its originating PR) implying the
-    benchmark consists only of the first four projects is stale and
-    superseded by this R1 text. Building directly on
+    extended at CTO Gate R1, evidence chain corrected at CTO Gate R2,
+    same date).** Evidence: a supplemental sweep comparing Sails
+    against the **seven-project external P2P marketplace benchmark set
+    — Bisq, Hodl Hodl, Mostro, Anoma (first-pass, original, directly
+    investigated); RoboSats, Peach Bitcoin, OpenBazaar (second-pass —
+    first supplied at CTO Gate R1 as reasoning-trigger hypotheses only,
+    then independently verified against durable primary upstream
+    sources at CTO Gate R2 before being treated as institutionalized —
+    see this entry's own "External Precedent Evidence — Second Pass"
+    subsection below for the verification record)** — recorded
+    throughout, all seven, as `EXTERNAL PRECEDENT / DESIGN INPUT` only,
+    never normative Sails truth, no concrete mechanism of any of them
+    copied. Any reading of this entry (or of its originating PR)
+    implying the benchmark consists only of the first four projects, or
+    that the second-pass three were ever treated as verified before
+    CTO Gate R2, is stale and superseded by this text. Building
+    directly on
     `docs/POLICY_ELIGIBILITY_RISK_DISCOVERY.md` (PR #169,
     `main@191a79589030eaaac9c06ae8dbe09334002b6c1e`, this mission's own
     baseline). Governing principle applied throughout: Day-0 does not
@@ -5440,11 +5447,52 @@ obligation" is defined anywhere in this repository.
       (internal bookkeeping ambiguity, not external-truth ambiguity),
       not a change to the obligation's disposition or severity.
 
+    **External Precedent Evidence — Second Pass, added at CTO Gate R2
+    (2026-09-15).** CTO Gate R1's second pass supplied RoboSats, Peach
+    Bitcoin, and OpenBazaar as *reasoning-trigger* hypotheses without
+    directly researching any of the three projects themselves — R1's
+    own return explicitly disclosed this. That created a mismatch
+    between what the entry claimed ("the seven-project benchmark was
+    investigated") and what evidence actually existed. R2 closes that
+    gap: each of the three second-pass precedents was independently
+    verified against durable primary upstream sources before this
+    benchmark is treated as institutionalized. **Two separate evidence
+    chains follow throughout this entry, never merged into one claim:
+    external evidence** (does this problem class demonstrably exist in
+    a mature comparable system?) **and Sails repository evidence** (how
+    does current Sails code/docs handle, partially handle, defer, or
+    fail to handle that problem class?). Second-pass external precedent
+    inputs were independently verified against primary upstream sources
+    and then falsified against the Sails repository — the external fact
+    and the Sails fact are two different kinds of claim, cited
+    separately below and throughout the findings that follow.
+
+    | Precedent | Primary upstream source(s) | Observed problem class | What the source actually demonstrates | Sails hypothesis triggered |
+    |---|---|---|---|---|
+    | RoboSats | `learn.robosats.org/docs/bonds/`, `learn.robosats.org/docs/escrow/` (official docs, RoboSats/robosats project) | Anti-griefing/unreliable-counterparty economics; Lightning-escrow timing constraints | A real, forfeitable Lightning-hold-invoice fidelity bond (2-15% of trade value, 3% default), forfeited on: losing a dispute, unilateral cancellation after chat starts, failing to submit the escrow/payment invoice within a time limit (maker 10-minute order-box, taker 4-minute bond-lock, seller 1-10h/3h-default escrow-lock), or failing to confirm fiat received — a maker who cancels *before* being taken forfeits nothing. Escrow uses Lightning hold invoices exclusively; **the documentation does not discuss escrow/rail modification by trade size or speed** — no on-chain-for-larger-trades rule was found in RoboSats' own material. | (1) Anti-griefing/no-show re-examination — directly corroborated (RoboSats prices exactly the behavior Sails does not). (A) Rail-constrained journeys — only partially corroborated: RoboSats demonstrates real, bounded Lightning-timing windows exist as a general problem class, but does **not** itself demonstrate a documented "switch settlement rail by journey size/duration" design rule; the concrete Sails finding (the 144-block VTXO/`timelockHours` decoupling) was independently discovered in Sails' own code, reasoned toward by the general timing-constraint pattern, not evidenced by RoboSats directly. |
+    | Peach Bitcoin | `peachbitcoin.com/faq/trading/` (official FAQ), `docs.peachbitcoin.com` (official API reference) | Explicit recovery states | The API's `FundingStatus` object has a real, named `expiry` field (blocks-until-escrow-expiry; FAQ states ~30 days/4320 blocks before full control transfers) and a real, named `userConfirmationRequired` boolean, set `true` specifically when the funded amount differs from expected — a genuine, API-documented distinct state for "wrong amount funded," requiring an explicit confirmation call. The FAQ separately documents a refund path for wrong-payment-method/partial-payment requiring "evidence of the payment refund." **No `FundingStatus` value or FAQ passage for "additional signature required," "payout pending," or a timer-extension mechanism was found** in Peach's own documented material. | (B) Explicit recovery states — **only "funding expired" and "wrong amount funded" are directly Peach-corroborated**; Sails' own findings for refund-required-determination, additional-signature-state, timer-extension, and dispute-outcome-acknowledgement stand on independent, direct verification against Sails' own repository (below), not on Peach precedent — the earlier R1 wording that grouped all of these under "Peach reasoning trigger" overstated the external-evidence attribution and is corrected here. |
+    | OpenBazaar | `github.com/OpenBazaar/smart-contracts` `EscrowSpec.md`; `docs.openbazaar.org/guides/concepts/orderflow` (search-indexed; the live site no longer resolves, project is archived); `github.com/drwasho/openbazaar-documentation` `03 Protocol.md` | Participant/counterparty disappearance; timeout-based unilateral recovery; key-loss/redundancy; unsafe-capability-exposure | A real, configurable `timeoutHours` escrow parameter (`0` = disabled) after which the seller may unilaterally release funds without moderator or buyer cooperation, explicitly motivated in the spec's own design rationale by "vendors having stuck funds when both a buyer and moderator went unresponsive." In `DISPUTED` state specifically, a real 45-day timer from dispute-start lets the seller call `releaseescrow` unilaterally. Direct/"MAD" (1-of-2) escrow is explicitly documented as having "no enforceable dispute resolution mechanism and zero redundancy if keys are lost," recommended only for high-trust/highly-skilled users, with moderated 2-of-3 escrow as the recommended default for ordinary users. Key loss: HD-seed-derived keys are recoverable only if the seed itself was backed up; no recovery path exists for a lost seed. | (C) Participant/key/authority-loss recovery — **directly and strongly corroborated**: OpenBazaar's own stated design rationale is exactly the problem class Sails' arbiter-disappearance finding instantiates, and OpenBazaar built a real (if seller-favoring, non-reassigning) mitigation Sails currently has none of. (D) Unsafe capability exposure — **directly and explicitly corroborated** by OpenBazaar's own MAD-escrow caveat, an almost verbatim real-world instance of `Protocol-representable ≠ Product-eligible`. |
+
+    **`EXTERNAL PRECEDENT / DESIGN INPUT — NOT NORMATIVE SAILS TRUTH`,
+    for all three rows above and for Bisq/Hodl Hodl/Mostro/Anoma
+    unchanged.** No concrete mechanism from any of the seven projects
+    (RoboSats' bond percentages/timeouts, Peach's exact block counts,
+    OpenBazaar's 45-day figure or `timeoutHours` design) is imported as
+    a Sails requirement anywhere in this entry — each is cited only as
+    evidence that the underlying *problem class* is real and
+    demonstrated in a mature comparable system, which is a materially
+    different and much narrower claim than "Sails should build the same
+    mechanism."
+
     **Second-pass benchmark findings (RoboSats, Peach Bitcoin,
-    OpenBazaar) — added at CTO Gate R1 (2026-09-15). Consolidated as
-    further sub-obligations of this same entry, per the mission's own
+    OpenBazaar) — added at CTO Gate R1 (2026-09-15), primary-source
+    evidence added at CTO Gate R2 (2026-09-15, same date). Consolidated
+    as further sub-obligations of this same entry, per the mission's own
     rule not to create items 47+ for genuinely-owned-or-consolidatable
-    findings.**
+    findings. Every finding below rests on direct Sails repository
+    verification (cited inline, file:line as throughout this document)
+    — the table above supplies only the external half of the evidence
+    chain, never a substitute for the Sails-side citation.**
 
     - **Settlement-rail constraints can make an otherwise-supported
       economic journey unsafe or ineligible — `PARTIALLY_COVERED` +
@@ -5539,17 +5587,47 @@ obligation" is defined anywhere in this repository.
       arbiter's own voluntary cooperation.** This is the one failure
       mode, of every recovery condition examined across both passes,
       where committed economic value has no exit path whatsoever absent
-      the disappeared party's own action.
+      the disappeared party's own action. **External evidence
+      (separately verified, does not itself prove anything about
+      Sails)**: OpenBazaar's own escrow specification demonstrates this
+      exact problem class is real and materially costly in a mature
+      comparable system — its own design rationale names "vendors
+      having stuck funds when both a buyer and moderator went
+      unresponsive" as the reason a unilateral seller-release timeout
+      was built (evidence table above). OpenBazaar's mitigation
+      (unilateral, seller-favoring, time-based, no true reassignment) is
+      cited only as proof the problem class is real, never as a Sails
+      design recommendation — Sails' own gap is arguably narrower in
+      one respect (no unilateral release exists at all here, for either
+      party) and broader in another (no time-based escape valve of any
+      kind, for anyone).
     - **Recovery-truth representation completeness — `DAY0_DECISION_REQUIRED`
       for three genuinely new, unowned sub-conditions; `PARTIALLY_COVERED`
       for three refinements of existing coverage; `ALREADY_COVERED` for
-      one.** Investigated whether eight materially distinct recovery
-      conditions are represented distinctly or collapsed into generic
-      buckets. **Falsifies the mission's own working hypothesis that
-      this is a Temporal/Concurrency question** — none of the eight is
-      actually about ordering/atomicity across a crash or race (the
-      shape items 44/45/46's other Temporal/Concurrency findings share);
-      this is a distinct axis, representation completeness, correctly
+      one.** All eight sub-conditions below rest on direct Sails
+      repository verification (file:line cited per condition) — this
+      finding stands on its own Sails-side merits regardless of external
+      attribution. **Evidence-chain correction, CTO Gate R2**: only two
+      of the eight — funding expired, wrong amount funded — are directly
+      corroborated by Peach Bitcoin's own documented `FundingStatus`
+      API (`expiry`/`userConfirmationRequired`, external-evidence table
+      above); the remaining six (refund-required-determination,
+      revive/retry, additional-signature-state, payout-pending,
+      external-settlement-unresolved, timer-extension/outcome-acknowledgement)
+      were investigated because the general Peach-reasoning-trigger
+      raised the right *class* of question, not because Peach's own
+      material demonstrates each of them — R1's wording grouping all
+      eight under "Peach reasoning trigger" overstated that attribution;
+      corrected here without weakening any Sails-side finding, since
+      none of the eight ever depended on the external attribution for
+      its own truth. Investigated whether eight materially distinct
+      recovery conditions are represented distinctly or collapsed into
+      generic buckets in Sails' own code. **Falsifies the mission's own
+      working hypothesis that this is a Temporal/Concurrency question**
+      — none of the eight is actually about ordering/atomicity across a
+      crash or race (the shape items 44/45/46's other Temporal/Concurrency
+      findings share); this is a distinct axis, representation
+      completeness, correctly
       routed to State/Lifecycle and Evidence/Auditability instead.
       Genuinely new and unowned: **wrong amount funded** (underfunded/
       overfunded/multi-UTXO-split funding all reach the identical bare
@@ -5619,6 +5697,16 @@ obligation" is defined anywhere in this repository.
       `CapabilityDenialReason` taxonomy, and RFC-019; this entry records
       the explicit naming of `Protocol-representable ≠ Product-eligible`
       as the vocabulary tying those three together, nothing more.
+      **External evidence (separately verified)**: OpenBazaar's own
+      escrow documentation states this exact principle almost verbatim
+      for its direct/"MAD" escrow mode — "no enforceable dispute
+      resolution mechanism and zero redundancy if keys are lost,"
+      recommended only for high-trust/highly-skilled users, with
+      moderated escrow as the default for ordinary users (evidence
+      table above). This corroborates that the principle is a real,
+      recognized concern in a mature comparable system; it does not by
+      itself change the conclusion that Sails already covers the
+      principle, and no OpenBazaar mechanism is imported here.
 
     **Trade-status overwrite on a delayed/reordered
     `settlement.escrow.locked` event — new evidence for the already-owned

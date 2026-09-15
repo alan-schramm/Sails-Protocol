@@ -1466,12 +1466,21 @@ executor needs without opening either are restated here:
 `docs/POLICY_ELIGIBILITY_RISK_DISCOVERY.md` (PR #169) and a supplemental
 external-precedent sweep against the **full seven-project benchmark
 set — Bisq, Hodl Hodl, Mostro, Anoma, RoboSats, Peach Bitcoin,
-OpenBazaar** (the last three added at CTO Gate R1; all seven
-`EXTERNAL PRECEDENT / DESIGN INPUT` only, never normative Sails truth,
-no concrete mechanism of any of them copied) ran, froze, and were
-reconciled together into `docs/BACKLOG.md` item 46. Full text lives
-there; only the durable pointers a future executor needs without
-opening either are restated here:
+OpenBazaar** ran, froze, and were reconciled together into
+`docs/BACKLOG.md` item 46. All seven remain `EXTERNAL PRECEDENT /
+DESIGN INPUT` only, never normative Sails truth, no concrete mechanism
+of any of them copied. **Verification history, preserved for
+institutional honesty**: the first four (Bisq, Hodl Hodl, Mostro,
+Anoma) were investigated at the mission's original pass; the second
+three (RoboSats, Peach Bitcoin, OpenBazaar) were initially supplied at
+CTO Gate R1 as *reasoning-trigger* hypotheses only, without direct
+research — R1's own return explicitly disclosed this. CTO Gate R2
+closed that gap by independently verifying all three against durable
+primary upstream sources (official docs/API references/GitHub specs,
+recorded in `docs/BACKLOG.md` item 46's own evidence table) before the
+seven-project set was treated as fully institutionalized. Full text
+lives in item 46; only the durable pointers a future executor needs
+without opening it are restated here:
 
 - **Policy/Eligibility/Risk domain assessment is `MIXED`, leaning
   `PRESENT_BUT_DISPERSED`.** Real canonical homes exist for the
@@ -1557,20 +1566,29 @@ opening either are restated here:
   direction (`docs/BACKLOG.md` item 45) is refined, not superseded, by
   one new dimension: tracking whether a specific delegated action was
   agent-self-discovered or principal-directed, alongside mandate scope.
-- **CTO Gate R1 second pass (RoboSats, Peach Bitcoin, OpenBazaar)
-  added four further benchmark hypotheses, all reconciled into the same
-  `docs/BACKLOG.md` item 46, no new backlog item created.**
-  Rail-constrained economic journeys: `LIGHTNING_HODL`'s hardcoded
-  144-block VTXO buyer-exit window is structurally decoupled from the
-  generic, unbounded, unvalidated `Escrow.timelockHours` field — a
-  genuine, concrete Temporal/Concurrency instance, cross-referenced into
-  the existing pipeline-gap and old-arbiter-race families, not a new
-  obligation. Explicit recovery states: "wrong amount funded" and a
-  cooperative "refund required" determination both have zero distinct
-  representation anywhere (same undifferentiated error / reason-less
-  event for every cause); timer extension and dispute-outcome
-  acknowledgement are both entirely absent — all four registered as new
-  State/Lifecycle and Evidence/Auditability domain inputs, not solved.
+- **CTO Gate R1's second pass (RoboSats, Peach Bitcoin, OpenBazaar)
+  added four further benchmark hypotheses; CTO Gate R2 added direct
+  primary-source verification for all three precedents before the
+  set was treated as institutionalized (see above). All four
+  hypotheses reconciled into the same `docs/BACKLOG.md` item 46, no
+  new backlog item created.** Rail-constrained economic journeys:
+  `LIGHTNING_HODL`'s hardcoded 144-block VTXO buyer-exit window is
+  structurally decoupled from the generic, unbounded, unvalidated
+  `Escrow.timelockHours` field — a genuine, concrete Temporal/Concurrency
+  instance found directly in Sails' own code, cross-referenced into the
+  existing pipeline-gap and old-arbiter-race families, not a new
+  obligation; RoboSats' own material demonstrates real Lightning-timing
+  constraints exist as a problem class but does not itself demonstrate
+  a rail-by-journey-size design rule. Explicit recovery states: "wrong
+  amount funded" and a cooperative "refund required" determination both
+  have zero distinct representation anywhere in Sails (same
+  undifferentiated error / reason-less event for every cause); timer
+  extension and dispute-outcome acknowledgement are both entirely
+  absent — all four registered as new State/Lifecycle and
+  Evidence/Auditability domain inputs, not solved. Of these four, only
+  "funding expired" and "wrong amount funded" are directly corroborated
+  by Peach Bitcoin's own documented API; the other two rest on direct
+  Sails-repository verification alone.
   **Participant/key/authority-loss recovery surfaced this mission's
   single most severe finding: an assigned arbiter who never rules has
   no forced-reassignment path of any kind** — appeal requires an
