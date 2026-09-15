@@ -1460,6 +1460,158 @@ executor needs without opening either are restated here:
   Discovery — see `docs/BACKLOG.md` item 45's full reasoning. No short
   Decision Gate mission is interposed.
 
+## 2O. Policy/Eligibility/Risk Discovery & External P2P Day-0 Baseline
+     Capability Gate — pointer (2026-09-15)
+
+`docs/POLICY_ELIGIBILITY_RISK_DISCOVERY.md` (PR #169) and a supplemental
+external-precedent sweep against the **full seven-project benchmark
+set — Bisq, Hodl Hodl, Mostro, Anoma, RoboSats, Peach Bitcoin,
+OpenBazaar** ran, froze, and were reconciled together into
+`docs/BACKLOG.md` item 46. All seven remain `EXTERNAL PRECEDENT /
+DESIGN INPUT` only, never normative Sails truth, no concrete mechanism
+of any of them copied. **Verification history, preserved for
+institutional honesty**: the first four (Bisq, Hodl Hodl, Mostro,
+Anoma) were investigated at the mission's original pass; the second
+three (RoboSats, Peach Bitcoin, OpenBazaar) were initially supplied at
+CTO Gate R1 as *reasoning-trigger* hypotheses only, without direct
+research — R1's own return explicitly disclosed this. CTO Gate R2
+closed that gap by independently verifying all three against durable
+primary upstream sources (official docs/API references/GitHub specs,
+recorded in `docs/BACKLOG.md` item 46's own evidence table) before the
+seven-project set was treated as fully institutionalized. Full text
+lives in item 46; only the durable pointers a future executor needs
+without opening it are restated here:
+
+- **Policy/Eligibility/Risk domain assessment is `MIXED`, leaning
+  `PRESENT_BUT_DISPERSED`.** Real canonical homes exist for the
+  domain's strongest mechanisms (RFC-021's arbiter-eligibility formula
+  and vouching bar, ADR-002 §6's capability-layering ruling), but no
+  single document indexes Policy/Eligibility/Risk truth the way
+  `docs/BUSINESS_RULES_DISCOVERY.md` does for business rules.
+- **The settlement-eligibility pipeline has a confirmed, self-disclosed
+  missing Policy/Availability/Maturity stage** between structural-
+  compatibility resolution and execution — `src/common/execution-candidates.ts`'s
+  own header states this outright. No live-code conflation of
+  structural compatibility with eligibility was found; one historical
+  documentation-layer instance was found already self-corrected before
+  either mission began.
+- **The capability-grant temporal-meaning question remains genuinely
+  undocumented anywhere** (RFC-005/013/014,
+  `PROTOCOL_SPECIFICATION.md` §1.10) — carried forward from
+  `docs/AUTHORITY_MODEL_DISCOVERY.md`, confirmed still open, not solved.
+- **No settlement provider/rail has any runtime health model** —
+  `Registration ≠ Configured ≠ Reachable ≠ Healthy ≠ Eligible ≠
+  Selected`, confirmed for every rail. **Corrected at CTO Gate R1**:
+  only proactive, multi-provider health-based routing/failover/quality
+  ranking is a legitimate deferral (no second candidate exists yet to
+  route to) — runtime availability truth and failure classification may
+  not be silently deferred along with it. Surfacing an unreachable-provider
+  failure as something more specific than a generic `INTERNAL_ERROR` —
+  confirmed to reach Dispute-ruling execution too, not only ordinary
+  settlement calls, wiping the arbiter's signature on revert — remains a
+  narrow, separate, still-open Day-0 decision, owned by
+  `docs/BACKLOG.md` item 46.
+- **The payment-account graduated trade-limit ramp (RFC-021 D5) is
+  fully computed but was never enforced** — `docs/BACKLOG.md` item 46
+  gives this defect its first real owner, confirmed still unowned as of
+  this pointer's writing (checked against both document content and
+  git history). Not an implementation authorized by either mission —
+  registered only.
+- **`CapabilityDenialReason` has two dead values (`DISABLED`,
+  `NOT_IMPLEMENTED`) and two of three real capability-denial call sites
+  discard their reason** before it reaches the caller — a narrow,
+  low-severity implementation-defect candidate, not yet given a
+  dedicated owner beyond this pointer's cross-reference.
+- **Anti-griefing/no-show economics has no institutional answer today**
+  — a participant may repeatedly accept and abandon trades with zero
+  reputation, rate, or cooldown consequence, distinct from the
+  dispute-outcome-scoped reputation asymmetry that already exists.
+  Registered as a Day-0 decision + Red Team input, `docs/BACKLOG.md`
+  item 46 — bonds/deposits are explicitly not assumed to be the answer.
+- **Economic spam/fake activity has no cost gate for five of six
+  activities checked** (Offer/Intent creation, trade accept-abandon,
+  identity/reputation farming); dispute spam alone has a partial,
+  ex-post-only consequence (a lost ruling costs reputation, filing
+  itself costs nothing). Sybil-resistant staking is already named as
+  future, not-yet-built work by `docs/security/SYBIL_MITIGATION.md` —
+  a genuine legitimate deferral, not a silent gap.
+- **A delayed/reordered `settlement.escrow.locked` event can silently
+  regress `Trade.status` backward** — `common/events/handlers.ts`'s
+  handler performs an unconditional write with no check against an
+  already-terminal Trade. This is a new, concrete instance of the same
+  general problem class the already-owned non-MULTISIG old-arbiter race
+  instantiates for Dispute rulings; no document anywhere states "events
+  may be delayed/duplicated/reordered" as a single, general, named
+  assumption. Registered jointly under `docs/BACKLOG.md` items 44/45/46
+  as a Temporal/Concurrency input, not solved.
+- **`IdempotencyKeyStatus.UNKNOWN` has no automated reconciliation job**
+  despite a code comment implying one exists — a narrow, new,
+  previously-undisclosed residual, distinct from the already-owned
+  MULTISIG-only settlement-reconciliation mechanisms.
+- **Lifecycle-scoped information disclosure and pre-dispute cooperative
+  recovery are both already adequately covered** — two frozen,
+  cross-referenced disclosure documents exist
+  (`docs/PRODUCT_INTERACTION_MODEL.md` §5,
+  `docs/P2P_PRODUCT_JOURNEY.md` §17), the one real historical
+  over-disclosure (the payout-address route) was already found and
+  closed as F-06, and cooperative pre-dispute communication is already
+  structurally possible via the existing, ungated chat channel — a
+  Product/UX question, not a protocol gap.
+- **The solver/proposer/authority/executor separation Anoma raises is
+  already cleanly maintained in every live mechanism checked**
+  (Intent→QVAC-negotiation→human-approved-Trade; QVAC-agent-output→
+  CISO-gated persistence; arbiter-assignment→signed-ruling→
+  escrow-execution) — independently re-verified, not merely re-cited,
+  with no violation found. The future OpenAgents delegated-mandate
+  direction (`docs/BACKLOG.md` item 45) is refined, not superseded, by
+  one new dimension: tracking whether a specific delegated action was
+  agent-self-discovered or principal-directed, alongside mandate scope.
+- **CTO Gate R1's second pass (RoboSats, Peach Bitcoin, OpenBazaar)
+  added four further benchmark hypotheses; CTO Gate R2 added direct
+  primary-source verification for all three precedents before the
+  set was treated as institutionalized (see above). All four
+  hypotheses reconciled into the same `docs/BACKLOG.md` item 46, no
+  new backlog item created.** Rail-constrained economic journeys:
+  `LIGHTNING_HODL`'s hardcoded 144-block VTXO buyer-exit window is
+  structurally decoupled from the generic, unbounded, unvalidated
+  `Escrow.timelockHours` field — a genuine, concrete Temporal/Concurrency
+  instance found directly in Sails' own code, cross-referenced into the
+  existing pipeline-gap and old-arbiter-race families, not a new
+  obligation; RoboSats' own material demonstrates real Lightning-timing
+  constraints exist as a problem class but does not itself demonstrate
+  a rail-by-journey-size design rule. Explicit recovery states: "wrong
+  amount funded" and a cooperative "refund required" determination both
+  have zero distinct representation anywhere in Sails (same
+  undifferentiated error / reason-less event for every cause); timer
+  extension and dispute-outcome acknowledgement are both entirely
+  absent — all four registered as new State/Lifecycle and
+  Evidence/Auditability domain inputs, not solved. Of these four, only
+  "funding expired" and "wrong amount funded" are directly corroborated
+  by Peach Bitcoin's own documented API; the other two rest on direct
+  Sails-repository verification alone.
+  **Participant/key/authority-loss recovery surfaced this mission's
+  single most severe finding: an assigned arbiter who never rules has
+  no forced-reassignment path of any kind** — appeal requires an
+  existing ruling to contest and is therefore structurally unavailable;
+  a Dispute with real escrowed funds locked at `Escrow.DISPUTED` can sit
+  frozen indefinitely, entirely dependent on the disappeared arbiter's
+  own voluntary cooperation. Unsafe capability exposure
+  (`Protocol-representable ≠ Product-eligible`) is confirmed
+  `ALREADY_COVERED IN PRINCIPLE` — already frozen as "Implementation
+  Reality ≠ Production Eligibility" (§4 above), already enforced at
+  least once in code (WDK_USDT_EVM's boot-time FATAL guard) — only a
+  thin explicit cross-reference was added, no new mechanism.
+- **No standalone Policy/Eligibility/Risk Standard or new
+  external-precedent research document is justified.** Consolidation
+  over proliferation, consistent with every prior mission's own
+  conclusion in this chain.
+- **No Issue #165 changes made by either mission** — Policy/Eligibility
+  Discovery's own candidate scenarios and this sweep's Red-Team/beta
+  inputs are recorded in their respective evidence artifacts and in
+  `docs/BACKLOG.md` item 46 only, not added to the issue directly, per
+  each mission's own instruction not to touch it unless specifically
+  necessary.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem
