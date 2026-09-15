@@ -4445,8 +4445,8 @@ obligation" is defined anywhere in this repository.
       exactly that, no more) — it does **not** reduce the previously
       frozen severity, and does **not** imply MFA/step-up as the required
       or even favored fix; the missing property is stated
-      mechanism-independently in that report's A8 addendum. **No security
-      change is implemented by this entry.**
+      mechanism-independently in `docs/FOUNDATIONAL_RULES_STANDARDS_INVENTORY.md`
+      Addendum A8. **No security change is implemented by this entry.**
     - **Three small evidence/test-hygiene items, named for visibility, not
       fixed here:** `tests/sweepers.test.ts`'s header describes intending
       to cover both the escrow-timelock sweeper and the QVAC
