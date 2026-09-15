@@ -1464,12 +1464,14 @@ executor needs without opening either are restated here:
      Capability Gate — pointer (2026-09-15)
 
 `docs/POLICY_ELIGIBILITY_RISK_DISCOVERY.md` (PR #169) and a supplemental
-external-precedent sweep (Bisq/Hodl Hodl/Mostro/Anoma —
+external-precedent sweep against the **full seven-project benchmark
+set — Bisq, Hodl Hodl, Mostro, Anoma, RoboSats, Peach Bitcoin,
+OpenBazaar** (the last three added at CTO Gate R1; all seven
 `EXTERNAL PRECEDENT / DESIGN INPUT` only, never normative Sails truth,
-no concrete mechanism copied) ran, froze, and were reconciled together
-into `docs/BACKLOG.md` item 46. Full text lives there; only the durable
-pointers a future executor needs without opening either are restated
-here:
+no concrete mechanism of any of them copied) ran, froze, and were
+reconciled together into `docs/BACKLOG.md` item 46. Full text lives
+there; only the durable pointers a future executor needs without
+opening either are restated here:
 
 - **Policy/Eligibility/Risk domain assessment is `MIXED`, leaning
   `PRESENT_BUT_DISPERSED`.** Real canonical homes exist for the
@@ -1490,11 +1492,15 @@ here:
   `docs/AUTHORITY_MODEL_DISCOVERY.md`, confirmed still open, not solved.
 - **No settlement provider/rail has any runtime health model** —
   `Registration ≠ Configured ≠ Reachable ≠ Healthy ≠ Eligible ≠
-  Selected`, confirmed for every rail. Building proactive health
-  monitoring Day-0 is a legitimate deferral (no multi-provider fallback
-  target exists yet to route to); surfacing an unreachable-provider
-  failure as something more specific than a generic `INTERNAL_ERROR` is
-  a narrow, separate, still-open Day-0 decision, owned by
+  Selected`, confirmed for every rail. **Corrected at CTO Gate R1**:
+  only proactive, multi-provider health-based routing/failover/quality
+  ranking is a legitimate deferral (no second candidate exists yet to
+  route to) — runtime availability truth and failure classification may
+  not be silently deferred along with it. Surfacing an unreachable-provider
+  failure as something more specific than a generic `INTERNAL_ERROR` —
+  confirmed to reach Dispute-ruling execution too, not only ordinary
+  settlement calls, wiping the arbiter's signature on revert — remains a
+  narrow, separate, still-open Day-0 decision, owned by
   `docs/BACKLOG.md` item 46.
 - **The payment-account graduated trade-limit ramp (RFC-021 D5) is
   fully computed but was never enforced** — `docs/BACKLOG.md` item 46
@@ -1551,6 +1557,32 @@ here:
   direction (`docs/BACKLOG.md` item 45) is refined, not superseded, by
   one new dimension: tracking whether a specific delegated action was
   agent-self-discovered or principal-directed, alongside mandate scope.
+- **CTO Gate R1 second pass (RoboSats, Peach Bitcoin, OpenBazaar)
+  added four further benchmark hypotheses, all reconciled into the same
+  `docs/BACKLOG.md` item 46, no new backlog item created.**
+  Rail-constrained economic journeys: `LIGHTNING_HODL`'s hardcoded
+  144-block VTXO buyer-exit window is structurally decoupled from the
+  generic, unbounded, unvalidated `Escrow.timelockHours` field — a
+  genuine, concrete Temporal/Concurrency instance, cross-referenced into
+  the existing pipeline-gap and old-arbiter-race families, not a new
+  obligation. Explicit recovery states: "wrong amount funded" and a
+  cooperative "refund required" determination both have zero distinct
+  representation anywhere (same undifferentiated error / reason-less
+  event for every cause); timer extension and dispute-outcome
+  acknowledgement are both entirely absent — all four registered as new
+  State/Lifecycle and Evidence/Auditability domain inputs, not solved.
+  **Participant/key/authority-loss recovery surfaced this mission's
+  single most severe finding: an assigned arbiter who never rules has
+  no forced-reassignment path of any kind** — appeal requires an
+  existing ruling to contest and is therefore structurally unavailable;
+  a Dispute with real escrowed funds locked at `Escrow.DISPUTED` can sit
+  frozen indefinitely, entirely dependent on the disappeared arbiter's
+  own voluntary cooperation. Unsafe capability exposure
+  (`Protocol-representable ≠ Product-eligible`) is confirmed
+  `ALREADY_COVERED IN PRINCIPLE` — already frozen as "Implementation
+  Reality ≠ Production Eligibility" (§4 above), already enforced at
+  least once in code (WDK_USDT_EVM's boot-time FATAL guard) — only a
+  thin explicit cross-reference was added, no new mechanism.
 - **No standalone Policy/Eligibility/Risk Standard or new
   external-precedent research document is justified.** Consolidation
   over proliferation, consistent with every prior mission's own
