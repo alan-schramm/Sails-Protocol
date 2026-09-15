@@ -4723,3 +4723,278 @@ obligation" is defined anywhere in this repository.
     under #165; no Authority Model Discovery mission started.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+45. **Authority Backlog Delta — institutional ownership reconciliation,
+    documentation only, no implementation (2026-09-15).** Evidence:
+    `docs/AUTHORITY_MODEL_DISCOVERY.md` — PR #167, based on
+    `main@a47028387673394ac46d7e1730d5348ea84e10bc` (that mission's own
+    baseline; preserved here only as historical provenance), merged
+    (with one CTO Gate R1 semantic-correction round) producing
+    **`main@6678164d327bb6c3324463edbe29fa2c6764a20c`**, this mission's
+    own actual baseline. Per that mission's own governance rule (finding
+    ≠ backlog item), every frozen Authority finding was checked against
+    existing ownership before anything was added here — most are already
+    owned or belong to a later normative domain; **one** consolidated new
+    obligation cluster is registered below, extending an existing owner
+    rather than creating a parallel one.
+
+    **Already owned, cross-referenced not duplicated:**
+    - Seller release during an open Dispute — owned by item 44. Authority
+      Discovery reconfirmed it from the authority angle (`isSellerOrAssignedArbiter()`
+      grants the seller unconditional authority regardless of Dispute
+      status); no duplicate registered.
+    - F-08A (session revocation absence) — owned by item 42. Authority
+      Discovery only reconfirms, narrowly: a valid session identity is
+      not fresh, action-specific economic authorization (exactly one
+      action in the whole codebase, `resolveDispute()`, requires
+      anything beyond ordinary session validity). No duplicate, no fix.
+    - Offer A3's implementation delta — owned by item 43, untouched by
+      Authority Discovery.
+    - RFC-021 B2 / BRD-03 (uncapped appeal-round cost disclosure) —
+      owned by item 42/43, orthogonal to Authority findings, untouched.
+    - Destination Authority — **`NO_ACTION_REQUIRED` / frozen truth
+      reconfirmed, not extended.** F-06 remains correctly superseded;
+      Authority Discovery re-verified against current code (not merely
+      cited) that no rail lets an arbiter, provider, or any caller
+      substitute a beneficiary's registered payout destination
+      (`docs/AUTHORITY_MODEL_DISCOVERY.md` §9, §16 item B7). No new gap,
+      no new obligation.
+
+    **Trade manual `PENDING → ACTIVE` (BR-TRADE-05) — narrowed and
+    reconfirmed as `REFINEMENT_OF_EXISTING_OWNER` (item 42's grouped
+    comment-hygiene entry), not promoted to a Product/Architecture
+    Decision or an authority violation.** Authority Discovery's own §7
+    sharpened this into "authority/state mismatch" framing — this
+    mission verified that framing directly against current code rather
+    than accepting it as settled: a repo-wide check of every Escrow
+    authorization function that can move funds (`lockFunds()`,
+    `markPaymentSent()`, `releaseFunds()`, `refundFunds()`,
+    `splitFunds()` in `escrow.service.ts`) confirms **none of them ever
+    reads `Trade.status`** — zero matches for any `trade.status`
+    comparison anywhere in that file. `trade.service.ts`'s own comment
+    (lines 40-45) already states the governing principle for the
+    parallel CANCELLED-corruption case — "Escrow's own state machine is
+    untouched and remains authoritative" — and the same principle holds
+    here: Escrow's authorization is fully independent of `Trade.status`.
+    A client manually forcing `PENDING → ACTIVE` therefore cannot bypass,
+    weaken, or pre-empt any economic authority check; it can only
+    misrepresent a display/audit-trail label ahead of the fact it
+    describes, which is exactly what `docs/BUSINESS_RULES_DISCOVERY.md`
+    already classified this as (`BR-TRADE-05`, "Decision required? No" —
+    a code-comment accuracy defect, not a Product question). Existing
+    truth is not ambiguous here — it resolves the question, and resolves
+    it away from an authority violation. No new owner, no Decision
+    Required; item 42's existing comment-hygiene grouping stands
+    unchanged.
+
+    **Capability initiate → finalize temporal gap — `TEMPORAL_INPUT` /
+    `POLICY_INPUT`, explicitly NOT registered as an Authority defect.**
+    When `config.features.enforceCapabilities` is on,
+    `checkFundMovementCapability()` runs once, at `initiate*` time
+    (`escrow-pending-tx.ts:106`), and is never re-checked at
+    `submitTransactionSignature()`'s finalize
+    (`docs/AUTHORITY_MODEL_DISCOVERY.md` §13, §15, §18 item 10). Searched
+    `docs/rfcs/RFC-005-capability-model.md`,
+    `docs/rfcs/RFC-013-capability-registry-and-wallet-adapter.md`, and
+    `docs/PROTOCOL_SPECIFICATION.md` §1.10 for an existing statement of
+    what a capability grant is meant to authorize over time — **none
+    exists**; the scope shape (`scope: string[]`, "a subset of that
+    capability's events/API") says nothing about action-initiation-only
+    vs. execution-completion vs. a bounded session/window vs. an entire
+    prepared operation. This is genuinely undecided, not merely
+    undocumented, and Authority's own finding is limited to "the check
+    does not repeat" — whether it *should* is a Policy/Eligibility/Risk-
+    domain question (what a capability grant means) with a
+    Temporal/Concurrency-domain overlay (whether/how a check persists
+    across an asynchronous initiate→finalize window). Registered as an
+    input to both future domains; no owner assigned, no fix implied.
+
+    **`sellerAgentId` latent trusted-caller field — `LEGITIMATE_DEFERRAL`,
+    proportionate to a non-live surface, no new backlog item.**
+    `ExecuteSettlementInput.sellerAgentId?: string`
+    (`settlement-orchestrator.ts:69`) is structurally the same
+    trusted-caller risk `isPartyOrAgent()`'s `TrustedActorId` compile-time
+    brand already guards against, but without that guard
+    (`docs/AUTHORITY_MODEL_DISCOVERY.md` §17, §20, §25). **No live caller
+    currently supplies it** — the sole production call site
+    (`common/events/handlers.ts:558`) is gated behind
+    `config.features.autoSettleOnMatch` (default `false`) and always
+    falls back to the DB-read `trade.sellerId` — and `WalletAgent`, the
+    only class that could construct an `agent:...` identity, is never
+    instantiated anywhere in production `src/`. Inflating a non-live,
+    non-exploitable surface into a standalone backlog item would be
+    disproportionate. Natural future owner, cross-referenced not
+    duplicated: Issue
+    [#155](https://github.com/alan-schramm/Sails-Protocol/issues/155)
+    ("Sails AI Harnesses — Engineering Harness, QVAC Runtime Harness & AI
+    Governance Contract"), whenever OpenAgents/`WalletAgent` execution
+    moves from theoretical to live. No item registered here.
+
+    **The one consolidated new obligation cluster — extends item 44's
+    existing Architecture Decision, does not duplicate it.** Item 44
+    already registered "Appeal leaving a prior ruling's pending
+    fund-movement instruction live (`LIGHTNING_HODL`/`SAFE_GUARD_EVM`) —
+    `ARCHITECTURE DECISION REQUIRED`" and explicitly recommended Authority
+    Model Discovery treat it as an input rather than a precondition.
+    Authority Discovery did exactly that and returned a sharper causal
+    diagnosis, plus two closely related sub-findings. Classification:
+    **`REFINEMENT_OF_EXISTING_OWNER`** — item 44 remains the sole owner;
+    the obligation below extends its formulation, verified searched
+    (`gh issue list --search` for "old arbiter race", "Economic
+    Disposition Authority", "PSBT finalize authority", "sellerAgentId" —
+    no adequate existing owner found for any of the three sub-points
+    beyond item 44 itself):
+
+    - **Sharper formulation of the core obligation**
+      (`docs/AUTHORITY_MODEL_DISCOVERY.md` §10, §17, R1-corrected):
+      `submitTransactionSignature()` (the finalize step for
+      MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM) performs real cryptographic
+      **Execution Authority** verification (signer-list membership,
+      collected signatures) but never references or revalidates the
+      **Economic Disposition Authority** (the signed
+      `AuthorityDecisionPayload` / ruling generation) that originated the
+      pending execution. Execution Authority may remain technically
+      valid — the collected signatures are real — while the Economic
+      Disposition Authority that originated the pending execution has
+      been superseded by a later ruling (e.g. after `appeal()` reassigns
+      `Dispute.arbiterId`). The future design decision must preserve a
+      durable relationship between execution and the currently
+      authoritative ruling generation. **How this should be solved is
+      not decided here** — versioning the pending instruction,
+      invalidating it on appeal, binding execution to a ruling-generation
+      fingerprint, or another mechanism entirely all remain open for
+      whoever picks up item 44's Architecture Decision.
+    - **Non-MULTISIG old-arbiter race — consolidated as a sub-obligation
+      of the same Architecture Decision, not a standalone ticket, given
+      its strong Temporal/Concurrency overlap**
+      (`docs/AUTHORITY_MODEL_DISCOVERY.md` §10, §15, §18 items 4-5): for
+      the four non-MULTISIG settlement rails, `applyRuling()`'s Dispute
+      row write is unconditional (no `where` filter on
+      `arbiterId`/`status`/`appealRound`), so a superseded arbiter's
+      already-in-flight `resolveDispute()` call, issued before `appeal()`
+      runs, can still commit after reassignment — silently reverting an
+      appealed dispute back to `RESOLVED` under the stale ruling.
+      MULTISIG closes the equivalent race incidentally, via an atomic
+      `updateMany` filtered on `arbiterId`+`status`
+      (`dispute-outcome.ts:269-282`; its own `DISPUTE_STATE_LOST_RACE`
+      rejection path has zero test references). **Durable requirement,
+      not a prescribed mechanism**: a superseded authority must not
+      successfully commit a discretionary economic ruling merely because
+      authorization was valid earlier in the call. Whether the eventual
+      fix generalizes MULTISIG's optimistic-concurrency pattern or uses
+      another mechanism is not decided here. Registered jointly under
+      item 44 (Authority) and as an explicit future Temporal/Concurrency
+      domain input — not duplicated as a second entry.
+    - **Tautological `assertExecutionMatchesAuthorization(payload,
+      payload)` — evidence of the same gap, not a standalone defect**
+      (`docs/AUTHORITY_MODEL_DISCOVERY.md` §10): the function's name and
+      call-site placement (`dispute.service.ts:631`) suggest it verifies
+      execution-request-matches-authorization correspondence including
+      round currency; comparing the same object to itself proves nothing
+      beyond internal consistency. This is not registered as its own
+      ticket — it is folded into item 44's obligation as a
+      documentation/implementation-accuracy note: whoever eventually
+      designs the finalize/current-authority-generation fix is the
+      natural owner to also correct or remove this misleading
+      correspondence check.
+
+    **OpenAgents delegated-autonomy principle — searched before
+    institutionalizing; cross-referenced, not duplicated; recorded
+    minimally as future direction only.** Searched
+    `docs/PROJECT_CONTEXT.md`, `docs/rfcs/RFC-016-qvac-crypto-native-agent-boundary.md`,
+    and this file for an existing equivalent principle before adding
+    anything. Found **partial** existing truth, not absent:
+    - `docs/PROJECT_CONTEXT.md`'s SDK use-case reality table already
+      distinguishes **"OpenAgents (structured-intent generation)" —
+      Current, real** from **"OpenAgents (full delegation/negotiation)" —
+      Planned, `aiNegotiator.ts` is a client-side simulation only, no
+      backend accepts a delegation mandate**.
+    - `docs/PROJECT_CONTEXT.md`'s ecosystem-integration section already
+      states: *"Every Sails OpenAgents module using QVAC drives direct
+      QVAC SDK usage, while QVAC remains advisory and does not become
+      protocol authority."*
+    - RFC-016 already frames agents as "autonomous code acting on a
+      user's behalf" under "delegated authority" (in the fiat/crypto
+      boundary context specifically) and names "the negotiation-mandate
+      concept in `packages/sails-ui`" as unbuilt future work it
+      deliberately leaves open.
+
+      None of these states the full conceptual chain explicitly
+      (`Principal → explicit mandate/delegation → OpenAgent → autonomous
+      negotiation/execution within mandate`, as opposed to `AI decides it
+      has authority → execution`), or the bounded-by-mandate /
+      exceeding-scope-requires-new-authority framing. Recorded minimally,
+      cross-referencing rather than duplicating the above, per
+      `docs/PROJECT_CONTEXT.md` §2N:
+
+      > **Future OpenAgents architectural direction (not implemented, no
+      > implementation authorization from this mission):** within an
+      > explicitly delegated, bounded economic mandate attributable to a
+      > principal, a future OpenAgent may negotiate and execute
+      > autonomously over dimensions the mandate covers (price, quantity,
+      > counterparties or allowed classes, assets, settlement rails,
+      > deadlines, acceptable risk/range, or other explicitly delegated
+      > economic parameters). Autonomy originates from the principal's
+      > delegation, never from QVAC's own intelligence — QVAC provides
+      > recommendation/intelligence only and never creates authority.
+      > Authority must remain attributable to the principal; scope must
+      > be bounded; exceeding scope requires new authority; agent
+      > autonomy does not erase Sails' own State/Lifecycle, Policy,
+      > Evidence, or settlement constraints. This direction requires a
+      > future delegation/mandate design (schema, revocation,
+      > scope-boundary enforcement) that does not exist yet.
+
+      Cross-referenced to Issue #155 and to `docs/PROJECT_CONTEXT.md`'s
+      existing "Planned" row for full delegation/negotiation — not a new
+      standalone backlog item.
+
+    **QVAC positioning reconfirmed, not changed.** Current QVAC Runtime
+    operates in observe/infer/recommend/propose/prepare only, with no
+    live fund-execution authority anywhere in production `src/`
+    (`docs/AUTHORITY_MODEL_DISCOVERY.md` §12); future OpenAgents may
+    execute autonomously only within explicit delegated authority
+    attributable to a principal (above). Neither "agents can never
+    execute" nor "QVAC may self-authorize" is accurate, and neither was
+    found stated anywhere — `docs/PROJECT_CONTEXT.md`'s existing wording
+    already avoids both; this entry reconfirms rather than corrects it.
+
+    **Beta Readiness Gate (Issue #165) enriched — material new scenarios
+    only, added directly to the existing issue, no child issues
+    created.** See Issue #165's own Section D/E for the added scenarios
+    (old arbiter after appeal/reassignment; in-flight old-arbiter race;
+    disputed pending transaction reaching finalize after ruling
+    supersession; valid Execution Authority but stale Economic
+    Disposition Authority; capability revoked between initiation and
+    finalize; unauthorized `agent:...` identity; future delegated-agent
+    action exceeding mandate; session valid but action requires authority
+    not possessed; destination cannot be overridden by arbiter/provider —
+    expected-PASS regression scenario; same authority semantics through
+    Sails Market and Satsails). No scenario is scored by this entry.
+
+    **Decision-sequencing verdict: `PROCEED_TO_POLICY_ELIGIBILITY_RISK`.**
+    None of the open Authority items above structurally blocks starting
+    Policy/Eligibility/Risk Discovery: the finalize/Economic Disposition
+    Authority gap and the non-MULTISIG old-arbiter race are owned by item
+    44 and are Architecture/Temporal-Concurrency-shaped, not Policy-
+    shaped; the capability initiate→finalize gap is itself partially a
+    Policy/Eligibility input, meaning Policy/Eligibility/Risk Discovery is
+    positioned to help resolve it, not blocked by it; the OpenAgents
+    delegated-mandate direction is explicitly future/not-implemented and
+    creates no current-state dependency; Trade `PENDING → ACTIVE` is
+    confirmed a non-issue (comment drift only, not an authority gap) and
+    creates no dependency; F-08A remains open but is orthogonal —
+    Policy/Eligibility/Risk can discover current conditions and
+    eligibility rules independently of whether session freshness is ever
+    hardened. No short Decision Gate mission is recommended before
+    Policy/Eligibility/Risk Discovery.
+
+    **Explicitly not done:** no code change of any kind (dispute service,
+    PSBT finalize, ruling-generation fields, optimistic concurrency, Trade
+    activation, capability semantics, session revocation, agents,
+    delegated mandate, QVAC Runtime Harness); no RBAC/ABAC or generic
+    policy engine added; no payout-address logic altered; no RFC-021
+    status change; no new standard created; no product/UI change; no
+    child issue created under #165; no Policy/Eligibility/Risk Discovery
+    mission started.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
