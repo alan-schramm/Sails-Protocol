@@ -1361,6 +1361,105 @@ executor needs without opening either are restated here:
   Model Discovery — see `docs/BACKLOG.md` item 44's full reasoning. No
   short Decision Gate mission is interposed.
 
+## 2N. Authority Model Discovery — pointer (2026-09-15)
+
+`docs/AUTHORITY_MODEL_DISCOVERY.md` (PR #167, one CTO Gate R1
+semantic-correction round) ran, froze, and merged. Full text lives there
+and in `docs/BACKLOG.md` item 45; only the durable pointers a future
+executor needs without opening either are restated here:
+
+- **Authority domain assessment is `MIXED`.** Strong, explicit,
+  DB-relation-based role checks govern the overwhelming majority of
+  economic actions; one mechanism — the signed `AuthorityDecisionPayload`
+  — provides the system's only cryptographically signed, independently
+  verifiable discretionary economic authorization artifact; and one
+  trusted-caller convention (`isPartyOrAgent`'s `agent:...` string) is
+  currently safe only because it is unexercised in production.
+- **`Authentication ≠ Authorization`, preserved explicitly.** A signed
+  Ed25519 challenge-response at login proves identity; only the signed
+  `AuthorityDecisionPayload` proves a specific discretionary economic
+  disposition was authorized. These are not the same mechanism and must
+  not be described as if they were.
+- **`Execution Authority ≠ Economic Disposition Authority`, a
+  distinction this mission's own CTO Gate R1 required be kept explicit.**
+  A PSBT signer's collected signature is real, cryptographic proof of
+  execution consent for that transaction — it is not, by itself, proof
+  that the Economic Disposition Authority (the ruling) governing a
+  disputed settlement is still the currently valid one.
+- **Destination Authority remains intact, re-verified against current
+  code, not merely cited.** No rail lets an arbiter, provider, or any
+  caller substitute a beneficiary's registered payout destination; F-06
+  remains correctly superseded.
+- **Finalize does not reference the currently valid Economic Disposition
+  Authority.** `submitTransactionSignature()` checks real Execution
+  Authority (signer-list membership, collected signatures) but never
+  references or revalidates the `AuthorityDecisionPayload`/ruling
+  generation that originated the pending execution — the authority-layer
+  root cause of the appeal/pending-instruction Architecture Decision
+  already owned by `docs/BACKLOG.md` item 44 (extended, not duplicated,
+  by item 45).
+- **The old-arbiter-after-appeal race is rail-scoped.** Closed
+  incidentally (and untested) for MULTISIG via an atomic
+  optimistic-concurrency guard; open and unguarded for the other four
+  settlement rails. Registered under item 44/45, with Temporal/Concurrency
+  overlap, not solved.
+- **Capability is additive-only, never economic authority.** A
+  `CapabilityGrant` cannot substitute for, bypass, or move funds
+  independently of an underlying economic-role check anywhere; it also
+  cannot be scoped to a specific trade/escrow (no resource-instance field
+  exists in the schema). Its initiate→finalize temporal gap is registered
+  as a Policy/Eligibility and Temporal/Concurrency input (item 45), not an
+  Authority defect.
+- **Seller release during an open Dispute remains owned by
+  `docs/BACKLOG.md` item 44** — Authority Discovery reconfirmed the same
+  defect from the authorization-mechanism angle; ownership is not
+  duplicated.
+- **F-08A remains open, owned by `docs/BACKLOG.md` item 42.** Authority
+  Discovery only reconfirms: a valid session proves identity and session
+  validity, not fresh, action-specific economic authorization for a
+  particular action.
+- **Current QVAC execution authority is not live.** `WalletAgent`, the
+  only class that could construct an agent-execution identity, is never
+  instantiated anywhere in production `src/`; QVAC's runtime is confined
+  to observe/infer/recommend/propose/prepare, with zero path to any
+  fund-moving call. **Future OpenAgents may execute autonomously only
+  within an explicit, bounded economic mandate attributable to a
+  principal** — autonomy originates from that delegation, never from
+  QVAC's own intelligence, which never creates authority on its own.
+  Maturity is expected to stage: an initial *delegated autonomous
+  negotiation + human-confirmed final execution* level, ahead of a later
+  *delegated autonomous negotiation + delegated autonomous execution*
+  level, both still strictly bounded by the mandate. Not implemented; no
+  implementation authorization exists yet (`docs/BACKLOG.md` item 45,
+  cross-referencing this section's own SDK use-case reality table above).
+  Issue #155 (Sails AI Harnesses) is a governance/harness dependency and
+  constraint owner for OpenAgents/QVAC work generally — it is **not**
+  the implementation owner for this delegated-mandate direction, and no
+  adequate existing implementation owner was found for OpenAgents/
+  `WalletAgent` production activation (`OWNER TO BE ESTABLISHED WHEN
+  DAY-0 OPENAGENTS EXECUTION IS SCHEDULED`, `docs/BACKLOG.md` item 45).
+  KaleidoMind is recorded there as an external precedent/design input
+  only, not copied mechanically. Whether/when this direction becomes a
+  Day-0 product commitment is a Product/Roadmap sequencing decision this
+  section does not make.
+- **No standalone Authority Model Standard is justified.** The existing
+  canonical homes (`PROTOCOL_INVARIANTS.md` INV-01/INV-12,
+  `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`) already state the
+  correct principles; the gap this mission closed was inventory and
+  cross-referencing, not a missing document.
+- **Beta Readiness Gate (Issue #165) enriched with authority scenarios**
+  — old arbiter after appeal/reassignment, in-flight old-arbiter race,
+  disputed pending transaction reaching finalize after ruling
+  supersession, capability revoked between initiation and finalize,
+  unauthorized agent identity, future delegated-agent action exceeding
+  mandate, session valid but authority not possessed, destination
+  override resistance, and Sails Market/Satsails authority-semantics
+  parity. No scenario is scored yet.
+- **Decision-sequencing verdict: `PROCEED_TO_POLICY_ELIGIBILITY_RISK`.**
+  None of the open Authority items blocks starting Policy/Eligibility/Risk
+  Discovery — see `docs/BACKLOG.md` item 45's full reasoning. No short
+  Decision Gate mission is interposed.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem
