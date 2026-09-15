@@ -4734,9 +4734,10 @@ obligation" is defined anywhere in this repository.
     own actual baseline. Per that mission's own governance rule (finding
     ≠ backlog item), every frozen Authority finding was checked against
     existing ownership before anything was added here — most are already
-    owned or belong to a later normative domain; **one** consolidated new
-    obligation cluster is registered below, extending an existing owner
-    rather than creating a parallel one.
+    owned or belong to a later normative domain. **One consolidated
+    Authority refinement cluster is synchronized below under existing
+    ownership; item 45 is an institutional synchronization/cross-reference
+    record, not a new obligation owner.**
 
     **Already owned, cross-referenced not duplicated:**
     - Seller release during an open Dispute — owned by item 44. Authority
@@ -4841,24 +4842,18 @@ obligation" is defined anywhere in this repository.
     cross-referenced only as the governance/harness constraint this
     future activation work will need to satisfy, not as its owner.
 
-    **One consolidated Authority refinement cluster is synchronized
-    below under existing ownership — this is not a new obligation owner.
-    CTO Gate R1 correction:** the prior wording of this entry ("the one
-    consolidated new obligation cluster") was ambiguous about whether
-    item 45 itself becomes an owner. It does not. **Item 44 remains the
-    sole, canonical owner of the appeal/pending-instruction family in its
-    entirety** — the finalize/Economic Disposition Authority formulation,
-    the old-arbiter race, and the correspondence-check finding below are
-    not a parallel obligation and do not migrate ownership; item 45's own
-    role here is institutional synchronization/cross-reference only —
-    recording the Authority-layer refinement and its cross-domain inputs
-    against item 44's existing entry, not owning them. Item 44 already
-    registered "Appeal leaving a prior ruling's pending fund-movement
-    instruction live (`LIGHTNING_HODL`/`SAFE_GUARD_EVM`) — `ARCHITECTURE
-    DECISION REQUIRED`" and explicitly recommended Authority Model
-    Discovery treat it as an input rather than a precondition. Authority
-    Discovery did exactly that and returned a sharper causal diagnosis,
-    plus two closely related sub-findings, synchronized here.
+    **Item 44 remains the sole, canonical owner of the appeal/
+    pending-instruction family in its entirety.** The finalize/Economic
+    Disposition Authority formulation, the old-arbiter race, and the
+    correspondence-check finding below are synchronized against item 44's
+    existing entry, not a parallel obligation — item 45's own role here
+    is institutional synchronization/cross-reference only. Item 44
+    already registered "Appeal leaving a prior ruling's pending
+    fund-movement instruction live (`LIGHTNING_HODL`/`SAFE_GUARD_EVM`) —
+    `ARCHITECTURE DECISION REQUIRED`" and explicitly recommended Authority
+    Model Discovery treat it as an input rather than a precondition.
+    Authority Discovery did exactly that and returned a sharper causal
+    diagnosis, plus two closely related sub-findings, synchronized here.
     Classification: **`REFINEMENT_OF_EXISTING_OWNER`** — item 44 remains
     the sole owner; the synchronized findings below extend its
     formulation, verified searched
