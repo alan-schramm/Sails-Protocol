@@ -1,0 +1,12 @@
+%% Visual translation only. Canonical basis: SAILS_P2P_TRADING_SDK_PAPER.md; SDK_GUIDE.md; API_STABLE.md.
+flowchart LR
+  subgraph WITHOUT["Without Sails"]
+    W1["Wallet"] --> D["Build discovery"]
+    W1 --> N["Build negotiation"]
+    W1 --> S["Build settlement coordination"]
+    W1 --> X["Build disputes"]
+    W1 --> R["Build reputation"]
+  end
+  W2["Wallet / App"] --> SDK["Sails P2P Trading SDK"]
+  SDK --> P["Sails Protocol"]
+  P --> C["Reusable coordination capabilities"]
