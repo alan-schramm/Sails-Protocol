@@ -1217,6 +1217,72 @@ return path across a forced re-authentication) — both require a
 product/architecture decision, registered as `STOP` items, not decided
 here. Full text: `docs/BACKLOG.md` item 34.
 
+## 2L. Foundational Rules & Business Rules Discovery — pointer (2026-09-15)
+
+Two evidence-only missions ran, froze, and merged: `docs/FOUNDATIONAL_RULES_STANDARDS_INVENTORY.md`
+(PR #159) and `docs/BUSINESS_RULES_DISCOVERY.md` (PR #160, building on
+the first) — PR #160 merged into `main@c873b866...`, the baseline from
+which this institutional sync (PR #161) was itself produced. Neither
+evidence mission authorized, nor performed, any Product/UI,
+protocol, or governance implementation — both are evidence artifacts
+for future missions to build on, not new runtime behavior. Full text
+lives in those two files and `docs/BACKLOG.md` item 42; only the
+durable pointers a future reader needs without opening either report
+are restated here:
+
+- **Open Product Decision — Offer status lifecycle.** Whether
+  `OfferStatus` transitions (`COMPLETED`/`CANCELLED` → `ACTIVE`) should
+  be guarded is not decided. The reference UI's own copy already
+  claims a cancelled offer "cannot be reactivated"; the backend and
+  SDK do not currently enforce that. `docs/BACKLOG.md` item 42 carries
+  the full evidence. Not resolved by this pointer.
+- **F-05 is superseded** (Foundational Inventory): the `Dispute` schema
+  comment itself concerns row cardinality only (`@@unique([tradeId])`
+  — whether a second `Dispute` row is ever created for a trade; it
+  never is). `appeal()` concerns a state transition on that same row
+  (`RESOLVED → APPEALED`). The Foundational Inventory's prior
+  interpretation conflated those two distinct concepts and read the
+  comment as contradicting `appeal()`'s behavior; re-read precisely,
+  it does not. The source comment itself is not considered
+  contradictory — the superseded reading was the interpretation, not
+  the comment. This file never repeated the superseded reading.
+- **F-06 is superseded** (Foundational Inventory): the Destination
+  Authority residual-gap conclusion was already stale at that mission's
+  own baseline — the gap had already been closed (commit `e4cd207`,
+  2026-09-11) before that report was even written, and `docs/BACKLOG.md`
+  independently recorded the closure the same day. The only live
+  defect is a stale code comment, already named in `docs/BACKLOG.md`.
+  **Neither historical report is rewritten** — both are preserved as
+  the record of what was concluded and when; the supersession lives in
+  `docs/BUSINESS_RULES_DISCOVERY.md`'s own "Prior Frozen Findings
+  Superseded" table and this pointer.
+- **F-08A remains open, threat model clarified, severity unchanged.**
+  Session revocation is still absent (Security/Institutional/
+  Operational-Auth Debt). Business Rules Discovery additionally
+  confirmed no step-up/re-authentication mechanism exists anywhere —
+  this sharpens what the absence exposes; it does not reduce the
+  frozen severity and does not imply MFA/step-up as the fix.
+- **RFC-021 governance remains unresolved.** Fully implemented
+  (D1-D9), never formally accepted per `docs/GOVERNANCE.md` §5/§6A.
+  Not ratified or rejected by either evidence mission or this sync.
+- **Business Rules is not getting a duplicative standalone rulebook**,
+  per current evidence — it remains a normative architecture domain; a
+  thin discoverability index may be justified later, not built now.
+- **Business Rules Discovery does not authorize Product/UI
+  implementation**, Settlement Scope Awareness, or any of the
+  out-of-scope items either mission's own brief named.
+- **Institutional principle validated by this mission pair, worth
+  carrying forward:** a frozen conclusion can later be superseded by
+  stronger evidence — including evidence that already existed at the
+  time of freeze. Freeze preserves institutional history; it does not
+  make a factual claim immutable.
+- **Next mission**: not started by this sync — see `docs/BACKLOG.md`
+  item 42's own sequencing note. Sourced from the frozen architectural
+  sequence (`Domain & Invariants → Business Rules → State & Lifecycle →
+  Authority → Policy/Eligibility/Risk → Temporal/Concurrency →
+  Evidence/Auditability → Human Interface Engineering`), not executor
+  convenience.
+
 ---
 
 ## 3. Relationship to the Tether Ecosystem

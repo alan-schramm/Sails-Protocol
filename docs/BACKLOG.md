@@ -4359,3 +4359,123 @@ obligation" is defined anywhere in this repository.
     ordered path.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+42. **Business Rules Discovery — institutional sync, documentation only, no
+    implementation (2026-09-15).** Per the same `MISSION → EVIDENCE →
+    FREEZE → BACKLOG DELTA → PROJECT SYNC → NEXT MISSION` lifecycle item
+    41 above closes for its own mission set. Evidence: `docs/BUSINESS_RULES_DISCOVERY.md`
+    (PR #160, merged into `main@c873b866`), building on the already-merged
+    `docs/FOUNDATIONAL_RULES_STANDARDS_INVENTORY.md` (PR #159). No frozen
+    semantics from either are reopened or reinterpreted.
+
+    **Two findings already fully covered by this file's own pre-existing
+    entries — cross-referenced, not duplicated:**
+    - **F-06 supersession (Destination Authority residual gap) and BRD-01
+      (stale `escrow.service.ts` comment).** This file's own "Status update
+      (2026-09-11, F1-R Destination Authority Conformance — Remaining
+      Disputed Rails)" entry above already states, independently and dated
+      *before* the Foundational Inventory's own baseline: *"F1 is now
+      CLOSED for every currently-implemented settlement path (cooperative
+      and disputed, all five rails)."* A separate entry above (RFC-021
+      Phase 2/D6 verification note) already names *"an outdated
+      `escrow.service.ts` doc comment"* as a known "documentation delta,
+      not a security finding." Both Business Rules Discovery findings
+      (BRD-01, and the F-06 supersession recorded in that report's own
+      "Prior Frozen Findings Superseded" table) restate facts this file
+      already had right, already recorded before the Foundational
+      Inventory's own baseline (Destination Authority closure and this
+      file's own update: 2026-09-11; Foundational Inventory baseline:
+      2026-09-14 — days, not months) — the F-06 conclusion was already
+      stale at that mission's own baseline, not overtaken long after it.
+      **Institutional
+      lesson, recorded once, not re-litigated per finding:** freeze
+      preserves institutional history; it does not make a frozen factual
+      claim immutable — a later mission may find the claim was already
+      disproven by evidence that existed at freeze time. This file's own
+      practice of dating and layering status updates on top of earlier
+      entries, rather than editing them away, is itself a correct instance
+      of that same discipline and needs no change here.
+    - **F-05 supersession (Dispute `RESOLVED`/`appeal()` — prior
+      "misleading comment" framing).** No entry in this file ever repeated
+      the superseded interpretation (the D6 entry above accurately
+      describes `appeal()`'s real behavior). No correction needed here;
+      noted only so a future reconciliation pass does not need to
+      re-derive that this file was never wrong on this point.
+
+    **Genuinely new obligations, not previously tracked anywhere in this
+    file, `docs/ROADMAP.md`, or open Issues (verified by direct search,
+    not assumed absent):**
+    - **Offer status lifecycle — Product Decision required (`BR-OFFER-02`/
+      `BR-OFFER-03`).** Is immediate, unmoderated Offer publication
+      intentional? Are `COMPLETED/CANCELLED → ACTIVE` transitions
+      intentionally permitted, or should `OfferStatus` gain a transition
+      guard? Evidence assembled, decision not made: the reference UI's own
+      cancel-confirmation copy states a cancelled offer "cannot be
+      reactivated," but the backend enforces no such rule and the SDK/raw
+      HTTP layer permits any transition by the offer's owner; an existing
+      Trade is not retroactively corrupted by a later Offer reactivation
+      (Trade snapshots Offer's terms once, at creation); reactivation does
+      restore Marketplace discoverability of the offer's original,
+      unedited terms. Full evidence: `docs/BUSINESS_RULES_DISCOVERY.md`
+      §3 BR-OFFER-02/03. **No guard is implemented by this entry** — this
+      is a Product Decision, not an automatic implementation defect.
+    - **RFC-021 formal governance acceptance — distinct from its already-
+      tracked implementation completeness.** Every RFC-021 phase (D1
+      through D9, Phase 0 fee collection through Phase 4 payment-account
+      trust ramp) is marked "✅ Done, verified" above — but this file has
+      never separately tracked that RFC-021's own formal status remains
+      "Proposed," never having passed `docs/GOVERNANCE.md` §5/§6A's
+      Decision gate (`docs/FOUNDATIONAL_RULES_STANDARDS_INVENTORY.md`'s
+      F-01, corroborated and left unresolved by
+      `docs/BUSINESS_RULES_DISCOVERY.md`). **Attached to this same
+      obligation, not a separate item:** RFC-021's own "Known Risks"
+      section does not enumerate that Dispute appeal rounds are uncapped
+      except by escalating cost (`BRD-03`) — a candidate amendment note
+      for whoever eventually runs the formal acceptance review, not a
+      standalone architecture epic. **No RFC status is changed by this
+      entry.**
+    - **F-08A (session revocation absence) — flagged for backlog
+      visibility, not previously carried in this file.** Frozen by the
+      Foundational Inventory's CTO Gate as Security/Institutional/
+      Operational-Auth Debt; `docs/BUSINESS_RULES_DISCOVERY.md`'s
+      `BR-AUTH-02` additionally confirms no step-up/re-authentication
+      mechanism exists anywhere for high-value actions. This clarifies the
+      threat model (an ordinary valid session already authorizes every
+      economically-material write; a stolen valid session inherits
+      exactly that, no more) — it does **not** reduce the previously
+      frozen severity, and does **not** imply MFA/step-up as the required
+      or even favored fix; the missing property is stated
+      mechanism-independently in `docs/FOUNDATIONAL_RULES_STANDARDS_INVENTORY.md`
+      Addendum A8. **No security change is implemented by this entry.**
+    - **Three small evidence/test-hygiene items, named for visibility, not
+      fixed here:** `tests/sweepers.test.ts`'s header describes intending
+      to cover both the escrow-timelock sweeper and the QVAC
+      auto-resolution sweeper; its body genuinely, extensively tests only
+      the first (`BRD-02`, corrected during Business Rules Discovery's own
+      CTO Gate after an initial misreading claimed the file was empty —
+      it is not). `reputation.service.ts`'s `rate()` authority guard (real
+      trade party, real counterparty) has no dedicated negative-path test
+      (`BR-REP-02`). `trade.service.ts`'s own comment overstates which
+      transitions are automatic — `PENDING → ACTIVE` is reachable both
+      automatically and via a direct manual client call, contrary to the
+      comment's claim (`BR-TRADE-05`). Each is a single small edit;
+      grouped here rather than given individual numbered items, per this
+      file's own "do not add five entries where one obligation can carry
+      them" practice.
+
+    **Business Rules Standard conclusion, recorded for continuity, not
+    actioned:** `docs/BUSINESS_RULES_DISCOVERY.md` §14 concludes a
+    duplicative standalone Business Rules rulebook is not justified by
+    current evidence; a thin normative index/discoverability layer may be
+    justified later if it improves cross-domain traceability without
+    becoming a second source of truth. Business Rules remains one of the
+    architecture's normative domains regardless — this conclusion is about
+    whether a *document* is needed now, not about the domain's standing.
+    No index is created by this entry.
+
+    **Explicitly not done:** no runtime, SDK, protocol, or UI change; no
+    RFC status mutation; no ADR mutation; no Issue mutation; no fix for
+    any of BRD-01/BRD-02/BRD-03/BR-REP-02/BR-TRADE-05; no Product Decision
+    made on Offer's behalf; no Business Rules index/Standard created.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
