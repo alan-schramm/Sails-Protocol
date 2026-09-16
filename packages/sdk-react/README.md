@@ -81,11 +81,13 @@ reading the real source.
   challenge-response) is the real auth mechanism; this package only
   consumes an already-authenticated `SailsClient`.
 - Six-verb intent facade (`createIntent`/`cancelIntent`/`negotiate`/
-  `submitProof`/`releaseAsset`/`dispute`) has no dedicated hooks here —
-  only `createIntent`/`cancelIntent`/`dispute` are real today (the other
-  three throw `SailsNotImplementedError` unconditionally); call them
-  directly via `useSailsClient()` if you need them, there's no wrapper
-  to keep in sync with that boundary.
+  `submitProof`/`releaseAsset`/`dispute`) has no dedicated hooks here.
+  `createIntent`/`cancelIntent`/`submitProof`/`releaseAsset`/`dispute`
+  are real and callable in `@satsails/p2p-trading-sdk`; `negotiate`
+  remains the one experimental verb and throws `SailsNotImplementedError`.
+  Use `openp2p.chat(tradeId)` for the real working negotiation/chat path.
+  Call these SDK methods directly via `useSailsClient()` when needed;
+  this package intentionally adds no second facade to keep in sync.
 
 ## Real, working example
 

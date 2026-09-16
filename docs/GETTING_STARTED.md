@@ -85,7 +85,12 @@ npm test    # 600+ tests, no external infra needed
 
 The full technical walkthrough (`TRANSACTION_WALKTHROUGH.md`) names every
 file and function involved. This is the same flow with none of that —
-just what happens, in order:
+just what happens, in order. The transport/topology and funds-authority
+mechanics are deployment- and rail-specific: the configured runtime/network
+path determines how peers and services connect, and current reference
+deployments may still involve server/runtime infrastructure. Likewise,
+custody/signing authority depends on the selected settlement provider — do
+not infer one custody model across every rail from this conceptual flow.
 
 ```
 1. Offer published        Seller lists an asset/price/payment method
@@ -93,13 +98,17 @@ just what happens, in order:
 2. Intent created         Buyer expresses "I want this" — validated,
                            never trusted as-is
                                   │
-3. Peers connect          No central server — buyer and seller find
-                           each other directly (Pears)
+3. Participants connect   Discovery/transport follows the configured
+                           runtime/network path; some paths are direct P2P,
+                           others still involve reference runtime/server
+                           infrastructure
                                   │
-4. Negotiate & agree       Terms confirmed over a private channel
+4. Negotiate & agree       Terms confirmed over the configured communication
+                           channel
                                   │
-5. Escrow locked           Funds locked non-custodially — Sails Protocol
-                           never holds the keys
+5. Escrow locked           Funds authority follows the selected settlement
+                           rail/provider; some paths use participant-held
+                           signing while others do not
                                   │
 6. Payment sent            Off-chain leg (PIX, bank transfer, etc.)
                            happens outside the protocol
@@ -107,9 +116,9 @@ just what happens, in order:
 7. Proof submitted         Evidence the payment happened, hashed and
                            recorded — not trusted blindly, verifiable
                                   │
-8. Escrow released         Funds move to the buyer. If something's
-                           wrong, step 8 becomes a dispute instead —
-                           see RFC-021 for that path
+8. Escrow released         Funds move according to the settlement provider's
+                           authority model. If something's wrong, step 8
+                           becomes a dispute instead — see RFC-021 for that path
 ```
 
 ## Which endpoint for which action

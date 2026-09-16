@@ -63,9 +63,10 @@ module below it:
    Bitcoin · Liquid · Lightning · USDT
 ```
 
-See `docs/DEVELOPER_JOURNEY.md` for this same shape walked step by step,
-with each step's real status called out (only OpenP2P is `✅ Proven` today
-— everything below is this document's spec, not running code).
+See `docs/DEVELOPER_JOURNEY.md` for this same shape walked step by step.
+Multiple SDK/module surfaces below are implemented and callable today; this
+onboarding diagram is not an implementation-status authority. For the current
+frozen-vs-additive-vs-experimental SDK contract, `docs/API_STABLE.md` wins.
 
 ---
 
@@ -103,22 +104,30 @@ wallet to surrender signing or key-management ownership.
 
 ---
 
-## 2. The `SailsClient` Interface (canonical — do not diverge from this shape without updating this doc first)
+## 2. The `SailsClient` Interface (illustrative onboarding view — `API_STABLE.md` wins)
+
+The shape below is a developer-facing guide to the client surface, not a
+stronger authority than the frozen compatibility contract. If this section
+disagrees with `docs/API_STABLE.md` or current implementation evidence,
+`API_STABLE.md` wins and this guide must be corrected.
 
 ```typescript
 interface SailsClient {
   // ── Intent-oriented facade (v7.2 — the primary interface, per PRINCIPLES.md
   // "Intent Driven" and API_REFERENCE.md section 0). An application should
-  // reach for these six methods first — module-specific methods below exist
-  // for advanced/direct use, not as the default pattern.
+  // reach for the implemented facade methods first; `negotiate()` below is
+  // still experimental, so use `openp2p.chat(tradeId)` for the real working
+  // negotiation/chat channel today.
   createIntent<T extends IntentPayload>(payload: T): Promise<Intent<T>>
   cancelIntent(intentId: string): Promise<void>
   negotiate(intentId: string, event: NegotiationEvent): Promise<void>
+  // EXPERIMENTAL today: throws SailsNotImplementedError. The real negotiation
+  // path is the persistent WebSocketChannel returned by openp2p.chat(tradeId).
   // event is one of OFFER_PROPOSED | COUNTER_OFFERED | TERMS_ACCEPTED |
   // TERMS_REJECTED | MESSAGE_EXCHANGED — see PROTOCOL_SPECIFICATION.md §1.4.
-  // A HumanChatChannel-backed application typically wraps this with a chat
-  // UI that sends MESSAGE_EXCHANGED events; an agent-driven integration
-  // sends the structured events directly with no UI at all.
+  // A HumanChatChannel-backed application typically wraps the real chat
+  // channel with a UI; do not treat this fire-and-forget facade signature as
+  // equivalent to that implemented stateful channel.
   submitProof(intentId: string, proof: ProofSubmission): Promise<Proof>
   // proof.claimType is open-ended (PROTOCOL_SPECIFICATION.md §1.8) — well-known
   // conventional values include 'payment_sent', 'invoice_paid',
@@ -191,9 +200,10 @@ interface SailsClient {
     getScoreByPeerId(peerId: string): Promise<ReputationScore>   // public read — returns the peer's aggregated reputation score (RFC-021 D8)
   }
 
-  // Sails OpenLiquidity (alias: offers) — advanced/direct use;
-  // createIntent()+negotiate() above is the path most applications
-  // should use instead
+  // Sails OpenLiquidity (alias: offers) — advanced/direct use.
+  // The Intent-oriented facade remains the preferred abstraction where its
+  // verb is implemented; `negotiate()` is not, so use openp2p.chat(tradeId)
+  // for the real negotiation/chat channel.
   liquidity: {
     publish(input: PublishOfferInput): Promise<Offer>   // requires an active session
     discover(filter: { asset: AssetType; side: TradeSide; limit?: number; offset?: number }): Promise<DiscoverResult>
@@ -244,9 +254,10 @@ interface SailsClient {
   signEscrowArkTx(bundleJson: string, privateKey: Uint8Array): Promise<string>   // LIGHTNING_HODL
   signEscrowSafeUserOp(unsignedPsbtBase64: string, privateKey: Uint8Array): string   // SAFE_GUARD_EVM — added 2026-08-03 (UI-audit gap: parseSafeGuardBundle() could read a bundle's userOpHash but nothing could sign it, so a disputed SAFE_GUARD_EVM trade was stuck forever)
 
-  // Sails OpenP2P (alias: trades) — advanced/direct use; negotiate()
-  // above is the path most applications should use instead. Chat also
-  // lives here — there is no separate chat module.
+  // Sails OpenP2P (alias: trades) — advanced/direct use. The facade's
+  // negotiate() method is experimental today; openp2p.chat(tradeId) is the
+  // real working negotiation/chat path. Chat lives here — there is no separate
+  // chat module.
   openp2p: {
     trade(offerId: string, amount: string): Promise<Trade>   // requires an active session — note the required amount, a real deviation from an earlier two-arg draft of this signature
     getTrade(tradeId: string): Promise<Trade>
