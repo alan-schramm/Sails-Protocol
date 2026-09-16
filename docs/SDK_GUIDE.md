@@ -558,4 +558,4 @@ callers never see raw `fetch`/`WebSocket` or write their own retry loop.
 - Errors thrown by the SDK should be typed subclasses matching the
   `AppError` hierarchy in the reference implementation, not raw HTTP error
   objects — see `API_REFERENCE.md` section 9 for the response shape to wrap.
--
+
