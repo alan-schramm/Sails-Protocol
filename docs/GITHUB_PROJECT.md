@@ -1,5 +1,12 @@
 # GITHUB_PROJECT.md
 
+> **Status / authority:** this document owns the GitHub Project governance and
+> configuration model and preserves dated historical snapshots of Project and
+> program state. It is **not** the current operational state. Current
+> operational truth lives in the live GitHub Project. References below to
+> “current” missions, fields, views, cards, or program state describe the dated
+> snapshot in which they were recorded unless independently re-verified live.
+
 > **Sails Protocol — Engineering Operating System, Document 2 of 2**
 > (companion: `docs/ENGINEERING_GOVERNANCE.md`). Written during Mission
 > 9.9, 2026-08-31; **the GitHub Project itself was created and

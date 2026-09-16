@@ -81,7 +81,7 @@ Use these sources when the question is what is actually real now, what remains o
 - GitHub Issues — executable work units, decisions and validation gates.
 - [`BACKLOG.md`](BACKLOG.md) — institutional unresolved inventory, dependencies and context ledger.
 - [`TODO.md`](TODO.md) — audited implementation-gap inventory; currently retained with limited authority.
-- [`HANDOFF.md`](HANDOFF.md) — practical current-state handoff for an engineer picking up active work.
+- [`HANDOFF.md`](HANDOFF.md) — historical engineering handoff / dated context; **not** current execution state.
 - [`GETTING_STARTED.md`](GETTING_STARTED.md) — fastest way to test what can actually run.
 - [`API_STABLE.md`](API_STABLE.md) — real frozen public API surface.
 
@@ -159,7 +159,7 @@ The router above is the preferred entry surface. Use this map when you already k
 | SDK / developer journey | [`GETTING_STARTED.md`](GETTING_STARTED.md), [`SDK_GUIDE.md`](SDK_GUIDE.md), [`DEVELOPER_JOURNEY.md`](DEVELOPER_JOURNEY.md), [`TRANSACTION_WALKTHROUGH.md`](TRANSACTION_WALKTHROUGH.md), [`SDK_usecases.md`](SDK_usecases.md) |
 | Security / trust / crypto | [`THREAT_MODEL.md`](THREAT_MODEL.md), [`SECURITY_MODEL.md`](SECURITY_MODEL.md), [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md), [`CRYPTOGRAPHIC_MODEL.md`](CRYPTOGRAPHIC_MODEL.md), [`security/`](security/) |
 | Governance / engineering method | [`GOVERNANCE.md`](GOVERNANCE.md), [`ENGINEERING_GOVERNANCE.md`](ENGINEERING_GOVERNANCE.md), [`PRINCIPLES.md`](PRINCIPLES.md), [`../CONTRIBUTING.md`](../CONTRIBUTING.md), [`CODE_STYLE.md`](CODE_STYLE.md) |
-| Planning / current work | [`ROADMAP.md`](ROADMAP.md), [`GITHUB_PROJECT.md`](GITHUB_PROJECT.md), [`BACKLOG.md`](BACKLOG.md), [`TODO.md`](TODO.md), [`HANDOFF.md`](HANDOFF.md) |
+| Planning / current work | [`ROADMAP.md`](ROADMAP.md), [`GITHUB_PROJECT.md`](GITHUB_PROJECT.md), [`BACKLOG.md`](BACKLOG.md), [`TODO.md`](TODO.md), [`HANDOFF.md`](HANDOFF.md) *(historical handoff)* |
 | Economics | [`PROTOCOL_ECONOMY.md`](PROTOCOL_ECONOMY.md) |
 | Public explanatory papers | [`whitepapers/README.md`](whitepapers/README.md) |
 

@@ -1,6 +1,15 @@
 # ARCHITECTURE.md
 ### Sails Protocol — Engineering Handoff · Document 2 of 20
 
+> **Authority / status:** this document owns broad/reference-system
+> architecture and preserves historical implementation topology. The current
+> authority for the **Pure Sails Core / Runtime / Modules / Providers** macro
+> architecture is [`CORE_ARCHITECTURE.md`](CORE_ARCHITECTURE.md), with
+> implementation derivation owned by
+> [`CORE_IMPLEMENTATION_ARCHITECTURE.md`](CORE_IMPLEMENTATION_ARCHITECTURE.md).
+> Historical uses of **Core** in this document must not be interpreted as the
+> modern **Pure Sails Core** boundary.
+
 > Read `PROJECT_CONTEXT.md` first if you haven't. This document assumes you
 > understand the Protocol/Module/Reference-Implementation hierarchy.
 

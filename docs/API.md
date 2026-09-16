@@ -1,4 +1,11 @@
-# API Reference
+# SailsClient Convenience Methods
+
+> **Status / authority:** this is a narrow reference for the wallet-requiring
+> convenience methods exposed directly by `SailsClient`. It is **not** the
+> complete or canonical API authority. Use [`API_REFERENCE.md`](API_REFERENCE.md)
+> for the detailed current developer/API reference and
+> [`API_STABLE.md`](API_STABLE.md) for the authoritative compatibility/freeze
+> contract.
 
 Reference for the `SailsClient` wallet-requiring convenience methods
 defined in `packages/sails-sdk/src/client.ts`. Every method here delegates
