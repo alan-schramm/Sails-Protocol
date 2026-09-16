@@ -60,16 +60,18 @@ enough to drive the entire protocol, without shortcuts.
 
 ## A real finding from writing this
 
-The offer below is published at an aggressively low price
-(`priceUsd: '0.01'`) on purpose, not arbitrarily. `liquidity.discover()`
-orders results by price ascending and hard-caps at 10
-(`liquidity.service.ts`'s `getOffers()`, `take: 10`, no pagination
-parameter exists on the route or the SDK today). The first version of
-this example priced the offer realistically (`'1.00'`) and it silently
-failed to appear in `discover()` results at all, once this repo's own
-local dev database — used across dozens of E2E runs — accumulated more
-than 10 cheaper active offers for the same asset/side. A real wallet
-integrating against a genuinely active marketplace will hit the exact
-same wall. Pricing low here works around it for this demo; it does not
-fix the underlying gap — see docs/TODO.md §25 for the real fix this
-surfaced.
+The first version of this example exposed a real pagination defect in
+`liquidity.discover()`: only the cheapest 10 matching offers were reachable,
+so the demo temporarily used an aggressively low offer price to guarantee
+its freshly-published offer appeared in the first result set.
+
+That limitation is **historical, not current API truth**. The current SDK
+accepts optional `limit` / `offset`, and `discover()` returns pagination
+metadata (`total` / `hasMore`) together with the offers. A caller should use
+that pagination contract rather than rely on offer pricing to force an item
+into the first page.
+
+The low demo price may still be useful for deterministic local fixtures, but
+it is no longer a required workaround for a missing pagination capability.
+See `docs/API_STABLE.md` and `packages/sails-sdk/src/modules/liquidity.ts` for
+the current contract.
