@@ -10,21 +10,35 @@
 
 ## 1. What Sails Protocol Is
 
-**v1 Positioning Freeze (post-DeepSeek external review — CTO directive,
-supersedes the framing below where the two conflict):** the protocol's
-long-term scope is unchanged, but every v1 decision — architecture,
-documentation, SDK, examples, diagrams — starts from one concrete
-scenario, not the full generic ambition:
+**Current positioning model (CTO freeze):**
+
+> **Current category:** Sails Protocol is an Economic Coordination Protocol.
+>
+> **V1 focus:** Sails Protocol is open infrastructure for building interoperable
+> P2P Financial Marketplaces.
+>
+> **First concrete developer product:** Sails P2P Trading SDK.
+
+The current category and the v1 focus answer different questions and must not
+be collapsed into one sentence. **Economic Coordination Protocol** names the
+current protocol category. The P2P Financial Marketplace sentence names the
+concrete v1 focus and adoption wedge.
+
+**Historical v1 Positioning Freeze (post-DeepSeek external review — preserved
+for provenance):** the protocol's long-term scope is unchanged, but every v1
+decision — architecture, documentation, SDK, examples, diagrams — starts from
+one concrete scenario, not the full generic ambition:
 
 > **"Sails Protocol is open infrastructure for building interoperable
 > P2P Financial Marketplaces."**
 
-This is the **One Sentence Test** answer — the same sentence, every time,
-in the README, in a pitch, in onboarding docs. If a document describes
-Sails Protocol differently, that document is wrong, not this sentence.
+For v1 product positioning, this is the concrete focus sentence. Use it when
+the question is what Sails enables developers to build today. It does not
+replace the current category definition, architectural descriptions, or
+explicitly labelled long-term / legacy framing.
 
-**Why this supersedes, not replaces, the broader definition below:** the
-protocol was never *only* capable of P2P marketplaces — OTC, Lending,
+**Why this v1 focus remains concrete without replacing the broader category:**
+the protocol was never *only* capable of P2P marketplaces — OTC, Lending,
 Payroll, Commerce, Treasury, and OpenFinance all sit on the same
 architecture (`ROADMAP.md`). But a protocol that can do everything reads,
 to a developer or a partner meeting it for the first time, as a protocol
@@ -57,9 +71,9 @@ without building the underlying infrastructure themselves.
 
 ---
 
-**Official Definition (long-term scope — use where the discussion is
-genuinely about the protocol's full ambition, not the v1 MVP; the One
-Sentence Test answer above is what to lead with everywhere else):**
+**Broader descriptive framing (long-term scope — use where the discussion is
+genuinely about the protocol's full ambition, not as a replacement for the
+current category or the concrete v1 focus):**
 
 > "Sails Protocol is an intent-driven, open coordination protocol that
 > enables sovereign financial interactions across wallets, agents,
@@ -76,7 +90,9 @@ User  →  Intent  →  Coordination  →  Settlement  →  Completion
 Read `PROTOCOL_SPECIFICATION.md` for the 9-primitive, 9-state version of
 this same picture. Start here first.
 
-**Sails Protocol** is an **Open Coordination Protocol for Sovereign Finance**.
+**Legacy / broader descriptive framing (not the current category):** Sails
+Protocol was also described as an **Open Coordination Protocol for Sovereign
+Finance**.
 
 It is a specification — a set of interfaces, event contracts, and behavioral
 rules — that allows sovereign wallets, fintechs, OTC desks, and AI agents to
@@ -91,9 +107,8 @@ sentence was written when the project deliberately avoided any single
 concrete use case, to stay maximally generic. The DeepSeek review's
 finding, adopted by the CTO, is that this genericness was the adoption
 blocker, not a strength — a protocol needs one clear "what can I build
-with this" answer before it needs breadth.** The corrected canonical
-one-line description, used verbatim across every document in this
-project:
+with this" answer before it needs breadth.** The corrected v1 product-facing
+description from that review was:
 
 > **"Sails Protocol doesn't operate a P2P exchange — it's the
 > infrastructure that lets any wallet become an interoperable P2P
@@ -107,14 +122,14 @@ while aligning with the positioning above instead of contradicting it.
 **Revised again (GPT/CTO persona's re-analysis of the DeepSeek review,
 same week):** the version above previously ended "...it's the
 infrastructure any wallet uses to build one" — correct, but it silently
-dropped "interoperable," the one word doing the most work in the One
-Sentence Test's own tagline (section 1). "Build one" also implied each
-wallet constructs a separate, siloed marketplace; "become an
-interoperable P2P Financial Marketplace" says what's actually true
-architecturally — a wallet that integrates Sails becomes a participant
-in one shared, interoperable network, not the operator of its own
-isolated instance. Small wording change, but it closes a real gap
-between this sentence and the tagline it's supposed to restate.
+dropped "interoperable," the one word doing the most work in the v1 focus
+tagline (section 1). "Build one" also implied each wallet constructs a
+separate, siloed marketplace; "become an interoperable P2P Financial
+Marketplace" says what's actually true architecturally — a wallet that
+integrates Sails becomes a participant in one shared, interoperable network,
+not the operator of its own isolated instance. Small wording change, but it
+closes a real gap between this sentence and the tagline it's supposed to
+restate.
 
 **The value contrast, added the same pass:** Bisq is an application — a
 product a user installs and trades directly on. Sails Protocol is
@@ -2031,17 +2046,20 @@ not stylistic variation — replace it. This table exists so the question
 "is Trade the same thing as Intent" never needs re-litigating: it's the
 same underlying primitive, and only "Intent" is the name to use.
 
-### The One Sentence Test
+### The Positioning Test
 
-Every doc that answers "what is Sails Protocol?" answers it with exactly
-this sentence — not a paraphrase, not a "similar" version:
+When answering "what is Sails Protocol?", keep the positioning layers explicit
+instead of forcing one sentence to do every job:
 
-> **"Sails Protocol is open infrastructure for building interoperable
-> P2P Financial Marketplaces."**
+- **Current category:** Sails Protocol is an Economic Coordination Protocol.
+- **V1 focus:** Sails Protocol is open infrastructure for building interoperable
+  P2P Financial Marketplaces.
+- **First concrete developer product:** Sails P2P Trading SDK.
 
-If you're tempted to reword it for a specific document's tone, that's a
-sign the positioning needs a second sentence added after it, not a
-replacement of the first one.
+Use the category when naming what Sails is, the v1 focus when explaining what
+it enables developers to build today, and the product name when pointing to
+what developers can integrate. These are complementary, not competing
+definitions.
 
 ### The Five Minute Test
 
