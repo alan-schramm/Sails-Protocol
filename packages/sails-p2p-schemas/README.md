@@ -29,6 +29,9 @@ See [@satsails/p2p-trading-sdk](../sails-sdk) for the full client that builds on
 contracts, and the root [README.md](../../README.md) for the protocol
 overview.
 
+Maintainers: [`docs/SCHEMAS_RELEASE.md`](../../docs/SCHEMAS_RELEASE.md) is the canonical
+release contract for this independently versioned npm artifact.
+
 ## License
 
 Apache-2.0
