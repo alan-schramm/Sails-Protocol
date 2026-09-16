@@ -43,13 +43,13 @@ The historical `v1.0.0-rc1` tag is preserved unchanged. It is a historical relea
 
 ## 3. Release states
 
-Release state must be described precisely. The following states are intentionally distinct:
+Release state must be described precisely. The following states are intentionally distinct and ordered according to the normal release path defined in §5:
 
 1. **Version prepared** — the intended SDK version and changelog entry exist in a release-preparation PR, but are not yet part of the release source commit.
 2. **Source frozen** — the version/changelog preparation is merged and one immutable source commit SHA is selected as the release source.
 3. **Artifact built** — a clean checkout of that exact SHA has produced the package artifact and required verification has passed.
-4. **Artifact published** — the exact prepared package version has been accepted by the npm registry and registry state has been verified.
-5. **Tagged** — the artifact-specific Git tag exists and points to the exact frozen source SHA.
+4. **Tagged** — the artifact-specific Git tag exists and points to the exact frozen source SHA.
+5. **Artifact published** — the exact prepared package version has been accepted by the npm registry and registry state has been verified.
 6. **GitHub Release recorded** — a GitHub Release exists for that exact tag and records the package version/source relationship and release notes.
 7. **Release completed** — every required state above is verified as a single consistent chain.
 
@@ -144,9 +144,11 @@ A future workflow may automate these mechanics, but the workflow must implement 
 
 ### 7.2 npm publish succeeds, tag creation is reported as failed
 
-**State:** artifact published, release incomplete.
+Under the required ordering, the tag is created **before** npm publication. Reaching this state means the normal process was bypassed, an external/manual publish occurred first, or the operator has inconsistent observations that require reconciliation.
 
-**Recovery:** first inspect Git before retrying; a client/network failure can occur after a remote mutation. If the expected tag does not exist, create it at the already-frozen source SHA. If the expected tag exists at that SHA, continue. If it exists at any other SHA, do not move it and do not pretend the chain is valid; stop for Release Approver recovery. The published npm version cannot be replaced with a different artifact under the same version.
+**State:** artifact may be published, tag state unresolved, release incomplete.
+
+**Recovery:** first verify npm and Git independently before retrying anything. If npm contains the expected version and the expected tag is absent, create the tag at the already-frozen source SHA only after verifying that this is the source that produced the published artifact. If the expected tag exists at that SHA, continue. If it exists at any other SHA, or the published artifact cannot be safely attributed to the frozen SHA, do not move the tag and do not pretend the chain is valid; stop for Release Approver recovery. The published npm version cannot be replaced with a different artifact under the same version.
 
 ### 7.3 Tag exists, npm publish fails
 
