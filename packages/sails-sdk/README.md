@@ -7,10 +7,22 @@
 The single typed client a wallet/fintech imports to reach every Sails
 Protocol module (OpenIdentity, OpenLiquidity, OpenP2P, OpenSettlement,
 OpenReputation, OpenProof, OpenAgents) over HTTP/WebSocket. See
-[`docs/SDK_GUIDE.md`](../../docs/SDK_GUIDE.md) for the full interface
-specification, [`docs/API_STABLE.md`](../../docs/API_STABLE.md) for the
+[`docs/SDK_GUIDE.md`](../../docs/SDK_GUIDE.md) for how to build a real
+integration, [`docs/API_STABLE.md`](../../docs/API_STABLE.md) for the
 frozen no-breaking-changes contract, and [`docs/EXAMPLES.md`](../../docs/EXAMPLES.md)
-for working code snippets.
+for small copyable wallet-method snippets.
+
+Install:
+
+```bash
+npm install @satsails/p2p-trading-sdk
+```
+
+If you also need a local Sails node, start with
+[`docs/GETTING_STARTED.md`](../../docs/GETTING_STARTED.md). The canonical
+SDK golden path is [`examples/simple-wallet`](../../examples/simple-wallet).
+When you are ready to connect real wallet-owned signing and custody,
+continue to [`examples/wallet-integration`](../../examples/wallet-integration).
 
 ## Quick start
 
@@ -42,6 +54,9 @@ chat.send({ content: "Sending payment now", msgType: "TEXT" })
 
 The SDK works in both Node.js (18+/20+/22+) and modern browsers. It
 has no Node-only dependencies beyond `tweetnacl` (pure JS Ed25519).
+This is the SDK consumer runtime claim; running this repository's local
+server/monorepo has its own requirements documented in
+[`docs/GETTING_STARTED.md`](../../docs/GETTING_STARTED.md).
 
 ## React Native setup
 
@@ -110,9 +125,18 @@ see `intent-facade.ts`'s own header for the architectural reason.
 integration. Without one, every wallet-requiring method (`getBalance`,
 `sendTransaction`, `signMessage`, `getWalletAddresses`,
 `getCapabilities`) throws a clear `SailsTransportError` pointing at the
-fix. See [`docs/EXAMPLES.md`](../../docs/EXAMPLES.md) and
-[`packages/sails-sdk/src/wallet-adapter-mock.ts`](src/wallet-adapter-mock.ts)
-for a reference implementation.
+fix.
+
+For local/example code, use the publicly exported `MockWalletAdapter` and
+[`docs/EXAMPLES.md`](../../docs/EXAMPLES.md). For a real integration, your
+wallet implements the public `WalletAdapter` contract while keeping
+ownership of its own keys, signing, storage, transport and broadcast
+responsibilities. The canonical non-mock Bitcoin/EVM reference is
+[`examples/wallet-integration`](../../examples/wallet-integration).
+
+In short: **keep your wallet stack; plug into Sails.** That means Sails
+provides the coordination/client surface; it does not require the wallet
+to surrender key management or signing ownership.
 
 ## Build
 

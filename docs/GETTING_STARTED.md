@@ -13,12 +13,37 @@
 Commands only — no architectural context here, that's `PROJECT_CONTEXT.md`.
 For the full narrated version of everything below, see `TRANSACTION_WALKTHROUGH.md`.
 
+## Prerequisites: choose the path you are actually using
+
+- **Easiest local server path:** use Docker. You do not need Node/npm on
+  the host just to start the repository's local Sails server with the
+  command below.
+- **Monorepo / local development path:** use **Node.js >=20**, matching
+  the root repository `engines.node` requirement. Commands such as
+  `npm run dev`, workspace builds, tests and the in-repo examples use
+  this development environment.
+- **External SDK consumer runtime:** the SDK package has its own runtime
+  support statement in [`packages/sails-sdk/README.md`](../packages/sails-sdk/README.md).
+  Do not infer the monorepo/server Node requirement as the SDK consumer
+  requirement, or vice versa.
+
 ## 1. Run the server
+
+### Easiest path: Docker
 
 No Node/npm on your host needed:
 
 ```bash
 docker compose up -d --build   # Postgres + Redis + the server — http://localhost:3000
+```
+
+### Monorepo development path
+
+If you are developing inside this repository rather than only running the
+Docker quickstart, use Node.js >=20 and the repository's npm workspace:
+
+```bash
+npm run dev
 ```
 
 ## 2. Run the full demo flow

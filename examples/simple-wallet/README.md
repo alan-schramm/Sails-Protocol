@@ -1,7 +1,7 @@
 # @sails/example-simple-wallet
 
-The dogfooding test for `@satsails/p2p-trading-sdk` (docs/TODO.md §25): the smallest
-real wallet integration of the SDK, written using **only its public
+The dogfooding test for `@satsails/p2p-trading-sdk` (docs/TODO.md §25): the
+canonical SDK golden-path integration, written using **only its public
 API** — no reaching into this monorepo's internal services, no mocks.
 It runs the real golden path against a real local Sails node:
 
@@ -11,10 +11,15 @@ register (seller) → register (buyer) → publish offer → discover offer
   → release escrow
 ```
 
-The question this answers: **can a wallet developer integrate this SDK
-in under 15 minutes?** Read `src/index.ts` top to bottom — it's ~140
-lines including comments, uses 12 SDK methods, and needs nothing beyond
-what `@satsails/p2p-trading-sdk`'s own types export.
+The question this answers: **can a developer integrate the SDK in under
+15 minutes?** Read `src/index.ts` top to bottom — it's ~140 lines
+including comments, uses 12 SDK methods, and needs nothing beyond what
+`@satsails/p2p-trading-sdk`'s own types export.
+
+This example proves the **SDK path**. It does not implement a real
+`WalletAdapter` or prove a wallet-owned signing/custody boundary. For
+that separate proof, continue to
+[`../wallet-integration`](../wallet-integration).
 
 ## Run it
 
@@ -41,11 +46,16 @@ SAILS_BASE_URL=https://staging.example.com npm run start -w @sails/example-simpl
 
 ## What this is *not*
 
-This is not a UI. There's no wallet screen, no key storage, no error
-recovery beyond a single clear message pointing back at the
-prerequisite. Real wallets (see `packages/sails-ui` for what a full
-screen-by-screen integration looks like) need all of that — this
-example exists purely to prove the SDK's public surface alone is
+This is not a UI and it is not the real-wallet adapter reference. There's
+no wallet screen, no wallet-owned signing adapter, no key storage, and no
+error recovery beyond a single clear message pointing back at the
+prerequisite. Real wallets (see
+[`../wallet-integration`](../wallet-integration) for the canonical
+`WalletAdapter` / signing-boundary proof and `packages/sails-ui` for a
+full screen-by-screen integration) need those responsibilities in
+addition to the SDK flow demonstrated here.
+
+This example exists purely to prove the SDK's public surface alone is
 enough to drive the entire protocol, without shortcuts.
 
 ## A real finding from writing this

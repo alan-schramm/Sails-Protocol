@@ -12,13 +12,7 @@ has been validated against `packages/sails-sdk/tests/client-wallet.test.ts`.
 ## Basic setup
 
 ```ts
-import { SailsClient } from "@satsails/p2p-trading-sdk"
-import { MockWalletAdapter } from "../src/wallet-adapter-mock"
-// (MockWalletAdapter lives at packages/sails-sdk/src/wallet-adapter-mock.ts
-//  and is intended for unit tests and examples — not exported in the
-//  public @satsails/p2p-trading-sdk barrel; import it directly from the source path
-//  during local development, or implement your own WalletAdapter
-//  against the interface in @satsails/p2p-trading-sdk for production.)
+import { SailsClient, MockWalletAdapter } from "@satsails/p2p-trading-sdk"
 
 const wallet = new MockWalletAdapter({
   peerId: "mock-peer",
@@ -31,6 +25,11 @@ const client = new SailsClient({
   wallet,
 })
 ```
+
+`MockWalletAdapter` is part of the public package surface so an external
+consumer can use the same import shown above after `npm install
+@satsails/p2p-trading-sdk`. It is a convenience for local development,
+examples and tests — not a production wallet implementation.
 
 > The `wallet` field is optional. The SDK is fully functional over
 > HTTP/WS alone — every module method works without a wallet adapter.
@@ -95,6 +94,19 @@ client.setSessionToken("session-from-your-secure-store")
 // later, anywhere in your app:
 const me = await client.identity.me()
 ```
+
+## Moving from mock to a real wallet
+
+These snippets prove the wallet-requiring convenience surface with the
+public mock. A real wallet should implement the public `WalletAdapter`
+interface and keep responsibility for its own key storage, signing,
+address/balance lookup, transaction broadcast and any transport cleanup.
+Sails consumes that interface; it does not take ownership of those wallet
+responsibilities.
+
+For the canonical non-mock references, including real Bitcoin and EVM
+adapter/signing boundaries, see
+[`examples/wallet-integration`](../examples/wallet-integration).
 
 These snippets can be copied into a file (e.g., `example.ts`) and run with
 `ts-node` after installing the SDK and a local Sails node (see the
