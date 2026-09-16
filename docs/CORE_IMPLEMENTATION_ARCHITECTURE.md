@@ -48,15 +48,32 @@ wording arbitration. It is canonical as of this document's own commit
 and, like the documents above it, revisable only through an explicit,
 versioned process.
 
+**Current-state correction (2026-09-16):** this implementation architecture
+was frozen before the implementation program started. The later Sails Core
+Implementation Program created `packages/sails-core/`, an internal/private
+TypeScript workspace package named `@sails/core`, as the physical
+implementation surface for the **Pure Semantic Core** boundary described
+here. That later package creation does not retroactively mean this freeze
+authorized package creation, and it does not expand the boundary: Runtime,
+Modules, Providers, persistence/orchestration, and application adapters
+remain outside `@sails/core`. Selected Runtime slices now invoke
+Core-authoritative semantics, but the migration is partial and the legacy
+implementation has not become globally Core-authoritative. `@sails/core`
+remains internal/private and is not a public npm package. Future-looking
+implementation language below is retained as freeze-time program context
+unless explicitly corrected by a later dated note.
+
 ## 3. What This Document Is Not
 
 Not the Semantic Kernel or the Core Architecture. Not an implementation
 — no runtime code changes as a result of this document. Not a package
-specification, API specification, or database schema. **`@sails/core`
-does not exist and is not authorized by this document.** Not a claim
-that a second (Rust, Go, or otherwise) implementation exists, that
-formal cross-language equivalence has been proven, or that the
-described migration has occurred.
+specification, API specification, or database schema. **At freeze time,
+`@sails/core` did not yet exist and was not authorized by this document.**
+A later authorized implementation program created the internal/private
+package without changing the authority or scope of this baseline. Not a
+claim that a second (Rust, Go, or otherwise) implementation exists, that
+formal cross-language equivalence has been proven, or that the described
+migration has been completed.
 
 ---
 
@@ -335,8 +352,10 @@ workspace boundary, combined with the static checks above and an
 independent build/typecheck target. This is implementation guidance,
 offered as a reasonable path, not a frozen protocol requirement. The
 governing principle: **physical separation from day one ≠ public
-package from day one.** `@sails/core` remains unauthorized by this
-document.
+package from day one.** At freeze time this document did not itself
+authorize `@sails/core`; the later implementation program adopted exactly
+this internal-workspace pattern. That later adoption does not make package
+identity semantic authority and does not authorize public npm publication.
 
 ## 19. Language Neutrality
 
@@ -525,14 +544,22 @@ Reference UI; Context & Knowledge Architecture.
 
 ## 35. Authorized Claims
 
-After this freeze, it is accurate to say: Sails has a validated
-Semantic Kernel, Core Architecture, and Core Implementation
-Architecture. The Core implementation architecture is language-neutral
-and explicitly separates semantic identity from implementation package
-identity. The architecture defines a staged migration path from the
-current implementation to a Pure Core without dual semantic authority.
-The first implementation is expected in TypeScript, but TypeScript is
-not the semantic authority.
+At freeze time, it was accurate to say: Sails had a validated Semantic
+Kernel, Core Architecture, and Core Implementation Architecture; the Core
+implementation architecture was language-neutral and explicitly separated
+semantic identity from implementation package identity; and the architecture
+defined a staged migration path from the then-current implementation to a
+Pure Core without dual semantic authority. The first implementation was
+expected in TypeScript, but TypeScript was never the semantic authority.
+
+**Current-state correction (2026-09-16):** that implementation program has
+since begun and the internal/private TypeScript `@sails/core` package now
+exists. Selected semantic decisions have migrated to bounded
+Core-authoritative Runtime slices, while other paths remain legacy-
+authoritative. Therefore it is accurate to claim partial implementation and
+partial authority migration, but not full migration, production readiness,
+or that `@sails/core` encompasses Runtime, Modules, Providers, or the Sails
+Protocol as a whole.
 
 ## 36. Forbidden Claims
 
