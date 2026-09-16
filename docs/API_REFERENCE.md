@@ -109,10 +109,14 @@ break; do not delete the legacy path until a deprecation window has passed.
 
 ---
 
-## 1B. Intent Engine — `/api/v1/intents` (Core, not a module — deliberately
-outside the `/v1/{module}` convention above, since Intent is a
-cross-cutting Core primitive `intent-engine.ts` owns, not any one
-module's resource)
+## 1B. Intent Engine — `/api/v1/intents` (legacy/reference cross-cutting coordination infrastructure)
+
+This route sits outside the `/v1/{module}` convention because Intent is a
+cross-cutting protocol primitive and the legacy/reference Intent Engine
+(`intent-engine.ts`) owns this implementation path rather than any one
+module. This describes the historical/reference implementation topology; it
+does not assign the Intent Engine to the modern Pure Sails Core, Runtime, or
+a Module.
 
 | Method | Path | Description |
 |---|---|---|
@@ -327,13 +331,15 @@ in a single server process.
 | POST | `/v1/capabilities/:grantId/revoke` | Revoke a grant |
 
 **RFC-013 note:** this is the real implementation of RFC-005's
-`CapabilityGrant` (`PROTOCOL_SPECIFICATION.md` §1.10) — a Core component
-(`core/capability-registry.ts`), not an OpenAgents-owned resource; the
-routes live here because capability declaration maps onto RFC-005's own
-`agent-delegation` capability, the closest existing module owner. Only
-self-issued grants exist today — a real multi-party issuance flow (a
-module operator granting scope to an agent it doesn't control) is
-separate follow-up work, not claimed done here.
+`CapabilityGrant` (`PROTOCOL_SPECIFICATION.md` §1.10). The Capability
+Registry is a historical/reference coordination component
+(`core/capability-registry.ts` in the legacy topology), not an
+OpenAgents-owned resource and not an assertion that it belongs to the
+modern Pure Sails Core. The routes live here because capability declaration
+maps onto RFC-005's own `agent-delegation` capability, the closest existing
+module owner. Only self-issued grants exist today — a real multi-party
+issuance flow (a module operator granting scope to an agent it doesn't
+control) is separate follow-up work, not claimed done here.
 
 ---
 
