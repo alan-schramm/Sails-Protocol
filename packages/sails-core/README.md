@@ -5,18 +5,22 @@ Pure Semantic Core for Sails Protocol. See `docs/SEMANTIC_KERNEL.md`,
 before touching this package — architecture is frozen; this package must
 conform to it, never the reverse.
 
-**Status**: M0 (mechanical boundary) + M1 (semantic model foundation) +
-M2 (Canonical Evaluator Identity, Semantic Profile & conformance
-harness) only. No shadow evaluation, no authority transfer, no
-Ruleset-admission/governance tooling. The current, legacy
-implementation remains 100% authoritative — nothing in this package is
-invoked by any Runtime path yet.
+**Status (2026-09-16):** the M0/M1/M2 foundations remain in place, and later
+Pure Core slices now exist for generalized attribution, correspondence,
+outcome/destination semantics, and dispatch eligibility. Selected Runtime
+paths invoke Core-authoritative semantics today, including bounded escrow
+expiry and MULTISIG dispute-ruling slices. This is **not** a claim that the
+full legacy implementation has migrated to the modern Core architecture:
+Runtime, Modules, Providers, persistence, orchestration, and application
+adapters remain outside this package, and large parts of the legacy system
+continue to operate outside Core-authoritative paths. Ruleset-admission /
+governance tooling also remains outside the completed package surface.
 
 ## Commands (no runtime infrastructure required)
 
 ```bash
 npm run typecheck -w @sails/core   # tsc --noEmit, no Postgres/Redis/network needed
-npm run build -w @sails/core       # tsc, emits dist/ (not published, not consumed anywhere yet)
+npm run build -w @sails/core       # tsc, emits dist/ (internal and unpublished)
 npm run check:boundary -w @sails/core  # scripts/check-core-boundary.ts against src/
 npm run check:conformance          # scripts/run-conformance-harness.ts against conformance/
 ```
@@ -64,6 +68,9 @@ code.
 | LeafEvaluator contract | implemented (M2) | `leaf-evaluator.ts` |
 | Reference timelock evaluator | implemented (M2), see `conformance/evaluators/sails-timelock-evaluator-1.0.json` for the semantic definition it implements | `evaluators/timelock-evaluator.ts` |
 | Conformance vector comparison (pure) | implemented (M2) | `conformance.ts` |
+| Generalized attribution evaluation | implemented | `attribution.ts` |
+| Correspondence result + evaluation | implemented | `correspondence-result.ts`, `correspondence.ts`, `correspondence-conformance.ts` |
+| Provider dispatch eligibility gate | implemented | `dispatch-gate.ts` |
 
 ## Deliberately deferred (not missing — scoped out, with reason)
 
@@ -75,17 +82,10 @@ code.
   Core-level shape; introducing a generic `State` type now would invent
   structure Core doesn't actually own. Deferred to when leaf-predicate
   logic is built.
-- **CorrespondenceResult / ExecutionValidityResult** — explicitly M6/M8
-  scope per the migration sequence (`CORE_IMPLEMENTATION_ARCHITECTURE.md`
-  §29), not part of the M1 role list.
-- **Attribution *verification* logic** — M5 scope; only the minimal
-  `DiscretionaryAttributionMaterial` envelope shape exists now
-  (`transition.ts`).
 - **Ruleset admission / governance tooling** — deciding whether a
   Ruleset/Evaluator/Profile combination is *trusted* for use (as
-  opposed to merely *resolvable*, which M2 now provides) remains open,
-  tracked as Technical Debt item 38. `see ../../conformance/README.md`
-  for the recognized-vs-conformant mechanism M2 actually built.
+  opposed to merely *resolvable*) remains outside the Pure Core package
+  surface and is tracked separately as institutional/technical debt.
 
 ## What this package must never become
 
