@@ -96,11 +96,13 @@ Then follow the canonical developer journey:
 4. [API Reference](docs/API_REFERENCE.md) — detailed routes and contracts.
 5. [API Stable](docs/API_STABLE.md) — the frozen developer contract/version boundary.
 
-Install the SDK:
+## Developer SDKs
 
-```bash
-npm install @satsails/p2p-trading-sdk
-```
+Sails developer products are listed here so integrators can go directly from the repository homepage to the package, installation command, and integration documentation. As additional Sails SDKs are released, they should be added to this table rather than creating separate discovery paths.
+
+| SDK | Package | Install | Start here | Status |
+|---|---|---|---|---|
+| **Sails P2P Trading SDK** | [`@satsails/p2p-trading-sdk` on npm](https://www.npmjs.com/package/@satsails/p2p-trading-sdk) | `npm install @satsails/p2p-trading-sdk` | [Getting Started](docs/GETTING_STARTED.md) · [SDK Guide](docs/SDK_GUIDE.md) · [`examples/simple-wallet`](examples/simple-wallet) | First concrete developer product |
 
 Minimal local example:
 
