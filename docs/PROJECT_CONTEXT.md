@@ -175,10 +175,29 @@ technical flow this statement summarizes.
 
 ---
 
-## 2. The Three-Level Hierarchy (never mix these up)
+## 2. The Three-Level Product / Institutional Hierarchy (never mix these up)
 
-This is the single most important structural fact about the project. Every
-document, every piece of code, every diagram must respect this separation.
+This is the single most important **product / institutional** separation in
+the project: Protocol → Official Modules → Reference Implementations. It
+answers which layer owns specification, module responsibility, and concrete
+product/reference implementation choices. It is **not** the modern software
+macro-architecture.
+
+For the current software-architecture boundary, follow
+`SEMANTIC_KERNEL.md` → `CORE_ARCHITECTURE.md` →
+`CORE_IMPLEMENTATION_ARCHITECTURE.md`, summarized as:
+
+```
+Semantic Kernel
+→ Pure Core
+→ Runtime
+→ Modules
+→ Providers
+→ Applications / Interfaces
+```
+
+The hierarchy below remains the institutional/product view and must not be
+read as a competing software-layer model.
 
 ```
 LEVEL 1 — SAILS PROTOCOL (the specification)
@@ -748,8 +767,8 @@ while correcting the opposite error the prior version made: a
 capability whose backend is genuinely real through SDK/API/runtime
 must **not** be marked non-real merely because a UI is missing — that
 is a Journey Reality gap, reported separately from Implementation
-Reality, never conflated with it (item 5's corrected Funding row is the
-concrete case this fixes).
+Reality, never conflated with it (item 5's corrected Funding row is
+the concrete case this fixes).
 
 Forbidden inferences (unchanged): `SettlementScope exists` → "available";
 provider registration → "production-ready"; test success → "security
