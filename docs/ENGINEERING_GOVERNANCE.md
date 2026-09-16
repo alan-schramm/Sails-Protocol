@@ -13,7 +13,7 @@
 > `docs/GOVERNANCE.md` = how the protocol *specification itself* changes
 > (the RFC process) — this document does not duplicate it, only connects
 > it to day-to-day Issue/PR mechanics.
-> `docs/GITHUB_PROJECT.md` = the current program state and GitHub Project
+> `docs/GITHUB_PROJECT.md = GitHub Project governance/configuration model and dated program-state snapshots; the live GitHub Project owns current operational state.
 > configuration.
 >
 > One canonical source per concept. If you find the same rule stated
