@@ -7,6 +7,8 @@
 
 **Sails Protocol is an Economic Coordination Protocol.**
 
+**V1 focus: Sails Protocol is open infrastructure for building interoperable P2P Financial Marketplaces.**
+
 Its first concrete developer product is the **Sails P2P Trading SDK**, which exposes the first protocol module to integrators and is designed to enable interoperable P2P financial marketplaces across different wallets and execution stacks.
 
 The adoption rule is simple: **keep your wallet stack; plug into Sails.** Sails coordinates shared economic semantics without requiring an integrating wallet or application to surrender ownership of its keys, signing stack, transport, settlement stack, or user experience.
@@ -19,7 +21,7 @@ The repository currently contains:
 
 - **Sails Protocol implementation** — the protocol/runtime implementation and its modules.
 - **Sails P2P Trading SDK** — `@satsails/p2p-trading-sdk`, the first concrete developer product.
-- **Sails Core** — `@sails/core`, implementing the modern Pure Core / Runtime / Modules / Providers architecture.
+- **Sails Core** — `@sails/core`, the internal Pure Semantic Core package. Runtime, Modules, Providers and Adapters remain outside the Pure Core boundary.
 - **Shared schemas** — protocol-facing domain contracts in `@satsails/p2p-schemas`.
 - **Developer and reference packages** — including React/UI surfaces and integration examples.
 - **Reference applications and integrations** — including Sails Market and Satsails-oriented validation/integration work.
