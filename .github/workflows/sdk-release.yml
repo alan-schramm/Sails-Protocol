@@ -1,0 +1,516 @@
+name: SDK Release
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/sdk-release.yml'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact 40-character main commit SHA to release'
+        required: true
+        type: string
+      expected_version:
+        description: 'Expected @satsails/p2p-trading-sdk version already prepared in package.json/changelog'
+        required: true
+        type: string
+      dist_tag:
+        description: 'Authorized npm dist-tag (for example latest or next)'
+        required: true
+        default: 'latest'
+        type: string
+      mode:
+        description: 'dry-run performs no external mutation; release crosses the irreversible boundary'
+        required: true
+        default: 'dry-run'
+        type: choice
+        options:
+          - dry-run
+          - release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-release-${{ github.event_name == 'workflow_dispatch' && inputs.expected_version || format('pr-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE_NAME: '@satsails/p2p-trading-sdk'
+  PACKAGE_DIR: packages/sails-sdk
+  CHANGELOG: packages/sails-sdk/CHANGELOG.md
+  TAG_PREFIX: sdk/p2p-trading/v
+  NODE_VERSION: '24'
+  NPM_VERSION: '11.19.1'
+
+jobs:
+  validate:
+    name: Verify, build, pack and smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      version: ${{ steps.identity.outputs.version }}
+      tag: ${{ steps.identity.outputs.tag }}
+      dist_tag: ${{ steps.identity.outputs.dist_tag }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+      integrity: ${{ steps.pack.outputs.integrity }}
+      shasum: ${{ steps.pack.outputs.shasum }}
+      registry_state: ${{ steps.inspect.outputs.registry_state }}
+      tag_state: ${{ steps.inspect.outputs.tag_state }}
+      release_state: ${{ steps.inspect.outputs.release_state }}
+    env:
+      REQUESTED_SOURCE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.source_sha || github.event.pull_request.head.sha }}
+      EXPECTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_version || '' }}
+      DIST_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.dist_tag || 'dry-run' }}
+      RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Validate requested source SHA shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$REQUESTED_SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "source_sha must be an exact 40-character commit SHA" >&2
+            exit 1
+          fi
+
+      - name: Checkout exact source SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.REQUESTED_SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          REQUESTED_SHA="$(git rev-parse "$REQUESTED_SOURCE_SHA^{commit}")"
+          test "$ACTUAL_SHA" = "$REQUESTED_SHA"
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            git fetch --no-tags origin main:refs/remotes/origin/main
+            if ! git merge-base --is-ancestor "$ACTUAL_SHA" refs/remotes/origin/main; then
+              echo "Requested release SHA is not in main history" >&2
+              exit 1
+            fi
+            git cat-file -e "$ACTUAL_SHA:docs/SDK_RELEASE.md"
+            git cat-file -e "$ACTUAL_SHA:.github/workflows/sdk-release.yml"
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Pin npm release toolchain
+        run: npm install --global npm@${NPM_VERSION}
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Derive and validate release identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          VERSION="$(node -p "require('./${PACKAGE_DIR}/package.json').version")"
+          NAME="$(node -p "require('./${PACKAGE_DIR}/package.json').name")"
+
+          test "$NAME" = "$PACKAGE_NAME"
+          if [[ -n "$EXPECTED_VERSION" && "$VERSION" != "$EXPECTED_VERSION" ]]; then
+            echo "Expected version $EXPECTED_VERSION but package.json declares $VERSION" >&2
+            exit 1
+          fi
+
+          if ! grep -Fq "## [$VERSION]" "$CHANGELOG"; then
+            echo "No prepared changelog entry found for $VERSION" >&2
+            exit 1
+          fi
+
+          if [[ -z "$DIST_TAG" ]]; then
+            echo "dist_tag must not be empty" >&2
+            exit 1
+          fi
+          if [[ "$VERSION" == *-* && "$DIST_TAG" == "latest" ]]; then
+            echo "Prerelease $VERSION may not publish silently to latest" >&2
+            exit 1
+          fi
+
+          TAG="${TAG_PREFIX}${VERSION}"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### SDK release identity"
+            echo "- mode: \`$RELEASE_MODE\`"
+            echo "- package: \`$PACKAGE_NAME\`"
+            echo "- version: \`$VERSION\`"
+            echo "- source: \`$SOURCE_SHA\`"
+            echo "- tag: \`$TAG\`"
+            echo "- npm dist-tag: \`$DIST_TAG\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove stale build output
+        run: rm -rf packages/sails-p2p-schemas/dist packages/sails-sdk/dist
+
+      - name: Build shared schemas
+        run: npm run build -w @satsails/p2p-schemas
+
+      - name: Build SDK
+        run: npm run build -w @satsails/p2p-trading-sdk
+
+      - name: Typecheck SDK
+        run: npm run typecheck -w @satsails/p2p-trading-sdk
+
+      - name: Run SDK tests
+        run: npx jest --runInBand packages/sails-sdk/tests
+
+      - name: Pack and inspect publishable artifact
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sdk-pack" release-evidence
+          (
+            cd "$PACKAGE_DIR"
+            npm pack --json --pack-destination "$RUNNER_TEMP/sdk-pack" > "$RUNNER_TEMP/pack.json"
+          )
+
+          node <<'NODE'
+          const fs = require('fs')
+          const data = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pack.json', 'utf8'))[0]
+          const pkg = JSON.parse(fs.readFileSync(process.env.PACKAGE_DIR + '/package.json', 'utf8'))
+          if (data.name !== process.env.PACKAGE_NAME) throw new Error(`packed name mismatch: ${data.name}`)
+          if (data.version !== pkg.version) throw new Error(`packed version mismatch: ${data.version} != ${pkg.version}`)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tarball=${data.filename}\nintegrity=${data.integrity}\nshasum=${data.shasum}\n`)
+          NODE
+
+          TARBALL="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP + '/pack.json','utf8'))[0].filename")"
+          cp "$RUNNER_TEMP/sdk-pack/$TARBALL" "release-evidence/$TARBALL"
+          cp "$RUNNER_TEMP/pack.json" release-evidence/pack.json
+          tar -tzf "release-evidence/$TARBALL" | tee release-evidence/pack-contents.txt
+
+          if grep -E '(^|/)(src|tests|node_modules|\.git)(/|$)|(^|/)\.env($|/)|\.(pem|key)$' release-evidence/pack-contents.txt; then
+            echo "Packed artifact contains an obviously unintended file" >&2
+            exit 1
+          fi
+
+          sha256sum "release-evidence/$TARBALL" | tee release-evidence/tarball.sha256
+
+      - name: Isolated consumer smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARBALL="${{ steps.pack.outputs.tarball }}"
+          SMOKE_DIR="$RUNNER_TEMP/sdk-consumer"
+          mkdir -p "$SMOKE_DIR"
+          cd "$SMOKE_DIR"
+          npm init -y >/dev/null
+          npm install "$GITHUB_WORKSPACE/release-evidence/$TARBALL" --ignore-scripts --no-audit --no-fund
+
+          node <<'NODE'
+          const sdk = require('@satsails/p2p-trading-sdk')
+          if (typeof sdk.SailsClient !== 'function') throw new Error('SailsClient CJS export missing')
+          if (typeof sdk.MockWalletAdapter !== 'function') throw new Error('MockWalletAdapter CJS export missing')
+          if (typeof sdk.generateKeypair !== 'function') throw new Error('generateKeypair CJS export missing')
+          const client = new sdk.SailsClient({ baseUrl: 'http://127.0.0.1:1' })
+          if (!client.identity || !client.liquidity || !client.openp2p) throw new Error('expected client modules missing')
+          NODE
+
+          node --input-type=module <<'NODE'
+          import { SailsClient, MockWalletAdapter, generateKeypair } from '@satsails/p2p-trading-sdk'
+          if (typeof SailsClient !== 'function') throw new Error('SailsClient ESM export missing')
+          if (typeof MockWalletAdapter !== 'function') throw new Error('MockWalletAdapter ESM export missing')
+          if (typeof generateKeypair !== 'function') throw new Error('generateKeypair ESM export missing')
+          NODE
+
+      - name: Prepare release notes from changelog
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs')
+          const version = process.env.VERSION
+          const text = fs.readFileSync(process.env.CHANGELOG, 'utf8')
+          const heading = `## [${version}]`
+          const start = text.indexOf(heading)
+          if (start < 0) throw new Error(`missing changelog entry ${heading}`)
+          const next = text.indexOf('\n## [', start + heading.length)
+          const entry = text.slice(start, next < 0 ? text.length : next).trim()
+          const body = [
+            `# ${process.env.PACKAGE_NAME}@${version}`,
+            '',
+            `- Package: \`${process.env.PACKAGE_NAME}\``,
+            `- Version: \`${version}\``,
+            `- Source SHA: \`${process.env.SOURCE_SHA}\``,
+            `- npm: \`${process.env.PACKAGE_NAME}@${version}\``,
+            `- Changelog source: https://github.com/${process.env.GITHUB_REPOSITORY}/blob/${process.env.SOURCE_SHA}/${process.env.CHANGELOG}`,
+            '',
+            '## Prepared changelog entry',
+            '',
+            entry,
+            ''
+          ].join('\n')
+          fs.writeFileSync('release-evidence/release-notes.md', body)
+          NODE
+
+      - name: Inspect existing tag, registry and GitHub Release state
+        id: inspect
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+          TAG: ${{ steps.identity.outputs.tag }}
+          LOCAL_INTEGRITY: ${{ steps.pack.outputs.integrity }}
+        run: |
+          set -euo pipefail
+
+          TAG_STATE=absent
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+            TAG_SHA="$(git rev-list -n 1 "$TAG")"
+            if [[ "$TAG_SHA" == "$SOURCE_SHA" ]]; then
+              TAG_STATE=same-source
+            else
+              TAG_STATE=conflict
+            fi
+          fi
+
+          REGISTRY_STATE=absent
+          if REMOTE_VERSION="$(npm view "$PACKAGE_NAME@$VERSION" version 2>"$RUNNER_TEMP/npm-view.err")"; then
+            REGISTRY_INTEGRITY="$(npm view "$PACKAGE_NAME@$VERSION" dist.integrity)"
+            if [[ "$REMOTE_VERSION" == "$VERSION" && "$REGISTRY_INTEGRITY" == "$LOCAL_INTEGRITY" ]]; then
+              REGISTRY_STATE=same-artifact
+            else
+              REGISTRY_STATE=conflict
+            fi
+          else
+            if ! grep -q 'E404' "$RUNNER_TEMP/npm-view.err"; then
+              cat "$RUNNER_TEMP/npm-view.err" >&2
+              echo "Unable to determine registry state safely" >&2
+              exit 1
+            fi
+          fi
+
+          RELEASE_STATE=absent
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            RELEASE_STATE=exists
+          fi
+
+          echo "tag_state=$TAG_STATE" >> "$GITHUB_OUTPUT"
+          echo "registry_state=$REGISTRY_STATE" >> "$GITHUB_OUTPUT"
+          echo "release_state=$RELEASE_STATE" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### External-state inspection"
+            echo "- Git tag: \`$TAG_STATE\`"
+            echo "- npm package/version: \`$REGISTRY_STATE\`"
+            echo "- GitHub Release: \`$RELEASE_STATE\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$RELEASE_MODE" == "release" ]]; then
+            [[ "$TAG_STATE" != "conflict" ]] || { echo "Tag points at another source SHA" >&2; exit 1; }
+            [[ "$REGISTRY_STATE" != "conflict" ]] || { echo "Published version does not match the artifact built from this SHA" >&2; exit 1; }
+            if [[ "$RELEASE_STATE" == "exists" && "$REGISTRY_STATE" == "absent" ]]; then
+              echo "GitHub Release exists while npm version is absent; safe stop for reconciliation" >&2
+              exit 1
+            fi
+          else
+            echo "Dry-run: conflicts are reported as evidence but no external state will be mutated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Write release evidence manifest
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+          TAG: ${{ steps.identity.outputs.tag }}
+          DIST_TAG_VALUE: ${{ steps.identity.outputs.dist_tag }}
+          INTEGRITY: ${{ steps.pack.outputs.integrity }}
+          SHASUM: ${{ steps.pack.outputs.shasum }}
+          TAG_STATE: ${{ steps.inspect.outputs.tag_state }}
+          REGISTRY_STATE: ${{ steps.inspect.outputs.registry_state }}
+          RELEASE_STATE: ${{ steps.inspect.outputs.release_state }}
+        run: |
+          cat > release-evidence/manifest.txt <<EOF
+          package=$PACKAGE_NAME
+          version=$VERSION
+          source_sha=$SOURCE_SHA
+          tag=$TAG
+          dist_tag=$DIST_TAG_VALUE
+          integrity=$INTEGRITY
+          shasum=$SHASUM
+          tag_state=$TAG_STATE
+          registry_state=$REGISTRY_STATE
+          github_release_state=$RELEASE_STATE
+          mode=$RELEASE_MODE
+          EOF
+
+      - name: Upload verified release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-release-evidence-${{ steps.identity.outputs.version }}
+          path: release-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Dry-run irreversible-boundary stop
+        if: ${{ github.event_name == 'pull_request' || inputs.mode == 'dry-run' }}
+        run: |
+          echo 'DRY RUN COMPLETE: no tag created, no npm publish/dist-tag mutation, no GitHub Release created.' | tee -a "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Bind, publish and record
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'release' }}
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: sdk-release
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+      VERSION: ${{ needs.validate.outputs.version }}
+      TAG: ${{ needs.validate.outputs.tag }}
+      DIST_TAG: ${{ needs.validate.outputs.dist_tag }}
+      LOCAL_INTEGRITY: ${{ needs.validate.outputs.integrity }}
+      TARBALL: ${{ needs.validate.outputs.tarball }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout the same frozen source SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Set up Node.js for npm trusted publishing
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Pin npm release toolchain
+        run: npm install --global npm@${NPM_VERSION}
+
+      - name: Download verified release evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-release-evidence-${{ needs.validate.outputs.version }}
+          path: release-evidence
+
+      - name: Verify downloaded artifact checksum
+        working-directory: release-evidence
+        run: sha256sum -c tarball.sha256
+
+      - name: Reconcile immutable tag before publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+            TAG_SHA="$(git rev-list -n 1 "$TAG")"
+            if [[ "$TAG_SHA" != "$SOURCE_SHA" ]]; then
+              echo "Immutable release tag already points at $TAG_SHA, expected $SOURCE_SHA" >&2
+              exit 1
+            fi
+            echo 'tag already exists at the correct source SHA; recovery path continues'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "$TAG" "$SOURCE_SHA" -m "$PACKAGE_NAME@$VERSION from $SOURCE_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Reconcile registry state before publish
+        id: registry_pre
+        shell: bash
+        run: |
+          set -euo pipefail
+          if REMOTE_VERSION="$(npm view "$PACKAGE_NAME@$VERSION" version 2>"$RUNNER_TEMP/npm-view.err")"; then
+            REMOTE_INTEGRITY="$(npm view "$PACKAGE_NAME@$VERSION" dist.integrity)"
+            if [[ "$REMOTE_VERSION" != "$VERSION" || "$REMOTE_INTEGRITY" != "$LOCAL_INTEGRITY" ]]; then
+              echo "Existing npm version cannot be attributed to this verified artifact; safe stop" >&2
+              exit 1
+            fi
+            echo 'published=true' >> "$GITHUB_OUTPUT"
+          else
+            if ! grep -q 'E404' "$RUNNER_TEMP/npm-view.err"; then
+              cat "$RUNNER_TEMP/npm-view.err" >&2
+              echo "Unable to determine registry state safely" >&2
+              exit 1
+            fi
+            echo 'published=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish verified tarball to npm
+        if: ${{ steps.registry_pre.outputs.published == 'false' }}
+        run: npm publish "release-evidence/$TARBALL" --access public --tag "$DIST_TAG"
+
+      - name: Verify npm package and authorized dist-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          REMOTE_VERSION="$(npm view "$PACKAGE_NAME@$VERSION" version)"
+          REMOTE_INTEGRITY="$(npm view "$PACKAGE_NAME@$VERSION" dist.integrity)"
+          REMOTE_TAG_VERSION="$(npm view "$PACKAGE_NAME" "dist-tags.$DIST_TAG")"
+          test "$REMOTE_VERSION" = "$VERSION"
+          test "$REMOTE_INTEGRITY" = "$LOCAL_INTEGRITY"
+          if [[ "$REMOTE_TAG_VERSION" != "$VERSION" ]]; then
+            echo "Published artifact is present but dist-tag '$DIST_TAG' points to '$REMOTE_TAG_VERSION'; safe stop." >&2
+            echo "Trusted publishing intentionally does not perform npm dist-tag repair; reconcile externally per docs/SDK_RELEASE.md." >&2
+            exit 1
+          fi
+
+      - name: Create GitHub Release from prepared changelog record
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'GitHub Release already exists for this tag; recovery path continues without rewriting it.'
+          else
+            ARGS=(release create "$TAG" --verify-tag --title "$PACKAGE_NAME@$VERSION" --notes-file "release-evidence/release-notes.md")
+            if [[ "$VERSION" == *-* ]]; then
+              ARGS+=(--prerelease)
+            fi
+            gh "${ARGS[@]}"
+          fi
+
+      - name: Verify completed release chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          test "$(git rev-list -n 1 "$TAG")" = "$SOURCE_SHA"
+          test "$(node -p "require('./${PACKAGE_DIR}/package.json').version")" = "$VERSION"
+          grep -Fq "## [$VERSION]" "$CHANGELOG"
+          test "$(npm view "$PACKAGE_NAME@$VERSION" version)" = "$VERSION"
+          test "$(npm view "$PACKAGE_NAME@$VERSION" dist.integrity)" = "$LOCAL_INTEGRITY"
+          test "$(npm view "$PACKAGE_NAME" "dist-tags.$DIST_TAG")" = "$VERSION"
+          gh release view "$TAG" --json tagName,url,isDraft,isPrerelease > "$RUNNER_TEMP/github-release.json"
+          test "$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP + '/github-release.json','utf8')).tagName")" = "$TAG"
+          test "$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP + '/github-release.json','utf8')).isDraft")" = 'false'
+
+          {
+            echo '### Release completed'
+            echo "- package/version: \`$PACKAGE_NAME@$VERSION\`"
+            echo "- source SHA: \`$SOURCE_SHA\`"
+            echo "- Git tag: \`$TAG\`"
+            echo "- npm dist-tag: \`$DIST_TAG → $VERSION\`"
+            echo "- GitHub Release: verified"
+            echo "- changelog entry: verified"
+          } >> "$GITHUB_STEP_SUMMARY"
