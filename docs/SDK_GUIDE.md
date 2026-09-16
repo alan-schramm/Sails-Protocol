@@ -17,20 +17,16 @@
 > against each `*.routes.ts` file directly, not assumed from this doc's
 > prose — see this file's own section 2 note on `createIntent`/`trade()`
 > deviations found that way). Of the six-verb Intent facade,
-> `createIntent`/`cancelIntent`/`dispute` are real as of RFC-018's
-> Intent -> Trade -> Escrow link (`GET /v1/openp2p/trades/by-intent/
-> :intentId`, 2026-07-20); `negotiate`/`submitProof`/`releaseAsset` still
-> throw `SailsNotImplementedError` with a specific reason and, where one
-> exists, a real working alternative
-> (`packages/sails-sdk/src/intent-facade.ts`'s own header has the full
-> explanation — no longer a linkage gap for any of the three: `negotiate`
-> is a shape mismatch against a stateful `WebSocketChannel`, `releaseAsset`
-> is missing a destination-address parameter in this very document's own
-> canonical signature, and the Proof primitive genuinely has zero routes
-> yet). Its MVP release
-> is branded **Sails P2P Trading SDK** — same package, scoped to what's
-> actually being built first (P2P trading); see `PROJECT_CONTEXT.md`
-> section 3 for the naming rule.
+> `createIntent`/`cancelIntent`/`dispute`/`submitProof`/`releaseAsset` are
+> real and callable. `negotiate` remains the one experimental verb that
+> throws `SailsNotImplementedError`; its fire-and-forget signature does
+> not match the real stateful `WebSocketChannel`, so use
+> `openp2p.chat(tradeId)` for the working negotiation/chat channel.
+> `docs/API_STABLE.md` is the authoritative source for frozen SDK
+> contract truth and wins if this onboarding guide ever drifts again.
+> Its MVP release is branded **Sails P2P Trading SDK** — same package,
+> scoped to what's actually being built first (P2P trading); see
+> `PROJECT_CONTEXT.md` section 3 for the naming rule.
 >
 > **Correction (2026-07-20, release-audit finding — docs/TODO.md §28):**
 > despite the "verified route-by-route" claim above, section 2's
@@ -88,6 +84,22 @@ the module APIs described in `API_REFERENCE.md`. If you ever find yourself
 adding real logic inside the SDK that isn't already in a module's service
 layer, that's a design smell: the logic belongs in the module, and the SDK
 should just expose it.
+
+Two references prove different parts of the integration surface:
+
+- [`examples/simple-wallet`](../examples/simple-wallet) is the canonical
+  **SDK golden path**: it proves the public SDK surface can drive a complete
+  local trade flow against a real local Sails node.
+- [`examples/wallet-integration`](../examples/wallet-integration) is the
+  canonical **WalletAdapter / signing-boundary proof**: it shows how a real
+  wallet keeps its own key management, signing, storage and broadcast
+  responsibilities while implementing the interface Sails consumes.
+
+The integration rule remains: **keep your wallet stack; plug into Sails.**
+That slogan does not remove integration obligations. A real wallet must
+implement the public `WalletAdapter` boundary for the operations it owns;
+Sails provides the coordination/client surface and does not require the
+wallet to surrender signing or key-management ownership.
 
 ---
 
@@ -466,19 +478,28 @@ need zero changes. This is the same "additive, never breaking" discipline
 `WalletAdapter` (section 3, real as of RFC-013,
 `rfcs/RFC-013-capability-registry-and-wallet-adapter.md`) is deliberately
 transport- and chain-agnostic, so it can sit in front of any wallet's own
-signing stack. This table is a roadmap/positioning reference for what
-that looks like across common wallet toolkits — **only the interface
-itself and the reference implementation's own WDK-based usage are real
-today; every other row is an unimplemented compatibility target, not a
-built adapter.** Do not cite this table as evidence that BDK/LDK/mobile
-integrations exist in this repository — they don't.
+signing stack. The canonical non-mock reference implementations and
+end-to-end signing-boundary flows live in
+[`examples/wallet-integration`](../examples/wallet-integration).
+
+That reference is the next step after `examples/simple-wallet`: the
+simple-wallet proves the SDK path; wallet-integration proves that a wallet
+can keep its own signing/key ownership while plugging into Sails through
+`WalletAdapter`.
+
+This table is a roadmap/positioning reference for what that looks like
+across common wallet toolkits — **only the interface itself, the explicit
+non-mock examples above, and the reference implementation's documented
+real paths are evidence of implementation; every compatibility target in
+this table remains classified by its own status.** Do not cite this table
+as evidence that unimplemented BDK/LDK/mobile adapters exist.
 
 | SDK Toolkit | Primary Language | Asset Focus | Typical Fit | Status |
 |---|---|---|---|---|
 | WDK (Tether Wallet Development Kit) | TypeScript/JS | BTC, stablecoins, EVM assets | Corporate/consumer wallets, agent-driven automation | 🟢 Reference implementation (`wdk-settlement.provider.ts`, real signed testnet transfers) |
 | BDK (Bitcoin Dev Kit) | Rust | Bitcoin on-chain | Security-focused/multisig wallets | 📋 Compatible in principle — no `WalletAdapter` implementation exists yet |
 | LDK (Lightning Dev Kit) | Rust/C++ | Bitcoin Lightning | Instant/micro payments | 📋 Compatible in principle — Lightning would be exposed as a `WalletAdapter`-declared capability, not built |
-| EVM wallet SDKs | TypeScript/Solidity | ERC-20 tokens | Web3/DApp wallets | 📋 Compatible in principle — `WalletAdapter`'s `asset`/`signTransaction` are already chain-agnostic, no EVM-specific adapter built beyond the WDK one above |
+| EVM wallet SDKs | TypeScript/Solidity | ERC-20 tokens | Web3/DApp wallets | 📋 Compatible in principle — no generic EVM-toolkit adapter is claimed by this row; use `examples/wallet-integration` for the repository's explicit non-mock EVM reference |
 | Mobile SDKs | Kotlin/Swift | Whatever the host wallet supports | Consumer mobile wallets | 📋 Compatible in principle — `@satsails/p2p-trading-sdk` itself is JS/TS only (SDK_GUIDE.md section 6); a mobile wallet would bridge to it, not run it natively |
 | Custodial APIs | Any | Custodial assets | Fintechs, OTCs, banks | 📋 Compatible in principle — a custodial `WalletAdapter` would need its own `CapabilityGrant` constraints (RFC-013) marking custody, not modeled yet |
 
@@ -520,10 +541,9 @@ callers never see raw `fetch`/`WebSocket` or write their own retry loop.
    `tweetnacl` Ed25519 signing verified against `auth.ts`'s exact byte
    encoding, every module's request shape checked against its real
    route). Intent facade is partial (see section 2's note above and
-   `intent-facade.ts`'s header) — reaching v1.0 needs the Proof primitive
-   built and an Intent -> Trade -> Escrow linkage to exist server-side,
-   neither of which this SDK pass added (SDK_GUIDE.md section 1: "no new
-   business logic" — that linkage is Core/module work, not SDK work).
+   `intent-facade.ts`'s header); `negotiate` remains the explicit
+   experimental gap. Current frozen-vs-additive-vs-experimental contract
+   truth is owned by `API_STABLE.md`, not by this roadmap paragraph.
 3. **Meses 7-9 / 10-12**: SDK support for `AgentIntent` (OpenAgents) and
    `LoanIntent`/`SwapIntent`/`EarnIntent` (OpenFinance) as those modules
    ship specs.
@@ -538,4 +558,3 @@ callers never see raw `fetch`/`WebSocket` or write their own retry loop.
 - Errors thrown by the SDK should be typed subclasses matching the
   `AppError` hierarchy in the reference implementation, not raw HTTP error
   objects — see `API_REFERENCE.md` section 9 for the response shape to wrap.
-
