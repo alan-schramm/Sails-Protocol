@@ -3,6 +3,10 @@
 All notable changes to `@satsails/p2p-trading-sdk` are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+Release mechanics, release authority, tag policy, and partial-failure recovery are
+owned by [`docs/SDK_RELEASE.md`](../../docs/SDK_RELEASE.md). This changelog owns the
+SDK change history, not the release process or API compatibility contract.
+
 **Note on versioning:** published to npm 2026-08-10 as
 `@satsails/p2p-trading-sdk@0.1.0` (public, under the `@satsails` org
 scope — corrected/updated 2026-08-11, superseding the "not published"
@@ -13,6 +17,16 @@ commitment ("0.1 becomes 1.0 once this SDK has had real external
 usage") is not contradicted by tagging an RC: an RC is exactly "this is
 what we believe 1.0.0 will be, pending a real consumer proving it out"
 — the actual `1.0.0` tag still waits for that.
+
+**Historical RC-checkpoint context (2026-07-20):** the paragraph below records
+a real failure observed while preparing the `v1.0.0-rc1` Git checkpoint. At
+that time, moving the workspace package version outside the local consumer's
+`^0.1.0` range made npm try the registry and the required package was not
+available there, producing the recorded 404. The phrase "nothing is published"
+is therefore preserved as a statement about that historical checkpoint, **not**
+as a claim about current registry state. Later repository history records
+0.1.x npm publications. Current live npm versions/dist-tags must be verified
+against the registry when needed; this changelog does not infer them.
 
 **A real gotcha found trying to bump `package.json`'s own `"version"`
 field to match** (`0.1.0` → `1.0.0-rc1`): `packages/sails-ui/package.json`

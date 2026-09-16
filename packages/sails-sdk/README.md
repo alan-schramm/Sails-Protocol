@@ -12,6 +12,10 @@ integration, [`docs/API_STABLE.md`](../../docs/API_STABLE.md) for the
 frozen no-breaking-changes contract, and [`docs/EXAMPLES.md`](../../docs/EXAMPLES.md)
 for small copyable wallet-method snippets.
 
+For release history, see [`CHANGELOG.md`](CHANGELOG.md). Maintainers should use
+[`docs/SDK_RELEASE.md`](../../docs/SDK_RELEASE.md) for the canonical release
+contract, tag policy, authority model, and partial-failure recovery rules.
+
 Install:
 
 ```bash
