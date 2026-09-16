@@ -76,7 +76,7 @@ If a visual diagram conflicts with a governing architecture document, the docume
 
 Use these sources when the question is what is actually real now, what remains open, and what work is operationally active.
 
-- [`GITHUB_PROJECT.md`](GITHUB_PROJECT.md) — GitHub Project model, workstream fields, current program state and operational project structure.
+- [`GITHUB_PROJECT.md`](GITHUB_PROJECT.md) — documented Project configuration/governance model and operational structure. Use the live GitHub Project for current operational state.
 - GitHub Project **Sails Protocol — Development** — live operational state.
 - GitHub Issues — executable work units, decisions and validation gates.
 - [`BACKLOG.md`](BACKLOG.md) — institutional unresolved inventory, dependencies and context ledger.
@@ -86,6 +86,18 @@ Use these sources when the question is what is actually real now, what remains o
 - [`API_STABLE.md`](API_STABLE.md) — real frozen public API surface.
 
 Do not infer current implementation reality from vision documents, whitepapers, roadmap language, provider registrations or enum existence alone.
+
+## I want to inspect decisions, RFCs and evidence
+
+Use this path when you need to understand what was decided, how it was governed, and which evidence supports or challenges a claim.
+
+- [`rfcs/00-INDEX.md`](rfcs/00-INDEX.md) — RFC navigation and accepted protocol decisions.
+- [`GOVERNANCE.md`](GOVERNANCE.md) — decision/governance process and publication discipline.
+- Relevant ADRs under [`adr/`](adr/) — scoped architectural decisions.
+- Discovery, validation and proof documents — evidence and institutional findings.
+- [`BACKLOG.md`](BACKLOG.md) — unresolved findings, dependency context and supersession links.
+
+**Decision ≠ Evidence ≠ Implementation ≠ Claim.** An implementation, test result, discovery finding or evidence record does not automatically redefine protocol truth.
 
 ## I want governance / contribution guidance
 
