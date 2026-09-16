@@ -221,30 +221,29 @@ interface SailsClient {
   // should use instead
   settlement: {
     create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session
-    get(escrowId: string): Promise<Escrow>
-    submitKey(escrowId: string, pubkeyHex: string): Promise<{ escrow: Escrow; buyerKeySubmitted: boolean; sellerKeySubmitted: boolean }>   // requires an active session — MULTISIG/LIGHTNING_HODL client-held-keys path
+    get(escrowId: string): Promise<Escrow>   // requires an active session + trade party/assigned arbiter
+    submitKey(escrowId: string, pubkeyHex: string, capabilityProfile?: string): Promise<{ escrow: Escrow; buyerKeySubmitted: boolean; sellerKeySubmitted: boolean }>   // requires an active session; capabilityProfile is enforced where the escrow type requires one
     lock(escrowId: string): Promise<Escrow>   // requires an active session
     markPaymentSent(escrowId: string): Promise<Escrow>   // requires an active session
-    release(escrowId: string, toAddress: string): Promise<Escrow>   // requires an active session
+    release(escrowId: string, toAddress?: string): Promise<Escrow>   // requires an active session; toAddress is retained for source compatibility but is inert under current destination-authority rules
     dispute(escrowId: string, reason: string, evidence?: unknown[]): Promise<Dispute>   // requires an active session
     refund(escrowId: string): Promise<Escrow>   // requires an active session
-    initiateRelease(escrowId: string, toAddress: string): Promise<EscrowPendingTransaction>   // requires an active session — MULTISIG multi-signer release, does not itself move funds
+    initiateRelease(escrowId: string, toAddress?: string): Promise<EscrowPendingTransaction>   // requires an active session — MULTISIG multi-signer release; toAddress is retained for compatibility but current destination authority comes from the beneficiary's registered payout address
     initiateRefund(escrowId: string): Promise<EscrowPendingTransaction>   // requires an active session — mirror of initiateRelease
     submitTransactionSignature(escrowId: string, signedPsbtBase64: string): Promise<{ complete: boolean }>   // requires an active session
-    getPendingTransaction(escrowId: string): Promise<EscrowPendingTransaction>
-    listDisputes(pagination?: { limit?: number; offset?: number }): Promise<PaginatedDisputes>   // requires an active session — always scoped to the caller's own arbiterId, added 2026-08-03 (UI-audit gap)
-    getDispute(disputeId: string): Promise<Dispute>   // public read, added 2026-08-03 (UI-audit gap)
-    resolveDispute(disputeId: string, ruling: 'RELEASE' | 'REFUND' | 'SPLIT', releaseToAddress?: string, refundToAddress?: string, splitBuyerBps?: number): Promise<Dispute>   // requires an active session + assigned arbiter
+    getPendingTransaction(escrowId: string): Promise<EscrowPendingTransaction>   // requires an active session + trade party/assigned arbiter
+    listDisputes(pagination?: { limit?: number; offset?: number }): Promise<PaginatedDisputes>   // requires an active session — always scoped to the caller's own arbiterId
+    getDispute(disputeId: string): Promise<Dispute>   // requires an active session + trade party/assigned arbiter; not a public read
+    resolveDispute(disputeId: string, ruling: DisputeRuling, releaseToAddress?: string, refundToAddress?: string, splitBuyerBps?: number, authoritySignature?: string, authorityIssuedAt?: string): Promise<Dispute>   // requires an active session + assigned arbiter; authoritySignature/authorityIssuedAt are required in practice for the manual path
+    resolveDisputeWithWallet(disputeId: string, ruling: DisputeRuling, wallet: Pick<WalletAdapter, 'signMessage'>, releaseToAddress?: string, refundToAddress?: string, splitBuyerBps?: number): Promise<Dispute>   // recommended helper: builds and signs the authority decision with the caller-owned signer
     appealDispute(disputeId: string): Promise<{ dispute: Dispute; appealFeeRequired: string }>   // requires an active session + trade party — RFC-021 D6, market arbitration mode only
-    submitDisputeEvidence(disputeId: string, descriptor: { type: string; uri?: string; note?: string }): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, may trigger a QVAC auto-resolution attempt server-side
+    submitDisputeEvidence(disputeId: string, descriptor: { type: string; uri?: string; note?: string }, idempotencyKey?: string): Promise<Dispute>   // requires an active session + trade party; optional idempotencyKey makes retries safe
     contestAutoResolution(disputeId: string): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, rejects a proposed automated ruling
     parseSafeGuardBundle(unsignedPsbtBase64: string): SafeGuardBundle   // pure parsing helper, no network call — SAFE_GUARD_EVM only
     // RFC-021 — two-person control for MULTISIG escrows. approveRelease() records the caller's approval; release() checks hasDualApproval() itself.
     approveRelease(escrowId: string): Promise<{ approval: ReleaseApproval; readyToRelease: boolean }>   // requires an active session
-    getReleaseApprovals(escrowId: string): Promise<ReleaseApprovalsResult>   // public read, no session required
-    // RFC-021 D2 — permissionless arbiter registration.
-    registerArbiter(input: { monetaryCollateral: string; collateralAsset?: string }): Promise<ArbiterProfile>   // requires an active session
-    getArbiterProfile(participantId: string): Promise<ArbiterProfile | null>   // public read, no session required
+    getReleaseApprovals(escrowId: string): Promise<ReleaseApprovalsResult>   // requires an active session + trade party/assigned arbiter
+    // Arbiter registration/profile are exposed by client.arbitration, not by client.settlement.
   }
 
   // Top-level exports (not under `settlement` above) — client-held-key
@@ -569,4 +568,3 @@ callers never see raw `fetch`/`WebSocket` or write their own retry loop.
 - Errors thrown by the SDK should be typed subclasses matching the
   `AppError` hierarchy in the reference implementation, not raw HTTP error
   objects — see `API_REFERENCE.md` section 9 for the response shape to wrap.
-

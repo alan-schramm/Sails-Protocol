@@ -16,8 +16,7 @@ own. `@satsails/p2p-trading-sdk` itself IS published
 separate project would just `npm install @satsails/p2p-trading-sdk`
 directly, no workspace-linking needed; the steps below use the
 monorepo's own npm workspace only because this starter lives inside it.
-All commands below run from the **repo root** (`sails-push-ready/`), not
-from this directory.
+All commands below run from the **repository root**, not from this directory.
 
 **Prerequisites:** Node.js 20+, npm. No Docker needed — local Postgres
 and Redis are scripted (see step 2).
@@ -122,8 +121,11 @@ docs/
   non-custodial and needs real on-chain funding a script can't
   automate. See `docs/USE_CASES.md` and each script's own header for
   why, and what driving real `MULTISIG` by hand looks like.
-- `negotiate()`/`submitProof()`/`releaseAsset()` on the SDK's Intent
-  facade always throw `SailsNotImplementedError` — neither example uses
-  them. See `docs/FAQ.md`.
+- Of the SDK Intent facade verbs, `createIntent()`, `cancelIntent()`,
+  `submitProof()`, `releaseAsset()`, and `dispute()` are real and callable.
+  `negotiate()` remains experimental and throws `SailsNotImplementedError`;
+  use `openp2p.chat(tradeId)` for the real working negotiation/chat path.
+  See `docs/API_STABLE.md` and the root `docs/SDK_GUIDE.md` for the current
+  contract.
 - No NFT use case is provable today — no NFT `AssetType` exists. See
   `docs/USE_CASES.md`.
