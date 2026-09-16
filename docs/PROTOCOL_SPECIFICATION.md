@@ -46,6 +46,17 @@ everywhere else: one definition, everything else references it).
 
 ---
 
+> **Terminology scope (2026-09-16):** historical references in this
+> specification to **Core components**, the **Core Event Bus**,
+> **Capability Registry as Core**, **Policy/Rules Engine as Core**, or the
+> legacy `src/core/` topology refer to the historical/reference coordination
+> architecture, not the modern **Pure Sails Core** boundary. The current
+> Pure Core / Runtime / Modules / Providers boundary is owned by
+> `CORE_ARCHITECTURE.md` and `CORE_IMPLEMENTATION_ARCHITECTURE.md`. This is
+> a terminology clarification only: no primitive, lifecycle,
+> Capability/Policy semantics, authority, module/provider responsibility,
+> or accepted RFC decision changes as a result of this note.
+
 ## 1. Core Primitives — the Fundamental Vocabulary
 
 Modules (`ARCHITECTURE.md` section 3) are service *boundaries*. Primitives
@@ -72,12 +83,15 @@ seven were held to: irreducible, orthogonal to the others, has its own
 participant-facing lifecycle, and is cross-cutting across modules. Three
 other candidates proposed during that review — **Capability** and
 **Policy** — turned out to be real and valuable but did *not* pass that
-test (no participant-facing lifecycle of their own); they became named
-**Core components** instead (Capability Registry, Policy/Rules Engine —
-see `ARCHITECTURE.md`). **Participant**, **Offer**, and **Event** were
-rejected outright. Section 1.10 documents the Core-component reasoning;
-section 1.11 documents the outright rejections. Nine is the number that
-survived a real, consistently-applied test — not a headcount compromise.
+test (no participant-facing lifecycle of their own); they were classified
+as supporting coordination components rather than protocol primitives. In
+the historical/reference architecture they were named **Core components**
+(Capability Registry, Policy/Rules Engine — see `ARCHITECTURE.md`). That
+historical label does not refer to the modern Pure Sails Core boundary.
+**Participant**, **Offer**, and **Event** were rejected outright. Section
+1.10 documents the coordination-component reasoning; section 1.11 documents
+the outright rejections. Nine is the number that survived a real,
+consistently-applied test — not a headcount compromise.
 
 ### 1.1 Identity Primitive
 
@@ -704,7 +718,7 @@ this does add a small write-path change — `EscrowEvent` and
 D5's "no new write path" held for the read-projection itself, not for
 this later chaining requirement.
 
-### 1.10 Capability and Policy — Why They Are Core Components, Not Primitives
+### 1.10 Capability and Policy — Why They Are Coordination Components, Not Protocol Primitives
 
 Two more concepts were proposed during architectural review: **Capability**
 (what a Participant/Agent/Application is allowed to do) and **Policy** (a
@@ -714,9 +728,12 @@ test applied consistently to the nine above (irreducible, orthogonal, has
 its own participant-facing lifecycle, cross-cutting):
 
 - **Capability** doesn't have participants transacting around it the way
-  Intent or Settlement do — it's a permission check the Core performs on
-  every other primitive's behalf. It lives in the **Capability Registry**,
-  a named Core component (see `ARCHITECTURE.md`), not a tenth primitive.
+  Intent or Settlement do — it's a permission check performed by the
+  protocol's coordination machinery on every other primitive's behalf. In
+  the historical/reference architecture it lives in the **Capability
+  Registry**, a named coordination component (see `ARCHITECTURE.md`), not a
+  tenth primitive. This historical classification does not place the
+  registry inside the modern Pure Sails Core.
   **Formalized in RFC-005** (`rfcs/RFC-005-capability-model.md`) as two
   related interfaces, not one — an earlier draft of this section described
   "Capability" in prose only, which let the word drift between meaning
@@ -768,14 +785,16 @@ its own participant-facing lifecycle, cross-cutting):
   detail, not the public API contract.
 - **Policy** is declarative configuration (fee rates, trust-limit tables,
   routing weights), not something created/negotiated/settled between
-  parties. It lives in the **Policy / Rules Engine**, another named Core
-  component, consulted by the Coordination Engine — not a primitive.
-  `FeePolicy`, `TrustPolicy`, and `RoutingPolicy` (referenced throughout
-  `PROTOCOL_ECONOMY.md`) are concrete Policy instances this engine manages.
+  parties. It lives in the **Policy / Rules Engine**, a named coordination
+  component in the historical/reference architecture, consulted by the
+  Coordination Engine — not a primitive. `FeePolicy`, `TrustPolicy`, and
+  `RoutingPolicy` (referenced throughout `PROTOCOL_ECONOMY.md`) are concrete
+  Policy instances this engine manages.
 
-Both are documented in full in `ARCHITECTURE.md`'s Core Components section
-— this document only needs to draw the line clearly: Core components serve
-primitives; they are not primitives themselves.
+Both are documented in full in `ARCHITECTURE.md`'s historical/reference
+coordination-components section — this document only needs to draw the
+line clearly: these coordination components serve protocol primitives;
+they are not protocol primitives themselves.
 
 #### 1.10.1 Capability Reference — a Concrete CAN/CANNOT Table
 
@@ -867,13 +886,13 @@ rules this table's CANNOT column restates concretely.
 
 | Module | Primitives it implements/consumes |
 |---|---|
-| **Core** (not a module) | Hosts the Capability Registry, Policy/Rules Engine, and (RFC-007) the per-Intent Timeline read-model over the Event Bus that every primitive below relies on — see `ARCHITECTURE.md`. |
+| **Historical/reference coordination layer** (not a module) | In the historical/reference topology, hosts the Capability Registry, Policy/Rules Engine, and (RFC-007) the per-Intent Timeline read-model over the Event Bus that every primitive below relies on — see `ARCHITECTURE.md`. This row does **not** describe the modern Pure Sails Core boundary. |
 | OpenIdentity | Implements: Identity, incl. Operational Profiles (RFC-007, module growth-path addition). Consumed by every other module. |
 | OpenReputation | Implements: Reputation, incl. Outcome Engine (RFC-007) — `recordOutcome()` is the sole score input, `rate()` is informational only. Consumes: Settlement (outcomes), Identity, Proof (evidence of claimed history). |
 | OpenSettlement | Implements: Settlement (incl. `PendingBankSettlement`, RFC-007), Dispute (incl. escalation order + `ArbitrationProvider`, RFC-007). Consumes: Negotiation (AgreedTerms), Proof (dispute evidence), Reputation (arbiter bonding). |
 | OpenLiquidity | Implements: Discovery. Consumes: Intent, Reputation (ranking), Identity. |
 | OpenP2P | Implements: Negotiation. Orchestrates: Intent → Discovery → Negotiation → Settlement using the modules above. Produces Proof (payment confirmation) during Negotiation. |
-| OpenAgents | Implements: Agent, incl. Social Engineering Agent (RFC-007). Consumes: Intent (creates on behalf of Identity), Capability (delegation scope, via Core), Timeline (RFC-007), all others via delegation. |
+| OpenAgents | Implements: Agent, incl. Social Engineering Agent (RFC-007). Consumes: Intent (creates on behalf of Identity), Capability (delegation scope, via the Capability Registry), Timeline (RFC-007), all others via delegation. |
 | OpenProof | Implements: Proof, incl. Proof Registry, `EvidenceProvider`, and Evidence Bundle (RFC-007, RFC-006). Consumes: Timeline (RFC-007) to compose the Evidence Bundle. |
 | OpenFinance | Future application module. Reuses Discovery, Negotiation, Settlement, Reputation, Dispute, Proof (collateral/income verification) — adds new Intent types. |
 | Sails SDK (MVP release: Sails P2P Trading SDK) | Implements no primitive — wraps every module's interface into `SailsClient`. |
@@ -1066,17 +1085,19 @@ column's shape isn't schema-enforced either way) without the extra join.
 Simplified once this stopped being a paper design and became real Prisma
 models — deviation noted here rather than left silent:
 
-- **`Intent`** (Core, `prisma/schema.prisma`) — `id, type, version,
-  participantId, agentId, parentIntentId, moduleId, payload (Json),
-  status, createdAt, updatedAt, expiresAt, fulfilledBy, metadata`
-- **`IntentEvent`** (event-sourced, append-only — Core's own audit trail,
-  the same per-module-owned-table pattern `EscrowEvent`/`ReputationEvent`
-  already established) — `intentId, fromStatus, toStatus, triggeredBy,
-  note, createdAt, entryHash, prevHash`. `entryHash`/`prevHash` are RFC-008
-  D2's hash-chaining design (`rfcs/RFC-008-verifiable-timestamps-and-chained-timeline.md`)
-  — implemented here first, ahead of `EscrowEvent`/`ReputationEvent`
-  picking it up (still 🔲 in `BACKLOG.md`), since `IntentEvent` was being
-  built from scratch rather than retrofitted onto existing rows.
+- **`Intent`** (legacy/reference Intent Engine implementation,
+  `prisma/schema.prisma`) — `id, type, version, participantId, agentId,
+  parentIntentId, moduleId, payload (Json), status, createdAt, updatedAt,
+  expiresAt, fulfilledBy, metadata`
+- **`IntentEvent`** (event-sourced, append-only — the legacy/reference
+  Intent Engine's audit trail, the same per-module-owned-table pattern
+  `EscrowEvent`/`ReputationEvent` already established) — `intentId,
+  fromStatus, toStatus, triggeredBy, note, createdAt, entryHash, prevHash`.
+  `entryHash`/`prevHash` are RFC-008 D2's hash-chaining design
+  (`rfcs/RFC-008-verifiable-timestamps-and-chained-timeline.md`) —
+  implemented here first, ahead of `EscrowEvent`/`ReputationEvent` picking
+  it up (still 🔲 in `BACKLOG.md`), since `IntentEvent` was being built from
+  scratch rather than retrofitted onto existing rows.
 
 First real implementation: `core/intent-engine.ts`'s `create()`/`cancel()`/
 `transition()`. `registerHandler`'s plugin pattern (§2.7 below) is
@@ -1084,9 +1105,10 @@ implemented and, as of RFC-018 Phase 3 (2026-07-20), has its first real
 `IntentHandler`: `modules/open-p2p/intent-handler.ts`'s
 `OpenP2PTradeIntentHandler`, registered at boot in `app.ts`. `TradeIntent`
 field validation now lives there, not inlined in `intent-engine.ts` —
-the Core's `validateStructure()` only dispatches to whichever handler is
-registered for a given `IntentType`, which is also why an unregistered
-type (every 📋 future one) is rejected as malformed by construction.
+the legacy/reference Intent Engine's `validateStructure()` only dispatches
+to whichever handler is registered for a given `IntentType`, which is also
+why an unregistered type (every 📋 future one) is rejected as malformed by
+construction.
 
 ### 2.7 Integration Pattern (plugin architecture)
 
