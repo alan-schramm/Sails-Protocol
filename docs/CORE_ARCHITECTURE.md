@@ -30,14 +30,29 @@ canonical as of this document's own commit. Like the Kernel itself, it
 may be revised only through an explicit, versioned process, never by
 silent reinterpretation during implementation.
 
+**Current-state correction (2026-09-16):** this architecture was frozen
+before implementation began. The later Sails Core Implementation Program
+created `packages/sails-core/`, an internal/private TypeScript workspace
+package named `@sails/core`, as the implementation surface for the **Pure
+Semantic Core** boundary defined here. That implementation fact does not
+change this document's provenance or expand the boundary: Runtime, Modules,
+Providers, persistence/orchestration, and application adapters remain outside
+`@sails/core`. Selected Runtime slices now invoke Core-authoritative
+semantics, but the full legacy implementation has not migrated. The package
+remains internal/private and is not a public npm package. Statements below
+that say the package did not yet exist are preserved as freeze-time context,
+not as current repository-state claims.
+
 ## 3. What This Document Is Not
 
 - Not the Semantic Kernel itself — see `SEMANTIC_KERNEL.md`.
 - Not the Constitution, security model, or Specification.
 - Not an implementation. No line of runtime code changes as a result of
   this document.
-- Not a package specification. **`@sails/core` does not exist and is not
-  authorized by this document.**
+- Not a package specification. **At freeze time, `@sails/core` did not
+  exist and was not authorized by this document.** A later authorized
+  implementation program created the internal/private package without
+  changing this architecture's authority or scope.
 - Not an API specification, serialization specification, database
   schema, or wire format.
 - Not a provider implementation, runtime implementation, or SDK design.
@@ -850,9 +865,12 @@ uncertainty. See §46 for ownership and timing.
 
 ## 48. Explicit Non-Goals
 
-This document does not claim: that `@sails/core` exists or is
-authorized; that any current implementation fully conforms to this
-architecture (§43 records the gaps honestly); formal verification;
-novelty or priority over any other system; production readiness;
-completed security audit; or that this freeze authorizes any code,
-schema, migration, dependency, or package change.
+This document does not claim: that the later `@sails/core` implementation
+fully conforms to this architecture; formal verification; novelty or
+priority over any other system; production readiness; completed security
+audit; or that this freeze itself authorized code, schema, migration,
+dependency, or package creation. At freeze time `@sails/core` did not yet
+exist. Its later creation by an authorized implementation program does not
+retroactively change this document's provenance and does not make the
+package synonymous with Runtime, Modules, Providers, or Sails Protocol as a
+whole.

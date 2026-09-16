@@ -37,6 +37,19 @@ architecture decision seems to require reading K1–K3 differently than
 written, that is a signal to open a revision, not to proceed on a private
 interpretation.
 
+**Current-state correction (2026-09-16):** this document was frozen before
+the Sails Core Implementation Program created an implementation package.
+The internal/private workspace `packages/sails-core/` now exists as the
+TypeScript implementation surface for the **Pure Semantic Core** boundary,
+and selected Runtime slices now invoke Core-authoritative semantics. This
+changes implementation timing, not the Semantic Kernel. **Semantic Kernel
+≠ package**: K1/K2/K3 and the Assertion rule remain the semantic identity;
+`@sails/core` is one implementation of the Pure Core boundary derived from
+that identity. Runtime, Modules, Providers, persistence/orchestration, and
+application adapters remain outside `@sails/core`, the full legacy system
+has not migrated, and no public npm `@sails/core` package is authorized by
+this correction.
+
 ## 3. What the Semantic Kernel Is
 
 The minimum set of properties that must hold for an economic interaction
@@ -47,8 +60,10 @@ settlement rail, transport, database, UI, or AI framework. It answers:
 ## 4. What It Is Not
 
 - Not a data model, package, or class hierarchy.
-- Not `@sails/core` — no such package exists or is authorized by this
-  document.
+- Not `@sails/core`. At freeze time no such package existed and this
+  document did not authorize package creation; a later authorized
+  implementation program created the internal/private package. That later
+  implementation does not turn the Semantic Kernel itself into a package.
 - Not the current module set (`OpenP2P`/`OpenSettlement`/`OpenIdentity`/
   `OpenProof`/`OpenReputation`/`OpenAgents`/`OpenLiquidity`) — those are
   one reference implementation's organization of responsibilities, not
@@ -373,26 +388,34 @@ system; not Kernel-derived):
   finding — real, necessary, and explicitly outside Kernel identity per
   §14).
 
-## 25. Future Sails Core — Conceptual Definition
+## 25. Future Sails Core — Conceptual Definition (historical framing)
 
-**Sails Core** would be the future protocol-level software responsible
-for implementing and exposing the Semantic Kernel, and the minimum
-supporting machinery required to preserve it, across whatever protocol
-modules a given deployment implements. **Corrected/Updated 2026-08-29**:
-this section originally stated "no architecture decision made here" —
-that architecture has since been frozen in `docs/CORE_ARCHITECTURE.md`.
-No package and no implementation exist; `@sails/core` remains
-unauthorized by either document.
+**Sails Core** was described here as the future protocol-level software
+responsible for implementing and exposing the Semantic Kernel, and the
+minimum supporting machinery required to preserve it, across whatever
+protocol modules a given deployment implements. **Corrected/Updated
+2026-08-29**: this section originally stated "no architecture decision
+made here" — that architecture was subsequently frozen in
+`docs/CORE_ARCHITECTURE.md`. **Current-state correction 2026-09-16:** the
+later Sails Core Implementation Program has since created the
+internal/private `@sails/core` workspace package at `packages/sails-core/`
+as the TypeScript implementation surface for the Pure Semantic Core. This
+does not retroactively change what this document authorized at freeze time,
+does not expand the Pure Core boundary, and does not imply full migration.
+Runtime, Modules, Providers, persistence/orchestration, and application
+adapters remain outside `@sails/core`; selected Runtime slices now invoke
+Core-authoritative semantics while other paths remain legacy-authoritative.
+The package remains internal/private and is not a public npm package.
 
 This is explicitly **not** the existing "Core — 6 Formal Components"
 named in `ARCHITECTURE.md` §1B (Intent Engine, Coordination Engine, Event
 Bus, State Machine, Capability Registry, Policy/Rules Engine) — that is
 today's real, shipped implementation topology, evaluated against the
 Kernel in §23 like any other part of the system, not assumed to already
-be it. Whether a future Sails Core is built by extending those six
-components, replacing them, or something else entirely is an open
-architecture question (§27), not decided by this document. **Kernel ≠
-package. Core ≠ current module collection.**
+be it. Whether a Sails Core implementation is built by extending those six
+components, replacing them, or something else is an implementation question,
+not decided by the Kernel itself. **Kernel ≠ package. Pure Core ≠ current
+module collection.**
 
 ## 26. Same Semantics, Different Consumers
 
@@ -452,6 +475,8 @@ This document does not claim: formal verification; novelty, originality,
 or priority over any other system (a separate, closed inquiry — not
 reopened here); production readiness; completed security audit;
 immutability of the Kernel forever; that all Constitutional rules are
-Kernel identity; that all modules or rails currently conform to K1–K3;
-that Sails Core already exists in any form; or that this freeze
-authorizes `@sails/core` or any other package.
+Kernel identity; or that all modules or rails currently conform to K1–K3.
+At freeze time it also did not claim that Sails Core existed or authorize
+`@sails/core` or any other package. The later existence of the internal
+`@sails/core` implementation is a separate implementation-program fact and
+does not retroactively alter this document's provenance or semantic scope.

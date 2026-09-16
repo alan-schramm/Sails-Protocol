@@ -69,18 +69,22 @@ layer instead.
 
 ## 1B. The Core — 6 Formal Components (v7.1 — Principal Engineer decision)
 
-> **Terminology note (2026-08-29, updated 2026-08-29):** "Core" below
-> names this reference implementation's own six current components — it
-> is not the same thing as the future **Sails Core** discussed in
-> `SEMANTIC_KERNEL.md` §25, whose software architecture is now frozen in
-> `docs/CORE_ARCHITECTURE.md` (a Pure Core / Runtime / Modules / Providers
-> boundary, no implementation yet, `@sails/core` still unauthorized).
-> Whether that future Core reuses, replaces, or extends the six
-> components below is an implementation-architecture question the freeze
-> does not decide — this section is evaluated against
-> `docs/CORE_ARCHITECTURE.md`'s current-implementation conformance
-> mapping (§43) like any other part of the system, not assumed to already
-> be it.
+> **Terminology note (2026-08-29; current-state correction 2026-09-16):**
+> "Core" below names this reference implementation's historical six-component
+> coordination topology. It is **not** the same thing as the modern **Pure
+> Sails Core** defined by `SEMANTIC_KERNEL.md` §25 and
+> `docs/CORE_ARCHITECTURE.md`. At freeze time the modern Pure Core had no
+> implementation and `@sails/core` had not yet been created; that temporal
+> statement is now superseded by implementation reality. The internal,
+> private `packages/sails-core/` workspace now exists as the TypeScript
+> implementation surface for the **Pure Semantic Core** only. Runtime,
+> Modules, Providers, persistence/orchestration, and application adapters
+> remain outside `@sails/core`. Selected Runtime slices now invoke
+> Core-authoritative semantics, but the full legacy implementation has not
+> migrated to the modern Core architecture. Therefore:
+> **legacy/reference-implementation “Core” ≠ modern Pure Sails Core**.
+> This correction updates implementation timing only; it does not change the
+> architectural decisions or provenance owned by this document.
 
 Following the CTO architectural review and a formal test applied to every
 proposed addition (see `PROTOCOL_SPECIFICATION.md` sections 1.10-1.11), the
