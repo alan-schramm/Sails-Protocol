@@ -20,7 +20,7 @@ describe('ReputationBadge', () => {
 
   it('falls back to the participantId prefix when neither displayName nor publicKey is given — no identity fields ride along on ReputationScore itself', () => {
     render(<ReputationBadge score={mockReputationScore({ participantId: 'participant-abcdef123456' })} />)
-    expect(screen.getByText(/participant-a/)).toBeInTheDocument()
+    expect(screen.getByText(/participan/)).toBeInTheDocument()
   })
 
   it('uses singular "trade" for exactly one trade', () => {

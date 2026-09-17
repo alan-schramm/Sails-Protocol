@@ -1,0 +1,380 @@
+name: React SDK Release
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/sdk-react-release.yml'
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact 40-character main commit SHA to release'
+        required: true
+        type: string
+      expected_version:
+        description: 'Expected React SDK version already prepared in package.json/changelog'
+        required: true
+        type: string
+      dist_tag:
+        description: 'Authorized npm dist-tag (for example latest or next)'
+        required: true
+        default: latest
+        type: string
+      mode:
+        description: 'dry-run stops before mutation; release crosses the irreversible boundary'
+        required: true
+        default: dry-run
+        type: choice
+        options: [dry-run, release]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-react-release-${{ github.event_name == 'workflow_dispatch' && inputs.expected_version || format('pr-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE_NAME: '@satsails/sdk-react'
+  PACKAGE_DIR: packages/sdk-react
+  SDK_DIR: packages/sails-sdk
+  SCHEMAS_DIR: packages/sails-p2p-schemas
+  CHANGELOG: packages/sdk-react/CHANGELOG.md
+  TAG_PREFIX: sdk/react/v
+  NODE_VERSION: '24'
+  NPM_VERSION: '11.19.1'
+
+jobs:
+  validate:
+    name: Verify, build, pack and smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      version: ${{ steps.identity.outputs.version }}
+      tag: ${{ steps.identity.outputs.tag }}
+      dist_tag: ${{ steps.identity.outputs.dist_tag }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sdk_tarball: ${{ steps.pack.outputs.sdk_tarball }}
+      schemas_tarball: ${{ steps.pack.outputs.schemas_tarball }}
+      integrity: ${{ steps.pack.outputs.integrity }}
+    env:
+      REQUESTED_SOURCE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.source_sha || github.event.pull_request.head.sha }}
+      EXPECTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_version || '' }}
+      DIST_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.dist_tag || 'dry-run' }}
+      RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Validate source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'source_sha must be an exact commit SHA' >&2; exit 1; }
+
+      - name: Checkout exact source SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.REQUESTED_SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$REQUESTED_SOURCE_SHA^{commit}")"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            git fetch --no-tags origin main:refs/remotes/origin/main
+            git merge-base --is-ancestor HEAD refs/remotes/origin/main || { echo 'Release SHA is not in main history' >&2; exit 1; }
+            git cat-file -e 'HEAD:.github/workflows/sdk-react-release.yml'
+          fi
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Pin npm release toolchain
+        run: npm install --global npm@${NPM_VERSION}
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Derive and validate release identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          VERSION="$(node -p "require('./${PACKAGE_DIR}/package.json').version")"
+          NAME="$(node -p "require('./${PACKAGE_DIR}/package.json').name")"
+          test "$NAME" = "$PACKAGE_NAME"
+          [[ -z "$EXPECTED_VERSION" || "$VERSION" == "$EXPECTED_VERSION" ]] || { echo "Expected $EXPECTED_VERSION, source declares $VERSION" >&2; exit 1; }
+          grep -Fq "## [$VERSION]" "$CHANGELOG" || { echo "Missing changelog entry for $VERSION" >&2; exit 1; }
+          [[ -n "$DIST_TAG" ]] || { echo 'dist_tag is required' >&2; exit 1; }
+          [[ "$VERSION" != *-* || "$DIST_TAG" != latest ]] || { echo 'Prerelease may not publish to latest' >&2; exit 1; }
+          TAG="${TAG_PREFIX}${VERSION}"
+          printf 'source_sha=%s\nversion=%s\ntag=%s\ndist_tag=%s\n' "$SOURCE_SHA" "$VERSION" "$TAG" "$DIST_TAG" >> "$GITHUB_OUTPUT"
+          printf '### React SDK release identity\n- mode: `%s`\n- package: `%s`\n- version: `%s`\n- source: `%s`\n- tag: `%s`\n- dist-tag: `%s`\n' "$RELEASE_MODE" "$PACKAGE_NAME" "$VERSION" "$SOURCE_SHA" "$TAG" "$DIST_TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean and build package chain
+        run: |
+          rm -rf "$SCHEMAS_DIR/dist" "$SDK_DIR/dist" "$PACKAGE_DIR/dist"
+          npm run build -w @satsails/p2p-schemas
+          npm run build -w @satsails/p2p-trading-sdk
+          npm run build -w @satsails/sdk-react
+          npm run typecheck -w @satsails/sdk-react
+
+      - name: Run React SDK tests
+        run: npm test -w @satsails/sdk-react
+
+      - name: Pack and inspect source-state artifacts
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/react-pack" "$RUNNER_TEMP/sdk-pack" "$RUNNER_TEMP/schemas-pack" release-evidence
+          (cd "$SCHEMAS_DIR" && npm pack --json --pack-destination "$RUNNER_TEMP/schemas-pack" > "$RUNNER_TEMP/schemas-pack.json")
+          (cd "$SDK_DIR" && npm pack --json --pack-destination "$RUNNER_TEMP/sdk-pack" > "$RUNNER_TEMP/sdk-pack.json")
+          (cd "$PACKAGE_DIR" && npm pack --json --pack-destination "$RUNNER_TEMP/react-pack" > "$RUNNER_TEMP/react-pack.json")
+          TARBALL="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/react-pack.json','utf8'))[0].filename")"
+          SDK_TARBALL="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/sdk-pack.json','utf8'))[0].filename")"
+          SCHEMAS_TARBALL="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/schemas-pack.json','utf8'))[0].filename")"
+          INTEGRITY="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/react-pack.json','utf8'))[0].integrity")"
+          PACKED_NAME="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/react-pack.json','utf8'))[0].name")"
+          PACKED_VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/react-pack.json','utf8'))[0].version")"
+          test "$PACKED_NAME" = "$PACKAGE_NAME"
+          test "$PACKED_VERSION" = "${{ steps.identity.outputs.version }}"
+          cp "$RUNNER_TEMP/react-pack/$TARBALL" "$RUNNER_TEMP/sdk-pack/$SDK_TARBALL" "$RUNNER_TEMP/schemas-pack/$SCHEMAS_TARBALL" release-evidence/
+          cp "$RUNNER_TEMP/react-pack.json" release-evidence/pack.json
+          tar -tzf "release-evidence/$TARBALL" | tee release-evidence/pack-contents.txt
+          ! grep -E '(^|/)(src|tests|node_modules|\.git)(/|$)|(^|/)\.env($|/)|\.(pem|key)$' release-evidence/pack-contents.txt
+          sha256sum "release-evidence/$TARBALL" | tee release-evidence/tarball.sha256
+          printf 'tarball=%s\nsdk_tarball=%s\nschemas_tarball=%s\nintegrity=%s\n' "$TARBALL" "$SDK_TARBALL" "$SCHEMAS_TARBALL" "$INTEGRITY" >> "$GITHUB_OUTPUT"
+
+      - name: Isolated source-state consumer smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/source-consumer"; mkdir -p "$DIR"; cd "$DIR"; npm init -y >/dev/null
+          npm install react@19 react-dom@19 @tanstack/react-query@5 --ignore-scripts --no-audit --no-fund
+          npm install "$GITHUB_WORKSPACE/release-evidence/${{ steps.pack.outputs.schemas_tarball }}" --ignore-scripts --no-audit --no-fund
+          npm install "$GITHUB_WORKSPACE/release-evidence/${{ steps.pack.outputs.sdk_tarball }}" --ignore-scripts --no-audit --no-fund
+          npm install "$GITHUB_WORKSPACE/release-evidence/${{ steps.pack.outputs.tarball }}" --ignore-scripts --no-audit --no-fund
+          test -f node_modules/@satsails/sdk-react/dist/index.d.ts
+          node -e "const s=require('@satsails/sdk-react'); if(!s || typeof s !== 'object' || Object.keys(s).length === 0) process.exit(1)"
+          node --input-type=module -e "import * as s from '@satsails/sdk-react'; if(!s || Object.keys(s).length === 0) process.exit(1)"
+
+      - name: Registry dependency compatibility smoke
+        id: registry_smoke
+        shell: bash
+        run: |
+          set -uo pipefail
+          DIR="$RUNNER_TEMP/registry-consumer"; mkdir -p "$DIR"; cd "$DIR"; npm init -y >/dev/null
+          npm install react@19 react-dom@19 @tanstack/react-query@5 --ignore-scripts --no-audit --no-fund >/dev/null 2>&1
+          set +e
+          { npm install "$GITHUB_WORKSPACE/release-evidence/${{ steps.pack.outputs.tarball }}" --ignore-scripts --no-audit --no-fund && node -e "require('@satsails/sdk-react')" && node --input-type=module -e "import '@satsails/sdk-react'"; } > "$GITHUB_WORKSPACE/release-evidence/registry-dependency-smoke.log" 2>&1
+          STATUS=$?
+          set -e
+          [[ "$STATUS" -eq 0 ]] && STATE=pass || STATE=conflict
+          echo "state=$STATE" >> "$GITHUB_OUTPUT"
+          printf '### Registry dependency compatibility\n- state: `%s`\n' "$STATE" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$STATE" != pass ]]; then
+            echo '- Diagnostic: `registry-dependency-smoke.log`' >> "$GITHUB_STEP_SUMMARY"
+            if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
+              cat "$GITHUB_WORKSPACE/release-evidence/registry-dependency-smoke.log" >&2
+              echo 'Published SDK dependency compatibility must pass before dispatched dry-run/release.' >&2
+              exit 1
+            fi
+          fi
+
+      - name: Inspect tag, registry and GitHub Release state
+        id: inspect
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+          TAG: ${{ steps.identity.outputs.tag }}
+          LOCAL_INTEGRITY: ${{ steps.pack.outputs.integrity }}
+        run: |
+          set -euo pipefail
+          TAG_STATE=absent
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+            [[ "$(git rev-list -n 1 "$TAG")" == "$SOURCE_SHA" ]] && TAG_STATE=same-source || TAG_STATE=conflict
+          fi
+          REGISTRY_STATE=absent
+          if REMOTE_VERSION="$(npm view "$PACKAGE_NAME@$VERSION" version 2>"$RUNNER_TEMP/npm-view.err")"; then
+            REMOTE_INTEGRITY="$(npm view "$PACKAGE_NAME@$VERSION" dist.integrity)"
+            [[ "$REMOTE_VERSION" == "$VERSION" && "$REMOTE_INTEGRITY" == "$LOCAL_INTEGRITY" ]] && REGISTRY_STATE=same-artifact || REGISTRY_STATE=conflict
+          elif ! grep -q E404 "$RUNNER_TEMP/npm-view.err"; then
+            cat "$RUNNER_TEMP/npm-view.err" >&2; echo 'Registry state is ambiguous; safe stop.' >&2; exit 1
+          fi
+          gh release view "$TAG" >/dev/null 2>&1 && RELEASE_STATE=exists || RELEASE_STATE=absent
+          printf 'tag_state=%s\nregistry_state=%s\nrelease_state=%s\n' "$TAG_STATE" "$REGISTRY_STATE" "$RELEASE_STATE" >> "$GITHUB_OUTPUT"
+          printf '### External state\n- tag: `%s`\n- npm version: `%s`\n- GitHub Release: `%s`\n' "$TAG_STATE" "$REGISTRY_STATE" "$RELEASE_STATE" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$TAG_STATE" != conflict && "$REGISTRY_STATE" != conflict ]] || { echo 'Conflicting immutable release identity; safe stop.' >&2; exit 1; }
+            [[ "$RELEASE_STATE" != exists || "$REGISTRY_STATE" != absent ]] || { echo 'GitHub Release exists while npm version is absent; safe stop.' >&2; exit 1; }
+          fi
+
+      - name: Write release evidence
+        shell: bash
+        run: |
+          cat > release-evidence/manifest.txt <<EOF
+          package=$PACKAGE_NAME
+          version=${{ steps.identity.outputs.version }}
+          source_sha=${{ steps.identity.outputs.source_sha }}
+          tag=${{ steps.identity.outputs.tag }}
+          dist_tag=${{ steps.identity.outputs.dist_tag }}
+          integrity=${{ steps.pack.outputs.integrity }}
+          registry_dependency_state=${{ steps.registry_smoke.outputs.state }}
+          tag_state=${{ steps.inspect.outputs.tag_state }}
+          registry_state=${{ steps.inspect.outputs.registry_state }}
+          github_release_state=${{ steps.inspect.outputs.release_state }}
+          mode=$RELEASE_MODE
+          EOF
+          cat > release-evidence/release-notes.md <<EOF
+          # $PACKAGE_NAME@${{ steps.identity.outputs.version }}
+
+          - Package: \`$PACKAGE_NAME\`
+          - Version: \`${{ steps.identity.outputs.version }}\`
+          - Source SHA: \`${{ steps.identity.outputs.source_sha }}\`
+          - npm identity: \`$PACKAGE_NAME@${{ steps.identity.outputs.version }}\`
+          - Changelog: https://github.com/$GITHUB_REPOSITORY/blob/${{ steps.identity.outputs.source_sha }}/$CHANGELOG
+          EOF
+
+      - name: Upload verified release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-react-release-evidence-${{ steps.identity.outputs.version }}
+          path: release-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Dry-run boundary
+        if: ${{ github.event_name == 'pull_request' || inputs.mode == 'dry-run' }}
+        run: echo 'DRY RUN COMPLETE — no tag, npm mutation, or GitHub Release was created.' >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Bind, publish and record
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'release' }}
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: sdk-react-release
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+      VERSION: ${{ needs.validate.outputs.version }}
+      TAG: ${{ needs.validate.outputs.tag }}
+      DIST_TAG: ${{ needs.validate.outputs.dist_tag }}
+      LOCAL_INTEGRITY: ${{ needs.validate.outputs.integrity }}
+      TARBALL: ${{ needs.validate.outputs.tarball }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - run: npm install --global npm@${NPM_VERSION}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk-react-release-evidence-${{ needs.validate.outputs.version }}
+          path: release-evidence
+
+      - name: Verify exact validated artifact
+        working-directory: release-evidence
+        run: sha256sum -c tarball.sha256
+
+      - name: Create or verify immutable React SDK tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+            test "$(git rev-list -n 1 "$TAG")" = "$SOURCE_SHA" || { echo 'Existing release tag points elsewhere; safe stop.' >&2; exit 1; }
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "$TAG" "$SOURCE_SHA" -m "$PACKAGE_NAME@$VERSION from $SOURCE_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Reconcile registry before publish
+        id: registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          if REMOTE_VERSION="$(npm view "$PACKAGE_NAME@$VERSION" version 2>"$RUNNER_TEMP/npm-view.err")"; then
+            REMOTE_INTEGRITY="$(npm view "$PACKAGE_NAME@$VERSION" dist.integrity)"
+            [[ "$REMOTE_VERSION" == "$VERSION" && "$REMOTE_INTEGRITY" == "$LOCAL_INTEGRITY" ]] || { echo 'Existing npm version is a different artifact; safe stop.' >&2; exit 1; }
+            echo 'published=true' >> "$GITHUB_OUTPUT"
+          elif grep -q E404 "$RUNNER_TEMP/npm-view.err"; then
+            echo 'published=false' >> "$GITHUB_OUTPUT"
+          else
+            cat "$RUNNER_TEMP/npm-view.err" >&2; echo 'Registry state is ambiguous; safe stop.' >&2; exit 1
+          fi
+
+      - name: Publish verified tarball with npm Trusted Publishing
+        if: ${{ steps.registry.outputs.published == 'false' }}
+        run: npm publish "release-evidence/$TARBALL" --access public --tag "$DIST_TAG"
+
+      - name: Verify npm package and authorized dist-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(npm view "$PACKAGE_NAME@$VERSION" version)" = "$VERSION"
+          test "$(npm view "$PACKAGE_NAME@$VERSION" dist.integrity)" = "$LOCAL_INTEGRITY"
+          REMOTE_TAG_VERSION="$(npm view "$PACKAGE_NAME" "dist-tags.$DIST_TAG")"
+          [[ "$REMOTE_TAG_VERSION" == "$VERSION" ]] || { echo "dist-tag $DIST_TAG points to $REMOTE_TAG_VERSION; safe stop for explicit reconciliation." >&2; exit 1; }
+
+      - name: Registry-installed consumer smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/registry-consumer"; mkdir -p "$DIR"; cd "$DIR"; npm init -y >/dev/null
+          npm install react@19 react-dom@19 @tanstack/react-query@5 --ignore-scripts --no-audit --no-fund
+          npm install "$PACKAGE_NAME@$VERSION" --ignore-scripts --no-audit --no-fund
+          test -f node_modules/@satsails/sdk-react/dist/index.d.ts
+          node -e "const s=require('@satsails/sdk-react'); if(!s || typeof s !== 'object' || Object.keys(s).length === 0) process.exit(1)"
+          node --input-type=module -e "import * as s from '@satsails/sdk-react'; if(!s || Object.keys(s).length === 0) process.exit(1)"
+
+      - name: Create GitHub Release from prepared release record
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'GitHub Release already exists; preserving it for recovery.'
+          else
+            ARGS=(release create "$TAG" --verify-tag --title "$PACKAGE_NAME@$VERSION" --notes-file release-evidence/release-notes.md)
+            [[ "$VERSION" == *-* ]] && ARGS+=(--prerelease)
+            gh "${ARGS[@]}"
+          fi
+
+      - name: Verify completed release chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          test "$(git rev-list -n 1 "$TAG")" = "$SOURCE_SHA"
+          test "$(node -p "require('./${PACKAGE_DIR}/package.json').version")" = "$VERSION"
+          grep -Fq "## [$VERSION]" "$CHANGELOG"
+          test "$(npm view "$PACKAGE_NAME@$VERSION" dist.integrity)" = "$LOCAL_INTEGRITY"
+          test "$(npm view "$PACKAGE_NAME" "dist-tags.$DIST_TAG")" = "$VERSION"
+          gh release view "$TAG" --json tagName,isDraft > "$RUNNER_TEMP/release.json"
+          test "$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/release.json','utf8')).tagName")" = "$TAG"
+          test "$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/release.json','utf8')).isDraft")" = false
+          printf '### Release completed\n- `%s@%s`\n- source `%s`\n- tag `%s`\n- dist-tag `%s → %s`\n- GitHub Release verified\n' "$PACKAGE_NAME" "$VERSION" "$SOURCE_SHA" "$TAG" "$DIST_TAG" "$VERSION" >> "$GITHUB_STEP_SUMMARY"
