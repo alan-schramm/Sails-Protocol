@@ -56,6 +56,7 @@ jobs:
       dist_tag: ${{ steps.identity.outputs.dist_tag }}
       tarball: ${{ steps.pack.outputs.tarball }}
       sdk_tarball: ${{ steps.pack.outputs.sdk_tarball }}
+      schemas_tarball: ${{ steps.pack.outputs.schemas_tarball }}
       integrity: ${{ steps.pack.outputs.integrity }}
     env:
       REQUESTED_SOURCE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.source_sha || github.event.pull_request.head.sha }}
@@ -134,22 +135,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/react-pack" "$RUNNER_TEMP/sdk-pack" release-evidence
+          mkdir -p "$RUNNER_TEMP/react-pack" "$RUNNER_TEMP/sdk-pack" "$RUNNER_TEMP/schemas-pack" release-evidence
+          (cd "$SCHEMAS_DIR" && npm pack --json --pack-destination "$RUNNER_TEMP/schemas-pack" > "$RUNNER_TEMP/schemas-pack.json")
           (cd "$SDK_DIR" && npm pack --json --pack-destination "$RUNNER_TEMP/sdk-pack" > "$RUNNER_TEMP/sdk-pack.json")
           (cd "$PACKAGE_DIR" && npm pack --json --pack-destination "$RUNNER_TEMP/react-pack" > "$RUNNER_TEMP/react-pack.json")
           TARBALL="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/react-pack.json','utf8'))[0].filename")"
           SDK_TARBALL="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/sdk-pack.json','utf8'))[0].filename")"
+          SCHEMAS_TARBALL="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/schemas-pack.json','utf8'))[0].filename")"
           INTEGRITY="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/react-pack.json','utf8'))[0].integrity")"
           PACKED_NAME="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/react-pack.json','utf8'))[0].name")"
           PACKED_VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/react-pack.json','utf8'))[0].version")"
           test "$PACKED_NAME" = "$PACKAGE_NAME"
           test "$PACKED_VERSION" = "${{ steps.identity.outputs.version }}"
-          cp "$RUNNER_TEMP/react-pack/$TARBALL" "$RUNNER_TEMP/sdk-pack/$SDK_TARBALL" release-evidence/
+          cp "$RUNNER_TEMP/react-pack/$TARBALL" "$RUNNER_TEMP/sdk-pack/$SDK_TARBALL" "$RUNNER_TEMP/schemas-pack/$SCHEMAS_TARBALL" release-evidence/
           cp "$RUNNER_TEMP/react-pack.json" release-evidence/pack.json
           tar -tzf "release-evidence/$TARBALL" | tee release-evidence/pack-contents.txt
           ! grep -E '(^|/)(src|tests|node_modules|\.git)(/|$)|(^|/)\.env($|/)|\.(pem|key)$' release-evidence/pack-contents.txt
           sha256sum "release-evidence/$TARBALL" | tee release-evidence/tarball.sha256
-          printf 'tarball=%s\nsdk_tarball=%s\nintegrity=%s\n' "$TARBALL" "$SDK_TARBALL" "$INTEGRITY" >> "$GITHUB_OUTPUT"
+          printf 'tarball=%s\nsdk_tarball=%s\nschemas_tarball=%s\nintegrity=%s\n' "$TARBALL" "$SDK_TARBALL" "$SCHEMAS_TARBALL" "$INTEGRITY" >> "$GITHUB_OUTPUT"
 
       - name: Isolated source-state consumer smoke
         shell: bash
@@ -157,6 +160,7 @@ jobs:
           set -euo pipefail
           DIR="$RUNNER_TEMP/source-consumer"; mkdir -p "$DIR"; cd "$DIR"; npm init -y >/dev/null
           npm install react@19 react-dom@19 @tanstack/react-query@5 --ignore-scripts --no-audit --no-fund
+          npm install "$GITHUB_WORKSPACE/release-evidence/${{ steps.pack.outputs.schemas_tarball }}" --ignore-scripts --no-audit --no-fund
           npm install "$GITHUB_WORKSPACE/release-evidence/${{ steps.pack.outputs.sdk_tarball }}" --ignore-scripts --no-audit --no-fund
           npm install "$GITHUB_WORKSPACE/release-evidence/${{ steps.pack.outputs.tarball }}" --ignore-scripts --no-audit --no-fund
           test -f node_modules/@satsails/sdk-react/dist/index.d.ts
