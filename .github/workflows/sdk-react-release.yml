@@ -151,7 +151,7 @@ jobs:
           cp "$RUNNER_TEMP/react-pack.json" release-evidence/pack.json
           tar -tzf "release-evidence/$TARBALL" | tee release-evidence/pack-contents.txt
           ! grep -E '(^|/)(src|tests|node_modules|\.git)(/|$)|(^|/)\.env($|/)|\.(pem|key)$' release-evidence/pack-contents.txt
-          sha256sum "release-evidence/$TARBALL" | tee release-evidence/tarball.sha256
+          (cd release-evidence && sha256sum "$TARBALL" | tee tarball.sha256)
           printf 'tarball=%s\nsdk_tarball=%s\nschemas_tarball=%s\nintegrity=%s\n' "$TARBALL" "$SDK_TARBALL" "$SCHEMAS_TARBALL" "$INTEGRITY" >> "$GITHUB_OUTPUT"
 
       - name: Isolated source-state consumer smoke
