@@ -145,7 +145,7 @@ jobs:
           cp "$RUNNER_TEMP/sdk-pack.json" release-evidence/pack.json
           tar -tzf "release-evidence/$SDK_TARBALL" | tee release-evidence/pack-contents.txt
           ! grep -E '(^|/)(src|tests|node_modules|\.git)(/|$)|(^|/)\.env($|/)|\.(pem|key)$' release-evidence/pack-contents.txt
-          sha256sum "release-evidence/$SDK_TARBALL" | tee release-evidence/tarball.sha256
+          (cd release-evidence && sha256sum "$SDK_TARBALL" | tee tarball.sha256)
           printf 'tarball=%s\nschemas_tarball=%s\nintegrity=%s\n' "$SDK_TARBALL" "$SCHEMAS_TARBALL" "$INTEGRITY" >> "$GITHUB_OUTPUT"
 
       - name: Isolated source-state consumer smoke
