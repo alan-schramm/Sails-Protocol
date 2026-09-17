@@ -8,6 +8,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@satsails/p2p-trading-sdk": "^0.1.0"
+    "@satsails/p2p-trading-sdk": "^0.2.0"
   }
 }
