@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from '@tanstack/react-query'
-import type { AssetType, Offer, PublishOfferInput, MatchInput, OrderBook, LiquidityOfferSummary } from '@satsails/p2p-trading-sdk'
+import type { AssetType, Offer, PublicOfferDetail, PublishOfferInput, MatchInput, OrderBook, LiquidityOfferSummary } from '@satsails/p2p-trading-sdk'
 import { useSailsClient } from './useSailsClient'
 
 export interface UseSailsLiquidityOptions {
@@ -8,7 +8,7 @@ export interface UseSailsLiquidityOptions {
 }
 
 export interface UseSailsLiquidityResult {
-  query: UseQueryResult<Offer>
+  query: UseQueryResult<PublicOfferDetail>
   book: UseQueryResult<OrderBook>
   match: UseQueryResult<LiquidityOfferSummary | null>
   publish: UseMutationResult<Offer, Error, PublishOfferInput>
@@ -17,7 +17,7 @@ export interface UseSailsLiquidityResult {
 
 /**
  * Wraps `liquidity.get/book/match/publish/updateStatus`
- * (all real — packages/sails-sdk/src/modules/liquidity.ts, verified
+ * (all real â€” packages/sails-sdk/src/modules/liquidity.ts, verified
  * against src/modules/open-liquidity/liquidity.routes.ts directly).
  * `offerId` may be undefined (getOffer query stays disabled,
  * mutations simply aren't called yet) the same way useSailsTrade()
