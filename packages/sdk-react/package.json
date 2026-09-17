@@ -1,6 +1,6 @@
 {
   "name": "@satsails/sdk-react",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "React hooks and components for @satsails/p2p-trading-sdk — providers, TanStack Query-backed data hooks, and a small set of trade/identity/feedback primitives. Not a full design system: it wraps what @satsails/p2p-trading-sdk actually exposes, nothing more.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -46,8 +46,7 @@
     "react-dom": "^19.0.0"
   },
   "dependencies": {
-    "@satsails/p2p-trading-sdk": "^0.1.0",
-    "hardhat": "3.14.0"
+    "@satsails/p2p-trading-sdk": "^0.2.0"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^3.2.7",

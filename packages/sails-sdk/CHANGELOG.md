@@ -76,6 +76,14 @@ silently as a side effect of tagging a release candidate.
 
 ## [Unreleased]
 
+## [0.2.0] - Unreleased
+
+### Changed
+- Prepare the SDK artifact identity for the controlled `0.2.0` release line.
+- Require `@satsails/p2p-schemas` `^0.2.0` for the published dependency surface.
+
+This is a source-state preparation record only. Publication, registry verification, tagging, and GitHub Release completion remain separate controlled release steps.
+
 ## [0.1.3] - 2026-08-16
 
 **Missão 07.5 finding, the main reason for this release:** `0.1.2`
