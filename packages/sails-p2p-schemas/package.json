@@ -1,6 +1,6 @@
 {
   "name": "@satsails/p2p-schemas",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sails P2P Trading domain schemas — Offer, Trade, Dispute contracts shared by every wallet/SDK integration (the 'contrato social' layer between Sails Core and any P2P trading interface)",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
