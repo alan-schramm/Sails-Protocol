@@ -330,7 +330,7 @@ jobs:
 
       - name: Publish verified tarball with npm Trusted Publishing
         if: ${{ steps.registry.outputs.published == 'false' }}
-        run: npm publish "release-evidence/$TARBALL" --access public --tag "$DIST_TAG"
+        run: npm publish "./release-evidence/$TARBALL" --access public --tag "$DIST_TAG"
 
       - name: Verify npm package and authorized dist-tag
         shell: bash
