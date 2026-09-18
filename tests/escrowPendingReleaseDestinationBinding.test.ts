@@ -98,6 +98,17 @@ const mockSignatureUpsert = jest.fn((args: { create: { pendingTxId: string; part
   return Promise.resolve(args.create)
 })
 const mockSignatureFindMany = jest.fn((_arg?: unknown) => Promise.resolve(signatureStore))
+// ADR-005 / #218 — the Economic Disposition Commit Gate's own re-fetch of
+// the LIVE dispute row at submitTransactionSignature() time. Deliberately
+// a separate mock from mockDisputeFindFirst (escrowRepository's
+// findDisputeByTradeAndArbiter(), used only at initiate time) — the gate
+// calls prisma.dispute.findUnique({ where: { id } }) directly.
+const mockDisputeFindUniqueLive = jest.fn()
+const mockEdaFindUnique = jest.fn().mockResolvedValue(null)
+const mockEdaCreate = jest.fn((...args: unknown[]) => {
+  const { data } = args[0] as { data: Record<string, unknown> }
+  return Promise.resolve({ id: 'eda-1', authorizedAt: new Date(), ...data })
+})
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -107,7 +118,14 @@ jest.mock('../src/common/database', () => ({
       updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
     },
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
-    dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
+    dispute: {
+      findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args),
+      findUnique: (...args: unknown[]) => mockDisputeFindUniqueLive(...args),
+    },
+    economicDispositionAuthorization: {
+      findUnique: (...args: unknown[]) => mockEdaFindUnique(...args),
+      create: (...args: unknown[]) => mockEdaCreate(...args),
+    },
     escrowEvent: {
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
@@ -134,6 +152,14 @@ jest.mock('../src/common/database', () => ({
         escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
         escrowPendingTransaction: {
           create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg),
+        },
+        // ADR-005 / #218 — authorizeDisputedPendingExecution()'s own
+        // $transaction callback needs these two, reused from the
+        // top-level mocks so both call sites observe the same state.
+        dispute: { findUnique: (...args: unknown[]) => mockDisputeFindUniqueLive(...args) },
+        economicDispositionAuthorization: {
+          findUnique: (...args: unknown[]) => mockEdaFindUnique(...args),
+          create: (...args: unknown[]) => mockEdaCreate(...args),
         },
       }),
   },
@@ -203,6 +229,125 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
     expect(pending.toAddress).toBe('address-A')
     expect(mockBuildUnsignedRelease).toHaveBeenCalled()
     expect(mockPendingTxCreate).toHaveBeenCalledTimes(1)
+  })
+
+  // ADR-005 / #218 — the ruling-generation provenance snapshot captured
+  // at pending-transaction creation time, over the REAL initiateRelease()
+  // path (only Prisma/the provider are mocked). Proves
+  // initiateSignatureCollectionCore() actually persists what
+  // escrow-lifecycle.ts's assertDisputedDispositionAuthority() returns,
+  // not just that it doesn't throw.
+  it('snapshots the ruling generation onto the pending row when created from a disputed ruling', async () => {
+    mockDisputeFindFirst.mockResolvedValue({
+      id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1',
+      appealRound: 0, ruling: 'RELEASE', authoritySignature: 'sig-0', authorityIssuedAt: new Date('2026-09-18T00:00:00.000Z'),
+    })
+
+    await escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')
+
+    expect(mockPendingTxCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        disputeId: 'dispute-1',
+        rulingAppealRound: 0,
+        rulingArbiterId: 'arbiter-1',
+        rulingOutcome: 'RELEASE',
+        rulingAuthoritySignature: 'sig-0',
+      }),
+    })
+  })
+})
+
+// ADR-005 / #218 — the Economic Disposition Commit Gate, exercised through
+// the REAL submitTransactionSignature() path (escrow-pending-tx.ts), not
+// just economic-disposition-authority.ts in isolation. Proves the gate is
+// actually wired into the real execution flow and fires BEFORE ADR-004's
+// own Capability gate — with enforceCapabilities: false in this file's own
+// config mock (see the top-of-file jest.mock('../src/config', ...)), a
+// stale-generation rejection here can only be coming from the Economic
+// Disposition gate, never from ADR-004's Capability check.
+describe('escrow-pending-tx.ts submitTransactionSignature() — Economic Disposition Commit Gate (ADR-005 / #218)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    pendingTxStore = null
+    signatureStore = []
+    mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
+    mockEscrowFundingEvidenceFindMany.mockResolvedValue([])
+    mockPendingTxFindUnique.mockImplementation(() => Promise.resolve(pendingTxStore))
+    mockPayoutAddressFindUnique.mockResolvedValue({ address: 'address-A', participantId: BUYER_ID, asset: 'BTC' })
+    mockBuildUnsignedRelease.mockResolvedValue({ psbtBase64: 'psbt-stub', requiredSigners: [BUYER_ID] })
+    mockFinalizeRelease.mockResolvedValue({ txId: 'tx-1' })
+    mockEdaFindUnique.mockResolvedValue(null)
+  })
+
+  async function createDisputedPending(generation: { appealRound: number; arbiterId: string; ruling: string; authoritySignature: string }) {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
+    mockDisputeFindFirst.mockResolvedValue({
+      id: 'dispute-1', tradeId: TRADE_ID, arbiterId: generation.arbiterId,
+      appealRound: generation.appealRound, ruling: generation.ruling, authoritySignature: generation.authoritySignature,
+      authorityIssuedAt: new Date('2026-09-18T00:00:00.000Z'),
+    })
+    await escrowService.initiateRelease(ESCROW_ID, undefined, generation.arbiterId)
+    // submitTransactionSignature() re-fetches escrow.status directly —
+    // still DISPUTED until the atomic claim inside it transitions it.
+  }
+
+  it('commits and completes when the recorded ruling generation is still the live one', async () => {
+    await createDisputedPending({ appealRound: 0, arbiterId: 'arbiter-1', ruling: 'RELEASE', authoritySignature: 'sig-0' })
+    mockDisputeFindUniqueLive.mockResolvedValue({
+      id: 'dispute-1', status: 'RESOLVED', appealRound: 0, arbiterId: 'arbiter-1', ruling: 'RELEASE', authoritySignature: 'sig-0',
+    })
+
+    const result = await escrowService.submitTransactionSignature(ESCROW_ID, BUYER_ID, 'signed-psbt-buyer')
+
+    expect(result.complete).toBe(true)
+    expect(mockEdaCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ disputeId: 'dispute-1', appealRound: 0, arbiterId: 'arbiter-1', ruling: 'RELEASE' }),
+    })
+  })
+
+  it('fails closed — even with ADR-004 Capability enforcement disabled — when an appeal moved the dispute to a new generation before every signature arrived', async () => {
+    await createDisputedPending({ appealRound: 0, arbiterId: 'arbiter-1', ruling: 'RELEASE', authoritySignature: 'sig-0' })
+    // The live dispute has since been appealed: new arbiter, new round,
+    // ruling nulled, status APPEALED — exactly what appeal() would commit.
+    mockDisputeFindUniqueLive.mockResolvedValue({
+      id: 'dispute-1', status: 'APPEALED', appealRound: 1, arbiterId: 'arbiter-2', ruling: null, authoritySignature: null,
+    })
+
+    await expect(
+      escrowService.submitTransactionSignature(ESCROW_ID, BUYER_ID, 'signed-psbt-buyer')
+    ).rejects.toThrow(/no longer current/)
+
+    expect(mockFinalizeRelease).not.toHaveBeenCalled()
+    expect(mockEdaCreate).not.toHaveBeenCalled()
+    // The atomic status claim must never have been reached — the pending
+    // row and its signatures survive, exactly as a failed Gate should
+    // leave them (retryable, not silently discarded).
+    expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+  })
+
+  // CTO Gate R1 (#222) finding 1, required test 3/3 — an ambiguous legacy
+  // row (no recorded ruling-generation provenance, but its escrow DOES have
+  // a Dispute record) must never reach a provider side effect. This pending
+  // row was created cooperatively (escrow.status was PAYMENT_PENDING at
+  // initiate time, so no provenance was ever captured for it) — the same
+  // shape a genuine pre-migration legacy row would have.
+  it('an ambiguous legacy pending row (no provenance, but its escrow has a Dispute record) is rejected before any provider side effect', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'PAYMENT_PENDING' }))
+    await escrowService.initiateRelease(ESCROW_ID, undefined, SELLER_ID)
+    expect((pendingTxStore as any).disputeId).toBeUndefined()
+
+    // The escrow now has a Dispute record — e.g. a genuine legacy row
+    // predating this migration, or a dispute concurrently raised on this
+    // escrow after this cooperative operation was already in flight.
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', escrowId: ESCROW_ID, status: 'RESOLVED' })
+
+    await expect(
+      escrowService.submitTransactionSignature(ESCROW_ID, BUYER_ID, 'signed-psbt-buyer')
+    ).rejects.toThrow(/cooperative origin cannot be proven/)
+
+    expect(mockFinalizeRelease).not.toHaveBeenCalled()
+    expect(mockEdaCreate).not.toHaveBeenCalled()
+    expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
   })
 })
 

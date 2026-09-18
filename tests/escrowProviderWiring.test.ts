@@ -853,6 +853,17 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
         // the seller's FeeObligation basisAmount for a SPLIT settled via
         // this path (it wasn't stored anywhere before this pass).
         buyerBps: 6000,
+        // ADR-005 / #218 — ruling-generation provenance snapshotted
+        // because this escrow is DISPUTED. mockDisputeFindFirst's own
+        // fixture above only sets {id, tradeId, arbiterId} — the other
+        // generation fields are genuinely undefined on that row, exactly
+        // as a real Dispute predating this ADR would report them.
+        disputeId: 'dispute-1',
+        rulingAppealRound: undefined,
+        rulingArbiterId: 'arbiter-1',
+        rulingOutcome: undefined,
+        rulingAuthoritySignature: undefined,
+        rulingAuthorityIssuedAt: undefined,
       },
     })
     expect(result.id).toBe('ptx-3')
@@ -883,6 +894,14 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     mockEscrowFeatureFlag = false
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockPendingTxDelete.mockResolvedValue({})
+    // ADR-005 / #218 — jest.clearAllMocks() does not reset a persistent
+    // .mockResolvedValue() set by an earlier describe block (the disputed
+    // SPLIT test above leaves mockDisputeFindFirst resolving a real Dispute
+    // row). Every test in THIS block exercises a cooperative pending
+    // operation with no recorded ruling generation, so it must observe a
+    // never-disputed escrow (null) for the Economic Disposition gate's own
+    // ambiguous-legacy-row check to correctly no-op, not fail closed.
+    mockDisputeFindFirst.mockResolvedValue(null)
   })
 
   it('records a partial submission without finalizing when not every required signer has submitted yet', async () => {

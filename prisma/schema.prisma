@@ -2244,9 +2244,55 @@ model EscrowPendingTransaction {
   triggeredBy         String
   createdAt           DateTime @default(now())
 
+  // ADR-005 / #218 — durable ruling-generation provenance, snapshotted at
+  // the moment a DISPUTED ruling creates this pending operation (never
+  // backfilled onto a cooperative, non-disputed release/refund/split —
+  // ADR-005 §9 does not redefine that authority, so all six columns stay
+  // null for those rows). This is the "what generation authorized this
+  // pending operation" fact the Economic Disposition Commit Gate
+  // (economic-disposition-authority.ts) re-validates against the LIVE
+  // Dispute row immediately before the first provider side effect.
+  // rulingAuthoritySignature is the same Ed25519 signature
+  // arbitration-authority.ts already verifies at ruling time — reused
+  // here as the immutable fingerprint of the exact signed decision, never
+  // a separately-invented digest.
+  disputeId               String?
+  rulingAppealRound       Int?
+  rulingArbiterId         String?
+  rulingOutcome           DisputeRuling?
+  rulingAuthoritySignature String?
+  rulingAuthorityIssuedAt DateTime?
+
   signatures EscrowTransactionSignature[]
 
   @@map("escrow_pending_transactions")
+}
+
+// ADR-005 / #218 — durable authorization committed at the Economic
+// Disposition Commit Gate, immediately before the first provider side
+// effect for a pending operation that originated from a disputed ruling.
+// Mirrors CapabilityExecutionAuthorization's shape and rationale exactly
+// (ADR-004 / #211, above in this file): intentionally NOT a child of
+// EscrowPendingTransaction, so successful pending-row cleanup cannot erase
+// the authority evidence for an economic attempt that already committed.
+// Distinct from CapabilityExecutionAuthorization — Economic Disposition
+// Authority (does the recorded ruling generation still govern?) and
+// Capability/Eligibility Authority (is the actor still permitted?) are
+// orthogonal gates; neither substitutes for the other (ADR-005 §7).
+model EconomicDispositionAuthorization {
+  id                 String   @id @default(uuid())
+  pendingOperationId String   @unique
+  escrowId           String
+  disputeId          String
+  appealRound        Int
+  arbiterId          String
+  ruling             DisputeRuling
+  operationDigest    String
+  authorizedAt       DateTime @default(now())
+
+  @@index([escrowId])
+  @@index([disputeId])
+  @@map("economic_disposition_authorizations")
 }
 
 model EscrowTransactionSignature {
