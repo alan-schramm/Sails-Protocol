@@ -104,6 +104,7 @@ const mockEscrowCreate = jest.fn()
 const mockEscrowEventCreate = jest.fn()
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
+const mockDisputeFindFirst = jest.fn().mockResolvedValue(null)
 const mockFeePolicyVersionFindMany = jest.fn().mockResolvedValue([])
 const mockParticipantKeyUpsert = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
@@ -202,7 +203,7 @@ jest.mock('../src/common/database', () => ({
       upsert: (...args: unknown[]) => mockTxSignatureUpsert(...args),
       findMany: (...args: unknown[]) => mockTxSignatureFindMany(...args),
     },
-    dispute: { findFirst: jest.fn().mockResolvedValue(null) },
+    dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
     durableEventRecord: {
       create: (...args: unknown[]) => mockDurableEventCreate(...args),
@@ -815,6 +816,7 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockParticipantKeyFindMany.mockResolvedValue([
@@ -834,7 +836,7 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
     mockBuildUnsignedSplit.mockResolvedValue({ psbtBase64: 'unsigned-split-psbt', requiredSigners: ['buyer-1'] })
     mockPendingTxCreate.mockResolvedValue({ id: 'ptx-3', escrowId: 'escrow-1', kind: 'split', requiredSigners: ['buyer-1'] })
 
-    const result = await escrowService.initiateSplit('escrow-1', 'tb1qbuyer', 'tb1qseller', 6000, 'seller-1')
+    const result = await escrowService.initiateSplit('escrow-1', 'tb1qbuyer', 'tb1qseller', 6000, 'arbiter-1')
 
     expect(mockBuildUnsignedSplit).toHaveBeenCalledWith(
       expect.objectContaining({ buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY }),
@@ -845,7 +847,7 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
     expect(mockPendingTxCreate).toHaveBeenCalledWith({
       data: {
         escrowId: 'escrow-1', kind: 'split', toAddress: 'tb1qbuyer', toAddressSecondary: 'tb1qseller',
-        unsignedPsbtBase64: 'unsigned-split-psbt', requiredSigners: ['buyer-1'], triggeredBy: 'seller-1',
+        unsignedPsbtBase64: 'unsigned-split-psbt', requiredSigners: ['buyer-1'], triggeredBy: 'arbiter-1',
         // Missão 11 Fase 3 — buyerBps is now persisted on the pending
         // transaction so submitTransactionSignature() can later compute
         // the seller's FeeObligation basisAmount for a SPLIT settled via
