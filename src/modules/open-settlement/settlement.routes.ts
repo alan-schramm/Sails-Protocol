@@ -472,8 +472,27 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = disputeSchema.parse(request.body)
+    const callerId = participantId(request)
     const escrow = await escrowService.getEscrow(id)
-    const dispute = await getDisputeService().raiseDispute(escrow.tradeId, participantId(request), body.reason, body.evidence as any)
+    const trade = await tradeService.getTrade(escrow.tradeId)
+
+    // Authority boundary must precede arbitration deployment details.
+    // getDisputeService() intentionally fails clearly when trusted-list
+    // arbitration is unconfigured, but a caller who is not a party to
+    // this trade must not reach that configuration disclosure first.
+    // raiseDispute() repeats this check as the service-layer authority
+    // guard; this route-level check is deliberately defense-in-depth for
+    // failure ordering at the public HTTP boundary.
+    if (callerId !== trade.buyerId && callerId !== trade.sellerId) {
+      throw new ForbiddenError(`${callerId} is not a party to trade ${trade.id}`)
+    }
+
+    const dispute = await getDisputeService().raiseDispute(
+      escrow.tradeId,
+      callerId,
+      body.reason,
+      body.evidence as any
+    )
     return reply.code(200).send(success(dispute))
   })
 
