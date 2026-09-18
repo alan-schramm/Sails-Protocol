@@ -128,13 +128,21 @@ export async function isSellerOrAssignedArbiter(tradeId: string, sellerId: strin
  * non-disputed cooperative/recovery paths. This assertion is the state-
  * conditional narrowing shared by both direct settlement calls and the
  * signature-collection initiate-* flow.
+ *
+ * ADR-005 / #218 — returns the live Dispute row (rather than void) when
+ * the escrow is DISPUTED, so a caller building a pending economic
+ * operation (escrow-pending-tx.ts's initiateSignatureCollectionCore()) can
+ * snapshot the exact ruling generation that authorized it, without a
+ * second, independently-racy re-fetch. Returns null for the non-disputed
+ * case — existing callers that only awaited this for its side effect
+ * (loadEscrowWithAuthorization()) are unaffected by this additive change.
  */
 export async function assertDisputedDispositionAuthority(
   tradeId: string,
   escrowStatus: string,
   triggeredBy: string,
-): Promise<void> {
-  if (escrowStatus !== 'DISPUTED') return
+): Promise<Awaited<ReturnType<typeof escrowRepository.findDisputeByTradeAndArbiter>>> {
+  if (escrowStatus !== 'DISPUTED') return null
 
   const dispute = await escrowRepository.findDisputeByTradeAndArbiter(tradeId, triggeredBy)
   if (!dispute) {
@@ -143,6 +151,7 @@ export async function assertDisputedDispositionAuthority(
       'ordinary seller disposition authority is suspended while the escrow is DISPUTED'
     )
   }
+  return dispute
 }
 
 // Missão 06.9 (RFC-014 wiring completion) — RFC-014's own convention

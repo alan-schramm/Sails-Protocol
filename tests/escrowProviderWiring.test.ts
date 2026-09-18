@@ -853,6 +853,17 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
         // the seller's FeeObligation basisAmount for a SPLIT settled via
         // this path (it wasn't stored anywhere before this pass).
         buyerBps: 6000,
+        // ADR-005 / #218 — ruling-generation provenance snapshotted
+        // because this escrow is DISPUTED. mockDisputeFindFirst's own
+        // fixture above only sets {id, tradeId, arbiterId} — the other
+        // generation fields are genuinely undefined on that row, exactly
+        // as a real Dispute predating this ADR would report them.
+        disputeId: 'dispute-1',
+        rulingAppealRound: undefined,
+        rulingArbiterId: 'arbiter-1',
+        rulingOutcome: undefined,
+        rulingAuthoritySignature: undefined,
+        rulingAuthorityIssuedAt: undefined,
       },
     })
     expect(result.id).toBe('ptx-3')

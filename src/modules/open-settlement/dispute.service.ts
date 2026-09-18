@@ -41,6 +41,7 @@ import {
 } from './arbitration-authority'
 import { Prisma } from '@prisma/client'
 import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './dispute-outcome'
+import { economicDispositionLockKey } from './economic-disposition-authority'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
@@ -339,20 +340,45 @@ export class DisputeService {
     // RESOLVED first; if the fund movement then fails, the ruling is
     // reverted rather than left claiming a resolution that never
     // actually moved funds.
-    const updated = await prisma.dispute.update({
-      where: { id: dispute.id },
-      data: {
-        status: 'RESOLVED',
-        ruling,
-        resolvedAt: new Date(),
-        ...(authority
-          ? {
-              authoritySignature: authority.authoritySignature,
-              authorityIssuedAt: authority.authorityIssuedAt,
-              authorityBuyerBps: authority.authorityBuyerBps,
-            }
-          : {}),
-      },
+    //
+    // ADR-005 §10 — this used to be an unconditional `prisma.dispute.update()`
+    // by id alone: the exact "old-arbiter in-flight race" family ADR-005
+    // requires closed. resolveDispute()'s own top-level check (dispute.status
+    // !== 'RESOLVED' && dispute.arbiterId === arbiterId) read the row BEFORE
+    // this method was ever called — a concurrent appeal() landing between
+    // that read and this write could previously still let a stale arbiter's
+    // ruling commit RESOLVED over a dispute appeal() had already reassigned.
+    // Now: the same `economic-disposition:<disputeId>` lock scope appeal()
+    // and the Economic Disposition Commit Gate use (ADR-005 §3) serializes
+    // this write too, and the write itself is a conditional claim re-checked
+    // AFTER acquiring the lock — never a bare re-use of the pre-lock read.
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
+
+      const claim = await tx.dispute.updateMany({
+        where: { id: dispute.id, status: { not: 'RESOLVED' }, arbiterId: triggeredBy },
+        data: {
+          status: 'RESOLVED',
+          ruling,
+          resolvedAt: new Date(),
+          ...(authority
+            ? {
+                authoritySignature: authority.authoritySignature,
+                authorityIssuedAt: authority.authorityIssuedAt,
+                authorityBuyerBps: authority.authorityBuyerBps,
+              }
+            : {}),
+        },
+      })
+      if (claim.count === 0) {
+        throw new ValidationError(
+          `Dispute ${dispute.id} is no longer authorized for a ruling from ${triggeredBy} — its economic disposition authority ` +
+          'has already changed (resolved, appealed, or reassigned) since this ruling was requested.'
+        )
+      }
+      const row = await tx.dispute.findUnique({ where: { id: dispute.id } })
+      if (!row) throw new NotFoundError('Dispute', dispute.id)
+      return row
     })
 
     try {
@@ -857,17 +883,42 @@ export class DisputeService {
       },
     })
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
-      data: {
-        status: 'APPEALED',
-        appealRound: nextRound,
-        previousRuling: dispute.ruling,
-        previousArbiterId: dispute.arbiterId,
-        arbiterId: newArbiterId,
-        ruling: null,
-        resolvedAt: null,
-      },
+    // ADR-005 §3/§10 — the actual authority-moving write. Locked and
+    // re-checked against the SAME `economic-disposition:<disputeId>` scope
+    // the disputed-ruling resolve-write and the Economic Disposition
+    // Commit Gate use, so appeal() and a concurrent stale-generation
+    // execution attempt get one deterministic winner: whichever side
+    // serializes first here wins this dispute's next generation; the
+    // loser's own conditional claim (applyRuling()'s updateMany, or the
+    // Commit Gate's live-dispute comparison) observes the result and fails
+    // closed. The top-level `dispute.status !== 'RESOLVED'`/appealRound
+    // read above is pre-lock and therefore only a fail-fast — this
+    // re-check, taken AFTER acquiring the lock, is what is actually
+    // race-safe.
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(disputeId)})::bigint)`
+
+      const claim = await tx.dispute.updateMany({
+        where: { id: disputeId, status: 'RESOLVED', appealRound: dispute.appealRound },
+        data: {
+          status: 'APPEALED',
+          appealRound: nextRound,
+          previousRuling: dispute.ruling,
+          previousArbiterId: dispute.arbiterId,
+          arbiterId: newArbiterId,
+          ruling: null,
+          resolvedAt: null,
+        },
+      })
+      if (claim.count === 0) {
+        throw new ValidationError(
+          `Dispute ${disputeId} can no longer be appealed from the generation this request was built against — ` +
+          'a concurrent resolution or appeal has already changed its current economic disposition authority.'
+        )
+      }
+      const row = await tx.dispute.findUnique({ where: { id: disputeId } })
+      if (!row) throw new NotFoundError('Dispute', disputeId)
+      return row
     })
 
     await eventBus.emit('dispute.appealed', {

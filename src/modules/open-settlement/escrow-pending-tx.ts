@@ -24,6 +24,7 @@ import { feeCollectionRecognitionService } from './fee-collection-recognition.se
 import { identifyFeeOutput, networkFor } from './multisig.provider'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
+import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('escrow-pending-tx')
@@ -91,8 +92,28 @@ async function initiateSignatureCollectionCore(
 
   const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+  // ADR-005 / #218 — when this pending operation originates from a
+  // disputed ruling, snapshot the exact ruling generation that authorized
+  // it (disputeId/appealRound/arbiterId/ruling/authoritySignature/
+  // authorityIssuedAt) onto the pending row itself below. This is the
+  // durable provenance the Economic Disposition Commit Gate
+  // (economic-disposition-authority.ts) later re-validates against the
+  // LIVE Dispute row, immediately before the first provider side effect
+  // in submitTransactionSignature(). null for an ordinary cooperative
+  // operation — ADR-005 §9 does not redefine that authority.
+  let disputedRulingProvenance: Record<string, unknown> = {}
   if (escrow.status === 'DISPUTED') {
-    await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
+    const dispute = await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
+    if (dispute) {
+      disputedRulingProvenance = {
+        disputeId: dispute.id,
+        rulingAppealRound: dispute.appealRound,
+        rulingArbiterId: dispute.arbiterId,
+        rulingOutcome: dispute.ruling,
+        rulingAuthoritySignature: dispute.authoritySignature,
+        rulingAuthorityIssuedAt: dispute.authorityIssuedAt,
+      }
+    }
   } else if (!(await isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
     throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
   }
@@ -173,6 +194,7 @@ async function initiateSignatureCollectionCore(
           // this already-built PSBT. Undefined for a provider that doesn't
           // report one (LIGHTNING_HODL/SAFE_GUARD_EVM today).
           ...(result.minerFeeSats !== undefined ? { minerFeeSats: result.minerFeeSats } : {}),
+          ...disputedRulingProvenance,
           ...extraData,
         },
       })
@@ -327,6 +349,14 @@ export async function submitTransactionSignature(escrowId: string, participantId
   if (pending.kind === 'split' && !provider.finalizeSplit) {
     throw new EscrowError(`Escrow type '${escrow.type}' does not support split finalization — buildUnsignedSplit was allowed but finalizeSplit is not implemented`)
   }
+
+  // ADR-005 / #218 — Economic Disposition Commit Gate. Runs first: a stale
+  // ruling generation must fail closed before Capability/Eligibility is
+  // even considered (ADR-005 §7 — the two gates are orthogonal, but this
+  // ordering means a superseded ruling never gets to "pass" any gate). A
+  // no-op for a pending operation with no recorded ruling generation
+  // (ordinary cooperative release/refund/split).
+  await authorizeDisputedPendingExecution(pending)
 
   // ADR-004 / #211 — Execution Commit Gate. This re-evaluates the
   // ORIGINAL initiator (pending.triggeredBy), not whichever signer happened

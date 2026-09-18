@@ -202,16 +202,35 @@ jest.mock('../src/common/database', () => ({
       upsert: (arg: { create: { pendingTxId: string; participantId: string; signedPsbtBase64: string } }) => mockSignatureUpsert(arg),
       findMany: (arg: unknown) => mockSignatureFindMany(arg),
     },
-    $transaction: (callback: (tx: unknown) => Promise<unknown>) =>
-      callback({
+    // ADR-005 / #218 — applyRuling()'s resolve-write now runs inside
+    // prisma.$transaction() (economic-disposition:<disputeId> advisory
+    // lock + a conditional claim, then a re-fetch for the return value —
+    // real Postgres's updateMany doesn't return the row, so applyRuling()
+    // re-reads it). This file's existing tests configure mockDisputeUpdate
+    // with the POST-write row shape (mockDisputeUpdate.mockResolvedValue({
+    // status: 'RESOLVED', ... })) and assert against resolveDispute()'s
+    // return value — so the fake tx.dispute.findUnique() below returns
+    // whatever mockDisputeUpdate resolved to for the write that just ran,
+    // not the pre-write mockDisputeFindUnique() snapshot.
+    $transaction: (callback: (tx: unknown) => Promise<unknown>) => {
+      let writtenRow: unknown
+      return callback({
         $executeRaw: jest.fn().mockResolvedValue(0),
+        dispute: {
+          findUnique: async () => writtenRow,
+          updateMany: async (...args: unknown[]) => {
+            writtenRow = await mockDisputeUpdate(...args)
+            return { count: 1 }
+          },
+        },
         escrowEvent: {
           findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
           create: (...args: unknown[]) => mockEscrowEventCreate(...args),
         },
         escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
         escrowPendingTransaction: { create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg) },
-      }),
+      })
+    },
   },
 }))
 

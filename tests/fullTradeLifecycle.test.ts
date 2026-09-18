@@ -85,8 +85,18 @@ function makeTable(idPrefix: string, defaults: Record<string, unknown> = {}) {
     // did — exactly what a concurrent-loser test needs to exercise for
     // real, the same way the in-memory tables above already give every
     // other method real round-trip behavior instead of a canned response.
+    // ADR-005 §10/#218 — dispute.service.ts's applyRuling()/appeal() now
+    // guard their locked writes with a Prisma `{ not: X }` filter (e.g.
+    // `status: { not: 'RESOLVED' }`), not just plain equality. Extending
+    // matchesWhereClause rather than adding a second updateMany variant —
+    // same "real conditional-update semantics, not a stub" discipline this
+    // table's own comment above already commits to.
     updateMany: jest.fn(async ({ where, data }: any) => {
-      const matches = [...rows.values()].filter((r) => Object.entries(where).every(([k, v]) => r[k] === v))
+      const matchesWhereClause = (r: any) =>
+        Object.entries(where).every(([k, v]) =>
+          v && typeof v === 'object' && 'not' in (v as any) ? r[k] !== (v as any).not : r[k] === v
+        )
+      const matches = [...rows.values()].filter(matchesWhereClause)
       for (const row of matches) {
         const merged = { ...row, ...data, updatedAt: new Date() }
         rows.set(row.id, merged)
@@ -226,6 +236,14 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     // — same real fake-table object already used for prisma.escrowEvent
     // below, this file's own "every table round-trips for real" discipline.
     escrowEvent: escrowEvents,
+    // ADR-005 / #218 — dispute.service.ts's applyRuling()/appeal() now run
+    // their resolve-write / authority-reassignment write inside
+    // prisma.$transaction() (economic-disposition:<disputeId> advisory
+    // lock + a conditional updateMany claim). Same real fake-table object
+    // already used for prisma.dispute below, so a transactional write is
+    // visible to a later unlocked read exactly like a real Prisma
+    // transaction would be — same discipline as escrow/escrowEvent above.
+    dispute: disputes,
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )

@@ -74,6 +74,25 @@ const mockDisputeAppealFeeUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 // behavior override this per-test.
 const mockEscrowParticipantKeyFindUnique = jest.fn().mockResolvedValue(null)
 
+// ADR-005 / #218 — applyRuling()'s resolve-write and appeal()'s
+// authority-reassignment write now run inside prisma.$transaction() (the
+// economic-disposition:<disputeId> advisory lock + a conditional claim,
+// closing the old-arbiter in-flight race). The fake `tx` client below
+// routes to the SAME mock functions the rest of this file already asserts
+// against, so this is purely a wiring change — every existing assertion on
+// mockDisputeUpdateMany/mockDisputeFindUnique continues to observe the
+// same calls, now made via `tx` instead of the top-level `prisma` object.
+const mockExecuteRaw = jest.fn().mockResolvedValue(0)
+const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+  fn({
+    $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
+    dispute: {
+      findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
+      updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),
+    },
+  })
+)
+
 jest.mock('../src/common/database', () => ({
   prisma: {
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
@@ -92,6 +111,7 @@ jest.mock('../src/common/database', () => ({
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
     escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },
     user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
+    $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
 
@@ -298,6 +318,33 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     const [sig2, issuedAt2] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'REFUND')
     await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig2, issuedAt2)
     expect(mockRefundFunds).toHaveBeenCalledWith('escrow-1', 'arbiter-1')
+  })
+
+  // ADR-005 §10 — the old-arbiter in-flight race applyRuling()'s
+  // resolve-write now guards against: a stale arbiter's ruling arrives
+  // (or is retried) after a concurrent appeal() has already reassigned
+  // this dispute to a different generation. Previously an unconditional
+  // `prisma.dispute.update()` by id alone would have silently overwritten
+  // whatever appeal() committed; the conditional updateMany claim used
+  // inside the `economic-disposition:<disputeId>` lock now observes
+  // { count: 0 } for exactly this case and fails closed instead.
+  it('ADR-005 §10 — fails closed when the dispute\'s economic disposition authority changed between the top-level read and the locked resolve-write (old-arbiter in-flight race)', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+    // Simulates a concurrent appeal() (or resolution) having already
+    // claimed this row by the time applyRuling()'s locked updateMany runs.
+    // mockResolvedValueOnce (not mockResolvedValue) — mockDisputeUpdateMany
+    // is a module-scoped mock other describe blocks in this file also rely
+    // on for its persistent { count: 1 } default; jest.clearAllMocks() in
+    // beforeEach does not restore a resolved value, so overriding it
+    // permanently here would leak into every later test in this file.
+    mockDisputeUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const [sig, issuedAt] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
+    await expect(
+      service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', undefined, undefined, undefined, sig, issuedAt)
+    ).rejects.toThrow(/no longer authorized for a ruling/)
+    expect(mockReleaseFunds).not.toHaveBeenCalled()
+    expect(mockInitiateRelease).not.toHaveBeenCalled()
   })
 
   it('rejects a resolution from anyone but the assigned arbiter', async () => {
@@ -531,13 +578,16 @@ describe('DisputeService — appeal() (RFC-021 D6)', () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockAssignAppealPanel.mockResolvedValue('new-arbiter')
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: '1.0' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'APPEALED', arbiterId: 'new-arbiter', appealRound: 1 })
 
     const result = await marketService.appeal('dispute-1', 'seller-1')
 
     expect(mockAssignAppealPanel).toHaveBeenCalledWith('dispute-1', 'trade-1', 1, 'original-arbiter')
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
+    // ADR-005 §3/§10 — the authority-moving write is now a conditional
+    // claim (economic-disposition:<disputeId>-locked), guarded on the
+    // exact generation this appeal() call read at its own top, not a bare
+    // `update()` by id alone.
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'dispute-1', status: 'RESOLVED', appealRound: 0 },
       data: {
         status: 'APPEALED',
         appealRound: 1,

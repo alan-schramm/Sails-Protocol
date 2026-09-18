@@ -80,6 +80,7 @@ import {
   buildOutcomeDestinationBinding,
   buildAttributedArbitrationTransitionRecord,
 } from './economic-outcome'
+import { economicDispositionLockKey } from './economic-disposition-authority'
 
 type SemanticTransitionRecordRow = NonNullable<Awaited<ReturnType<typeof prisma.semanticTransitionRecord.findUnique>>>
 
@@ -266,6 +267,17 @@ export async function commitAuthoritativeDisputeRuling(
   const outcomeContent = buildRulingOutcomeContent(payload.outcome, totalUnits, asset, buyerId, sellerId, payload.buyerBps)
 
   return prisma.$transaction(async (tx) => {
+    // ADR-005 §3/§10 — same `economic-disposition:<disputeId>` lock scope
+    // appeal() and the Economic Disposition Commit Gate use. The
+    // conditional `updateMany` guard below already gave MULTISIG
+    // reasonable protection against the old-arbiter in-flight race (an
+    // appeal reassigning `arbiterId` makes `payload.authorityId` stop
+    // matching); this lock makes that ordering deterministic rather than
+    // relying only on row-level contention, and puts MULTISIG on the
+    // identical serialization domain as every other rail's disputed-ruling
+    // resolve-write and the Commit Gate's own re-validation.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
+
     const claim = await tx.dispute.updateMany({
       where: { id: dispute.id, status: { not: 'RESOLVED' }, arbiterId: payload.authorityId },
       data: {
