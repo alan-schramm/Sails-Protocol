@@ -1,11 +1,19 @@
 import {
   arbitrationCapabilityFor,
+  parseArbitrationMode,
   assertArbitrationPolicyCompatible,
   resolveArbitrationModeForImplementation,
 } from '../src/modules/open-settlement/arbitration-policy'
 import { createArbitrationProviderResolver } from '../src/modules/open-settlement/arbitration-provider-resolver'
 
 describe('ADR-003 rail-scoped arbitration policy', () => {
+  it('accepts only the closed arbitration-mode vocabulary at the configuration boundary', () => {
+    expect(parseArbitrationMode(undefined)).toBe('trusted-list')
+    expect(parseArbitrationMode('trusted-list')).toBe('trusted-list')
+    expect(parseArbitrationMode('market')).toBe('market')
+    expect(() => parseArbitrationMode('some-future-mode')).toThrow(/Expected trusted-list\|market/)
+  })
+
   it('declares MULTISIG fixed and MOCK dynamically reassignable', () => {
     expect(arbitrationCapabilityFor('MULTISIG')).toBe('FIXED_ARBITER_COMMITMENT')
     expect(arbitrationCapabilityFor('MOCK')).toBe('DYNAMIC_REASSIGNABLE')
