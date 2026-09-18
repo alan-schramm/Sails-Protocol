@@ -94,9 +94,14 @@ describe('capabilityGrantRepository.markRevoked() — ADR-004 serialization', ()
   })
 
   it('serializes revocation under the same Postgres advisory-lock domain Gate B uses', async () => {
-    await capabilityGrantRepository.markRevoked('grant-1')
+    await capabilityGrantRepository.markRevoked({
+      grantId: 'grant-1',
+      grantedTo: 'user-1',
+      capabilityName: 'settlement',
+      scope: ['settlement.escrow.released'],
+      issuedBy: 'user-1',
+    })
 
-    expect(mockFindUnique).toHaveBeenCalledWith({ where: { id: 'grant-1' } })
     expect(mockTransaction).toHaveBeenCalledTimes(1)
     expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
     expect(mockUpdate).toHaveBeenCalledWith({
@@ -105,12 +110,4 @@ describe('capabilityGrantRepository.markRevoked() — ADR-004 serialization', ()
     })
   })
 
-  it('is a no-op if the grant disappeared before revocation begins', async () => {
-    mockFindUnique.mockResolvedValue(null)
-
-    await capabilityGrantRepository.markRevoked('missing')
-
-    expect(mockTransaction).not.toHaveBeenCalled()
-    expect(mockUpdate).not.toHaveBeenCalled()
-  })
 })
