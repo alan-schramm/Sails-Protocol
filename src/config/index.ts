@@ -6,6 +6,7 @@
 import 'dotenv/config'
 import { normalizeBitcoinNetwork, type BitcoinNetwork } from '@satsails/p2p-schemas'
 
+import { parseArbitrationMode, type ArbitrationMode } from '../modules/open-settlement/arbitration-policy'
 function required(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback
   if (v === undefined) {
@@ -139,8 +140,6 @@ function resolveMultisigRequiredConfirmations(): number {
   }
   return parsed
 }
-
-import { parseArbitrationMode, type ArbitrationMode } from '../modules/open-settlement/arbitration-policy'
 
 function parseArbitrationPolicyOverrides(raw: string | undefined): Record<string, ArbitrationMode> {
   if (!raw?.trim()) return {}
