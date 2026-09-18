@@ -54,6 +54,8 @@ export const CAPABILITY_IMPLEMENTATIONS: Record<string, string> = {
 export interface CapabilityRegistry {
   grant(input: Omit<CapabilityGrant, 'grantId'>): Promise<CapabilityGrant>
   check(grantedTo: string, capabilityName: string, requiredScope: string): Promise<boolean>
+  /** Deterministically resolves the exact live grant authorizing this scope, or null. */
+  resolveActiveGrant(grantedTo: string, capabilityName: string, requiredScope: string): Promise<CapabilityGrant | null>
   // requestedBy added during a gap audit: this previously took only
   // grantId, with no check that the caller revoking a grant actually
   // owned it — any authenticated participant could revoke any other
@@ -68,16 +70,19 @@ export function createCapabilityRegistry(repo: CapabilityGrantRepository = capab
       return repo.create(input)
     },
 
-    async check(grantedTo, capabilityName, requiredScope) {
+    async resolveActiveGrant(grantedTo, capabilityName, requiredScope) {
       const grants = await repo.findActiveGrants(grantedTo, capabilityName)
-
       const now = new Date()
-      return grants.some((g) => {
+      return grants.find((g) => {
         if (!g.scope.includes(requiredScope)) return false
         const expiresAt = g.constraints?.expiresAt as string | undefined
         if (expiresAt && new Date(expiresAt) <= now) return false
         return true
-      })
+      }) ?? null
+    },
+
+    async check(grantedTo, capabilityName, requiredScope) {
+      return (await this.resolveActiveGrant(grantedTo, capabilityName, requiredScope)) !== null
     },
 
     async revoke(grantId, requestedBy) {
