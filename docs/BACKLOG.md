@@ -5844,3 +5844,31 @@ obligation" is defined anywhere in this repository.
     architecture implemented; no state/enum/field added to any schema.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+
+47. **SDK Family Packaging & Release Governance — institutionalized
+    (2026-09-18).** Issue #198 audited the controlled `0.2.0` release
+    chain and converted its operational lessons into durable family-level
+    governance. `docs/SDK_FAMILY_RELEASE_GOVERNANCE.md` now owns the
+    decision framework for when a future developer product needs a schema
+    npm package, SDK npm package, framework binding, or no new published
+    artifact; separates RFC-006's Protocol Package meaning from npm package
+    terminology; defines independent package/version identity, dependency
+    publication order, exact-source release identity, dry-run/release gates,
+    npm Trusted Publishing/OIDC, bounded registry-propagation verification,
+    registry-installed smoke, immutable tag/GitHub Release rules,
+    recovery/idempotency, new-artifact onboarding and operator checklists.
+    `docs/SDK_RELEASE.md` and `docs/SCHEMAS_RELEASE.md` were reconciled
+    with the live proven workflows rather than continuing to describe
+    release automation as future work. The proven baseline is
+    `@satsails/p2p-schemas@0.2.0` →
+    `@satsails/p2p-trading-sdk@0.2.0` →
+    `@satsails/sdk-react@0.2.0`, all bound to source SHA
+    `98915fd81afa2f4adea316c54080d6b07e77d546`. No protocol semantics,
+    package source, package versions, workflows or registry artifacts were
+    changed by this governance mission. Live GitHub Project v2 state remains
+    an operational surface rather than protocol/repository truth; where live
+    Project access is unavailable, this BACKLOG entry + Issue #198 preserve
+    the durable institutional record.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
