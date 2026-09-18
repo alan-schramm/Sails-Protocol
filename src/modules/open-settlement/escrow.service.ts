@@ -21,7 +21,6 @@ import {
   isPartyOrAgent,
   asTrustedActor,
   isSellerOrAssignedArbiter,
-  assertDisputedDispositionAuthority,
   loadEscrowWithAuthorization,
   loadParticipantPubkeys,
   claimEscrowTransition,
@@ -610,7 +609,6 @@ export class EscrowService {
   // not fixed by M8-R2 (out of that mission's bounded scope).
   async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
-    await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
     assertEscrowTransition(escrow.status, 'COMPLETED')
     const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.buyerId, escrow.asset)
 
