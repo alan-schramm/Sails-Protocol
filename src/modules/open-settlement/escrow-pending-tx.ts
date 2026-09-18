@@ -5,6 +5,7 @@ import { SIGNATURE_COLLECTION_PROVIDERS } from './escrow-providers'
 import {
   assertEscrowTransition,
   isSellerOrAssignedArbiter,
+  assertDisputedDispositionAuthority,
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
@@ -92,6 +93,7 @@ async function initiateSignatureCollectionCore(
   if (!(await isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
     throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
   }
+  await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
 
   // Missão 06.9 (RFC-014 wiring completion) — moved here, into the one
   // shared skeleton every signature-collection kind funnels through, so
