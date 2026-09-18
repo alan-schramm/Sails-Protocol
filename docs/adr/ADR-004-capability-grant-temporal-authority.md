@@ -142,7 +142,7 @@ The table below applies with capability enforcement enabled. With enforcement di
 Implementation is authorized only if it preserves all of the following:
 
 1. `CapabilityRegistry` must be able to resolve the exact grant that authorized an operation, not only return a boolean.
-2. The chosen grant and evaluated scope/constraints must become durably inspectable.
+2. The chosen grant and evaluated scope/constraints must become durably inspectable, including after successful finalization and pending-row cleanup. That evidence must survive successful finalization: today `EscrowPendingTransaction` is deleted after finalize succeeds, so an implementation may not satisfy this requirement by storing the only authorization provenance on a row that is then deleted. Either the pending-operation lifecycle must retain a terminal record, or a tightly scoped related authorization record must outlive pending-row cleanup.
 3. Gate B must evaluate the original `pending.triggeredBy`, not whichever signer happens to submit last.
 4. Gate B validation and durable execution-authorization commitment must be serialized against revocation of the selected grant.
 5. No provider side effect may occur before that durable commitment.
@@ -157,7 +157,7 @@ ADR-004 does not invent semantics for opaque `CapabilityGrant.constraints` keys.
 
 ## Bounded implementation shape
 
-For the current signature-collection path, the smallest acceptable implementation is an operation-bound authorization snapshot/reference attached to `EscrowPendingTransaction` (or a tightly scoped related record) rather than a new generic authorization framework.
+For the current signature-collection path, the smallest acceptable implementation is an operation-bound authorization snapshot/reference associated with `EscrowPendingTransaction` rather than a new generic authorization framework. Because the current finalize path deletes `EscrowPendingTransaction` after success, the authorization evidence must either move/resolve into a durable terminal record before that deletion or live in a tightly scoped related record that is not cascade-deleted with the pending row. Persisting the only copy on the transient pending row and then deleting it is not compliant.
 
 A separate universal authorization service/table is not required by this ADR.
 
