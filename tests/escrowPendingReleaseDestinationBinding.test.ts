@@ -324,6 +324,31 @@ describe('escrow-pending-tx.ts submitTransactionSignature() — Economic Disposi
     // leave them (retryable, not silently discarded).
     expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
   })
+
+  // CTO Gate R1 (#222) finding 1, required test 3/3 — an ambiguous legacy
+  // row (no recorded ruling-generation provenance, but its escrow DOES have
+  // a Dispute record) must never reach a provider side effect. This pending
+  // row was created cooperatively (escrow.status was PAYMENT_PENDING at
+  // initiate time, so no provenance was ever captured for it) — the same
+  // shape a genuine pre-migration legacy row would have.
+  it('an ambiguous legacy pending row (no provenance, but its escrow has a Dispute record) is rejected before any provider side effect', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'PAYMENT_PENDING' }))
+    await escrowService.initiateRelease(ESCROW_ID, undefined, SELLER_ID)
+    expect((pendingTxStore as any).disputeId).toBeUndefined()
+
+    // The escrow now has a Dispute record — e.g. a genuine legacy row
+    // predating this migration, or a dispute concurrently raised on this
+    // escrow after this cooperative operation was already in flight.
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', escrowId: ESCROW_ID, status: 'RESOLVED' })
+
+    await expect(
+      escrowService.submitTransactionSignature(ESCROW_ID, BUYER_ID, 'signed-psbt-buyer')
+    ).rejects.toThrow(/cooperative origin cannot be proven/)
+
+    expect(mockFinalizeRelease).not.toHaveBeenCalled()
+    expect(mockEdaCreate).not.toHaveBeenCalled()
+    expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+  })
 })
 
 describe('escrow-pending-tx.ts initiateRelease() — cooperative destination resolution and binding (M8-R2)', () => {

@@ -28,13 +28,33 @@
  * superseded) live dispute state — ADR-005 §4/§5E: "later appeal/revocation
  * is prospective with respect to an already committed execution attempt."
  *
- * No-op (returns null) for a pending operation with no recorded ruling
- * generation — an ordinary cooperative release/refund/split never had one
- * (ADR-005 §9 does not redefine that authority).
+ * CTO Gate R1 (#222) finding 1 — absence of recorded provenance
+ * (`disputeId: null`) does NOT by itself prove a cooperative origin. It is
+ * true both for a genuinely cooperative pending operation and for a legacy
+ * row created before this migration shipped (which may itself have been a
+ * disputed-ruling settlement action, just never recorded as one). The two
+ * are distinguished here by an independent, already-durable fact this
+ * module does not fabricate: whether ANY Dispute row exists at all for this
+ * escrow. `Dispute` is effectively one-per-trade for its entire lifetime
+ * (schema.prisma's own `@@unique([tradeId])` comment: "no reopen-after-
+ * RESOLVED path... one Dispute per Trade for its entire lifetime") — so "no
+ * Dispute row exists for this escrow" is a durable, provable fact that this
+ * escrow's trade was NEVER disputed, at any point, which makes every pending
+ * operation on it provably cooperative. Any escrow that WAS ever disputed
+ * keeps that Dispute row forever, even after resolution — so its presence
+ * alone (regardless of current status) is enough to make a disputeId-null
+ * pending row on that escrow ambiguous, not provably cooperative, and this
+ * gate fails it closed rather than guessing.
+ *
+ * No fabricated provenance: a row is never promoted to "provenance
+ * verified" by inference — either it durably carries the full recorded
+ * generation (the normal gate path below), or its escrow is durably proven
+ * to have never had a Dispute at all (the fast-path below), or it is
+ * rejected. `UNKNOWN provenance ≠ cooperative provenance`.
  */
+import { createHash } from 'crypto'
 import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
-import { capabilityOperationDigest } from './capability-execution-authorization'
 
 type DisputedPendingFacts = {
   id: string
@@ -61,14 +81,64 @@ export function economicDispositionLockKey(disputeId: string): string {
   return `economic-disposition:${disputeId}`
 }
 
+/**
+ * CTO Gate R1 (#222) finding 2 — a dedicated, ADR-005-specific digest.
+ * ADR-004's `capabilityOperationDigest()` only covers immutable economic/
+ * execution facts (operation-bound); Economic Disposition Authority is
+ * operation-bound AND ruling-generation-bound (ADR-005 §1), so this digest
+ * additionally binds the exact recorded generation — disputeId, appeal
+ * round, arbiter, ruling outcome, and the signed authority fingerprint/
+ * timestamp. A mutation of ANY of these (the pending row's own recorded
+ * provenance diverging from what an already-committed
+ * EconomicDispositionAuthorization captured) changes this digest and is
+ * therefore caught by the reuse check below — never silently reused.
+ * Deliberately NOT reusing or modifying capability-execution-authorization.ts's
+ * own digest — that stays exactly what ADR-004 requires.
+ */
+export function economicDispositionOperationDigest(pending: DisputedPendingFacts): string {
+  const canonical = JSON.stringify({
+    pendingOperationId: pending.id,
+    escrowId: pending.escrowId,
+    kind: pending.kind,
+    toAddress: pending.toAddress,
+    toAddressSecondary: pending.toAddressSecondary,
+    buyerBps: pending.buyerBps,
+    feeCollectionSats: pending.feeCollectionSats,
+    feeCollectionWaived: pending.feeCollectionWaived,
+    minerFeeSats: pending.minerFeeSats,
+    unsignedPsbtBase64: pending.unsignedPsbtBase64,
+    requiredSigners: pending.requiredSigners,
+    triggeredBy: pending.triggeredBy,
+    disputeId: pending.disputeId,
+    rulingAppealRound: pending.rulingAppealRound,
+    rulingArbiterId: pending.rulingArbiterId,
+    rulingOutcome: pending.rulingOutcome,
+    rulingAuthoritySignature: pending.rulingAuthoritySignature,
+    rulingAuthorityIssuedAt: pending.rulingAuthorityIssuedAt ? pending.rulingAuthorityIssuedAt.toISOString() : null,
+  })
+  return createHash('sha256').update(canonical).digest('hex')
+}
+
 export async function authorizeDisputedPendingExecution(pending: DisputedPendingFacts) {
-  // Not a disputed-origin operation — ADR-005 does not apply. Cooperative
-  // seller-authorized release/refund/split keeps its existing authority
-  // semantics unchanged (ADR-005 §9).
-  if (!pending.disputeId) return null
+  if (!pending.disputeId) {
+    // No recorded generation. Fast-path to "cooperative, ADR-005 does not
+    // apply" ONLY when durably provable — this escrow's trade was never
+    // disputed at all, ever (see header comment). Otherwise this is an
+    // ambiguous legacy/undisputed-provenance row and must fail closed
+    // rather than being silently allowed through as if proven cooperative.
+    const everDisputed = await prisma.dispute.findFirst({ where: { escrowId: pending.escrowId } })
+    if (everDisputed) {
+      throw new EscrowError(
+        `Pending operation ${pending.id} on escrow ${pending.escrowId} carries no recorded Economic Disposition ` +
+        'Authority provenance, but this escrow has a Dispute record — its cooperative origin cannot be proven ' +
+        'from durable current/historical facts. Refusing to execute an ambiguous-origin pending operation (ADR-005).'
+      )
+    }
+    return null
+  }
 
   const disputeId = pending.disputeId
-  const operationDigest = capabilityOperationDigest(pending)
+  const operationDigest = economicDispositionOperationDigest(pending)
 
   return prisma.$transaction(async (tx) => {
     // Same lock scope appeal() and the disputed-ruling resolve-write
