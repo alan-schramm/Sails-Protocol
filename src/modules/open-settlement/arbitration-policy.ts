@@ -8,6 +8,14 @@
 import type { EscrowType } from '../../common/types/trade'
 
 export type ArbitrationMode = 'trusted-list' | 'market'
+
+export function parseArbitrationMode(raw: string | undefined, source = 'ARBITRATION_MODE'): ArbitrationMode {
+  const value = raw?.trim() || 'trusted-list'
+  if (value !== 'trusted-list' && value !== 'market') {
+    throw new Error(`Invalid ${source} value '${value}'. Expected trusted-list|market`)
+  }
+  return value
+}
 export type ArbitrationCapability =
   | 'FIXED_ARBITER_COMMITMENT'
   | 'DYNAMIC_REASSIGNABLE'
