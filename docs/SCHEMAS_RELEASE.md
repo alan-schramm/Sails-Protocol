@@ -259,58 +259,44 @@ The immutable artifact may still be correct while discovery/routing is wrong. Ve
 
 ## 10. Release record policy
 
-Because no dedicated Schemas changelog currently exists, this contract establishes only the forward requirement:
+The Schemas package now has a dedicated release record at `packages/sails-p2p-schemas/CHANGELOG.md`.
 
-- the next release preparation must create a Schemas release record before publication;
-- that record must name the exact new package version and describe its package-surface changes;
-- it may document the known `0.1.0` identity limitation as historical context;
-- it must not fabricate historical dates, tags, source bindings, or exports that cannot be proven;
-- after creation, that release record becomes the Schemas package-change history, while this document remains the owner of release mechanics.
+For every future Schemas release:
 
-Whether the file is named `packages/sails-p2p-schemas/CHANGELOG.md` should be decided in the release-preparation gate, not retroactively populated in this contract PR.
+- the changelog entry must exist before publication;
+- it must name the exact package version and describe package-surface changes;
+- historical uncertainty must remain explicit rather than reconstructed;
+- the changelog owns package-change history while this document owns Schemas-specific release mechanics.
 
-## 11. Contract for future automation
+## 11. Current release automation
 
-This PR does not create release automation.
+The current executable implementation of this contract is `.github/workflows/schemas-release.yml`.
 
-A future minimal Schemas release mechanism may automate only the states and checks defined here. At minimum it must:
+It:
 
-- require explicit release authorization;
-- operate on an exact frozen `main` SHA;
-- derive the package version from the package manifest and assert the approved expected version;
-- require the prepared release record;
-- perform clean build and typecheck;
-- create and inspect the real npm package artifact;
-- prove CJS/ESM/declaration behavior promised by package metadata;
-- prove expected public exports from an isolated packed-package consumer;
-- inspect existing tag/npm/GitHub Release state before mutation;
-- fail closed on identity ambiguity;
-- create the immutable `schemas/p2p/v<semver>` tag before publication;
-- publish the exact verified artifact;
-- install and validate the registry artifact after publication;
-- create the GitHub Release only after registry verification;
-- verify the complete release chain before reporting completion;
-- preserve evidence sufficient for recovery.
+- requires explicit release authorization;
+- operates on an exact frozen `main` SHA;
+- derives and verifies package identity from that source;
+- requires the prepared changelog entry;
+- performs clean build and typecheck;
+- creates and inspects the actual npm artifact;
+- proves CJS/ESM/declaration behavior from an isolated packed-package consumer;
+- inspects tag/npm/GitHub Release state before mutation;
+- fails closed on immutable identity ambiguity;
+- creates or verifies the immutable `schemas/p2p/v<semver>` tag;
+- publishes the exact verified tarball through npm Trusted Publishing/OIDC;
+- verifies registry version, integrity and authorized dist-tag after bounded propagation;
+- installs and validates the registry artifact;
+- creates the GitHub Release only after registry verification;
+- verifies the complete release chain;
+- preserves evidence sufficient for recovery.
 
-The implementation decision remains open. A future gate should compare this concrete contract with the existing SDK mechanism and decide whether parameterization/shared machinery is genuinely simpler or whether a small Schemas-specific workflow is clearer.
+The protected GitHub Environment for publication is `schemas-release`.
 
-Do not generalize release machinery merely because two release contracts now exist.
+The workflow remains package-specific by design. Shared family-level rules are defined in `SDK_FAMILY_RELEASE_GOVERNANCE.md`; do not generalize release machinery merely to reduce YAML duplication.
 
-## 12. Explicit non-goals
+## 12. Scope boundary
 
-This contract does not:
+This contract does not redefine protocol or architecture semantics, SDK API stability, module composition, or the RFC-006 meaning of Protocol Package.
 
-- bump the Schemas version;
-- publish any npm package;
-- mutate npm dist-tags;
-- create or move Git tags;
-- create GitHub Releases;
-- modify SDK dependency ranges or versions;
-- modify Schemas or SDK source code;
-- change lockfiles;
-- create a shared package-release framework;
-- create or modify release workflows;
-- reconstruct historical artifacts;
-- revise protocol or architecture semantics.
-
-It establishes forward release truth so the next Schemas artifact can receive a new, immutable package identity without rewriting history.
+It owns Schemas artifact identity and release mechanics. The family-level decision about when a future developer product needs a schema npm package, SDK npm package, or framework binding belongs to `SDK_FAMILY_RELEASE_GOVERNANCE.md`.
