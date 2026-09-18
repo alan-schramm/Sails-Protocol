@@ -2,6 +2,7 @@ import { AssetType } from '../../common/types'
 import { EscrowType } from '../../common/types/trade'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
+import { assertArbitrationPolicyCompatible, resolveArbitrationModeForImplementation, type ArbitrationMode } from './arbitration-policy'
 import { randomUUID as uuidv4 } from 'crypto'
 import { wdkSettlementProvider } from './wdk-settlement.provider'
 import { multisigProvider } from './multisig.provider'
@@ -434,15 +435,13 @@ export const SCRIPT_COMMITTED_ARBITER_RAILS: ReadonlySet<string> = new Set(['MUL
 // expressed in a form that stops being true automatically the day a real
 // feature flag to disable a specific rail's availability is ever added,
 // with zero change needed here.
-export function assertArbitrationModeCompatibleWithAvailableRails(arbitrationMode: string): void {
-  if (arbitrationMode === 'market' && SCRIPT_COMMITTED_ARBITER_RAILS.size > 0) {
-    throw new Error(
-      `FATAL: ARBITRATION_MODE=market is configured, but this deployment can create escrows on a rail whose settlement script commits a ` +
-      `single, fixed arbiter identity at creation time (${[...SCRIPT_COMMITTED_ARBITER_RAILS].join(', ')}) — market mode's dynamic, collateral/` +
-      `reputation-weighted arbiter selection can never actually be exercised for a dispute on that rail (dispute.service.ts's own script-commitment ` +
-      `precedence rule silently overrides it instead of failing). Refusing to boot with a configuration whose semantics cannot be honored. ` +
-      `Set ARBITRATION_MODE=trusted-list, or wait for a future per-rail arbitration capability model.`
-    )
+export function assertArbitrationModeCompatibleWithAvailableRails(
+  defaultMode: ArbitrationMode,
+  overrides: Readonly<Record<string, ArbitrationMode>> = {},
+): void {
+  for (const implementation of Object.keys(PROVIDERS)) {
+    const effectiveMode = resolveArbitrationModeForImplementation(implementation, defaultMode, overrides)
+    assertArbitrationPolicyCompatible(implementation, effectiveMode)
   }
 }
 
