@@ -106,6 +106,7 @@ Use these documents before proposing or implementing changes.
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — contribution rules, architecture boundaries and RFC triggers.
 - [`CODE_STYLE.md`](CODE_STYLE.md) — code/comment/error/testing conventions.
 - [`ENGINEERING_GOVERNANCE.md`](ENGINEERING_GOVERNANCE.md) — consequence-weighted engineering method, STOP gates, evidence discipline, Definition of Ready/Done and Human + AI contributor model.
+- [`SDK_FAMILY_RELEASE_GOVERNANCE.md`](SDK_FAMILY_RELEASE_GOVERNANCE.md) — npm artifact packaging decisions, package-family dependency order, Trusted Publishing, release gates and recovery for Sails SDK families.
 - [`GOVERNANCE.md`](GOVERNANCE.md) — RFC process, module registration and publication discipline.
 - [`PRINCIPLES.md`](PRINCIPLES.md) — architectural principles.
 - [`PROTOCOL_INVARIANTS.md`](PROTOCOL_INVARIANTS.md) — invariants that are stricter than general principles.
@@ -156,9 +157,9 @@ The router above is the preferred entry surface. Use this map when you already k
 | Protocol semantics | [`SEMANTIC_KERNEL.md`](SEMANTIC_KERNEL.md), [`PROTOCOL_INVARIANTS.md`](PROTOCOL_INVARIANTS.md), [`PROTOCOL_SPECIFICATION.md`](PROTOCOL_SPECIFICATION.md), [`rfcs/00-INDEX.md`](rfcs/00-INDEX.md) |
 | Architecture | [`ARCHITECTURE.md`](ARCHITECTURE.md), [`CORE_ARCHITECTURE.md`](CORE_ARCHITECTURE.md), [`CORE_IMPLEMENTATION_ARCHITECTURE.md`](CORE_IMPLEMENTATION_ARCHITECTURE.md), [`NODE_ARCHITECTURE.md`](NODE_ARCHITECTURE.md), [`architecture/`](architecture/) |
 | Data / APIs | [`DATABASE.md`](DATABASE.md), [`API_REFERENCE.md`](API_REFERENCE.md), [`API_STABLE.md`](API_STABLE.md) |
-| SDK / developer journey | [`GETTING_STARTED.md`](GETTING_STARTED.md), [`SDK_GUIDE.md`](SDK_GUIDE.md), [`DEVELOPER_JOURNEY.md`](DEVELOPER_JOURNEY.md), [`TRANSACTION_WALKTHROUGH.md`](TRANSACTION_WALKTHROUGH.md), [`SDK_usecases.md`](SDK_usecases.md) |
+| SDK / developer journey | [`GETTING_STARTED.md`](GETTING_STARTED.md), [`SDK_GUIDE.md`](SDK_GUIDE.md), [`DEVELOPER_JOURNEY.md`](DEVELOPER_JOURNEY.md), [`TRANSACTION_WALKTHROUGH.md`](TRANSACTION_WALKTHROUGH.md), [`SDK_usecases.md`](SDK_usecases.md), [`SDK_FAMILY_RELEASE_GOVERNANCE.md`](SDK_FAMILY_RELEASE_GOVERNANCE.md), [`SDK_RELEASE.md`](SDK_RELEASE.md), [`SCHEMAS_RELEASE.md`](SCHEMAS_RELEASE.md) |
 | Security / trust / crypto | [`THREAT_MODEL.md`](THREAT_MODEL.md), [`SECURITY_MODEL.md`](SECURITY_MODEL.md), [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md), [`CRYPTOGRAPHIC_MODEL.md`](CRYPTOGRAPHIC_MODEL.md), [`security/`](security/) |
-| Governance / engineering method | [`GOVERNANCE.md`](GOVERNANCE.md), [`ENGINEERING_GOVERNANCE.md`](ENGINEERING_GOVERNANCE.md), [`PRINCIPLES.md`](PRINCIPLES.md), [`../CONTRIBUTING.md`](../CONTRIBUTING.md), [`CODE_STYLE.md`](CODE_STYLE.md) |
+| Governance / engineering method | [`GOVERNANCE.md`](GOVERNANCE.md), [`ENGINEERING_GOVERNANCE.md`](ENGINEERING_GOVERNANCE.md), [`SDK_FAMILY_RELEASE_GOVERNANCE.md`](SDK_FAMILY_RELEASE_GOVERNANCE.md), [`PRINCIPLES.md`](PRINCIPLES.md), [`../CONTRIBUTING.md`](../CONTRIBUTING.md), [`CODE_STYLE.md`](CODE_STYLE.md) |
 | Planning / current work | [`ROADMAP.md`](ROADMAP.md), [`GITHUB_PROJECT.md`](GITHUB_PROJECT.md), [`BACKLOG.md`](BACKLOG.md), [`TODO.md`](TODO.md), [`HANDOFF.md`](HANDOFF.md) *(historical handoff)* |
 | Economics | [`PROTOCOL_ECONOMY.md`](PROTOCOL_ECONOMY.md) |
 | Public explanatory papers | [`whitepapers/README.md`](whitepapers/README.md) |

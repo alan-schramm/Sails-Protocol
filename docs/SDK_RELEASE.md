@@ -221,19 +221,26 @@ The repository's existing `v1.0.0-rc1` tag is a historical RC checkpoint. Its ow
 
 No one of these documents replaces the other two.
 
-## 10. Contract for future automation
+## 10. Current release automation
 
-A future release workflow may automate only steps permitted by this contract. At minimum, automation must:
+The current executable implementation of this contract is `.github/workflows/sdk-release.yml`.
 
-- require an explicit authorized invocation rather than publish merely because code reached `main`;
-- operate from one explicit immutable source SHA;
-- verify that the SDK package version/changelog preparation already exists in that source state;
-- build and package from a clean checkout;
-- run the required release gates before publication;
-- publish the verified artifact, not an unrelated pre-existing `dist/`;
-- use the artifact-specific tag namespace defined here;
-- verify npm state after publication before creating the GitHub Release;
-- stop rather than guess when an immutable version/tag/source mismatch exists;
-- expose enough evidence for a maintainer to prove whether release completion succeeded.
+It preserves the contract by:
 
-Implementation details such as exact GitHub Actions YAML, credential mechanism, npm trusted publishing/provenance support, or the current registry's dist-tags are deliberately deferred to the release-automation mission. Automation is an implementation of this contract, not its source of authority.
+- requiring explicit `workflow_dispatch` authorization for real publication;
+- requiring an exact source SHA, expected version, dist-tag and `dry-run`/`release` mode;
+- checking out and proving the exact source identity;
+- building, testing and packing from the frozen source state;
+- performing isolated source-state consumer smoke;
+- proving published Schemas dependency compatibility from the public registry;
+- inspecting tag/npm/GitHub Release state before mutation;
+- using the protected `sdk-release` GitHub Environment;
+- publishing through npm Trusted Publishing/OIDC rather than a long-lived npm publish token;
+- verifying npm version, integrity and authorized dist-tag after bounded registry propagation;
+- creating the GitHub Release only after registry verification;
+- verifying the complete release chain before success;
+- preserving release evidence for recovery.
+
+The workflow is an implementation of this contract, not a replacement for it.
+
+Family-level rules shared with Schemas and framework bindings are defined in `SDK_FAMILY_RELEASE_GOVERNANCE.md`.
