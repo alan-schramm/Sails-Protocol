@@ -17,7 +17,7 @@
  * already-authorized attempt being recovered/reconciled.
  */
 import { createHash } from 'crypto'
-import { Prisma } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
 import { ForbiddenError, EscrowError } from '../../common/errors'
 import { config } from '../../config'
