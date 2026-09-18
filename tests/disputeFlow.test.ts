@@ -458,10 +458,51 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       // decision, the three authority columns are cleared too (Missão 13
       // Fase 2: a reverted ruling never leaves a verified decision attached
       // to a dispute that never actually settled).
-      expect(mockDisputeUpdate).toHaveBeenLastCalledWith({
-        where: { id: 'dispute-1' },
+      //
+      // CTO Gate R2 (#222) finding R2-1 — the revert is now a lock-protected
+      // conditional claim (tx.dispute.updateMany via mockDisputeUpdateMany),
+      // proving the row still matches EXACTLY the generation this call
+      // committed before reverting it — never a bare update() by id alone.
+      expect(mockDisputeUpdateMany).toHaveBeenLastCalledWith({
+        where: { id: 'dispute-1', status: 'RESOLVED', ruling: 'SPLIT', arbiterId: 'arbiter-1', appealRound: undefined, authoritySignature: sig6 },
         data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
       })
+    })
+
+    // CTO Gate R2 (#222) finding R2-1, required Case B — the settlement
+    // action fails AFTER a concurrent appeal() has already won the shared
+    // economic-disposition:<disputeId> lock and advanced the generation.
+    // The revert's own conditional claim must observe { count: 0 } (the
+    // row no longer matches this call's own generation) and MUST NOT touch
+    // the newer generation's state — the original provider error is still
+    // the one the caller sees, but nothing about the dispute is rewritten.
+    it('R2-1 Case B — does not overwrite a newer appeal generation when the revert runs after appeal already won the lock', async () => {
+      mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'OPENED' })
+      mockIsSignatureCollectionType.mockReturnValueOnce(true)
+      mockInitiateSplit.mockRejectedValueOnce(new Error('SPLIT is not supported for this escrow type'))
+      // First updateMany call = the resolve-write claim (succeeds, count 1).
+      // Second updateMany call = the revert claim, running after this
+      // call's own settlement action failed — simulates a concurrent
+      // appeal() having already advanced the generation in between, so the
+      // row this call originally committed no longer matches.
+      mockDisputeUpdateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 })
+
+      const [sig7, issuedAt7] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'SPLIT', 4000)
+      await expect(
+        service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 4000, sig7, issuedAt7)
+      ).rejects.toThrow(/SPLIT is not supported/)
+
+      // The revert claim was attempted with the correct generation-bound
+      // predicate (proving the mechanism engages) even though it did not
+      // match anything live — this is the "fail safely, do nothing" path,
+      // not a silent skip of the attempt itself.
+      expect(mockDisputeUpdateMany).toHaveBeenLastCalledWith({
+        where: { id: 'dispute-1', status: 'RESOLVED', ruling: 'SPLIT', arbiterId: 'arbiter-1', appealRound: undefined, authoritySignature: sig7 },
+        data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
+      })
+      expect(mockDisputeUpdateMany).toHaveBeenCalledTimes(2)
     })
   })
 

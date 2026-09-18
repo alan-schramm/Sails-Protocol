@@ -435,18 +435,55 @@ export class DisputeService {
         }
       }
     } catch (err) {
-      await prisma.dispute.update({
-        where: { id: dispute.id },
-        data: {
-          status: dispute.status as DisputeStatus,
-          ruling: null,
-          resolvedAt: null,
-          // Missão 13 Fase 2 — a reverted ruling never leaves a verified
-          // authority decision attached to a dispute that in fact never
-          // settled; the arbiter must re-submit (their real decision may
-          // legitimately change once the underlying failure is understood).
-          ...(authority ? { authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } : {}),
-        },
+      // CTO Gate R2 (#222) finding R2-1 — this revert used to be an
+      // unconditional `prisma.dispute.update()` by id alone, running
+      // AFTER the resolve-write's own lock already released (the provider
+      // call above is real I/O and must never run while holding a DB
+      // advisory lock). That left a genuine window: the resolve-write
+      // commits RESOLVED, the lock releases, the provider call begins,
+      // a concurrent appeal() acquires the SAME lock and advances the
+      // dispute to a newer generation, the provider call then fails, and
+      // this catch's unconditional update would stomp the newer
+      // generation's status/arbiter/ruling back to this call's own
+      // pre-resolve values — exactly the "old authority overwrites newer
+      // generation" defect ADR-005 exists to prevent, now via the
+      // rollback path instead of the primary write path.
+      //
+      // Fixed the same way the resolve-write itself was: re-acquire the
+      // `economic-disposition:<disputeId>` lock and revert via a
+      // conditional claim that proves the row is STILL exactly the
+      // generation this call committed (status/ruling/arbiter/appealRound,
+      // plus the signed authority identity when one was verified) before
+      // touching it. If a newer generation already won — appeal()
+      // serialized first — this revert does nothing at all: the newer
+      // generation's own state stands, and this call's own (now
+      // irrelevant) provider failure is still reported to the caller.
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
+
+        await tx.dispute.updateMany({
+          where: {
+            id: dispute.id,
+            status: 'RESOLVED',
+            ruling,
+            arbiterId: triggeredBy,
+            appealRound: updated.appealRound,
+            ...(authority ? { authoritySignature: authority.authoritySignature } : {}),
+          },
+          data: {
+            status: dispute.status as DisputeStatus,
+            ruling: null,
+            resolvedAt: null,
+            // Missão 13 Fase 2 — a reverted ruling never leaves a verified
+            // authority decision attached to a dispute that in fact never
+            // settled; the arbiter must re-submit (their real decision may
+            // legitimately change once the underlying failure is understood).
+            ...(authority ? { authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } : {}),
+          },
+        })
+        // A count of 0 here means a newer generation already won — never
+        // logged as an error and never retried: the correct outcome IS
+        // "do nothing," not a failure of the revert itself.
       })
       throw err
     }
@@ -557,9 +594,34 @@ export class DisputeService {
       // additionally created — a reverted ruling must never leave a
       // dangling Core authorization behind (dispute-outcome.ts's own
       // header comment).
-      await prisma.dispute.update({
-        where: { id: dispute.id },
-        data: { status: dispute.status as DisputeStatus, ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
+      //
+      // CTO Gate R2 (#222) finding R2-1 — same fix as applyRuling()'s own
+      // catch block above: this used to be an unconditional update by id
+      // alone, running after commitAuthoritativeDisputeRuling()'s own lock
+      // already released and after real provider/dispatch I/O — a
+      // concurrent appeal() could win the same `economic-disposition:
+      // <disputeId>` lock in between and advance the generation before
+      // this revert runs. Re-acquiring the lock and conditionally
+      // claiming the exact generation this call committed (status/ruling/
+      // arbiter/appealRound/authoritySignature) means a newer generation
+      // is never overwritten; if one already won, this revert is a no-op
+      // and the newer generation's state stands untouched.
+      // revertDisputeRulingRecord() below is already appealRound-scoped
+      // by its own unique key and needs no such guard.
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
+
+        await tx.dispute.updateMany({
+          where: {
+            id: dispute.id,
+            status: 'RESOLVED',
+            ruling: payload.outcome,
+            arbiterId: payload.authorityId,
+            appealRound: dispute.appealRound,
+            authoritySignature,
+          },
+          data: { status: dispute.status as DisputeStatus, ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
+        })
       })
       await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound)
       throw err

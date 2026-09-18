@@ -302,9 +302,13 @@ describe('LIGHTNING_HODL — disputed RELEASE (signature-collection binding)', (
     expect(mockBuildUnsignedRelease).not.toHaveBeenCalled()
     expect(pendingTxStore).toBeNull()
     // The dispute's RESOLVED write is reverted back to its prior state —
-    // applyRuling()'s own catch block, unchanged by this mission.
+    // applyRuling()'s own catch block. CTO Gate R2 (#222) finding R2-1 —
+    // the revert is now a lock-protected conditional claim
+    // (tx.dispute.updateMany), proving the row still matches EXACTLY the
+    // generation this call committed before reverting it — never a bare
+    // update() by id alone.
     expect(mockDisputeUpdate).toHaveBeenLastCalledWith({
-      where: { id: DISPUTE_ID },
+      where: { id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', arbiterId: ARBITER_ID, appealRound: undefined, authoritySignature: sig },
       data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
     })
   })
