@@ -25,6 +25,7 @@ import { escrowService } from './escrow.service'
 import { config } from '../../config'
 import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitration-provider'
 import { marketArbitrationProvider } from './market-arbitration.provider'
+import { createArbitrationProviderResolver } from './arbitration-policy'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { isPartyOrAgent, asTrustedActor } from './escrow-lifecycle'
@@ -63,8 +64,18 @@ import { networkFor } from './multisig.provider'
 // not attempted here.
 export const APPEAL_FEE_MULTIPLIER = 2
 
+export type ArbitrationProviderResolver = (implementation: string) => ArbitrationProvider
+
 export class DisputeService {
-  constructor(private readonly arbitrationProvider: ArbitrationProvider, private readonly repo: EscrowRepository = escrowRepository) {}
+  constructor(
+    private readonly arbitrationProvider: ArbitrationProvider,
+    private readonly repo: EscrowRepository = escrowRepository,
+    private readonly arbitrationProviderResolver?: ArbitrationProviderResolver,
+  ) {}
+
+  private providerFor(implementation: string): ArbitrationProvider {
+    return this.arbitrationProviderResolver?.(implementation) ?? this.arbitrationProvider
+  }
 
   // Missão 11 Fase 7.3.1 §B — real P0 closed (Fase 7.3 audit): for an
   // escrow type whose settlement script immutably commits to a SPECIFIC
@@ -140,8 +151,11 @@ export class DisputeService {
     // over the configured ArbitrationProvider's own independent pick;
     // assign() is only ever consulted for an escrow type with no such
     // commitment (see findCommittedArbiterId()'s own comment above).
+    const escrow = await this.repo.findById(trade.escrowId)
+    if (!escrow) throw new NotFoundError('Escrow', trade.escrowId)
+    const provider = this.providerFor(escrow.type)
     const committedArbiterId = await this.findCommittedArbiterId(trade.escrowId)
-    const arbiterId = committedArbiterId ?? (await this.arbitrationProvider.assign(dispute.id, tradeId))
+    const arbiterId = committedArbiterId ?? (await provider.assign(dispute.id, tradeId))
     const updated = await prisma.dispute.update({
       where: { id: dispute.id },
       data: { arbiterId },
@@ -686,6 +700,9 @@ export class DisputeService {
     arbiterId: string,
     ruling: DisputeRuling,
   ): Promise<void> {
+    const resolvedEscrow = await this.repo.findById(dispute.escrowId)
+    if (!resolvedEscrow) throw new NotFoundError('Escrow', dispute.escrowId)
+    const provider = this.providerFor(resolvedEscrow.type)
     // RFC-021 D6/D4 — feeds the arbiter's track record on every real
     // resolution, correct or not (optional: only market mode has an
     // ArbiterProfile to update; trusted-list mode silently skips this).
@@ -693,10 +710,9 @@ export class DisputeService {
     // escrowService.releaseFunds() call above has already computed and
     // persisted Escrow.feeCharged (Phase 0) by this point; REFUND never
     // charges a fee, so this is correctly undefined for those.
-    if (this.arbitrationProvider.recordRuling) {
-      const resolvedEscrow = await this.repo.findById(dispute.escrowId)
-      const feeObserved = resolvedEscrow?.feeCharged ? String(resolvedEscrow.feeCharged) : undefined
-      await this.arbitrationProvider.recordRuling(arbiterId, feeObserved)
+    if (provider.recordRuling) {
+      const feeObserved = resolvedEscrow.feeCharged ? String(resolvedEscrow.feeCharged) : undefined
+      await provider.recordRuling(arbiterId, feeObserved)
     }
 
     // RFC-021 D6 — an appeal round reversing the ruling being appealed is
@@ -712,9 +728,9 @@ export class DisputeService {
       dispute.previousRuling &&
       dispute.previousRuling !== ruling &&
       dispute.previousArbiterId &&
-      this.arbitrationProvider.slash
+      provider.slash
     ) {
-      await this.arbitrationProvider.slash(dispute.previousArbiterId)
+      await provider.slash(dispute.previousArbiterId)
     }
 
     // RFC-021 D6 — real appeal-fee settlement, closing the "computed and
@@ -777,22 +793,25 @@ export class DisputeService {
       )
     }
 
-    if (!this.arbitrationProvider.assignAppealPanel) {
+    const escrow = await this.repo.findById(dispute.escrowId)
+    if (!escrow) throw new NotFoundError('Escrow', dispute.escrowId)
+    const provider = this.providerFor(escrow.type)
+
+    if (!provider.assignAppealPanel) {
       throw new ValidationError(
-        `Appeals require ARBITRATION_MODE=market — ${this.arbitrationProvider.name} does not support appeal panels`
+        `Appeals require market arbitration for settlement implementation ${escrow.type} — ${provider.name} does not support appeal panels`
       )
     }
 
     const nextRound = dispute.appealRound + 1
-    const newArbiterId = await this.arbitrationProvider.assignAppealPanel(
+    const newArbiterId = await provider.assignAppealPanel(
       disputeId,
       dispute.tradeId,
       nextRound,
       dispute.arbiterId ?? undefined
     )
 
-    const escrow = await this.repo.findById(dispute.escrowId)
-    const baseFee = escrow?.feeCharged ? Number(escrow.feeCharged) : 0
+    const baseFee = escrow.feeCharged ? Number(escrow.feeCharged) : 0
     const appealFeeRequired = (baseFee * APPEAL_FEE_MULTIPLIER).toFixed(8)
 
     // Real charge, not just a computed-and-returned number — closes the
@@ -808,7 +827,7 @@ export class DisputeService {
         appealRound: nextRound,
         requestedBy,
         amount: appealFeeRequired,
-        asset: (escrow?.asset ?? 'BTC') as AssetType,
+        asset: escrow.asset as AssetType,
       },
     })
 
@@ -1109,14 +1128,23 @@ export class DisputeService {
 let disputeServiceInstance: DisputeService | null = null
 export function getDisputeService(): DisputeService {
   if (!disputeServiceInstance) {
-    if (config.settlement.arbitrationMode === 'market') {
-      disputeServiceInstance = new DisputeService(marketArbitrationProvider)
-    } else {
-      if (config.settlement.trustedArbitrators.length === 0) {
-        throw new ValidationError('No trusted arbitrators configured — set TRUSTED_ARBITRATORS (RFC-007 D4)')
-      }
-      disputeServiceInstance = new DisputeService(new TrustedArbitratorProvider(config.settlement.trustedArbitrators))
-    }
+    const resolver = createArbitrationProviderResolver(
+      config.settlement.arbitrationMode,
+      config.settlement.arbitrationPolicyByEscrowType,
+      config.settlement.trustedArbitrators,
+    )
+
+    // Legacy provider remains as an injection-compatible default for
+    // code paths/tests that instantiate DisputeService directly. Runtime
+    // dispute/appeal/finalize selection is escrow-aware via resolver.
+    const defaultProvider =
+      config.settlement.arbitrationMode === 'market'
+        ? marketArbitrationProvider
+        : config.settlement.trustedArbitrators.length > 0
+          ? new TrustedArbitratorProvider(config.settlement.trustedArbitrators)
+          : marketArbitrationProvider
+
+    disputeServiceInstance = new DisputeService(defaultProvider, escrowRepository, resolver)
   }
   return disputeServiceInstance
 }
