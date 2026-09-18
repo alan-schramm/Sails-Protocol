@@ -4607,22 +4607,23 @@ obligation" is defined anywhere in this repository.
       `CANCELLED`/`COMPLETED`, or should its semantics change to match?
       A3's own text never mentions `PAUSED`. Full evidence:
       `docs/STATE_LIFECYCLE_DISCOVERY.md` §5. Not decided here.
-    - **Seller release during an open Dispute — `IMPLEMENTATION DEFECT`,
-      already semantically decided, not a Product Decision.**
+    - **Seller release during an open Dispute — `FIXED / VERIFIED`
+      by Issue #209 / PR #210.**
       `docs/PROTOCOL_SPECIFICATION.md` §1.9 and this file's own
-      dispute-persistence entry above both already state that opening a
-      Dispute "freezes" via the Escrow `DISPUTED` transition.
-      `isSellerOrAssignedArbiter()` (`escrow-lifecycle.ts:115-119`) does
-      not enforce this — it authorizes the seller unconditionally,
-      querying `Dispute` only on the arbiter branch. **This is
-      economically material and is not generic technical debt**: the
-      fix must (a) make `releaseFunds()`/`initiateRelease()` (and the
-      equivalent refund/split paths, per the same freeze principle)
-      check for an open Dispute before authorizing a seller-triggered
-      transition, and (b) ship with a regression test asserting release
-      is rejected while `Dispute.status` is `OPENED`/`EVIDENCE_SUBMITTED`/
-      `AUTO_PROPOSED`. Full evidence: `docs/STATE_LIFECYCLE_DISCOVERY.md`
-      §11 item 2, §18. Not fixed by this entry.
+      dispute-persistence entry above already define Escrow `DISPUTED`
+      as a freeze on ordinary cooperative disposition authority.
+      The implementation now enforces that invariant at the shared direct
+      and signature-collection choke points: while `Escrow.status === DISPUTED`,
+      the seller is rejected and only the current assigned
+      `Dispute.arbiterId` may initiate RELEASE / REFUND / SPLIT.
+      Non-disputed seller authority is unchanged. Regression coverage proves
+      seller rejection across direct `releaseFunds()` / `refundFunds()` /
+      `splitFunds()` and `initiateRelease()` / `initiateRefund()` /
+      `initiateSplit()`, while preserving current-arbiter authorization.
+      Merged source SHA:
+      `56056a5e461aeac231e24b4a717f24d21c50abd2`.
+      This closure does **not** resolve the separate Appeal/pending-instruction
+      or Dispute→Escrow crash-window decisions below.
     - **Appeal leaving a prior ruling's pending fund-movement instruction
       live (`LIGHTNING_HODL`/`SAFE_GUARD_EVM`) — `ARCHITECTURE DECISION
       REQUIRED`.** No existing document decides whether `appeal()`
