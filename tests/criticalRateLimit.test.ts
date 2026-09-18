@@ -18,14 +18,21 @@ process.env.RATE_LIMIT_CRITICAL_WINDOW_MS = '60000'
 
 import type { FastifyInstance } from 'fastify'
 
+const capabilityGrantTxUpdate = jest.fn().mockResolvedValue({})
+const capabilityGrantExecuteRaw = jest.fn().mockResolvedValue(0)
 jest.mock('../src/common/database', () => ({
   prisma: {
     user: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
     capabilityGrant: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'grant-1', grantedTo: 'user-1' }),
+      findUnique: jest.fn().mockResolvedValue({ id: 'grant-1', grantedTo: 'user-1', capabilityName: 'settlement' }),
       findMany: jest.fn().mockResolvedValue([]),
-      update: jest.fn().mockResolvedValue({}),
+      update: (...args: unknown[]) => capabilityGrantTxUpdate(...args),
     },
+    $transaction: (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        $executeRaw: capabilityGrantExecuteRaw,
+        capabilityGrant: { update: (...args: unknown[]) => capabilityGrantTxUpdate(...args) },
+      }),
   },
 }))
 

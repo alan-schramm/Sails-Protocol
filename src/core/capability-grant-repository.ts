@@ -35,7 +35,7 @@ export interface CapabilityGrantRepository {
   findActiveGrants(grantedTo: string, capabilityName: string): Promise<CapabilityGrant[]>
   /** Null if no grant exists with this id — revoke()'s own ownership check happens on the result. */
   findById(grantId: string): Promise<CapabilityGrant | null>
-  markRevoked(grantId: string): Promise<void>
+  markRevoked(grant: CapabilityGrant): Promise<void>
   /** Every non-revoked grant for a participant, newest first. */
   listActiveGrants(grantedTo: string): Promise<CapabilityGrant[]>
 }
@@ -75,6 +75,9 @@ class PrismaCapabilityGrantRepository implements CapabilityGrantRepository {
   async findActiveGrants(grantedTo: string, capabilityName: string): Promise<CapabilityGrant[]> {
     const grants = await prisma.capabilityGrant.findMany({
       where: { grantedTo, capabilityName, revokedAt: null },
+      // ADR-004: exact-grant selection must be stable across retries/nodes.
+      // Oldest grant wins; id is the deterministic tie-breaker.
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
     return grants.map(toCapabilityGrant)
   }
@@ -84,8 +87,16 @@ class PrismaCapabilityGrantRepository implements CapabilityGrantRepository {
     return record ? toCapabilityGrant(record) : null
   }
 
-  async markRevoked(grantId: string): Promise<void> {
-    await prisma.capabilityGrant.update({ where: { id: grantId }, data: { revokedAt: new Date() } })
+  async markRevoked(grant: CapabilityGrant): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+      // Same lock namespace Gate B uses. The registry already loaded and
+      // ownership-validated this grant; grantedTo/capabilityName are immutable
+      // authority identity, so re-reading the same row here would add no
+      // correctness and creates an avoidable second-read race/mock surface.
+      const lockKey = `capability:${grant.grantedTo}:${grant.capabilityName}`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint)`
+      await tx.capabilityGrant.update({ where: { id: grant.grantId }, data: { revokedAt: new Date() } })
+    })
   }
 
   async listActiveGrants(grantedTo: string): Promise<CapabilityGrant[]> {

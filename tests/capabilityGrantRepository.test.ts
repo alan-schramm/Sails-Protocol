@@ -13,8 +13,23 @@ export {} // forces this file to be a module (no top-level import/export
 // named one (found for real, Missão 06: colliding with
 // tests/escrowEventHashChain.test.ts's own module-scope mockFindMany).
 const mockFindMany = jest.fn().mockResolvedValue([])
+const mockFindUnique = jest.fn()
+const mockUpdate = jest.fn()
+const mockExecuteRaw = jest.fn().mockResolvedValue(0)
+const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+  fn({
+    $executeRaw: mockExecuteRaw,
+    capabilityGrant: { update: (...args: unknown[]) => mockUpdate(...args) },
+  })
+)
 jest.mock('../src/common/database', () => ({
-  prisma: { capabilityGrant: { findMany: (...args: unknown[]) => mockFindMany(...args) } },
+  prisma: {
+    capabilityGrant: {
+      findMany: (...args: unknown[]) => mockFindMany(...args),
+      findUnique: (...args: unknown[]) => mockFindUnique(...args),
+    },
+    $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
+  },
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -31,6 +46,7 @@ describe('capabilityGrantRepository.findActiveGrants() — Missão 02.5 §3', ()
 
     expect(mockFindMany).toHaveBeenCalledWith({
       where: { grantedTo: 'user-1', capabilityName: 'trade-coordination', revokedAt: null },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
   })
 
@@ -58,4 +74,40 @@ describe('capabilityGrantRepository.findActiveGrants() — Missão 02.5 §3', ()
     const [{ where }] = mockFindMany.mock.calls[0]
     expect(where.grantedTo).toBe('user-1')
   })
+})
+
+
+describe('capabilityGrantRepository.markRevoked() — ADR-004 serialization', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockFindUnique.mockResolvedValue({
+      id: 'grant-1',
+      grantedTo: 'user-1',
+      capabilityName: 'settlement',
+      scope: ['settlement.escrow.released'],
+      constraints: null,
+      issuedBy: 'user-1',
+      revokedAt: null,
+      createdAt: new Date(),
+    })
+    mockUpdate.mockResolvedValue({})
+  })
+
+  it('serializes revocation under the same Postgres advisory-lock domain Gate B uses', async () => {
+    await capabilityGrantRepository.markRevoked({
+      grantId: 'grant-1',
+      grantedTo: 'user-1',
+      capabilityName: 'settlement',
+      scope: ['settlement.escrow.released'],
+      issuedBy: 'user-1',
+    })
+
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 'grant-1' },
+      data: { revokedAt: expect.any(Date) },
+    })
+  })
+
 })

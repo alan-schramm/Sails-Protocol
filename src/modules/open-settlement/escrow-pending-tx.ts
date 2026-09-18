@@ -23,6 +23,7 @@ import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
 import { identifyFeeOutput, networkFor } from './multisig.provider'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
+import { authorizePendingExecution } from './capability-execution-authorization'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('escrow-pending-tx')
@@ -326,6 +327,12 @@ export async function submitTransactionSignature(escrowId: string, participantId
   if (pending.kind === 'split' && !provider.finalizeSplit) {
     throw new EscrowError(`Escrow type '${escrow.type}' does not support split finalization — buildUnsignedSplit was allowed but finalizeSplit is not implemented`)
   }
+
+  // ADR-004 / #211 — Execution Commit Gate. This re-evaluates the
+  // ORIGINAL initiator (pending.triggeredBy), not whichever signer happened
+  // to submit the final signature. The durable authorization is committed
+  // before the first provider side effect and survives pending-row cleanup.
+  await authorizePendingExecution(pending)
 
   // Atomic claim before ever calling the real, side-effecting provider —
   // same idiom as releaseFunds()/refundFunds() (escrow.service.ts).

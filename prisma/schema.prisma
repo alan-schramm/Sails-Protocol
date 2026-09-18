@@ -2049,6 +2049,29 @@ model CapabilityGrant {
   @@map("capability_grants")
 }
 
+// ADR-004 — durable authorization committed at the Execution Commit Gate.
+// This is intentionally NOT a child of EscrowPendingTransaction: successful
+// finalization deletes the pending row, while this evidence must survive for
+// retry/recovery/audit. Source ids are stored as immutable historical facts,
+// not cascading relations, so later lifecycle cleanup cannot erase authority
+// provenance that already governed an economic attempt.
+model CapabilityExecutionAuthorization {
+  id                String   @id @default(uuid())
+  pendingOperationId String   @unique
+  escrowId           String
+  grantId            String
+  grantedTo          String
+  capabilityName     String
+  requiredScope      String
+  constraints        Json?
+  operationDigest    String
+  authorizedAt       DateTime @default(now())
+
+  @@index([escrowId])
+  @@index([grantId])
+  @@map("capability_execution_authorizations")
+}
+
 // Two-Person Control for Escrow Release — rfcs/RFC-015-dual-authorization-escrow-release.md.
 // Application-layer maker-checker control, NOT on-chain multisig: WDK's
 // real package (@tetherto/wdk-wallet-evm-erc-4337) is single-owner-only
@@ -2060,6 +2083,7 @@ model CapabilityGrant {
 // before escrow.service.ts's releaseFunds() will proceed on the normal
 // (non-disputed) path. Arbitrated releases (Escrow.status === 'DISPUTED')
 // intentionally bypass this — see that RFC's Decision §3.
+
 model EscrowReleaseApproval {
   id         String   @id @default(uuid())
   escrowId   String

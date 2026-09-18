@@ -141,7 +141,7 @@ describe('capabilityRegistry.revoke', () => {
 
     await registry.revoke('grant-1', 'user-1')
 
-    expect(repo.markRevoked).toHaveBeenCalledWith('grant-1')
+    expect(repo.markRevoked).toHaveBeenCalledWith(expect.objectContaining({ grantId: 'grant-1', grantedTo: 'user-1' }))
   })
 })
 
