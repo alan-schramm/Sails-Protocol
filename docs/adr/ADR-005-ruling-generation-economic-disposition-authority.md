@@ -1,6 +1,6 @@
 # ADR-005 — Ruling-Generation-Bound Economic Disposition Authority
 
-**Status:** Proposed  
+**Status:** Accepted / Frozen  
 **Owner:** Issue #218  
 **Parent gate:** Issue #165 / docs/BACKLOG.md item 44  
 **Baseline:** `main@500d5ee3784f92e961e8046436f1de8206081dd5`
