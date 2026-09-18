@@ -140,6 +140,23 @@ function resolveMultisigRequiredConfirmations(): number {
   return parsed
 }
 
+type ArbitrationMode = 'trusted-list' | 'market'
+
+function parseArbitrationPolicyOverrides(raw: string | undefined): Record<string, ArbitrationMode> {
+  if (!raw?.trim()) return {}
+  const result: Record<string, ArbitrationMode> = {}
+  for (const entry of raw.split(',')) {
+    const [implementationRaw, modeRaw] = entry.split('=').map((v) => v.trim())
+    if (!implementationRaw || (modeRaw !== 'trusted-list' && modeRaw !== 'market')) {
+      throw new Error(
+        `Invalid ARBITRATION_POLICY_BY_ESCROW_TYPE entry '${entry}'. Expected IMPLEMENTATION=trusted-list|market`
+      )
+    }
+    result[implementationRaw] = modeRaw
+  }
+  return result
+}
+
 export const config = {
   env: resolvedNodeEnv,
   isProduction: isProductionEnv,
@@ -505,7 +522,9 @@ export const config = {
     // 'market' opts into the new permissionless registry
     // (MarketArbitrationProvider). Not a boolean flag — a third mode
     // could exist later without a breaking rename.
-    arbitrationMode: (process.env.ARBITRATION_MODE ?? 'trusted-list') as 'trusted-list' | 'market',
+    arbitrationMode: (process.env.ARBITRATION_MODE ?? 'trusted-list') as ArbitrationMode,
+    // ADR-003: optional per-implementation override. Example: MOCK=market,MULTISIG=trusted-list.
+    arbitrationPolicyByEscrowType: parseArbitrationPolicyOverrides(process.env.ARBITRATION_POLICY_BY_ESCROW_TYPE),
     // RFC-021 D8 — QVAC-assisted automated first-pass dispute resolution.
     // Off by default, same "opt-in per deployment" pattern arbitrationMode
     // itself uses — a fresh deployment keeps today's exact behavior
