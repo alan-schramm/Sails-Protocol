@@ -106,8 +106,9 @@ describe('ADR-005 Economic Disposition Authority — real Postgres', () => {
     await restarted.$disconnect()
 
     const retried = await authorizeDisputedPendingExecution(reloadedPending)
-    expect(retried.id).toBe(persistedAuth.id)
-    expect(retried.appealRound).toBe(0)
+    expect(retried).not.toBeNull()
+    expect(retried!.id).toBe(persistedAuth.id)
+    expect(retried!.appealRound).toBe(0)
     await blocker.$disconnect()
   })
 
