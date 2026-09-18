@@ -26,6 +26,8 @@ That leaves the following semantics undefined rather than intentionally decided:
 
 ## Decision
 
+These temporal gates apply only when `config.features.enforceCapabilities` is enabled. ADR-004 does not change RFC-014's activation policy: enforcement remains config-gated and disabled by default. When enforcement is disabled, existing unchecked behavior remains unchanged and no capability execution-authorization snapshot is required.
+
 ### 1. CapabilityGrant and execution authority remain separate
 
 A CapabilityGrant is Policy/Eligibility Authority. It does not become:
@@ -42,13 +44,13 @@ Cryptographic signer checks remain mandatory and independent.
 
 #### Gate A — Admission Gate
 
-At `initiateRelease()`, `initiateRefund()`, or `initiateSplit()`, the `triggeredBy` actor must have a currently valid CapabilityGrant covering the exact required scope.
+When capability enforcement is enabled, at `initiateRelease()`, `initiateRefund()`, or `initiateSplit()`, the `triggeredBy` actor must have a currently valid CapabilityGrant covering the exact required scope.
 
 This gate authorizes preparation of the pending operation. It does not permanently authorize later economic execution.
 
 #### Gate B — Execution Commit Gate
 
-When sufficient signatures have arrived and the pending operation is about to become executable, the protocol must re-evaluate the CapabilityGrant of the original `pending.triggeredBy` actor against the exact pending operation before the first external economic side effect.
+When capability enforcement is enabled and sufficient signatures have arrived, the protocol must re-evaluate the CapabilityGrant of the original `pending.triggeredBy` actor against the exact pending operation before the first external economic side effect.
 
 The final signer is not substituted as the capability subject merely because their signature happened to complete the required signer set. They are exercising Execution Authority; the policy actor remains the original `triggeredBy` recorded on the pending operation.
 
@@ -123,6 +125,8 @@ A valid session does not satisfy a CapabilityGrant check, and a durable executio
 
 ## State semantics
 
+The table below applies with capability enforcement enabled. With enforcement disabled, RFC-014's existing unchecked behavior is preserved.
+
 | Moment | Capability requirement | Result of later revoke/expiry |
 | --- | --- | --- |
 | Before initiate | live grant required | operation cannot be created |
@@ -145,6 +149,7 @@ Implementation is authorized only if it preserves all of the following:
 6. Once execution is committed, capability handling during retry/recovery must reuse that operation identity and authorization; it must not manufacture a second capability authorization from a new request. Provider-specific submission identity, reconciliation, and idempotency remain separately owned.
 7. Existing cryptographic signer validation and state-transition claims must not be weakened.
 8. Economic-authority freshness remains independently required; this ADR does not close the stale-ruling/pending-instruction owner.
+9. `ENFORCE_CAPABILITIES=false` must preserve the existing unchecked behavior and must not require capability authorization provenance.
 
 ## Bounded implementation shape
 
@@ -188,15 +193,16 @@ Rejected. The current absence of a finalize check and absence of persisted capab
 
 At minimum the implementation must prove:
 
-1. valid at initiate, revoked before final signature -> finalize blocked before provider side effect;
-2. valid at initiate, expired before final signature -> finalize blocked before provider side effect;
+1. with enforcement enabled: valid at initiate, revoked before final signature -> finalize blocked before provider side effect;
+2. with enforcement enabled: valid at initiate, expired before final signature -> finalize blocked before provider side effect;
 3. a replacement valid grant can authorize the exact unchanged pending operation;
 4. execution authorization committed, then grant revoked -> same committed attempt may complete/reconcile;
 5. restart before Gate B -> current capability still required;
 6. restart after Gate B -> durable authorization is recovered; no new grant required for same attempt;
 7. final signer without the original actor's capability cannot become the policy authority merely by submitting the last signature;
 8. capability success does not bypass stale Economic Disposition Authority checks once those are implemented;
-9. retry after Gate B reuses the same capability execution authorization and does not manufacture a second capability authorization; provider-specific duplicate-submission safety remains a separate validation obligation.
+9. retry after Gate B reuses the same capability execution authorization and does not manufacture a second capability authorization; provider-specific duplicate-submission safety remains a separate validation obligation;
+10. with enforcement disabled: initiate/finalize behavior remains unchanged and no CapabilityGrant is required.
 
 ## Consequence
 
