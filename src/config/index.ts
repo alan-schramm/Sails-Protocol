@@ -140,7 +140,7 @@ function resolveMultisigRequiredConfirmations(): number {
   return parsed
 }
 
-type ArbitrationMode = 'trusted-list' | 'market'
+import { parseArbitrationMode, type ArbitrationMode } from '../modules/open-settlement/arbitration-policy'
 
 function parseArbitrationPolicyOverrides(raw: string | undefined): Record<string, ArbitrationMode> {
   if (!raw?.trim()) return {}
@@ -522,7 +522,7 @@ export const config = {
     // 'market' opts into the new permissionless registry
     // (MarketArbitrationProvider). Not a boolean flag — a third mode
     // could exist later without a breaking rename.
-    arbitrationMode: (process.env.ARBITRATION_MODE ?? 'trusted-list') as ArbitrationMode,
+    arbitrationMode: parseArbitrationMode(process.env.ARBITRATION_MODE),
     // ADR-003: optional per-implementation override. Example: MOCK=market,MULTISIG=trusted-list.
     arbitrationPolicyByEscrowType: parseArbitrationPolicyOverrides(process.env.ARBITRATION_POLICY_BY_ESCROW_TYPE),
     // RFC-021 D8 — QVAC-assisted automated first-pass dispute resolution.
