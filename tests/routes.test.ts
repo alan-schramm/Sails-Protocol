@@ -1691,9 +1691,38 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
     })
 
-    it('surfaces a clear config error when disputing with no TRUSTED_ARBITRATORS configured (not a crash)', async () => {
+    it('rejects an authenticated non-party before exposing arbitration configuration', async () => {
+      const token = await authedSession('outsider-1')
+      mockEscrowFindUnique.mockResolvedValueOnce({ id: 'escrow-1', tradeId: 'trade-1' })
+      mockTradeFindUnique.mockResolvedValueOnce({
+        id: 'trade-1',
+        buyerId: 'buyer-1',
+        sellerId: 'seller-1',
+        escrowId: 'escrow-1',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/escrow/escrow-1/dispute',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { reason: 'outsider must not reach arbitration config' },
+      })
+
+      expect(res.statusCode).toBe(403)
+      expect(JSON.parse(res.body).error).toBe('FORBIDDEN')
+      expect(JSON.parse(res.body).message).toMatch(/not a party to trade/)
+      expect(res.body).not.toMatch(/TRUSTED_ARBITRATORS/)
+    })
+
+    it('surfaces a clear config error to a legitimate party when disputing with no TRUSTED_ARBITRATORS configured (not a crash)', async () => {
       const token = await authedSession('buyer-1')
       mockEscrowFindUnique.mockResolvedValueOnce({ id: 'escrow-1', tradeId: 'trade-1' })
+      mockTradeFindUnique.mockResolvedValueOnce({
+        id: 'trade-1',
+        buyerId: 'buyer-1',
+        sellerId: 'seller-1',
+        escrowId: 'escrow-1',
+      })
 
       const res = await app.inject({
         method: 'POST',
