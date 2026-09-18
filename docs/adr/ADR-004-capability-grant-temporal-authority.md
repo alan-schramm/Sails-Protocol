@@ -83,7 +83,7 @@ After Gate B commits:
 - later revocation or expiry does not retroactively erase that already-committed execution authorization;
 - retries/recovery/reconciliation of that same execution attempt use the durable operation authorization, not a fresh ambient grant;
 - a retry does not create new economic authority;
-- an ambiguous external outcome must remain ambiguous until reconciled; revocation must never collapse `UNKNOWN` into `FAILED` or authorize a blind resubmission.
+- an ambiguous external outcome must remain ambiguous until reconciled; revocation must never collapse `UNKNOWN` into `FAILED` or create a new capability authorization for a blind resubmission.
 
 This boundary is the first durable execution commitment, not merely creation of `EscrowPendingTransaction`.
 
@@ -142,7 +142,7 @@ Implementation is authorized only if it preserves all of the following:
 3. Gate B must evaluate the original `pending.triggeredBy`, not whichever signer happens to submit last.
 4. Gate B validation and durable execution-authorization commitment must be serialized against revocation of the selected grant.
 5. No provider side effect may occur before that durable commitment.
-6. Once execution is committed, retry/recovery must reuse that operation identity and authorization; it must not manufacture a second authorization from a new request.
+6. Once execution is committed, capability handling during retry/recovery must reuse that operation identity and authorization; it must not manufacture a second capability authorization from a new request. Provider-specific submission identity, reconciliation, and idempotency remain separately owned.
 7. Existing cryptographic signer validation and state-transition claims must not be weakened.
 8. Economic-authority freshness remains independently required; this ADR does not close the stale-ruling/pending-instruction owner.
 
@@ -182,7 +182,7 @@ Rejected. The current absence of a finalize check and absence of persisted capab
 - #165 remains the Beta Readiness scenario registry.
 - #206 proved `Past Authority != Current Authority` for arbiter reassignment; it does not decide CapabilityGrant lifetime.
 - The stale Economic Disposition Authority / pending-instruction problem remains separately owned by its existing Architecture/Temporal-Concurrency backlog owner.
-- WDK `SUBMISSION_UNKNOWN` handling remains governed by its execution-truth/reconciliation rules; this ADR reinforces, rather than replaces, `UNKNOWN != FAILED`.
+- WDK `SUBMISSION_UNKNOWN` handling and each provider's submission/reconciliation/idempotency guarantees remain governed by their existing execution-truth owners; this ADR reinforces, rather than replaces, `UNKNOWN != FAILED`.
 
 ## Validation obligations
 
@@ -196,7 +196,7 @@ At minimum the implementation must prove:
 6. restart after Gate B -> durable authorization is recovered; no new grant required for same attempt;
 7. final signer without the original actor's capability cannot become the policy authority merely by submitting the last signature;
 8. capability success does not bypass stale Economic Disposition Authority checks once those are implemented;
-9. no duplicate provider side effect is created by retry.
+9. retry after Gate B reuses the same capability execution authorization and does not manufacture a second capability authorization; provider-specific duplicate-submission safety remains a separate validation obligation.
 
 ## Consequence
 
@@ -204,4 +204,4 @@ The protocol gains an explicit temporal boundary:
 
 `permission to prepare` != `permission to execute` != `permission to retry a new economic action`.
 
-A CapabilityGrant remains revocable until execution authority is durably committed. After that boundary, recovery follows the already-authorized operation rather than ambient permission state.
+A CapabilityGrant remains revocable until execution authority is durably committed. After that boundary, capability semantics follow the already-authorized operation rather than ambient permission state; this ADR does not claim to solve provider-specific reconciliation or idempotency.
