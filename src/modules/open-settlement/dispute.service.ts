@@ -866,23 +866,6 @@ export class DisputeService {
     const baseFee = escrow.feeCharged ? Number(escrow.feeCharged) : 0
     const appealFeeRequired = (baseFee * APPEAL_FEE_MULTIPLIER).toFixed(8)
 
-    // Real charge, not just a computed-and-returned number — closes the
-    // gap this file's own header comment on APPEAL_FEE_MULTIPLIER used
-    // to disclose ("this service does not itself collect payment").
-    // resolveDispute() settles this row's outcome (FORFEITED/REFUNDED)
-    // once the appeal panel rules. @@unique([disputeId, appealRound]) on
-    // the model means a concurrent double-appeal for the same round
-    // fails here with a real P2002 rather than double-charging.
-    await prisma.disputeAppealFee.create({
-      data: {
-        disputeId,
-        appealRound: nextRound,
-        requestedBy,
-        amount: appealFeeRequired,
-        asset: (escrow.asset ?? 'BTC') as AssetType,
-      },
-    })
-
     // ADR-005 §3/§10 — the actual authority-moving write. Locked and
     // re-checked against the SAME `economic-disposition:<disputeId>` scope
     // the disputed-ruling resolve-write and the Economic Disposition
@@ -916,6 +899,23 @@ export class DisputeService {
           'a concurrent resolution or appeal has already changed its current economic disposition authority.'
         )
       }
+
+      // Engineering Gatekeeper / #218 — the appeal fee belongs to the
+      // generation transition that actually won the authority race. Keep
+      // it in this same transaction, after the guarded claim, so a losing
+      // appeal cannot leave a durable fee row for a generation that never
+      // became authoritative. If this insert fails, the authority update
+      // rolls back with it; if the claim fails, this insert is never run.
+      await tx.disputeAppealFee.create({
+        data: {
+          disputeId,
+          appealRound: nextRound,
+          requestedBy,
+          amount: appealFeeRequired,
+          asset: (escrow.asset ?? 'BTC') as AssetType,
+        },
+      })
+
       const row = await tx.dispute.findUnique({ where: { id: disputeId } })
       if (!row) throw new NotFoundError('Dispute', disputeId)
       return row
