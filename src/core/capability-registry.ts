@@ -94,7 +94,7 @@ export function createCapabilityRegistry(repo: CapabilityGrantRepository = capab
       if (existing.grantedTo !== requestedBy) {
         throw new ForbiddenError(`${requestedBy} does not own CapabilityGrant ${grantId}`)
       }
-      await repo.markRevoked(grantId)
+      await repo.markRevoked(grant)
     },
 
     async listGrants(grantedTo) {
