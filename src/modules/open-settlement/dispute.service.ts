@@ -1113,25 +1113,9 @@ export function getDisputeService(): DisputeService {
       disputeServiceInstance = new DisputeService(marketArbitrationProvider)
     } else {
       if (config.settlement.trustedArbitrators.length === 0) {
-        // Authority must be evaluated before deployment configuration is
-        // disclosed. raiseDispute() checks that the authenticated caller is
-        // actually a buyer/seller before it ever reaches assign(). A
-        // no-arbiter deployment therefore stays bootable/readable, while a
-        // legitimate party still receives the same clear configuration
-        // failure at the exact point an arbiter assignment is required.
-        const unconfiguredTrustedArbitrationProvider: ArbitrationProvider = {
-          name: 'trusted-arbitrator-list-unconfigured',
-          arbitrators: [],
-          async assign() {
-            throw new ValidationError(
-              'No trusted arbitrators configured — set TRUSTED_ARBITRATORS (RFC-007 D4)'
-            )
-          },
-        }
-        disputeServiceInstance = new DisputeService(unconfiguredTrustedArbitrationProvider)
-      } else {
-        disputeServiceInstance = new DisputeService(new TrustedArbitratorProvider(config.settlement.trustedArbitrators))
+        throw new ValidationError('No trusted arbitrators configured — set TRUSTED_ARBITRATORS (RFC-007 D4)')
       }
+      disputeServiceInstance = new DisputeService(new TrustedArbitratorProvider(config.settlement.trustedArbitrators))
     }
   }
   return disputeServiceInstance
