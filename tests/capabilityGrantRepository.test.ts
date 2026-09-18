@@ -31,6 +31,7 @@ describe('capabilityGrantRepository.findActiveGrants() — Missão 02.5 §3', ()
 
     expect(mockFindMany).toHaveBeenCalledWith({
       where: { grantedTo: 'user-1', capabilityName: 'trade-coordination', revokedAt: null },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
   })
 
