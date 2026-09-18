@@ -12,9 +12,9 @@ import {
 } from '../src/modules/open-settlement/escrow-providers'
 
 describe('assertArbitrationModeCompatibleWithAvailableRails() — ADR-003', () => {
-  it('refuses a global market default because MULTISIG has fixed arbiter commitment', () => {
+  it('refuses a global market default when any available rail cannot honestly support dynamic reassignment', () => {
     expect(() => assertArbitrationModeCompatibleWithAvailableRails('market')).toThrow(
-      /MULTISIG.*FIXED_ARBITER_COMMITMENT|FIXED_ARBITER_COMMITMENT.*MULTISIG/
+      /Market arbitration requires DYNAMIC_REASSIGNABLE/
     )
   })
 
