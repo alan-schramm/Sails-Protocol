@@ -635,7 +635,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
     it('rejects a caller who is neither the seller nor an assigned arbiter', async () => {
       mockDisputeFindFirst.mockResolvedValue(null)
       await expect(escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 5000, 'stranger-1')).rejects.toThrow(
-        /neither the seller.*nor its assigned dispute arbiter/
+        /not the current assigned arbiter.*DISPUTED/
       )
       expect(mockEscrowUpdate).not.toHaveBeenCalled()
     })
