@@ -765,6 +765,17 @@ its own participant-facing lifecycle, cross-cutting):
   }
   ```
 
+  **Temporal authority clarification (ADR-003, 2026-09-18).**
+  A `CapabilityGrant` governing an asynchronous economic operation must
+  be current when that exact operation is durably authorized. Once the
+  operation and its Capability Authorization Commit are persisted
+  together, later grant revocation or expiry is prospective and does not
+  itself cancel the already-committed operation. Finalization still
+  independently requires valid Execution Authority and, where applicable,
+  current Economic Disposition Authority. See
+  `adr/ADR-003-capability-grant-temporal-authority.md` for the canonical
+  temporal rule and its retry/restart/revocation boundaries.
+
   `AgentScope` (section 1.7) and `verificationLevel` (section 1.1) are
   both concrete uses of `CapabilityGrant`, unified under one mechanism.
 
