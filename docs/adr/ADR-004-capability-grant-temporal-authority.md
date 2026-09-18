@@ -1,6 +1,6 @@
 # ADR-004: CapabilityGrant temporal authority across asynchronous economic execution
 
-- Status: Accepted / implementation not yet merged
+- Status: Proposed / CTO gate pending
 - Owner: Issue #211
 - Date: 2026-09-18
 - Scope: CapabilityGrant temporal semantics for asynchronous fund-movement operations
