@@ -21,6 +21,7 @@ import {
   isPartyOrAgent,
   asTrustedActor,
   isSellerOrAssignedArbiter,
+  assertDisputedDispositionAuthority,
   loadEscrowWithAuthorization,
   loadParticipantPubkeys,
   claimEscrowTransition,
@@ -609,6 +610,7 @@ export class EscrowService {
   // not fixed by M8-R2 (out of that mission's bounded scope).
   async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
     assertEscrowTransition(escrow.status, 'COMPLETED')
     const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.buyerId, escrow.asset)
 
@@ -755,6 +757,7 @@ export class EscrowService {
 
   async refundFunds(escrowId: string, triggeredBy: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
     assertEscrowTransition(escrow.status, 'REFUNDED')
 
     // Missão 06.9 (RFC-014 wiring completion) — same check releaseFunds()
@@ -807,6 +810,7 @@ export class EscrowService {
       throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
     }
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
     assertEscrowTransition(escrow.status, 'SPLIT')
     await checkFundMovementCapability(triggeredBy, 'settlement.escrow.split')
     const resolvedBuyerAddress = await resolvePayoutAddress(buyerAddress, trade.buyerId, escrow.asset)
