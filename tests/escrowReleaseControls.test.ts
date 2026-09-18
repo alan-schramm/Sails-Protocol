@@ -383,6 +383,72 @@ describe('escrowService — RFC-015 two-person control', () => {
   })
 })
 
+describe('escrowService — disputed disposition authority', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    enforceCapabilities = false
+    requireDualApprovalForRelease = false
+    mockEscrowFeatureFlag = true
+    mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockDisputeFindFirst.mockResolvedValue(null)
+  })
+
+  it('rejects the seller from RELEASE while the escrow is DISPUTED, before any transition/provider call', async () => {
+    await expect(escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')).rejects.toThrow(
+      /not the current assigned arbiter.*DISPUTED/
+    )
+    expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects the seller from REFUND while the escrow is DISPUTED, before any transition/provider call', async () => {
+    await expect(escrowService.refundFunds('escrow-1', 'seller-1')).rejects.toThrow(
+      /not the current assigned arbiter.*DISPUTED/
+    )
+    expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects the seller from SPLIT while the escrow is DISPUTED, before any transition/provider call', async () => {
+    await expect(escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 5000, 'seller-1')).rejects.toThrow(
+      /not the current assigned arbiter.*DISPUTED/
+    )
+    expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
+  })
+
+  it('keeps the current assigned arbiter authorized for disputed RELEASE', async () => {
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+
+    const result = await escrowService.releaseFunds('escrow-1', '0xbuyer', 'arbiter-1')
+
+    expect(result.status).toBe('COMPLETED')
+    expect(mockEscrowUpdateMany).toHaveBeenCalled()
+  })
+
+  it('keeps the current assigned arbiter authorized for disputed REFUND', async () => {
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED', txReleaseId: 'tx-refund' })
+
+    const result = await escrowService.refundFunds('escrow-1', 'arbiter-1')
+
+    expect(result.status).toBe('REFUNDED')
+    expect(mockEscrowUpdateMany).toHaveBeenCalled()
+  })
+
+  it('keeps the current assigned arbiter authorized for disputed SPLIT', async () => {
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+    mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'SPLIT' })
+
+    const result = await escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 5000, 'arbiter-1')
+
+    expect(result.status).toBe('SPLIT')
+    expect(mockEscrowUpdateMany).toHaveBeenCalled()
+  })
+})
+
 // Gap audit (not tied to any single RFC): none of lockFunds/markPaymentSent/
 // releaseFunds/refundFunds/openDispute verified `triggeredBy` was actually
 // a party to the trade before this fix — any authenticated participant on
@@ -569,7 +635,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
     it('rejects a caller who is neither the seller nor an assigned arbiter', async () => {
       mockDisputeFindFirst.mockResolvedValue(null)
       await expect(escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 5000, 'stranger-1')).rejects.toThrow(
-        /neither the seller.*nor its assigned dispute arbiter/
+        /not the current assigned arbiter.*DISPUTED/
       )
       expect(mockEscrowUpdate).not.toHaveBeenCalled()
     })

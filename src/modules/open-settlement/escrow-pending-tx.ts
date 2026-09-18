@@ -5,6 +5,7 @@ import { SIGNATURE_COLLECTION_PROVIDERS } from './escrow-providers'
 import {
   assertEscrowTransition,
   isSellerOrAssignedArbiter,
+  assertDisputedDispositionAuthority,
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
@@ -89,7 +90,9 @@ async function initiateSignatureCollectionCore(
 
   const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
-  if (!(await isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
+  if (escrow.status === 'DISPUTED') {
+    await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
+  } else if (!(await isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
     throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
   }
 

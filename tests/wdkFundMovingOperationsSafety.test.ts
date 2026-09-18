@@ -225,6 +225,10 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
   // persisted anywhere. These tests model that exact shape with a fake
   // provider standing in for the two legs.
   describe('splitFunds()', () => {
+    beforeEach(() => {
+      mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+    })
+
     // Scenario named explicitly by the mission: leg 1 succeeds, leg 2
     // throws WITHOUT leg 2 ever attempting its own side effect (leg 2
     // fails "before submission" — e.g. a pre-flight validation/gas-quote
@@ -239,7 +243,7 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
       })
 
       await expect(
-        escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'seller-1')
+        escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')
       ).rejects.toThrow('simulated: leg 2 failed before its own side effect')
 
       expect(legEffects).toEqual(['leg1-attempt-1'])
@@ -263,7 +267,7 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
       })
       mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrowDisputed, status: 'SPLIT', txReleaseId: '0xSIMULATED_LEG1_TX,0xSIMULATED_LEG2_TX' })
 
-      const retried = await escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'seller-1')
+      const retried = await escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')
       expect(retried.status).toBe('SPLIT')
 
       // Permitted claim, demonstrated: Sails orchestration permits partial
@@ -295,7 +299,7 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
       })
 
       await expect(
-        escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'seller-1')
+        escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')
       ).rejects.toThrow('simulated: leg 2 response lost after its own submission')
 
       // Same observable outcome as the previous test from
@@ -312,7 +316,7 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
     it('once SPLIT is durably persisted, a further splitFunds() call is rejected — the already-protected boundary', async () => {
       mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowDisputed, status: 'SPLIT' })
       await expect(
-        escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'seller-1')
+        escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')
       ).rejects.toThrow(/Invalid escrow transition/)
       expect(mockWdkSplitFunds).not.toHaveBeenCalled()
     })

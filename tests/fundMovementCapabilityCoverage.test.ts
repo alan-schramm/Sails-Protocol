@@ -210,17 +210,19 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
 
   it('5. split without capability — DENY', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
-    await expect(escrowService.splitFunds(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, SELLER_ID)).rejects.toThrow(
-      `${SELLER_ID} has no active 'settlement' capability grant covering 'settlement.escrow.split'`
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: ARBITER_ID })
+    await expect(escrowService.splitFunds(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, ARBITER_ID)).rejects.toThrow(
+      `${ARBITER_ID} has no active 'settlement' capability grant covering 'settlement.escrow.split'`
     )
     expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
   })
 
   it('6. split with capability — ALLOW', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: ARBITER_ID })
     mockEscrowUpdate.mockResolvedValue(escrowRow({ status: 'SPLIT' }))
-    capabilityGrantFixtures = [grant('settlement', ['settlement.escrow.split'])]
-    const result = await escrowService.splitFunds(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, SELLER_ID)
+    capabilityGrantFixtures = [grant('settlement', ['settlement.escrow.split'], { grantedTo: ARBITER_ID, issuedBy: ARBITER_ID })]
+    const result = await escrowService.splitFunds(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, ARBITER_ID)
     expect(result.status).toBe('SPLIT')
   })
 
@@ -233,8 +235,9 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
 
   it('8. initiateSplit without capability — DENY (this is the exact drift the audit found: initiateRelease had the check, initiateSplit silently never did)', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MULTISIG', status: 'DISPUTED' }))
-    await expect(escrowService.initiateSplit(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, SELLER_ID)).rejects.toThrow(
-      `${SELLER_ID} has no active 'settlement' capability grant covering 'settlement.escrow.split'`
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: ARBITER_ID })
+    await expect(escrowService.initiateSplit(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, ARBITER_ID)).rejects.toThrow(
+      `${ARBITER_ID} has no active 'settlement' capability grant covering 'settlement.escrow.split'`
     )
   })
 

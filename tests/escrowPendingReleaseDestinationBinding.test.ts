@@ -76,6 +76,7 @@ const mockEscrowFindUnique = jest.fn()
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
+const mockDisputeFindFirst = jest.fn()
 const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
@@ -106,7 +107,7 @@ jest.mock('../src/common/database', () => ({
       updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
     },
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
-    dispute: { findFirst: jest.fn().mockResolvedValue(null) },
+    dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     escrowEvent: {
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
@@ -158,12 +159,60 @@ function escrowRow(overrides: Record<string, unknown> = {}) {
   }
 }
 
+describe('escrow-pending-tx.ts — disputed disposition authority', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    pendingTxStore = null
+    signatureStore = []
+    mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
+    mockDisputeFindFirst.mockResolvedValue(null)
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
+    mockEscrowFundingEvidenceFindMany.mockResolvedValue([])
+    mockPendingTxFindUnique.mockResolvedValue(null)
+    mockBuildUnsignedRelease.mockResolvedValue({ psbtBase64: 'psbt-stub', requiredSigners: [BUYER_ID] })
+    mockPayoutAddressFindUnique.mockResolvedValue({ address: 'address-A', participantId: BUYER_ID, asset: 'BTC' })
+  })
+
+  it('rejects the seller from initiateRelease while DISPUTED before building/persisting a transaction', async () => {
+    await expect(escrowService.initiateRelease(ESCROW_ID, undefined, SELLER_ID)).rejects.toThrow(
+      /not the current assigned arbiter.*DISPUTED/
+    )
+    expect(mockBuildUnsignedRelease).not.toHaveBeenCalled()
+    expect(mockPendingTxCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects the seller from initiateRefund while DISPUTED before persisting a transaction', async () => {
+    await expect(escrowService.initiateRefund(ESCROW_ID, SELLER_ID)).rejects.toThrow(
+      /not the current assigned arbiter.*DISPUTED/
+    )
+    expect(mockPendingTxCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects the seller from initiateSplit while DISPUTED before persisting a transaction', async () => {
+    await expect(escrowService.initiateSplit(ESCROW_ID, undefined, undefined, 5000, SELLER_ID)).rejects.toThrow(
+      /not the current assigned arbiter.*DISPUTED/
+    )
+    expect(mockPendingTxCreate).not.toHaveBeenCalled()
+  })
+
+  it('keeps the current assigned arbiter authorized for initiateRelease', async () => {
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1' })
+
+    const pending: any = await escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')
+
+    expect(pending.toAddress).toBe('address-A')
+    expect(mockBuildUnsignedRelease).toHaveBeenCalled()
+    expect(mockPendingTxCreate).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('escrow-pending-tx.ts initiateRelease() — cooperative destination resolution and binding (M8-R2)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     pendingTxStore = null
     signatureStore = []
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
+    mockDisputeFindFirst.mockResolvedValue(null)
     mockEscrowFindUnique.mockResolvedValue(escrowRow())
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockEscrowUpdate.mockResolvedValue(escrowRow({ status: 'COMPLETED' }))

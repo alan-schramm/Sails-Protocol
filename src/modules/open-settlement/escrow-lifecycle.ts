@@ -118,6 +118,33 @@ export async function isSellerOrAssignedArbiter(tradeId: string, sellerId: strin
   return dispute !== null
 }
 
+/**
+ * Once an escrow is DISPUTED, ordinary seller disposition authority is
+ * suspended: RELEASE / REFUND / SPLIT are no longer cooperative seller
+ * actions; they are the economic effect of the dispute's current ruling.
+ *
+ * Keep this separate from isSellerOrAssignedArbiter(): that helper is
+ * intentionally broader because seller authority remains legitimate on
+ * non-disputed cooperative/recovery paths. This assertion is the state-
+ * conditional narrowing shared by both direct settlement calls and the
+ * signature-collection initiate-* flow.
+ */
+export async function assertDisputedDispositionAuthority(
+  tradeId: string,
+  escrowStatus: string,
+  triggeredBy: string,
+): Promise<void> {
+  if (escrowStatus !== 'DISPUTED') return
+
+  const dispute = await escrowRepository.findDisputeByTradeAndArbiter(tradeId, triggeredBy)
+  if (!dispute) {
+    throw new ForbiddenError(
+      `${triggeredBy} is not the current assigned arbiter for disputed trade ${tradeId} — ` +
+      'ordinary seller disposition authority is suspended while the escrow is DISPUTED'
+    )
+  }
+}
+
 // Missão 06.9 (RFC-014 wiring completion) — RFC-014's own convention
 // ("the required scope string is the real event name this action
 // produces") already covers refund/split semantically; it was only ever
@@ -263,7 +290,9 @@ export async function loadEscrowWithAuthorization(
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
   const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
-  if (!(await isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
+  if (escrow.status === 'DISPUTED') {
+    await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
+  } else if (!(await isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
     throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
   }
   return { escrow, trade }

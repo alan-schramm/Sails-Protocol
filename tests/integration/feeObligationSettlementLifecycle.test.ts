@@ -166,9 +166,19 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
     const suffix = `t4-${Date.now()}`
     const { escrow, trade } = await createPolicyAwareEscrow(suffix, '100000')
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED' } }) // SPLIT only reachable from DISPUTED
+    const arbiter = await prisma.user.create({ data: { publicKey: `pk-arbiter-fase3-${suffix}` } })
+    await prisma.dispute.create({
+      data: {
+        tradeId: trade.id,
+        escrowId: escrow.id,
+        openedBy: trade.buyerId,
+        reason: 'fee-obligation split fixture',
+        arbiterId: arbiter.id,
+      },
+    })
 
     // buyerBps = 3000 -> buyer 30%, seller 70% (Fase 1.2's own worked example)
-    await escrowService.splitFunds(escrow.id, trade.buyerId, trade.sellerId, 3000, trade.sellerId)
+    await escrowService.splitFunds(escrow.id, trade.buyerId, trade.sellerId, 3000, arbiter.id)
 
     const obligation = await prisma.feeObligation.findUniqueOrThrow({ where: { escrowId: escrow.id } })
     expect(obligation.economicDetermination).toBe('OWED')
