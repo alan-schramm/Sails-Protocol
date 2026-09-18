@@ -1,9 +1,9 @@
 import {
   arbitrationCapabilityFor,
   assertArbitrationPolicyCompatible,
-  createArbitrationProviderResolver,
   resolveArbitrationModeForImplementation,
 } from '../src/modules/open-settlement/arbitration-policy'
+import { createArbitrationProviderResolver } from '../src/modules/open-settlement/arbitration-provider-resolver'
 
 describe('ADR-003 rail-scoped arbitration policy', () => {
   it('declares MULTISIG fixed and MOCK dynamically reassignable', () => {
