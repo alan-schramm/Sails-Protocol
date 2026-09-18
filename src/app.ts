@@ -74,7 +74,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // escrow-providers.ts's own comment on this function for why it lives
   // there (SCRIPT_COMMITTED_ARBITER_RAILS) rather than as a config/
   // index.ts module-load-time throw alongside RT-001.
-  assertArbitrationModeCompatibleWithAvailableRails(config.settlement.arbitrationMode)
+  assertArbitrationModeCompatibleWithAvailableRails(
+    config.settlement.arbitrationMode,
+    config.settlement.arbitrationPolicyByEscrowType,
+  )
 
   const app = Fastify({
     logger: {

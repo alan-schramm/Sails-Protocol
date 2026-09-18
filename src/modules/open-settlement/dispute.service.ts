@@ -25,6 +25,7 @@ import { escrowService } from './escrow.service'
 import { config } from '../../config'
 import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitration-provider'
 import { marketArbitrationProvider } from './market-arbitration.provider'
+import { createArbitrationProviderResolver } from './arbitration-provider-resolver'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { isPartyOrAgent, asTrustedActor } from './escrow-lifecycle'
@@ -63,8 +64,38 @@ import { networkFor } from './multisig.provider'
 // not attempted here.
 export const APPEAL_FEE_MULTIPLIER = 2
 
+export type ArbitrationProviderResolver = (implementation: string) => ArbitrationProvider
+
 export class DisputeService {
-  constructor(private readonly arbitrationProvider: ArbitrationProvider, private readonly repo: EscrowRepository = escrowRepository) {}
+  constructor(
+    private readonly arbitrationProvider: ArbitrationProvider,
+    private readonly repo: EscrowRepository = escrowRepository,
+    private readonly arbitrationProviderResolver?: ArbitrationProviderResolver,
+  ) {}
+
+  private providerFor(implementation: string): ArbitrationProvider {
+    return this.arbitrationProviderResolver?.(implementation) ?? this.arbitrationProvider
+  }
+
+  /**
+   * Runtime instances use the rail-scoped resolver and therefore must read
+   * Escrow.type before selecting arbitration authority. Directly-injected
+   * unit/service instances intentionally preserve the historical injection
+   * boundary: the injected provider is already the caller's explicit
+   * arbitration context and must not acquire an unrelated database dependency.
+   */
+  private async providerForEscrow(escrowId: string): Promise<{
+    provider: ArbitrationProvider
+    escrow: Awaited<ReturnType<EscrowRepository['findById']>> | null
+  }> {
+    if (!this.arbitrationProviderResolver) {
+      return { provider: this.arbitrationProvider, escrow: null }
+    }
+
+    const escrow = await this.repo.findById(escrowId)
+    if (!escrow) throw new NotFoundError('Escrow', escrowId)
+    return { provider: this.providerFor(escrow.type), escrow }
+  }
 
   // Missão 11 Fase 7.3.1 §B — real P0 closed (Fase 7.3 audit): for an
   // escrow type whose settlement script immutably commits to a SPECIFIC
@@ -140,8 +171,9 @@ export class DisputeService {
     // over the configured ArbitrationProvider's own independent pick;
     // assign() is only ever consulted for an escrow type with no such
     // commitment (see findCommittedArbiterId()'s own comment above).
+    const { provider } = await this.providerForEscrow(trade.escrowId)
     const committedArbiterId = await this.findCommittedArbiterId(trade.escrowId)
-    const arbiterId = committedArbiterId ?? (await this.arbitrationProvider.assign(dispute.id, tradeId))
+    const arbiterId = committedArbiterId ?? (await provider.assign(dispute.id, tradeId))
     const updated = await prisma.dispute.update({
       where: { id: dispute.id },
       data: { arbiterId },
@@ -686,6 +718,7 @@ export class DisputeService {
     arbiterId: string,
     ruling: DisputeRuling,
   ): Promise<void> {
+    const { provider, escrow: providerEscrow } = await this.providerForEscrow(dispute.escrowId)
     // RFC-021 D6/D4 — feeds the arbiter's track record on every real
     // resolution, correct or not (optional: only market mode has an
     // ArbiterProfile to update; trusted-list mode silently skips this).
@@ -693,10 +726,14 @@ export class DisputeService {
     // escrowService.releaseFunds() call above has already computed and
     // persisted Escrow.feeCharged (Phase 0) by this point; REFUND never
     // charges a fee, so this is correctly undefined for those.
-    if (this.arbitrationProvider.recordRuling) {
-      const resolvedEscrow = await this.repo.findById(dispute.escrowId)
+    if (provider.recordRuling) {
+      // Runtime resolution already loaded the escrow to choose the effective
+      // rail policy. Direct provider injection keeps the old best-effort
+      // accounting read instead of making repository availability a new
+      // prerequisite for every test/caller.
+      const resolvedEscrow = providerEscrow ?? await this.repo.findById(dispute.escrowId)
       const feeObserved = resolvedEscrow?.feeCharged ? String(resolvedEscrow.feeCharged) : undefined
-      await this.arbitrationProvider.recordRuling(arbiterId, feeObserved)
+      await provider.recordRuling(arbiterId, feeObserved)
     }
 
     // RFC-021 D6 — an appeal round reversing the ruling being appealed is
@@ -712,9 +749,9 @@ export class DisputeService {
       dispute.previousRuling &&
       dispute.previousRuling !== ruling &&
       dispute.previousArbiterId &&
-      this.arbitrationProvider.slash
+      provider.slash
     ) {
-      await this.arbitrationProvider.slash(dispute.previousArbiterId)
+      await provider.slash(dispute.previousArbiterId)
     }
 
     // RFC-021 D6 — real appeal-fee settlement, closing the "computed and
@@ -777,22 +814,30 @@ export class DisputeService {
       )
     }
 
-    if (!this.arbitrationProvider.assignAppealPanel) {
+    const { provider, escrow: providerEscrow } = await this.providerForEscrow(dispute.escrowId)
+
+    if (!provider.assignAppealPanel) {
+      const implementationContext = providerEscrow ? ` for settlement implementation ${providerEscrow.type}` : ''
       throw new ValidationError(
-        `Appeals require ARBITRATION_MODE=market — ${this.arbitrationProvider.name} does not support appeal panels`
+        `Appeals require ARBITRATION_MODE=market (effective market arbitration${implementationContext}) — ${provider.name} does not support appeal panels`
       )
     }
 
+    // Appeal-fee accounting genuinely needs escrow economic data even for
+    // direct provider injection. Runtime rail-scoped resolution already
+    // loaded it; direct callers retain the historical lazy read here.
+    const escrow = providerEscrow ?? await this.repo.findById(dispute.escrowId)
+    if (!escrow) throw new NotFoundError('Escrow', dispute.escrowId)
+
     const nextRound = dispute.appealRound + 1
-    const newArbiterId = await this.arbitrationProvider.assignAppealPanel(
+    const newArbiterId = await provider.assignAppealPanel(
       disputeId,
       dispute.tradeId,
       nextRound,
       dispute.arbiterId ?? undefined
     )
 
-    const escrow = await this.repo.findById(dispute.escrowId)
-    const baseFee = escrow?.feeCharged ? Number(escrow.feeCharged) : 0
+    const baseFee = escrow.feeCharged ? Number(escrow.feeCharged) : 0
     const appealFeeRequired = (baseFee * APPEAL_FEE_MULTIPLIER).toFixed(8)
 
     // Real charge, not just a computed-and-returned number — closes the
@@ -808,7 +853,7 @@ export class DisputeService {
         appealRound: nextRound,
         requestedBy,
         amount: appealFeeRequired,
-        asset: (escrow?.asset ?? 'BTC') as AssetType,
+        asset: (escrow.asset ?? 'BTC') as AssetType,
       },
     })
 
@@ -1109,14 +1154,31 @@ export class DisputeService {
 let disputeServiceInstance: DisputeService | null = null
 export function getDisputeService(): DisputeService {
   if (!disputeServiceInstance) {
-    if (config.settlement.arbitrationMode === 'market') {
-      disputeServiceInstance = new DisputeService(marketArbitrationProvider)
+    const resolver = createArbitrationProviderResolver(
+      config.settlement.arbitrationMode,
+      config.settlement.arbitrationPolicyByEscrowType,
+      config.settlement.trustedArbitrators,
+    )
+
+    // Legacy provider remains as an injection-compatible default for
+    // code paths/tests that instantiate DisputeService directly. Runtime
+    // dispute/appeal/finalize selection is escrow-aware via resolver.
+    const hasExplicitMarketOverride = Object.values(config.settlement.arbitrationPolicyByEscrowType).includes('market')
+    let defaultProvider: ArbitrationProvider
+    if (config.settlement.arbitrationMode === 'market' || hasExplicitMarketOverride) {
+      // This is only the injection-compatible fallback. Runtime dispute,
+      // appeal and finalize authority still comes from the escrow-aware
+      // resolver above; a trusted-list rail with no trusted arbiters fails
+      // closed when that rail is actually selected.
+      defaultProvider = marketArbitrationProvider
     } else {
       if (config.settlement.trustedArbitrators.length === 0) {
         throw new ValidationError('No trusted arbitrators configured — set TRUSTED_ARBITRATORS (RFC-007 D4)')
       }
-      disputeServiceInstance = new DisputeService(new TrustedArbitratorProvider(config.settlement.trustedArbitrators))
+      defaultProvider = new TrustedArbitratorProvider(config.settlement.trustedArbitrators)
     }
+
+    disputeServiceInstance = new DisputeService(defaultProvider, escrowRepository, resolver)
   }
   return disputeServiceInstance
 }
