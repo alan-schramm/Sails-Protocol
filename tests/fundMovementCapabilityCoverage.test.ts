@@ -210,17 +210,19 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
 
   it('5. split without capability — DENY', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
-    await expect(escrowService.splitFunds(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, SELLER_ID)).rejects.toThrow(
-      `${SELLER_ID} has no active 'settlement' capability grant covering 'settlement.escrow.split'`
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: ARBITER_ID })
+    await expect(escrowService.splitFunds(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, ARBITER_ID)).rejects.toThrow(
+      `${ARBITER_ID} has no active 'settlement' capability grant covering 'settlement.escrow.split'`
     )
     expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
   })
 
   it('6. split with capability — ALLOW', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: ARBITER_ID })
     mockEscrowUpdate.mockResolvedValue(escrowRow({ status: 'SPLIT' }))
-    capabilityGrantFixtures = [grant('settlement', ['settlement.escrow.split'])]
-    const result = await escrowService.splitFunds(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, SELLER_ID)
+    capabilityGrantFixtures = [grant('settlement', ['settlement.escrow.split'], { grantedTo: ARBITER_ID, issuedBy: ARBITER_ID })]
+    const result = await escrowService.splitFunds(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, ARBITER_ID)
     expect(result.status).toBe('SPLIT')
   })
 
@@ -233,8 +235,9 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
 
   it('8. initiateSplit without capability — DENY (this is the exact drift the audit found: initiateRelease had the check, initiateSplit silently never did)', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MULTISIG', status: 'DISPUTED' }))
-    await expect(escrowService.initiateSplit(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, SELLER_ID)).rejects.toThrow(
-      `${SELLER_ID} has no active 'settlement' capability grant covering 'settlement.escrow.split'`
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: ARBITER_ID })
+    await expect(escrowService.initiateSplit(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, ARBITER_ID)).rejects.toThrow(
+      `${ARBITER_ID} has no active 'settlement' capability grant covering 'settlement.escrow.split'`
     )
   })
 
@@ -289,5 +292,74 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
       `${ARBITER_ID} has no active 'settlement' capability grant covering 'settlement.escrow.refunded'`
     )
     expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('Disputed economic disposition authority — #209 regression', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    enforceCapabilities = false
+    capabilityGrantFixtures = []
+    mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
+    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+    mockDisputeFindFirst.mockResolvedValue(null)
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+    mockPendingTxFindUnique.mockResolvedValue(null)
+    mockParticipantKeyFindMany.mockResolvedValue([])
+    mockEscrowFundingEvidenceFindMany.mockResolvedValue([])
+  })
+
+  const expectSellerDenied = async (action: () => Promise<unknown>) => {
+    await expect(action()).rejects.toThrow(/not the current assigned arbiter for disputed trade/)
+    expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+  }
+
+  it('seller cannot RELEASE a DISPUTED escrow through the direct path', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
+    await expectSellerDenied(() => escrowService.releaseFunds(ESCROW_ID, 'addr-buyer', SELLER_ID))
+  })
+
+  it('seller cannot REFUND a DISPUTED escrow through the direct path', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
+    await expectSellerDenied(() => escrowService.refundFunds(ESCROW_ID, SELLER_ID, 'addr-seller'))
+  })
+
+  it('seller cannot SPLIT a DISPUTED escrow through the direct path', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
+    await expectSellerDenied(() => escrowService.splitFunds(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, SELLER_ID))
+  })
+
+  it('seller cannot initiate RELEASE for a DISPUTED signature-collection escrow', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MULTISIG', status: 'DISPUTED' }))
+    await expectSellerDenied(() => escrowService.initiateRelease(ESCROW_ID, 'addr-buyer', SELLER_ID))
+    expect(mockPendingTxFindUnique).not.toHaveBeenCalled()
+    expect(mockParticipantKeyFindMany).not.toHaveBeenCalled()
+  })
+
+  it('seller cannot initiate REFUND for a DISPUTED signature-collection escrow', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MULTISIG', status: 'DISPUTED' }))
+    await expectSellerDenied(() => escrowService.initiateRefund(ESCROW_ID, SELLER_ID, 'addr-seller'))
+    expect(mockPendingTxFindUnique).not.toHaveBeenCalled()
+    expect(mockParticipantKeyFindMany).not.toHaveBeenCalled()
+  })
+
+  it('seller cannot initiate SPLIT for a DISPUTED signature-collection escrow', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MULTISIG', status: 'DISPUTED' }))
+    await expectSellerDenied(() => escrowService.initiateSplit(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, SELLER_ID))
+    expect(mockPendingTxFindUnique).not.toHaveBeenCalled()
+    expect(mockParticipantKeyFindMany).not.toHaveBeenCalled()
+  })
+
+  it('the current assigned arbiter passes the disputed authority gate', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: ARBITER_ID })
+    mockEscrowUpdate.mockResolvedValue(escrowRow({ status: 'REFUNDED' }))
+
+    const result = await escrowService.refundFunds(ESCROW_ID, ARBITER_ID, 'addr-seller')
+    expect(result.status).toBe('REFUNDED')
+    expect(mockDisputeFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tradeId: TRADE_ID, arbiterId: ARBITER_ID } })
+    )
   })
 })
