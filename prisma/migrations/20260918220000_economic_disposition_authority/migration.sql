@@ -5,10 +5,11 @@
 -- operation created before this migration) get NULL for all six new
 -- columns, including any that happen to originate from a disputed ruling —
 -- never backfilled, never fabricated (ADR-005 §9 / mission #218 discipline:
--- "do not manufacture historical authority provenance"). A legacy row with
--- no recorded generation is one economic-disposition-authority.ts treats as
--- ADR-005-inapplicable (same as an ordinary cooperative operation), not as
--- an already-proven current generation.
+-- "do not manufacture historical authority provenance"). A legacy row with no recorded generation is therefore UNKNOWN provenance.
+-- economic-disposition-authority.ts permits it only when durable history proves
+-- the escrow was never disputed; if any Dispute exists for the escrow, the
+-- ambiguous legacy pending operation fails closed. NULL never means
+-- automatically cooperative and never means already-proven current authority.
 ALTER TABLE "escrow_pending_transactions"
   ADD COLUMN "disputeId" TEXT,
   ADD COLUMN "rulingAppealRound" INTEGER,
