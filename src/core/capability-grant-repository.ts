@@ -75,6 +75,9 @@ class PrismaCapabilityGrantRepository implements CapabilityGrantRepository {
   async findActiveGrants(grantedTo: string, capabilityName: string): Promise<CapabilityGrant[]> {
     const grants = await prisma.capabilityGrant.findMany({
       where: { grantedTo, capabilityName, revokedAt: null },
+      // ADR-004: exact-grant selection must be stable across retries/nodes.
+      // Oldest grant wins; id is the deterministic tie-breaker.
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
     return grants.map(toCapabilityGrant)
   }
@@ -85,7 +88,17 @@ class PrismaCapabilityGrantRepository implements CapabilityGrantRepository {
   }
 
   async markRevoked(grantId: string): Promise<void> {
-    await prisma.capabilityGrant.update({ where: { id: grantId }, data: { revokedAt: new Date() } })
+    const immutable = await prisma.capabilityGrant.findUnique({ where: { id: grantId } })
+    if (!immutable) return
+
+    await prisma.$transaction(async (tx) => {
+      // Same lock namespace Gate B uses. CapabilityGrant identity fields are
+      // immutable, so reading them before acquiring the lock cannot redirect
+      // the lock to a different authority domain.
+      const lockKey = `capability:${immutable.grantedTo}:${immutable.capabilityName}`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint)`
+      await tx.capabilityGrant.update({ where: { id: grantId }, data: { revokedAt: new Date() } })
+    })
   }
 
   async listActiveGrants(grantedTo: string): Promise<CapabilityGrant[]> {
