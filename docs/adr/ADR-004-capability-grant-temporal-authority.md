@@ -66,7 +66,7 @@ That commitment must identify at minimum:
 - capability name;
 - required scope;
 - authorization timestamp;
-- evaluated grant constraints relevant to the operation, or a canonical snapshot/digest sufficient to prove what was evaluated;
+- the grant constraints actually recognized/evaluated by the capability policy at authorization time, or a canonical snapshot/digest sufficient to prove what was evaluated;
 - the operation identity or immutable pending-transaction facts to which this authorization applies.
 
 The authorization commitment and the transition from merely-pending to execution-committed must be atomic with respect to capability revocation for the selected grant. The implementation must not leave a check-then-commit TOCTOU window where revocation can win between successful validation and durable execution authorization.
@@ -99,7 +99,7 @@ If a product or future policy requires an operation-level deadline, that must be
 
 ### 6. Re-authorization before Gate B may use a different valid grant
 
-If the original grant is revoked or expires before Gate B, execution may proceed only if the actor currently possesses another CapabilityGrant that independently authorizes the exact pending operation under current constraints.
+If the original grant is revoked or expires before Gate B, execution may proceed only if the actor currently possesses another CapabilityGrant that independently authorizes the unchanged pending operation under the capability rules that are actually implemented at that time.
 
 The new grant must be evaluated against the existing immutable pending operation. Re-authorization must not mutate economic parameters, destinations, ruling, required signers, or unsigned payload.
 
@@ -150,6 +150,10 @@ Implementation is authorized only if it preserves all of the following:
 7. Existing cryptographic signer validation and state-transition claims must not be weakened.
 8. Economic-authority freshness remains independently required; this ADR does not close the stale-ruling/pending-instruction owner.
 9. `ENFORCE_CAPABILITIES=false` must preserve the existing unchecked behavior and must not require capability authorization provenance.
+
+## Constraint-policy boundary
+
+ADR-004 does not invent semantics for opaque `CapabilityGrant.constraints` keys. The current registry explicitly enforces `expiresAt`; example vocabulary such as `maxValue` does not become enforced merely because this ADR snapshots constraints. Gate A and Gate B must apply every constraint the Capability policy actually recognizes at that time, and the durable authorization must make that evaluation inspectable. New constraint semantics require their own explicit policy/wiring rather than inference here.
 
 ## Bounded implementation shape
 
