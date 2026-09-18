@@ -336,17 +336,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in 1 2 3 4 5 6; do
+          for attempt in $(seq 1 20); do
             REMOTE_VERSION="$(npm view "$PACKAGE_NAME@$VERSION" version 2>/dev/null || true)"
             REMOTE_INTEGRITY="$(npm view "$PACKAGE_NAME@$VERSION" dist.integrity 2>/dev/null || true)"
             REMOTE_TAG_VERSION="$(npm view "$PACKAGE_NAME" "dist-tags.$DIST_TAG" 2>/dev/null || true)"
             if [[ "$REMOTE_VERSION" == "$VERSION" && "$REMOTE_INTEGRITY" == "$LOCAL_INTEGRITY" && "$REMOTE_TAG_VERSION" == "$VERSION" ]]; then
               exit 0
             fi
-            echo "Registry propagation not complete yet (attempt $attempt/6); retrying in 5s..."
-            sleep 5
+            echo "Registry propagation not complete yet (attempt $attempt/20); retrying in 15s..."
+            sleep 15
           done
-          echo "Registry verification failed after propagation window." >&2
+          echo "Registry verification failed after 5-minute propagation window." >&2
           echo "version=$REMOTE_VERSION integrity=$REMOTE_INTEGRITY dist-tag=$REMOTE_TAG_VERSION" >&2
           exit 1
 
