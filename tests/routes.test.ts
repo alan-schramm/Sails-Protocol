@@ -66,6 +66,13 @@ const mockCapabilityGrantCreate = jest.fn()
 const mockCapabilityGrantFindMany = jest.fn()
 const mockCapabilityGrantFindUnique = jest.fn()
 const mockCapabilityGrantUpdate = jest.fn()
+const mockCapabilityGrantExecuteRaw = jest.fn().mockResolvedValue(0)
+const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+  fn({
+    $executeRaw: mockCapabilityGrantExecuteRaw,
+    capabilityGrant: { update: (...args: unknown[]) => mockCapabilityGrantUpdate(...args) },
+  })
+)
 const mockIntentCreate = jest.fn()
 const mockIntentFindUnique = jest.fn()
 // Robustness-audit fix (2026-07-20): intent-engine.ts's transition() now
@@ -191,6 +198,7 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockCapabilityGrantFindUnique(...args),
       update: (...args: unknown[]) => mockCapabilityGrantUpdate(...args),
     },
+    $transaction: (...args: unknown[]) => mockCapabilityGrantTransaction(...(args as [any])),
     claim: {
       create: (...args: unknown[]) => mockClaimCreate(...args),
       findUnique: (...args: unknown[]) => mockClaimFindUnique(...args),
