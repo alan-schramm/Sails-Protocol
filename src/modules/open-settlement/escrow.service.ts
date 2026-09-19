@@ -16,7 +16,6 @@ import {
   recommendedEscrowType,
   getSettlementProvider,
   getCustodyModelForType,
-  assertDeploymentEligible,
 } from './escrow-providers'
 import {
   isPartyOrAgent,
@@ -269,9 +268,34 @@ export type { CreateEscrowInput }
 // needs its own check; a future #220 addition to
 // PRODUCTION_INELIGIBLE_TYPES is covered automatically, from whichever
 // branch produces that type.
+//
+// Corrected/Implemented 2026-09-19 (Issue #243, Beta correctness
+// remediation) — the #220 audit found this function verified deployment
+// ELIGIBILITY but never verified a SettlementProvider is actually
+// REGISTERED for the resolved type. A schema-valid, deployment-eligible
+// type with zero runtime implementation (LIQUID_COVENANT — representable
+// in ESCROW_TYPE_VALUES, never blocked by assertDeploymentEligible since
+// it isn't in PRODUCTION_INELIGIBLE_TYPES either) could reach
+// createEscrow()'s persistence step, permanently binding a trade to an
+// escrow no provider could ever execute — the failure only surfaced
+// later, at first lockFunds()/releaseFunds() call. Three genuinely
+// different questions were being conflated: protocol-representable
+// (ESCROW_TYPE_VALUES) ≠ runtime-registered (PROVIDERS) ≠ deployment-
+// eligible (PRODUCTION_INELIGIBLE_TYPES). The standalone
+// assertDeploymentEligible() call is replaced by getSettlementProvider(),
+// which already runs that exact check FIRST, unconditionally, before its
+// own registration check — same ordering the mission's own required
+// property describes (eligibility, then registration), now one call
+// instead of two. Discarding the return value is deliberate: this call
+// exists purely for its two structural checks, never for the instance
+// itself (every PROVIDERS entry is an already-constructed singleton —
+// no network access, no provider initialization, no economic method
+// invoked). Reusing this exact function rather than a second `type in
+// PROVIDERS` check means creation can never drift from the real
+// dispatch-time truth — they are now literally the same lookup.
 function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
   const resolved = resolveEscrowTypeCandidate(asset, explicitType)
-  assertDeploymentEligible(resolved)
+  getSettlementProvider(resolved)
   return resolved
 }
 

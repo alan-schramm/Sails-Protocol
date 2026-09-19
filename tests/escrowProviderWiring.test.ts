@@ -632,25 +632,27 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
       expect(eligibilityCallIndex).toBeLessThan(mockBranchIndex)
     })
 
-    it('resolveEscrowType() invokes the eligibility check exactly once, on the final resolved type, not per-branch', () => {
+    it('resolveEscrowType() invokes its provider/eligibility check exactly once, on the final resolved type, not per-branch', () => {
       // Same reasoning as above, applied to the creation path: R2 called
       // assertDeploymentEligible() only from inside the
       // `explicitType === 'MOCK'` branch — the implicit mockEscrow
       // default, canonical-registry, and legacy-fallback branches never
-      // passed through it. R3 separates resolution
-      // (resolveEscrowTypeCandidate) from the single eligibility
-      // assertion, which now runs unconditionally on whatever type was
-      // resolved. Asserting the call appears exactly once in
-      // resolveEscrowType()'s own source (not resolveEscrowTypeCandidate's,
-      // which is a separate function) proves it is a single, final gate —
-      // not one check per branch.
-      // TS's CommonJS cross-module interop wraps this call as
-      // `(0, escrow_providers_1.assertDeploymentEligible)(resolved)` in
-      // the compiled output (assertDeploymentEligible is imported from a
-      // different module here, unlike getSettlementProvider's own
-      // same-module call above) — the regex tolerates that shape too.
+      // passed through it. R3 separated resolution
+      // (resolveEscrowTypeCandidate) from a single eligibility assertion
+      // running unconditionally on whatever type was resolved.
+      //
+      // Corrected/Implemented 2026-09-19 (Issue #243) — resolveEscrowType()
+      // no longer calls assertDeploymentEligible() directly at all; #243
+      // replaced that call with getSettlementProvider(resolved), which
+      // performs the exact same eligibility check FIRST internally, and
+      // additionally verifies a SettlementProvider is actually registered
+      // for the type (closing the "schema-valid + deployment-eligible but
+      // zero runtime implementation" gap — see LIQUID_COVENANT tests
+      // below). The regression-guard property this test protects is
+      // unchanged in spirit: exactly one call, on the final resolved
+      // type, not per-branch — only the specific function name changed.
       const source = resolveEscrowType.toString()
-      const matches = source.match(/assertDeploymentEligible\)?\s*\(/g) ?? []
+      const matches = source.match(/getSettlementProvider\)?\s*\(/g) ?? []
       expect(matches).toHaveLength(1)
     })
 
@@ -765,6 +767,135 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     await expect(
       escrowService.createEscrow({ tradeId: 'trade-liquid-btc', lockedAmount: '0.001', asset: 'LIQUID_BTC' as any }, 'buyer-1')
     ).rejects.toThrow('is registered Product Scope but has zero registered settlement implementations yet')
+  })
+})
+
+// Issue #243 (Beta correctness remediation, #220-discovered) — the tests
+// above already prove every LEGACY-MAPPED asset (BTC/USDT_ERC20/
+// USDT_TRC20/USDT_LIQUID/LIQUID_BTC) is safe: translateLegacyAssetType()
+// routes them all through the canonical SettlementScope/Provider
+// registry, which only ever returns implementations it already knows are
+// registered. The gap #243 closes is the OTHER branch —
+// `explicitType ?? recommendedEscrowType(asset)` (resolveEscrowTypeCandidate's
+// final fallback, reached for any asset outside that 5-entry map, e.g.
+// 'SPARK') — which previously returned an explicit client-supplied type
+// completely unchecked. `LIQUID_COVENANT` is the real, frozen example:
+// representable in ESCROW_TYPE_VALUES (escrowCreationSchemaParity.test.ts's
+// own "remains structurally valid" test proves the schema side is
+// unchanged by this fix), not blocked by assertDeploymentEligible (it's
+// not in PRODUCTION_INELIGIBLE_TYPES — this is not an eligibility
+// question), but absent from PROVIDERS entirely. Before #243, createEscrow()
+// would persist this row; the failure only surfaced later, at first
+// lockFunds()/releaseFunds() call — see the PRE-EXISTING 'getProvider()'
+// describe block below, whose "throws a clear error for LIQUID_COVENANT"
+// test exercises exactly that DISPATCH-time behavior on an
+// ALREADY-PERSISTED row (a historical-row simulation, unaffected by this
+// mission, still green) — distinct from CREATION-time, which these tests
+// cover.
+describe('createEscrow() — refuses a resolved type with no registered SettlementProvider, before persistence (Issue #243)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+  })
+
+  it('LIQUID_COVENANT: creation rejects before persistence — UNAVAILABLE, not DISABLED/FORBIDDEN/invalid-protocol-data', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-lc-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    let caught: unknown
+    try {
+      await escrowService.createEscrow({ tradeId: 'trade-lc-1', type: 'LIQUID_COVENANT' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'buyer-1')
+    } catch (err) {
+      caught = err
+    }
+
+    expect(caught).toBeInstanceOf(EscrowError)
+    const err = caught as InstanceType<typeof EscrowError>
+    expect(err.message).toContain("No SettlementProvider registered for escrow type 'LIQUID_COVENANT'")
+    expect(err.reason).toBe('UNAVAILABLE') // "no runtime capability", not a policy/eligibility/protocol-validity refusal
+    expect(err.statusCode).not.toBe(403) // not FORBIDDEN
+    // No repository write, no economic provider call, no trade mutation —
+    // createEscrow() throws before ever reaching this.repo.create().
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('LIQUID_COVENANT: does not fall back to MOCK, MULTISIG, or any other provider/type', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-lc-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-lc-2', type: 'LIQUID_COVENANT' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'buyer-1')
+    ).rejects.toThrow(/LIQUID_COVENANT/)
+    // If any fallback had silently substituted a different type, this call
+    // would have succeeded with a DIFFERENT resolved type — asserting the
+    // create call never happened at all rules out every such substitution
+    // in one assertion, rather than enumerating each candidate type.
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('LIQUID_COVENANT remains protocol-representable — the schema/enum itself is untouched by this fix (cross-check against escrowCreationSchemaParity.test.ts\'s own schema-level proof)', () => {
+    expect(ESCROW_TYPE_VALUES).toContain('LIQUID_COVENANT')
+  })
+
+  it('genericity: an arbitrary future schema-shaped type with no registered provider is refused the same way — not a hardcoded LIQUID_COVENANT-only branch', async () => {
+    // TypeScript's CreateEscrowInput.type is a closed union, so a genuinely
+    // new type can only be exercised at the runtime/service boundary via
+    // an `as any` cast — no zod/schema change is made anywhere by this
+    // test. resolveEscrowTypeCandidate() and getSettlementProvider() both
+    // operate on plain strings at runtime; this proves the SAME rejection
+    // path fires for a type that was never named LIQUID_COVENANT anywhere
+    // in this mission's implementation, i.e. the check is driven by
+    // PROVIDERS membership, not a string literal comparison.
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-future-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-future-1', type: 'FUTURE_UNIMPLEMENTED_RAIL' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'buyer-1')
+    ).rejects.toThrow("No SettlementProvider registered for escrow type 'FUTURE_UNIMPLEMENTED_RAIL'")
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('a real, registered type (MULTISIG) is unaffected — creation still succeeds normally', async () => {
+    // Confirms this mission's fix does not regress the ordinary success
+    // path — already proven extensively above (canonical-registry
+    // describe block), repeated once here as this block's own explicit
+    // positive-path witness.
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-243', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-ms-243', tradeId: 'trade-ms-243', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-ms-243', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
+  })
+
+  it('MOCK semantics are unchanged outside production — still creates successfully (registered AND eligible)', async () => {
+    isProductionFlag = false
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-mock-243', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-mock-243', tradeId: 'trade-mock-243', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-mock-243', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
+  })
+
+  it('MOCK in production is still refused for the ORIGINAL reason (DISABLED, deployment-ineligible) — not conflated with the NEW registration check (UNAVAILABLE)', async () => {
+    // MOCK is both registered (PROVIDERS has an entry) AND deployment-
+    // ineligible in production (#229/#230) — proves this mission's new
+    // "is it registered" check and the pre-existing "is it eligible"
+    // check remain two genuinely distinct refusals, in the right order
+    // (getSettlementProvider() checks eligibility FIRST), not merged into
+    // one generic error that would lose the DISABLED/UNAVAILABLE
+    // distinction.
+    isProductionFlag = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-mock-244', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    let caught: unknown
+    try {
+      await escrowService.createEscrow({ tradeId: 'trade-mock-244', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    } catch (err) {
+      caught = err
+    }
+
+    expect(caught).toBeInstanceOf(EscrowError)
+    expect((caught as InstanceType<typeof EscrowError>).reason).toBe('DISABLED')
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 })
 
