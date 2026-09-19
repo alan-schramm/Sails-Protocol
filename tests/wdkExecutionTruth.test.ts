@@ -231,6 +231,51 @@ describe('lockFunds() — durable operation truth', () => {
   })
 })
 
+
+describe('SUBMITTED reconciliation — idempotent execution truth', () => {
+  it('reconciles a persisted SUBMITTED receipt to CONFIRMED without broadcasting again', async () => {
+    mockAttemptFindFirst.mockResolvedValueOnce(row({
+      id: 'attempt-submitted',
+      status: 'SUBMITTED',
+      destination: '0xEscrowAddr',
+      amount: '5.00000000',
+      txHash: '0xPERSISTED_TX',
+    }))
+    mockGetTransactionReceipt.mockResolvedValueOnce({ status: 1 })
+
+    const result = await provider.lockFunds(escrow)
+
+    expect(result.txId).toBe('0xPERSISTED_TX')
+    expect(mockTransfer).not.toHaveBeenCalled()
+    expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'attempt-submitted', status: { in: ['SUBMITTED'] } }),
+      data: { status: 'CONFIRMED' },
+    }))
+  })
+
+  it('a stale concurrent reconciler cannot turn an already CONFIRMED generation into a new submission', async () => {
+    mockAttemptFindFirst.mockResolvedValueOnce(row({
+      id: 'attempt-submitted',
+      status: 'SUBMITTED',
+      destination: '0xEscrowAddr',
+      amount: '5.00000000',
+      txHash: '0xPERSISTED_TX',
+    }))
+    mockGetTransactionReceipt.mockResolvedValueOnce({ status: 1 })
+    mockAttemptUpdateMany.mockResolvedValueOnce({ count: 0 })
+    mockAttemptFindUnique.mockResolvedValueOnce(row({
+      id: 'attempt-submitted',
+      status: 'CONFIRMED',
+      destination: '0xEscrowAddr',
+      amount: '5.00000000',
+      txHash: '0xPERSISTED_TX',
+    }))
+
+    await expect(provider.lockFunds(escrow)).rejects.toThrow(/transition ownership lost/)
+    expect(mockTransfer).not.toHaveBeenCalled()
+  })
+})
+
 describe('releaseFunds() — same mechanism, same property', () => {
   it('unknown outcome blocks blind retry', async () => {
     mockAttemptFindFirst.mockResolvedValueOnce(null)
