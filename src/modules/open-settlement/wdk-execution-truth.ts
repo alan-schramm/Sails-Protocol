@@ -153,14 +153,14 @@ export async function ensureAttempt(
         )
       }
       if (receipt.status === 1) {
-        await wdkTransferAttemptRepository.updateStatus(latest.id, 'CONFIRMED')
+        await wdkTransferAttemptRepository.updateStatus(latest.id, 'CONFIRMED', undefined, ['SUBMITTED'])
         return { action: 'RESUME_CONFIRMED', txHash: latest.txHash }
       }
       // status === 0 — reverted on-chain. The prior attempt definitively
       // did not deliver funds (a receipt with a real, queried status is
       // the strongest evidence this system has), so a fresh attempt for
       // the same logical operation is genuinely safe to start.
-      await wdkTransferAttemptRepository.updateStatus(latest.id, 'REVERTED')
+      await wdkTransferAttemptRepository.updateStatus(latest.id, 'REVERTED', undefined, ['SUBMITTED'])
       const created = await wdkTransferAttemptRepository.replaceActive(latest.id, { escrowId, operationType, destination, amount })
       return { action: 'PROCEED', attemptId: created.id }
     }
@@ -236,7 +236,7 @@ export async function ensureAttempt(
  * PREPARED case for the full reasoning.
  */
 export async function markSubmissionAttempted(attemptId: string): Promise<void> {
-  await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMISSION_UNKNOWN')
+  await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMISSION_UNKNOWN', undefined, ['PREPARED'])
 }
 
 export type ReceiptOutcome = 'CONFIRMED' | 'REVERTED' | 'PENDING'
