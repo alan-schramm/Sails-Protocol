@@ -30,7 +30,78 @@ import { proofRegistry } from './proof-registry'
 import { evidenceProvider } from './evidence-provider'
 import { timestampAnchor } from './timestamp-anchor'
 import { getTimeline } from '../../core/timeline'
+import { tradeService } from '../open-p2p/trade.service'
 import type { Prisma } from '@prisma/client'
+
+// Issue #261 — the canonical, single authorization boundary for every
+// OpenProof operation that references a Claim's economic scope (claim
+// creation, proof submission, evidence attachment, verification nonce
+// issuance, proof verification, claim-scoped bundle read, evidence
+// anchoring). Lives HERE, at the service layer every one of those
+// methods already funnels through unconditionally — not at
+// proof.routes.ts — so a direct service call (a test, a future
+// automation caller, a different route) cannot bypass it the way a
+// route-only `if (buyer || seller)` check could.
+//
+// Authentication ≠ Evidence Authorization: requireAuth (proof.routes.ts)
+// only proves `actorId` is a real, currently-logged-in Participant. It
+// proves nothing about whether that Participant has any relationship to
+// THIS Claim's trade. This function is what closes that gap.
+//
+// Authority sources, in the order checked (mirrors #220's own findings
+// and the mission's explicit list of legitimate sources):
+//   1. Trade-bound Claim (claim.tradeId set) → the trade's buyer or
+//      seller (tradeService.assertParticipant() — the SAME function
+//      already used, and already accepted as correct, for the
+//      trade-scoped bundle route's own precedent), OR the trade's
+//      CURRENT assigned arbiter. "Current," not "ever assigned": a
+//      Dispute row's `arbiterId` is the SAME field RFC-021 D6's appeal
+//      flow overwrites in place (the superseded arbiter's id moves to
+//      `previousArbiterId` on that same row — no second row is ever
+//      created), so this query can never match a replaced arbiter.
+//      Past Authority ≠ Current Authority is preserved by construction,
+//      not by an extra check.
+//   2. Non-trade Claim (claim.tradeId null) — RFC-007 D6's own comment
+//      confirms this is a legitimate, supported shape, so it is
+//      deliberately NOT prohibited here. But no trade-participant or
+//      arbiter relationship exists to check for one, and inventing a
+//      broader rule (e.g. "any authenticated Participant") would be
+//      exactly the "global authenticated access" the mission forbids.
+//      The one relationship that DOES already exist for a non-trade
+//      Claim is authorship — Claim.claimedBy. This is the narrowest,
+//      most defensible non-invented boundary: only the Claim's own
+//      creator has authority over a Claim with no trade to anchor a
+//      wider one to. See this mission's own return report for why this
+//      is flagged as a real, reported ambiguity for verifyProof()
+//      specifically (self-verification is a strange fit for a
+//      Verification's own purpose) rather than silently resolved wider.
+async function assertClaimEconomicScopeAccess(
+  claim: { tradeId: string | null; claimedBy: string },
+  actorId: string
+): Promise<void> {
+  if (!claim.tradeId) {
+    if (actorId === claim.claimedBy) return
+    throw new ForbiddenError(
+      `${actorId} has no economic-scope authority over this Claim — it has no tradeId, so only its ` +
+      `creator (${claim.claimedBy}) does; no trade relationship exists here to establish a wider authority.`
+    )
+  }
+
+  try {
+    await tradeService.assertParticipant(claim.tradeId, actorId)
+    return
+  } catch (err) {
+    if (!(err instanceof ForbiddenError)) throw err // NotFoundError (trade missing) or anything else propagates as-is
+  }
+
+  const currentDispute = await prisma.dispute.findFirst({ where: { tradeId: claim.tradeId, arbiterId: actorId } })
+  if (currentDispute) return
+
+  throw new ForbiddenError(
+    `${actorId} is neither a party to trade ${claim.tradeId} nor its current assigned arbiter — ` +
+    'no economic-scope authority over this Claim\'s evidence.'
+  )
+}
 
 const NONCE_PREFIX = 'proof:verify-nonce:'
 
@@ -74,7 +145,26 @@ export interface SubmitProofInput {
 }
 
 export class ProofService {
+  // Issue #261 — Claim creation authorization. Required property: a
+  // trade-bound Claim's creator must have an authorized relationship to
+  // that trade — an unrelated authenticated user must not be able to
+  // assert a Claim scoped to a trade they're not party to (they'd be
+  // asserting something about someone else's trade with no standing to
+  // do so). Reuses tradeService.assertParticipant() directly — the exact
+  // function GET /v1/proof/trades/:tradeId/bundle already uses, per the
+  // mission's own "useful precedent" instruction — rather than
+  // duplicating its buyer/seller comparison here. Deliberately does NOT
+  // check the arbiter relationship the way assertClaimEconomicScopeAccess()
+  // does for an EXISTING Claim: an arbiter has no standing to assert a
+  // NEW Claim on a trade's behalf, only to review/verify existing ones.
+  // A Claim with no tradeId is unaffected — RFC-007 D6's own comment
+  // confirms non-trade Claims are a legitimate, supported shape; nothing
+  // here narrows that.
   async assertClaim(input: AssertClaimInput) {
+    if (input.tradeId) {
+      await tradeService.assertParticipant(input.tradeId, input.claimedBy)
+    }
+
     const claim = await prisma.claim.create({
       data: {
         claimedBy: input.claimedBy,
@@ -104,6 +194,17 @@ export class ProofService {
   async submitProof(input: SubmitProofInput) {
     const claim = await prisma.claim.findUnique({ where: { id: input.claimId } })
     if (!claim) throw new NotFoundError('Claim', input.claimId)
+
+    // Issue #261 — Proof submission authorization. An unrelated user who
+    // merely knows the Claim id must not be able to submit arbitrary
+    // Proof against it. Deliberately the SAME scope as read/verify
+    // (trade participant or current arbiter, or the Claim's own creator
+    // for a non-trade Claim) rather than narrowed to "claim owner only":
+    // the real-world shape a Proof supports is often submitted by the
+    // COUNTERPARTY, not the claimant (buyer claims "I paid," seller
+    // submits Proof disputing it) — narrowing to claimedBy-only would
+    // break that legitimate case, not just close a gap.
+    await assertClaimEconomicScopeAccess(claim, input.submittedBy)
 
     // Time-lock: evidence submitted long after the Claim it supports is
     // weaker proof of what was true *at the claimed time* — the same
@@ -173,9 +274,34 @@ export class ProofService {
   // automated verifier accidentally re-invoked) from being replayed
   // against a Proof whose evidence has since been disputed and needs a
   // fresh look, not a stale rubber stamp.
-  async issueVerificationNonce(proofId: string): Promise<{ nonce: string; expiresIn: number }> {
-    const proof = await prisma.proof.findUnique({ where: { id: proofId } })
+  // Issue #261 — verifier authority. `requestedBy` is new: this method
+  // previously took no caller identity at all (proof.routes.ts called it
+  // with only `id`), meaning it was structurally impossible to authorize
+  // — anyone authenticated could mint a nonce for any Proof.
+  //
+  // AMBIGUITY, reported rather than silently resolved (per this
+  // mission's own required process): Verification.verifiedBy's own
+  // schema comment says a verifier "may be a Participant, an assigned
+  // Arbiter, or a QVAC agent label" — "a Participant" is RFC-001's broad
+  // term for any authenticated actor with an id, not necessarily a
+  // participant of THIS trade specifically, and no RFC or code comment
+  // anywhere states plainly "only the trade's own buyer/seller/arbiter
+  // may verify a Proof about that trade." Treating "a Participant" as
+  // "any authenticated Participant" would be exactly the global
+  // authenticated-access posture this mission exists to close, so it is
+  // NOT what's implemented here. The narrower, fail-closed reading
+  // (assertClaimEconomicScopeAccess() — trade participant or current
+  // arbiter, or the Claim's own creator for a non-trade Claim) is
+  // enforced instead, as the smallest safe boundary current repository
+  // truth actually supports. Whether verification authority should be
+  // wider (e.g. a distinct, explicitly-granted verifier role/capability,
+  // separate from ordinary trade participancy) is a real, open
+  // Architecture Decision this mission does not resolve — flagged in
+  // this mission's own return report, not invented here.
+  async issueVerificationNonce(proofId: string, requestedBy: string): Promise<{ nonce: string; expiresIn: number }> {
+    const proof = await prisma.proof.findUnique({ where: { id: proofId }, include: { claim: true } })
     if (!proof) throw new NotFoundError('Proof', proofId)
+    await assertClaimEconomicScopeAccess(proof.claim, requestedBy)
 
     const nonce = randomBytes(32).toString('hex')
     await redis.set(
@@ -187,6 +313,13 @@ export class ProofService {
     return { nonce, expiresIn: config.proof.verificationNonceTtlSeconds }
   }
 
+  // Issue #261 — same verifier-authority boundary and same reported
+  // ambiguity as issueVerificationNonce() above (this method's own
+  // `verifiedBy` parameter already existed, but was never actually
+  // checked against any relationship before this mission — a valid
+  // nonce alone was sufficient, and a nonce proves only "a verify-nonce
+  // call happened for this Proof," never who is entitled to make the
+  // call in the first place).
   async verifyProof(
     proofId: string,
     verifiedBy: string,
@@ -194,8 +327,9 @@ export class ProofService {
     nonce: string,
     reason?: string
   ) {
-    const proof = await prisma.proof.findUnique({ where: { id: proofId } })
+    const proof = await prisma.proof.findUnique({ where: { id: proofId }, include: { claim: true } })
     if (!proof) throw new NotFoundError('Proof', proofId)
+    await assertClaimEconomicScopeAccess(proof.claim, verifiedBy)
 
     const nonceKey = `${NONCE_PREFIX}${proofId}:${nonce}`
     const nonceValid = await redis.get(nonceKey)
@@ -224,12 +358,25 @@ export class ProofService {
     return verification
   }
 
-  async getEvidenceBundle(claimId: string) {
+  // Issue #261 — claim-scoped evidence bundle read authorization.
+  // `requestedBy` is new (this method previously took only `claimId` —
+  // proof.routes.ts called it with no caller identity at all, so an
+  // authenticated but entirely unrelated user could read any Claim's
+  // full bundle — every Proof, every Verification — merely by knowing
+  // or guessing its id). Mirrors GET /v1/proof/trades/:tradeId/bundle's
+  // own already-accepted tradeService.assertParticipant() precedent,
+  // extended with the current-arbiter and non-trade-Claim-creator cases
+  // assertClaimEconomicScopeAccess() covers generally — see that
+  // function's own header for the full reasoning. Evidence is never
+  // public-by-default: no branch here returns the bundle without a
+  // passing relationship check first.
+  async getEvidenceBundle(claimId: string, requestedBy: string) {
     const claim = await prisma.claim.findUnique({
       where: { id: claimId },
       include: { proofs: { include: { verifications: true } } },
     })
     if (!claim) throw new NotFoundError('Claim', claimId)
+    await assertClaimEconomicScopeAccess(claim, requestedBy)
     return claim
   }
 
@@ -245,6 +392,17 @@ export class ProofService {
    * unverified: a caller claiming a signature that doesn't actually
    * verify is rejected outright, not stored with a "trust me" flag.
    */
+  // Issue #261 — this is the sharpest instance of the mission's own
+  // central distinction: `sigValid` below proves "submittedBy really
+  // signed this media's own hash" — real cryptographic identity/
+  // integrity — but proves NOTHING about whether submittedBy has any
+  // authority to attach that (genuinely, validly signed) media to THIS
+  // proof's Claim/Trade. Before this fix, a perfectly valid signature
+  // from User A was sufficient to attach evidence to User B's unrelated
+  // Proof. The scope check runs FIRST, before the (comparatively
+  // expensive, and previously the only) signature verification — an
+  // unauthorized caller is refused before any crypto work or storage
+  // write, not after.
   async attachEvidence(
     proofId: string,
     media: Uint8Array,
@@ -252,8 +410,9 @@ export class ProofService {
     submittedBy: string,
     signatureHex: string
   ) {
-    const proof = await prisma.proof.findUnique({ where: { id: proofId } })
+    const proof = await prisma.proof.findUnique({ where: { id: proofId }, include: { claim: true } })
     if (!proof) throw new NotFoundError('Proof', proofId)
+    await assertClaimEconomicScopeAccess(proof.claim, submittedBy)
 
     const submitter = await prisma.user.findUnique({ where: { id: submittedBy } })
     if (!submitter) throw new NotFoundError('User', submittedBy)
@@ -307,9 +466,37 @@ export class ProofService {
    * future real Policy Engine hook) decides when the real network cost
    * is worth it.
    */
-  async anchorEvidence(evidenceReferenceId: string) {
-    const reference = await prisma.evidenceReference.findUnique({ where: { id: evidenceReferenceId } })
+  // Issue #261 — anchoring authorization. `requestedBy` is new (this
+  // method previously took only `evidenceReferenceId` — no caller
+  // identity at all, so any authenticated user could trigger a real,
+  // costed network call to a live OpenTimestamps calendar server against
+  // ANY EvidenceReference).
+  //
+  // AMBIGUITY, reported rather than guessed: this method's own header
+  // comment above already discloses that RFC-008 D1's real intent is
+  // "Policy Engine decides when an anchor is required" — i.e. anchoring
+  // was conceived as a SYSTEM/automation decision, not necessarily a
+  // manual action tied to one specific human role. No real Policy Engine
+  // gate exists in this codebase today (searched — there is no "trusted
+  // system caller" identity concept modeled anywhere for this), so that
+  // intended automation path cannot be enforced here without inventing
+  // one, which this mission does not do. The fail-closed default applied
+  // instead is the SAME economic-scope boundary as every other action in
+  // this evidence chain — a trade participant or current arbiter (or a
+  // non-trade Claim's creator) may anchor evidence that is already part
+  // of their own Claim's Proof, since anchoring only strengthens
+  // integrity assurance for evidence they already have legitimate access
+  // to; an unrelated caller may not trigger the real external cost.
+  // Whether a distinct "system/policy-engine automation" caller identity
+  // should exist for this action is a real, open Architecture Decision,
+  // flagged in this mission's own return report.
+  async anchorEvidence(evidenceReferenceId: string, requestedBy: string) {
+    const reference = await prisma.evidenceReference.findUnique({
+      where: { id: evidenceReferenceId },
+      include: { proof: { include: { claim: true } } },
+    })
     if (!reference) throw new NotFoundError('EvidenceReference', evidenceReferenceId)
+    await assertClaimEconomicScopeAccess(reference.proof.claim, requestedBy)
 
     const anchorProof = await timestampAnchor.anchor(reference.sha256)
 
