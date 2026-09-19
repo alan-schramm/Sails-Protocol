@@ -1,0 +1,39 @@
+# Sails Protocol CODEOWNERS
+#
+# Current repository ownership is intentionally simple while the project
+# remains founder/CTO-led. More granular team ownership can replace these
+# entries as maintainers are formally assigned.
+#
+# CODEOWNERS is a review-routing mechanism, not protocol authority.
+
+/* @alan-schramm
+
+# Protocol semantics and architecture
+/docs/SEMANTIC_KERNEL.md @alan-schramm
+/docs/PROTOCOL_INVARIANTS.md @alan-schramm
+/docs/PROTOCOL_SPECIFICATION.md @alan-schramm
+/docs/SYSTEM_DESIGN.md @alan-schramm
+/docs/CORE_ARCHITECTURE.md @alan-schramm
+/docs/CORE_IMPLEMENTATION_ARCHITECTURE.md @alan-schramm
+/docs/adr/ @alan-schramm
+/docs/rfcs/ @alan-schramm
+
+# Security, authority and settlement-sensitive surfaces
+/SECURITY.md @alan-schramm
+/docs/security/ @alan-schramm
+/src/modules/open-settlement/ @alan-schramm
+/src/modules/open-proof/ @alan-schramm
+/src/common/ @alan-schramm
+/prisma/ @alan-schramm
+
+# SDK / public developer surfaces
+/packages/sails-core/ @alan-schramm
+/packages/sails-sdk/ @alan-schramm
+/packages/sails-p2p-schemas/ @alan-schramm
+/packages/sdk-react/ @alan-schramm
+/examples/ @alan-schramm
+
+# Repository governance / automation
+/.github/ @alan-schramm
+/CONTRIBUTING.md @alan-schramm
+/package.json @alan-schramm

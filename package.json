@@ -1,7 +1,7 @@
 {
   "name": "satsails-p2p-protocol",
   "version": "0.1.1",
-  "description": "Non-Custodial Multi-Asset P2P Marketplace Protocol",
+  "description": "Economic Coordination Protocol and reference implementation for interoperable P2P financial marketplaces",
   "main": "dist/src/main.js",
   "license": "Apache-2.0",
   "repository": {
@@ -10,11 +10,15 @@
   },
   "keywords": [
     "sails",
+    "economic-coordination",
     "p2p",
+    "financial-marketplace",
     "bitcoin",
-    "escrow",
+    "stablecoins",
     "non-custodial",
-    "sdk"
+    "protocol",
+    "sdk",
+    "fintech"
   ],
   "engines": {
     "node": ">=20.0.0"
