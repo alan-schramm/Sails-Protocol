@@ -1,10 +1,7 @@
 # CONTRIBUTING.md
-### Sails Protocol — Engineering Handoff · Document 13 of 20
+### Sails Protocol — Contribution & Architecture Guide
 
-> These conventions were established during an architectural code review
-> that found and fixed real violations (see git history / `TODO.md`
-> "Resolved Items"). They are not stylistic preferences — each one exists
-> because breaking it caused a real bug or a real coupling problem.
+> These conventions are current contribution rules derived from real architectural and implementation failures found during repository review. Historical handoff provenance may still be referenced where useful, but this document is a current contribution surface, not part of a numbered handoff package.
 >
 > **This document covers architecture** (where code goes, module
 > boundaries, naming). **`docs/CODE_STYLE.md` (added 2026-08-03) covers
@@ -211,12 +208,9 @@ working on this project from here forward:
 
 ## 7. Documentation Discipline
 
-This handoff package (13 files) is meant to be the single source of truth.
-If you make an architectural decision that isn't reflected here, **update
-the relevant document in the same change** — don't let institutional
-knowledge live only in commit messages or a chat conversation that the next
-person won't have access to. That was the exact premise of why this handoff
-package was written in the first place; keep it true going forward.
+Sails does not use one universal documentation file or handoff package as the source of truth. Different questions have different governing owners. Start with `docs/00-INDEX.md` and `docs/SYSTEM_DESIGN.md`, then follow the relevant Semantic Kernel, architecture, Protocol Specification/Invariants, ADR/RFC, API/SDK, Backlog or evidence owner.
+
+If you make an architectural or protocol-sensitive decision, **update the relevant governing document in the same change**. Do not let institutional knowledge live only in commit messages, issue comments or chat context. Historical handoffs preserve provenance; they do not override current canonical owners.
 
 ---
 
@@ -228,15 +222,13 @@ repository said so explicitly. Full methodology (why, STOP gates,
 evidence, consequence weighting) lives in `docs/ENGINEERING_GOVERNANCE.md`
 — this section is the short, operational version, not a duplicate.
 
-**Read in this order if you're new here** (10 minutes, not the whole
-20-document handoff):
+**Read in this order if you're new here:**
 
-1. `README.md` — what Sails is.
-2. This file, §8–§11 (you're here).
-3. `docs/PROJECT_CONTEXT.md` §1–2 if you need the architecture picture.
-4. `docs/GITHUB_PROJECT.md` §3 for current program state, once the
-   GitHub Project itself exists (`docs/GITHUB_PROJECT.md` §0 explains
-   why it may not yet).
+1. `README.md` — what Sails is and where to start.
+2. `docs/PROJECT_CONTEXT.md` — institutional/product context.
+3. `docs/SYSTEM_DESIGN.md` — current system-level technical map.
+4. This file, §8–§11 — day-to-day contribution workflow.
+5. `docs/GITHUB_PROJECT.md` plus live GitHub Issues/Project for current operational state.
 
 **Finding work:** the GitHub Project's "Current Mission" and "Master
 Backlog" views (`docs/GITHUB_PROJECT.md` §1.8), or `docs/GITHUB_PROJECT.md`

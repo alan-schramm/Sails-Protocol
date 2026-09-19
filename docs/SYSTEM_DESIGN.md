@@ -77,6 +77,70 @@ Providers / Adapters
 Applications / Interfaces
 ```
 
+### 3.0 Quick architecture map
+
+> **Diagram ≠ protocol truth.** This is a reading aid for the current architecture. If the diagram conflicts with the Semantic Kernel, Protocol Invariants, Protocol Specification, accepted ADR/RFCs or current implementation evidence, the governing source wins.
+
+```mermaid
+flowchart TB
+    A["Applications / Interfaces<br/>Sails Market · Satsails Wallet · Third-party wallets/apps"]
+    SDK["SDK / Integration Surface<br/>P2P Trading SDK · API · Wallet Adapter contract"]
+
+    subgraph SAILS["Sails Protocol / Reference Runtime"]
+      SK["Semantic Kernel"]
+      CORE["Pure Core"]
+      RT["Runtime"]
+      MOD["Modules<br/>OpenP2P · OpenSettlement · OpenProof · OpenIdentity<br/>OpenReputation · OpenLiquidity · OpenAgents"]
+    end
+
+    subgraph EDGES["Replaceable execution edges"]
+      WA["Wallet Adapters"]
+      SP["Settlement Providers"]
+      EP["Evidence Providers"]
+      TP["Transport Providers"]
+      AP["Arbitration / Liquidity Providers"]
+    end
+
+    subgraph EXT["External networks / infrastructure"]
+      BTC["Bitcoin"]
+      SPARK["Spark / Lightning"]
+      ARK["Arkade"]
+      LIQ["Liquid"]
+      EVM["EVM rails"]
+      OTH["Solana · TRON · TON · other rails"]
+    end
+
+    A --> SDK
+    SDK --> SK
+    SK --> CORE
+    CORE --> RT
+    RT --> MOD
+
+    MOD --> WA
+    MOD --> SP
+    MOD --> EP
+    MOD --> TP
+    MOD --> AP
+
+    SP --> BTC
+    SP --> SPARK
+    SP --> ARK
+    SP --> LIQ
+    SP --> EVM
+    SP --> OTH
+
+    RT -. "node/runtime instances" .-> NODE2["Other conformant Sails node/operator"]
+    NODE2 -. "shared market / transport / coordination<br/>where current architecture permits" .-> RT
+```
+
+Fast reading:
+
+- **top:** products and integrators consume Sails;
+- **center:** semantic meaning flows from Kernel → Core → Runtime → Modules;
+- **edges:** adapters/providers translate Sails semantics into external mechanisms;
+- **bottom:** chains, rails and infrastructure execute outside Sails protocol truth;
+- **side:** multiple node/runtime operators may participate without redefining economic semantics.
+
 ### 3.1 Semantic Kernel
 
 The Semantic Kernel defines the minimum properties that must remain true for an interaction to still be recognizably governed by Sails.
@@ -201,6 +265,47 @@ Release | Refund | Dispute
 Economic Outcome
   ↓
 Reputation / Accounting / Completion projections
+```
+
+### 5.1 Quick economic coordination flow
+
+```mermaid
+flowchart LR
+    P["Participant"] --> I["Intent"]
+    I --> O["Discovery / Offer"]
+    O --> N["Negotiation"]
+    N --> T["Trade / Agreed Terms"]
+    T --> S["Settlement / Escrow"]
+
+    S --> PAY["Payment / Funding"]
+    S --> EV["Evidence / OpenProof"]
+
+    PAY --> DEC{"Authorized economic disposition"}
+    EV --> DEC
+
+    DEC --> REL["Release"]
+    DEC --> REF["Refund"]
+    DEC --> DIS["Dispute / Arbitration"]
+
+    DIS --> OUT["Economic Outcome"]
+    REL --> OUT
+    REF --> OUT
+
+    OUT --> PROJ["Reputation · Accounting · Completion projections"]
+
+    SP["Settlement Provider / Rail"] -. "executes" .-> S
+    EP["Evidence Provider"] -. "stores bytes; does not define truth" .-> EV
+    WA["Wallet Adapter"] -. "signing / wallet capability" .-> S
+```
+
+Read the diagram with these constraints:
+
+```text
+Intent ≠ Trade ≠ Settlement ≠ Evidence ≠ Outcome
+Storage provider ≠ evidence truth
+Settlement provider ≠ economic authority
+Wallet adapter ≠ settlement provider
+Unknown outcome ≠ failed outcome
 ```
 
 This is an architectural orientation, not a replacement for the concrete state machines or route/API documentation.
