@@ -1,17 +1,12 @@
 # DEVELOPER_JOURNEY.md
-### Sails Protocol — v1 Positioning Freeze addendum (added after the original 20-document handoff)
+### Sails Protocol — Current Developer Journey
 
-> **Status: 📋 Aspirational narrative.** This document describes the
-> target onboarding experience — the "five minutes to understand, ten
-> minutes to a working integration" flow the v1 Positioning Freeze
-> commits to. It is not a tutorial for code that runs today. Every step
-> below is tagged with its real status (✅ Proven / 🏗️ Specified /
-> 📋 Aspirational) per `PROJECT_CONTEXT.md` section 4's status legend —
-> read those tags, don't skip them. Where a step is Aspirational, the
-> code sample shows the *intended* `SailsClient` shape from `SDK_GUIDE.md`
-> section 4, not something you can `npm install` and run.
+> **Status / authority:** current developer-journey orientation for the published `@satsails/p2p-trading-sdk`.
+> For exact method stability and shape, `API_STABLE.md` wins. For current production eligibility, use
+> `BACKLOG.md`, live GitHub Issues/Project and provider/evidence records. A working SDK/API path does
+> **not** imply that every underlying rail/provider is production-eligible.
 
-## The Developer Journey (v1 Positioning Freeze target — 5 steps to a working Marketplace)
+## The Developer Journey — from package install to a working P2P integration
 
 ```
 Install Sails P2P Trading SDK → Create Wallet → Enable OpenP2P →
@@ -32,9 +27,8 @@ this without reading `PROTOCOL_SPECIFICATION.md`.
 
 ### Step 1 — Install the Sails P2P Trading SDK
 
-**Status: 📋 Aspirational.** `@satsails/p2p-trading-sdk` does not exist yet — see
-`SDK_GUIDE.md`'s own status banner. When it does, this is the entire
-install step:
+**Status: ✅ Real / published.** The repository package is currently
+`@satsails/p2p-trading-sdk@0.2.0`. Install it with:
 
 ```bash
 npm install @satsails/p2p-trading-sdk
@@ -46,7 +40,7 @@ to exist (`SDK_GUIDE.md` section 1).
 
 ### Step 2 - Create a wallet-backed client
 
-**Status: ? Proven** (`SailsClient` is fully implemented in v0.1; the
+**Status: ✅ Real** (`SailsClient` is fully implemented in v0.1; the
 `baseUrl` + optional `wallet` constructor below is real, verified against
 `packages/sails-sdk/src/client.ts`).
 
@@ -72,10 +66,9 @@ section 3).
 
 ### Step 3 - Enable OpenP2P (negotiation)
 
-**Status: ? Proven in the Reference Wallet** (`SailsClient` is fully
-implemented in v0.1). This is the one module with real code today -
-see `ARCHITECTURE.md` section 3 and section 4 (Actual Code Inventory) for
-exactly what exists.
+**Status: ✅ Real.** `SailsClient` exposes the current OpenP2P trading and
+chat surface. OpenP2P is not the only real module anymore; use `API_STABLE.md`
+for the current public module inventory and exact supported methods.
 
 ```typescript
 // Discover offers (the discover() filter takes asset + side + optional
@@ -98,7 +91,7 @@ chat.send({ content: 'Sending payment now', msgType: 'TEXT' })
 
 ### Step 4 - Enable Settlement (escrow)
 
-**Status: ? Proven** (`sails.settlement.create` / `lock` / `release` are
+**Status: ✅ Real** (`sails.settlement.create` / `lock` / `release` are
 real implementations of MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM,
 WDK_USDT_EVM, and MOCK providers, all covered by integration tests).
 
@@ -121,8 +114,9 @@ non-custodially: Sails Protocol never holds the funds itself.
 
 ### Step 5 — Enable Reputation
 
-**Status: 🏗️ Specified — embedded inside OpenP2P today**, not yet its own
-callable surface (`PROJECT_CONTEXT.md` section 4).
+**Status: ✅ Real.** Reputation is exposed through `sails.reputation`
+(alias `sails.trustScore`) with score, leaderboard and rating methods.
+Use `API_STABLE.md` for the exact frozen surface.
 
 ```typescript
 await sails.reputation.rate(trade.id, 5)
@@ -145,11 +139,13 @@ additive, not required to reach a working Marketplace.
 
 ## Where the honesty caveat matters most
 
-If you are evaluating Sails Protocol to decide whether to integrate it
-today: Step 3 is real, proven in production via the Satsails Wallet
-Reference Implementation. Steps 1, 2, 4, and 5 are specified but not
-buildable yet — `@satsails/p2p-trading-sdk` has zero implementation
-(`PROJECT_CONTEXT.md` section 4). Read `docs/ROADMAP.md` for when that
-changes, and `docs/TODO.md` for the exact gap list. This document exists
-so the target experience is unambiguous the moment the SDK ships — not
-so it looks finished before it is.
+If you are evaluating Sails Protocol today, the SDK and the core developer
+journey above are real integration surfaces, but maturity must be read
+per capability. Some providers/rails remain testnet-only, reference-only,
+production-ineligible, or blocked by Day-0 hardening.
+
+Use `API_STABLE.md` for what is callable and stable, `GETTING_STARTED.md`
+for the current executable onboarding path, and `BACKLOG.md` plus live
+GitHub Issues/Project for unresolved production-readiness obligations.
+
+**SDK integration reality ≠ rail/provider Production Eligibility.**
