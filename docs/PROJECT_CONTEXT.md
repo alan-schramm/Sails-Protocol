@@ -1,10 +1,9 @@
 # PROJECT_CONTEXT.md
-### Sails Protocol — Engineering Handoff · Document 1 of 20
+### Sails Protocol — Institutional & Product Context
 
-> **Read this file first.** Every other document in this handoff assumes you
-> understand what's written here. This document assumes zero prior context —
-> you were not in any conversation where this was discussed. Everything you
-> need is written down.
+> **Role:** primary context for positioning, product relationships, institutional decisions and historical framing. For the current system-level technical architecture, continue to [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md), then the Semantic Kernel / Core architecture documents.
+>
+> This file preserves historical corrections and provenance. Historical wording is not automatically current architectural authority.
 
 ---
 
@@ -214,17 +213,14 @@ LEVEL 2 — OFFICIAL MODULES (8 total, see PROTOCOL_SPECIFICATION.md)
     → developer-facing wrapper around all modules
     → first named release: Sails P2P Trading SDK
 
-LEVEL 3 — REFERENCE IMPLEMENTATIONS (concrete code, concrete tech choices)
-  Satsails Wallet   → first reference implementation (implements OpenP2P)
-  Sails Finance     → future reference implementation (will implement OpenFinance)
-  SailsPay          → future reference implementation (payment flows on OpenP2P)
+LEVEL 3 — REFERENCE IMPLEMENTATIONS / APPLICATION SURFACES (concrete code, concrete tech choices)
+  Satsails Wallet   → first-party wallet/reference integration and validation surface
+  Sails Market      → first-party/reference web marketplace and economic-coordination surface
+  Sails Finance     → historical/future product direction where applicable
+  SailsPay          → historical/future product direction where applicable
 ```
 
-Full detail on each — including their existing/planned infrastructure
-(WDK, PIX rails via Plebank/Eulen, Morpho, Hyperliquid, Polymarket,
-Lightspark Grid, etc.), why this three-implementation ecosystem accelerates
-protocol validation, and a suggested Whitepaper appendix — is in
-`REFERENCE_IMPLEMENTATIONS.md`.
+Current product-layering truth is owned by §2D below and `REFERENCE_IMPLEMENTATIONS.md`. The older three-product framing (Satsails Wallet / Sails Finance / SailsPay) is preserved as historical product direction, not as the complete current list of first-party/reference application surfaces.
 
 **The rule that must never be broken:** the protocol (Level 1) has no opinion
 about PostgreSQL, Redis, TypeScript, or Fastify. Those are choices made by
@@ -2011,17 +2007,17 @@ Use this status legend everywhere — it is mandatory, not optional:
 
 ### What actually exists in the codebase right now
 
-A **partial fragment** of the Satsails reference implementation exists:
-5-6 source files covering the Event Bus, the Escrow (OpenSettlement) service,
-the Liquidity Router (OpenLiquidity) service, and the P2P transport layer
-(Pears/HyperDHT). Routes, config, database connection, Redis connection,
-error classes, and the Identity/Chat/Reputation module implementations are
-**referenced but not present** in this environment — they need to be
-recovered or rewritten. See `TODO.md` for the exact list.
+**Current-state correction:** the paragraph that originally lived here described an early partial repository fragment and is no longer current implementation truth. The repository now contains real runtime/module/service/API/SDK/provider work far beyond that early 5–6-file snapshot.
 
-Do not assume more code exists than what's described in `ARCHITECTURE.md`
-section "Actual Code Inventory." Verify against the filesystem before
-building on any assumption.
+Use the following for current reality instead of this historical snapshot:
+
+- `README.md` and `SYSTEM_DESIGN.md` for orientation;
+- `CORE_ARCHITECTURE.md` / `CORE_IMPLEMENTATION_ARCHITECTURE.md` for current software boundaries;
+- `BACKLOG.md` plus live GitHub Issues/Project for unresolved obligations;
+- provider/evidence documents for maturity and production-eligibility claims;
+- the actual filesystem and exact-head tests for implementation existence.
+
+The original "partial fragment" statement is retained only in repository history/provenance and must not be used as a current code inventory.
 
 ---
 

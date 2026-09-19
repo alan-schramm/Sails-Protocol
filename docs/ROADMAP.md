@@ -1,5 +1,5 @@
 # ROADMAP.md
-### Sails Protocol — Engineering Handoff · Document 10 of 20
+### Sails Protocol — Product / Engineering Roadmap
 
 > Dates are expressed **relative to launch** (Months 1-12), not as fixed
 > calendar quarters. This is a deliberate choice — a roadmap with fixed
@@ -8,6 +8,16 @@
 > dates for a specific deck, calculate them from the actual launch date at
 > the time you're presenting — never hardcode them back into this source
 > document.
+
+---
+
+## Current production-open status
+
+> **Current truth (2026-09-19): Sails is not yet production-open.** The roadmap describes target sequencing and commitments; it is not a production-readiness certificate.
+>
+> Production-open remains gated by the Day-0 / Partner Beta completion program and unresolved MUST-FIX owners, including current work on evidence durability/authorization, economic-limit enforcement, temporal ordering, authority liveness, accounting crash consistency and durable downstream projection completion.
+>
+> Canonical operational owners: GitHub Issue #105 (Day-0 completion gate), #220 (Production Surface Audit / remediation program), and their bounded child/related issues. Do not infer Production Eligibility from implementation existence, passing unit tests, provider registration, or roadmap placement.
 
 ---
 
@@ -213,5 +223,4 @@ Do not present the roadmap above as starting from zero. As of this handoff:
 - The P2P transport layer already correctly supports multiple concurrent
   users (`PearNode`/`PearNodeRegistry` — see `NODE_ARCHITECTURE.md`)
 
-What genuinely remains is listed in full in `TODO.md` — read that document
-before assuming any Months 1-3 item requires starting from scratch.
+For current unresolved engineering obligations, use `BACKLOG.md` and the live GitHub Issues/Project as the primary operational sources. `TODO.md` is retained as an audited historical/category-oriented implementation-gap inventory with limited authority and may contain resolved or superseded material. Do not infer current remaining work from this roadmap or `TODO.md` alone.

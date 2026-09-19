@@ -27,7 +27,7 @@ The repository currently contains:
 - **Reference applications and integrations** — including Sails Market and Satsails-oriented validation/integration work.
 - **Canonical protocol, architecture, governance, RFC, evidence, and explanatory documentation** under `docs/`.
 
-Sails is actively developed. Implementation existence, test coverage, real-path evidence, beta eligibility, and production eligibility are separate claims; they are not collapsed into one status. For current engineering reality, use [Backlog](docs/BACKLOG.md), [TODO](docs/TODO.md), the relevant RFCs, provider documentation, and evidence records rather than inferring maturity from names alone.
+Sails is actively developed. Implementation existence, test coverage, real-path evidence, beta eligibility, and production eligibility are separate claims; they are not collapsed into one status. For current engineering reality, use [Backlog](docs/BACKLOG.md), live GitHub Issues/Project, the relevant RFCs, provider documentation, and evidence records rather than inferring maturity from names alone. [TODO](docs/TODO.md) is retained as a historical/category-oriented gap inventory, not the primary current execution queue.
 
 ## How the pieces relate
 
@@ -142,7 +142,7 @@ console.log(balance);
 | Understand protocol invariants | [Protocol Invariants](docs/PROTOCOL_INVARIANTS.md) |
 | Understand what must remain semantically true | [Semantic Kernel](docs/SEMANTIC_KERNEL.md) |
 | Review accepted protocol decisions | [RFC Index](docs/rfcs/00-INDEX.md) |
-| Inspect current unresolved engineering reality | [Backlog](docs/BACKLOG.md) / [TODO](docs/TODO.md) |
+| Inspect current unresolved engineering reality | [Backlog](docs/BACKLOG.md) + live GitHub Issues/Project |
 | Understand engineering governance | [Engineering Governance](docs/ENGINEERING_GOVERNANCE.md) |
 | Contribute | [Contributing](CONTRIBUTING.md) |
 | Report a vulnerability | [Security Policy](SECURITY.md) |
@@ -204,7 +204,7 @@ A few examples of that claim discipline:
 - plain Lightning, as its own distinct settlement capability, must not be inferred from Arkade interoperability or naming;
 - Liquid settlement remains designed rather than implemented where the provider explicitly says so.
 
-For the full current target/maturity distinctions, use the relevant provider files, RFCs, [Backlog](docs/BACKLOG.md), [TODO](docs/TODO.md), and current validation records. The README intentionally does not duplicate the complete rail/asset/adapter maturity matrix.
+For the full current target/maturity distinctions, use the relevant provider files, RFCs, [Backlog](docs/BACKLOG.md), live GitHub Issues/Project, and current validation records. The README intentionally does not duplicate the complete rail/asset/adapter maturity matrix.
 
 ## Repository map
 
@@ -249,7 +249,7 @@ Several repository surfaces intentionally coexist because they own different res
 - **GitHub Project** — live operational state.
 - **GitHub Issues** — executable units, decisions, and durable validation gates/registries where appropriate.
 - **`BACKLOG.md`** — institutional unresolved inventory plus dependency/context ledger.
-- **`TODO.md`** — audited current implementation-gap inventory.
+- **`TODO.md`** — historical/category-oriented implementation-gap inventory retained for provenance; limited operational authority.
 
 These are intentionally **not consolidated** here. Do not treat any one of them as a universal substitute for the others.
 
