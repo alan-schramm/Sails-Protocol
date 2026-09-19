@@ -161,7 +161,7 @@ export async function ensureAttempt(
       // the strongest evidence this system has), so a fresh attempt for
       // the same logical operation is genuinely safe to start.
       await wdkTransferAttemptRepository.updateStatus(latest.id, 'REVERTED')
-      const created = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
+      const created = await wdkTransferAttemptRepository.replaceActive(latest.id, { escrowId, operationType, destination, amount })
       return { action: 'PROCEED', attemptId: created.id }
     }
 
@@ -200,7 +200,7 @@ export async function ensureAttempt(
       return { action: 'PROCEED', attemptId: latest.id }
 
     case 'FAILED_BEFORE_SUBMISSION': {
-      const created = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
+      const created = await wdkTransferAttemptRepository.replaceActive(latest.id, { escrowId, operationType, destination, amount })
       return { action: 'PROCEED', attemptId: created.id }
     }
 
@@ -211,7 +211,7 @@ export async function ensureAttempt(
       // same reasoning as the SUBMITTED branch's own REVERTED handling:
       // a definitively reverted transfer proves no funds moved, so a
       // fresh attempt is safe.
-      const created = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
+      const created = await wdkTransferAttemptRepository.replaceActive(latest.id, { escrowId, operationType, destination, amount })
       return { action: 'PROCEED', attemptId: created.id }
     }
 
