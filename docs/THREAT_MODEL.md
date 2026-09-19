@@ -1,10 +1,7 @@
 # THREAT_MODEL.md
-### Sails Protocol — Engineering Handoff · Document 8 of 20
+### Sails Protocol — Threat Model & Residual Risk Registry
 
-> Security is a **protocol-level property**, not an application-level
-> policy. Every integrator that builds on Sails inherits the same threat
-> mitigations described here — that's the point of putting them in the
-> protocol spec rather than leaving them to each reference implementation.
+> Protocol invariants define security properties that conformant implementations must preserve, but threat mitigations are only real where the relevant implementation/deployment has evidence. Integrators do **not** automatically inherit every mitigation in this document merely by using Sails.
 > `TRUST_BOUNDARY.md` complements this catalog with the structural
 > question it doesn't answer directly: at each hop in a real request
 > flow, who is on the other side, and what can they lie about regardless
@@ -23,7 +20,7 @@
 | **Reputation Manipulation** | Medium | Anti-double-rating enforced at the database level (`@@unique([tradeId, raterId])`). QVAC (future) detects coordinated rating groups: same IP, same timing, circular trades between colluding accounts. |
 | **Escrow Exploit** | High | Escrow is always architecturally separate from the application (see `ARCHITECTURE.md` layer-violation fix). Multisig 2-of-3 — no single entity controls funds alone. Third-party security audit required before mainnet (see `ROADMAP.md`). |
 | **API Abuse / DDoS** | Low | Rate limiting per IP is real (`@fastify/rate-limit`, resolved 2026-07-18 — see §4 below for the exact config and its still-open gaps). Per-keypair/API-key limiting and "API keys carrying their own reputation score" remain design intentions, not built. Sandbox environment kept separate from production. |
-| **Custody Creep** | High | Architectural guarantee: no Sails server ever holds user keys or funds. The `SettlementProvider` interface enforces this at the code level — implementations must go through escrow, never direct custody. |
+| **Custody Creep** | High | Normative target: Sails economic coordination must remain non-custodial. Reference/provider implementations are independently classified and may violate or only partially satisfy that target until remediated; RFC-019/RFC-020 and production-eligibility gates own those distinctions. Interface conformance alone does not prove non-custody. |
 | **Malicious Arbiter Collusion** *(v7.4 — CTO review finding; updated 2026-07-29, RFC-021)* | High | An arbiter colluding with one counterparty to rule unfairly. Under `ARBITRATION_MODE=trusted-list` (default), mitigated by the Reputation-as-bond mechanism (`SECURITY_MODEL.md` §3) — a bad ruling damages the arbiter's `ReputationScore` publicly and permanently. Under `ARBITRATION_MODE=market` (`docs/rfcs/RFC-021-market-based-arbitration-and-payment-trust.md`), the mitigation is real, not just reputational: an appealed-and-overturned ruling triggers `MarketArbitrationProvider.slash()` — a real forfeit of posted collateral plus a reputation penalty, and the appeal panel that overturns the ruling is drawn weighted 70% toward reputation (not stake), so the same deep-capital arbiter who won first-instance selection doesn't also dominate the panel judging them. **Honestly disclosed residual risk, not closed by either mode:** capital-based Sybil collusion (an attacker funding both a colluding arbiter and the counterparty) has no closed-form solution here — RFC-021's own "Known Risks — Mitigated, Not Solved" section states this explicitly; slashing raises the real cost of collusion, it does not make it impossible. **A sharper variant — self-dealing, not collusion — found and closed 2026-08-15 (Missão 04 hardening):** under `market` mode, neither `assign()` nor `assignAppealPanel()` excluded the disputed trade's own buyer/seller from the eligible arbiter pool, so a trade party who registered enough collateral had a real chance of being assigned to arbitrate their own dispute — no collusion needed, since the arbiter and the interested party were the same identity. Fixed at the source (`eligibleFor()`'s new `excludeParticipantIds`); see RFC-021 D2's own dated note for the full writeup. Not live by default (`market` mode is opt-in), so no deployment was ever exposed. |
 | **Fabricated Dispute Evidence** *(v7.4, updated 2026-08-02 — RFC-021 D8)* | Medium | A party submits falsified `Proof` (`PROTOCOL_SPECIFICATION.md` §1.8) to win a dispute. Mitigated by requiring `Proof.verifiedBy` from an independent party where possible, and — no longer purely future — by real, config-gated QVAC evidence analysis (`assessDisputeEvidence()`, off by default, `QVAC_AUTO_RESOLUTION_ENABLED`). This does not stop fabrication itself: a low-confidence or `INCONCLUSIVE` read from QVAC changes nothing (the dispute falls straight through to its assigned human arbiter, exactly today's behavior), and QVAC's own recommendation is never final on its own — either trade party can contest it within a window, forcing human review. QVAC being fooled by a convincing fabrication is a real, undiscovered-until-contested residual risk, not eliminated by this mitigation — see RFC-021's own "Known Risks" §D8 entries. |
 | **Arbitration Griefing** *(v7.4)* | Low | A party opens disputes in bad faith purely to delay settlement. Mitigated by the Dispute primitive's `openedBy` field feeding directly into Reputation's dispute-rate component (`PROTOCOL_SPECIFICATION.md` §1.6) — frequent bad-faith disputes are visible and penalized. |
@@ -41,14 +38,9 @@ to Sybil attacks.
 Sails Protocol's threat model was designed learning directly from those
 failure modes:
 
-- **No custody, ever** — eliminates the largest attack surface outright
-  (there is no hot wallet, cold wallet, or treasury to compromise)
-- **Escrow isolation** — compromising the reference implementation's
-  infrastructure does not expose funds in escrow, because escrow logic is
-  architecturally separate (see the layer-violation fix in
-  `ARCHITECTURE.md`)
-- **Multisig, not single-key release** — no one party (including Satsails)
-  can unilaterally move funds
+- **Non-custodial protocol target** — removes a major attack surface when correctly implemented, but custody properties must be verified per settlement provider/reference implementation; they are not guaranteed by prose or interface shape alone
+- **Escrow isolation as an architectural goal** — module separation reduces coupling, but compromise impact depends on the concrete provider/custody model; architectural separation alone is not proof that funds cannot be exposed
+- **Multi-party authorization where the selected rail/provider actually implements it** — do not generalize MULTISIG semantics to WDK/EVM or other rails without rail-specific evidence
 - **QVAC-assisted fraud detection runs locally** — no cloud dependency, no
   centralized honeypot of user financial intent data
 - **Anti-Sybil reputation tied to real volume** — much more expensive to
