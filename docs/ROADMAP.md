@@ -86,7 +86,11 @@ authoritative, current version of this target.
 - `@satsails/p2p-trading-sdk` v1.0 public — a real implementation of the `SailsClient`
   interface in `SDK_GUIDE.md`
 - All 8 modules documented (spec + integration guide)
-- Public sandbox testnet, no signup required
+- **Sails Sandbox** — public safe test environment, no signup required once
+  production-isolated test infrastructure is mature. Sequencing follows the
+  canonical tooling program in Issue #78: Test Harness → Sandbox → Playground.
+  The Sandbox must exercise real public SDK/API/state-machine semantics with
+  test assets/providers rather than a parallel simulated protocol.
 - First 10 wallet integrations using the SDK
 - First-party adapter program underway for BDK, WDK, Breez SDK, Spark SDK,
   LDK, major EVM wallet-development stacks (including BNB Smart Chain), TRON,
@@ -116,6 +120,12 @@ authoritative, current version of this target.
   `InternalOrderBook`)
 - 50+ wallet integrations
 - Protocol governance layer v1
+- **Sails Playground** — visual developer-facing environment built on the
+  same Sandbox/Test Harness semantics, allowing developers to create
+  participants/intents/offers/trades, inspect authority/evidence/state
+  transitions and settlement outcomes, and later expose a public “Try Sails”
+  entry point. Roadmap only; it must not become a second implementation or
+  bypass production semantics. Canonical owner: Issue #78.
 - Monorepo (`packages/protocol-spec`, `packages/sdk`,
   `apps/satsails-reference`) fully published
 - `SDK_usecases.md` — the "family of named SDKs" (Trading, Settlement,

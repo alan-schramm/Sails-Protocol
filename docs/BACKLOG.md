@@ -5873,3 +5873,129 @@ obligation" is defined anywhere in this repository.
     the durable institutional record.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+48. **Open Code Review — supplemental review-gate candidate, not authority (2026-09-19).**
+    Evaluate Alibaba's Open Code Review (`open-codereview.ai` /
+    `alibaba/open-code-review`) as an optional additional engineering-review
+    surface for Sails. Current external evidence shows an Apache-2.0 CLI that
+    can review working changes/branch diffs/commits, integrate with coding
+    agents and CI/CD, and run against a configured LLM provider. The tool is
+    open source, but model inference may still carry provider/token cost; do
+    not institutionalize it as "free review" without measuring the actual
+    execution mode/cost used by Sails. Required evaluation before adoption:
+    false-positive/false-negative quality on real Sails PRs, privacy/data-flow
+    implications, repository-rule attack surface, secret handling, latency,
+    cost, deterministic policy/rule support, and whether it finds materially
+    different defects from the existing Claude/CTO/CI/Red-Team process.
+    **Rule:** an AI code-review tool may produce findings/evidence; it never
+    becomes architectural, security, release, or merge authority. If adopted,
+    use it as one bounded reviewer in the gate, not as a replacement for exact-
+    SHA CI, external Beta evidence, or CTO review.
+
+49. **System Design synthesis document — required engineering navigation artifact (2026-09-19).**
+    Create a concise `docs/SYSTEM_DESIGN.md` that explains the *current
+    system as a system* for senior engineers and external reviewers without
+    creating a competing architecture authority. The repository already has
+    deep normative/specialized documents (`CORE_ARCHITECTURE.md`,
+    `CORE_IMPLEMENTATION_ARCHITECTURE.md`, `ARCHITECTURE.md`,
+    `NODE_ARCHITECTURE.md`, ADRs/RFCs); the missing artifact is a readable
+    cross-cutting synthesis. It should cover at minimum: system context,
+    component/dependency map, main request/event/economic data flows, storage
+    ownership, public API/SDK boundaries, authority boundaries, settlement
+    provider boundary, transport topology, failure/retry/UNKNOWN model,
+    concurrency/idempotency model, security/trust boundaries, observability,
+    deployment topology, scaling assumptions, recovery/reconciliation, and
+    links to the normative owner for every section. **It must summarize and
+    route; it must not silently redefine frozen architecture.** Sequence after
+    the current Day-0 hardening pass has stabilized enough that the document
+    will not immediately encode known-stale production/test surfaces.
+
+50. **Sails Market DePix Terminal / P2P-operator distribution channel — Product + Architecture Discovery (2026-09-19).**
+    Canonical discovery owner: Issue #231. Evaluate a Sails Market terminal
+    that lets independent P2P operators sell DePix through a ready-made
+    Sails Market flow instead of each operator building its own web platform.
+    Current Eulen Pix2DePix API capability supports Pix→DePix deposits,
+    provider-side split fields, webhooks/status surfaces, and payout-address
+    selection across Liquid / Arkade / Spark; external provider documentation
+    currently marks Arkade and Spark as beta/not production-ready, so any
+    production pilot must be maturity-gated rather than assuming all three
+    rails are equivalent.
+
+    **Product Direction Freeze (2026-09-19): Hybrid model.**
+    Sails Market should support both (A) a managed Satsails/Eulen terminal
+    for low-friction P2P onboarding and (B) BYO Eulen/provider credentials
+    for professional operators who want direct provider control. Both paths
+    must emit the same canonical Sails economic evidence/outcome semantics.
+
+    Architecture constraint:
+    `Sails Protocol ≠ Satsails commercial account ≠ Eulen provider authority`.
+    The protocol stays provider-neutral. Hosted aggregation may create a
+    strong adoption/network-effect channel, but its legal/compliance/
+    accounting/provider-concentration consequences belong to the
+    Satsails/Sails Market product layer, not protocol Core.
+
+    **Day-0 DePix rail target (Product Direction Freeze): Liquid + Arkade + Spark.**
+    This target must not be silently reduced to Liquid-only planning.
+    Project-owner input records direct Eulen communication that Arkade/Spark
+    are moving to production after extended testing, accelerated by the
+    recent Liquid incident. Public provider documentation may temporarily
+    lag that operational transition. Release eligibility remains evidence-
+    gated per rail: if any rail is not actually production-capable at the
+    Sails release gate, surface the discrepancy explicitly rather than
+    quietly removing it from the Day-0 target.
+
+    Economic constraint:
+    **Sails protocol fee semantics ≠ Eulen `splitFee` primitive.**
+    A provider adapter may use the provider's split mechanism to collect or
+    evidence an obligation, but the Sails fee must remain policy/evidence-
+    governed and portable to other providers. The current 0.40% target must
+    never become structurally dependent on one commercial API.
+
+    Before implementation: validate the actual Satsails↔Eulen commercial/API
+    contract, sub-merchant/operator model, credential isolation, compliance
+    allocation, split-beneficiary mechanics, rate/daily limits, retry/
+    idempotency, webhook reconciliation, UNKNOWN/provider outage handling,
+    operator revenue ledger/payouts, fee evidence/entitlement integration,
+    privacy/reputation mapping, and production eligibility per payout rail.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
+
+51. **Day-0 Evidence Lifecycle, Privacy & Production Storage — owner #234 (2026-09-19).**
+    Current code has two distinct evidence surfaces that must be reconciled
+    before production-open. `OpenProof/EvidenceProvider/EvidenceReference`
+    stores media bytes through a provider and binds them to a SHA-256-backed
+    reference; the current default provider is a local filesystem under the
+    configured evidence directory, explicitly documented by the code as a
+    single-instance/reference implementation. Separately,
+    `OpenSettlement Dispute.evidence` accepts and persists
+    `type + uri + note` descriptors directly as JSON without requiring an
+    OpenProof evidence reference or integrity-bound hash. Therefore a
+    `Dispute evidence URI` is not automatically the same thing as
+    integrity-bound OpenProof evidence.
+
+    **Day-0 required decision/remediation:** define the canonical evidence
+    lifecycle across storage, integrity, privacy and recovery. At minimum:
+    production evidence-provider contract; multi-instance/node-failure
+    behavior; retention/archive/expiry rules tied to economic lifecycle;
+    arbiter/counterparty-scoped access; short-lived retrieval authorization;
+    hash verification on retrieval; backup/provider migration; byte deletion
+    vs retained hash/provenance/timestamp metadata; and the relationship
+    between `Dispute.evidence` and OpenProof. Large JPEG/PDF/video evidence
+    must not be treated as permanent PostgreSQL state, while sensitive bank/
+    wire/Pix receipts must not become public permanent URLs by default.
+
+    Frozen invariants for the future design:
+    `Evidence bytes ≠ Evidence truth`;
+    `Evidence availability ≠ Evidence integrity`;
+    `Evidence storage provider ≠ protocol authority`;
+    `Arbiter access ≠ public evidence exposure`.
+
+    Local filesystem may remain a legitimate dev/reference provider, but
+    production eligibility must be proven rather than inferred. Exact object/
+    distributed storage technology (S3/R2/IPFS/other) is an implementation
+    choice and must not redefine OpenProof semantics. Canonical owner: #234;
+    #220 classifies production reachability/isolation; #165 consumes Beta
+    evidence after architecture/implementation are complete.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
+
