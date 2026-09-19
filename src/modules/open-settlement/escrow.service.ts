@@ -222,7 +222,22 @@ export type { CreateEscrowInput }
 // is preserved unconditionally, checked first, before any canonical
 // lookup.
 function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
-  if (explicitType === 'MOCK') return 'MOCK'
+  // Production Surface Audit #220: MOCK must be test/dev infrastructure,
+  // not merely a default that production happens not to choose. The
+  // production boot gates already require MOCK_ESCROW=false and
+  // MOCK_SETTLEMENT=false, but an authenticated caller could still send
+  // type:'MOCK' explicitly and reach MockSettlementProvider, which
+  // fabricates tx ids/addresses without an economic side effect. Reject
+  // that explicit escape hatch structurally in production.
+  if (explicitType === 'MOCK') {
+    if (config.isProduction) {
+      throw new EscrowError(
+        "MOCK settlement is disabled in production — type:'MOCK' is test/development infrastructure only.",
+        'UNAVAILABLE'
+      )
+    }
+    return 'MOCK'
+  }
   if (!explicitType && config.features.mockEscrow) return 'MOCK'
 
   const scope = translateLegacyAssetType(asset)
