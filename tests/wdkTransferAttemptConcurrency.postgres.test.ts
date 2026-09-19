@@ -122,6 +122,46 @@ describe('WDK active generation ownership — PostgreSQL', () => {
     )
   })
 
+  it('allows FAILED_BEFORE_SUBMISSION to transfer ownership exactly once', async () => {
+    const first = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
+    await wdkTransferAttemptRepository.updateStatus(first.id, 'FAILED_BEFORE_SUBMISSION', undefined, ['PREPARED'])
+
+    const replacements = await Promise.allSettled([
+      wdkTransferAttemptRepository.replaceActive(first.id, ['FAILED_BEFORE_SUBMISSION'], { escrowId, operationType, destination, amount }),
+      wdkTransferAttemptRepository.replaceActive(first.id, ['FAILED_BEFORE_SUBMISSION'], { escrowId, operationType, destination, amount }),
+    ])
+
+    expect(replacements.filter((x) => x.status === 'fulfilled')).toHaveLength(1)
+    expect(replacements.filter((x) => x.status === 'rejected')).toHaveLength(1)
+
+    const rows = await prisma.wdkTransferAttempt.findMany({
+      where: { escrowId, operationType },
+      orderBy: { createdAt: 'asc' },
+    })
+    expect(rows).toHaveLength(2)
+    expect(rows.filter((x) => x.activeKey === `${escrowId}:${operationType}`)).toHaveLength(1)
+    expect(rows.find((x) => x.id === first.id)?.activeKey).toBeNull()
+  })
+
+  it('a stale worker cannot regress SUBMITTED or CONFIRMED truth', async () => {
+    const first = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
+    await wdkTransferAttemptRepository.updateStatus(first.id, 'SUBMISSION_UNKNOWN', undefined, ['PREPARED'])
+    await wdkTransferAttemptRepository.updateStatus(first.id, 'SUBMITTED', { txHash: '0xabc' }, ['SUBMISSION_UNKNOWN'])
+    await wdkTransferAttemptRepository.updateStatus(first.id, 'CONFIRMED', undefined, ['SUBMITTED'])
+
+    await expect(
+      wdkTransferAttemptRepository.updateStatus(first.id, 'SUBMITTED', { txHash: '0xstale' }, ['SUBMISSION_UNKNOWN'])
+    ).rejects.toThrow(/transition ownership lost/)
+
+    await expect(
+      wdkTransferAttemptRepository.updateStatus(first.id, 'REVERTED', undefined, ['SUBMITTED'])
+    ).rejects.toThrow(/transition ownership lost/)
+
+    const persisted = await prisma.wdkTransferAttempt.findUnique({ where: { id: first.id } })
+    expect(persisted?.status).toBe('CONFIRMED')
+    expect(persisted?.txHash).toBe('0xabc')
+  })
+
   it('allows at most one replacement generation under concurrent retry', async () => {
     const first = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
     await wdkTransferAttemptRepository.updateStatus(first.id, 'REVERTED', undefined, ['PREPARED'])
