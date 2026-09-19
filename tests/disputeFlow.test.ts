@@ -86,6 +86,9 @@ const mockExecuteRaw = jest.fn().mockResolvedValue(0)
 const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
+    disputeAppealFee: {
+      create: (...args: unknown[]) => mockDisputeAppealFeeCreate(...args),
+    },
     dispute: {
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
       updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),

@@ -80,6 +80,15 @@ jest.mock('../src/modules/open-settlement/dispute-correspondence', () => ({
   recordLiveCorrespondenceIfApplicable: (...args: unknown[]) => mockRecordLiveCorrespondenceIfApplicable(...args),
 }))
 
+const mockAuthorizePendingExecution = jest.fn().mockResolvedValue({ id: 'cap-auth-1' })
+jest.mock('../src/modules/open-settlement/capability-execution-authorization', () => ({
+  authorizePendingExecution: (...args: unknown[]) => mockAuthorizePendingExecution(...args),
+}))
+const mockAuthorizeDisputedPendingExecution = jest.fn().mockResolvedValue({ id: 'eda-auth-1' })
+jest.mock('../src/modules/open-settlement/economic-disposition-authority', () => ({
+  authorizeDisputedPendingExecution: (...args: unknown[]) => mockAuthorizeDisputedPendingExecution(...args),
+}))
+
 const mockPendingTxFindUnique = jest.fn()
 const mockPendingTxFindMany = jest.fn()
 const mockPendingTxDelete = jest.fn()
@@ -206,16 +215,55 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'NEWLY_BROADCAST', txId: 'c8-txid-1', detail: 'broadcast for the first time', rawTxHex: 'c8-raw-hex' })
+    mockReconcilePendingSettlement.mockImplementation(async (_input, _unsigned, _signed, beforeFirstBroadcast) => {
+      await beforeFirstBroadcast()
+      return { outcome: 'NEWLY_BROADCAST', txId: 'c8-txid-1', detail: 'broadcast for the first time', rawTxHex: 'c8-raw-hex' }
+    })
 
     const report = await reconcilePendingSettlements()
 
     expect(mockReconcilePendingSettlement).toHaveBeenCalledTimes(1)
+    expect(mockAuthorizeDisputedPendingExecution).toHaveBeenCalledWith(expect.objectContaining({ id: 'pending-1' }))
+    expect(mockAuthorizePendingExecution).toHaveBeenCalledWith(expect.objectContaining({ id: 'pending-1' }))
+    expect(mockAuthorizeDisputedPendingExecution.mock.invocationCallOrder[0]).toBeLessThan(mockAuthorizePendingExecution.mock.invocationCallOrder[0])
     expect(mockClaimTransition).toHaveBeenCalledWith('escrow-1', 'DISPUTED', 'COMPLETED')
     expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'c8-txid-1', releasedAt: expect.any(Date) })
     expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'c8-txid-1', outcome: 'NEWLY_BROADCAST' }])
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
     expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', 'c8-raw-hex')
+  })
+
+  it('ALREADY_BROADCAST recovery converges external truth without asking for fresh execution authority', async () => {
+    mockPendingTxFindMany.mockResolvedValue([{
+      ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
+    }])
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'c8-known', detail: 'already known', rawTxHex: 'c8-known-raw' })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockAuthorizeDisputedPendingExecution).not.toHaveBeenCalled()
+    expect(mockAuthorizePendingExecution).not.toHaveBeenCalled()
+    expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'c8-known', outcome: 'ALREADY_BROADCAST' }])
+  })
+
+  it('NEWLY_BROADCAST recovery fails closed when ADR-005 commit gate rejects before the provider side effect', async () => {
+    mockPendingTxFindMany.mockResolvedValue([{
+      ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
+    }])
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockAuthorizeDisputedPendingExecution.mockRejectedValueOnce(new Error('ruling generation no longer current'))
+    mockReconcilePendingSettlement.mockImplementation(async (_input, _unsigned, _signed, beforeFirstBroadcast) => {
+      await beforeFirstBroadcast()
+      throw new Error('provider broadcast must never be reached')
+    })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockAuthorizeDisputedPendingExecution).toHaveBeenCalledTimes(1)
+    expect(mockAuthorizePendingExecution).not.toHaveBeenCalled()
+    expect(mockClaimTransition).not.toHaveBeenCalled()
+    expect(report.failed[0].error).toMatch(/ruling generation no longer current/)
   })
 
   it('ANOMALY (unexpected outpoint spend) — fails closed, transition never claimed, reported for manual review as C8', async () => {

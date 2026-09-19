@@ -1414,7 +1414,8 @@ export class MultisigProvider implements SettlementProvider {
   async reconcilePendingSettlement(
     escrow: MultisigEscrowInput,
     unsignedPsbtBase64: string,
-    signedPsbtBase64List: string[]
+    signedPsbtBase64List: string[],
+    beforeFirstBroadcast?: () => Promise<void>
   ): Promise<
     | { outcome: 'ALREADY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'NEWLY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
@@ -1452,6 +1453,13 @@ export class MultisigProvider implements SettlementProvider {
       : utxos.some((u) => u.txid === escrow.txLockId)
 
     if (stillUnspent) {
+      // Recovery is about to create the external effect rather than merely
+      // converge to one already observed on-chain. Give the caller one last
+      // fail-closed commit gate immediately before the first broadcast.
+      // ALREADY_BROADCAST never reaches this callback, preserving recovery
+      // of external truth after later authority changes.
+      if (beforeFirstBroadcast) await beforeFirstBroadcast()
+
       // Sails Core Implementation Program M9-R (R6, provider txid
       // integrity) — same discipline as finalizeSpend(): `expectedTxId`
       // was already independently derived from `tx` before this
