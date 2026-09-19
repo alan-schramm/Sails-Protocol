@@ -75,13 +75,12 @@ This security policy applies to:
 
 ## Data Protection
 
-- No PII stored beyond public keys
-- No logging of sensitive data (headers/cookies/tokens redacted — `app.ts`'s
-  own pino `redact` config)
-- Encryption at rest for the database is a deployment-time choice (e.g. AWS
-  RDS storage encryption), not something this codebase enforces or verifies
-  itself — confirm it's enabled for your own deployment, don't assume it
-- TLS for all communications
+- Do **not** assume that a Sails deployment processes no personal data merely because the protocol centers on public-key identities. Applications, operators, evidence flows, payment integrations, logs, metadata and external providers may introduce personal or regulated data depending on the deployment.
+- Sensitive transport/authentication material such as headers, cookies and tokens is redacted by the reference server's pino configuration; operators must independently validate their own logging, tracing and external observability pipelines.
+- Encryption at rest for the database is a deployment-time choice (for example, managed-database storage encryption), not something this repository can prove for an operator's infrastructure.
+- Evidence/object-storage encryption is provider/deployment specific and must be validated against the configured production provider.
+- TLS is a production deployment requirement; this repository does not by itself prove that every downstream deployment terminates TLS correctly.
+- Each deployer/integrator is responsible for its own data inventory, retention, deletion, access-control and jurisdiction-specific privacy obligations.
 
 ## Dependency Security
 
@@ -94,8 +93,11 @@ This security policy applies to:
 
 ## Compliance
 
-- GDPR compliant (minimal data collection)
-- SOC 2 Type II (planned)
+This repository does **not** claim blanket legal or regulatory compliance for every deployment.
+
+GDPR, other privacy regimes, financial-services obligations, record-retention rules and similar requirements depend on the concrete operator, jurisdiction, data flows, providers, controller/processor roles and deployment configuration. Integrators should perform their own legal/compliance assessment.
+
+SOC 2 Type II is not claimed by this repository.
 
 ## Contact
 
@@ -104,4 +106,4 @@ This security policy applies to:
 
 ---
 
-> **Last updated:** 2026-08-15
+> **Last updated:** 2026-09-19
