@@ -24,9 +24,11 @@
 export {} // see chatUnification.test.ts's identical comment
 
 let mockEscrowFeatureFlag = false // MULTISIG/LIGHTNING_HODL only matter with mockEscrow off
+let mockProduction = false
 jest.mock('../src/config', () => ({
   get config() {
     return {
+      isProduction: mockProduction,
       features: { mockEscrow: mockEscrowFeatureFlag, enforceCapabilities: false, requireDualApprovalForRelease: false },
       trade: { defaultTimelockHours: 24 },
       settlement: { trustedArbitrators: ['arb-1'] },
@@ -223,6 +225,7 @@ describe('createEscrow() — no longer populates multisigAddr immediately (clien
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
+    mockProduction = false
   })
 
   it('does NOT call getDepositAddress for a MULTISIG escrow at creation time', async () => {
@@ -251,6 +254,7 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
+    mockProduction = false
   })
 
   it('defaults an omitted type to MULTISIG for a BTC trade', async () => {
@@ -313,6 +317,7 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
+    mockProduction = false
   })
 
   it('resolves an omitted type to MULTISIG for BTC via the canonical registry (same outcome as before, new mechanism)', async () => {
@@ -339,6 +344,16 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     await expect(
       escrowService.createEscrow({ tradeId: 'trade-btc-3', type: 'WDK_USDT_EVM' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
     ).rejects.toThrow("type 'WDK_USDT_EVM' does not match 'MULTISIG'")
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects an explicit MOCK escrow in production so fake tx ids cannot enter a production journey', async () => {
+    mockProduction = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-mock', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-prod-mock', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    ).rejects.toThrow('MOCK settlement is disabled in production')
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
@@ -433,6 +448,7 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
+    mockProduction = false
   })
 
   it('persists the first submitted key but does NOT derive an address until both arrive', async () => {
@@ -677,6 +693,7 @@ describe('getProvider() — no more silent MOCK fallback for an unregistered rea
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
+    mockProduction = false
   })
 
   it('throws a clear error for LIQUID_COVENANT instead of silently mock-processing it', async () => {
@@ -720,6 +737,7 @@ describe('initiateRelease()/initiateRefund() — Phase 2 signature-collection ro
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
+    mockProduction = false
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockParticipantKeyFindMany.mockResolvedValue([
@@ -816,6 +834,7 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
+    mockProduction = false
     mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
@@ -892,6 +911,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
+    mockProduction = false
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockPendingTxDelete.mockResolvedValue({})
     // ADR-005 / #218 — jest.clearAllMocks() does not reset a persistent
