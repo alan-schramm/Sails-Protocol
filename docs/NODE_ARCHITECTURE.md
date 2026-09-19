@@ -1,5 +1,5 @@
 # NODE_ARCHITECTURE.md
-### Sails Protocol — Engineering Handoff · Document 6 of 20
+### Sails Protocol — Reference Transport & Node Runtime Architecture
 
 > Covers the P2P transport layer (Pears / HyperDHT / Hyperswarm) and the
 > broader question of "who runs the infrastructure" for the protocol as a
@@ -10,24 +10,29 @@
 > that's `CRYPTOGRAPHIC_MODEL.md`. `TRUST_BOUNDARY.md` covers what a
 > connected peer over this transport can and cannot be trusted to say.
 
-**Revision note (Protocol Freeze, v8.3):** everything below describes
-Pears/HyperDHT — today's implementation. As of `PROTOCOL_SPECIFICATION.md`
-§4B, this is formally one implementation of a `TransportProvider`
-interface, not a fixed protocol dependency. `PearNode`/`PearNodeRegistry`
-below is not being rewritten — it becomes `PearsTransportProvider`,
-wrapped behind the interface, during Implementation Freeze. Read this
-document as "how the reference implementation's transport adapter works
-today," not as "the protocol's only possible transport."
+> **Current authority note:** this document describes the Reference
+> Implementation's transport/runtime topology, especially Pears/HyperDHT.
+> It does **not** own the Day-0 multi-operator/shared-market architecture.
+> For that, use `SYSTEM_DESIGN.md`, ADR-001 and Issue #105.
+>
+> Pears/HyperDHT is one current transport implementation, not a fixed
+> protocol dependency. Current transport identity is separate from Sails
+> participant/economic identity; see `CRYPTOGRAPHIC_MODEL.md`.
 
 ---
 
-## 1. No Single Server — a Network of Participants
+## 1. Reference transport/runtime topology
 
-The protocol's infrastructure is explicitly designed to be distributed
-across participant types, not controlled by any single company (including
-Satsails). Progressive decentralization: starts with Satsails-operated
-bootstrap infrastructure, migrates toward community-operated as adoption
-grows.
+The tables and flows below describe the reference transport/runtime model,
+not proof that the Day-0 shared-market multi-operator architecture is already
+complete.
+
+Sails' current institutional requirement is stronger than "decentralize
+later": Day-0 must support multiple independent operators in the same
+economic market universe. Current Pears transport is one building block of
+that target; node-local database ownership, cross-node discovery, identity
+portability and recovery remain governed separately by ADR-001 / #105 and
+the current Day-0 network evidence.
 
 | Node type | Who runs it | Role |
 |---|---|---|
@@ -152,14 +157,18 @@ subscribe to the generic `message` event from the owning domain module.
 
 ---
 
-## 5. Known Open Design Question (not yet decided)
+## 5. Open questions and external owners
 
-None remaining as of this handoff — the singleton-vs-multi-user question
-was the one open item, and it's resolved per section 2 above. If you find
-another cross-cutting infrastructure design question while building out the
-missing routes (`TODO.md`), document it here in the same style before
-picking a default — don't silently decide alone if it affects the shared
-transport layer.
+This document does not claim there are no remaining cross-cutting node/network
+questions.
+
+Current external owners include:
+- Day-0 multi-operator/shared-market architecture and evidence → ADR-001 / #105;
+- cross-node identity/reputation portability → current identity/network architecture work;
+- bootstrap/fallback/operator economics → Day-0 network program;
+- production readiness → #220 and bounded owners.
+
+Do not use this document as a substitute for those current owners.
 
 ---
 
