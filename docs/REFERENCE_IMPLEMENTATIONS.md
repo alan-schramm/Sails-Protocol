@@ -87,12 +87,10 @@ every current Sails Protocol module, provider or rail is production-ready.
 Satsails Wallet predates and validates parts of the architecture/integration
 thesis; current Sails production eligibility remains governed separately.
 
-**Maintenance rule going forward:** update this block with a new date
-stamp whenever these figures are refreshed, and cite whether the number is
-lifetime-to-date or a specific period. Do not let this figure go stale in
-external-facing materials (grant submissions, partner decks) without
-updating it here first — this document is the source of truth for these
-numbers across the whole project.
+**Maintenance rule:** keep the date stamp attached to these figures. If fresher
+metrics are independently verified, add a newer dated block or replace the
+external-facing claim with the verified value. This historical block must not
+silently become a claim about current users/volume.
 
 ---
 
@@ -186,11 +184,10 @@ Boltz Exchange as the third confirmed swap-liquidity integration.
 
 ### WDK (Tether)
 
-Already covered in section 2 — repeated here because it is the **shared
-substrate across all three reference implementations**, not something
-specific to the Wallet alone. Every reference implementation's Identity
-primitive (`PROTOCOL_SPECIFICATION.md` section 1.1) is grounded in the same
-WDK-generated Ed25519 keypair infrastructure.
+Already covered in section 2. WDK is an important first-party wallet/reference
+integration substrate, but this document must not assume every present or future
+reference/application surface uses one identical wallet/identity stack.
+Protocol semantics remain implementation-independent.
 
 ---
 
