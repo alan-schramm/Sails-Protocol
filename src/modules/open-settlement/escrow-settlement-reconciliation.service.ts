@@ -9,6 +9,8 @@ import { feeCollectionRecognitionService } from './fee-collection-recognition.se
 import { multisigProvider, identifyFeeOutput, networkFor, type MultisigEscrowInput } from './multisig.provider'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
+import { authorizePendingExecution } from './capability-execution-authorization'
+import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
 
 const log = childLogger('escrow-settlement-reconciliation')
 
@@ -281,6 +283,21 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
         txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
         status: escrow.status,
       }
+
+      // Recovery may itself become the FIRST broadcaster when the exact
+      // reconstructed transaction is not yet known to the network. That is
+      // a new economic side effect, so it must not bypass the same durable
+      // execution-commit gates used by submitTransactionSignature().
+      //
+      // Existing committed authorizations are reused by both gates, which
+      // preserves ADR-004/ADR-005 retry semantics. If authority was never
+      // committed and has since become stale/revoked, recovery fails closed
+      // before reconcilePendingSettlement() can reach its NEWLY_BROADCAST
+      // branch. ALREADY_BROADCAST crash recovery remains recoverable because
+      // a live attempt necessarily committed both gates before its provider
+      // side effect.
+      await authorizeDisputedPendingExecution(pending)
+      await authorizePendingExecution(pending)
 
       const result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
       if (result.outcome === 'ANOMALY') {
