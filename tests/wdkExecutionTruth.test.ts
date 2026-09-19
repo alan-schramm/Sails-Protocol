@@ -127,7 +127,7 @@ describe('lockFunds() — durable operation truth', () => {
     mockGetTransactionReceipt.mockResolvedValueOnce({ status: 0 })
 
     await expect(provider.lockFunds(escrow)).rejects.toThrow(/reverted on-chain/)
-    expect(mockAttemptUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
+    expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
 
     // A definitively reverted transfer proves no funds moved — a fresh
     // retry for the same logical operation is genuinely safe, unlike the
@@ -148,7 +148,7 @@ describe('lockFunds() — durable operation truth', () => {
 
     const result = await provider.lockFunds(escrow)
     expect(result.txId).toBe('0xSIMULATED_TX')
-    expect(mockAttemptUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CONFIRMED' } }))
+    expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CONFIRMED' } }))
   })
 
   it('a receipt that never appears within the bounded wait stays PENDING — not declared success', async () => {
@@ -158,8 +158,8 @@ describe('lockFunds() — durable operation truth', () => {
 
     await expect(provider.lockFunds(escrow)).rejects.toThrow(/not yet confirmed/)
     // Still SUBMITTED — no update call ever moved it to CONFIRMED or REVERTED.
-    expect(mockAttemptUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CONFIRMED' } }))
-    expect(mockAttemptUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
+    expect(mockAttemptUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CONFIRMED' } }))
+    expect(mockAttemptUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
   })
 
   it('a completed (CONFIRMED) operation is idempotently protected — resumed without ever calling transfer() again', async () => {
@@ -183,7 +183,7 @@ describe('lockFunds() — durable operation truth', () => {
     // process's" row is the only thing that made this call proceed
     // correctly.
     expect(mockAttemptCreate).not.toHaveBeenCalled()
-    expect(mockAttemptUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'attempt-stale' }, data: expect.objectContaining({ status: 'SUBMITTED' }) }))
+    expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'attempt-stale' }), data: expect.objectContaining({ status: 'SUBMITTED' }) }))
   })
 
   // ─── CTO Gate Correction (2026-09-08) — closing the PREPARED ->
@@ -209,8 +209,8 @@ describe('lockFunds() — durable operation truth', () => {
     // — succeeds normally. Second update() call is the SUBMITTED write
     // with the real hash — simulates a DB failure recording it (e.g. a
     // dropped Postgres connection right after the transfer succeeded).
-    mockAttemptUpdate
-      .mockImplementationOnce(async (args: { where: { id: string }; data: Record<string, unknown> }) => row({ id: args.where.id, ...args.data } as any))
+    mockAttemptUpdateMany
+      .mockResolvedValueOnce({ count: 1 }) // PREPARED -> SUBMISSION_UNKNOWN
       .mockRejectedValueOnce(new Error('simulated: DB write failure recording SUBMITTED'))
 
     await expect(provider.lockFunds(escrow)).rejects.toThrow('simulated: DB write failure recording SUBMITTED')
