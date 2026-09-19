@@ -135,31 +135,39 @@ export class DisputeService {
       throw new ForbiddenError(`${raisedBy} is not a party to trade ${tradeId}`)
     }
 
-    // Freezes the trade — escrow.service.ts's real, existing state
-    // transition (Escrow -> DISPUTED), not new logic written here.
-    await escrowService.openDispute(trade.escrowId, raisedBy, reason)
-
-    // Security-validation round (2026-07-19, "disputa dupla" scenario):
-    // this create() reads-then-writes across two calls (this one and
-    // openDispute() above) with no locking — buyer and seller calling
-    // raiseDispute() concurrently could both pass every check above
-    // before either write lands. The schema's new @@unique([tradeId])
-    // on Dispute (see that model's own comment) is the actual guard: the
-    // loser of the race hits a real P2002 here, caught and turned into a
-    // clean rejection instead of a second, corrupting Dispute row —
-    // same pattern reputation.service.ts's rate() already established
-    // for its own unique-constraint race.
+    // #238 — Escrow freeze and the canonical Dispute row are one durable
+    // fact. Neither side may commit without the other. Keep every external
+    // arbitration-provider call below this transaction: a provider failure
+    // must leave OPENED + arbiterId=null, never undo an already committed
+    // economic freeze.
     let dispute
     try {
-      dispute = await prisma.dispute.create({
-        data: {
-          tradeId,
-          escrowId: trade.escrowId,
-          openedBy: raisedBy,
-          reason,
-          evidence: evidence as unknown as object,
-          status: 'OPENED',
-        },
+      dispute = await prisma.$transaction(async (tx) => {
+        const escrow = await tx.escrow.findUnique({ where: { id: trade.escrowId! } })
+        if (!escrow) throw new NotFoundError('Escrow', trade.escrowId!)
+
+        // Mirror openDispute()'s lifecycle guard at the transaction boundary.
+        // The conditional write is the concurrency authority: only one caller
+        // may move the exact observed generation to DISPUTED.
+        assertEscrowTransition(escrow.status, 'DISPUTED')
+        const claimed = await tx.escrow.updateMany({
+          where: { id: escrow.id, status: escrow.status },
+          data: { status: 'DISPUTED' },
+        })
+        if (claimed.count !== 1) {
+          throw new ValidationError(`Escrow ${escrow.id} changed while dispute opening was being committed`)
+        }
+
+        return tx.dispute.create({
+          data: {
+            tradeId,
+            escrowId: trade.escrowId!,
+            openedBy: raisedBy,
+            reason,
+            evidence: evidence as unknown as object,
+            status: 'OPENED',
+          },
+        })
       })
     } catch (err: any) {
       if (err?.code === 'P2002') {
@@ -167,6 +175,19 @@ export class DisputeService {
       }
       throw err
     }
+
+    // Post-commit only. Event delivery may be retried/reconciled separately,
+    // but observers can no longer see DISPUTED without a canonical Dispute.
+    await emitEscrowTransition(
+      trade.escrowId,
+      tradeId,
+      trade.status === 'DISPUTED' ? 'DISPUTED' : 'FUNDED',
+      'DISPUTED',
+      raisedBy,
+      'settlement.escrow.disputed',
+      {},
+      reason
+    )
 
     // Fase 7.3.1 §B — a script-committed arbiter identity always wins
     // over the configured ArbitrationProvider's own independent pick;
