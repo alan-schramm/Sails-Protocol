@@ -216,7 +216,7 @@ export class WdkSettlementProvider implements SettlementProvider {
       // about this exact WDK API), so nothing further needs writing;
       // re-asserting the same status here is a harmless, idempotent
       // safety net, not the primary mechanism.
-      await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMISSION_UNKNOWN')
+      // The pre-submit CAS already established SUBMISSION_UNKNOWN. Do not let a stale catch path\n      // rewrite a newer SUBMITTED/CONFIRMED truth.\n      // No additional status write is needed here.
       throw err
     }
 
@@ -228,15 +228,15 @@ export class WdkSettlementProvider implements SettlementProvider {
     // never silently reverted to retryable. No try/catch needed here —
     // the thrown error already propagates correctly, and the row's last
     // successfully-written state already blocks the next attempt.
-    await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMITTED', { txHash: hash })
+    await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMITTED', { txHash: hash }, ['SUBMISSION_UNKNOWN'])
 
     const receiptOutcome = await waitForReceiptOutcome(sourceAccount, hash)
     if (receiptOutcome === 'CONFIRMED') {
-      await wdkTransferAttemptRepository.updateStatus(attemptId, 'CONFIRMED')
+      await wdkTransferAttemptRepository.updateStatus(attemptId, 'CONFIRMED', undefined, ['SUBMITTED'])
       return hash
     }
     if (receiptOutcome === 'REVERTED') {
-      await wdkTransferAttemptRepository.updateStatus(attemptId, 'REVERTED')
+      await wdkTransferAttemptRepository.updateStatus(attemptId, 'REVERTED', undefined, ['SUBMITTED'])
       throw new EscrowError(`WDK_USDT_EVM ${operationType} transfer ${hash} for escrow ${escrowId} reverted on-chain — no funds were delivered.`)
     }
     // PENDING — the bounded wait elapsed with no receipt yet. Stays
