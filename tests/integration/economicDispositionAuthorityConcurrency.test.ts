@@ -225,24 +225,32 @@ describe('ADR-005 Economic Disposition Commit Gate — real Postgres concurrency
       const firstCommit = await authorizeDisputedPendingExecution(pending)
       expect(firstCommit).not.toBeNull()
 
-      // Simulates the process restarting: a fresh client observes the
-      // durable state, then the SAME (real, original) prisma-backed
-      // module function is called again for the identical pending
-      // operation — proving reuse survives beyond the original commit's
-      // own request lifecycle, not just within one still-open connection.
-      const independentClient = new PrismaClient({ adapter: new PrismaPg({ connectionString: pg.getUrl() }) })
-      try {
-        const observedBeforeRetry = await independentClient.economicDispositionAuthorization.findUnique({
-          where: { pendingOperationId: pending.id },
-        })
-        expect(observedBeforeRetry).not.toBeNull()
-      } finally {
-        await independentClient.$disconnect()
-      }
+      // Cold-module reload: disconnect the singleton writer, clear the
+      // database + gate modules from Jest's require cache, then load a new
+      // Prisma singleton and a fresh copy of the gate. This is stronger
+      // than merely reading through an independent client: the retry path
+      // itself now executes through newly-instantiated module state and a
+      // newly-created Prisma connection pool, with only durable Postgres
+      // rows carrying authority across the boundary.
+      await prisma.$disconnect()
+      jest.resetModules()
+      const { prisma: restartedPrisma } = require('../../src/common/database') as typeof import('../../src/common/database')
+      const { authorizeDisputedPendingExecution: restartedAuthorize } =
+        require('../../src/modules/open-settlement/economic-disposition-authority') as typeof import('../../src/modules/open-settlement/economic-disposition-authority')
 
+      const observedBeforeRetry = await restartedPrisma.economicDispositionAuthorization.findUnique({
+        where: { pendingOperationId: pending.id },
+      })
+      expect(observedBeforeRetry).not.toBeNull()
+
+      // Advance the live dispute using the already-created service before
+      // the retry. Its Prisma import resolves to the same durable database;
+      // the committed generation-0 authorization must remain reusable.
       await disputeService.appeal(dispute.id, buyer.id)
 
-      const retried = await authorizeDisputedPendingExecution(pending)
+      const restartedPending = await restartedPrisma.escrowPendingTransaction.findUnique({ where: { id: pending.id } })
+      expect(restartedPending).not.toBeNull()
+      const retried = await restartedAuthorize(restartedPending!)
       expect(retried).toEqual(firstCommit)
       expect(retried!.appealRound).toBe(0)
       expect(retried!.disputeId).toBe(dispute.id)

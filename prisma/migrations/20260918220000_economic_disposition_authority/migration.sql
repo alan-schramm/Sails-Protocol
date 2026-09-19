@@ -6,8 +6,10 @@
 -- columns, including any that happen to originate from a disputed ruling —
 -- never backfilled, never fabricated (ADR-005 §9 / mission #218 discipline:
 -- "do not manufacture historical authority provenance"). A legacy row with
--- no recorded generation is one economic-disposition-authority.ts treats as
--- ADR-005-inapplicable (same as an ordinary cooperative operation), not as
+-- no recorded generation is NOT automatically treated as cooperative.
+-- economic-disposition-authority.ts proves the escrow was never disputed
+-- before taking the cooperative fast-path; if any Dispute row exists, the
+-- legacy pending row is ambiguous and fails closed. It is never promoted to
 -- an already-proven current generation.
 ALTER TABLE "escrow_pending_transactions"
   ADD COLUMN "disputeId" TEXT,

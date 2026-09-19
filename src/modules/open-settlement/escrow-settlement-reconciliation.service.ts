@@ -9,6 +9,8 @@ import { feeCollectionRecognitionService } from './fee-collection-recognition.se
 import { multisigProvider, identifyFeeOutput, networkFor, type MultisigEscrowInput } from './multisig.provider'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
+import { authorizePendingExecution } from './capability-execution-authorization'
+import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
 
 const log = childLogger('escrow-settlement-reconciliation')
 
@@ -282,7 +284,21 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
         status: escrow.status,
       }
 
-      const result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
+      // Ask chain truth before deciding whether this is merely convergence
+      // of an effect that already happened, or a recovery attempt that would
+      // become the FIRST broadcaster. Existing external truth must remain
+      // recoverable even if authority changed after the original broadcast
+      // (UNKNOWN != FAILED). A genuinely new economic side effect, however,
+      // must pass the same ADR-005 + ADR-004 commit gates as the live path.
+      const result = await multisigProvider.reconcilePendingSettlement(
+        input,
+        pending.unsignedPsbtBase64,
+        signedList as string[],
+        async () => {
+          await authorizeDisputedPendingExecution(pending)
+          await authorizePendingExecution(pending)
+        }
+      )
       if (result.outcome === 'ANOMALY') {
         // FULLY_SIGNED_NOT_FINALIZED, surfaced explicitly rather than
         // left invisible — see this file's own C8 header comment. Fails
