@@ -5873,3 +5873,76 @@ obligation" is defined anywhere in this repository.
     the durable institutional record.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+48. **Open Code Review — supplemental review-gate candidate, not authority (2026-09-19).**
+    Evaluate Alibaba's Open Code Review (`open-codereview.ai` /
+    `alibaba/open-code-review`) as an optional additional engineering-review
+    surface for Sails. Current external evidence shows an Apache-2.0 CLI that
+    can review working changes/branch diffs/commits, integrate with coding
+    agents and CI/CD, and run against a configured LLM provider. The tool is
+    open source, but model inference may still carry provider/token cost; do
+    not institutionalize it as "free review" without measuring the actual
+    execution mode/cost used by Sails. Required evaluation before adoption:
+    false-positive/false-negative quality on real Sails PRs, privacy/data-flow
+    implications, repository-rule attack surface, secret handling, latency,
+    cost, deterministic policy/rule support, and whether it finds materially
+    different defects from the existing Claude/CTO/CI/Red-Team process.
+    **Rule:** an AI code-review tool may produce findings/evidence; it never
+    becomes architectural, security, release, or merge authority. If adopted,
+    use it as one bounded reviewer in the gate, not as a replacement for exact-
+    SHA CI, external Beta evidence, or CTO review.
+
+49. **System Design synthesis document — required engineering navigation artifact (2026-09-19).**
+    Create a concise `docs/SYSTEM_DESIGN.md` that explains the *current
+    system as a system* for senior engineers and external reviewers without
+    creating a competing architecture authority. The repository already has
+    deep normative/specialized documents (`CORE_ARCHITECTURE.md`,
+    `CORE_IMPLEMENTATION_ARCHITECTURE.md`, `ARCHITECTURE.md`,
+    `NODE_ARCHITECTURE.md`, ADRs/RFCs); the missing artifact is a readable
+    cross-cutting synthesis. It should cover at minimum: system context,
+    component/dependency map, main request/event/economic data flows, storage
+    ownership, public API/SDK boundaries, authority boundaries, settlement
+    provider boundary, transport topology, failure/retry/UNKNOWN model,
+    concurrency/idempotency model, security/trust boundaries, observability,
+    deployment topology, scaling assumptions, recovery/reconciliation, and
+    links to the normative owner for every section. **It must summarize and
+    route; it must not silently redefine frozen architecture.** Sequence after
+    the current Day-0 hardening pass has stabilized enough that the document
+    will not immediately encode known-stale production/test surfaces.
+
+50. **Sails Market DePix Terminal / P2P-operator distribution channel — Product + Architecture Discovery (2026-09-19).**
+    Canonical discovery owner: Issue #231. Evaluate a Sails Market terminal
+    that lets independent P2P operators sell DePix through a ready-made
+    Sails Market flow instead of each operator building its own web platform.
+    Current Eulen Pix2DePix API capability supports Pix→DePix deposits,
+    provider-side split fields, webhooks/status surfaces, and payout-address
+    selection across Liquid / Arkade / Spark; external provider documentation
+    currently marks Arkade and Spark as beta/not production-ready, so any
+    production pilot must be maturity-gated rather than assuming all three
+    rails are equivalent.
+
+    Architecture constraint:
+    `Sails Protocol ≠ Satsails commercial account ≠ Eulen provider authority`.
+    The protocol stays provider-neutral. Sails Market may offer one or both:
+    (A) P2P operator brings its own Eulen/provider credentials; (B) a hosted
+    Satsails-operated managed terminal/aggregator; potentially a hybrid.
+    Hosted aggregation may create a strong adoption/network-effect channel,
+    but its legal/compliance/accounting/provider-concentration consequences
+    belong to the Satsails/Sails Market product layer, not protocol Core.
+
+    Economic constraint:
+    **Sails protocol fee semantics ≠ Eulen `splitFee` primitive.**
+    A provider adapter may use the provider's split mechanism to collect or
+    evidence an obligation, but the Sails fee must remain policy/evidence-
+    governed and portable to other providers. The current 0.40% target must
+    never become structurally dependent on one commercial API.
+
+    Before implementation: validate the actual Satsails↔Eulen commercial/API
+    contract, sub-merchant/operator model, credential isolation, compliance
+    allocation, split-beneficiary mechanics, rate/daily limits, retry/
+    idempotency, webhook reconciliation, UNKNOWN/provider outage handling,
+    operator revenue ledger/payouts, fee evidence/entitlement integration,
+    privacy/reputation mapping, and production eligibility per payout rail.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
+
