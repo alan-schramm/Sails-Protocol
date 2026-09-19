@@ -1,5 +1,5 @@
 # ARCHITECTURE.md
-### Sails Protocol — Engineering Handoff · Document 2 of 20
+### Sails Protocol — Broad / Reference-System Architecture
 
 > **Authority / status:** this document owns broad/reference-system
 > architecture and preserves historical implementation topology. The current
@@ -10,8 +10,7 @@
 > Historical uses of **Core** in this document must not be interpreted as the
 > modern **Pure Sails Core** boundary.
 
-> Read `PROJECT_CONTEXT.md` first if you haven't. This document assumes you
-> understand the Protocol/Module/Reference-Implementation hierarchy.
+> For the shortest current technical path, read `PROJECT_CONTEXT.md` → `SYSTEM_DESIGN.md` → `CORE_ARCHITECTURE.md`. This document remains valuable for broad/reference-system topology and historical implementation context.
 
 ---
 
