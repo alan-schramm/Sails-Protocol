@@ -26,7 +26,8 @@ export interface WdkTransferAttemptRepository {
   /** Most recent attempt for this exact logical operation, or null if none was ever started. */
   findLatest(escrowId: string, operationType: WdkTransferOperationType): Promise<WdkTransferAttemptRow | null>
   create(input: CreateWdkTransferAttemptInput): Promise<WdkTransferAttemptRow>
-  updateStatus(id: string, status: WdkTransferAttemptStatus, extra?: { txHash?: string; chainId?: number }): Promise<WdkTransferAttemptRow>
+  replaceActive(previousId: string, expectedStatuses: WdkTransferAttemptStatus[], input: CreateWdkTransferAttemptInput): Promise<WdkTransferAttemptRow>
+  updateStatus(id: string, status: WdkTransferAttemptStatus, extra?: { txHash?: string; chainId?: number }, expectedStatuses?: WdkTransferAttemptStatus[]): Promise<WdkTransferAttemptRow>
 }
 
 class PrismaWdkTransferAttemptRepository implements WdkTransferAttemptRepository {
@@ -44,15 +45,59 @@ class PrismaWdkTransferAttemptRepository implements WdkTransferAttemptRepository
         operationType: input.operationType,
         destination: input.destination,
         amount: input.amount,
+        activeKey: `${input.escrowId}:${input.operationType}`,
       },
     })
   }
 
-  async updateStatus(id: string, status: WdkTransferAttemptStatus, extra?: { txHash?: string; chainId?: number }) {
-    return prisma.wdkTransferAttempt.update({
-      where: { id },
+  async replaceActive(previousId: string, expectedStatuses: WdkTransferAttemptStatus[], input: CreateWdkTransferAttemptInput) {
+    const activeKey = `${input.escrowId}:${input.operationType}`
+    return prisma.$transaction(async (tx) => {
+      const released = await tx.wdkTransferAttempt.updateMany({
+        where: { id: previousId, activeKey, status: { in: expectedStatuses } },
+        data: { activeKey: null },
+      })
+      if (released.count !== 1) {
+        throw new Error(`WdkTransferAttempt ${previousId} cannot relinquish active generation ${activeKey}: expected status ${expectedStatuses.join('|')} or ownership was lost`)
+      }
+      return tx.wdkTransferAttempt.create({
+        data: {
+          escrowId: input.escrowId,
+          operationType: input.operationType,
+          destination: input.destination,
+          amount: input.amount,
+          activeKey,
+        },
+      })
+    })
+  }
+
+  async updateStatus(
+    id: string,
+    status: WdkTransferAttemptStatus,
+    extra?: { txHash?: string; chainId?: number },
+    expectedStatuses?: WdkTransferAttemptStatus[]
+  ) {
+    if (!expectedStatuses?.length) {
+      return prisma.wdkTransferAttempt.update({
+        where: { id },
+        data: { status, ...(extra?.txHash !== undefined ? { txHash: extra.txHash } : {}), ...(extra?.chainId !== undefined ? { chainId: extra.chainId } : {}) },
+      })
+    }
+
+    const claimed = await prisma.wdkTransferAttempt.updateMany({
+      where: { id, status: { in: expectedStatuses } },
       data: { status, ...(extra?.txHash !== undefined ? { txHash: extra.txHash } : {}), ...(extra?.chainId !== undefined ? { chainId: extra.chainId } : {}) },
     })
+    if (claimed.count !== 1) {
+      const current = await prisma.wdkTransferAttempt.findUnique({ where: { id } })
+      throw new Error(
+        `WdkTransferAttempt ${id} transition ownership lost: expected ${expectedStatuses.join('|')}, current=${current?.status ?? 'MISSING'}, requested=${status}`
+      )
+    }
+    const updated = await prisma.wdkTransferAttempt.findUnique({ where: { id } })
+    if (!updated) throw new Error(`WdkTransferAttempt ${id} disappeared after status transition`)
+    return updated
   }
 }
 
