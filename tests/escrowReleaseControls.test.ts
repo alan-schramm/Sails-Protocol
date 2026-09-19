@@ -518,8 +518,12 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // catch block), not a leftover lock. "Unpersisted" means no lock
       // *fields* (txLockId/multisigAddr/lockedAt/expiresAt) were ever
       // set, not "update() was never called" — checked precisely below.
-      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
-      expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { status: 'CREATED' } })
+      // #241: rollback is now ownership-conditional. The failed worker may
+      // revert only while it still owns FUNDS_LOCKED.
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'escrow-1', status: 'FUNDS_LOCKED' },
+        data: { status: 'CREATED' },
+      })
       expect(eventBus.emit).not.toHaveBeenCalledWith('settlement.escrow.locked', expect.anything(), expect.anything())
     })
 
@@ -549,11 +553,9 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       const result = await escrowService.lockFunds('escrow-1', 'seller-1')
 
       expect(result.status).toBe('FUNDS_LOCKED')
-      // 2, not 1: the failed first attempt above already contributed one
-      // update() call (the revert-back-to-CREATED — see the previous
-      // test's identical comment), and this successful retry contributes
-      // its own field-fill update() — both real, both expected.
-      expect(mockEscrowUpdate).toHaveBeenCalledTimes(2)
+      // The failed attempt's rollback is a CAS updateMany() under #241;
+      // update() is now reserved here for the successful provider result.
+      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
     })
   })
 
