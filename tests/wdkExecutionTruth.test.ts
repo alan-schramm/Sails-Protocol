@@ -52,6 +52,9 @@ jest.mock('@tetherto/wdk-wallet-evm', () => ({
 const mockAttemptFindFirst = jest.fn()
 const mockAttemptCreate = jest.fn()
 const mockAttemptUpdate = jest.fn()
+const mockAttemptUpdateMany = jest.fn()
+const mockAttemptFindUnique = jest.fn()
+const mockTransaction = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -59,7 +62,10 @@ jest.mock('../src/common/database', () => ({
       findFirst: (...args: unknown[]) => mockAttemptFindFirst(...args),
       create: (...args: unknown[]) => mockAttemptCreate(...args),
       update: (...args: unknown[]) => mockAttemptUpdate(...args),
+      updateMany: (...args: unknown[]) => mockAttemptUpdateMany(...args),
+      findUnique: (...args: unknown[]) => mockAttemptFindUnique(...args),
     },
+    $transaction: (...args: unknown[]) => mockTransaction(...args),
   },
 }))
 
@@ -87,6 +93,16 @@ beforeEach(() => {
   mockGetAddress.mockResolvedValue('0xEscrowAddr')
   mockAttemptCreate.mockImplementation(async (args: { data: Record<string, unknown> }) => row({ id: 'attempt-new', status: 'PREPARED', ...args.data } as any))
   mockAttemptUpdate.mockImplementation(async (args: { where: { id: string }; data: Record<string, unknown> }) => row({ id: args.where.id, ...args.data } as any))
+  mockAttemptUpdateMany.mockResolvedValue({ count: 1 })
+  mockAttemptFindUnique.mockImplementation(async (args: { where: { id: string } }) => row({ id: args.where.id }))
+  mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+    fn({
+      wdkTransferAttempt: {
+        updateMany: mockAttemptUpdateMany,
+        create: mockAttemptCreate,
+      },
+    })
+  )
 })
 
 describe('lockFunds() — durable operation truth', () => {
