@@ -84,6 +84,44 @@ describe('WDK active generation ownership — PostgreSQL', () => {
     expect(active).toHaveLength(1)
   })
 
+  it('refuses to replace an active generation from an unsafe predecessor state', async () => {
+    for (const unsafeStatus of ['SUBMISSION_UNKNOWN', 'SUBMITTED', 'CONFIRMED'] as const) {
+      await prisma.wdkTransferAttempt.deleteMany({ where: { escrowId } })
+      const first = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
+      await wdkTransferAttemptRepository.updateStatus(first.id, unsafeStatus, unsafeStatus === 'SUBMITTED' || unsafeStatus === 'CONFIRMED' ? { txHash: '0xabc' } : undefined, ['PREPARED'])
+
+      await expect(
+        wdkTransferAttemptRepository.replaceActive(first.id, ['REVERTED'], { escrowId, operationType, destination, amount })
+      ).rejects.toThrow(/cannot relinquish active generation/)
+
+      const active = await prisma.wdkTransferAttempt.findMany({
+        where: { escrowId, operationType, activeKey: `${escrowId}:${operationType}` },
+      })
+      expect(active).toHaveLength(1)
+      expect(active[0].id).toBe(first.id)
+      expect(active[0].status).toBe(unsafeStatus)
+    }
+  })
+
+  it('keeps RELEASE and SPLIT legs as independent ownership domains', async () => {
+    const operationTypes = ['RELEASE', 'SPLIT_BUYER', 'SPLIT_SELLER'] as const
+    const created = await Promise.all(
+      operationTypes.map((op) =>
+        wdkTransferAttemptRepository.create({ escrowId, operationType: op, destination, amount })
+      )
+    )
+
+    expect(created).toHaveLength(3)
+    const active = await prisma.wdkTransferAttempt.findMany({
+      where: { escrowId, activeKey: { not: null } },
+      orderBy: { operationType: 'asc' },
+    })
+    expect(active).toHaveLength(3)
+    expect(new Set(active.map((x) => x.activeKey))).toEqual(
+      new Set(operationTypes.map((op) => `${escrowId}:${op}`))
+    )
+  })
+
   it('allows at most one replacement generation under concurrent retry', async () => {
     const first = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
     await wdkTransferAttemptRepository.updateStatus(first.id, 'REVERTED', undefined, ['PREPARED'])
