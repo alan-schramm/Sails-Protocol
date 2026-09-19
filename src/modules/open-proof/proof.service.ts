@@ -23,7 +23,7 @@ import { createHash, randomBytes } from 'crypto'
 import nacl from 'tweetnacl'
 import { prisma } from '../../common/database'
 import { redis } from '../../common/redis'
-import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
+import { NotFoundError, ValidationError, ForbiddenError, EvidenceStorageError } from '../../common/errors'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
 import { proofRegistry } from './proof-registry'
@@ -455,6 +455,50 @@ export class ProofService {
     await eventBus.emit('proof.submitted', { proofId, claimId: proof.claimId }, proof.claimId)
 
     return reference
+  }
+
+  /**
+   * Issue #265 Step 4 — hash verification lives HERE, not inside any
+   * `EvidenceProvider` implementation: "storage provider retrieves
+   * bytes; OpenProof/service layer verifies them against the canonical
+   * `EvidenceReference` metadata. Do not let a storage backend become
+   * the source of evidence truth." A storage backend can be UNAVAILABLE
+   * (a provider-level `EvidenceStorageError` with `storageReason:
+   * 'UNAVAILABLE'`, propagated as-is) or return the wrong bytes for a
+   * genuine `NOT_FOUND` reference (never conflated — `retrieve()` itself
+   * already keeps those apart); this method adds the one thing neither
+   * provider can decide on its own: whether the bytes it got back are
+   * the SAME bytes `attachEvidence()` actually stored, per the
+   * database's own recorded `sha256`. A mismatch throws
+   * `EvidenceStorageError` with `storageReason: 'CORRUPTED'` — corrupted/
+   * tampered bytes are rejected here, never returned to a caller as if
+   * they were the real evidence.
+   *
+   * Deliberately not wired to any HTTP route: #234's own audit found
+   * zero byte-retrieval route exists anywhere in production code today
+   * (evidence upload is write-only through the current API), and #265's
+   * mission explicitly lists "implement retrieval product UX/API unless
+   * strictly required for provider testability" as a non-goal. This
+   * exists so the hash-verification contract is real, internally
+   * callable, and testable without inventing that API surface.
+   */
+  async retrieveVerifiedEvidence(evidenceReferenceId: string, requestedBy: string): Promise<Uint8Array> {
+    const reference = await prisma.evidenceReference.findUnique({
+      where: { id: evidenceReferenceId },
+      include: { proof: { include: { claim: true } } },
+    })
+    if (!reference) throw new NotFoundError('EvidenceReference', evidenceReferenceId)
+    await assertClaimEconomicScopeAccess(reference.proof.claim, requestedBy)
+
+    const bytes = await evidenceProvider.retrieve(reference.uri)
+    const actualSha256 = createHash('sha256').update(bytes).digest('hex')
+    if (actualSha256 !== reference.sha256) {
+      throw new EvidenceStorageError(
+        `Retrieved evidence for ${evidenceReferenceId} does not match its recorded sha256 (expected ${reference.sha256}, got ${actualSha256})`,
+        'CORRUPTED'
+      )
+    }
+    return bytes
   }
 
   /**

@@ -1,0 +1,138 @@
+/**
+ * S3EvidenceProvider — Issue #265. The production-capable implementation
+ * of `EvidenceProvider` (`evidence-provider.ts`). Generic S3-compatible
+ * object storage, not Cloudflare-only/AWS-only: `@aws-sdk/client-s3`
+ * against a configurable `endpoint` works unmodified against real AWS
+ * S3, Cloudflare R2 (S3-compatible API), MinIO, or any other
+ * S3-compatible vendor — the mission's own explicit requirement to
+ * prefer a standard, replaceable object-storage interface over vendor
+ * lock-in. `LocalFilesystemEvidenceProvider` remains the dev/reference
+ * implementation; this is the deployment target for production (see
+ * `config/index.ts`'s own FATAL boot guard, which refuses to start a
+ * production process without this provider fully configured).
+ *
+ * Encryption posture (mission Step 7): requests SSE-S3
+ * (`ServerSideEncryption: 'AES256'`) on every `PutObjectCommand` — the
+ * baseline every S3-compatible vendor supports without extra KMS setup
+ * or cost, and the honest floor the mission asks for ("at minimum
+ * production provider must support encryption at rest... do NOT invent
+ * client-side encryption/key custody"). This is provider-managed
+ * encryption at rest, not end-to-end/client-side encryption — do not
+ * overclaim it as the latter.
+ *
+ * Privacy (mission "Required provider behavior"): no public bucket ACLs
+ * are ever set, and no permanent public URL is constructed or returned
+ * — `store()`/`retrieve()` only ever use the authenticated SDK client
+ * boundary, never a signed/unsigned public link.
+ */
+import { createHash } from 'crypto'
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  NoSuchKey,
+  type S3ClientConfig,
+} from '@aws-sdk/client-s3'
+import type { EvidenceProvider, StoredMedia } from './evidence-provider'
+import { EvidenceStorageError } from '../../common/errors'
+
+export interface S3EvidenceProviderConfig {
+  endpoint: string
+  region: string
+  bucket: string
+  accessKeyId: string
+  secretAccessKey: string
+  forcePathStyle: boolean
+}
+
+export class S3EvidenceProvider implements EvidenceProvider {
+  providerName = 's3'
+
+  private readonly client: S3Client
+  private readonly bucket: string
+
+  constructor(cfg: S3EvidenceProviderConfig) {
+    this.bucket = cfg.bucket
+    const clientConfig: S3ClientConfig = {
+      region: cfg.region,
+      credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
+      forcePathStyle: cfg.forcePathStyle,
+    }
+    // Real AWS S3 resolves its own regional endpoint from `region` alone
+    // — only set `endpoint` for an S3-compatible vendor (R2, MinIO) that
+    // needs one. An empty string here would otherwise override the SDK's
+    // own endpoint resolution with a broken empty-string URL.
+    if (cfg.endpoint !== '') clientConfig.endpoint = cfg.endpoint
+    this.client = new S3Client(clientConfig)
+  }
+
+  async store(media: Uint8Array, mimeType: string): Promise<StoredMedia> {
+    const sha256 = createHash('sha256').update(media).digest('hex')
+    // Content-addressed key — same identity scheme as
+    // LocalFilesystemEvidenceProvider (mimeTypeExtension there), so
+    // switching providers doesn't change what a stored reference's `uri`
+    // looks like in kind, only where it resolves.
+    const extension = mimeTypeExtension(mimeType)
+    const key = `${sha256}${extension}`
+    try {
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: media,
+          ServerSideEncryption: 'AES256',
+        })
+      )
+    } catch (err) {
+      throw new EvidenceStorageError(`Evidence storage unavailable while storing ${key}: ${(err as Error).message}`, 'UNAVAILABLE')
+    }
+    return { provider: this.providerName, uri: key, sha256 }
+  }
+
+  async retrieve(uri: string): Promise<Uint8Array> {
+    try {
+      const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: uri }))
+      if (!result.Body) {
+        throw new EvidenceStorageError(`Evidence storage returned no body for ${uri}`, 'UNAVAILABLE')
+      }
+      return await result.Body.transformToByteArray()
+    } catch (err) {
+      if (err instanceof EvidenceStorageError) throw err
+      if (err instanceof NoSuchKey || isNotFoundError(err)) {
+        throw new EvidenceStorageError(`Evidence not found at ${uri}`, 'NOT_FOUND')
+      }
+      throw new EvidenceStorageError(`Evidence storage unavailable for ${uri}: ${(err as Error).message}`, 'UNAVAILABLE')
+    }
+  }
+
+  async delete(uri: string): Promise<void> {
+    try {
+      // S3's own DeleteObject is already idempotent — deleting an
+      // already-absent key returns success (204), not an error — so no
+      // NOT_FOUND special-casing is needed here, matching
+      // LocalFilesystemEvidenceProvider's own idempotent delete()
+      // contract.
+      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: uri }))
+    } catch (err) {
+      throw new EvidenceStorageError(`Evidence storage unavailable while deleting ${uri}: ${(err as Error).message}`, 'UNAVAILABLE')
+    }
+  }
+}
+
+function isNotFoundError(err: unknown): boolean {
+  const name = (err as { name?: string })?.name
+  const statusCode = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
+  return name === 'NotFound' || name === 'NoSuchKey' || statusCode === 404
+}
+
+function mimeTypeExtension(mimeType: string): string {
+  const known: Record<string, string> = {
+    image: '.bin',
+    video: '.bin',
+    document: '.bin',
+    ocr: '.txt',
+    external_reference: '.bin',
+  }
+  return known[mimeType] ?? '.bin'
+}

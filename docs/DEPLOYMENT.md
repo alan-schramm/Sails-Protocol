@@ -602,6 +602,21 @@ process. What makes this true, and what still doesn't:
   No real replay was produced during this mission's multi-instance
   testing; left as a known, disclosed limitation rather than a fixed
   finding.
+- **OpenProof evidence storage — instance-independent ONLY when
+  `EVIDENCE_PROVIDER=s3` (Issue #265).** `LocalFilesystemEvidenceProvider`
+  (this section's silence on evidence storage before Issue #265 was
+  itself a gap, found during Missão/Issue #234's own audit) writes to a
+  path on the container's own local disk — not shared across instances
+  and not durable across a redeploy. `S3EvidenceProvider`
+  (`src/modules/open-proof/s3-evidence-provider.ts`) is the
+  instance-independent, restart-durable alternative: any S3-compatible
+  bucket (AWS S3, Cloudflare R2, MinIO) reachable by every instance.
+  `config/index.ts` refuses to boot in production with
+  `EVIDENCE_PROVIDER` unset/`local-fs` — see §8's env var table pattern;
+  set `EVIDENCE_PROVIDER=s3` plus `EVIDENCE_S3_BUCKET`/
+  `EVIDENCE_S3_ACCESS_KEY_ID`/`EVIDENCE_S3_SECRET_ACCESS_KEY` (and
+  `EVIDENCE_S3_ENDPOINT`/`EVIDENCE_S3_REGION`/`EVIDENCE_S3_FORCE_PATH_STYLE`
+  for a non-AWS S3-compatible vendor).
 
 None of the above requires sticky sessions at the load balancer — any
 instance can serve any HTTP request or accept any new WebSocket

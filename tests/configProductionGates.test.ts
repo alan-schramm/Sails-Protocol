@@ -39,6 +39,15 @@ const REQUIRED_PROD_ENV = {
   // MULTISIG_EXPLORER_API_URL non-contradictory for every test in this
   // file that doesn't specifically exercise the network gate below.
   MULTISIG_NETWORK: 'testnet',
+  // Issue #265 — EVIDENCE_PROVIDER now required in production (same
+  // required-in-prod/defaulted-in-dev shape as DATABASE_URL/REDIS_URL
+  // above); every test in this file that boots a full production
+  // configuration but isn't specifically exercising the evidence-storage
+  // gate below must satisfy it explicitly.
+  EVIDENCE_PROVIDER: 's3',
+  EVIDENCE_S3_BUCKET: 'real-evidence-bucket',
+  EVIDENCE_S3_ACCESS_KEY_ID: 'real-access-key',
+  EVIDENCE_S3_SECRET_ACCESS_KEY: 'real-secret-key',
 }
 
 describe('config/index.ts — production boot gates (Missão 06.5)', () => {
@@ -347,6 +356,47 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     it('boots in development with MOCK_ESCROW=false and a real WDK_SEED_PHRASE — the real testnet rehearsal path (npm run demo:pix-to-usdt) is unaffected', () => {
       const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: 'false', MOCK_SETTLEMENT: 'false', MULTISIG_NETWORK: undefined, WDK_SEED_PHRASE: 'test only example nut use this real life secret phrase must random' })
       expect(load).not.toThrow()
+    })
+  })
+
+  describe('EVIDENCE_PROVIDER gate (Issue #265) — production must not silently fall back to local filesystem', () => {
+    it('refuses to boot in production when EVIDENCE_PROVIDER is unset (defaults local-fs)', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, EVIDENCE_PROVIDER: undefined })
+      expect(load).toThrow(/EVIDENCE_PROVIDER/)
+      expect(load).toThrow(/dev\/reference implementation only/)
+    })
+
+    it('refuses to boot in production when EVIDENCE_PROVIDER=local-fs explicitly', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, EVIDENCE_PROVIDER: 'local-fs' })
+      expect(load).toThrow(/EVIDENCE_PROVIDER/)
+    })
+
+    it('refuses to boot in production when EVIDENCE_PROVIDER=s3 but EVIDENCE_S3_BUCKET is unset — a partially wired production provider is not acceptable', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, EVIDENCE_S3_BUCKET: undefined })
+      expect(load).toThrow(/EVIDENCE_S3_BUCKET/)
+    })
+
+    it('refuses to boot in production when EVIDENCE_PROVIDER=s3 but EVIDENCE_S3_ACCESS_KEY_ID is unset', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, EVIDENCE_S3_ACCESS_KEY_ID: undefined })
+      expect(load).toThrow(/EVIDENCE_S3_ACCESS_KEY_ID/)
+    })
+
+    it('refuses to boot in production when EVIDENCE_PROVIDER=s3 but EVIDENCE_S3_SECRET_ACCESS_KEY is unset', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, EVIDENCE_S3_SECRET_ACCESS_KEY: undefined })
+      expect(load).toThrow(/EVIDENCE_S3_SECRET_ACCESS_KEY/)
+    })
+
+    it('boots in production when EVIDENCE_PROVIDER=s3 and every EVIDENCE_S3_* field is configured', () => {
+      const load = loadConfig(REQUIRED_PROD_ENV)
+      expect(load).not.toThrow()
+      expect(load().proof.evidenceProviderType).toBe('s3')
+      expect(load().proof.evidenceS3.bucket).toBe('real-evidence-bucket')
+    })
+
+    it('boots in development with EVIDENCE_PROVIDER unset — local-fs remains a legitimate dev/reference default', () => {
+      const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined, EVIDENCE_PROVIDER: undefined })
+      expect(load).not.toThrow()
+      expect(load().proof.evidenceProviderType).toBe('local-fs')
     })
   })
 
