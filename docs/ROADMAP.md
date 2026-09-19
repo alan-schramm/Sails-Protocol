@@ -1,5 +1,5 @@
 # ROADMAP.md
-### Sails Protocol — Engineering Handoff · Document 10 of 20
+### Sails Protocol — Product / Engineering Roadmap
 
 > Dates are expressed **relative to launch** (Months 1-12), not as fixed
 > calendar quarters. This is a deliberate choice — a roadmap with fixed
@@ -213,5 +213,4 @@ Do not present the roadmap above as starting from zero. As of this handoff:
 - The P2P transport layer already correctly supports multiple concurrent
   users (`PearNode`/`PearNodeRegistry` — see `NODE_ARCHITECTURE.md`)
 
-What genuinely remains is listed in full in `TODO.md` — read that document
-before assuming any Months 1-3 item requires starting from scratch.
+For current unresolved engineering obligations, use `BACKLOG.md` and the live GitHub Issues/Project as the primary operational sources. `TODO.md` is retained as an audited historical/category-oriented implementation-gap inventory with limited authority and may contain resolved or superseded material. Do not infer current remaining work from this roadmap or `TODO.md` alone.
