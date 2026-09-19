@@ -11,6 +11,16 @@
 
 ---
 
+## Current production-open status
+
+> **Current truth (2026-09-19): Sails is not yet production-open.** The roadmap describes target sequencing and commitments; it is not a production-readiness certificate.
+>
+> Production-open remains gated by the Day-0 / Partner Beta completion program and unresolved MUST-FIX owners, including current work on evidence durability/authorization, economic-limit enforcement, temporal ordering, authority liveness, accounting crash consistency and durable downstream projection completion.
+>
+> Canonical operational owners: GitHub Issue #105 (Day-0 completion gate), #220 (Production Surface Audit / remediation program), and their bounded child/related issues. Do not infer Production Eligibility from implementation existence, passing unit tests, provider registration, or roadmap placement.
+
+---
+
 ## Status Legend (used throughout this document and every other doc in this handoff)
 
 - **✅ Proven** — implemented and functional in a reference implementation
