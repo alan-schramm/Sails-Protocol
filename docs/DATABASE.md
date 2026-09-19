@@ -1,10 +1,7 @@
 # DATABASE.md
-### Sails Protocol — Engineering Handoff · Document 3 of 20
+### Sails Protocol — Reference Runtime Persistence Model
 
-> Schema lives at `prisma/schema.prisma` in the Satsails reference
-> implementation. PostgreSQL is the reference implementation's choice — the
-> protocol itself does not mandate any specific database (see
-> `ARCHITECTURE.md` section 1).
+> **Authority / status:** detailed persistence reference for the TypeScript Reference Implementation. `prisma/schema.prisma` is the implementation source of truth for current models/enums. PostgreSQL/Prisma are reference-runtime choices, not protocol requirements.
 
 ---
 
@@ -1258,11 +1255,10 @@ implementation could use any cache/fan-out strategy or none at all.
 
 ---
 
-## 5. Not Yet Implemented (Intent Engine's own tables)
+## 5. Intent persistence — current implementation
 
-`PROTOCOL_SPECIFICATION.md` describes a generic `intents` /
-`intent_payloads` / `intent_transitions` table design for the future Intent
-Engine core. **These tables do not exist yet** in `schema.prisma`. Today,
-`Offer` with its `intentType` field is a stand-in for `TradeIntent`. Building
-the full generic Intent Engine tables is a `Meses 1-3` / `Meses 4-6` roadmap
-item — see `ROADMAP.md` and `TODO.md`.
+The earlier handoff version of this section said Intent persistence did not exist. That is no longer true.
+
+Current `prisma/schema.prisma` includes real `Intent` and `IntentEvent` models, with durable lifecycle/event history. `Offer` also carries an optional `intentId` relationship for the current Intent-as-entry-point path.
+
+Use the actual schema and current Intent/RFC documents for exact fields and lifecycle behavior. Do not infer current Intent persistence from the historical "not yet implemented" statement or from `TODO.md`.
