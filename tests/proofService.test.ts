@@ -188,6 +188,10 @@ describe('ProofService.getEvidenceBundleForTrade() — RFC-007 D6, real per-trad
   beforeEach(() => jest.clearAllMocks())
 
   it('aggregates claims, proofs, verifications, externalReferences, and the real Timeline', async () => {
+    // Issue #264 — getEvidenceBundleForTrade() now enforces
+    // tradeService.assertParticipant() itself; 'buyer-1' is this trade's
+    // buyer.
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockClaimFindMany.mockResolvedValue([
       {
         id: 'claim-1', tradeId: 'trade-1',
@@ -199,7 +203,7 @@ describe('ProofService.getEvidenceBundleForTrade() — RFC-007 D6, real per-trad
     mockGetEvents.mockResolvedValue([{ eventType: 'openp2p.trade.created', eventId: 'e-1' }])
 
     const service = new ProofService()
-    const bundle = await service.getEvidenceBundleForTrade('trade-1')
+    const bundle = await service.getEvidenceBundleForTrade('trade-1', 'buyer-1')
 
     expect(mockClaimFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tradeId: 'trade-1' } }))
     expect(bundle.tradeId).toBe('trade-1')
@@ -211,12 +215,22 @@ describe('ProofService.getEvidenceBundleForTrade() — RFC-007 D6, real per-trad
   })
 
   it('returns empty arrays for a trade with no claims, never throws', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-empty', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockClaimFindMany.mockResolvedValue([])
     mockGetEvents.mockResolvedValue([])
     const service = new ProofService()
-    const bundle = await service.getEvidenceBundleForTrade('trade-empty')
+    const bundle = await service.getEvidenceBundleForTrade('trade-empty', 'buyer-1')
     expect(bundle.claims).toEqual([])
     expect(bundle.proofs).toEqual([])
+  })
+
+  it('Issue #264 — rejects a direct service call from an unrelated actor, proving the service boundary itself enforces authorization, not only the HTTP route', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    const service = new ProofService()
+    await expect(service.getEvidenceBundleForTrade('trade-1', 'outsider-1')).rejects.toThrow(
+      'is not a party to trade'
+    )
+    expect(mockClaimFindMany).not.toHaveBeenCalled()
   })
 })
 

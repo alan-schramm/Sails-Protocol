@@ -42,9 +42,19 @@ const mockDurableEventRecordDelegate = {
 const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
   callback({ durableEventRecord: mockDurableEventRecordDelegate, $executeRaw: jest.fn().mockResolvedValue(0) })
 )
+// Issue #264 — getEvidenceBundleForTrade() now enforces
+// tradeService.assertParticipant() itself; every trade id this file's
+// own tests use ('trade-1', 'trade-with-no-events') resolves to a real
+// trade with 'buyer-1' as its buyer, matching the requestedBy each call
+// below now passes.
+const mockTradeFindUnique = jest.fn((...args: unknown[]) => {
+  const { where } = args[0] as { where: { id: string } }
+  return Promise.resolve({ id: where.id, buyerId: 'buyer-1', sellerId: 'seller-1' })
+})
 jest.mock('../src/common/database', () => ({
   prisma: {
     claim: { findMany: (...args: unknown[]) => mockClaimFindMany(...args) },
+    trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
     durableEventRecord: mockDurableEventRecordDelegate,
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
@@ -64,7 +74,7 @@ describe('Evidence Bundle — timeline durability disclosure (Missão 05)', () =
   })
 
   it('reports the real durability posture of the timeline it returns, never leaving it implicit', async () => {
-    const bundle = await proofService.getEvidenceBundleForTrade('trade-1')
+    const bundle = await proofService.getEvidenceBundleForTrade('trade-1', 'buyer-1')
 
     expect(bundle).toHaveProperty('timelineDurable')
     expect(bundle).toHaveProperty('timelineStore')
@@ -85,7 +95,7 @@ describe('Evidence Bundle — timeline durability disclosure (Missão 05)', () =
     expect(eventBus.durable).toBe(true)
     expect(eventBus.storeName).toBe('postgres')
 
-    const bundle = await proofService.getEvidenceBundleForTrade('trade-with-no-events')
+    const bundle = await proofService.getEvidenceBundleForTrade('trade-with-no-events', 'buyer-1')
     expect(bundle.timeline).toEqual([])
     expect(bundle.timelineDurable).toBe(true)
   })
@@ -98,7 +108,7 @@ describe('Evidence Bundle — timeline durability disclosure (Missão 05)', () =
       },
     ])
 
-    const bundle = await proofService.getEvidenceBundleForTrade('trade-1')
+    const bundle = await proofService.getEvidenceBundleForTrade('trade-1', 'buyer-1')
 
     // Durable evidence survives regardless of the ephemeral timeline —
     // the distinction this disclosure exists to make legible.

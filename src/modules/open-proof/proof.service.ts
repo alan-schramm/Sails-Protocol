@@ -517,8 +517,32 @@ export class ProofService {
    * literal `intentId` — same real-world correction `core/timeline.ts`'s
    * own header comment already explains and this file's `Claim.tradeId`
    * schema comment repeats.
+   *
+   * Issue #264 — this method previously took no caller identity at all;
+   * GET /v1/proof/trades/:tradeId/bundle's own route enforced
+   * tradeService.assertParticipant() before calling here, but that made
+   * "HTTP route protected" != "service boundary protected" — a direct
+   * service caller (a test, a future internal caller, a different route)
+   * could read any trade's full evidence bundle with no authorization at
+   * all. `requestedBy` is new, and the SAME canonical
+   * tradeService.assertParticipant() the route already used is now
+   * enforced HERE too — not a second, independently-maintained buyer/
+   * seller check. Deliberately does NOT add current-arbiter read
+   * authority: the pre-existing route only ever granted buyer/seller
+   * (assertParticipant() has no arbiter branch), and nothing in RFC-007
+   * D6 or this method's own history establishes arbiter access to this
+   * specific trade-scoped aggregate — broadening it here would be
+   * inventing new authority, not closing this bug. (Contrast with
+   * proof.service.ts's own assertClaimEconomicScopeAccess(), used by
+   * every OTHER OpenProof method since #261, which DOES include current-
+   * arbiter access for the claim-scoped bundle and other Claim/Proof
+   * operations — that's a real, separately-flagged inconsistency between
+   * this trade-scoped aggregate and the rest of OpenProof, reported in
+   * this mission's own return, not silently resolved either way here.)
    */
-  async getEvidenceBundleForTrade(tradeId: string) {
+  async getEvidenceBundleForTrade(tradeId: string, requestedBy: string) {
+    await tradeService.assertParticipant(tradeId, requestedBy)
+
     const claims = await prisma.claim.findMany({
       where: { tradeId },
       include: { proofs: { include: { verifications: true, evidenceReferences: true } } },
