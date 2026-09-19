@@ -24,9 +24,11 @@
 export {} // see chatUnification.test.ts's identical comment
 
 let mockEscrowFeatureFlag = false // MULTISIG/LIGHTNING_HODL only matter with mockEscrow off
+let isProductionFlag = false // Issue #229 — MOCK escrow production-eligibility gate
 jest.mock('../src/config', () => ({
   get config() {
     return {
+      isProduction: isProductionFlag,
       features: { mockEscrow: mockEscrowFeatureFlag, enforceCapabilities: false, requireDualApprovalForRelease: false },
       trade: { defaultTimelockHours: 24 },
       settlement: { trustedArbitrators: ['arb-1'] },
@@ -42,6 +44,18 @@ jest.mock('@tetherto/wdk-wallet-evm', () => ({
   __esModule: true,
   default: class FakeWalletManagerEvm {},
 }))
+
+// File-scope safety net for isProductionFlag (Issue #229 test block below):
+// every OTHER describe block in this file resets mockEscrowFeatureFlag in
+// its own beforeEach but has no reason to know about isProductionFlag, so a
+// production-mode test left it `true` would otherwise leak into whichever
+// describe block happens to run next (real jest.config.js file-level
+// isolation resets module state between FILES, never between tests within
+// one file). A single top-level afterEach is the one place that can
+// guarantee this without touching every existing beforeEach individually.
+afterEach(() => {
+  isProductionFlag = false
+})
 
 // @arkade-os/sdk's CJS build still transitively requires @scure/btc-signer,
 // which ships pure ESM (no CJS build) — same "Unexpected token 'export'"
@@ -215,6 +229,7 @@ jest.mock('../src/common/database', () => ({
 
 import { escrowService, recommendedEscrowType } from '../src/modules/open-settlement/escrow.service'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
+import { EscrowError } from '../src/common/errors'
 
 const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
 const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
@@ -306,6 +321,83 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
     await escrowService.createEscrow({ tradeId: 'trade-6', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
+  })
+})
+
+describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+    isProductionFlag = false
+  })
+
+  it('rejects an explicit type: "MOCK" in production', async () => {
+    isProductionFlag = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-prod-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    ).rejects.toThrow(/Refusing to create a MOCK escrow in production/)
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects an explicit type: "MOCK" in production regardless of asset (not just BTC)', async () => {
+    isProductionFlag = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-prod-2', type: 'MOCK', lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+    ).rejects.toThrow(/Refusing to create a MOCK escrow in production/)
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects via the standard EscrowError shape (409, ESCROW_ERROR, reason DISABLED) — same envelope every other capability-denial in this file already uses', async () => {
+    isProductionFlag = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    let caught: unknown
+    try {
+      await escrowService.createEscrow({ tradeId: 'trade-prod-5', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    } catch (err) {
+      caught = err
+    }
+
+    expect(caught).toBeInstanceOf(EscrowError)
+    const err = caught as InstanceType<typeof EscrowError>
+    expect(err.statusCode).toBe(409)
+    expect(err.code).toBe('ESCROW_ERROR')
+    expect(err.reason).toBe('DISABLED')
+  })
+
+  it('still allows an explicit type: "MOCK" outside production (dev/test) — the pre-existing escape hatch is unchanged', async () => {
+    isProductionFlag = false
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-dev-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-dev-1', tradeId: 'trade-dev-1', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-dev-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
+  })
+
+  it('does not affect a real, non-MOCK explicit type in production', async () => {
+    isProductionFlag = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-prod-3', tradeId: 'trade-prod-3', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-prod-3', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
+  })
+
+  it('does not affect an omitted type in production — the implicit default (already gated by RT-001/MOCK_ESCROW at boot) is untouched', async () => {
+    isProductionFlag = true
+    mockEscrowFeatureFlag = false // RT-001 already guarantees this in a real production boot
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-prod-4', tradeId: 'trade-prod-4', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-prod-4', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
 })
 

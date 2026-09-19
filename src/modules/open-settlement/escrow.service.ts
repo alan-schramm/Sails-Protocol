@@ -220,9 +220,33 @@ export type { CreateEscrowInput }
 // (tests/escrowProviderWiring.test.ts's "an explicitly passed type is
 // never overridden" — used for fake/test escrows regardless of asset)
 // is preserved unconditionally, checked first, before any canonical
-// lookup.
+// lookup — EXCEPT in production. Issue #229: RT-001 (config/index.ts)
+// already refuses to boot in production unless MOCK_ESCROW=false, which
+// only ever governed the *implicit default* used when a caller omits
+// `type` entirely (the branch just below this one). It never touched
+// this branch — an authenticated participant could always reach
+// MockSettlementProvider in production simply by passing `type: 'MOCK'`
+// explicitly, regardless of NODE_ENV or any feature flag, because this
+// check runs unconditionally before config is even consulted. Gated
+// here, at the one place an escrow's type is decided before the row is
+// ever persisted — not at provider dispatch (getSettlementProvider()'s
+// own Fase 7.3.1 fix deliberately made provider resolution trust an
+// already-persisted type unconditionally; re-adding an environment
+// check there would undo that fix for legacy/pre-existing MOCK rows)
+// and not in the SDK (a server-side caller bypassing the published SDK
+// entirely must be refused the same as one using it).
 function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
-  if (explicitType === 'MOCK') return 'MOCK'
+  if (explicitType === 'MOCK') {
+    if (config.isProduction) {
+      throw new EscrowError(
+        "Refusing to create a MOCK escrow in production — type: 'MOCK' routes to MockSettlementProvider, " +
+        'which makes no real custody claim and settles no real funds (see escrow-providers.ts). This deployment ' +
+        'is production (NODE_ENV=production); a real SettlementProvider must be used. See Issue #229.',
+        'DISABLED'
+      )
+    }
+    return 'MOCK'
+  }
   if (!explicitType && config.features.mockEscrow) return 'MOCK'
 
   const scope = translateLegacyAssetType(asset)
