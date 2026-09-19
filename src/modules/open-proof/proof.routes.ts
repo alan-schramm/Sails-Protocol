@@ -82,7 +82,8 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
     ...docsOnlySchema({ tags: ['open-proof'], params: idParamsSchema }),
   }, async (request, reply) => {
     const { id } = idParamsSchema.parse(request.params)
-    const result = await proofService.issueVerificationNonce(id)
+    const participantId = (request as AuthenticatedRequest).participantId
+    const result = await proofService.issueVerificationNonce(id, participantId)
     return reply.code(200).send({ success: true, data: result })
   })
 
@@ -102,7 +103,8 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
     ...docsOnlySchema({ tags: ['open-proof'], params: idParamsSchema }),
   }, async (request, reply) => {
     const { id } = idParamsSchema.parse(request.params)
-    const bundle = await proofService.getEvidenceBundle(id)
+    const participantId = (request as AuthenticatedRequest).participantId
+    const bundle = await proofService.getEvidenceBundle(id, participantId)
     return reply.code(200).send({ success: true, data: bundle })
   })
 
@@ -134,7 +136,8 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
     ...docsOnlySchema({ tags: ['open-proof'], params: idParamsSchema }),
   }, async (request, reply) => {
     const { id } = idParamsSchema.parse(request.params)
-    const reference = await proofService.anchorEvidence(id)
+    const participantId = (request as AuthenticatedRequest).participantId
+    const reference = await proofService.anchorEvidence(id, participantId)
     return reply.code(200).send({ success: true, data: reference })
   })
 

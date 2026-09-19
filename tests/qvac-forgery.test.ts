@@ -41,7 +41,14 @@ jest.mock('../src/common/database', () => ({
         fakeProofs.set(id, row)
         return row
       }),
-      findUnique: jest.fn(async ({ where }: any) => fakeProofs.get(where.id) ?? null),
+      // Issue #261 — proof.service.ts's verifyProof()/issueVerificationNonce()
+      // now fetch the proof WITH its claim (`include: { claim: true }`,
+      // used by assertClaimEconomicScopeAccess()) — this fake attaches it
+      // the same way findMany() below already does for its own callers.
+      findUnique: jest.fn(async ({ where }: any) => {
+        const row = fakeProofs.get(where.id)
+        return row ? { ...row, claim: fakeClaims.get(row.claimId) } : null
+      }),
       // RFC-007 D1 (proof-registry.ts's findDuplicates()) — submitProof()
       // now always queries this. A faithful-enough fake for this file's
       // own tests, none of which exercise duplicate detection directly.
@@ -56,6 +63,25 @@ jest.mock('../src/common/database', () => ({
     },
     verification: {
       create: jest.fn(async ({ data }: any) => ({ id: 'verification-1', ...data, verifiedAt: new Date() })),
+    },
+    // Issue #261 — assertClaimEconomicScopeAccess()'s trade-participant-
+    // or-current-arbiter check. 'buyer-1' (this file's own claimedBy/
+    // submittedBy fixture throughout) is trade-1's buyer; 'arbiter-1'
+    // (this file's own verifiedBy fixture throughout) is its current
+    // assigned arbiter — real relationships, not a bypass, so the
+    // hash/nonce/time-lock properties these tests exist to prove stay
+    // exercised through a genuinely authorized caller.
+    trade: {
+      findUnique: jest.fn(async ({ where }: any) =>
+        where.id === 'trade-1' ? { id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' } : null
+      ),
+    },
+    dispute: {
+      findFirst: jest.fn(async ({ where }: any) =>
+        where.tradeId === 'trade-1' && where.arbiterId === 'arbiter-1'
+          ? { id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' }
+          : null
+      ),
     },
   },
 }))
@@ -180,7 +206,12 @@ describe('OpenProof — nonce anti-replay', () => {
   })
 
   async function makeClaimAndProof() {
-    const claim = await proofService.assertClaim({ claimedBy: 'buyer-1', claimType: 'payment_sent', assertion: {} })
+    // tradeId: 'trade-1' — this block's own verifyProof() calls use
+    // 'arbiter-1' as verifiedBy, and Issue #261's authorization requires
+    // a real relationship to the Claim's trade (buyer/seller or current
+    // arbiter). Without it these tests would be asserting the nonce/
+    // replay properties through a caller with no standing at all.
+    const claim = await proofService.assertClaim({ claimedBy: 'buyer-1', claimType: 'payment_sent', assertion: {}, tradeId: 'trade-1' })
     const proof = await proofService.submitProof({ claimId: claim.id, evidence: { x: 1 }, submittedBy: 'buyer-1' })
     return { claim, proof }
   }
@@ -194,7 +225,7 @@ describe('OpenProof — nonce anti-replay', () => {
 
   it('accepts a freshly issued nonce exactly once', async () => {
     const { proof } = await makeClaimAndProof()
-    const { nonce } = await proofService.issueVerificationNonce(proof.id)
+    const { nonce } = await proofService.issueVerificationNonce(proof.id, 'arbiter-1')
 
     const verification = await proofService.verifyProof(proof.id, 'arbiter-1', 'ACCEPTED', nonce)
     expect(verification.verdict).toBe('ACCEPTED')
@@ -202,7 +233,7 @@ describe('OpenProof — nonce anti-replay', () => {
 
   it('rejects a replay of the same nonce — the literal anti-replay property', async () => {
     const { proof } = await makeClaimAndProof()
-    const { nonce } = await proofService.issueVerificationNonce(proof.id)
+    const { nonce } = await proofService.issueVerificationNonce(proof.id, 'arbiter-1')
 
     await proofService.verifyProof(proof.id, 'arbiter-1', 'ACCEPTED', nonce)
 
@@ -217,7 +248,7 @@ describe('OpenProof — nonce anti-replay', () => {
   it("a nonce issued for one proof cannot verify a different proof", async () => {
     const { proof: proofA } = await makeClaimAndProof()
     const { proof: proofB } = await makeClaimAndProof()
-    const { nonce } = await proofService.issueVerificationNonce(proofA.id)
+    const { nonce } = await proofService.issueVerificationNonce(proofA.id, 'arbiter-1')
 
     await expect(
       proofService.verifyProof(proofB.id, 'arbiter-1', 'ACCEPTED', nonce)

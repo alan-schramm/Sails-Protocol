@@ -62,6 +62,10 @@ const mockMessageFindMany = jest.fn()
 const mockMessageCount = jest.fn().mockResolvedValue(0)
 const mockDisputeCreate = jest.fn()
 const mockDisputeUpdate = jest.fn()
+// Issue #261 — assertClaimEconomicScopeAccess() (proof.service.ts)
+// queries this for its trade-current-arbiter check. Default "no
+// dispute" so tests that don't care about it don't need an override.
+const mockDisputeFindFirst = jest.fn().mockResolvedValue(null)
 const mockCapabilityGrantCreate = jest.fn()
 const mockCapabilityGrantFindMany = jest.fn()
 const mockCapabilityGrantFindUnique = jest.fn()
@@ -190,6 +194,7 @@ jest.mock('../src/common/database', () => ({
     dispute: {
       create: (...args: unknown[]) => mockDisputeCreate(...args),
       findUnique: jest.fn(),
+      findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args),
       update: (...args: unknown[]) => mockDisputeUpdate(...args),
     },
     capabilityGrant: {
@@ -2571,7 +2576,9 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('submits a proof for an authenticated caller — evidenceHash is server-computed, never taken from the request', async () => {
       const token = await authedSession('buyer-1')
-      mockClaimFindUnique.mockResolvedValueOnce({ id: 'claim-1', createdAt: new Date() })
+      // claimedBy: 'buyer-1' — Issue #261's assertClaimEconomicScopeAccess()
+      // requires this non-trade Claim's own creator to match the caller.
+      mockClaimFindUnique.mockResolvedValueOnce({ id: 'claim-1', claimedBy: 'buyer-1', createdAt: new Date() })
       mockProofCreate.mockResolvedValueOnce({ id: 'proof-1', claimId: 'claim-1', evidence: { x: 1 }, evidenceHash: 'real-server-hash', submittedBy: 'buyer-1', submittedAt: new Date() })
 
       const res = await app.inject({
@@ -2588,7 +2595,14 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('rejects verifying a proof with no nonce', async () => {
       const token = await authedSession('arbiter-1')
-      mockProofFindUnique.mockResolvedValueOnce({ id: 'proof-1', claimId: 'claim-1' })
+      // Issue #261 — verifyProof()/issueVerificationNonce() now check
+      // the caller against the Claim's trade; 'trade-1' + a Dispute row
+      // assigning 'arbiter-1' as its current arbiter gives 'arbiter-1' a
+      // real, authorized relationship (mirrors qvac-forgery.test.ts's
+      // own equivalent fixture).
+      mockProofFindUnique.mockResolvedValueOnce({ id: 'proof-1', claimId: 'claim-1', claim: { id: 'claim-1', tradeId: 'trade-1', claimedBy: 'buyer-1' } })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
 
       const res = await app.inject({
         method: 'POST',
@@ -2602,7 +2616,12 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('issues a nonce then verifies a proof with it — the real round trip a client goes through', async () => {
       const token = await authedSession('arbiter-1')
-      mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1' })
+      // mockResolvedValue (not Once) — both the verify-nonce call and the
+      // verify call each independently re-check authorization, so each
+      // mock needs to answer more than once across this test's 2 requests.
+      mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1', claim: { id: 'claim-1', tradeId: 'trade-1', claimedBy: 'buyer-1' } })
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
 
       const nonceRes = await app.inject({
         method: 'POST',

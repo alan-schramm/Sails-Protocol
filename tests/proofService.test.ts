@@ -32,6 +32,14 @@ const mockClaimFindUnique = jest.fn()
 const mockEvidenceReferenceCreate = jest.fn()
 const mockEvidenceReferenceFindUnique = jest.fn()
 const mockEvidenceReferenceUpdate = jest.fn()
+// Issue #261 — assertClaimEconomicScopeAccess() (proof.service.ts) reads
+// these two for its trade-participant-or-current-arbiter check. Default
+// to "no trade, no dispute" (null/null) so any test that doesn't care
+// about authorization specifically doesn't need its own override —
+// tests below only set a real trade/dispute fixture when they actually
+// exercise the trade-scoped authorization path.
+const mockTradeFindUnique = jest.fn().mockResolvedValue(null)
+const mockDisputeFindFirst = jest.fn().mockResolvedValue(null)
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -49,6 +57,8 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockEvidenceReferenceFindUnique(...args),
       update: (...args: unknown[]) => mockEvidenceReferenceUpdate(...args),
     },
+    trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
+    dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
   },
 }))
 
@@ -91,7 +101,12 @@ describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verificatio
     const signature = nacl.sign.detached(digest, keypair.secretKey)
     const signatureHex = Buffer.from(signature).toString('hex')
 
-    mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1' })
+    // claim.tradeId: null + claimedBy: 'user-1' — a non-trade Claim whose
+    // creator is the same 'user-1' submitting evidence, satisfying Issue
+    // #261's assertClaimEconomicScopeAccess() (creator-only for a
+    // non-trade Claim) so this test still exercises signature
+    // verification specifically, not authorization.
+    mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1', claim: { tradeId: null, claimedBy: 'user-1' } })
     mockUserFindUnique.mockResolvedValue({ id: 'user-1', publicKey: publicKeyHex })
     mockStore.mockResolvedValue({ provider: 'local-fs', uri: '/tmp/fake', sha256: digest.toString('hex') })
     mockEvidenceReferenceCreate.mockResolvedValue({ id: 'ref-1', proofId: 'proof-1' })
@@ -114,7 +129,7 @@ describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verificatio
     // Signed with the WRONG key — a real forgery attempt, not a malformed input.
     const signature = nacl.sign.detached(digest, wrongKeypair.secretKey)
 
-    mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1' })
+    mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1', claim: { tradeId: null, claimedBy: 'user-1' } })
     mockUserFindUnique.mockResolvedValue({ id: 'user-1', publicKey: Buffer.from(keypair.publicKey).toString('hex') })
 
     const service = new ProofService()
@@ -131,7 +146,11 @@ describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verificatio
   })
 
   it('throws NotFoundError for an unknown submittedBy', async () => {
-    mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1' })
+    // claimedBy: 'nope' matches the actor under test so this exercises
+    // the user-existence check specifically, not #261's authorization
+    // (which would otherwise throw its own, different ForbiddenError
+    // first for an actor with no relationship to the claim).
+    mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1', claim: { tradeId: null, claimedBy: 'nope' } })
     mockUserFindUnique.mockResolvedValue(null)
     const service = new ProofService()
     await expect(service.attachEvidence('proof-1', new Uint8Array(), 'image', 'nope', 'ab')).rejects.toThrow('User')
@@ -142,13 +161,16 @@ describe('ProofService.anchorEvidence() — RFC-008 D1', () => {
   beforeEach(() => jest.clearAllMocks())
 
   it('anchors an existing EvidenceReference and persists the real AnchorProof', async () => {
-    mockEvidenceReferenceFindUnique.mockResolvedValue({ id: 'ref-1', sha256: 'abc123' })
+    // Issue #261 — anchorEvidence() now resolves reference -> proof ->
+    // claim in one include and checks requestedBy against it; 'user-1'
+    // matches claimedBy on this non-trade Claim.
+    mockEvidenceReferenceFindUnique.mockResolvedValue({ id: 'ref-1', sha256: 'abc123', proof: { claim: { tradeId: null, claimedBy: 'user-1' } } })
     const anchorProof = { anchorType: 'opentimestamps', anchorId: 'base64stuff', submittedAt: '2026-08-04T00:00:00.000Z', upgraded: false }
     mockAnchor.mockResolvedValue(anchorProof)
     mockEvidenceReferenceUpdate.mockResolvedValue({ id: 'ref-1', anchorProof })
 
     const service = new ProofService()
-    const result = await service.anchorEvidence('ref-1')
+    const result = await service.anchorEvidence('ref-1', 'user-1')
 
     expect(mockAnchor).toHaveBeenCalledWith('abc123')
     expect(mockEvidenceReferenceUpdate).toHaveBeenCalledWith({ where: { id: 'ref-1' }, data: { anchorProof } })
@@ -158,7 +180,7 @@ describe('ProofService.anchorEvidence() — RFC-008 D1', () => {
   it('throws NotFoundError for an unknown evidenceReferenceId', async () => {
     mockEvidenceReferenceFindUnique.mockResolvedValue(null)
     const service = new ProofService()
-    await expect(service.anchorEvidence('nope')).rejects.toThrow('EvidenceReference')
+    await expect(service.anchorEvidence('nope', 'user-1')).rejects.toThrow('EvidenceReference')
   })
 })
 
@@ -203,6 +225,9 @@ describe('ProofService.submitProof() — RFC-007 D1 duplicate detection (real wi
 
   it('emits proof.duplicate_detected when the registry reports a real match from a different trade', async () => {
     mockClaimFindUnique.mockResolvedValue({ id: 'claim-1', tradeId: 'trade-current', createdAt: new Date() })
+    // Issue #261 — submitProof() now checks submittedBy against the
+    // claim's trade; 'user-1' is this trade's buyer.
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-current', buyerId: 'user-1', sellerId: 'seller-x' })
     mockProofCreate.mockResolvedValue({ id: 'proof-new', claimId: 'claim-1' })
     mockFindDuplicates.mockResolvedValue([{ proofId: 'proof-old', tradeId: 'trade-other', matchedAt: '2026-08-01T00:00:00.000Z' }])
 
@@ -218,6 +243,7 @@ describe('ProofService.submitProof() — RFC-007 D1 duplicate detection (real wi
 
   it('does not emit proof.duplicate_detected when no real duplicate exists', async () => {
     mockClaimFindUnique.mockResolvedValue({ id: 'claim-1', tradeId: 'trade-current', createdAt: new Date() })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-current', buyerId: 'user-1', sellerId: 'seller-x' })
     mockProofCreate.mockResolvedValue({ id: 'proof-new', claimId: 'claim-1' })
     mockFindDuplicates.mockResolvedValue([])
 
