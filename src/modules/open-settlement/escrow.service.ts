@@ -16,6 +16,7 @@ import {
   recommendedEscrowType,
   getSettlementProvider,
   getCustodyModelForType,
+  assertDeploymentEligible,
 } from './escrow-providers'
 import {
   isPartyOrAgent,
@@ -228,23 +229,28 @@ export type { CreateEscrowInput }
 // MockSettlementProvider in production simply by passing `type: 'MOCK'`
 // explicitly, regardless of NODE_ENV or any feature flag, because this
 // check runs unconditionally before config is even consulted. Gated
-// here, at the one place an escrow's type is decided before the row is
-// ever persisted — not at provider dispatch (getSettlementProvider()'s
-// own Fase 7.3.1 fix deliberately made provider resolution trust an
-// already-persisted type unconditionally; re-adding an environment
-// check there would undo that fix for legacy/pre-existing MOCK rows)
-// and not in the SDK (a server-side caller bypassing the published SDK
-// entirely must be refused the same as one using it).
+// here too, at the one place an escrow's type is decided before the row
+// is ever persisted, via the SAME canonical policy function
+// (assertDeploymentEligible(), escrow-providers.ts) getSettlementProvider()
+// itself now also calls — not a second, independently-maintained check.
+//
+// Corrected/Implemented 2026-09-19 (Issue #229 R2, CTO corrective
+// mission) — this comment previously claimed provider dispatch was
+// deliberately left ungated to avoid undoing Fase 7.3.1's fix for
+// legacy/pre-existing MOCK rows. That reasoning was incomplete: Fase
+// 7.3.1's actual property ("provider resolution trusts an already-
+// persisted type unconditionally") only needs to hold for REAL types
+// (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM), which still do,
+// completely unaffected. It was never required to hold for MOCK, whose
+// provider fabricates settlement success rather than doing real
+// economic work — a persisted MOCK row surviving into a production
+// database out-of-band (a promoted staging DB, or one created before
+// this gate existed) must not be able to reactivate fake economic
+// execution merely by existing. getSettlementProvider() now enforces
+// this at dispatch time too — see its own header comment.
 function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
   if (explicitType === 'MOCK') {
-    if (config.isProduction) {
-      throw new EscrowError(
-        "Refusing to create a MOCK escrow in production — type: 'MOCK' routes to MockSettlementProvider, " +
-        'which makes no real custody claim and settles no real funds (see escrow-providers.ts). This deployment ' +
-        'is production (NODE_ENV=production); a real SettlementProvider must be used. See Issue #229.',
-        'DISABLED'
-      )
-    }
+    assertDeploymentEligible('MOCK')
     return 'MOCK'
   }
   if (!explicitType && config.features.mockEscrow) return 'MOCK'
