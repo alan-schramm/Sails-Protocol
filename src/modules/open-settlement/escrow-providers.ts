@@ -445,6 +445,53 @@ export function assertArbitrationModeCompatibleWithAvailableRails(
   }
 }
 
+// Issue #229 R2 (CTO corrective mission) — the one canonical concept for
+// "is this escrow type economically eligible for the CURRENT deployment",
+// deliberately kept separate from three adjacent, already-existing
+// concepts it must not be confused with:
+//   - protocol representability   → ESCROW_TYPE_VALUES (p2p-schemas) —
+//     whether the wire format even allows this type. Untouched by this.
+//   - provider implementation existence → PROVIDERS (above) — whether a
+//     SettlementProvider is registered at all for this type. Untouched.
+//   - deployment/environment eligibility → THIS set. Whether an already-
+//     representable, already-implemented type may economically EXECUTE
+//     in the deployment currently running.
+// `MOCK` is the only entry today: it makes no real custody claim and
+// fabricates lock/release/refund/split success unconditionally
+// (mock-settlement.provider.ts) — safe as a deliberate dev/test/sandbox
+// choice, never safe as something a production node treats as real.
+// #220 may register other production-ineligible (reference-only/
+// testnet-only) rails here later without inventing a second mechanism —
+// deliberately a plain Set, not a broader eligibility framework, since
+// nothing today needs more than "in production, this type is refused."
+const PRODUCTION_INELIGIBLE_TYPES: ReadonlySet<string> = new Set(['MOCK'])
+
+// Single enforcement point for the policy above. Called from BOTH:
+//   1. escrow.service.ts's resolveEscrowType() — creation time, before
+//      any row is persisted (an explicit type: 'MOCK' request in
+//      production never reaches the database at all).
+//   2. getSettlementProvider() below — every economically active
+//      dispatch (lockFunds/releaseFunds/refundFunds/splitFunds, and any
+//      future caller) funnels through this one function, so this is the
+//      single choke point that also covers an escrow row that was
+//      PERSISTED before this gate existed, or otherwise reached the
+//      database out-of-band (e.g. a promoted staging DB) — restart,
+//      reconciliation, and dispute resolution all resolve their provider
+//      through this exact call, so none of them can reactivate a
+//      persisted MOCK row's fake economic execution in production either.
+// Two call sites, one policy function — never a scattered per-method
+// `if (production && type === 'MOCK')`.
+export function assertDeploymentEligible(type: string): void {
+  if (config.isProduction && PRODUCTION_INELIGIBLE_TYPES.has(type)) {
+    throw new EscrowError(
+      `Escrow type '${type}' is not economically eligible in production — it fabricates settlement success ` +
+      "without moving real funds (see MockSettlementProvider). The historical/persisted fact that this escrow's " +
+      "type is what it is remains unaffected by this refusal; only economic execution against it is refused.",
+      'DISABLED'
+    )
+  }
+}
+
 export function recommendedEscrowType(asset: AssetType): EscrowType {
   const type = RECOMMENDED_ESCROW_TYPE[asset]
   if (!type) {
@@ -480,6 +527,30 @@ export function getSettlementProvider(type: string): SettlementProvider {
   // other global flag. A caller that genuinely wants a fake escrow must
   // say so explicitly, at creation time, via `type: 'MOCK'` — never
   // implicitly, later, at settlement time.
+  //
+  // Corrected/Implemented 2026-09-19 (Issue #229 R2, CTO corrective
+  // mission) — "regardless of NODE_ENV... or any other global flag" above
+  // still holds EXACTLY as written for every real, registered type below
+  // (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM keep resolving
+  // unconditionally off the persisted `type`, so reconciliation/restart
+  // for those is completely unaffected by this change). MOCK is today the
+  // one type whose provider FABRICATES settlement success rather than
+  // doing real economic work, so it's the one entry currently in
+  // PRODUCTION_INELIGIBLE_TYPES — but the check below applies to
+  // WHATEVER that set contains, not to the literal string 'MOCK'.
+  //
+  // Corrected/Implemented 2026-09-19 (Issue #229 R3, CTO corrective
+  // mission) — R2 called assertDeploymentEligible() only inside an
+  // `if (type === 'MOCK')` branch, which made the "canonical, generic
+  // policy" claim false in practice: a future #220 addition to
+  // PRODUCTION_INELIGIBLE_TYPES would silently do nothing here unless a
+  // second provider-specific `if` were also added. Moved to the top of
+  // this function, unconditionally, so the policy actually governs every
+  // `type` this function ever resolves — this is now the single choke
+  // point every economically active dispatch (lockFunds/releaseFunds/
+  // refundFunds/splitFunds, reconciliation, restart/recovery) funnels
+  // through, for ANY type #220 later classifies, with zero new code here.
+  assertDeploymentEligible(type)
   if (type === 'MOCK') return PROVIDERS['MOCK']
   const provider = PROVIDERS[type]
   if (!provider) {

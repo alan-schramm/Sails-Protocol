@@ -16,6 +16,7 @@ import {
   recommendedEscrowType,
   getSettlementProvider,
   getCustodyModelForType,
+  assertDeploymentEligible,
 } from './escrow-providers'
 import {
   isPartyOrAgent,
@@ -99,6 +100,12 @@ import { assertKnownCapabilityProfile, findCapabilityCommitBlocker } from './cap
 
 export type { EscrowRecord, SettlementProvider }
 export { recommendedEscrowType }
+// Issue #229 R3 — exported alongside recommendedEscrowType above, same
+// reason: a pure decision function (asset/explicitType in, EscrowType
+// out or throws) with no side effects, worth letting tests exercise and
+// structurally inspect directly rather than only through the much larger
+// createEscrow() surface.
+export { resolveEscrowType }
 
 // Missão 10, Fase 6.10/6.11 — the wire shape getEscrow()/getEscrowByTrade()
 // expose for `EscrowParticipantKey` rows: trimmed to exactly what a
@@ -220,8 +227,55 @@ export type { CreateEscrowInput }
 // (tests/escrowProviderWiring.test.ts's "an explicitly passed type is
 // never overridden" — used for fake/test escrows regardless of asset)
 // is preserved unconditionally, checked first, before any canonical
-// lookup.
+// lookup — EXCEPT in production. Issue #229: RT-001 (config/index.ts)
+// already refuses to boot in production unless MOCK_ESCROW=false, which
+// only ever governed the *implicit default* used when a caller omits
+// `type` entirely (the branch just below this one). It never touched
+// this branch — an authenticated participant could always reach
+// MockSettlementProvider in production simply by passing `type: 'MOCK'`
+// explicitly, regardless of NODE_ENV or any feature flag, because this
+// check runs unconditionally before config is even consulted. Gated
+// here too, at the one place an escrow's type is decided before the row
+// is ever persisted, via the SAME canonical policy function
+// (assertDeploymentEligible(), escrow-providers.ts) getSettlementProvider()
+// itself now also calls — not a second, independently-maintained check.
+//
+// Corrected/Implemented 2026-09-19 (Issue #229 R2, CTO corrective
+// mission) — this comment previously claimed provider dispatch was
+// deliberately left ungated to avoid undoing Fase 7.3.1's fix for
+// legacy/pre-existing MOCK rows. That reasoning was incomplete: Fase
+// 7.3.1's actual property ("provider resolution trusts an already-
+// persisted type unconditionally") only needs to hold for REAL types
+// (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM), which still do,
+// completely unaffected. It was never required to hold for MOCK, whose
+// provider fabricates settlement success rather than doing real
+// economic work — a persisted MOCK row surviving into a production
+// database out-of-band (a promoted staging DB, or one created before
+// this gate existed) must not be able to reactivate fake economic
+// execution merely by existing. getSettlementProvider() now enforces
+// this at dispatch time too — see its own header comment.
+//
+// Corrected/Implemented 2026-09-19 (Issue #229 R3, CTO corrective
+// mission) — R2 called assertDeploymentEligible() only from inside the
+// `explicitType === 'MOCK'` branch, which meant this function's own
+// generic-policy claim was only true for that one path: the implicit
+// mockEscrow-default branch, the canonical-registry branch, and the
+// legacy-fallback branch each returned their resolved type without ever
+// passing through the eligibility check. Refactored so resolution and
+// eligibility are two separate steps — resolveEscrowTypeCandidate()
+// below returns WHATEVER type any branch resolves to, and this function
+// asserts eligibility on that single result once, unconditionally,
+// before returning it to createEscrow() for persistence. No branch
+// needs its own check; a future #220 addition to
+// PRODUCTION_INELIGIBLE_TYPES is covered automatically, from whichever
+// branch produces that type.
 function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
+  const resolved = resolveEscrowTypeCandidate(asset, explicitType)
+  assertDeploymentEligible(resolved)
+  return resolved
+}
+
+function resolveEscrowTypeCandidate(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
   if (explicitType === 'MOCK') return 'MOCK'
   if (!explicitType && config.features.mockEscrow) return 'MOCK'
 

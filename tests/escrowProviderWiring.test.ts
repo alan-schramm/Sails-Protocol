@@ -24,9 +24,11 @@
 export {} // see chatUnification.test.ts's identical comment
 
 let mockEscrowFeatureFlag = false // MULTISIG/LIGHTNING_HODL only matter with mockEscrow off
+let isProductionFlag = false // Issue #229 — MOCK escrow production-eligibility gate
 jest.mock('../src/config', () => ({
   get config() {
     return {
+      isProduction: isProductionFlag,
       features: { mockEscrow: mockEscrowFeatureFlag, enforceCapabilities: false, requireDualApprovalForRelease: false },
       trade: { defaultTimelockHours: 24 },
       settlement: { trustedArbitrators: ['arb-1'] },
@@ -42,6 +44,18 @@ jest.mock('@tetherto/wdk-wallet-evm', () => ({
   __esModule: true,
   default: class FakeWalletManagerEvm {},
 }))
+
+// File-scope safety net for isProductionFlag (Issue #229 test block below):
+// every OTHER describe block in this file resets mockEscrowFeatureFlag in
+// its own beforeEach but has no reason to know about isProductionFlag, so a
+// production-mode test left it `true` would otherwise leak into whichever
+// describe block happens to run next (real jest.config.js file-level
+// isolation resets module state between FILES, never between tests within
+// one file). A single top-level afterEach is the one place that can
+// guarantee this without touching every existing beforeEach individually.
+afterEach(() => {
+  isProductionFlag = false
+})
 
 // @arkade-os/sdk's CJS build still transitively requires @scure/btc-signer,
 // which ships pure ESM (no CJS build) — same "Unexpected token 'export'"
@@ -213,8 +227,10 @@ jest.mock('../src/common/database', () => ({
   },
 }))
 
-import { escrowService, recommendedEscrowType } from '../src/modules/open-settlement/escrow.service'
-import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
+import { escrowService, recommendedEscrowType, resolveEscrowType } from '../src/modules/open-settlement/escrow.service'
+import { MULTISIG_CAPABILITY_PROFILE_V1, ESCROW_TYPE_VALUES } from '@satsails/p2p-schemas'
+import { EscrowError } from '../src/common/errors'
+import { getSettlementProvider, assertDeploymentEligible } from '../src/modules/open-settlement/escrow-providers'
 
 const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
 const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
@@ -306,6 +322,341 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
     await escrowService.createEscrow({ tradeId: 'trade-6', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
+  })
+})
+
+describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+    isProductionFlag = false
+  })
+
+  it('rejects an explicit type: "MOCK" in production', async () => {
+    isProductionFlag = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-prod-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    ).rejects.toThrow(/not economically eligible in production/)
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects an explicit type: "MOCK" in production regardless of asset (not just BTC)', async () => {
+    isProductionFlag = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    await expect(
+      escrowService.createEscrow({ tradeId: 'trade-prod-2', type: 'MOCK', lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+    ).rejects.toThrow(/not economically eligible in production/)
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects via the standard EscrowError shape (409, ESCROW_ERROR, reason DISABLED) — same envelope every other capability-denial in this file already uses', async () => {
+    isProductionFlag = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+
+    let caught: unknown
+    try {
+      await escrowService.createEscrow({ tradeId: 'trade-prod-5', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    } catch (err) {
+      caught = err
+    }
+
+    expect(caught).toBeInstanceOf(EscrowError)
+    const err = caught as InstanceType<typeof EscrowError>
+    expect(err.statusCode).toBe(409)
+    expect(err.code).toBe('ESCROW_ERROR')
+    expect(err.reason).toBe('DISABLED')
+  })
+
+  it('still allows an explicit type: "MOCK" outside production (dev/test) — the pre-existing escape hatch is unchanged', async () => {
+    isProductionFlag = false
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-dev-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-dev-1', tradeId: 'trade-dev-1', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-dev-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
+  })
+
+  it('does not affect a real, non-MOCK explicit type in production', async () => {
+    isProductionFlag = true
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-prod-3', tradeId: 'trade-prod-3', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-prod-3', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
+  })
+
+  it('does not affect an omitted type in production — the implicit default (already gated by RT-001/MOCK_ESCROW at boot) is untouched', async () => {
+    isProductionFlag = true
+    mockEscrowFeatureFlag = false // RT-001 already guarantees this in a real production boot
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-prod-4', tradeId: 'trade-prod-4', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
+
+    await escrowService.createEscrow({ tradeId: 'trade-prod-4', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+
+    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
+  })
+})
+
+// Issue #229 R2 (CTO corrective mission) — the R1 pass above only closed
+// the CREATION path. CTO Gate found provider DISPATCH still trusted a
+// persisted `Escrow.type = 'MOCK'` row unconditionally regardless of
+// environment, so a row that existed before the R1 gate (or reached a
+// production database out-of-band, e.g. a promoted staging DB) could
+// still fabricate lock/release/refund/split "success" forever. These
+// tests prove getSettlementProvider() — the single choke point every
+// economically active dispatch (lockFunds/releaseFunds/refundFunds/
+// splitFunds) funnels through — now refuses MOCK in production BEFORE
+// the real MockSettlementProvider (unmocked in this file — only its
+// upstream dependencies like multisig.provider.ts are mocked) ever runs,
+// proven by asserting the economic-result write (mockEscrowUpdate, which
+// updateLockResult()/updateReleaseResult()/updateRefundResult()/
+// updateSplitResult() all funnel through) is never reached.
+describe('getSettlementProvider() / escrow.service.ts economic methods — persisted MOCK row cannot execute in production (Issue #229 R2/R3)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+  })
+
+  it('getSettlementProvider("MOCK") itself throws in production — the one function every dispatch path shares', () => {
+    isProductionFlag = true
+    expect(() => getSettlementProvider('MOCK')).toThrow(/not economically eligible in production/)
+  })
+
+  it('getSettlementProvider("MOCK") still returns the real MockSettlementProvider outside production — unchanged', () => {
+    isProductionFlag = false
+    const provider = getSettlementProvider('MOCK')
+    expect(provider.name).toBe('MOCK')
+  })
+
+  it('a persisted MOCK escrow + production lockFunds() is rejected before any economic write', async () => {
+    isProductionFlag = true
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-mock-1', tradeId: 'trade-1', type: 'MOCK', status: 'CREATED', timelockHours: 24 })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+
+    await expect(escrowService.lockFunds('escrow-mock-1', 'seller-1')).rejects.toThrow(/not economically eligible in production/)
+    // mockEscrowUpdate DOES get one call from claimEscrowTransition's own
+    // revert-on-failure (a plain `{status: originalStatus}` write, no
+    // fabricated economic result) — the real proof of "no side effect" is
+    // that no call ever carries the economic-result field the real
+    // MockSettlementProvider.lockFunds() would have produced.
+    expect(mockEscrowUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ txLockId: expect.anything() }) }))
+  })
+
+  it('a persisted MOCK escrow + production releaseFunds() is rejected before any economic write', async () => {
+    isProductionFlag = true
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-mock-2', tradeId: 'trade-2', type: 'MOCK', status: 'PAYMENT_PENDING' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-2', buyerId: 'buyer-1', sellerId: 'seller-1' })
+
+    await expect(escrowService.releaseFunds('escrow-mock-2', 'tb1qexplicit', 'seller-1')).rejects.toThrow(/not economically eligible in production/)
+    expect(mockEscrowUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ txReleaseId: expect.anything() }) }))
+  })
+
+  it('a persisted MOCK escrow + production refundFunds() is rejected before any economic write', async () => {
+    isProductionFlag = true
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-mock-3', tradeId: 'trade-3', type: 'MOCK', status: 'FUNDS_LOCKED' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-3', buyerId: 'buyer-1', sellerId: 'seller-1' })
+
+    await expect(escrowService.refundFunds('escrow-mock-3', 'seller-1')).rejects.toThrow(/not economically eligible in production/)
+    expect(mockEscrowUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ txReleaseId: expect.anything() }) }))
+  })
+
+  it('a persisted MOCK escrow + production splitFunds() is rejected before any economic write', async () => {
+    isProductionFlag = true
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-mock-4', tradeId: 'trade-4', type: 'MOCK', status: 'DISPUTED' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-4', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    // .mockResolvedValueOnce, not .mockResolvedValue — this file's own
+    // documented gotcha (jest.clearAllMocks() does not reset a persistent
+    // .mockResolvedValue()): a non-once value here would silently make
+    // EVERY later test in this file see a dispute for ANY (tradeId,
+    // arbiterId) pair, including ones asserting the opposite (no dispute
+    // -> unauthorized caller rejected).
+    mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-4', arbiterId: 'arbiter-1' })
+
+    await expect(
+      escrowService.splitFunds('escrow-mock-4', 'tb1qbuyer', 'tb1qseller', 6000, 'arbiter-1')
+    ).rejects.toThrow(/not economically eligible in production/)
+    expect(mockEscrowUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ txReleaseId: expect.anything() }) }))
+  })
+
+  it('the signature-collection initiation paths (initiateRelease/initiateRefund/initiateSplit) already reject MOCK unconditionally — no economic-execution seam there either, in any environment', async () => {
+    // MOCK is a direct-call rail (SIGNATURE_COLLECTION_PROVIDERS has no
+    // 'MOCK' entry — escrow-providers.ts), so these three throw on the
+    // provider-lookup guard itself before config is ever consulted; true
+    // in production and outside it alike. Proves #229's "signature/
+    // reconciliation/recovery path" surface has no separate MOCK seam to
+    // gate — initiateSplit()'s own equivalent case is already covered
+    // above ("rejects an escrow type with no registered
+    // SignatureCollectionProvider").
+    isProductionFlag = false
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-mock-5', tradeId: 'trade-5', type: 'MOCK', status: 'PAYMENT_PENDING' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-5', buyerId: 'buyer-1', sellerId: 'seller-1' })
+
+    // Explicit destinations passed so resolvePayoutAddress() (which both
+    // functions call BEFORE reaching the SIGNATURE_COLLECTION_PROVIDERS
+    // guard) never needs a registered PayoutAddress row — keeps this test
+    // isolated to the one guard it's actually about.
+    await expect(escrowService.initiateRelease('escrow-mock-5', 'tb1qexplicit', 'seller-1')).rejects.toThrow(
+      'does not use the client-signature-collection release flow'
+    )
+    await expect(escrowService.initiateRefund('escrow-mock-5', 'seller-1', 'tb1qexplicit')).rejects.toThrow(
+      'does not use the client-signature-collection refund flow'
+    )
+  })
+
+  it('restart/reconciliation cannot reactivate a persisted MOCK escrow\'s economic execution — reconciliation only ever queries type: MULTISIG, so a MOCK row is structurally never selected, and even a direct getSettlementProvider("MOCK") call after "restart" (a fresh call in this same process) still refuses in production', async () => {
+    // escrow-settlement-reconciliation.service.ts's own reconcileUnclaimedFullySignedPending()
+    // query is `where: { escrow: { type: 'MULTISIG', ... } }` (audited
+    // directly, Issue #229 R2) — a MOCK-typed escrow is never even a
+    // candidate row for that service, in any environment, because MOCK
+    // is a direct-call rail with no EscrowPendingTransaction ever
+    // created for it. "Restart" has no special code path of its own in
+    // this codebase (no cached provider instance, no process-lifetime
+    // state) — getSettlementProvider() re-evaluates config.isProduction
+    // on every call, so there is nothing a restart could do to reactivate
+    // access that a fresh call already refuses.
+    isProductionFlag = true
+    expect(() => getSettlementProvider('MOCK')).toThrow(/not economically eligible in production/)
+    isProductionFlag = true // simulate a second, independent call ("after restart") — same outcome
+    expect(() => getSettlementProvider('MOCK')).toThrow(/not economically eligible in production/)
+  })
+
+  // MULTISIG's own "split" flow goes through initiateSplit()/buildUnsignedSplit()
+  // (SIGNATURE_COLLECTION_PROVIDERS — already covered by the existing
+  // 'initiateSplit()' describe block elsewhere in this file), not through
+  // this direct-call splitFunds() method (that's MOCK/WDK_USDT_EVM only)
+  // — lock/release/refund below is the complete, correct set of direct-
+  // dispatch economic methods MULTISIG actually uses.
+  it('a real, deployment-eligible provider (MULTISIG) retains its exact current production behavior — lock/release/refund all still dispatch normally', async () => {
+    isProductionFlag = true
+    const { multisigProvider } = jest.requireMock('../src/modules/open-settlement/multisig.provider') as any
+
+    // lockFunds
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ms-1', tradeId: 'trade-ms-1', type: 'MULTISIG', status: 'CREATED', timelockHours: 24, multisigAddr: 'tb1qaddr' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockParticipantKeyFindMany.mockResolvedValue([])
+    // vout deliberately omitted — a defined vout triggers the separate
+    // funding-evidence-recording path (escrowFundingEvidenceRepository),
+    // which this file doesn't mock at the top-level (non-$transaction)
+    // prisma client and isn't what this test is about.
+    multisigProvider.lockFunds.mockResolvedValueOnce({ txId: 'real-lock-txid', address: 'tb1qaddr' })
+    mockEscrowUpdate.mockResolvedValueOnce({ id: 'escrow-ms-1', txLockId: 'real-lock-txid' })
+
+    const locked = await escrowService.lockFunds('escrow-ms-1', 'seller-1')
+    expect(locked.txLockId).toBe('real-lock-txid')
+    expect(multisigProvider.lockFunds).toHaveBeenCalled()
+
+    // releaseFunds
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ms-2', tradeId: 'trade-ms-2', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-2', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    multisigProvider.releaseFunds.mockResolvedValueOnce({ txId: 'real-release-txid' })
+    mockEscrowUpdate.mockResolvedValueOnce({ id: 'escrow-ms-2', txReleaseId: 'real-release-txid' })
+
+    const released = await escrowService.releaseFunds('escrow-ms-2', 'tb1qbuyer', 'seller-1')
+    expect(released.txReleaseId).toBe('real-release-txid')
+    expect(multisigProvider.releaseFunds).toHaveBeenCalled()
+
+    // refundFunds
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ms-3', tradeId: 'trade-ms-3', type: 'MULTISIG', status: 'FUNDS_LOCKED' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-3', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    multisigProvider.refundFunds.mockResolvedValueOnce({ txId: 'real-refund-txid' })
+    mockEscrowUpdate.mockResolvedValueOnce({ id: 'escrow-ms-3', txReleaseId: 'real-refund-txid' })
+
+    const refunded = await escrowService.refundFunds('escrow-ms-3', 'seller-1')
+    expect(refunded.txReleaseId).toBe('real-refund-txid')
+    expect(multisigProvider.refundFunds).toHaveBeenCalled()
+  })
+
+  it('the protocol/schema still represents MOCK as a valid escrow type — this mission never removed it from the wire enum', () => {
+    expect(ESCROW_TYPE_VALUES).toContain('MOCK')
+  })
+
+  // Issue #229 R3 — CTO Gate R2 found assertDeploymentEligible() was only
+  // wired into getSettlementProvider()'s `if (type === 'MOCK')` branch and
+  // resolveEscrowType()'s `if (explicitType === 'MOCK')` branch, making the
+  // "canonical, generic policy" claim false: a future #220 addition to
+  // PRODUCTION_INELIGIBLE_TYPES would silently do nothing unless a second,
+  // provider-specific `if` were also added at each call site. Both were
+  // refactored to call the check unconditionally, once, on whatever type
+  // is actually being resolved/dispatched — these tests prove that shape
+  // directly, since PRODUCTION_INELIGIBLE_TYPES having only one real
+  // member (MOCK) today means no purely-outcome-based test could ever
+  // distinguish "checked generically" from "checked only for the literal
+  // string MOCK" (both produce byte-identical outward behavior for every
+  // input that exists today) — the mission explicitly forbids adding a
+  // second real provider classification just to create that difference.
+  describe('eligibility check is generic — not a MOCK-only regression (Issue #229 R3)', () => {
+    it('assertDeploymentEligible() itself is driven purely by set membership, not a hardcoded MOCK comparison', () => {
+      isProductionFlag = true
+      expect(() => assertDeploymentEligible('MOCK')).toThrow(/not economically eligible in production/)
+      // A type that is NOT in PRODUCTION_INELIGIBLE_TYPES today (a
+      // hypothetical/unregistered string, never wired to any real
+      // provider or added to that set by this mission) must NOT be
+      // rejected by this function even in production — proves the
+      // function checks membership in the policy set, not "is this
+      // string literally 'MOCK'".
+      expect(() => assertDeploymentEligible('HYPOTHETICAL_TYPE_NOT_IN_ANY_POLICY_SET')).not.toThrow()
+
+      isProductionFlag = false
+      expect(() => assertDeploymentEligible('MOCK')).not.toThrow()
+    })
+
+    it('getSettlementProvider() invokes the eligibility check unconditionally, before its MOCK-specific branch — regression guard against the R2 placement CTO Gate R2 rejected', () => {
+      // Behavioral tests above cannot distinguish
+      // `assertDeploymentEligible(type); if (type === 'MOCK') return ...`
+      // (R3, correct) from
+      // `if (type === 'MOCK') { assertDeploymentEligible(type); return ... }`
+      // (R2, rejected) — both produce identical results for every type
+      // that actually exists in PROVIDERS today. This inspects the real,
+      // compiled function's own source to assert the call site's
+      // position directly: the eligibility check must appear BEFORE the
+      // MOCK-specific branch, not nested inside it.
+      const source = getSettlementProvider.toString()
+      const eligibilityCallIndex = source.indexOf('assertDeploymentEligible(')
+      const mockBranchIndex = source.indexOf("type === 'MOCK'")
+      expect(eligibilityCallIndex).toBeGreaterThan(-1)
+      expect(mockBranchIndex).toBeGreaterThan(-1)
+      expect(eligibilityCallIndex).toBeLessThan(mockBranchIndex)
+    })
+
+    it('resolveEscrowType() invokes the eligibility check exactly once, on the final resolved type, not per-branch', () => {
+      // Same reasoning as above, applied to the creation path: R2 called
+      // assertDeploymentEligible() only from inside the
+      // `explicitType === 'MOCK'` branch — the implicit mockEscrow
+      // default, canonical-registry, and legacy-fallback branches never
+      // passed through it. R3 separates resolution
+      // (resolveEscrowTypeCandidate) from the single eligibility
+      // assertion, which now runs unconditionally on whatever type was
+      // resolved. Asserting the call appears exactly once in
+      // resolveEscrowType()'s own source (not resolveEscrowTypeCandidate's,
+      // which is a separate function) proves it is a single, final gate —
+      // not one check per branch.
+      // TS's CommonJS cross-module interop wraps this call as
+      // `(0, escrow_providers_1.assertDeploymentEligible)(resolved)` in
+      // the compiled output (assertDeploymentEligible is imported from a
+      // different module here, unlike getSettlementProvider's own
+      // same-module call above) — the regex tolerates that shape too.
+      const source = resolveEscrowType.toString()
+      const matches = source.match(/assertDeploymentEligible\)?\s*\(/g) ?? []
+      expect(matches).toHaveLength(1)
+    })
+
+    it('a real, registered, always-eligible type (MULTISIG) is unaffected by the generic check — production creation and dispatch both still succeed', async () => {
+      isProductionFlag = true
+      expect(() => getSettlementProvider('MULTISIG')).not.toThrow()
+      expect(resolveEscrowType('BTC' as any, 'MULTISIG' as any)).toBe('MULTISIG')
+    })
   })
 })
 
