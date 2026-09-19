@@ -162,6 +162,47 @@ describe('WDK active generation ownership — PostgreSQL', () => {
     expect(persisted?.txHash).toBe('0xabc')
   })
 
+  it('reconciles a persisted SUBMITTED generation idempotently after restart', async () => {
+    const first = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
+    await wdkTransferAttemptRepository.updateStatus(first.id, 'SUBMISSION_UNKNOWN', undefined, ['PREPARED'])
+    await wdkTransferAttemptRepository.updateStatus(first.id, 'SUBMITTED', { txHash: '0xrestart' }, ['SUBMISSION_UNKNOWN'])
+
+    const afterRestart = await wdkTransferAttemptRepository.findLatest(escrowId, operationType)
+    expect(afterRestart?.id).toBe(first.id)
+    expect(afterRestart?.status).toBe('SUBMITTED')
+    expect(afterRestart?.txHash).toBe('0xrestart')
+
+    const firstReconciler = await wdkTransferAttemptRepository.updateStatus(first.id, 'CONFIRMED', undefined, ['SUBMITTED'])
+    expect(firstReconciler.status).toBe('CONFIRMED')
+
+    await expect(
+      wdkTransferAttemptRepository.updateStatus(first.id, 'CONFIRMED', undefined, ['SUBMITTED'])
+    ).rejects.toThrow(/transition ownership lost/)
+
+    const persisted = await wdkTransferAttemptRepository.findLatest(escrowId, operationType)
+    expect(persisted?.status).toBe('CONFIRMED')
+    expect(persisted?.txHash).toBe('0xrestart')
+    expect(persisted?.activeKey).toBe(`${escrowId}:${operationType}`)
+  })
+
+  it('persists SUBMISSION_UNKNOWN across restart and refuses generation replacement', async () => {
+    const first = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
+    await wdkTransferAttemptRepository.updateStatus(first.id, 'SUBMISSION_UNKNOWN', undefined, ['PREPARED'])
+
+    const afterRestart = await wdkTransferAttemptRepository.findLatest(escrowId, operationType)
+    expect(afterRestart?.status).toBe('SUBMISSION_UNKNOWN')
+    expect(afterRestart?.activeKey).toBe(`${escrowId}:${operationType}`)
+
+    await expect(
+      wdkTransferAttemptRepository.replaceActive(first.id, ['REVERTED'], { escrowId, operationType, destination, amount })
+    ).rejects.toThrow(/cannot relinquish active generation/)
+
+    const rows = await prisma.wdkTransferAttempt.findMany({ where: { escrowId, operationType } })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe(first.id)
+    expect(rows[0].status).toBe('SUBMISSION_UNKNOWN')
+  })
+
   it('allows at most one replacement generation under concurrent retry', async () => {
     const first = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
     await wdkTransferAttemptRepository.updateStatus(first.id, 'REVERTED', undefined, ['PREPARED'])
