@@ -928,23 +928,6 @@ export class DisputeService {
     const baseFee = escrow.feeCharged ? Number(escrow.feeCharged) : 0
     const appealFeeRequired = (baseFee * APPEAL_FEE_MULTIPLIER).toFixed(8)
 
-    // Real charge, not just a computed-and-returned number — closes the
-    // gap this file's own header comment on APPEAL_FEE_MULTIPLIER used
-    // to disclose ("this service does not itself collect payment").
-    // resolveDispute() settles this row's outcome (FORFEITED/REFUNDED)
-    // once the appeal panel rules. @@unique([disputeId, appealRound]) on
-    // the model means a concurrent double-appeal for the same round
-    // fails here with a real P2002 rather than double-charging.
-    await prisma.disputeAppealFee.create({
-      data: {
-        disputeId,
-        appealRound: nextRound,
-        requestedBy,
-        amount: appealFeeRequired,
-        asset: (escrow.asset ?? 'BTC') as AssetType,
-      },
-    })
-
     // ADR-005 §3/§10 — the actual authority-moving write. Locked and
     // re-checked against the SAME `economic-disposition:<disputeId>` scope
     // the disputed-ruling resolve-write and the Economic Disposition
@@ -978,6 +961,21 @@ export class DisputeService {
           'a concurrent resolution or appeal has already changed its current economic disposition authority.'
         )
       }
+
+      // The fee belongs to the generation that actually became authoritative.
+      // Persist it inside the same transaction as the locked authority claim:
+      // a losing concurrent appeal creates no orphan fee, and a fee-write
+      // failure rolls the APPEALED transition back atomically.
+      await tx.disputeAppealFee.create({
+        data: {
+          disputeId,
+          appealRound: nextRound,
+          requestedBy,
+          amount: appealFeeRequired,
+          asset: (escrow.asset ?? 'BTC') as AssetType,
+        },
+      })
+
       const row = await tx.dispute.findUnique({ where: { id: disputeId } })
       if (!row) throw new NotFoundError('Dispute', disputeId)
       return row
