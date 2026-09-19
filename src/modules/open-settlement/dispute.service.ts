@@ -141,6 +141,7 @@ export class DisputeService {
     // must leave OPENED + arbiterId=null, never undo an already committed
     // economic freeze.
     let dispute
+    let disputeFromStatus: string | null = null
     try {
       dispute = await prisma.$transaction(async (tx) => {
         const escrow = await tx.escrow.findUnique({ where: { id: trade.escrowId! } })
@@ -150,6 +151,7 @@ export class DisputeService {
         // The conditional write is the concurrency authority: only one caller
         // may move the exact observed generation to DISPUTED.
         assertEscrowTransition(escrow.status, 'DISPUTED')
+        disputeFromStatus = escrow.status
         const claimed = await tx.escrow.updateMany({
           where: { id: escrow.id, status: escrow.status },
           data: { status: 'DISPUTED' },
@@ -181,7 +183,7 @@ export class DisputeService {
     await emitEscrowTransition(
       trade.escrowId,
       tradeId,
-      trade.status === 'DISPUTED' ? 'DISPUTED' : 'FUNDED',
+      disputeFromStatus!,
       'DISPUTED',
       raisedBy,
       'settlement.escrow.disputed',
