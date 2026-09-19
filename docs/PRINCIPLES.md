@@ -1,5 +1,5 @@
 # PRINCIPLES.md
-### Sails Protocol — Engineering Handoff · Document 16 of 20
+### Sails Protocol — Normative Design Principles
 
 > These are not marketing language. Every principle here exists because
 > violating it would break something specific — either the protocol's
@@ -71,10 +71,9 @@ the protocol the same way (`PROTOCOL_SPECIFICATION.md` section 2).
 
 ### 3. Self Custody Always
 
-The protocol never holds funds, never controls keys, and no server can
-initiate a transaction on a user's behalf. This is not a feature — it is
-the reason the protocol exists instead of another custodial exchange. Every
-`SettlementProvider` implementation must preserve this, with no exception.
+The protocol's normative economic design is non-custodial: protocol semantics must not require Sails to hold user funds or become the unilateral authority that moves them.
+
+A concrete SettlementProvider/reference implementation that cannot satisfy this principle is not thereby redefined as compliant; it must be classified accurately (for example reference-only, testnet-only or production-ineligible) until remediated. Interface conformance alone does not prove self-custody.
 
 ### 4. Fiat Off-Protocol
 
@@ -115,9 +114,9 @@ discipline (`LONG_TERM_VISION.md`, "How New Modules Emerge").
 
 ### 8. Privacy Preserving
 
-The protocol collects the minimum data necessary to coordinate — trade
-state, offer metadata, reputation scores — and nothing more. Communication
-between counterparties is E2E via Secretstream, never logged by protocol
+The protocol should require the minimum data necessary to coordinate economic activity. Concrete applications, nodes and providers may handle additional operational, payment, network or compliance data, but those requirements must not silently become protocol-global identity/data requirements.
+
+Counterparty communication should preserve confidentiality appropriate to the selected transport; transport choice or encryption does not by itself prove that no runtime can observe metadata or that no application persists conversation-related state
 infrastructure. See `SECURITY_MODEL.md` section 4, "Privacy by Design," for
 the full mechanism this principle protects.
 
