@@ -485,7 +485,31 @@ The design-system/UI work is intentionally governed separately and must consume 
 
 ---
 
-## 18. Current technical reading path
+## 18. Documentation authority tiers
+
+The repository intentionally preserves both current truth and the evidence/history that produced it. They are not the same class of document.
+
+### Tier A — primary technical path
+
+`README → PROJECT_CONTEXT → SYSTEM_DESIGN → Semantic Kernel/Core → Protocol Specification/Invariants → ADR/RFC → API/SDK → Backlog/Roadmap`
+
+### Tier B — specialized current references
+
+Examples include database, deployment, node architecture, trust boundary, cryptographic model, security/threat model, protocol economy and provider/rail-specific safety documents.
+
+### Tier C — discovery / audit / evidence records
+
+Discovery, cold-sweep, conformance, cross-layer and technical-debt reports preserve evidence and decision provenance. They do not automatically remain the owner of current architecture after their findings are consumed by canonical architecture, ADRs or RFCs.
+
+### Tier D — historical / handoff / limited-authority material
+
+Historical handoffs, superseded sections and resolved operational inventories remain traceable but should not sit in the primary reader path.
+
+This classification is about **authority and navigation**, not deleting history.
+
+---
+
+## 19. Current technical reading path
 
 For a new engineer:
 
@@ -502,7 +526,7 @@ For a new engineer:
 
 ---
 
-## 19. Documentation architecture cleanup
+## 20. Documentation architecture cleanup
 
 The repository still contains substantial historical "Engineering Handoff · Document X of 20" framing.
 
@@ -527,7 +551,7 @@ Historical and superseded documents should remain traceable but be clearly label
 
 ---
 
-## 20. Status of this draft
+## 21. Status of this draft
 
 This first version intentionally consolidates already-established repository truth.
 
