@@ -1,10 +1,9 @@
 # PROJECT_CONTEXT.md
-### Sails Protocol — Engineering Handoff · Document 1 of 20
+### Sails Protocol — Institutional & Product Context
 
-> **Read this file first.** Every other document in this handoff assumes you
-> understand what's written here. This document assumes zero prior context —
-> you were not in any conversation where this was discussed. Everything you
-> need is written down.
+> **Role:** primary context for positioning, product relationships, institutional decisions and historical framing. For the current system-level technical architecture, continue to [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md), then the Semantic Kernel / Core architecture documents.
+>
+> This file preserves historical corrections and provenance. Historical wording is not automatically current architectural authority.
 
 ---
 
