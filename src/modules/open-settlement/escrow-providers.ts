@@ -570,3 +570,39 @@ export function getSettlementProvider(type: string): SettlementProvider {
   }
   return provider
 }
+
+// Issue #242 (CTO corrective mission, follow-up to #229/#230) — the #220
+// audit found SIGNATURE_COLLECTION_PROVIDERS above is a SECOND, parallel
+// provider-resolution registry, consumed directly by
+// escrow-pending-tx.ts's initiateSignatureCollectionCore() (the unsigned
+// RELEASE/REFUND/SPLIT construction step, shared by initiateRelease/
+// initiateRefund/initiateSplit) and submitTransactionSignature() (the
+// finalization step, reached once every required signature has arrived —
+// including on a restart/resume, since a pending row's signatures can be
+// submitted at any later wall-clock time by design). Neither of those
+// call sites ever went through getSettlementProvider(), so neither ever
+// ran assertDeploymentEligible() — today harmless only because MOCK
+// happens to have no entry in SIGNATURE_COLLECTION_PROVIDERS at all, not
+// because of any actual check. This is the single canonical accessor
+// both call sites now use instead of indexing the raw map directly,
+// mirroring getSettlementProvider()'s own shape immediately above: same
+// policy function, same "checked once, centrally, for whatever type is
+// actually being resolved for economic use" property, applied to this
+// registry too. Deliberately NOT a throw-on-missing helper like
+// getSettlementProvider() — the two call sites already have their own
+// differently-worded "not a signature-collection type" error messages
+// tailored to their own context (initiate vs a pending row that
+// shouldn't be able to reach this state at all); this stays a thin
+// resolver so neither message needs to change.
+//
+// SIGNATURE_COLLECTION_PROVIDERS itself stays exported and untouched:
+// escrow.service.ts's isSignatureCollectionType() (a read-only
+// membership check informing which settlement path a ruling should take)
+// and sweepExpiredEscrows() (a read-only query-filter exclusion) both
+// only ever classify a type — they never resolve a provider for
+// execution, so gating them here would be exactly the "scatter checks
+// blindly" the mission explicitly warned against.
+export function getSignatureCollectionProvider(type: string): SignatureCollectionProvider | undefined {
+  assertDeploymentEligible(type)
+  return SIGNATURE_COLLECTION_PROVIDERS[type]
+}

@@ -230,7 +230,9 @@ jest.mock('../src/common/database', () => ({
 import { escrowService, recommendedEscrowType, resolveEscrowType } from '../src/modules/open-settlement/escrow.service'
 import { MULTISIG_CAPABILITY_PROFILE_V1, ESCROW_TYPE_VALUES } from '@satsails/p2p-schemas'
 import { EscrowError } from '../src/common/errors'
-import { getSettlementProvider, assertDeploymentEligible } from '../src/modules/open-settlement/escrow-providers'
+import { getSettlementProvider, assertDeploymentEligible, getSignatureCollectionProvider } from '../src/modules/open-settlement/escrow-providers'
+import * as fs from 'fs'
+import * as path from 'path'
 
 const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
 const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
@@ -1367,6 +1369,186 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     await expect(escrowService.submitTransactionSignature('escrow-1', 'buyer-1', 'sig')).rejects.toThrow(
       'has no pending transaction awaiting signatures'
     )
+  })
+})
+
+// Issue #242 — CTO corrective mission, follow-up to #229/#230. The #220
+// audit found SIGNATURE_COLLECTION_PROVIDERS is a SECOND provider
+// registry, consumed directly by initiateSignatureCollectionCore()
+// (initiateRelease/Refund/Split, above) and submitTransactionSignature()
+// (above), neither of which ever went through getSettlementProvider() /
+// assertDeploymentEligible() — safe today only because MOCK happens to
+// have no entry in that registry, not because of any actual check.
+// getSignatureCollectionProvider() (escrow-providers.ts) is the new
+// canonical accessor both call sites now use. These tests use MOCK —
+// the one REAL, already-frozen PRODUCTION_INELIGIBLE_TYPES member — as
+// the "would-be ineligible signature-collection provider" test subject,
+// per the mission's own instruction not to permanently add a real
+// signature-collection provider (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM)
+// to that set just to write a test. MOCK is never registered in
+// SIGNATURE_COLLECTION_PROVIDERS, so calling it against these functions
+// is a deliberately synthetic scenario ("cannot happen in practice",
+// per submitTransactionSignature()'s own comment) — but exercising it
+// still proves the real thing: assertDeploymentEligible() runs, and
+// throws its OWN distinct message, before the "not a signature-
+// collection type" registration check ever gets a chance to run.
+describe('getSignatureCollectionProvider() — production deployment-eligibility gate for the signature-collection registry (Issue #242)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEscrowFeatureFlag = false
+    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+    mockDisputeFindFirst.mockResolvedValue(null)
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+  })
+
+  describe('generic policy behavior — structurally driven by PRODUCTION_INELIGIBLE_TYPES, not hardcoded to any literal type', () => {
+    it('getSignatureCollectionProvider() calls assertDeploymentEligible() unconditionally, before ever touching SIGNATURE_COLLECTION_PROVIDERS', () => {
+      // Same regression-guard technique #229 R3 used for
+      // getSettlementProvider(): black-box behavior alone cannot
+      // distinguish "checked generically" from "checked only for the
+      // literal string the one real ineligible type happens to be
+      // today," since PRODUCTION_INELIGIBLE_TYPES has exactly one real
+      // member. This inspects the compiled function's own source to
+      // confirm the eligibility call is positioned before the registry
+      // is ever indexed — not nested inside a type-specific branch.
+      const source = getSignatureCollectionProvider.toString()
+      const eligibilityCallIndex = source.indexOf('assertDeploymentEligible')
+      const registryAccessIndex = source.indexOf('SIGNATURE_COLLECTION_PROVIDERS')
+      expect(eligibilityCallIndex).toBeGreaterThan(-1)
+      expect(registryAccessIndex).toBeGreaterThan(-1)
+      expect(eligibilityCallIndex).toBeLessThan(registryAccessIndex)
+    })
+
+    it('assertDeploymentEligible() itself (reused unmodified from #229/#230) remains Set-membership-driven, not a hardcoded MOCK comparison — re-proven here for this registry\'s own accessor', () => {
+      isProductionFlag = true
+      expect(() => assertDeploymentEligible('MOCK')).toThrow(/not economically eligible in production/)
+      expect(() => assertDeploymentEligible('HYPOTHETICAL_TYPE_NOT_IN_ANY_POLICY_SET')).not.toThrow()
+    })
+  })
+
+  describe('normal production-eligible provider (MULTISIG) is unaffected', () => {
+    it('getSignatureCollectionProvider("MULTISIG") resolves normally in production — isolated function-level proof, no real funds/network needed', () => {
+      isProductionFlag = true
+      const { multisigProvider } = jest.requireMock('../src/modules/open-settlement/multisig.provider') as any
+      expect(getSignatureCollectionProvider('MULTISIG')).toBe(multisigProvider)
+    })
+
+    it('the full initiateRelease() flow for MULTISIG is unaffected in production — same behavior as outside production', async () => {
+      isProductionFlag = true
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ms-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
+      mockParticipantKeyFindMany.mockResolvedValue([
+        { escrowId: 'escrow-ms-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
+        { escrowId: 'escrow-ms-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
+      ])
+      mockPendingTxFindUnique.mockResolvedValue(null)
+      mockEscrowFundingEvidenceFindMany.mockResolvedValue([])
+      mockBuildUnsignedRelease.mockResolvedValueOnce({ psbtBase64: 'unsigned-psbt', requiredSigners: ['buyer-1', 'seller-1'] })
+      mockPendingTxCreate.mockResolvedValueOnce({ id: 'ptx-ms-1', escrowId: 'escrow-ms-1', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'] })
+
+      const result = await escrowService.initiateRelease('escrow-ms-1', 'tb1qexample', 'seller-1')
+
+      expect(mockBuildUnsignedRelease).toHaveBeenCalled()
+      expect(result.id).toBe('ptx-ms-1')
+    })
+  })
+
+  describe('initiation path (unsigned RELEASE/REFUND/SPLIT construction) rejects an ineligible type in production', () => {
+    it('initiateRelease refuses before building/persisting any unsigned transaction — distinct eligibility message, not the ordinary "not a signature-collection type" one', async () => {
+      isProductionFlag = true
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ineligible-1', tradeId: 'trade-1', type: 'MOCK', status: 'PAYMENT_PENDING' })
+
+      await expect(escrowService.initiateRelease('escrow-ineligible-1', 'tb1qexample', 'seller-1')).rejects.toThrow(
+        /not economically eligible in production/
+      )
+      expect(mockBuildUnsignedRelease).not.toHaveBeenCalled()
+      expect(mockPendingTxCreate).not.toHaveBeenCalled()
+    })
+
+    it('initiateRefund refuses before building/persisting any unsigned transaction', async () => {
+      isProductionFlag = true
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ineligible-2', tradeId: 'trade-1', type: 'MOCK', status: 'FUNDS_LOCKED' })
+
+      await expect(escrowService.initiateRefund('escrow-ineligible-2', 'seller-1', 'tb1qexample')).rejects.toThrow(
+        /not economically eligible in production/
+      )
+      expect(mockBuildUnsignedRefund).not.toHaveBeenCalled()
+      expect(mockPendingTxCreate).not.toHaveBeenCalled()
+    })
+
+    it('initiateSplit refuses before building/persisting any unsigned transaction', async () => {
+      isProductionFlag = true
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ineligible-3', tradeId: 'trade-1', type: 'MOCK', status: 'DISPUTED' })
+      mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+
+      await expect(
+        escrowService.initiateSplit('escrow-ineligible-3', 'tb1qbuyer', 'tb1qseller', 6000, 'arbiter-1')
+      ).rejects.toThrow(/not economically eligible in production/)
+      expect(mockBuildUnsignedSplit).not.toHaveBeenCalled()
+      expect(mockPendingTxCreate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('finalization path rejects a persisted pending transaction whose provider has since become deployment-ineligible', () => {
+    it('submitTransactionSignature fails closed before combine/broadcast, even once every required signature has already arrived — no fallback to another provider, no silent completion', async () => {
+      isProductionFlag = true
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ineligible-4', tradeId: 'trade-1', type: 'MOCK', status: 'PAYMENT_PENDING' })
+      mockPendingTxFindUnique.mockResolvedValue({
+        id: 'ptx-ineligible', escrowId: 'escrow-ineligible-4', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'],
+        unsignedPsbtBase64: 'unsigned-psbt', triggeredBy: 'seller-1',
+      })
+      mockTxSignatureFindMany.mockResolvedValue([
+        { participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
+        { participantId: 'seller-1', signedPsbtBase64: 'seller-signed' },
+      ])
+
+      // The final signature's own bookkeeping upsert is not itself an
+      // economic action — it is allowed to persist. Only what follows
+      // (combine/broadcast/status-claim) must be refused.
+      await expect(escrowService.submitTransactionSignature('escrow-ineligible-4', 'seller-1', 'seller-signed')).rejects.toThrow(
+        /not economically eligible in production/
+      )
+      expect(mockTxSignatureUpsert).toHaveBeenCalled()
+
+      // No economic side effect, and no fallback to any other provider's
+      // finalize method or to a plain SettlementProvider.
+      expect(mockFinalizeRelease).not.toHaveBeenCalled()
+      expect(mockFinalizeRefund).not.toHaveBeenCalled()
+      expect(mockFinalizeSplit).not.toHaveBeenCalled()
+      expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+      expect(mockPendingTxDelete).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('recovery/resume cannot bypass the gate', () => {
+    it('dispute-dispatch-recovery.ts (automated C4 recovery) has no direct access to SIGNATURE_COLLECTION_PROVIDERS — its only path to signature-collection dispatch is escrowService.initiateRelease/Refund/Split, already proven to refuse above', () => {
+      // dispute-dispatch-recovery.ts has no dedicated test file of its
+      // own (confirmed absent from tests/ before this mission) — building
+      // a full mock harness for its dispute-query logic just to re-prove
+      // a call chain already proven above would be scope creep for a
+      // bounded mission. This structural check is the smallest legitimate
+      // proof: the recovery file cannot reach SIGNATURE_COLLECTION_PROVIDERS
+      // through any path except the exact functions already tested.
+      const source = fs.readFileSync(
+        path.join(__dirname, '../src/modules/open-settlement/dispute-dispatch-recovery.ts'),
+        'utf8'
+      )
+      expect(source).not.toMatch(/SIGNATURE_COLLECTION_PROVIDERS/)
+      expect(source).toMatch(/escrowService\.initiateRelease/)
+      expect(source).toMatch(/escrowService\.initiateRefund/)
+      expect(source).toMatch(/escrowService\.initiateSplit/)
+    })
+  })
+
+  describe('non-production remains unaffected — existing dev/test harness semantics unchanged', () => {
+    it('initiateRelease still rejects MOCK with its ORIGINAL "not a signature-collection type" message outside production — proves this mission changed production behavior only', async () => {
+      isProductionFlag = false
+      mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-dev-1', tradeId: 'trade-1', type: 'MOCK', status: 'PAYMENT_PENDING' })
+
+      await expect(escrowService.initiateRelease('escrow-dev-1', 'tb1qexample', 'seller-1')).rejects.toThrow(
+        'does not use the client-signature-collection release flow'
+      )
+    })
   })
 })
 

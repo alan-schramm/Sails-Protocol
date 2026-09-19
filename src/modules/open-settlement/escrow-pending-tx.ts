@@ -1,7 +1,7 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
 import { config } from '../../config'
-import { SIGNATURE_COLLECTION_PROVIDERS } from './escrow-providers'
+import { getSignatureCollectionProvider } from './escrow-providers'
 import {
   assertEscrowTransition,
   isSellerOrAssignedArbiter,
@@ -72,7 +72,12 @@ async function initiateSignatureCollectionCore(
   const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
 
-  const provider = SIGNATURE_COLLECTION_PROVIDERS[escrow.type]
+  // Issue #242 — getSignatureCollectionProvider() asserts deployment
+  // eligibility before returning anything, so a production-ineligible
+  // type is refused here, before this function ever builds/persists an
+  // unsigned PSBT (the "pending economic instruction" the mission's own
+  // required tests are about) — not just before the later broadcast.
+  const provider = getSignatureCollectionProvider(escrow.type)
   if (!provider) {
     throw new EscrowError(
       `Escrow type '${escrow.type}' does not use the client-signature-collection ${kind} flow`
@@ -336,7 +341,22 @@ export async function submitTransactionSignature(escrowId: string, participantId
     return { pendingTransaction: pending, complete: false, submittedCount: signatures.length, requiredCount: pending.requiredSigners.length }
   }
 
-  const provider = SIGNATURE_COLLECTION_PROVIDERS[escrow.type]
+  // Issue #242 — this is the finalization boundary: every required
+  // signature has just arrived (allSubmitted, above) and the next steps
+  // are the real economic commit (ADR-005/ADR-004 gates, the atomic
+  // status claim, then provider.finalizeRelease/Refund/Split + broadcast
+  // below). A pending row can sit here indefinitely — signatures arrive
+  // at any later wall-clock time, from any signer, including long after
+  // a process restart (this function has no in-memory state of its own;
+  // every call re-reads the pending row and its signatures fresh from
+  // Postgres) — exactly the "historical pending state" case: if
+  // `escrow.type` has since become deployment-ineligible,
+  // getSignatureCollectionProvider() refuses here, before any of that,
+  // regardless of how long ago the row was created. (dispute-dispatch-
+  // recovery.ts's own C4 recovery calls initiateRelease/Refund/Split —
+  // the OTHER call site above — not this one; it only re-creates a
+  // missing pending row, it never submits a signature itself.)
+  const provider = getSignatureCollectionProvider(escrow.type)
   if (!provider) {
     // Cannot happen in practice — a pending row only exists for a type
     // registered in SIGNATURE_COLLECTION_PROVIDERS — but stated loudly
