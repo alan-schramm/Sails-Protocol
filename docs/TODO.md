@@ -1,10 +1,9 @@
 # TODO.md
-### Sails Protocol — Engineering Handoff · Document 11 of 20
+### Sails Protocol — Historical / Category-Oriented Implementation Gap Inventory
 
-> This list is derived from an actual filesystem audit of the reference
-> implementation fragment, not from memory or assumption. Verify current
-> state yourself before starting work — code may have moved since this
-> handoff was written.
+> **Authority / status:** retained for implementation-gap provenance and category-oriented audit history. It is not the primary current execution queue. Use `BACKLOG.md` plus live GitHub Issues/Project for current unresolved obligations and sequencing.
+>
+> This list originated from filesystem audits of the reference implementation. Verify current state before acting on any item: code, ownership and production-readiness evidence may have changed since a section was written.
 
 > **Re-audited 2026-07-16.** The previous version of this file had drifted
 > out of sync with the codebase — several items it listed as missing or
