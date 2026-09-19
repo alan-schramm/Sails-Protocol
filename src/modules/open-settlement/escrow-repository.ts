@@ -332,7 +332,9 @@ class PrismaEscrowRepository implements EscrowRepository {
       data: { ...data, txReleaseId },
     })
     if (claimed.count === 1) {
-      return prisma.escrow.findUniqueOrThrow({ where: { id: escrowId } })
+      const persisted = await prisma.escrow.findUnique({ where: { id: escrowId } })
+      if (!persisted) throw new EscrowError(`Escrow ${escrowId} disappeared after settlement result persistence`)
+      return persisted
     }
 
     const current = await prisma.escrow.findUnique({ where: { id: escrowId } })
