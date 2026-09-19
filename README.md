@@ -76,7 +76,7 @@ Applications / Integrators
                      wallet, transport and settlement stacks
 ```
 
-This diagram is orientation, not specification. The authoritative architecture lives in the architecture documents below, and the rendered architecture diagrams are available at [alan-schramm.github.io/Sails-Protocol](https://alan-schramm.github.io/Sails-Protocol/).
+This diagram is orientation, not specification. For the consolidated current system-level technical map, start with [System Design](docs/SYSTEM_DESIGN.md). Deeper architecture ownership remains with the governing architecture documents, and rendered architecture diagrams are available at [alan-schramm.github.io/Sails-Protocol](https://alan-schramm.github.io/Sails-Protocol/).
 
 ## Start here
 
@@ -136,7 +136,8 @@ console.log(balance);
 | Inspect the stable developer contract | [API Stable](docs/API_STABLE.md) |
 | See one complete trade flow | [Transaction Walkthrough](docs/TRANSACTION_WALKTHROUGH.md) |
 | Understand the protocol contract | [Protocol Specification](docs/PROTOCOL_SPECIFICATION.md) |
-| Understand the broad system architecture | [Architecture](docs/ARCHITECTURE.md) |
+| Understand the current system end to end | [System Design](docs/SYSTEM_DESIGN.md) |
+| Inspect broad/reference and historical system topology | [Architecture](docs/ARCHITECTURE.md) |
 | Understand the modern Pure Core architecture | [Core Architecture](docs/CORE_ARCHITECTURE.md) |
 | Understand implementation derivation | [Core Implementation Architecture](docs/CORE_IMPLEMENTATION_ARCHITECTURE.md) |
 | Understand protocol invariants | [Protocol Invariants](docs/PROTOCOL_INVARIANTS.md) |
@@ -165,8 +166,11 @@ Institutional Truth
 ├── Normative protocol contract
 │   └── docs/PROTOCOL_SPECIFICATION.md
 │
+├── System-level technical map
+│   └── docs/SYSTEM_DESIGN.md
+│
 ├── Architecture
-│   ├── docs/ARCHITECTURE.md
+│   ├── docs/ARCHITECTURE.md (broad/reference + historical topology)
 │   ├── docs/CORE_ARCHITECTURE.md
 │   └── docs/CORE_IMPLEMENTATION_ARCHITECTURE.md
 │
@@ -183,7 +187,8 @@ Institutional Truth
 
 Use each source for the responsibility it owns:
 
-- **`ARCHITECTURE.md`** — broad system architecture, components, contexts, and boundaries.
+- **`SYSTEM_DESIGN.md`** — consolidated current system-level technical map and routing surface; it summarizes rather than replacing deeper normative owners.
+- **`ARCHITECTURE.md`** — broad/reference system architecture and historical implementation topology.
 - **`CORE_ARCHITECTURE.md`** — authority for the modern **Pure Core + Runtime + Modules + Providers** architecture derived from Sails' semantic identity.
 - **`CORE_IMPLEMENTATION_ARCHITECTURE.md`** — implementation derivation of those Core properties and boundaries.
 - **Accepted RFCs / ADRs** — decisions within their explicit scope; they do not become a universal replacement for every other authority class.
