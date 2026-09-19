@@ -1,8 +1,9 @@
 # PROTOCOL_ECONOMY.md
-### Sails Protocol — Engineering Handoff · Document 14 of 20
+### Sails Protocol — Economic Architecture & Historical Policy Rationale
 
-> **Where this fits:** none of the other 13 documents cover economic design
-> at this depth. `ROADMAP.md` covers engineering phases (external funding
+> **Authority / status:** economic architecture, policy rationale and historical proposals. This document does not by itself activate fees, distribution policies or production economics. Current economic execution truth is owned by implemented policy/versioning/ledger mechanisms plus live operator configuration/evidence.
+>
+> **Where this fits:** this document covers economic design `ROADMAP.md` covers engineering phases (external funding
 > specifics are intentionally not disclosed there); `PROJECT_CONTEXT.md`
 > briefly states the "no speculative token" principle. This document is
 > the actual economic architecture:
@@ -145,8 +146,7 @@ Transport Adapters: the architecture must stay capable of supporting a
 future source of value capture without a redesign, even while nothing
 below is scheduled:
 
-- **Marketplace P2P** — today's mechanism (section 6), already live in
-  principle via `Sails OpenP2P`.
+- **Marketplace P2P** — current economic design target around Sails OpenP2P. Mechanism implementation and actual production activation are separate claims; section 6/current policy evidence governs what is really active.
 - **Settlement** — direct fees on future `SettlementAdapter` (§4B)
   implementations beyond today's escrow flow (e.g. Lightning HODL,
   Liquid Covenant, once real).
@@ -891,8 +891,7 @@ unauthorized parameter as if it were already live.
 
 The economic parameters in this document (fee rate, bucket splits,
 arbitration fee %) are **defaults proposed for the bootstrap phase**, owned
-by Satsails during Months 1-12 while the protocol has essentially one real
-reference implementation and one real module (OpenP2P). As the ecosystem
+by Satsails during Months 1-12 while the ecosystem was still early in its reference-implementation phase. This sentence is historical rationale, not a current module-count statement. As the ecosystem
 matures per the roadmap:
 
 - **Months 1-12:** Satsails proposes and can adjust these defaults as
@@ -927,8 +926,7 @@ Every row is satisfied without introducing a Sails-native token — the
 constraint from section 1 holds across the entire design.
 
 **Not exhaustive as of section 4.7's addition:** this table predates the
-external economic-model review and covers the six stakeholder groups with
-a concrete, largely-active incentive mechanism today. Section 4.7 adds two
+external economic-model review and covers stakeholder groups from the earlier economic-design pass. Do not read this table as evidence that those incentives are currently active in production. Section 4.7 adds two
 more infrastructure-provider roles — Agent Providers and Settlement
 Providers beyond today's Mock/Multisig — both still 📋 Future rather than
 active, which is why they're documented there rather than folded into
