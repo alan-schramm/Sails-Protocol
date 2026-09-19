@@ -440,6 +440,8 @@ Canonical owner for this architectural boundary: Issue #155 and the relevant Ope
 
 ## 16. Security and production-readiness model
 
+**Current status:** the reference implementation is still inside Day-0 / production-readiness hardening and must not be described as production-open yet. Production eligibility remains a governed gate, not a property inferred from code existence or green CI.
+
 Sails treats implementation, evidence and production eligibility as separate claims.
 
 Examples:
