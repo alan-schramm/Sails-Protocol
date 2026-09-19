@@ -1,7 +1,9 @@
-# Production Readiness Review — Sails P2P Trading SDK
+# Production Readiness Review — Sails P2P Trading SDK (Historical Snapshot)
 
 Date: 2026-07-29
-Scope: public-release readiness for the SDK, reference UI, escrow flows, and integration ergonomics.
+Scope: dated public-release-readiness review for the SDK, reference UI, escrow flows, and integration ergonomics.
+
+> **Historical snapshot:** this document is evidence of what was true/found at the review date. It is not the current production-readiness authority. Current Day-0/production readiness is governed by #105, #220, BACKLOG, live bounded owners and current evidence.
 
 **Status update, 2026-08-02** — re-verified live against the current code
 before starting new work, not assumed stale: findings #2, #4, #5, #6 below
