@@ -5921,14 +5921,28 @@ obligation" is defined anywhere in this repository.
     production pilot must be maturity-gated rather than assuming all three
     rails are equivalent.
 
+    **Product Direction Freeze (2026-09-19): Hybrid model.**
+    Sails Market should support both (A) a managed Satsails/Eulen terminal
+    for low-friction P2P onboarding and (B) BYO Eulen/provider credentials
+    for professional operators who want direct provider control. Both paths
+    must emit the same canonical Sails economic evidence/outcome semantics.
+
     Architecture constraint:
     `Sails Protocol ≠ Satsails commercial account ≠ Eulen provider authority`.
-    The protocol stays provider-neutral. Sails Market may offer one or both:
-    (A) P2P operator brings its own Eulen/provider credentials; (B) a hosted
-    Satsails-operated managed terminal/aggregator; potentially a hybrid.
-    Hosted aggregation may create a strong adoption/network-effect channel,
-    but its legal/compliance/accounting/provider-concentration consequences
-    belong to the Satsails/Sails Market product layer, not protocol Core.
+    The protocol stays provider-neutral. Hosted aggregation may create a
+    strong adoption/network-effect channel, but its legal/compliance/
+    accounting/provider-concentration consequences belong to the
+    Satsails/Sails Market product layer, not protocol Core.
+
+    **Day-0 DePix rail target (Product Direction Freeze): Liquid + Arkade + Spark.**
+    This target must not be silently reduced to Liquid-only planning.
+    Project-owner input records direct Eulen communication that Arkade/Spark
+    are moving to production after extended testing, accelerated by the
+    recent Liquid incident. Public provider documentation may temporarily
+    lag that operational transition. Release eligibility remains evidence-
+    gated per rail: if any rail is not actually production-capable at the
+    Sails release gate, surface the discrepancy explicitly rather than
+    quietly removing it from the Day-0 target.
 
     Economic constraint:
     **Sails protocol fee semantics ≠ Eulen `splitFee` primitive.**
