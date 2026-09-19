@@ -111,7 +111,7 @@ describe('lockFunds() — durable operation truth', () => {
     mockTransfer.mockRejectedValueOnce(new Error('simulated: response lost after submission'))
 
     await expect(provider.lockFunds(escrow)).rejects.toThrow('simulated: response lost after submission')
-    expect(mockAttemptUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'SUBMISSION_UNKNOWN' } }))
+    expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'SUBMISSION_UNKNOWN' } }))
 
     // Retry: the durable row is now SUBMISSION_UNKNOWN.
     mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-1', status: 'SUBMISSION_UNKNOWN', destination: '0xEscrowAddr', amount: '5.00000000' }))
