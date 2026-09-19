@@ -89,8 +89,8 @@ describe('WDK active generation ownership — PostgreSQL', () => {
     await wdkTransferAttemptRepository.updateStatus(first.id, 'REVERTED', undefined, ['PREPARED'])
 
     const replacements = await Promise.allSettled([
-      wdkTransferAttemptRepository.replaceActive(first.id, { escrowId, operationType, destination, amount }),
-      wdkTransferAttemptRepository.replaceActive(first.id, { escrowId, operationType, destination, amount }),
+      wdkTransferAttemptRepository.replaceActive(first.id, ['REVERTED'], { escrowId, operationType, destination, amount }),
+      wdkTransferAttemptRepository.replaceActive(first.id, ['REVERTED'], { escrowId, operationType, destination, amount }),
     ])
 
     expect(replacements.filter((x) => x.status === 'fulfilled')).toHaveLength(1)
