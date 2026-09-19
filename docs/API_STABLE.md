@@ -1,4 +1,4 @@
-# @satsails/p2p-trading-sdk — Stable API (frozen as of v0.1)
+# @satsails/p2p-trading-sdk — Stable API (pre-v1 compatibility contract)
 
 > **Role in the canonical developer journey (Missão 07.4):** "the
 > version/freeze contract." Not a tutorial — read this to know exactly
@@ -6,7 +6,7 @@
 > (`API_REFERENCE.md`, `SDK_GUIDE.md`) disagrees with this one on an SDK
 > method's real shape, this document wins.
 
-This is the CTO-directed SDK hardening commitment (docs/TODO.md §25/§26):
+This is the CTO-directed SDK hardening commitment. It originated with the v0.1 freeze and continues to govern the current pre-v1 package line (repository package currently 0.2.0):
 now that `@satsails/p2p-trading-sdk` is the primary product surface, the goal is no
 longer "add more" — it's "make every name below safe for a wallet to
 build against and never have it move." Everything listed here is public,
@@ -38,8 +38,7 @@ out explicitly as an exception here, not made silently.
   placeholder today (`negotiate`) rather than doing the thing its name
   suggests. No freeze commitment at all; the shape itself may change,
   not just gain fields.
-Untagged methods are 🔒 FROZEN by default (the pre-existing, original
-v0.1 surface) — only methods added or reclassified since Missão 02.5
+Untagged methods are 🔒 FROZEN by default (the pre-existing surface covered by the original v0.1 freeze) — only methods added or reclassified since Missão 02.5
 onward carry an explicit tag, to avoid re-annotating the entire document.
 
 ## Two names, one client — why
@@ -56,7 +55,7 @@ never "the old name being deprecated" — `sdk.auth` and `sdk.identity`
 are the literal same object (`packages/sails-sdk/src/client.ts`,
 enforced by `packages/sails-sdk/tests/client.test.ts`'s
 `client.auth === client.identity`-style assertions). Both names are
-frozen together, permanently, as of v0.1.
+frozen together, permanently, since the original v0.1 freeze.
 
 Every property listed below (both names, in every pair) carries its own
 JSDoc `@see`/alias pointer in `packages/sails-sdk/src/client.ts`, which
@@ -115,7 +114,7 @@ would just be a synonym, not a real accessibility gain.
 - Standalone helper: `generateKeypair()` (not a method — a top-level SDK export)
 
 ### `liquidity` / `offers`
-- `discover({ asset, side, limit?, offset?, paymentMethod?, priceMin?, priceMax? })` → `{ offers, sources, total, hasMore }` (`limit`/`offset` added 2026-07-20, docs/TODO.md §25 — default `limit` 10, max 50; `total`/`hasMore` and the three filter params were already real but missing from this line — Missão 07.4 doc-sync fix, no code change; `total`/`hasMore` also fixed to be *correct*, not just present, by Missão 07.1's pagination bug fix)
+- `discover({ asset, side, limit?, offset?, paymentMethod?, priceMin?, priceMax? })` → `{ offers, sources, total, hasMore }` (`limit`/`offset` added 2026-07-20, historical SDK hardening record — default `limit` 10, max 50; `total`/`hasMore` and the three filter params were already real but missing from this line — Missão 07.4 doc-sync fix, no code change; `total`/`hasMore` also fixed to be *correct*, not just present, by Missão 07.1's pagination bug fix)
 - `getOffer(offerId)` → `Offer & { user: Participant }`
 - `publish(input)` → `Offer` *(requires session)*
 - `book(asset)` → `OrderBook`
@@ -266,7 +265,7 @@ shared by every module and every alias (same transport underneath).
 
 ## What "v1" means for this document
 
-Once the integration-test and dogfooding passes (docs/TODO.md §25 and
+Once the integration-test and dogfooding passes (historical SDK hardening record and
 its follow-ups) are done and this SDK has had real external usage, `0.1`
 becomes `1.0` and this document's freeze becomes the literal SemVer
 contract: a breaking change to anything above requires a major version
