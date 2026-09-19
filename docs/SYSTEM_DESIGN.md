@@ -33,7 +33,7 @@ In particular:
 - protocol primitives/conformance → [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md)
 - protocol invariants → [PROTOCOL_INVARIANTS.md](PROTOCOL_INVARIANTS.md)
 - architectural decisions → [adr/](adr/)
-- accepted design decisions / detailed mechanisms → [rfcs/](../rfcs/)
+- accepted design decisions / detailed mechanisms → [rfcs/](rfcs/)
 - current engineering obligations → [BACKLOG.md](BACKLOG.md)
 - release / future sequencing → [ROADMAP.md](ROADMAP.md)
 
@@ -522,7 +522,7 @@ For a new engineer:
 5. [CORE_ARCHITECTURE.md](CORE_ARCHITECTURE.md) — modern Core boundary
 6. [CORE_IMPLEMENTATION_ARCHITECTURE.md](CORE_IMPLEMENTATION_ARCHITECTURE.md) — implementation derivation
 7. [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md) — primitives and conformance
-8. [adr/](adr/) and [../rfcs/](../rfcs/) — decisions and detailed mechanisms
+8. [adr/](adr/) and [../rfcs/](rfcs/) — decisions and detailed mechanisms
 9. [API_STABLE.md](API_STABLE.md), [SDK_GUIDE.md](SDK_GUIDE.md), [API_REFERENCE.md](API_REFERENCE.md) — integration surface
 10. [BACKLOG.md](BACKLOG.md) and [ROADMAP.md](ROADMAP.md) — current obligations and sequencing
 
