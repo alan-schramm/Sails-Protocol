@@ -100,6 +100,12 @@ import { assertKnownCapabilityProfile, findCapabilityCommitBlocker } from './cap
 
 export type { EscrowRecord, SettlementProvider }
 export { recommendedEscrowType }
+// Issue #229 R3 — exported alongside recommendedEscrowType above, same
+// reason: a pure decision function (asset/explicitType in, EscrowType
+// out or throws) with no side effects, worth letting tests exercise and
+// structurally inspect directly rather than only through the much larger
+// createEscrow() surface.
+export { resolveEscrowType }
 
 // Missão 10, Fase 6.10/6.11 — the wire shape getEscrow()/getEscrowByTrade()
 // expose for `EscrowParticipantKey` rows: trimmed to exactly what a
@@ -248,11 +254,29 @@ export type { CreateEscrowInput }
 // this gate existed) must not be able to reactivate fake economic
 // execution merely by existing. getSettlementProvider() now enforces
 // this at dispatch time too — see its own header comment.
+//
+// Corrected/Implemented 2026-09-19 (Issue #229 R3, CTO corrective
+// mission) — R2 called assertDeploymentEligible() only from inside the
+// `explicitType === 'MOCK'` branch, which meant this function's own
+// generic-policy claim was only true for that one path: the implicit
+// mockEscrow-default branch, the canonical-registry branch, and the
+// legacy-fallback branch each returned their resolved type without ever
+// passing through the eligibility check. Refactored so resolution and
+// eligibility are two separate steps — resolveEscrowTypeCandidate()
+// below returns WHATEVER type any branch resolves to, and this function
+// asserts eligibility on that single result once, unconditionally,
+// before returning it to createEscrow() for persistence. No branch
+// needs its own check; a future #220 addition to
+// PRODUCTION_INELIGIBLE_TYPES is covered automatically, from whichever
+// branch produces that type.
 function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
-  if (explicitType === 'MOCK') {
-    assertDeploymentEligible('MOCK')
-    return 'MOCK'
-  }
+  const resolved = resolveEscrowTypeCandidate(asset, explicitType)
+  assertDeploymentEligible(resolved)
+  return resolved
+}
+
+function resolveEscrowTypeCandidate(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
+  if (explicitType === 'MOCK') return 'MOCK'
   if (!explicitType && config.features.mockEscrow) return 'MOCK'
 
   const scope = translateLegacyAssetType(asset)

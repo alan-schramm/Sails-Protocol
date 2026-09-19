@@ -533,19 +533,25 @@ export function getSettlementProvider(type: string): SettlementProvider {
   // still holds EXACTLY as written for every real, registered type below
   // (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM keep resolving
   // unconditionally off the persisted `type`, so reconciliation/restart
-  // for those is completely unaffected by this change). MOCK alone is
-  // the one type whose provider FABRICATES settlement success rather
-  // than doing real economic work, so it alone gets a deployment-
-  // eligibility check here — the single choke point every economically
-  // active dispatch (lockFunds/releaseFunds/refundFunds/splitFunds) funnels
-  // through, which is exactly why a persisted MOCK row (whether created
-  // before this gate existed or introduced into a production database
-  // out-of-band) cannot reactivate fake economic execution merely by
-  // still existing — see assertDeploymentEligible()'s own header comment.
-  if (type === 'MOCK') {
-    assertDeploymentEligible(type)
-    return PROVIDERS['MOCK']
-  }
+  // for those is completely unaffected by this change). MOCK is today the
+  // one type whose provider FABRICATES settlement success rather than
+  // doing real economic work, so it's the one entry currently in
+  // PRODUCTION_INELIGIBLE_TYPES — but the check below applies to
+  // WHATEVER that set contains, not to the literal string 'MOCK'.
+  //
+  // Corrected/Implemented 2026-09-19 (Issue #229 R3, CTO corrective
+  // mission) — R2 called assertDeploymentEligible() only inside an
+  // `if (type === 'MOCK')` branch, which made the "canonical, generic
+  // policy" claim false in practice: a future #220 addition to
+  // PRODUCTION_INELIGIBLE_TYPES would silently do nothing here unless a
+  // second provider-specific `if` were also added. Moved to the top of
+  // this function, unconditionally, so the policy actually governs every
+  // `type` this function ever resolves — this is now the single choke
+  // point every economically active dispatch (lockFunds/releaseFunds/
+  // refundFunds/splitFunds, reconciliation, restart/recovery) funnels
+  // through, for ANY type #220 later classifies, with zero new code here.
+  assertDeploymentEligible(type)
+  if (type === 'MOCK') return PROVIDERS['MOCK']
   const provider = PROVIDERS[type]
   if (!provider) {
     // Correctness fix (found during the MULTISIG provider build): this

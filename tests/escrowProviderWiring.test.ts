@@ -227,10 +227,10 @@ jest.mock('../src/common/database', () => ({
   },
 }))
 
-import { escrowService, recommendedEscrowType } from '../src/modules/open-settlement/escrow.service'
+import { escrowService, recommendedEscrowType, resolveEscrowType } from '../src/modules/open-settlement/escrow.service'
 import { MULTISIG_CAPABILITY_PROFILE_V1, ESCROW_TYPE_VALUES } from '@satsails/p2p-schemas'
 import { EscrowError } from '../src/common/errors'
-import { getSettlementProvider } from '../src/modules/open-settlement/escrow-providers'
+import { getSettlementProvider, assertDeploymentEligible } from '../src/modules/open-settlement/escrow-providers'
 
 const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
 const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
@@ -416,7 +416,7 @@ describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229
 // proven by asserting the economic-result write (mockEscrowUpdate, which
 // updateLockResult()/updateReleaseResult()/updateRefundResult()/
 // updateSplitResult() all funnel through) is never reached.
-describe('getSettlementProvider() / escrow.service.ts economic methods — persisted MOCK row cannot execute in production (Issue #229 R2)', () => {
+describe('getSettlementProvider() / escrow.service.ts economic methods — persisted MOCK row cannot execute in production (Issue #229 R2/R3)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
@@ -580,6 +580,83 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
 
   it('the protocol/schema still represents MOCK as a valid escrow type — this mission never removed it from the wire enum', () => {
     expect(ESCROW_TYPE_VALUES).toContain('MOCK')
+  })
+
+  // Issue #229 R3 — CTO Gate R2 found assertDeploymentEligible() was only
+  // wired into getSettlementProvider()'s `if (type === 'MOCK')` branch and
+  // resolveEscrowType()'s `if (explicitType === 'MOCK')` branch, making the
+  // "canonical, generic policy" claim false: a future #220 addition to
+  // PRODUCTION_INELIGIBLE_TYPES would silently do nothing unless a second,
+  // provider-specific `if` were also added at each call site. Both were
+  // refactored to call the check unconditionally, once, on whatever type
+  // is actually being resolved/dispatched — these tests prove that shape
+  // directly, since PRODUCTION_INELIGIBLE_TYPES having only one real
+  // member (MOCK) today means no purely-outcome-based test could ever
+  // distinguish "checked generically" from "checked only for the literal
+  // string MOCK" (both produce byte-identical outward behavior for every
+  // input that exists today) — the mission explicitly forbids adding a
+  // second real provider classification just to create that difference.
+  describe('eligibility check is generic — not a MOCK-only regression (Issue #229 R3)', () => {
+    it('assertDeploymentEligible() itself is driven purely by set membership, not a hardcoded MOCK comparison', () => {
+      isProductionFlag = true
+      expect(() => assertDeploymentEligible('MOCK')).toThrow(/not economically eligible in production/)
+      // A type that is NOT in PRODUCTION_INELIGIBLE_TYPES today (a
+      // hypothetical/unregistered string, never wired to any real
+      // provider or added to that set by this mission) must NOT be
+      // rejected by this function even in production — proves the
+      // function checks membership in the policy set, not "is this
+      // string literally 'MOCK'".
+      expect(() => assertDeploymentEligible('HYPOTHETICAL_TYPE_NOT_IN_ANY_POLICY_SET')).not.toThrow()
+
+      isProductionFlag = false
+      expect(() => assertDeploymentEligible('MOCK')).not.toThrow()
+    })
+
+    it('getSettlementProvider() invokes the eligibility check unconditionally, before its MOCK-specific branch — regression guard against the R2 placement CTO Gate R2 rejected', () => {
+      // Behavioral tests above cannot distinguish
+      // `assertDeploymentEligible(type); if (type === 'MOCK') return ...`
+      // (R3, correct) from
+      // `if (type === 'MOCK') { assertDeploymentEligible(type); return ... }`
+      // (R2, rejected) — both produce identical results for every type
+      // that actually exists in PROVIDERS today. This inspects the real,
+      // compiled function's own source to assert the call site's
+      // position directly: the eligibility check must appear BEFORE the
+      // MOCK-specific branch, not nested inside it.
+      const source = getSettlementProvider.toString()
+      const eligibilityCallIndex = source.indexOf('assertDeploymentEligible(')
+      const mockBranchIndex = source.indexOf("type === 'MOCK'")
+      expect(eligibilityCallIndex).toBeGreaterThan(-1)
+      expect(mockBranchIndex).toBeGreaterThan(-1)
+      expect(eligibilityCallIndex).toBeLessThan(mockBranchIndex)
+    })
+
+    it('resolveEscrowType() invokes the eligibility check exactly once, on the final resolved type, not per-branch', () => {
+      // Same reasoning as above, applied to the creation path: R2 called
+      // assertDeploymentEligible() only from inside the
+      // `explicitType === 'MOCK'` branch — the implicit mockEscrow
+      // default, canonical-registry, and legacy-fallback branches never
+      // passed through it. R3 separates resolution
+      // (resolveEscrowTypeCandidate) from the single eligibility
+      // assertion, which now runs unconditionally on whatever type was
+      // resolved. Asserting the call appears exactly once in
+      // resolveEscrowType()'s own source (not resolveEscrowTypeCandidate's,
+      // which is a separate function) proves it is a single, final gate —
+      // not one check per branch.
+      // TS's CommonJS cross-module interop wraps this call as
+      // `(0, escrow_providers_1.assertDeploymentEligible)(resolved)` in
+      // the compiled output (assertDeploymentEligible is imported from a
+      // different module here, unlike getSettlementProvider's own
+      // same-module call above) — the regex tolerates that shape too.
+      const source = resolveEscrowType.toString()
+      const matches = source.match(/assertDeploymentEligible\)?\s*\(/g) ?? []
+      expect(matches).toHaveLength(1)
+    })
+
+    it('a real, registered, always-eligible type (MULTISIG) is unaffected by the generic check — production creation and dispatch both still succeed', async () => {
+      isProductionFlag = true
+      expect(() => getSettlementProvider('MULTISIG')).not.toThrow()
+      expect(resolveEscrowType('BTC' as any, 'MULTISIG' as any)).toBe('MULTISIG')
+    })
   })
 })
 
