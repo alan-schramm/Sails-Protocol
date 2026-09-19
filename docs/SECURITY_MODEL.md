@@ -1,5 +1,5 @@
 # SECURITY_MODEL.md
-### Sails Protocol — Engineering Handoff · Document 9 of 20
+### Sails Protocol — Security Architecture & Current Controls
 
 > Where `THREAT_MODEL.md` catalogs *what could go wrong*, this document
 > describes the *trust mechanisms* that make the protocol usable between
@@ -133,16 +133,12 @@ history.
    application layer (see the layer-violation fix documented in
    `ARCHITECTURE.md`). Compromising reference-implementation infrastructure
    does not expose escrowed funds.
-4. **Zero Single Point of Failure** — HyperDHT is distributed, Secretstream
-   is E2E, the order book is (eventually) replicated. No single server
-   holds critical state.
+4. **Distributed transport does not imply distributed economic truth** — HyperDHT/Secretstream provide distributed/E2E transport properties, but current economic state is still materially node-local in the Reference Implementation. Day-0 multi-operator/shared-market resilience is an explicit open completion gate under ADR-001 / #105. Do not claim "no single server holds critical state" until that evidence exists.
 5. **AI-Assisted Fraud Detection (future)** — QVAC will monitor patterns
    locally: new accounts with high volume, repeated PIX keys across
    accounts, coordinated rating manipulation. Not yet implemented — see
    `THREAT_MODEL.md` section 4.
-6. **Open & Auditable** — the protocol spec is public; any researcher can
-   audit it. Security guarantees live at the protocol level, so every
-   integrator inherits them rather than re-deriving their own.
+6. **Open & Auditable** — the protocol spec and implementation are reviewable. Protocol invariants define intended security semantics, but each implementation/integration must still prove that it preserves them. Integrators do not inherit implementation-level security merely by adopting the protocol.
 
 ---
 
@@ -266,21 +262,15 @@ correction.
 Privacy is architecture, not policy — a deliberate constraint on what data
 the protocol collects, not a promise about how collected data is handled.
 
-1. **Data Minimization** — infrastructure collects only trade-state events,
-   offer metadata, and reputation scores. No personal data, IP logs, or
-   payment details are collected at the protocol level.
-2. **Direct P2P Communication** — all chat is Secretstream E2E via
-   HyperDHT. Messages are never routed through or logged by any Sails
-   server.
+1. **Data Minimization** — protocol semantics should require only the data necessary for coordination. Reference applications/providers may handle additional identity, payment, network or compliance data; those product/provider obligations must not be misrepresented as protocol-global storage.
+2. **Direct P2P communication target / current transport** — Pears/Secretstream provides E2E P2P transport capability, but deployment/runtime paths must be evaluated individually. Do not infer from the transport primitive that no Sails runtime can ever observe metadata or participate in connection/session coordination.
 3. **No Mandatory Identity** — a keypair is sufficient to participate.
    Phone/document verification is optional, only needed for higher trust
    limits.
 4. **Local AI Intelligence** — QVAC agents (future) run entirely on the
    user's device. Matching, fraud detection, and counterparty scoring never
    send data to the cloud.
-5. **User Controls Their Data** — trade history is stored locally by the
-   user's own client. Reputation is on-protocol but linked only to the
-   keypair, not to any real-world identity.
+5. **User / operator data boundaries** — current Reference Implementation trade/economic history is materially persisted in node/runtime storage, not solely on the user's device. Reputation is tied to economic participant identity and its provenance; external applications/providers may also associate real-world identity under their own policies.
 6. **Permissionless Participation** — no account creation, email, or KYC
    required at the protocol level. Applications built on the protocol may
    add their own requirements, but the protocol itself stays open.
