@@ -5960,3 +5960,42 @@ obligation" is defined anywhere in this repository.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
 
+51. **Day-0 Evidence Lifecycle, Privacy & Production Storage — owner #234 (2026-09-19).**
+    Current code has two distinct evidence surfaces that must be reconciled
+    before production-open. `OpenProof/EvidenceProvider/EvidenceReference`
+    stores media bytes through a provider and binds them to a SHA-256-backed
+    reference; the current default provider is a local filesystem under the
+    configured evidence directory, explicitly documented by the code as a
+    single-instance/reference implementation. Separately,
+    `OpenSettlement Dispute.evidence` accepts and persists
+    `type + uri + note` descriptors directly as JSON without requiring an
+    OpenProof evidence reference or integrity-bound hash. Therefore a
+    `Dispute evidence URI` is not automatically the same thing as
+    integrity-bound OpenProof evidence.
+
+    **Day-0 required decision/remediation:** define the canonical evidence
+    lifecycle across storage, integrity, privacy and recovery. At minimum:
+    production evidence-provider contract; multi-instance/node-failure
+    behavior; retention/archive/expiry rules tied to economic lifecycle;
+    arbiter/counterparty-scoped access; short-lived retrieval authorization;
+    hash verification on retrieval; backup/provider migration; byte deletion
+    vs retained hash/provenance/timestamp metadata; and the relationship
+    between `Dispute.evidence` and OpenProof. Large JPEG/PDF/video evidence
+    must not be treated as permanent PostgreSQL state, while sensitive bank/
+    wire/Pix receipts must not become public permanent URLs by default.
+
+    Frozen invariants for the future design:
+    `Evidence bytes ≠ Evidence truth`;
+    `Evidence availability ≠ Evidence integrity`;
+    `Evidence storage provider ≠ protocol authority`;
+    `Arbiter access ≠ public evidence exposure`.
+
+    Local filesystem may remain a legitimate dev/reference provider, but
+    production eligibility must be proven rather than inferred. Exact object/
+    distributed storage technology (S3/R2/IPFS/other) is an implementation
+    choice and must not redefine OpenProof semantics. Canonical owner: #234;
+    #220 classifies production reachability/isolation; #165 consumes Beta
+    evidence after architecture/implementation are complete.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.**
+
