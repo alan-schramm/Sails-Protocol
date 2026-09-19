@@ -284,22 +284,21 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
         status: escrow.status,
       }
 
-      // Recovery may itself become the FIRST broadcaster when the exact
-      // reconstructed transaction is not yet known to the network. That is
-      // a new economic side effect, so it must not bypass the same durable
-      // execution-commit gates used by submitTransactionSignature().
-      //
-      // Existing committed authorizations are reused by both gates, which
-      // preserves ADR-004/ADR-005 retry semantics. If authority was never
-      // committed and has since become stale/revoked, recovery fails closed
-      // before reconcilePendingSettlement() can reach its NEWLY_BROADCAST
-      // branch. ALREADY_BROADCAST crash recovery remains recoverable because
-      // a live attempt necessarily committed both gates before its provider
-      // side effect.
-      await authorizeDisputedPendingExecution(pending)
-      await authorizePendingExecution(pending)
-
-      const result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
+      // Ask chain truth before deciding whether this is merely convergence
+      // of an effect that already happened, or a recovery attempt that would
+      // become the FIRST broadcaster. Existing external truth must remain
+      // recoverable even if authority changed after the original broadcast
+      // (UNKNOWN != FAILED). A genuinely new economic side effect, however,
+      // must pass the same ADR-005 + ADR-004 commit gates as the live path.
+      const result = await multisigProvider.reconcilePendingSettlement(
+        input,
+        pending.unsignedPsbtBase64,
+        signedList as string[],
+        async () => {
+          await authorizeDisputedPendingExecution(pending)
+          await authorizePendingExecution(pending)
+        }
+      )
       if (result.outcome === 'ANOMALY') {
         // FULLY_SIGNED_NOT_FINALIZED, surfaced explicitly rather than
         // left invisible — see this file's own C8 header comment. Fails
