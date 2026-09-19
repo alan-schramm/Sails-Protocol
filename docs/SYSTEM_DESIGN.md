@@ -394,7 +394,8 @@ Required direction:
 - multiple independent Sails node/runtime operators;
 - shared economic network rather than isolated liquidity islands;
 - node selection should be service-level choice, not market membership;
-- bootstrap/discovery infrastructure must not become protocol authority.
+- bootstrap/discovery infrastructure must not become protocol authority;
+- a wallet/integrator may use its own node, a partner/operator node, a public/community node, or a configured default/fallback node.
 
 Core property:
 
@@ -403,19 +404,94 @@ Node choice must not define market membership.
 Liquidity should be network-level; node operation should be service-level.
 ```
 
-Canonical architecture owner: ADR-001 and Issue #105 for completion/evidence.
+A Sails Node is a runtime/service boundary, not protocol truth. Different operators may compete on uptime, privacy, policy, support, latency or integrations without redefining the meaning of Intent, Trade, Settlement, Evidence or Outcome.
+
+The current reference implementation is not yet the completed Day-0 multi-operator topology. Today, significant economic state remains node-local. Pears/HyperDHT provides real peer transport, but current Pears usage must not be mistaken for complete cross-node liquidity, identity or state portability.
+
+Canonical architecture owner: ADR-001 and Issue #105 for completion/evidence. Current discovery evidence: [DAY0_MULTI_OPERATOR_NETWORK_ARCHITECTURE_DISCOVERY.md](DAY0_MULTI_OPERATOR_NETWORK_ARCHITECTURE_DISCOVERY.md).
+
+### 13.1 Open and private market contexts
+
+Sails must be able to support more than one market-access model without creating different protocol semantics.
+
+**Open/public market context**
+- multiple conformant operators participate in a shared economic market universe;
+- node choice alone must not partition market membership;
+- bounded propagation delay or operator-specific filters do not by themselves imply fragmentation.
+
+**Private / closed / permissioned context**
+- a business, OTC desk, community or known group may restrict who can discover or participate in its market/rooms;
+- admission policy belongs to that market/application context;
+- the same Sails economic semantics still govern Intent, Trade, Settlement, Evidence and Outcome;
+- private membership does not make the operator protocol authority;
+- privacy does not require publishing all identities or liquidity into the public market.
+
+Therefore:
+
+```text
+Market admission policy ≠ protocol truth
+Private market ≠ different economic semantics
+Private visibility ≠ public identity requirement
+```
+
+The exact implementation mechanism for private groups/rooms and how they interoperate with public/shared discovery remains a product/network design decision where not already frozen. Do not infer a mandatory federation, relay, Nostr, Pears or database topology from this section.
 
 ---
 
-## 14. Identity and reputation
+## 14. Identity, transport and reputation
 
 Sails coordinates economic participants; it does not require one universal public identity provider.
 
-Identity, transport identity, wallet keys and reputation portability are separate concerns.
+Preserve these distinctions:
 
-Current design direction preserves interoperability with multiple identity/reputation mechanisms while avoiding a privileged identity backend becoming protocol authority.
+```text
+Funds Authority ≠ Economic Identity ≠ Transport/Communication Identity
+Identity ≠ Authority
+Same recovery root ≠ same private key across protocols
+```
+
+### 14.1 Sails Participant / economic identity
+
+The Sails Participant represents the economic participant in Sails semantics. In the current TypeScript Reference Implementation this is backed by a client-controlled public key / participant record.
+
+A participant identity must not be confused with:
+- a Sails Node account;
+- a Pears peer identifier;
+- a wallet spending key;
+- a Nostr identity;
+- a Pubky identity.
+
+### 14.2 Pears / HyperDHT
+
+Pears is the current transport/communication implementation used by the Reference Implementation.
+
+Current implementation truth is important: Pears transport identity is separate from the participant/economic identity and is currently generated as an ephemeral transport identity in the active implementation.
+
+Therefore:
+
+```text
+Pears identity ≠ Sails Participant
+Transport reachability ≠ economic authority
+Pears implementation ≠ protocol dependency
+```
+
+### 14.3 Nostr / Pubky and external identity ecosystems
+
+External identity ecosystems such as Nostr and Pubky are interoperability candidates, not mandatory Sails identity layers.
+
+Sails may recognize, bind or coordinate external identity assertions where a future accepted design permits, but it must not silently convert an external identity into economic authority or require one external network to define Sails participation.
+
+No universal replacement "Sails ID" is implied here. The protocol coordinates the participant's economic meaning while external identities remain optional, replaceable edges.
+
+The exact recovery-root, rotation, revocation, multi-device and cross-protocol binding model remains subject to its dedicated identity architecture work where not already frozen.
+
+Current evidence owner: [IDENTITY_ARCHITECTURE_DISCOVERY.md](IDENTITY_ARCHITECTURE_DISCOVERY.md).
+
+### 14.4 Reputation portability
 
 Reputation must remain evidence/provenance-based and portable enough not to become trapped by a single node or application.
+
+A node-local computed score is not automatically portable protocol truth. Cross-node reputation claims require independently verifiable provenance/evidence rather than trusting an operator-local number by assertion.
 
 ---
 
