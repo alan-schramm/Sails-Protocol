@@ -26,7 +26,7 @@ export interface WdkTransferAttemptRepository {
   /** Most recent attempt for this exact logical operation, or null if none was ever started. */
   findLatest(escrowId: string, operationType: WdkTransferOperationType): Promise<WdkTransferAttemptRow | null>
   create(input: CreateWdkTransferAttemptInput): Promise<WdkTransferAttemptRow>
-  replaceActive(previousId: string, input: CreateWdkTransferAttemptInput): Promise<WdkTransferAttemptRow>
+  replaceActive(previousId: string, expectedStatuses: WdkTransferAttemptStatus[], input: CreateWdkTransferAttemptInput): Promise<WdkTransferAttemptRow>
   updateStatus(id: string, status: WdkTransferAttemptStatus, extra?: { txHash?: string; chainId?: number }, expectedStatuses?: WdkTransferAttemptStatus[]): Promise<WdkTransferAttemptRow>
 }
 
@@ -50,15 +50,15 @@ class PrismaWdkTransferAttemptRepository implements WdkTransferAttemptRepository
     })
   }
 
-  async replaceActive(previousId: string, input: CreateWdkTransferAttemptInput) {
+  async replaceActive(previousId: string, expectedStatuses: WdkTransferAttemptStatus[], input: CreateWdkTransferAttemptInput) {
     const activeKey = `${input.escrowId}:${input.operationType}`
     return prisma.$transaction(async (tx) => {
       const released = await tx.wdkTransferAttempt.updateMany({
-        where: { id: previousId, activeKey },
+        where: { id: previousId, activeKey, status: { in: expectedStatuses } },
         data: { activeKey: null },
       })
       if (released.count !== 1) {
-        throw new Error(`WdkTransferAttempt ${previousId} no longer owns active generation ${activeKey}`)
+        throw new Error(`WdkTransferAttempt ${previousId} cannot relinquish active generation ${activeKey}: expected status ${expectedStatuses.join('|')} or ownership was lost`)
       }
       return tx.wdkTransferAttempt.create({
         data: {
