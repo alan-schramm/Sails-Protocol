@@ -1,8 +1,7 @@
 # DEPLOYMENT.md
-### Sails Protocol — Engineering Handoff · Document 12 of 20
+### Sails Protocol — Reference Runtime Deployment Guide
 
-> Covers the Satsails reference implementation only. The protocol itself
-> has no deployment requirements — see `PROTOCOL_SPECIFICATION.md` section 5.
+> **Authority / status:** deployment guide for the TypeScript Reference Implementation. It is not a production-readiness certificate. Current production eligibility is governed by #105/#220 and bounded remediation owners; current scripts/configuration in the repository override dated deployment prose.
 >
 > **Rewritten 2026-07-18, updated 2026-08-02** — the 2026-07-18 rewrite
 > predated `RFC-020`/`RFC-021`'s entire build-out and had already drifted
@@ -135,7 +134,7 @@ rebuild per change):
 cp .env.example .env              # defaults already match docker-compose.yml below
 docker compose up -d postgres redis   # just the two real dependencies, not the app container
 npm install
-npm run db:migrate                # real command is `npx prisma db push` (package.json, corrected 2026-08-02) — applies prisma/schema.prisma, including RFC-013's CapabilityGrant table
+npm run db:migrate                # current command: `npx prisma migrate deploy`; applies committed migration history
 npm run dev                       # http://localhost:3000 — hot-reload dev server
 ```
 
@@ -150,9 +149,7 @@ flow, which creates real participants/offers/intents/escrow as it runs).
 **Verify it actually boots** rather than trusting this document — run
 `npm test` first (600+ tests as of 2026-08-03, no external infra required, see section 4)
 to confirm the code itself is sound, then `npm run dev` against the
-Docker-composed Postgres/Redis above. `docs/HANDOFF.md` has the exact
-current status of what's been verified live vs. only against mocks —
-read that before assuming either way.
+Docker-composed Postgres/Redis above. `BACKLOG.md`, live GitHub Issues/Project, current provider/evidence records and exact-head CI carry current readiness truth. `HANDOFF.md` is historical and must not be used as the current readiness authority.
 
 ## 4. package.json Scripts (verified against the real file)
 
@@ -161,7 +158,7 @@ read that before assuming either way.
 | `dev` | `ts-node-dev --respawn --transpile-only src/main.ts` | Hot-reload dev server |
 | `build` | `npm run build -w @satsails/p2p-schemas && npm run build -w @satsails/p2p-trading-sdk && tsc` | Builds both workspace packages, then the server (`dist/`) |
 | `start` | `node dist/src/main.js` | Run the compiled build (note the `dist/src/` path — `tsc`'s inferred rootDir includes `packages/` via a `paths` alias, so output isn't flat under `dist/`) |
-| `db:migrate` | `npx prisma db push` | Apply the current `schema.prisma` state directly — no migration history exists in this repo (corrected 2026-08-02; the script name is legacy, the command underneath is what's actually real) |
+| `db:migrate` | `npx prisma migrate deploy` | Apply committed production migration history |
 | `db:generate` | `npx prisma generate` | Regenerate the Prisma client (also runs automatically on `npm install`) |
 | `db:seed` | `ts-node src/test/seeds/seed.ts` | ⚠️ Still not built — see section 3 |
 | `db:studio` | `npx prisma studio` | Visual database browser |
