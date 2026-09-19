@@ -52,6 +52,9 @@ jest.mock('@tetherto/wdk-wallet-evm', () => ({
 const mockAttemptFindFirst = jest.fn()
 const mockAttemptCreate = jest.fn()
 const mockAttemptUpdate = jest.fn()
+const mockAttemptUpdateMany = jest.fn()
+const mockAttemptFindUnique = jest.fn()
+const mockTransaction = jest.fn()
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -59,7 +62,10 @@ jest.mock('../src/common/database', () => ({
       findFirst: (...args: unknown[]) => mockAttemptFindFirst(...args),
       create: (...args: unknown[]) => mockAttemptCreate(...args),
       update: (...args: unknown[]) => mockAttemptUpdate(...args),
+      updateMany: (...args: unknown[]) => mockAttemptUpdateMany(...args),
+      findUnique: (...args: unknown[]) => mockAttemptFindUnique(...args),
     },
+    $transaction: (...args: unknown[]) => mockTransaction(...args),
   },
 }))
 
@@ -87,6 +93,16 @@ beforeEach(() => {
   mockGetAddress.mockResolvedValue('0xEscrowAddr')
   mockAttemptCreate.mockImplementation(async (args: { data: Record<string, unknown> }) => row({ id: 'attempt-new', status: 'PREPARED', ...args.data } as any))
   mockAttemptUpdate.mockImplementation(async (args: { where: { id: string }; data: Record<string, unknown> }) => row({ id: args.where.id, ...args.data } as any))
+  mockAttemptUpdateMany.mockResolvedValue({ count: 1 })
+  mockAttemptFindUnique.mockImplementation(async (args: { where: { id: string } }) => row({ id: args.where.id }))
+  mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+    fn({
+      wdkTransferAttempt: {
+        updateMany: mockAttemptUpdateMany,
+        create: mockAttemptCreate,
+      },
+    })
+  )
 })
 
 describe('lockFunds() — durable operation truth', () => {
@@ -95,7 +111,7 @@ describe('lockFunds() — durable operation truth', () => {
     mockTransfer.mockRejectedValueOnce(new Error('simulated: response lost after submission'))
 
     await expect(provider.lockFunds(escrow)).rejects.toThrow('simulated: response lost after submission')
-    expect(mockAttemptUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'SUBMISSION_UNKNOWN' } }))
+    expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'SUBMISSION_UNKNOWN' } }))
 
     // Retry: the durable row is now SUBMISSION_UNKNOWN.
     mockAttemptFindFirst.mockResolvedValueOnce(row({ id: 'attempt-1', status: 'SUBMISSION_UNKNOWN', destination: '0xEscrowAddr', amount: '5.00000000' }))
@@ -111,7 +127,7 @@ describe('lockFunds() — durable operation truth', () => {
     mockGetTransactionReceipt.mockResolvedValueOnce({ status: 0 })
 
     await expect(provider.lockFunds(escrow)).rejects.toThrow(/reverted on-chain/)
-    expect(mockAttemptUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
+    expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
 
     // A definitively reverted transfer proves no funds moved — a fresh
     // retry for the same logical operation is genuinely safe, unlike the
@@ -132,7 +148,7 @@ describe('lockFunds() — durable operation truth', () => {
 
     const result = await provider.lockFunds(escrow)
     expect(result.txId).toBe('0xSIMULATED_TX')
-    expect(mockAttemptUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CONFIRMED' } }))
+    expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CONFIRMED' } }))
   })
 
   it('a receipt that never appears within the bounded wait stays PENDING — not declared success', async () => {
@@ -142,8 +158,8 @@ describe('lockFunds() — durable operation truth', () => {
 
     await expect(provider.lockFunds(escrow)).rejects.toThrow(/not yet confirmed/)
     // Still SUBMITTED — no update call ever moved it to CONFIRMED or REVERTED.
-    expect(mockAttemptUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CONFIRMED' } }))
-    expect(mockAttemptUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
+    expect(mockAttemptUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'CONFIRMED' } }))
+    expect(mockAttemptUpdateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'REVERTED' } }))
   })
 
   it('a completed (CONFIRMED) operation is idempotently protected — resumed without ever calling transfer() again', async () => {
@@ -167,7 +183,7 @@ describe('lockFunds() — durable operation truth', () => {
     // process's" row is the only thing that made this call proceed
     // correctly.
     expect(mockAttemptCreate).not.toHaveBeenCalled()
-    expect(mockAttemptUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'attempt-stale' }, data: expect.objectContaining({ status: 'SUBMITTED' }) }))
+    expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'attempt-stale' }), data: expect.objectContaining({ status: 'SUBMITTED' }) }))
   })
 
   // ─── CTO Gate Correction (2026-09-08) — closing the PREPARED ->
@@ -193,8 +209,8 @@ describe('lockFunds() — durable operation truth', () => {
     // — succeeds normally. Second update() call is the SUBMITTED write
     // with the real hash — simulates a DB failure recording it (e.g. a
     // dropped Postgres connection right after the transfer succeeded).
-    mockAttemptUpdate
-      .mockImplementationOnce(async (args: { where: { id: string }; data: Record<string, unknown> }) => row({ id: args.where.id, ...args.data } as any))
+    mockAttemptUpdateMany
+      .mockResolvedValueOnce({ count: 1 }) // PREPARED -> SUBMISSION_UNKNOWN
       .mockRejectedValueOnce(new Error('simulated: DB write failure recording SUBMITTED'))
 
     await expect(provider.lockFunds(escrow)).rejects.toThrow('simulated: DB write failure recording SUBMITTED')
@@ -212,6 +228,51 @@ describe('lockFunds() — durable operation truth', () => {
     // Dispositive: transfer() was invoked exactly once, ever, across both
     // calls — the DB write failure did not cause a second real transfer.
     expect(mockTransfer).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+describe('SUBMITTED reconciliation — idempotent execution truth', () => {
+  it('reconciles a persisted SUBMITTED receipt to CONFIRMED without broadcasting again', async () => {
+    mockAttemptFindFirst.mockResolvedValueOnce(row({
+      id: 'attempt-submitted',
+      status: 'SUBMITTED',
+      destination: '0xEscrowAddr',
+      amount: '5.00000000',
+      txHash: '0xPERSISTED_TX',
+    }))
+    mockGetTransactionReceipt.mockResolvedValueOnce({ status: 1 })
+
+    const result = await provider.lockFunds(escrow)
+
+    expect(result.txId).toBe('0xPERSISTED_TX')
+    expect(mockTransfer).not.toHaveBeenCalled()
+    expect(mockAttemptUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'attempt-submitted', status: { in: ['SUBMITTED'] } }),
+      data: { status: 'CONFIRMED' },
+    }))
+  })
+
+  it('a stale concurrent reconciler cannot turn an already CONFIRMED generation into a new submission', async () => {
+    mockAttemptFindFirst.mockResolvedValueOnce(row({
+      id: 'attempt-submitted',
+      status: 'SUBMITTED',
+      destination: '0xEscrowAddr',
+      amount: '5.00000000',
+      txHash: '0xPERSISTED_TX',
+    }))
+    mockGetTransactionReceipt.mockResolvedValueOnce({ status: 1 })
+    mockAttemptUpdateMany.mockResolvedValueOnce({ count: 0 })
+    mockAttemptFindUnique.mockResolvedValueOnce(row({
+      id: 'attempt-submitted',
+      status: 'CONFIRMED',
+      destination: '0xEscrowAddr',
+      amount: '5.00000000',
+      txHash: '0xPERSISTED_TX',
+    }))
+
+    await expect(provider.lockFunds(escrow)).rejects.toThrow(/transition ownership lost/)
+    expect(mockTransfer).not.toHaveBeenCalled()
   })
 })
 
