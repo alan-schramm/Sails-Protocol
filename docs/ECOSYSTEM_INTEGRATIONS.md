@@ -1,21 +1,9 @@
 # ECOSYSTEM_INTEGRATIONS.md
-### Sails Protocol — Engineering Handoff · Not numbered, added later
+### Sails Protocol — Ecosystem Integration Direction & Historical Fit Analysis
 
-> **Read this framing before anything else in this document.** This is a
-> **vision/positioning document, not a spec** — the same category as
-> `SDK_usecases.md` (future named SDKs) and `REFERENCE_IMPLEMENTATIONS.md`
-> (the Satsails ecosystem's own real integrations). Nothing described below
-> is built, none of it changes `PROTOCOL_SPECIFICATION.md`, and none of it
-> is prioritized work under the current Implementation Freeze
-> (`GOVERNANCE.md` §6B) — RFC-018/019's migration paths remain the actual
-> next engineering tasks (`TODO.md` §15). This document exists so that when
-> a partnership conversation, grant application, or pitch deck needs to
-> describe how Sails Protocol relates to a given external network, there is
-> one consistent, honest answer to point to instead of the framing being
-> reinvented (and drifting) every time. Use the status legend from
-> `PROJECT_CONTEXT.md` section 4 throughout — everything in this document
-> is **📋 Aspirational** unless a cross-reference to real code says
-> otherwise.
+> **Authority / status:** vision/fit analysis, not a protocol specification and not a current implementation inventory. Some integrations or adjacent capabilities discussed here have evolved since this document was first written. For current implementation, maturity and production eligibility, use SYSTEM_DESIGN, provider/rail evidence, BACKLOG and live Issues/Project.
+>
+> Statements below that describe a network as a possible fit remain architectural/positioning analysis unless backed by explicit current implementation evidence. Do not infer "not built" or "production-ready" from this document alone.
 
 ---
 
@@ -40,17 +28,7 @@ that integrate the SDK. It does not supersede that sentence — the One
 Sentence Test answer in `PROJECT_CONTEXT.md` section 5 is still the
 canonical "what is Sails Protocol" answer everywhere.
 
-**This document does not open a new front of work, and does not compete
-with the current one.** `PROJECT_CONTEXT.md` section 1's priority filter
-("does this directly improve building a P2P Financial Marketplace?")
-still applies unchanged — the Sails P2P Trading SDK remains the one
-scoped, shipping deliverable, and every network named below stays
-strictly at the "idea a GitHub visitor can see the shape of" level. This
-document is **read-only consultation material**: it exists to show the
-protocol's ceiling to someone evaluating it, not to redirect engineering
-attention toward it. Nothing here should generate a `BACKLOG.md` entry,
-a `TODO.md` item, or an RFC on its own — section 11 restates this at the
-document's end so it isn't lost by the time a reader gets there.
+**This document does not create implementation authority by itself.** The Sails P2P Trading SDK remains the first concrete developer product, while implementation priorities and integration maturity are governed by the current Backlog, accepted ADR/RFCs and live Issues. A network named here may be aspirational, implemented, reference-only or production-ineligible depending on current evidence; this document does not decide that status.
 
 **What this document must never claim, per `PROJECT_CONTEXT.md`'s "What
 the protocol is NOT" list and `THREAT_MODEL.md`'s Custody Creep concern:**
