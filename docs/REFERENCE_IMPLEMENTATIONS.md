@@ -1,37 +1,34 @@
 # REFERENCE_IMPLEMENTATIONS.md
-### Sails Protocol — Engineering Handoff · Document 15 of 20
+### Sails Protocol — First-Party / Reference Application Surfaces
 
-> **Read this framing before anything else in this document.** The Satsails
-> ecosystem (Satsails Wallet, Sails Finance, SailsPay) is **not** the Sails
-> Protocol. It is the **first real validation environment** for the
-> protocol — a set of already-operating products, with real infrastructure
-> and real users, that let protocol modules be proven in production before
-> asking any third party to adopt them. If any section of this document
-> reads as if Satsails *is* the protocol, that's a drafting error — fix the
-> wording, not the hierarchy. See `PROJECT_CONTEXT.md` section 2 for the
-> three-level hierarchy this document must respect throughout.
+> **Status / authority:** this document describes first-party/reference
+> application surfaces and preserves dated product history. It does **not**
+> define protocol truth or production eligibility. Current product layering is
+> owned by `PROJECT_CONTEXT.md` §2D; current system architecture is summarized
+> in `SYSTEM_DESIGN.md`.
+>
+> Satsails Wallet and Sails Market are the current first-party/reference
+> surfaces relevant to the active protocol-validation path. Sails Finance and
+> SailsPay remain historical/future product directions where applicable.
 
 ---
 
 ## 1. Why a Reference Implementation Ecosystem — Not Just One App
 
-Most protocols are proven by a single reference implementation. Sails
-Protocol has something stronger available to it: **three** reference
-implementations, already planned or operating within the same company,
-each exercising the protocol from a different application shape:
+Sails deliberately validates its public semantics through multiple application
+surfaces rather than allowing one product to become protocol truth.
 
-| Reference Implementation | Application shape | Protocol module(s) it proves |
+| Surface | Current role | Status |
 |---|---|---|
-| **Satsails Wallet** | Consumer-facing (PF), non-custodial wallet | Sails OpenP2P (✅ proven today) |
-| **Sails Finance** | API products (B2B2C), fee-based financial services | Sails OpenFinance (📋 aspirational — see section 3) |
-| **SailsPay** | B2B payment gateway, merchant-facing | Sails OpenP2P payment flows / future OpenFinance payment intents |
+| **Satsails Wallet** | First-party wallet/reference integration and real-world validation surface | Current |
+| **Sails Market** | First-party/reference web marketplace and broader economic-coordination surface | Current |
+| **Sails Finance** | Historical/future API-product direction around OpenFinance-style capabilities | Future / historical direction |
+| **SailsPay** | Historical/future merchant/payment-product direction | Future / historical direction |
 
-Proving the same protocol modules across three structurally different
-applications — a consumer app, a fee-based API product, and a merchant
-payment gateway — is a much stronger validation signal than proving it once
-in a single app and hoping it generalizes. This is the actual engineering
-argument for why this ecosystem matters, independent of any commercial
-narrative.
+Satsails Wallet and Sails Market may dogfood and validate the same public
+semantic/integration boundaries available in principle to third parties.
+Neither product owns protocol semantics, and product usage does not by itself
+prove production eligibility of every underlying Sails provider/rail.
 
 ---
 
@@ -51,7 +48,7 @@ fully non-custodial, consistent with the Sails Protocol's core guarantee
 
 | Component | Role |
 |---|---|
-| **WDK (Tether)** | The wallet substrate — self-custodial keypair generation, multi-chain signing. Shared foundation across all three reference implementations (see `PROJECT_CONTEXT.md` section 3). |
+| **WDK (Tether)** | The wallet substrate — self-custodial keypair generation, multi-chain signing. wallet substrate used by Satsails/reference integrations where applicable (see `PROJECT_CONTEXT.md` section 3). |
 | **Plebank / Fitbank** | PIX receiving + KYC/AML — the fiat rail entry point for Brazilian users |
 | **Eulen** | Depix tokenizer — converts PIX-received BRL into an on-chain representation without the wallet ever custodying fiat. **Note (2026-09-10, Product Truth Sweep, F14):** this row does not specify which chain(s) Eulen tokenizes to; DePix is Day-0-required on both Liquid and Spark per `docs/BACKLOG.md` item 20 — not re-verified here which network(s) this existing production integration actually covers. |
 | **SideSwap** | Liquid Network DEX — on-chain swap liquidity for Liquid-based assets |
@@ -74,7 +71,7 @@ but sit outside the PIX/DePix/Liquid flow this table describes.
 
 ### Users & Volume
 
-**Confirmed figures (as of this handoff, 2025-07-12):**
+**Historical dated figures (recorded 2025-07-12; do not treat as current without refresh):**
 
 ```
 Total volume processed:              USD $10,000,000+
@@ -84,12 +81,11 @@ Production start date:                September 2024
 Operating period with real traction:  ~7-8 months as of this handoff
 ```
 
-This is a real, meaningful data point for any grant or partner
-conversation: a non-custodial wallet with $10M+ in processed volume and
-12,000+ users, built on the same primitives (Identity, Intent, Discovery,
-Negotiation, Settlement, Reputation) that Sails OpenP2P formalizes, is
-direct evidence the protocol's core mechanics work in production — not
-just in specification.
+These figures document historical traction of the Satsails Wallet product.
+They are useful product evidence, but they must not be treated as proof that
+every current Sails Protocol module, provider or rail is production-ready.
+Satsails Wallet predates and validates parts of the architecture/integration
+thesis; current Sails production eligibility remains governed separately.
 
 **Maintenance rule going forward:** update this block with a new date
 stamp whenever these figures are refreshed, and cite whether the number is
