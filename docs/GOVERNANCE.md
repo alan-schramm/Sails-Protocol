@@ -1,15 +1,11 @@
 # GOVERNANCE.md
-### Sails Protocol — Engineering Handoff · Document 17 of 20
+### Sails Protocol — Protocol Governance & RFC Process
 
-> Requested explicitly by the CTO Final Audit Report: "O protocolo ainda
-> precisa formalizar sua governança." This document covers two things:
-> who can change the protocol spec today and in the future (Governance),
-> and how a change actually gets proposed (RFC Process). Neither existed
-> before this document — verified absent during the v7.4 review pass.
+> **Authority / status:** governance/RFC-process reference. Dated "Months 1-12 / Months 10-12" passages below preserve the bootstrap governance design that existed when this document was written; they are not a live calendar or proof that a future legal entity/governance body has formed. Current engineering gates are additionally governed by `ENGINEERING_GOVERNANCE.md` and live repository decisions.
 
 ---
 
-## 1. Governance Today (Months 1-12, grant period)
+## 1. Bootstrap governance model (historically framed as Months 1-12)
 
 Per `PROTOCOL_ECONOMY.md` section 7, governance of protocol parameters
 (fee rates, bucket splits, trust limits) starts Satsails-controlled and is
@@ -30,7 +26,7 @@ just economic parameters:
   during the bootstrap phase.
 - **What requires an RFC vs. what doesn't:** see section 3.
 
-## 2. Governance After Months 10-12 (Governance Layer v1)
+## 2. Intended post-bootstrap governance direction (historically framed as Months 10-12+)
 
 Per `PROTOCOL_ECONOMY.md` section 7, this body is composed of recognized
 ecosystem stakeholders — reference implementers, major integrators, node
