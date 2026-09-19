@@ -1,9 +1,9 @@
 # API_REFERENCE.md
-### Sails Protocol — Engineering Handoff · Document 4 of 20
+### Sails Protocol — Detailed Reference API
 
+> **Authority / status:** detailed Reference Implementation API/reference surface. For the frozen public SDK method contract, `API_STABLE.md` wins. For current route existence, authentication and behavior, current implementation/tests win over historical route notes in this file.
+>
 > Base URL (reference implementation, local dev): `http://localhost:3000`
-> Docs UI (Swagger, when routes are restored): `http://localhost:3000/docs`
-> WebSocket: `ws://localhost:3000/ws?userId=<uuid>`
 >
 > **Role in the canonical developer journey (Missão 07.4):** "the
 > detailed reference" — every field and edge case. Not where to start;
