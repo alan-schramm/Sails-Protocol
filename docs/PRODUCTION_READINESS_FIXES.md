@@ -1,8 +1,9 @@
-# Production Readiness Fixes — Handoff para Claude Code
+# Production Readiness Fixes — Historical Claude Code Handoff
 
 > **Gerado em:** 2026-08-07
-> **Objetivo:** Tornar o repositório pronto para apresentação a parceiros (Tether, Cake Wallet, Breez, etc.)
-> **Regra:** NÃO alterar comportamento, APIs públicas, ou arquitetura. Apenas acabamento profissional.
+> **Status:** histórico. Este foi um handoff executável de uma rodada antiga de acabamento/readiness; não é a lista atual de trabalho nem um certificado de produção.
+> **Current owners:** BACKLOG + live GitHub Issues/Project; Day-0/production gates #105/#220 e bounded remediation owners.
+> **Objetivo original:** tornar o repositório pronto para apresentação a parceiros (Tether, Cake Wallet, Breez, etc.).
 
 ---
 

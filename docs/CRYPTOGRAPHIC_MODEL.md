@@ -19,48 +19,28 @@
 
 ---
 
-## 1. Identity: Ed25519 Keypairs
+## 1. Identity and Transport Keys
 
-Every `Participant` (RFC-001) is identified by an Ed25519 public key —
-one keypair, used for two distinct purposes that are easy to conflate:
+Every `Participant` (RFC-001) is identified economically by a client-controlled Ed25519 public key used for signing/authentication.
 
-1. **Signing** — proving control of an identity (authentication, below).
-2. **P2P networking** — the same keypair *is* the node's HyperDHT/
-   Hyperswarm identity (`infrastructure/p2p/pear.service.ts`'s
-   `PearNode.start(secretKeyHex)`; the derived `peerId` is literally
-   `publicKey.toString('hex')`). There is no separate "network key" —
-   this is one primitive, not two, confirmed by grep: nothing in this
-   codebase generates a second keypair for transport identity.
+The current Pears/HyperDHT transport identity is **separate** from that economic identity.
 
-No production or staging deployment of this reference implementation
-should ever store a raw secret key. See `TRUST_BOUNDARY.md`'s boundary
-1b for the one place a secret key currently transits the backend at
-all (`/v1/peers/start`, held only in memory, never persisted) — a known
-gap against this ideal, not the intended shape.
+Current truth:
 
-**Corrected/Current-truth update (2026-09-08, `TECHNICAL_DEBT_AUDIT.md`
-item 60).** Point 2 above (`PearNode.start(secretKeyHex)`, "one
-primitive, not two") was accurate on 2026-07-19 but is **no longer
-true**. `pear.service.ts`'s 2026-08-09 key-custody fix changed
-`PearNode.start()` to take **no caller-supplied key at all** — verified
-directly, `src/infrastructure/p2p/pear.service.ts:119-123`:
-`async start(): Promise<string>` has zero arguments, and calls
-`HyperDHT.keyPair()` with no seed, generating a fresh, unpersisted
-keypair every session. The correct current-truth statement, already
-disclosed in `docs/TRUST_BOUNDARY.md` Boundary 1b and
-`docs/BACKLOG.md`'s 2026-09-06 entry but never propagated back here
-until now:
+- **Economic identity** = `User.publicKey` — stable participant/authentication key.
+- **Transport identity** = a separate, ephemeral Ed25519 keypair represented by `User.peerId`.
+- `PearNode.start()` takes no caller-supplied participant key and calls `HyperDHT.keyPair()` without a seed, generating a fresh transport keypair for the current start/session.
+- The association between economic identity and transport identity is server-mediated through runtime/database state; it is not a cryptographic identity equivalence.
 
-- **Economic identity** = `User.publicKey` (the Ed25519 key this
-  section otherwise describes — signing/authentication, unchanged).
-- **Transport identity** = a **separate**, ephemeral Ed25519 keypair
-  (`User.peerId`), generated fresh by `HyperDHT.keyPair()` on every
-  `PearNode.start()` call, cryptographically unrelated to
-  `User.publicKey`.
-- **The association between the two is server-mediated** — a database
-  row (`User.peerId`), checked at connection time by
-  `verifyHandshakeIdentity()` — **not an independent cryptographic
-  binding.**
+Preserve:
+
+```text
+Funds Authority ≠ Economic Identity ≠ Transport/Communication Identity
+Pears identity ≠ Sails Participant
+Transport reachability ≠ economic authority
+```
+
+The historical pre-2026-08-09 implementation used the participant key as transport identity. That historical topology remains visible in repository history and dated discovery records, but it is not current cryptographic truth.
 - Today, the Pears transport key is **not cryptographically bound to
   participant identity** — this is one real primitive, not the "one
   primitive, not two" this section originally claimed.

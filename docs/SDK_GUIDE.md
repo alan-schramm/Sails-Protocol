@@ -1,5 +1,5 @@
 # SDK_GUIDE.md
-### Sails Protocol — Engineering Handoff · Document 5 of 20
+### Sails Protocol — SDK Integration Guide
 
 > **Role in the canonical developer journey (Missão 07.4):** "how to
 > build a real integration." Come here after `examples/simple-wallet`
@@ -7,7 +7,7 @@
 > deeper (module layout, retry/timeout behavior, wallet-stack
 > compatibility), it isn't a second quickstart.
 >
-> **Status: 🟢 v0.1 real, partial** *(2026-07-17)*. `@satsails/p2p-trading-sdk`
+> **Current package status:** `@satsails/p2p-trading-sdk@0.2.0` is the current repository package version. This guide contains both current integration guidance and dated historical notes from the v0.1 build-out; `API_STABLE.md` remains the authority for frozen SDK contract shape. `@satsails/p2p-trading-sdk`
 > (`packages/sails-sdk`) now exists as a real npm workspace package —
 > this document is no longer purely aspirational, it is the spec a real
 > implementation is checked against. `SailsClient`'s Protocol SDK layer
@@ -28,7 +28,7 @@
 > scoped to what's actually being built first (P2P trading); see
 > `PROJECT_CONTEXT.md` section 3 for the naming rule.
 >
-> **Correction (2026-07-20, release-audit finding — docs/TODO.md §28):**
+> **Correction (2026-07-20, release-audit finding — historical release-audit record):**
 > despite the "verified route-by-route" claim above, section 2's
 > `identity`/`reputation`/`liquidity`/`settlement`/`openp2p` interface
 > block had drifted from the real implementation in most of its method
@@ -153,7 +153,7 @@ interface SailsClient {
   // before ever reaching an ArbitrationProvider.
 
   // ── Real signatures, corrected 2026-07-20 (release-audit finding,
-  // docs/TODO.md §28) ─────────────────────────────────────────────────
+  // historical release-audit record) ─────────────────────────────────────────────────
   // Everything below this line was rewritten to match the actual
   // implemented code (packages/sails-sdk/src/modules/*.ts, read
   // directly, not assumed) — the previous version of this block was

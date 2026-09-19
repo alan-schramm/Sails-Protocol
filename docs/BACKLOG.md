@@ -1,11 +1,9 @@
 # BACKLOG.md
-### Sails Protocol — Engineering Handoff · Document 20 of 20
+### Sails Protocol — Institutional Technical Backlog & Unresolved Truth Ledger
 
-> Technical backlog, not a product backlog — ordered by architectural
-> dependency, not by feature value. Requested explicitly by the CTO
-> following `PROTOCOL_FREEZE_REPORT.md`. Every item cites the RFC or spec
-> section it implements, per `GOVERNANCE.md` §6B's traceability
-> discipline — this is the first artifact that discipline applies to.
+> **Authority / status:** current institutional technical backlog and unresolved-truth ledger. It preserves dated implementation history and correction notes, but current operational execution is additionally represented by live GitHub Issues/Project. When a historical row conflicts with a later correction in this file, current code/evidence, accepted ADR/RFCs, or a live bounded owner, the newer current truth governs.
+>
+> This is not a product backlog. It is ordered primarily by architectural dependency, semantic risk and evidence needs rather than feature value. Historical references to `TODO.md`, handoff phases or old mission numbering are provenance, not competing current authority.
 
 ---
 

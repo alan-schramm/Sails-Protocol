@@ -1,6 +1,8 @@
 # SDK_usecases.md
 ### Sails Protocol — Future SDK Family, Use-Case by Use-Case
 
+> **Authority / status:** future SDK-family / use-case exploration, not a current implementation inventory, spec or commitment. Current package/API/maturity truth is owned by `API_STABLE.md`, `SDK_GUIDE.md`, `SYSTEM_DESIGN.md`, BACKLOG and live Issues.
+>
 > **This is a vision/roadmap document, not a spec and not a commitment.**
 > It does not change, replace, or broaden today's actual product scope —
 > that remains exactly what `PROJECT_CONTEXT.md` and `README.md` already
@@ -45,7 +47,7 @@ today:
 | Capability Registry | ✅ Proven | Real, persisted (`CapabilityGrant`, RFC-013), and — as of RFC-014/015 — actually **enforced** at the two real money-moving choke points (`intentEngine.create()`, `escrow.service.ts`'s `releaseFunds()`), not just a store nothing consults. |
 | Policy Engine (governed rules) | 📋 Aspirational | **Correction from an earlier draft of this document, which said this was already implemented — it is not.** `policy-engine.ts` today only has `validateFinancialSanity()` (the CISO Economic Rule — a hardcoded sanity check, not a governed/configurable rule system). The `get`/`propose`/`activate` governed-policy interface `RFC-012`'s own Alternatives Considered describes has never been built. This is the one pillar in this table that's a real gap, not a nuance — see the Policy use case below for what that means concretely. |
 | OpenReputation | ✅ Proven | `recordOutcome()` is the sole input to `User.reputationScore` (RFC-007 D8/D9, dispute-aware), `rate()` is real informational feedback, both tested (`tests/reputationOutcome.test.ts`). Not yet packaged as a *portable, cross-module* SDK surface usable outside OpenP2P (`ROADMAP.md` Months 7-9) — the computation is real, the standalone distribution isn't built. |
-| Pears (`peerId`) | ✅ Proven | Real HyperDHT/Hyperswarm identity substrate — a participant's `peerId` is a real, persisted, portable Ed25519 public key (RFC-013's Motivation section has the full correction of what Pears is and isn't). |
+| Pears (`peerId`) | ✅ Proven transport capability / ⚠️ identity portability not proven | Pears/HyperDHT is a real transport substrate in the Reference Implementation. Current `peerId` is generated from a separate ephemeral transport keypair on `PearNode.start()` and is not the participant's portable economic identity. See `SYSTEM_DESIGN.md`, `CRYPTOGRAPHIC_MODEL.md` and `IDENTITY_ARCHITECTURE_DISCOVERY.md`. |
 | QVAC (local inference) | ✅ Proven | Real on-device LLM inference (`@qvac/sdk`), live-smoke-tested this project, no cloud call. Produces structured signals an agent or the (still-aspirational) Policy Engine can act on — it does not decide unilaterally (RFC-007 D7). |
 
 ## The use cases
