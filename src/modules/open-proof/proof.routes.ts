@@ -11,7 +11,6 @@ import { proofService } from './proof.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { docsOnlySchema } from '../../common/openapi'
-import { tradeService } from '../open-p2p/trade.service'
 
 const assertClaimSchema = z.object({
   claimType: z.string().min(1),
@@ -155,14 +154,26 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
   // one place that fix never reached. Reuses that exact same mechanism,
   // no new primitive: EvidenceBundle's own shape, Timeline, the hash
   // chain, Policy Engine, and Capability are all untouched.
+  //
+  // Corrected/Implemented 2026-09-19 (Issue #264) — this route used to
+  // call tradeService.assertParticipant() itself, directly, before
+  // calling getEvidenceBundleForTrade(). That protected the HTTP path
+  // but not the service boundary: a direct call to
+  // proofService.getEvidenceBundleForTrade(tradeId) (a test, a future
+  // internal caller) had no authorization at all — the exact class of
+  // gap #261 already closed for every other OpenProof method.
+  // getEvidenceBundleForTrade() now enforces tradeService.assertParticipant()
+  // itself; the route's own separate call was removed rather than kept
+  // as a redundant duplicate, matching the shape every other OpenProof
+  // route already has post-#261 (extract participantId, pass it to the
+  // service, let the service be the one and only authority check).
   app.get('/v1/proof/trades/:tradeId/bundle', {
     preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-proof'], params: tradeIdParamsSchema }),
   }, async (request, reply) => {
     const { tradeId } = tradeIdParamsSchema.parse(request.params)
     const participantId = (request as AuthenticatedRequest).participantId
-    await tradeService.assertParticipant(tradeId, participantId)
-    const bundle = await proofService.getEvidenceBundleForTrade(tradeId)
+    const bundle = await proofService.getEvidenceBundleForTrade(tradeId, participantId)
     return reply.code(200).send({ success: true, data: bundle })
   })
 }

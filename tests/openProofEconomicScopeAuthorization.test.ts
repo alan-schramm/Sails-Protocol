@@ -506,6 +506,50 @@ describe('OpenProof economic-scope authorization (Issue #261) — HTTP level', (
       expect(body.error).toBe('FORBIDDEN')
     })
   })
+
+  // ─── Issue #264 — GET /v1/proof/trades/:tradeId/bundle stays green
+  // after moving its authorization into the service boundary. The route
+  // no longer calls tradeService.assertParticipant() itself — it's
+  // proven here to still behave identically from the HTTP caller's
+  // point of view (buyer/seller allowed, outsider refused), and that
+  // knowing a valid tradeId alone is not authority.
+  describe('Trade-scoped evidence bundle (Issue #264) — route remains green after the fix moves into the service', () => {
+    it('ALLOW — the buyer of trade-1 can still read the trade bundle over HTTP', async () => {
+      const token = await authedSession(BUYER_1)
+      const res = await app.inject({
+        method: 'GET', url: `/v1/proof/trades/${TRADE_1_ID}/bundle`,
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('ALLOW — the seller of trade-1 can still read the trade bundle over HTTP', async () => {
+      const token = await authedSession(SELLER_1)
+      const res = await app.inject({
+        method: 'GET', url: `/v1/proof/trades/${TRADE_1_ID}/bundle`,
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('DENY — knowing a real tradeId alone is not authority: an authenticated outsider is still refused over HTTP', async () => {
+      const token = await authedSession(OUTSIDER)
+      const res = await app.inject({
+        method: 'GET', url: `/v1/proof/trades/${TRADE_1_ID}/bundle`,
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('DENY — a participant of a DIFFERENT trade cannot read trade-1\'s bundle merely by supplying trade-1\'s id', async () => {
+      const token = await authedSession(BUYER_2) // buyer of trade-2, not trade-1
+      const res = await app.inject({
+        method: 'GET', url: `/v1/proof/trades/${TRADE_1_ID}/bundle`,
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+  })
 })
 
 // ─── Direct-service-call section — proves the boundary is NOT route-only ──
@@ -548,5 +592,43 @@ describe('OpenProof economic-scope authorization (Issue #261) — direct service
     await expect(
       proofService.assertClaim({ claimedBy: OUTSIDER, claimType: 'payment_sent', assertion: {}, tradeId: TRADE_1_ID })
     ).rejects.toThrow(/not a party to trade/)
+  })
+
+  // Issue #264 — getEvidenceBundleForTrade() previously took no caller
+  // identity at all; a direct service call had zero authorization,
+  // relying entirely on the (now-removed) route-level check. Proven here
+  // exactly like every other method above: buyer succeeds, seller
+  // succeeds, an unrelated actor is refused, and merely knowing a real
+  // tradeId is not authority.
+  describe('proofService.getEvidenceBundleForTrade() — direct call, no HTTP, no route, no requireAuth', () => {
+    it('ALLOW — the buyer of trade-1 can call it directly', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { proofService } = require('../src/modules/open-proof/proof.service')
+      const bundle = await proofService.getEvidenceBundleForTrade(TRADE_1_ID, BUYER_1)
+      expect(bundle.tradeId).toBe(TRADE_1_ID)
+    })
+
+    it('ALLOW — the seller of trade-1 can call it directly', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { proofService } = require('../src/modules/open-proof/proof.service')
+      const bundle = await proofService.getEvidenceBundleForTrade(TRADE_1_ID, SELLER_1)
+      expect(bundle.tradeId).toBe(TRADE_1_ID)
+    })
+
+    it('DENY — an unrelated authenticated participant is refused, proving the service boundary itself enforces authorization, not only the (now-removed) route-level check', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { proofService } = require('../src/modules/open-proof/proof.service')
+      await expect(
+        proofService.getEvidenceBundleForTrade(TRADE_1_ID, OUTSIDER)
+      ).rejects.toThrow(/not a party to trade/)
+    })
+
+    it('DENY — a participant of a DIFFERENT trade is refused: knowing a valid tradeId string is not authority', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { proofService } = require('../src/modules/open-proof/proof.service')
+      await expect(
+        proofService.getEvidenceBundleForTrade(TRADE_1_ID, BUYER_2)
+      ).rejects.toThrow(/not a party to trade/)
+    })
   })
 })
