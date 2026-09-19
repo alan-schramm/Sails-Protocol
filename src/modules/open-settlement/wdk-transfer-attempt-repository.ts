@@ -26,7 +26,7 @@ export interface WdkTransferAttemptRepository {
   /** Most recent attempt for this exact logical operation, or null if none was ever started. */
   findLatest(escrowId: string, operationType: WdkTransferOperationType): Promise<WdkTransferAttemptRow | null>
   create(input: CreateWdkTransferAttemptInput): Promise<WdkTransferAttemptRow>
-  updateStatus(id: string, status: WdkTransferAttemptStatus, extra?: { txHash?: string; chainId?: number }): Promise<WdkTransferAttemptRow>
+  updateStatus(id: string, status: WdkTransferAttemptStatus, extra?: { txHash?: string; chainId?: number }, expectedStatuses?: WdkTransferAttemptStatus[]): Promise<WdkTransferAttemptRow>
 }
 
 class PrismaWdkTransferAttemptRepository implements WdkTransferAttemptRepository {
@@ -48,11 +48,32 @@ class PrismaWdkTransferAttemptRepository implements WdkTransferAttemptRepository
     })
   }
 
-  async updateStatus(id: string, status: WdkTransferAttemptStatus, extra?: { txHash?: string; chainId?: number }) {
-    return prisma.wdkTransferAttempt.update({
-      where: { id },
+  async updateStatus(
+    id: string,
+    status: WdkTransferAttemptStatus,
+    extra?: { txHash?: string; chainId?: number },
+    expectedStatuses?: WdkTransferAttemptStatus[]
+  ) {
+    if (!expectedStatuses?.length) {
+      return prisma.wdkTransferAttempt.update({
+        where: { id },
+        data: { status, ...(extra?.txHash !== undefined ? { txHash: extra.txHash } : {}), ...(extra?.chainId !== undefined ? { chainId: extra.chainId } : {}) },
+      })
+    }
+
+    const claimed = await prisma.wdkTransferAttempt.updateMany({
+      where: { id, status: { in: expectedStatuses } },
       data: { status, ...(extra?.txHash !== undefined ? { txHash: extra.txHash } : {}), ...(extra?.chainId !== undefined ? { chainId: extra.chainId } : {}) },
     })
+    if (claimed.count !== 1) {
+      const current = await prisma.wdkTransferAttempt.findUnique({ where: { id } })
+      throw new Error(
+        `WdkTransferAttempt ${id} transition ownership lost: expected ${expectedStatuses.join('|')}, current=${current?.status ?? 'MISSING'}, requested=${status}`
+      )
+    }
+    const updated = await prisma.wdkTransferAttempt.findUnique({ where: { id } })
+    if (!updated) throw new Error(`WdkTransferAttempt ${id} disappeared after status transition`)
+    return updated
   }
 }
 
