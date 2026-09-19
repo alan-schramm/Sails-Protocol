@@ -495,7 +495,7 @@ export async function submitTransactionSignature(escrowId: string, participantId
     // pending row and its signatures are left in place on failure so the
     // caller can retry submitTransactionSignature() (idempotent upsert)
     // without needing to re-collect signatures already submitted.
-    await revertEscrowStatus(escrowId, escrow.status)
+    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
     throw err
   }
 }
