@@ -88,4 +88,63 @@ describe('#253 durable event projection claims — real Postgres', () => {
       await prisma.user.delete({ where: { id: second.id } })
     }
   })
+
+  it('atomically burns a vouch and penalizes its voucher exactly once across replay', async () => {
+    requirePostgres('vouch burn replay')
+    const burnEvent = eventId + '-vouch-burn'
+    const voucher = await prisma.user.create({ data: { publicKey: 'projection-voucher-' + suffix, reputationScore: 10 } })
+    const vouchee = await prisma.user.create({ data: { publicKey: 'projection-vouchee-' + suffix } })
+    const vouch = await prisma.vouch.create({ data: { voucherId: voucher.id, voucheeId: vouchee.id } })
+    const applyBurn = async () => applyEventProjectionOnce(burnEvent, 'reputation-vouch-burn', vouch.id, async (tx: any) => {
+      const updated = await tx.vouch.updateMany({ where: { id: vouch.id, burnedAt: null }, data: { burnedAt: new Date() } })
+      if (updated.count === 0) return
+      await tx.user.update({ where: { id: voucher.id }, data: { reputationScore: { increment: -5 } } })
+    })
+    try {
+      await expect(applyBurn()).resolves.toBe(true)
+      await expect(applyBurn()).resolves.toBe(false)
+      const [storedVouch, storedVoucher] = await Promise.all([
+        prisma.vouch.findUniqueOrThrow({ where: { id: vouch.id } }),
+        prisma.user.findUniqueOrThrow({ where: { id: voucher.id } }),
+      ])
+      expect(storedVouch.burnedAt).not.toBeNull()
+      expect(storedVoucher.reputationScore).toBe(5)
+      expect(await prisma.eventProjectionClaim.count({ where: { eventId: burnEvent, projectionKey: 'reputation-vouch-burn', subjectId: vouch.id } })).toBe(1)
+    } finally {
+      await prisma.eventProjectionClaim.deleteMany({ where: { eventId: burnEvent } })
+      await prisma.vouch.deleteMany({ where: { id: vouch.id } })
+      await prisma.user.deleteMany({ where: { id: { in: [voucher.id, vouchee.id] } } })
+    }
+  })
+
+  it('rolls back both vouch burn and penalty on an injected transactional failure, then recovers', async () => {
+    requirePostgres('vouch burn rollback')
+    const burnEvent = eventId + '-vouch-burn-rollback'
+    const voucher = await prisma.user.create({ data: { publicKey: 'projection-voucher-rb-' + suffix, reputationScore: 10 } })
+    const vouchee = await prisma.user.create({ data: { publicKey: 'projection-vouchee-rb-' + suffix } })
+    const vouch = await prisma.vouch.create({ data: { voucherId: voucher.id, voucheeId: vouchee.id } })
+    try {
+      await expect(applyEventProjectionOnce(burnEvent, 'reputation-vouch-burn', vouch.id, async (tx: any) => {
+        await tx.vouch.updateMany({ where: { id: vouch.id, burnedAt: null }, data: { burnedAt: new Date() } })
+        await tx.user.update({ where: { id: voucher.id }, data: { reputationScore: { increment: -5 } } })
+        throw new Error('fault-injected-after-vouch-penalty')
+      })).rejects.toThrow('fault-injected-after-vouch-penalty')
+      expect((await prisma.vouch.findUniqueOrThrow({ where: { id: vouch.id } })).burnedAt).toBeNull()
+      expect((await prisma.user.findUniqueOrThrow({ where: { id: voucher.id } })).reputationScore).toBe(10)
+      expect(await prisma.eventProjectionClaim.count({ where: { eventId: burnEvent } })).toBe(0)
+
+      await applyEventProjectionOnce(burnEvent, 'reputation-vouch-burn', vouch.id, async (tx: any) => {
+        const updated = await tx.vouch.updateMany({ where: { id: vouch.id, burnedAt: null }, data: { burnedAt: new Date() } })
+        if (updated.count === 0) return
+        await tx.user.update({ where: { id: voucher.id }, data: { reputationScore: { increment: -5 } } })
+      })
+      expect((await prisma.vouch.findUniqueOrThrow({ where: { id: vouch.id } })).burnedAt).not.toBeNull()
+      expect((await prisma.user.findUniqueOrThrow({ where: { id: voucher.id } })).reputationScore).toBe(5)
+    } finally {
+      await prisma.eventProjectionClaim.deleteMany({ where: { eventId: burnEvent } })
+      await prisma.vouch.deleteMany({ where: { id: vouch.id } })
+      await prisma.user.deleteMany({ where: { id: { in: [voucher.id, vouchee.id] } } })
+    }
+  })
+
 })
