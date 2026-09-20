@@ -184,7 +184,7 @@ const { eventBus } = require('../src/common/events/event-bus')
 
 const baseEscrow = {
   id: 'escrow-1', tradeId: 'trade-1', type: 'MOCK', status: 'PAYMENT_PENDING',
-  lockedAmount: '20.5', asset: 'USDT_ERC20', timelockHours: 24,
+  lockedAmount: '20.5', asset: 'USDT_ERC20', timelockHours: 24, txReleaseId: null,
 }
 
 describe('escrowService.releaseFunds — RFC-014 capability check (relocated from the orchestrator)', () => {
@@ -300,9 +300,7 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Me
 
   it('refundFunds() never touches the legacy FeeDistribution write path — unchanged from before the retirement', async () => {
     protocolFeeRate = 0.001
-    mockEscrowFindUnique
-      .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED', txReleaseId: null })
-      .mockResolvedValueOnce({ ...baseEscrow, status: 'REFUNDED', txReleaseId: 'tx-refund' })
+    mockEscrowCurrent = { ...baseEscrow, status: 'FUNDS_LOCKED', txReleaseId: null }
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
     await escrowService.refundFunds('escrow-1', 'seller-1')
     expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
@@ -439,9 +437,6 @@ describe('escrowService — disputed disposition authority', () => {
 
   it('keeps the current assigned arbiter authorized for disputed RELEASE', async () => {
     mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
-    mockEscrowFindUnique
-      .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED', txReleaseId: null })
-      .mockResolvedValueOnce({ ...baseEscrow, status: 'COMPLETED', txReleaseId: expect.stringContaining('mock-release-') })
 
     const result = await escrowService.releaseFunds('escrow-1', '0xbuyer', 'arbiter-1')
 
@@ -451,9 +446,6 @@ describe('escrowService — disputed disposition authority', () => {
 
   it('keeps the current assigned arbiter authorized for disputed REFUND', async () => {
     mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
-    mockEscrowFindUnique
-      .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED', txReleaseId: null })
-      .mockResolvedValueOnce({ ...baseEscrow, status: 'REFUNDED', txReleaseId: 'tx-refund' })
 
     const result = await escrowService.refundFunds('escrow-1', 'arbiter-1')
 
@@ -463,9 +455,6 @@ describe('escrowService — disputed disposition authority', () => {
 
   it('keeps the current assigned arbiter authorized for disputed SPLIT', async () => {
     mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
-    mockEscrowFindUnique
-      .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED', txReleaseId: null })
-      .mockResolvedValueOnce({ ...baseEscrow, status: 'SPLIT', txReleaseId: 'tx-buyer,tx-seller' })
 
     const result = await escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 5000, 'arbiter-1')
 
@@ -494,7 +483,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
   describe('lockFunds', () => {
     beforeEach(() => {
       mockEscrowCurrent = { ...baseEscrow, status: 'CREATED' }
-      mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+      mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED', txReleaseId: null })
     })
 
     it('rejects a caller who is not the trade\'s seller', async () => {
@@ -543,7 +532,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // catch block), not a leftover lock. "Unpersisted" means no lock
       // *fields* (txLockId/multisigAddr/lockedAt/expiresAt) were ever
       // set, not "update() was never called" — checked precisely below.
-      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'CREATED' } })
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED', txReleaseId: null }, data: { status: 'CREATED' } })
       expect(eventBus.emit).not.toHaveBeenCalledWith('settlement.escrow.locked', expect.anything(), expect.anything())
     })
 
@@ -568,7 +557,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // an operator retrying with the config actually fixed.
       mockEscrowFeatureFlag = true
       mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrow, type: 'MOCK', status: 'CREATED' })
-      mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+      mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED', txReleaseId: null })
 
       const result = await escrowService.lockFunds('escrow-1', 'seller-1')
 
@@ -583,7 +572,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
 
   describe('markPaymentSent', () => {
     beforeEach(() => {
-      mockEscrowCurrent = { ...baseEscrow, status: 'FUNDS_LOCKED' }
+      mockEscrowCurrent = { ...baseEscrow, status: 'FUNDS_LOCKED', txReleaseId: null }
       mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'PAYMENT_PENDING' })
     })
 
@@ -601,7 +590,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // explicitly (not relying on this describe's single-value default)
       // so each call gets the status it should actually see.
       mockEscrowFindUnique
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED', txReleaseId: null })
         .mockResolvedValueOnce({ ...baseEscrow, status: 'PAYMENT_PENDING' })
       const result = await escrowService.markPaymentSent('escrow-1', 'buyer-1')
       expect(result.status).toBe('PAYMENT_PENDING')
@@ -610,7 +599,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
 
   describe('refundFunds', () => {
     beforeEach(() => {
-      mockEscrowCurrent = { ...baseEscrow, status: 'FUNDS_LOCKED' }
+      mockEscrowCurrent = { ...baseEscrow, status: 'FUNDS_LOCKED', txReleaseId: null }
       mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
     })
 
@@ -689,7 +678,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
 
   describe('openDispute', () => {
     beforeEach(() => {
-      mockEscrowCurrent = { ...baseEscrow, status: 'FUNDS_LOCKED' }
+      mockEscrowCurrent = { ...baseEscrow, status: 'FUNDS_LOCKED', txReleaseId: null }
       mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
     })
 
@@ -705,7 +694,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // also has no external provider call, so both findUnique calls
       // (initial read + post-claim re-fetch) need queuing explicitly.
       mockEscrowFindUnique
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED', txReleaseId: null })
         .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED' })
       const result = await escrowService.openDispute('escrow-1', 'buyer-1', 'reason')
       expect(result.status).toBe('DISPUTED')
@@ -713,7 +702,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
 
     it('allows the seller', async () => {
       mockEscrowFindUnique
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED', txReleaseId: null })
         .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED' })
       const result = await escrowService.openDispute('escrow-1', 'seller-1', 'reason')
       expect(result.status).toBe('DISPUTED')
@@ -746,8 +735,8 @@ describe('escrowService.sweepExpiredEscrows', () => {
 
   it("refunds every expired escrow, attributing triggeredBy to that trade's own seller", async () => {
     mockEscrowFindMany.mockResolvedValue([
-      { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' },
-      { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED' },
+      { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED', txReleaseId: null },
+      { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED', txReleaseId: null },
     ])
     mockTradeFindUnique.mockImplementation(({ where: { id } }: { where: { id: string } }) =>
       Promise.resolve(
@@ -759,8 +748,8 @@ describe('escrowService.sweepExpiredEscrows', () => {
     mockEscrowFindUnique.mockImplementation(({ where: { id } }: { where: { id: string } }) =>
       Promise.resolve(
         id === 'escrow-1'
-          ? { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' }
-          : { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED' }
+          ? { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED', txReleaseId: null }
+          : { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED', txReleaseId: null }
       )
     )
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
@@ -778,8 +767,8 @@ describe('escrowService.sweepExpiredEscrows', () => {
 
   it('a failure on one expired escrow does not stop the sweep from refunding the rest', async () => {
     mockEscrowFindMany.mockResolvedValue([
-      { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' },
-      { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED' },
+      { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED', txReleaseId: null },
+      { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED', txReleaseId: null },
     ])
     mockTradeFindUnique.mockImplementation(({ where: { id } }: { where: { id: string } }) =>
       Promise.resolve(
@@ -791,8 +780,8 @@ describe('escrowService.sweepExpiredEscrows', () => {
     mockEscrowFindUnique.mockImplementation(({ where: { id } }: { where: { id: string } }) =>
       Promise.resolve(
         id === 'escrow-1'
-          ? { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' }
-          : { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED' }
+          ? { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED', txReleaseId: null }
+          : { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED', txReleaseId: null }
       )
     )
     // escrow-1 lost the atomic-claim race (a concurrent request already
