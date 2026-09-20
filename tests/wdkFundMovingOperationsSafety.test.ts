@@ -149,8 +149,8 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
       expect(externalEffects).toHaveLength(1)
       // Only the revert write happened — updateReleaseResult() was never
       // reached, since the provider call itself threw.
-      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
-      expect(mockEscrowUpdate).toHaveBeenNthCalledWith(1, { where: { id: 'escrow-1' }, data: { status: 'PAYMENT_PENDING' } })
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'COMPLETED' }, data: { status: 'PAYMENT_PENDING' } })
 
       // Retry: the same logical release is invoked again.
       mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowPaymentPending })
@@ -192,8 +192,8 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
         'simulated: response lost after submission'
       )
       expect(externalEffects).toHaveLength(1)
-      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
-      expect(mockEscrowUpdate).toHaveBeenNthCalledWith(1, { where: { id: 'escrow-1' }, data: { status: 'FUNDS_LOCKED' } })
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'REFUNDED' }, data: { status: 'FUNDS_LOCKED' } })
 
       mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowFundsLocked })
       mockWdkRefundFunds.mockImplementationOnce(async () => {
@@ -252,8 +252,8 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
       // provider.splitFunds() promise resolves with BOTH txIds) — so
       // Sails persists ZERO knowledge that leg 1's side effect happened.
       // Only the revert write occurred.
-      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
-      expect(mockEscrowUpdate).toHaveBeenNthCalledWith(1, { where: { id: 'escrow-1' }, data: { status: 'DISPUTED' } })
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'SPLIT' }, data: { status: 'DISPUTED' } })
 
       // Retry: the same logical split is invoked again. Because Sails
       // never learned leg 1 already happened, the ONLY operation it can
@@ -309,8 +309,8 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
       // cannot distinguish "leg 2 never tried" from "leg 2 tried and its
       // result was lost" — both look identical: a rejected promise.
       expect(legEffects).toEqual(['leg1-attempt-1', 'leg2-attempt-1'])
-      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
-      expect(mockEscrowUpdate).toHaveBeenNthCalledWith(1, { where: { id: 'escrow-1' }, data: { status: 'DISPUTED' } })
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'SPLIT' }, data: { status: 'DISPUTED' } })
     })
 
     it('once SPLIT is durably persisted, a further splitFunds() call is rejected — the already-protected boundary', async () => {
