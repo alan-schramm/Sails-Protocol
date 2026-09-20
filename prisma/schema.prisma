@@ -2378,12 +2378,25 @@ model Proof {
 // (RFC-008 D1) is optional and additive — most EvidenceReferences never
 // get one, Policy Engine decides when the extra assurance is worth the
 // real cost (a real Bitcoin-anchored OpenTimestamps submission).
+// Issue #265 CTO Gate R2, CONTRACT DELTA 5 — provider + uri are set once
+// at creation (proof.service.ts's attachEvidence()) and MUST NEVER be
+// updated in place. This model is already the smallest immutable-history
+// design consistent with the architecture: `Proof.evidenceReferences` is
+// a one-to-many relation, so a future provider migration (e.g. moving
+// existing local-fs-stored bytes to s3) belongs as a NEW row pointing at
+// the new location — never an UPDATE overwriting an old row's own
+// provider/uri, which would silently destroy that row's storage
+// provenance. proof.service.ts's own anchorEvidence() is the only
+// mutation this model's rows ever undergo, and it touches anchorProof
+// only (guarded by a regression test in tests/proofService.test.ts) — no
+// migration subsystem exists or is needed today; this comment is the
+// durable constraint for whenever one is.
 model EvidenceReference {
   id          String   @id @default(uuid())
   proofId     String
   proof       Proof    @relation(fields: [proofId], references: [id])
-  provider    String // e.g. 'local-fs', 's3', 'r2', 'ipfs', 'arweave', 'nostr.build'
-  uri         String
+  provider    String // e.g. 'local-fs', 's3', 'r2', 'ipfs', 'arweave', 'nostr.build' — immutable once set, see model comment above
+  uri         String // immutable once set, see model comment above
   sha256      String // real hash of the stored media bytes — recomputed server-side, same discipline as Proof.evidenceHash
   mimeType    String
   signature   String // signed by the submitting Participant's key

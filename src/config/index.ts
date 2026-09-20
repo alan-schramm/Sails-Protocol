@@ -141,6 +141,37 @@ function resolveMultisigRequiredConfirmations(): number {
   return parsed
 }
 
+// Issue #265 CTO Gate R2, BLOCKER 1 — EVIDENCE_PROVIDER used to be a bare
+// `(process.env.EVIDENCE_PROVIDER ?? 'local-fs') as 'local-fs' | 's3'`
+// cast, not real parsing: a genuinely unrecognized value (a typo, e.g.
+// 's33') was caught by neither the production 'local-fs' guard nor the
+// 's3' one below, fell through `createEvidenceProvider()`'s `else`
+// branch unexamined, and silently constructed
+// `LocalFilesystemEvidenceProvider` anyway — defeating the entire
+// fail-closed guarantee this file exists to provide. Same
+// NODE_ENV/MULTISIG_NETWORK shape used everywhere else in this file: an
+// explicitly WRONG value throws in EVERY environment (a typo is a typo
+// regardless of NODE_ENV), an entirely UNSET value defaults to
+// 'local-fs' (the legitimate dev/reference default) and is only
+// rejected by the production-only FATAL guard further down.
+const RECOGNIZED_EVIDENCE_PROVIDER_TYPES = ['local-fs', 's3'] as const
+type EvidenceProviderType = (typeof RECOGNIZED_EVIDENCE_PROVIDER_TYPES)[number]
+
+function resolveEvidenceProviderType(): EvidenceProviderType {
+  const raw = process.env.EVIDENCE_PROVIDER
+  if (raw === undefined) return 'local-fs'
+  if (!(RECOGNIZED_EVIDENCE_PROVIDER_TYPES as readonly string[]).includes(raw)) {
+    throw new Error(
+      `FATAL: EVIDENCE_PROVIDER is set to an unrecognized value '${raw}'. Expected one of: ` +
+      `${RECOGNIZED_EVIDENCE_PROVIDER_TYPES.join(', ')}. Refusing to boot — an unrecognized evidence storage ` +
+      'provider must never silently fall through to LocalFilesystemEvidenceProvider (see Issue #265).'
+    )
+  }
+  return raw as EvidenceProviderType
+}
+
+const resolvedEvidenceProviderType = resolveEvidenceProviderType()
+
 function parseArbitrationPolicyOverrides(raw: string | undefined): Record<string, ArbitrationMode> {
   if (!raw?.trim()) return {}
   const result: Record<string, ArbitrationMode> = {}
@@ -478,10 +509,32 @@ export const config = {
     verificationNonceTtlSeconds: requiredInt('PROOF_VERIFICATION_NONCE_TTL', 300),
     // RFC-007 D2 — LocalFilesystemEvidenceProvider's storage root
     // (evidence-provider.ts). A real, working default for a single-server
-    // reference deployment; a real S3/R2/IPFS EvidenceProvider is a
-    // separate, still-unbuilt implementation of the same interface (see
-    // that file's own header comment) for a multi-instance deployment.
+    // reference deployment; not multi-instance safe, not durable across
+    // container restart/redeploy — see EVIDENCE_PROVIDER below.
     evidenceStorageDir: process.env.PROOF_EVIDENCE_STORAGE_DIR ?? './data/evidence',
+    // Issue #265 — which EvidenceProvider implementation
+    // evidence-provider.ts's exported singleton wires up. 'local-fs'
+    // remains the dev/reference default; production is fail-closed against
+    // it (see the FATAL guard below) rather than allowed to silently
+    // inherit it. Real validation, not a bare cast — see
+    // resolveEvidenceProviderType() above (CTO Gate R2, BLOCKER 1).
+    evidenceProviderType: resolvedEvidenceProviderType,
+    // Generic S3-compatible object storage config (works unmodified
+    // against AWS S3, Cloudflare R2, MinIO, or any other S3-compatible
+    // vendor via `endpoint` — Issue #265's own mission explicitly rules
+    // out a Cloudflare-only/AWS-only adapter). Same bare
+    // `process.env.X ?? default` convention as safeGuardEvm below;
+    // `forcePathStyle` exists because some S3-compatible vendors
+    // (MinIO, some R2 setups) require path-style requests instead of
+    // AWS's virtual-hosted-style default.
+    evidenceS3: {
+      endpoint: process.env.EVIDENCE_S3_ENDPOINT ?? '',
+      region: process.env.EVIDENCE_S3_REGION ?? 'auto',
+      bucket: process.env.EVIDENCE_S3_BUCKET ?? '',
+      accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID ?? '',
+      secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY ?? '',
+      forcePathStyle: process.env.EVIDENCE_S3_FORCE_PATH_STYLE === 'true',
+    },
   },
 
   settlement: {
@@ -810,4 +863,37 @@ if (config.isProduction && !config.features.mockEscrow && config.wdk.seedPhrase 
     '— see docs/rfcs/RFC-019-settlement-custody-reference-vs-normative.md and Missão 11 Fase 9.1.1 §4. ' +
     'Refusing to boot. Unset WDK_SEED_PHRASE in production, or use it only in a non-production environment.'
   )
+}
+
+// Issue #265 — LocalFilesystemEvidenceProvider (evidence-provider.ts) is a
+// dev/reference implementation only: no multi-instance story (#234's own
+// audit found docs/DEPLOYMENT.md's Multi-Instance Deployment section never
+// mentions evidence storage at all), no durability across container
+// restart/redeploy (App Runner, the documented production target, has no
+// persistent volume for the app container — evidenceStorageDir defaults to
+// a path on the container's own ephemeral disk). Same "refuse to boot,
+// don't silently allow it and fail unpredictably later" pattern RT-001/
+// LB-01/LB-04/the WDK guard above already use — a production deployment
+// must never silently write real evidence bytes to disk that vanishes on
+// the next redeploy.
+if (config.isProduction && config.proof.evidenceProviderType === 'local-fs') {
+  throw new Error(
+    'FATAL: NODE_ENV=production but EVIDENCE_PROVIDER is unset (or "local-fs"). ' +
+    'LocalFilesystemEvidenceProvider is a dev/reference implementation only — refusing to boot ' +
+    'with production evidence silently written to ephemeral container-local disk. ' +
+    'Set EVIDENCE_PROVIDER=s3 and configure EVIDENCE_S3_BUCKET/EVIDENCE_S3_ACCESS_KEY_ID/' +
+    'EVIDENCE_S3_SECRET_ACCESS_KEY (see src/modules/open-proof/s3-evidence-provider.ts).'
+  )
+}
+if (config.isProduction && config.proof.evidenceProviderType === 's3') {
+  const missing = (['bucket', 'accessKeyId', 'secretAccessKey'] as const).filter(
+    (key) => config.proof.evidenceS3[key] === ''
+  )
+  if (missing.length > 0) {
+    throw new Error(
+      `FATAL: NODE_ENV=production, EVIDENCE_PROVIDER=s3, but EVIDENCE_S3_${missing[0].replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase()} ` +
+      `is not set (missing: ${missing.join(', ')}). Refusing to boot — a production evidence provider ` +
+      'must be fully configured, not partially wired. See src/modules/open-proof/s3-evidence-provider.ts.'
+    )
+  }
 }

@@ -79,6 +79,13 @@ const ENV_BASE = {
   // MULTISIG_NETWORK unset (same no-silent-fallback posture as the vars
   // above).
   MULTISIG_NETWORK: 'testnet',
+  // Issue #265 — required alongside NODE_ENV=production: config/index.ts
+  // now refuses to boot in production with EVIDENCE_PROVIDER unset/
+  // 'local-fs' (same no-silent-fallback posture as the vars above).
+  EVIDENCE_PROVIDER: 's3',
+  EVIDENCE_S3_BUCKET: 'test-evidence-bucket',
+  EVIDENCE_S3_ACCESS_KEY_ID: 'test-access-key',
+  EVIDENCE_S3_SECRET_ACCESS_KEY: 'test-secret-key',
 }
 
 async function buildAppWithEnv(envOverrides: Record<string, string>): Promise<FastifyInstance> {

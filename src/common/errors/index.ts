@@ -188,3 +188,40 @@ export class IdempotencyKeyConflictError extends AppError {
     super(message, 409, 'IDEMPOTENCY_KEY_IN_PROGRESS')
   }
 }
+
+// Issue #265 — EvidenceProvider (evidence-provider.ts) storage-outcome
+// taxonomy. A DIFFERENT axis from CapabilityDenialReason above (which
+// classifies WHY an operation is policy-denied, not an I/O outcome), so
+// this is its own narrow union rather than widening that one — same
+// "one purpose-specific AppError subclass, not a second competing error
+// framework" pattern CircuitBreakerOpenError/RateLimitExceededError/
+// IdempotencyKeyConflictError above already establish. Three outcomes a
+// storage backend can report, deliberately never collapsed into each
+// other (per #265's own mission brief — "UNAVAILABLE != INVALID",
+// "missing bytes != evidence never existed"):
+// - NOT_FOUND  — positive confirmation the object does not exist at this
+//                reference (a real 404, not "we couldn't tell").
+// - UNAVAILABLE — the provider could not answer at all (timeout, network,
+//                 outage) — an OPERATIONAL outcome, not evidence that the
+//                 bytes never existed or were ever missing.
+// - CORRUPTED  — the provider returned bytes, but they don't match the
+//                canonical EvidenceReference.sha256 — an integrity
+//                anomaly, never the caller's fault (mirrors
+//                EconomicAuthorityAmbiguityError's own reasoning for
+//                using 500 rather than 409/403).
+export type EvidenceStorageErrorReason = 'NOT_FOUND' | 'UNAVAILABLE' | 'CORRUPTED'
+
+const EVIDENCE_STORAGE_STATUS_CODE: Record<EvidenceStorageErrorReason, number> = {
+  NOT_FOUND: 404, // matches NotFoundError's own convention
+  UNAVAILABLE: 503, // matches CircuitBreakerOpenError/RateLimitUnavailableError's "temporarily unavailable, retry" convention
+  CORRUPTED: 500, // never the caller's fault — a real reconciliation-worthy anomaly, same reasoning as EconomicAuthorityAmbiguityError
+}
+
+export class EvidenceStorageError extends AppError {
+  storageReason: EvidenceStorageErrorReason
+
+  constructor(message: string, storageReason: EvidenceStorageErrorReason, details?: unknown) {
+    super(message, EVIDENCE_STORAGE_STATUS_CODE[storageReason], `EVIDENCE_STORAGE_${storageReason}`, details)
+    this.storageReason = storageReason
+  }
+}

@@ -63,6 +63,13 @@ const ENV_BASE = {
   ENFORCE_CAPABILITIES: 'false',
   DATABASE_URL: 'postgresql://postgres:password@localhost:5432/sails_protocol',
   REDIS_URL: 'redis://localhost:6379',
+  // Issue #265 — same reasoning as tests/cors.test.ts's identical
+  // ENV_BASE addition: config/index.ts now hard-stops in production if
+  // EVIDENCE_PROVIDER is left unset/'local-fs'.
+  EVIDENCE_PROVIDER: 's3',
+  EVIDENCE_S3_BUCKET: 'test-evidence-bucket',
+  EVIDENCE_S3_ACCESS_KEY_ID: 'test-access-key',
+  EVIDENCE_S3_SECRET_ACCESS_KEY: 'test-secret-key',
   TRUSTED_ARBITRATORS: 'arbiter-1',
 }
 
