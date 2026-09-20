@@ -39,6 +39,22 @@ export interface EvidenceDescriptor {
   type: string // e.g. 'payment_receipt', 'chat_log', 'screenshot'
   uri?: string // pointer, if the evidence lives with an EvidenceProvider (RFC-007 D2) once that exists
   note?: string
+  // Issue #266 — additive. The canonical id of a Sails OpenProof
+  // `EvidenceReference` row (RFC-007 D2, `evidence_references` table) —
+  // present ONLY for genuinely integrity-bound file/media evidence, and
+  // mutually exclusive with `uri` (dispute.service.ts's own
+  // resolveEvidenceDescriptor() rejects a descriptor carrying both:
+  // OpenProof already owns provider/uri/sha256 for this object, so a
+  // raw `uri` would just be an unverified, potentially forged duplicate
+  // of a fact the server can and does derive server-side instead). A
+  // descriptor WITHOUT this field is the original, unchanged raw/
+  // external reference — historical entries never have it and are read
+  // exactly as before. `EvidenceReference` (not Claim/Proof) is the
+  // correct canonical identifier here: it is the one row that actually
+  // owns the stored bytes' provider/uri/sha256; a Claim can have many
+  // Proofs and a Proof can have many EvidenceReferences, so anything
+  // coarser would be ambiguous about which exact bytes are referenced.
+  evidenceReferenceId?: string
   submittedBy: string
   submittedAt: string // ISO 8601
 }

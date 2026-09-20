@@ -119,11 +119,52 @@ export class DisputeService {
     return key?.participantId ?? null
   }
 
+  // Issue #266 — validates/resolves an OpenProof cross-reference
+  // descriptor server-side before it is ever persisted; used by both
+  // raiseDispute()'s initial evidence array and submitEvidence()'s
+  // single descriptor, so the SAME guarantee holds regardless of entry
+  // point (a caller could otherwise bypass this check entirely simply
+  // by submitting the cross-reference at dispute-creation time instead
+  // of via submitEvidence()). A descriptor WITHOUT evidenceReferenceId
+  // is returned unchanged — the original, legacy raw/external-reference
+  // behavior at both entry points is untouched by this mission.
+  //
+  // "Do not accept caller-supplied hash/provider/URI as authoritative
+  // duplicates if OpenProof already owns those facts" (#266's own
+  // frozen requirement) is why `uri` is rejected outright alongside
+  // `evidenceReferenceId`, rather than silently ignored: OpenProof's
+  // EvidenceReference already owns provider/uri/sha256 for this object,
+  // so accepting a second, caller-supplied uri here would let a caller
+  // forge or misrepresent it.
+  private async resolveEvidenceDescriptor(
+    descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId'>,
+    tradeId: string
+  ): Promise<Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId'>> {
+    if (!descriptor.evidenceReferenceId) return descriptor
+    if (descriptor.uri) {
+      throw new ValidationError(
+        'Evidence descriptor cannot include both uri and evidenceReferenceId — an OpenProof cross-reference is ' +
+        'resolved server-side, never combined with a caller-supplied raw URI.'
+      )
+    }
+    // Lazy require, not a static top-of-file import — proof.service.ts's
+    // module graph has real load-time side effects (a live Redis client
+    // construction among them, via evidence-provider.ts/timestamp-anchor.ts).
+    // A static import would drag that into every test/dev-tool that loads
+    // dispute.service.ts even when this cross-reference path is never
+    // exercised — the same reasoning common/events/handlers.ts's own
+    // QVAC/dispute-service requires already establish in this codebase.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { proofService } = require('../open-proof/proof.service') as typeof import('../open-proof/proof.service')
+    await proofService.assertEvidenceReferenceBelongsToTrade(descriptor.evidenceReferenceId, tradeId)
+    return { type: descriptor.type, note: descriptor.note, evidenceReferenceId: descriptor.evidenceReferenceId }
+  }
+
   async raiseDispute(
     tradeId: string,
     raisedBy: string,
     reason: string,
-    evidence: EvidenceDescriptor[] = []
+    evidence: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId'>[] = []
   ) {
     const trade = await tradeRepository.findById(tradeId)
     if (!trade) throw new NotFoundError('Trade', tradeId)
@@ -134,6 +175,14 @@ export class DisputeService {
     if (raisedBy !== trade.buyerId && raisedBy !== trade.sellerId) {
       throw new ForbiddenError(`${raisedBy} is not a party to trade ${tradeId}`)
     }
+
+    // Issue #266 — validate/resolve any OpenProof cross-references
+    // BEFORE any state-changing call below, so a rejected cross-
+    // reference (nonexistent, wrong-scope, or forged uri) never opens a
+    // dispute with a half-applied side effect.
+    const resolvedEvidence = await Promise.all(
+      evidence.map((entry) => this.resolveEvidenceDescriptor(entry, tradeId))
+    )
 
     // Freezes the trade — escrow.service.ts's real, existing state
     // transition (Escrow -> DISPUTED), not new logic written here.
@@ -157,7 +206,7 @@ export class DisputeService {
           escrowId: trade.escrowId,
           openedBy: raisedBy,
           reason,
-          evidence: evidence as unknown as object,
+          evidence: resolvedEvidence as unknown as object,
           status: 'OPENED',
         },
       })
@@ -1010,7 +1059,7 @@ export class DisputeService {
   async submitEvidence(
     disputeId: string,
     submittedBy: string,
-    descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note'>,
+    descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId'>,
     idempotencyKey?: string
   ) {
     return withIdempotency(
@@ -1021,8 +1070,14 @@ export class DisputeService {
         // Deliberately excludes submittedAt (assigned at execution time,
         // not part of the caller's own logical request) — a retry of the
         // identical descriptor must hash identically regardless of how
-        // long the retry took to arrive.
-        requestPayload: { disputeId, type: descriptor.type, uri: descriptor.uri, note: descriptor.note },
+        // long the retry took to arrive. evidenceReferenceId is included
+        // (Issue #266) — a retry that names a DIFFERENT cross-reference
+        // must never be treated as the same idempotent request as an
+        // earlier, different one.
+        requestPayload: {
+          disputeId, type: descriptor.type, uri: descriptor.uri, note: descriptor.note,
+          evidenceReferenceId: descriptor.evidenceReferenceId,
+        },
       },
       () => this.persistEvidence(disputeId, submittedBy, descriptor),
       (dispute) => this.postPersistEvidence(dispute, submittedBy),
@@ -1043,7 +1098,7 @@ export class DisputeService {
   // NotFoundError/ForbiddenError/ValidationError guards) genuinely means
   // nothing durable happened, the only case safe to mark FAILED and
   // retry via a fresh `persistEvidence()` call.
-  private async persistEvidence(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note'>) {
+  private async persistEvidence(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId'>) {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
 
@@ -1057,7 +1112,11 @@ export class DisputeService {
       throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${dispute.status}`)
     }
 
-    const entry: EvidenceDescriptor = { ...descriptor, submittedBy, submittedAt: new Date().toISOString() }
+    // Issue #266 — validates/resolves an OpenProof cross-reference
+    // before it is ever persisted; a no-op for a legacy raw/external
+    // descriptor (see resolveEvidenceDescriptor()'s own header comment).
+    const resolved = await this.resolveEvidenceDescriptor(descriptor, dispute.tradeId)
+    const entry: EvidenceDescriptor = { ...resolved, submittedBy, submittedAt: new Date().toISOString() }
     const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
 
     const updated = await prisma.dispute.update({

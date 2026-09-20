@@ -353,6 +353,47 @@ describe('updateEvidenceReferenceProvenanceGuarded() — CTO Delta, Durable Evid
   })
 })
 
+describe('ProofService.assertEvidenceReferenceBelongsToTrade() — Issue #266', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('returns the reference when it genuinely belongs to the given trade', async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue({
+      id: 'ref-1', provider: 's3', uri: 'key.bin', sha256: 'abc',
+      proof: { claim: { tradeId: 'trade-1' } },
+    })
+
+    const service = new ProofService()
+    const result = await service.assertEvidenceReferenceBelongsToTrade('ref-1', 'trade-1')
+
+    expect(result.id).toBe('ref-1')
+  })
+
+  it('throws NotFoundError for a nonexistent evidenceReferenceId', async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue(null)
+
+    const service = new ProofService()
+    await expect(service.assertEvidenceReferenceBelongsToTrade('nope', 'trade-1')).rejects.toThrow('EvidenceReference')
+  })
+
+  it('throws ForbiddenError when the reference belongs to a DIFFERENT trade', async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue({
+      id: 'ref-1', proof: { claim: { tradeId: 'trade-OTHER' } },
+    })
+
+    const service = new ProofService()
+    await expect(service.assertEvidenceReferenceBelongsToTrade('ref-1', 'trade-1')).rejects.toThrow(/does not belong to trade/)
+  })
+
+  it('throws ForbiddenError when the reference\'s Claim is not trade-scoped at all (tradeId null) — never treated as a match', async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue({
+      id: 'ref-1', proof: { claim: { tradeId: null } },
+    })
+
+    const service = new ProofService()
+    await expect(service.assertEvidenceReferenceBelongsToTrade('ref-1', 'trade-1')).rejects.toThrow(/does not belong to trade/)
+  })
+})
+
 describe('ProofService.getEvidenceBundleForTrade() — RFC-007 D6, real per-trade aggregate', () => {
   beforeEach(() => jest.clearAllMocks())
 

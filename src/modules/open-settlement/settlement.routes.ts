@@ -124,6 +124,11 @@ const disputeSchema = z.object({
     type: z.string().min(1),
     uri: z.string().optional(),
     note: z.string().optional(),
+    // Issue #266 — an OpenProof EvidenceReference id. Mutual exclusivity
+    // with `uri` (a descriptor cannot claim to be both a raw pointer and
+    // an integrity-bound cross-reference) is enforced service-side, not
+    // here — dispute.service.ts's own resolveEvidenceDescriptor().
+    evidenceReferenceId: z.string().optional(),
   })).optional(),
 })
 
@@ -150,6 +155,8 @@ const submitEvidenceSchema = z.object({
   type: z.string().min(1),
   uri: z.string().optional(),
   note: z.string().optional(),
+  // Issue #266 — see disputeSchema's own identical field comment above.
+  evidenceReferenceId: z.string().optional(),
   // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37) — optional; a caller
   // that omits it gets exactly today's behavior. See
   // src/common/idempotency.ts's own header for the full contract.
