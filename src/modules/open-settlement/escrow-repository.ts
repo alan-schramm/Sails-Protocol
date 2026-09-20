@@ -318,20 +318,48 @@ class PrismaEscrowRepository implements EscrowRepository {
     return claim.count
   }
 
+  private async persistSettlementResult(
+    escrowId: string,
+    txReleaseId: string,
+    data: Record<string, unknown>
+  ): Promise<EscrowRow> {
+    // #252 — durable execution identity is write-once. The first proven
+    // result may fill a null slot; a retry carrying the exact same identity
+    // is idempotent; a delayed/stale worker carrying a different identity
+    // must never replace already-converged economic truth.
+    const claimed = await prisma.escrow.updateMany({
+      where: { id: escrowId, txReleaseId: null },
+      data: { ...data, txReleaseId },
+    })
+    if (claimed.count === 1) {
+      const persisted = await prisma.escrow.findUnique({ where: { id: escrowId } })
+      if (!persisted) throw new EscrowError(`Escrow ${escrowId} disappeared after settlement result persistence`)
+      return persisted
+    }
+
+    const current = await prisma.escrow.findUnique({ where: { id: escrowId } })
+    if (!current) throw new EscrowError(`Escrow ${escrowId} not found while persisting settlement result`)
+    if (current.txReleaseId === txReleaseId) return current
+
+    throw new EscrowError(
+      `Settlement result integrity conflict for escrow ${escrowId}: durable txReleaseId ${current.txReleaseId} cannot be replaced by ${txReleaseId}`
+    )
+  }
+
   async updateReleaseResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date; feeCharged: Prisma.Decimal | null }) {
-    return prisma.escrow.update({ where: { id: escrowId }, data })
+    return this.persistSettlementResult(escrowId, data.txReleaseId, data)
   }
 
   async updateRefundResult(escrowId: string, txReleaseId: string) {
-    return prisma.escrow.update({ where: { id: escrowId }, data: { txReleaseId } })
+    return this.persistSettlementResult(escrowId, txReleaseId, {})
   }
 
   async updateSplitResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date }) {
-    return prisma.escrow.update({ where: { id: escrowId }, data })
+    return this.persistSettlementResult(escrowId, data.txReleaseId, data)
   }
 
   async updateSignatureCollectionResult(escrowId: string, data: { txReleaseId: string; releasedAt?: Date }) {
-    return prisma.escrow.update({ where: { id: escrowId }, data })
+    return this.persistSettlementResult(escrowId, data.txReleaseId, data)
   }
 
   async revertStatus(escrowId: string, claimedStatus: string, fromStatus: string) {
