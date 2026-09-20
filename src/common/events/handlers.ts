@@ -186,7 +186,7 @@ async function applyReleaseOutcomes(eventId: string, tradeId: string, buyerId: s
     await vouchService.burnVouchesFor(sellerId)
   } else {
     await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE', eventId)
-    await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE')
+    await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE', eventId)
   }
 }
 
@@ -199,18 +199,18 @@ async function applyReleaseOutcomes(eventId: string, tradeId: string, buyerId: s
  *  Returns the resolved Dispute row (or null) so the caller can branch on
  *  "did this come from a dispute ruling?" for the Intent FAILED transition's
  *  `reason` field — same as the original inline implementation did. */
-async function applyRefundOutcomes(tradeId: string, buyerId: string, sellerId: string): Promise<{ id: string } | null> {
+async function applyRefundOutcomes(eventId: string, tradeId: string, buyerId: string, sellerId: string): Promise<{ id: string } | null> {
   const resolvedRefund = await prisma.dispute.findFirst({
     where: { tradeId, status: 'RESOLVED', ruling: 'REFUND' },
   })
   if (resolvedRefund) {
     await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE')
-    await reputationService.recordOutcome(tradeId, buyerId, 'NEGATIVE')
+    await reputationService.recordOutcome(tradeId, buyerId, 'NEGATIVE', eventId)
     // RFC-021 D7 — same reasoning as settlement.escrow.released above, for the buyer.
     await vouchService.burnVouchesFor(buyerId)
   } else {
-    await reputationService.recordOutcome(tradeId, buyerId, 'NEUTRAL')
-    await reputationService.recordOutcome(tradeId, sellerId, 'NEUTRAL')
+    await reputationService.recordOutcome(tradeId, buyerId, 'NEUTRAL', eventId)
+    await reputationService.recordOutcome(tradeId, sellerId, 'NEUTRAL', eventId)
   }
   return resolvedRefund
 }
@@ -324,7 +324,8 @@ export function registerEventHandlers(): void {
     }, payload.tradeId)   // correlationId (RFC-010)
   })
 
-  eventBus.on('settlement.escrow.refunded', async (payload) => {
+  eventBus.onDurable('settlement.escrow.refunded', async (event) => {
+    const payload = event.payload
     const trade = await prisma.trade.update({
       where: { id: payload.tradeId },
       data: { status: 'CANCELLED', cancelledAt: new Date() },
@@ -338,7 +339,7 @@ export function registerEventHandlers(): void {
     // RFC-007 D9's rule: always Neutral, never Negative, for either party.
     // The helper resolves the Dispute once and owns the per-outcome branch
     // (including the vouch-burn on a real dispute) — see its own doc.
-    const resolvedRefund = await applyRefundOutcomes(payload.tradeId, trade.buyerId, trade.sellerId)
+    const resolvedRefund = await applyRefundOutcomes(event.eventId, payload.tradeId, trade.buyerId, trade.sellerId)
 
     // RFC-018 — a refund, disputed or not, means the buyer never got the
     // asset: the Intent's own goal was not fulfilled. FAILED is a valid
@@ -378,8 +379,8 @@ export function registerEventHandlers(): void {
 
     await recordTradeCompletion(event.eventId, trade.buyerId, trade.sellerId, trade.amount)
 
-    await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEUTRAL')
-    await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEUTRAL')
+    await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEUTRAL', event.eventId)
+    await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEUTRAL', event.eventId)
 
     await eventBus.emit('openp2p.trade.completed', {
       tradeId: payload.tradeId,
