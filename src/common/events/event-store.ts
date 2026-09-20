@@ -473,7 +473,10 @@ export class PostgresEventStore implements EventStore {
 
     const inserted = await this.client.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(\${correlationId})::bigint)`
-      const existing = await tx.durableEventRecord.findUnique({ where: { id: eventId } })
+      // findFirst is intentionally used instead of findUnique here: the
+      // repository's lightweight EventStore test doubles already model the
+      // former, while the database still enforces id uniqueness.
+      const existing = await tx.durableEventRecord.findFirst({ where: { id: eventId } })
       if (existing) return false
 
       const last = await tx.durableEventRecord.findFirst({
