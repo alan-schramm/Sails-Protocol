@@ -216,6 +216,19 @@ const durableEventRecords = {
   }),
 }
 
+// #253 — semantic projection claim fake. createMany(skipDuplicates) mirrors
+// the unique (eventId, projectionKey, subjectId) identity used by Postgres.
+const eventProjectionClaimKeys = new Set<string>()
+const eventProjectionClaims = {
+  createMany: jest.fn(async ({ data }: any) => {
+    const row = Array.isArray(data) ? data[0] : data
+    const key = row.eventId + ':' + row.projectionKey + ':' + row.subjectId
+    if (eventProjectionClaimKeys.has(key)) return { count: 0 }
+    eventProjectionClaimKeys.add(key)
+    return { count: 1 }
+  }),
+}
+
 // PostgresEventStore.publish() (Missão 05.8) wraps its write in a real
 // Postgres transaction (pg_advisory_xact_lock-serialized per
 // correlationId) — a trivial passthrough is enough here since this file
@@ -229,6 +242,8 @@ const durableEventRecords = {
 const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
   callback({
     durableEventRecord: durableEventRecords,
+    eventProjectionClaim: eventProjectionClaims,
+    user: users,
     escrow: escrows,
     escrowFundingEvidence: escrowFundingEvidence,
     // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
@@ -264,6 +279,7 @@ jest.mock('../src/common/database', () => ({
     intentEvent: intentEvents,
     vouch: vouches,
     durableEventRecord: durableEventRecords,
+    eventProjectionClaim: eventProjectionClaims,
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
