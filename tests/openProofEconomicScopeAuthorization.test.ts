@@ -120,6 +120,18 @@ jest.mock('../src/common/redis', () => ({
       redisStore.delete(key)
       return Promise.resolve(existed ? 1 : 0)
     }),
+    // Issue #301 — verifyProof() now consumes its verification nonce via
+    // atomicConsume()/redis.eval() rather than a separate get+del; this
+    // genuinely reimplements common/redis/atomic-consume.ts's Lua
+    // script against the same redisStore (a real, if minimal, semantic
+    // simulation, not a call-count stub).
+    eval: jest.fn((script: string, _numKeys: number, ...args: unknown[]) => {
+      const key = args[0] as string
+      const current = redisStore.get(key)
+      if (current === undefined) return Promise.resolve(null)
+      redisStore.delete(key)
+      return Promise.resolve(current)
+    }),
     ping: jest.fn().mockResolvedValue('PONG'),
   },
 }))

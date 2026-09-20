@@ -23,6 +23,7 @@ import { createHash, randomBytes } from 'crypto'
 import nacl from 'tweetnacl'
 import { prisma } from '../../common/database'
 import { redis } from '../../common/redis'
+import { atomicConsume } from '../../common/redis/atomic-consume'
 import { NotFoundError, ValidationError, ForbiddenError, EvidenceStorageError } from '../../common/errors'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
@@ -378,19 +379,23 @@ export class ProofService {
     if (!proof) throw new NotFoundError('Proof', proofId)
     await assertClaimEconomicScopeAccess(proof.claim, verifiedBy)
 
+    // Issue #301 — atomic consume, not a separate GET+DEL. A plain
+    // `redis.get()` followed later by `redis.del()` does not actually
+    // guarantee single-use under concurrency: two simultaneous
+    // `verifyProof()` calls for the same nonce (including one ACCEPTED
+    // and one REJECTED) could both observe it valid before either
+    // deleted it, both reaching `prisma.verification.create()` below.
+    // `atomicConsume()` is a single Redis-server-side operation with
+    // exactly one winner — the loser gets `null` here and is rejected
+    // before ever creating a Verification row.
     const nonceKey = `${NONCE_PREFIX}${proofId}:${nonce}`
-    const nonceValid = await redis.get(nonceKey)
+    const nonceValid = await atomicConsume(nonceKey)
     if (!nonceValid) {
       throw new ValidationError(
         'Missing, expired, or already-used verification nonce — call ' +
         'POST /v1/proof/proofs/:id/verify-nonce first, and note each nonce is single-use'
       )
     }
-    // One-time use — burned immediately so it can never be replayed, the
-    // same pattern auth.ts's verifySignedChallenge() uses for its own
-    // challenge (`redis.del` right after the check succeeds, before any
-    // other work, so a concurrent replay attempt loses the race too).
-    await redis.del(nonceKey)
 
     const verification = await prisma.verification.create({
       data: { proofId, verifiedBy, verdict, reason },

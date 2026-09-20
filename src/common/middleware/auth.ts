@@ -16,6 +16,7 @@ import nacl from 'tweetnacl'
 import { randomBytes } from 'crypto'
 import type { FastifyRequest } from 'fastify'
 import { redis } from '../redis'
+import { atomicCompareAndConsume } from '../redis/atomic-consume'
 import { prisma } from '../database'
 import { config } from '../../config'
 import { AuthError } from '../errors'
@@ -53,14 +54,28 @@ export async function issueChallenge(publicKeyHex: string): Promise<{ challenge:
 
 /**
  * Step 4-5 core logic: verify a signature against the previously-issued
- * challenge for this publicKey. One-time use — the challenge is deleted
- * on successful verification, so a captured signature can't be replayed.
+ * challenge for this publicKey.
+ *
+ * Issue #301 — one-time use is enforced by an ATOMIC compare-and-consume
+ * (`atomicCompareAndConsume()`), not a separate `GET` + `DEL`. The plain
+ * `redis.get()` below is only an OBSERVATION used to verify the
+ * signature against — it is never itself the consuming operation, and
+ * crucially it runs BEFORE any deletion, so an invalid signature never
+ * reaches (and therefore never burns) the stored challenge. Only after
+ * the signature verifies does this atomically claim the EXACT observed
+ * challenge value: two concurrent replays of the same captured
+ * (challenge, signature) pair both observe the same challenge and both
+ * verify successfully, but the atomic claim has exactly one winner —
+ * the loser's claim finds the value already gone (or, if a fresh
+ * replacement challenge was issued in between, finds a DIFFERENT
+ * current value) and fails closed, never deleting anything.
  */
 export async function verifySignedChallenge(
   publicKeyHex: string,
   signatureHex: string
 ): Promise<{ verified: boolean; participantId?: string; sessionToken?: string; reason?: string }> {
-  const storedChallenge = await redis.get(`${CHALLENGE_PREFIX}${publicKeyHex}`)
+  const challengeKey = `${CHALLENGE_PREFIX}${publicKeyHex}`
+  const storedChallenge = await redis.get(challengeKey)
   if (!storedChallenge) {
     return { verified: false, reason: 'No challenge issued, or it expired — request a new one' }
   }
@@ -80,8 +95,16 @@ export async function verifySignedChallenge(
     return { verified: false, reason: 'Signature does not match challenge for this public key' }
   }
 
-  // One-time use: burn the challenge immediately so it can never be replayed.
-  await redis.del(`${CHALLENGE_PREFIX}${publicKeyHex}`)
+  // Atomic claim of the EXACT challenge this signature was verified
+  // against — see this function's own header comment above for why
+  // this must be compare-and-consume, not a blind delete. `false` means
+  // this call lost the race (a concurrent request already consumed it)
+  // or the challenge was replaced by a newer one since it was observed
+  // — either way, fail closed: no session is minted.
+  const claimed = await atomicCompareAndConsume(challengeKey, storedChallenge)
+  if (!claimed) {
+    return { verified: false, reason: 'Challenge already consumed or replaced — request a new one' }
+  }
 
   const user = await prisma.user.findUnique({ where: { publicKey: publicKeyHex } })
   if (!user) {

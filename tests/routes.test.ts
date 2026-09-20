@@ -231,6 +231,31 @@ jest.mock('../src/common/redis', () => ({
       redisStore.delete(key)
       return Promise.resolve(1)
     }),
+    // Issue #301 — auth.ts's challenge, ws-auth.ts's ticket, and
+    // proof.service.ts's verification nonce all now consume their
+    // one-time value via atomicConsume()/atomicCompareAndConsume()
+    // (common/redis/atomic-consume.ts), which use redis.eval() rather
+    // than a separate get+del. This genuinely reimplements both of that
+    // module's Lua scripts against the SAME redisStore this file's
+    // other mocked commands already share (discriminated by whether the
+    // script references ARGV[1], the compare-and-consume script's own
+    // tell) — a real, if minimal, semantic simulation, not a
+    // call-count/always-succeeds stub.
+    eval: jest.fn((script: string, _numKeys: number, ...args: unknown[]) => {
+      const key = args[0] as string
+      if (script.includes('ARGV[1]')) {
+        const expected = args[1] as string
+        if (redisStore.get(key) === expected) {
+          redisStore.delete(key)
+          return Promise.resolve(1)
+        }
+        return Promise.resolve(0)
+      }
+      const current = redisStore.get(key)
+      if (current === undefined) return Promise.resolve(null)
+      redisStore.delete(key)
+      return Promise.resolve(current)
+    }),
     // Missão 08B Fase 9 — the auth/critical rate-limit tiers now run
     // through a small Redis-shared preHandler (redis-rate-limit.ts)
     // instead of @fastify/rate-limit's own local store, so any route
