@@ -204,7 +204,9 @@ describe('escrowService.releaseFunds — RFC-014 capability check (relocated fro
   it('releases without ever querying CapabilityGrant when enforceCapabilities is false (the default)', async () => {
     await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
     expect(mockCapabilityGrantFindMany).not.toHaveBeenCalled()
-    expect(mockEscrowUpdate).toHaveBeenCalled()
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ txReleaseId: null }) })
+    )
   })
 
   it('rejects with ForbiddenError, before ever moving funds, when enforcement is on and no grant covers it', async () => {
@@ -362,7 +364,9 @@ describe('escrowService — RFC-015 two-person control', () => {
       requireDualApprovalForRelease = false
       await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
       expect(mockApprovalCount).not.toHaveBeenCalled()
-      expect(mockEscrowUpdate).toHaveBeenCalled()
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ txReleaseId: null }) })
+    )
     })
 
     it('blocks a normal (PAYMENT_PENDING) release with only 1 approval', async () => {
@@ -532,7 +536,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // catch block), not a leftover lock. "Unpersisted" means no lock
       // *fields* (txLockId/multisigAddr/lockedAt/expiresAt) were ever
       // set, not "update() was never called" — checked precisely below.
-      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED', txReleaseId: null }, data: { status: 'CREATED' } })
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'CREATED' } })
       expect(eventBus.emit).not.toHaveBeenCalledWith('settlement.escrow.locked', expect.anything(), expect.anything())
     })
 
@@ -658,8 +662,8 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       const result = await escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')
       expect(result.status).toBe('SPLIT')
       // Real MockSettlementProvider.splitFunds() produces two distinct txIds.
-      const updateCall = mockEscrowUpdate.mock.calls[0][0]
-      expect(updateCall.data.txReleaseId).toMatch(/mock-split-.*,mock-split-/)
+      const resultWrite = mockEscrowUpdateMany.mock.calls.find(([arg]: any[]) => arg?.where?.txReleaseId === null)
+      expect(resultWrite?.[0]?.data?.txReleaseId).toMatch(/mock-split-.*,mock-split-/)
     })
 
     it('rejects a SAFE_GUARD_EVM escrow — that provider has no direct splitFunds() (signature-collection type, use initiateSplit instead)', async () => {
@@ -762,7 +766,7 @@ describe('escrowService.sweepExpiredEscrows', () => {
     // check for real (isPartyOrAgent(triggeredBy, sellerId)) — not
     // mocked/bypassed — proving the sweep really does attribute each
     // refund to its own trade's own seller, not a shared/fabricated id.
-    expect(mockEscrowUpdateMany).toHaveBeenCalledTimes(2)
+    expect(mockEscrowUpdateMany.mock.calls.filter(([arg]: any[]) => arg?.where?.txReleaseId === null)).toHaveLength(2)
   })
 
   it('a failure on one expired escrow does not stop the sweep from refunding the rest', async () => {
