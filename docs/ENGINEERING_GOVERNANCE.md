@@ -1271,3 +1271,19 @@ only — never architectural authority, never a mandatory dependency,
 never canonical Sails terminology. The vocabulary in this section (e.g.
 "Decision Frontier Review," not any external tool's own command name) is
 the vocabulary used in Sails Missions, Issues, and PRs going forward.
+
+
+---
+
+## External Timestamp Infrastructure Authority Boundary (2026-09-19)
+
+OpenProof timestamp infrastructure follows the same authority discipline as other external mechanisms:
+
+- Sails owns the TimestampAnchor interface and its invariants.
+- An OpenTimestamps implementation and its calendars are replaceable mechanisms/evidence infrastructure, not sources of Protocol Truth or Economic Authority.
+- Provider/calendar availability MUST NOT be promoted into an economic-state prerequisite unless a separately accepted architecture decision explicitly changes that invariant.
+- Redundancy MUST be implemented above individual calendar identity: no public calendar, and no future Sails-operated calendar, may acquire privileged authority merely by being configured or operated by Sails.
+- Evidence from successful calendars may be preserved while other calendar submissions fail; partial provider failure is not grounds to discard already-valid evidence.
+- Any future Sails-operated OpenTimestamps-compatible infrastructure remains an optional participant in the open ecosystem and requires no special protocol authority.
+
+Cross-reference: docs/BACKLOG.md owns the Day-0 multi-calendar implementation/evidence obligation; docs/ROADMAP.md owns the optional/future Sails-operated aggregator/calendar horizon.
