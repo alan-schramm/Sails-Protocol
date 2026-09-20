@@ -127,8 +127,9 @@ jest.mock('../src/common/database', () => ({
     escrow: {
       findUnique: jest.fn(async () => ({ ...fakeDb.escrow })),
       updateMany: jest.fn(async ({ where, data }: any) => {
-        if (fakeDb.escrow.status !== where.status) return { count: 0 }
-        fakeDb.escrow.status = data.status
+        const matches = Object.entries(where).every(([key, expected]) => (fakeDb.escrow as any)[key] === expected)
+        if (!matches) return { count: 0 }
+        Object.assign(fakeDb.escrow, data)
         return { count: 1 }
       }),
       update: jest.fn(async ({ data }: any) => {
