@@ -203,6 +203,7 @@ describe('Race condition — concurrent releaseFunds() vs refundFunds() on the s
     // one specific interleaving rather than the guard itself.
     for (let i = 0; i < 20; i++) {
       fakeDb.escrow.status = 'DISPUTED'
+      fakeDb.escrow.txReleaseId = null
       const delayFirst = i % 2 === 0
       const release = (delayFirst ? Promise.resolve().then(() => null) : Promise.resolve()).then(() =>
         escrowService.releaseFunds('escrow-1', '0xbuyer', 'arbiter-1')
