@@ -407,31 +407,38 @@ They are not the semantic constitution.
 
 # 8. Architecture
 
-The current Sails architecture separates four primary responsibilities:
+The current Sails architecture is easiest to read as a semantic center surrounded by replaceable execution edges:
 
 ```text
-        Domain Modules / Rulesets
-        economic rules and meaning
-                  │
-                  ▼
-              Pure Core
-       semantic evaluation only
-                  │
-          Transition Record
-                  ▼
-               Runtime
-   persistence, ordering, dispatch,
-      recovery and orchestration
-                  │
-                  ▼
-              Providers
-       mechanism-specific execution
-                  │
-                  ▼
-           External World
+Applications / Interfaces
+          │
+          ▼
+SDK / Integration Surface
+          │
+          ▼
+    Semantic Kernel
+          │
+          ▼
+      Pure Core
+          │
+          ▼
+        Runtime
+          │
+          ▼
+        Modules
+          │
+          ▼
+ Providers / Adapters
+          │
+          ▼
+     External World
 ```
 
+The **Semantic Kernel** defines the minimum properties that must remain true for an implementation to still preserve Sails' identity. The **Pure Core** evaluates economic semantics. **Runtime** owns orchestration, persistence boundaries, ordering and recovery. **Modules** own domain responsibilities. **Providers and adapters** translate those semantics into external mechanisms.
+
 Applications, SDKs, and interfaces consume this architecture without becoming semantic authorities over it.
+
+This diagram is an explanatory map, not protocol truth. If it conflicts with the Semantic Kernel, Protocol Invariants, Protocol Specification, accepted ADR/RFCs, or current implementation evidence, the governing source wins.
 
 ## 8.1 Pure Core
 
@@ -621,6 +628,20 @@ A blockchain transaction is evidence that execution happened, but additional sem
 
 The current Sails OpenProof implementation provides real claim, proof, verification, and evidence capabilities, while the broader **Evidence / Auditability** architecture remains an active engineering domain rather than a finished universal framework.
 
+Several distinctions are now explicit:
+
+> **Evidence bytes ≠ Evidence truth.**
+>
+> **Evidence availability ≠ Evidence integrity.**
+>
+> **Authentication ≠ Evidence Authorization.**
+>
+> **Valid evidence ≠ authorized evidence placement.**
+>
+> **Evidence storage provider ≠ protocol authority.**
+
+Real media/file evidence belongs on the OpenProof path rather than being smuggled into lightweight dispute metadata. Production storage is being hardened behind a provider-neutral contract with durability, privacy, integrity verification, outage semantics and provenance requirements. That work is still under active Day-0 validation; an adapter existing is not the same claim as live production-provider evidence.
+
 **Status: In Validation.**
 
 Sails already has evidence mechanisms.
@@ -765,6 +786,18 @@ That requires dedicated authorization semantics.
 
 # 17. Portable Reputation and Economic History
 
+Before reputation can be portable, identity boundaries must remain explicit.
+
+Sails does not require one universal "Sails ID." The current architecture separates:
+
+```text
+Funds Authority ≠ Economic Identity ≠ Transport/Communication Identity
+Identity ≠ Authority
+Same recovery root ≠ same private key across protocols
+```
+
+The **Sails Participant** is the economic participant in Sails semantics. Pears/HyperDHT is a transport implementation in the current Reference Implementation, not the participant's economic identity and not protocol authority. External ecosystems such as Nostr and Pubky may be recognized or bound through future accepted interoperability designs, but they are optional edges rather than mandatory Sails identity layers.
+
 Reputation is valuable because economic interactions have memory.
 
 Traditional platforms often make that memory proprietary.
@@ -875,7 +908,20 @@ Satsails may present an interaction one way. Sails Market may present it another
 
 These differences are acceptable if they remain compatible with the same underlying economic state, authority, and outcomes.
 
-> **Interfaces may multiply; semantics must not.**
+Sails also separates **market access policy** from **protocol semantics**.
+
+An open/public market may allow multiple independent operators to participate in a shared economic market universe. A private, closed, or permissioned market may restrict discovery or participation for an OTC desk, business, community, professional group, or other bounded context. Both can preserve the same Sails economic semantics.
+
+Therefore:
+
+```text
+Market admission policy ≠ protocol truth
+Private market ≠ different economic semantics
+Private visibility ≠ public identity requirement
+Node choice ≠ market membership
+```
+
+> **Interfaces may multiply; market contexts may differ; semantics must not.**
 
 This is an editorial expression of the existing architecture, not a new protocol invariant.
 
@@ -899,6 +945,8 @@ An API server is not automatically semantic authority.
 
 A provider executing a settlement is not the same thing as the ruleset that authorized it.
 
+The Day-0 topology target is explicitly multi-operator: more than one independent Sails node/runtime operator should be able to participate in the same economic market universe. Node selection is intended to be a service-level choice, not the definition of market membership. The current Reference Implementation has not yet fully demonstrated that target; significant economic state remains node-local and the required cross-node/shared-market evidence is still part of the Day-0 gate.
+
 This is also why words such as **decentralized** should be used carefully.
 
 Using a P2P transport does not automatically decentralize every authority, persistence, or execution path in the system.
@@ -921,7 +969,9 @@ WDK is not Sails Core.
 
 ## 23.2 Pears
 
-Pears provides peer-to-peer transport and coordination capabilities in current implementations.
+Pears provides peer-to-peer transport/communication capabilities in the current Reference Implementation.
+
+Pears transport identity is separate from the Sails Participant/economic identity. Current implementation usage must not be interpreted as a mandatory protocol identity layer or as proof that transport reachability equals economic authority.
 
 Pears is not the protocol's semantic identity.
 
@@ -939,7 +989,9 @@ The Asset / SettlementRail architecture exists specifically so product scope is 
 
 ## 23.5 Other integrations
 
-Technologies such as Nostr or other transport and interoperability systems may participate where they fit a real capability.
+Technologies such as Nostr, Pubky, and other identity, transport, communication or interoperability systems may participate where they fit a real capability.
+
+They remain optional and replaceable unless a future accepted protocol decision explicitly says otherwise. Recognizing an external identity must not silently convert it into economic authority.
 
 They should not become mandatory simply because they are adjacent to the ecosystem.
 
@@ -1201,6 +1253,8 @@ A long-term architectural or ecosystem possibility.
 | Settlement-scope/provider registries | **Implemented** |
 | General multi-candidate execution selection | **In Validation / not implemented** |
 | Settlement eligibility pipeline | **In Validation / incomplete** |
+| Production evidence-provider durability / provenance | **In Validation — implementation hardening active; live provider evidence not yet claimed** |
+| Multi-operator shared-market topology | **Frozen Day-0 target / external reality evidence incomplete** |
 | Assistive QVAC agents | **Implemented** |
 | Delegated economic agent authority | **Future Vision / not Day-0 authorized** |
 | Temporal / Concurrency architecture | **In Validation** |
