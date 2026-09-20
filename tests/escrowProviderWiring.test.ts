@@ -1246,9 +1246,7 @@ describe('initiateRelease()/initiateRefund() — Phase 2 signature-collection ro
   })
 
   it('initiateRelease rejects when a signing round is already in flight for this escrow', async () => {
-    mockEscrowFindUnique
-      .mockResolvedValueOnce({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING', txReleaseId: null })
-      .mockResolvedValueOnce({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'COMPLETED', txReleaseId: 'real-release-txid' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'PAYMENT_PENDING', txReleaseId: null })
     mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-existing', kind: 'release' })
 
     await expect(escrowService.initiateRelease('escrow-1', 'tb1qexample', 'seller-1')).rejects.toThrow(
