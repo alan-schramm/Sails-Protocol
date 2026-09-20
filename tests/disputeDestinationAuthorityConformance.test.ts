@@ -545,7 +545,8 @@ describe('MOCK — direct-call rail, real (unmocked) MockSettlementProvider', ()
 
     await service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'REFUND', undefined, 'attacker-controlled-seller-address', undefined, sig, issuedAt)
 
-    const txReleaseId = mockEscrowUpdate.mock.calls[0][0].data.txReleaseId as string
+    const resultWrite = mockEscrowUpdateMany.mock.calls.find(([arg]: any[]) => arg?.where?.txReleaseId === null)
+    const txReleaseId = resultWrite?.[0]?.data?.txReleaseId as string
     expect(txReleaseId).toMatch(/^mock-refund-/) // no `-to-<address>` suffix at all — see MockSettlementProvider.refundFunds()
     expect(mockPayoutAddressFindUnique).not.toHaveBeenCalled()
   })
