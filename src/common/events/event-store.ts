@@ -469,7 +469,7 @@ export class PostgresEventStore implements EventStore {
     correlationId: string
   ): Promise<boolean> {
     const eventId = createHash('sha256').update(`derived:\${sourceEventId}:\${eventName}`).digest('hex')
-    let event: DurableEvent<K> | null = null
+    let derivedEvent: DurableEvent<K> | undefined
 
     const inserted = await this.client.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(\${correlationId})::bigint)`
@@ -497,14 +497,15 @@ export class PostgresEventStore implements EventStore {
           prevHash,
         },
       })
-      event = { eventId, eventName, correlationId, payload, publishedAt, entryHash, prevHash }
+      derivedEvent = { eventId, eventName, correlationId, payload, publishedAt, entryHash, prevHash }
       return true
     })
 
-    if (!inserted || !event) return false
-    this.emitter.emit(eventName, event)
+    if (!inserted || !derivedEvent) return false
+    const committedEvent = derivedEvent as DurableEvent<K>
+    this.emitter.emit(eventName, committedEvent)
     if (this.crossInstancePublisher) {
-      const message = JSON.stringify({ ...event, __originInstanceId: this.instanceId })
+      const message = JSON.stringify({ ...committedEvent, __originInstanceId: this.instanceId })
       this.crossInstancePublisher.publish(CROSS_INSTANCE_CHANNEL, message).catch((err) => {
         log.error({ msg: 'Cross-instance derived event publish failed (durable write already committed, unaffected)', eventName, eventId, err: err instanceof Error ? err.message : String(err) })
       })
