@@ -88,9 +88,10 @@ const mockEscrowUpdate = jest.fn()
 // before touching the (possibly real, fund-moving) provider; see that
 // file's own comment. Defaults to a successful claim.
 const mockEscrowUpdateMany = jest.fn(async ({ where, data }: any) => {
-  if (where?.txReleaseId === null) {
-    mockEscrowCurrent = { ...(mockEscrowCurrent ?? baseEscrow), ...data }
-  }
+  const current = mockEscrowCurrent ?? baseEscrow
+  const matches = Object.entries(where ?? {}).every(([key, expected]) => (current as any)[key] === expected)
+  if (!matches) return { count: 0 }
+  mockEscrowCurrent = { ...current, ...data }
   return { count: 1 }
 })
 const mockEscrowCreate = jest.fn()
@@ -262,8 +263,11 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Me
   it('releaseFunds() never invokes the legacy FeeDistribution write path, regardless of protocolFeeRate', async () => {
     await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
     expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
-    expect(mockEscrowUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ feeCharged: null }) })
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ txReleaseId: null }),
+        data: expect.objectContaining({ feeCharged: null }),
+      })
     )
   })
 
@@ -272,8 +276,11 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Me
     await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
 
     expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
-    expect(mockEscrowUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ feeCharged: null }) })
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ txReleaseId: null }),
+        data: expect.objectContaining({ feeCharged: null }),
+      })
     )
   })
 
@@ -283,8 +290,11 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Me
     await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
 
     expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
-    expect(mockEscrowUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ feeCharged: null }) })
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ txReleaseId: null }),
+        data: expect.objectContaining({ feeCharged: null }),
+      })
     )
   })
 
