@@ -361,6 +361,18 @@ The broader model distinguishes:
 
 These distinctions matter because a submitted screenshot, message, agent inference, or provider report is not automatically truth.
 
+The integrating wallet should preserve the same boundaries the protocol now makes explicit:
+
+```text
+Evidence bytes ≠ Evidence truth
+Evidence availability ≠ Evidence integrity
+Authentication ≠ Evidence Authorization
+Valid evidence ≠ authorized evidence placement
+Evidence storage provider ≠ protocol authority
+```
+
+Real media/file evidence belongs on the OpenProof path rather than being treated as an opaque field on a dispute record. Production storage hardening remains active Day-0 work; the existence of an S3-compatible adapter must not be marketed as live production-provider validation until that evidence actually exists.
+
 The integrating wallet should present evidence honestly rather than flattening it into certainty the protocol does not possess.
 
 **General Evidence / Auditability architecture remains In Validation.**
@@ -442,6 +454,16 @@ It should not conceal economically relevant uncertainty, authority, fees, destin
 # 16. Why a Shared Marketplace Matters
 
 The SDK's long-term value grows if independent wallets participate in the same economic environment.
+
+A shared market does not require one mandatory Sails-operated application or node. The Day-0 architecture targets multiple independent node/runtime operators participating in the same economic market universe, with node choice treated as a service-level decision rather than market membership.
+
+The same SDK can also participate in bounded private/permissioned market contexts. An OTC desk, business, community, or professional group may restrict admission or discovery while preserving the same Sails trade, settlement, evidence and outcome semantics.
+
+```text
+Node choice ≠ market membership
+Market admission policy ≠ protocol truth
+Private market ≠ different economic semantics
+```
 
 Without shared coordination:
 
@@ -567,7 +589,7 @@ Why the integration exists, where responsibilities sit, and what an integrator s
 |---|---|
 | `@satsails/p2p-trading-sdk` package | **Implemented** |
 | Core public module surfaces | **Implemented** |
-| Frozen v0.1 API contract | **Frozen by tier** |
+| Pre-v1 API compatibility contract (originated in v0.1; current package line 0.2.0) | **Frozen by tier** |
 | Identity/auth | **Implemented** |
 | Offer/liquidity surfaces | **Implemented** |
 | Trade lifecycle | **Implemented** |
@@ -576,6 +598,9 @@ Why the integration exists, where responsibilities sit, and what an integrator s
 | Dispute surfaces | **Implemented** |
 | Reputation surfaces | **Implemented** |
 | Proof surfaces | **Implemented / broader auditability still In Validation** |
+| Production evidence-provider durability / provenance | **In Validation; live provider evidence not yet claimed** |
+| Multi-operator shared-market topology | **Frozen Day-0 target / external reality evidence incomplete** |
+| Open/private market participation semantics | **Supported by architecture; concrete product/network behavior remains deployment/context specific** |
 | Agent surfaces | **Implemented for assistive use** |
 | Delegated agent authority | **Future Vision / not Day-0 authorized** |
 | Asset + SettlementRail architecture | **Frozen** |
@@ -601,6 +626,8 @@ Integrating Sails does not automatically mean:
 - the integrator can ignore its own legal or product obligations.
 
 The SDK gives access to capabilities.
+
+It also does not require one universal Sails identity. The Participant/economic identity remains distinct from wallet funds authority and transport identity; optional external identity ecosystems such as Nostr or Pubky must not be treated as mandatory SDK identity dependencies or as automatic economic authority.
 
 Product eligibility remains a product responsibility informed by protocol truth.
 
