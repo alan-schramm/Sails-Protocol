@@ -284,7 +284,7 @@ export function registerEventHandlers(): void {
     const releasedEscrow = await prisma.escrow.findUnique({ where: { id: payload.escrowId } })
     await accrueFeeFloor(event.eventId, trade.buyerId, trade.sellerId, releasedEscrow?.feeCharged)
 
-    await eventBus.emit('openp2p.trade.completed', {
+    await eventBus.emitDerivedOnce(event.eventId, 'openp2p.trade.completed', {
       tradeId: payload.tradeId,
       from: 'ACTIVE',
       to: 'COMPLETED',
@@ -382,7 +382,7 @@ export function registerEventHandlers(): void {
     await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEUTRAL', event.eventId)
     await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEUTRAL', event.eventId)
 
-    await eventBus.emit('openp2p.trade.completed', {
+    await eventBus.emitDerivedOnce(event.eventId, 'openp2p.trade.completed', {
       tradeId: payload.tradeId,
       from: 'DISPUTED',
       to: 'COMPLETED',
