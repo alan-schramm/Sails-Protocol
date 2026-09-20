@@ -23,8 +23,8 @@ RUN('#236 Trade projection monotonicity (PostgreSQL)', () => {
     buyerId = 'p236-buyer-' + x
     sellerId = 'p236-seller-' + x
     await prisma.user.createMany({ data: [
-      { id: buyerId, pubkey: 'p236-buyer-pk-' + x },
-      { id: sellerId, pubkey: 'p236-seller-pk-' + x },
+      { id: buyerId, publicKey: 'p236-buyer-pk-' + x },
+      { id: sellerId, publicKey: 'p236-seller-pk-' + x },
     ]})
     const offer = await prisma.offer.create({
       data: {
