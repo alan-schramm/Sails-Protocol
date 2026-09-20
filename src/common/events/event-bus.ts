@@ -483,11 +483,9 @@ export class SailsEventBus {
     await this.store.publish(event, payload, correlationId)
   }
 
-  // Handler signature is unchanged from pre-RFC-010 (still receives the bare
-  // payload) — this is what let every existing eventBus.on(...) call site in
-  // handlers.ts stay untouched. correlationId is available on the event as
-  // published (DurableEvent), not threaded into the handler signature, since
-  // no handler in this codebase needs it inside the handler body today.
+  // Legacy convenience surface: handlers that do not need durable identity
+  // receive only the payload. Replay-sensitive economic projections must use
+  // onDurable() so their idempotency claim is keyed by the immutable eventId.
   on<K extends SailsEventName>(
     event: K,
     listener: (payload: SailsEventMap[K]) => void | Promise<void>
