@@ -16,6 +16,7 @@ const mockTradeUpdate = jest.fn()
 const mockDisputeFindFirst = jest.fn()
 const mockUserUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
+const mockProjectEscrowStatus = jest.fn()
 // RFC-021 D7 — vouch.service.ts's burnVouchesFor() is now called from the
 // same settlement.escrow.released/refunded reactions this file tests.
 // Defaults to "no active vouch" so every pre-existing test above is
@@ -38,6 +39,10 @@ jest.mock('../src/common/database', () => ({
 
 const mockEmit = jest.fn().mockResolvedValue(undefined)
 const handlers: Record<string, (payload: unknown) => Promise<void>> = {}
+jest.mock('../src/modules/open-p2p/trade-repository', () => ({
+  tradeRepository: { projectEscrowStatus: (...args: unknown[]) => mockProjectEscrowStatus(...args) },
+}))
+
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: {
     emit: (...args: unknown[]) => mockEmit(...args),
@@ -104,6 +109,7 @@ describe('RFC-007 D8/D9 Outcome Engine (dispute-aware, via settlement.escrow.rel
   beforeEach(() => {
     jest.clearAllMocks()
     mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
+    mockProjectEscrowStatus.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
     mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
     // RFC-021 D4, Phase 3 default: bootstrap-phase escrow, no protocol fee
     // charged (config.settlement.protocolFeeRate === 0, the documented
