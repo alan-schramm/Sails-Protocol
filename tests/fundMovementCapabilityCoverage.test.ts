@@ -186,7 +186,7 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
 
   it('2. release with capability — ALLOW', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'PAYMENT_PENDING' }))
-    mockEscrowUpdate.mockResolvedValue(escrowRow({ status: 'COMPLETED' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'COMPLETED' }))
     capabilityGrantFixtures = [grant('settlement', ['settlement.escrow.released'])]
     const result = await escrowService.releaseFunds(ESCROW_ID, 'addr-buyer', SELLER_ID)
     expect(result.status).toBe('COMPLETED')
@@ -202,7 +202,7 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
 
   it('4. refund with capability — ALLOW', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'FUNDS_LOCKED' }))
-    mockEscrowUpdate.mockResolvedValue(escrowRow({ status: 'REFUNDED' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'REFUNDED' }))
     capabilityGrantFixtures = [grant('settlement', ['settlement.escrow.refunded'])]
     const result = await escrowService.refundFunds(ESCROW_ID, SELLER_ID)
     expect(result.status).toBe('REFUNDED')
@@ -220,7 +220,7 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
   it('6. split with capability — ALLOW', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
     mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: ARBITER_ID })
-    mockEscrowUpdate.mockResolvedValue(escrowRow({ status: 'SPLIT' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'SPLIT' }))
     capabilityGrantFixtures = [grant('settlement', ['settlement.escrow.split'], { grantedTo: ARBITER_ID, issuedBy: ARBITER_ID })]
     const result = await escrowService.splitFunds(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, ARBITER_ID)
     expect(result.status).toBe('SPLIT')
@@ -244,7 +244,7 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
   it('9. ENFORCE_CAPABILITIES=false preserves current (unchecked) behavior', async () => {
     enforceCapabilities = false
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'FUNDS_LOCKED' }))
-    mockEscrowUpdate.mockResolvedValue(escrowRow({ status: 'REFUNDED' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'REFUNDED' }))
     // No grant at all — would DENY if enforcement were on (see scenario 3).
     capabilityGrantFixtures = []
     const result = await escrowService.refundFunds(ESCROW_ID, SELLER_ID)
