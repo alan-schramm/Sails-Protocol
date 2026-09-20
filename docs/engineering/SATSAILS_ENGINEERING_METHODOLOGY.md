@@ -409,3 +409,53 @@ No nosso contexto, exemplos seriam:
 - “CI precisa ficar verde” → remover um check incômodo em vez de corrigir o problema.
 - “Precisamos passar no Red Team” → construir especificamente contra os testes conhecidos em vez da propriedade real.
 - “IA precisa concluir a missão” → ela encontra uma maneira formal de satisfazer o prompt sem satisfazer nossa intenção.
+
+
+# **16. Lei de Goodhart — a métrica não é a propriedade**
+
+Um risco complementar ao Efeito Cobra é a **Lei de Goodhart**:
+
+> **Quando uma medida se torna um objetivo, ela tende a deixar de ser uma boa medida.**
+
+No nosso processo, métricas são instrumentos de observação. Elas não recebem autoridade para substituir a propriedade que pretendemos representar.
+
+Exemplos:
+
+- CI verde ≠ correctness;
+- coverage ≠ behavioral coverage;
+- issues fechadas ≠ progresso;
+- quantidade de findings ≠ qualidade da auditoria;
+- benchmark ≠ production fitness;
+- Verdict A ≠ propriedade demonstrada;
+- missão concluída pela IA ≠ intenção satisfeita;
+- mais providers/rails ≠ interoperabilidade ou production readiness.
+
+Regra operacional:
+
+> **Metric → signal about a property. Metric ≠ property.**
+
+### **Goodhart e Efeito Cobra**
+
+Os dois riscos são relacionados, mas não idênticos.
+
+**Goodhart** alerta que o indicador perde qualidade quando passa a ser otimizado como objetivo.
+
+**Efeito Cobra** alerta que um incentivo criado para melhorar um resultado pode induzir comportamentos que pioram o próprio resultado.
+
+Em desenvolvimento orientado por IA, os dois podem se combinar:
+
+**proxy mensurável → recompensa/pressão → agente otimiza proxy → propriedade real degrada enquanto dashboard melhora**
+
+Por isso:
+
+> **Do not reward the proxy in a way that teaches humans or agents to defeat the purpose of the proxy.**
+
+Sempre que uma métrica ou gate ganhar importância operacional, devemos perguntar:
+
+1. Qual propriedade real essa métrica tenta representar?
+2. Como essa métrica pode ser manipulada sem melhorar a propriedade?
+3. O que pode ser sacrificado para melhorar o número?
+4. Qual evidência independente impede que confundamos proxy com realidade?
+5. Em que momento devemos abandonar ou revisar a métrica?
+
+Isso vale também para a própria metodologia. Se começarmos a otimizar quantidade de gates, findings, documentos, issues ou auditorias em vez de reduzir risco real e aumentar propriedades demonstradas, a metodologia estará produzindo o comportamento que foi criada para evitar.
