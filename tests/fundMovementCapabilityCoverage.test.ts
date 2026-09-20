@@ -245,8 +245,9 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
 
   it('9. ENFORCE_CAPABILITIES=false preserves current (unchecked) behavior', async () => {
     enforceCapabilities = false
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'FUNDS_LOCKED' }))
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'REFUNDED' }))
+    mockEscrowFindUnique
+      .mockResolvedValueOnce(escrowRow({ status: 'FUNDS_LOCKED' }))
+      .mockResolvedValueOnce(escrowRow({ status: 'REFUNDED', txReleaseId: expect.anything() as any }))
     // No grant at all — would DENY if enforcement were on (see scenario 3).
     capabilityGrantFixtures = []
     const result = await escrowService.refundFunds(ESCROW_ID, SELLER_ID)
