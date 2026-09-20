@@ -531,7 +531,8 @@ describe('MOCK — direct-call rail, real (unmocked) MockSettlementProvider', ()
     // MockSettlementProvider.releaseFunds()'s own real txId shape:
     // `mock-release-<uuid>-to-<toAddress.slice(0,8)}` — the ACTUAL
     // destination used is directly observable in the persisted result.
-    const txReleaseId = mockEscrowUpdate.mock.calls[0][0].data.txReleaseId as string
+    const resultWrite = mockEscrowUpdateMany.mock.calls.find(([arg]: any[]) => arg?.where?.txReleaseId === null)
+    const txReleaseId = resultWrite?.[0]?.data?.txReleaseId as string
     expect(txReleaseId).toContain('buyer-re') // 'buyer-registered-address'.slice(0, 8)
     expect(txReleaseId).not.toContain('attacker')
   })
