@@ -29,6 +29,13 @@ jest.mock('../src/common/database', () => ({
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
+    eventProjectionClaim: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    $transaction: async (fn: (tx: any) => Promise<any>) => fn({
+      eventProjectionClaim: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
+    }),
     vouch: {
       findMany: (...args: unknown[]) => mockVouchFindMany(...args),
       update: (...args: unknown[]) => mockVouchUpdate(...args),
@@ -37,14 +44,25 @@ jest.mock('../src/common/database', () => ({
 }))
 
 const mockEmit = jest.fn().mockResolvedValue(undefined)
-const handlers: Record<string, (payload: unknown) => Promise<void>> = {}
+const handlers: Record<string, (payload: any) => Promise<void>> = {}
+let durableSeq = 0
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: {
     emit: (...args: unknown[]) => mockEmit(...args),
     on: (event: string, handler: (payload: unknown) => Promise<void>) => {
       handlers[event] = handler
     },
-    onDurable: jest.fn(),
+    onDurable: (event: string, handler: (durableEvent: any) => Promise<void>) => {
+      handlers[event] = (payload: any) => handler({
+        eventId: 'test-durable-' + event + '-' + (++durableSeq),
+        eventName: event,
+        correlationId: payload.tradeId ?? payload.escrowId ?? 'test-correlation',
+        payload,
+        publishedAt: new Date(0).toISOString(),
+        entryHash: 'test-entry-hash',
+        prevHash: 'genesis',
+      })
+    },
   },
 }))
 
