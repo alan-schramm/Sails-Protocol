@@ -1,6 +1,7 @@
 import { prisma } from '../database'
 import type { Prisma } from '@prisma/client'
 import { eventBus } from './event-bus'
+import { applyEventProjectionOnce } from './event-projection'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
 import { reputationService } from '../../modules/open-reputation/reputation.service'
 import { vouchService } from '../../modules/open-reputation/vouch.service'
@@ -121,15 +122,15 @@ const INTENT_LIFECYCLE_TRIGGER = 'system:trade-lifecycle'
  *  `mockUserUpdate.mock.calls.filter(...)`, and matching the original
  *  implementation's call sequence keeps that contract visible. With one
  *  real DB query per side this isn't a hot enough path to need parallelism. */
-async function recordTradeCompletion(buyerId: string, sellerId: string, amount: Prisma.Decimal): Promise<void> {
-  await prisma.user.update({
-    where: { id: buyerId },
-    data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: amount } },
-  })
-  await prisma.user.update({
-    where: { id: sellerId },
-    data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: amount } },
-  })
+async function recordTradeCompletion(eventId: string, buyerId: string, sellerId: string, amount: Prisma.Decimal): Promise<void> {
+  for (const participantId of [buyerId, sellerId]) {
+    await applyEventProjectionOnce(eventId, 'trade-completion-volume', participantId, async (tx) => {
+      await tx.user.update({
+        where: { id: participantId },
+        data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: amount } },
+      })
+    })
+  }
 }
 
 /** Walks a successful Intent through SETTLING → FULFILLED in one place.
@@ -267,7 +268,8 @@ export function registerEventHandlers(): void {
     }
   })
 
-  eventBus.on('settlement.escrow.released', async (payload) => {
+  eventBus.onDurable('settlement.escrow.released', async (event) => {
+    const payload = event.payload
     const trade = await prisma.trade.update({
       where: { id: payload.tradeId },
       data: { status: 'COMPLETED', completedAt: new Date() },
@@ -276,7 +278,7 @@ export function registerEventHandlers(): void {
     escrowsReleasedTotal.inc()
 
     // ── Sails OpenReputation reacts to a completed trade ──────────────────────
-    await recordTradeCompletion(trade.buyerId, trade.sellerId, trade.amount)
+    await recordTradeCompletion(event.eventId, trade.buyerId, trade.sellerId, trade.amount)
 
     // RFC-021 D4, Phase 3 — the cost-to-fabricate-reputation floor.
     const releasedEscrow = await prisma.escrow.findUnique({ where: { id: payload.escrowId } })
@@ -367,13 +369,14 @@ export function registerEventHandlers(): void {
   // COMPLETED/FULFILLED, since real funds did leave the escrow via a
   // real settlement action, the same trigger released's own COMPLETED/
   // FULFILLED classification rests on.
-  eventBus.on('settlement.escrow.split', async (payload) => {
+  eventBus.onDurable('settlement.escrow.split', async (event) => {
+    const payload = event.payload
     const trade = await prisma.trade.update({
       where: { id: payload.tradeId },
       data: { status: 'COMPLETED', completedAt: new Date() },
     })
 
-    await recordTradeCompletion(trade.buyerId, trade.sellerId, trade.amount)
+    await recordTradeCompletion(event.eventId, trade.buyerId, trade.sellerId, trade.amount)
 
     await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEUTRAL')
     await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEUTRAL')
