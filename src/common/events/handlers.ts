@@ -172,20 +172,20 @@ async function accrueFeeFloor(eventId: string, buyerId: string, sellerId: string
  *  both parties completed cleanly. RFC-021 D7 — the losing seller's active
  *  vouches (if any) get burned via vouchService, applying the same
  *  "skin-in-the-game" reasoning D3 uses for arbiters to peer vouches. */
-async function applyReleaseOutcomes(tradeId: string, buyerId: string, sellerId: string): Promise<void> {
+async function applyReleaseOutcomes(eventId: string, tradeId: string, buyerId: string, sellerId: string): Promise<void> {
   const resolvedRelease = await prisma.dispute.findFirst({
     where: { tradeId, status: 'RESOLVED', ruling: 'RELEASE' },
   })
   if (resolvedRelease) {
-    await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE')
-    await reputationService.recordOutcome(tradeId, sellerId, 'NEGATIVE')
+    await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE', eventId)
+    await reputationService.recordOutcome(tradeId, sellerId, 'NEGATIVE', eventId)
     // RFC-021 D7 — the seller lost this dispute; if a peer vouched for
     // them and that vouch is still active (their first-ever trade), the
     // trust was misplaced and the voucher's own reputation takes the
     // real hit this file's own vouch.service.ts import exists for.
     await vouchService.burnVouchesFor(sellerId)
   } else {
-    await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE')
+    await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE', eventId)
     await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE')
   }
 }
@@ -295,7 +295,7 @@ export function registerEventHandlers(): void {
     // comment above. A RELEASE ruling means the buyer won and the seller
     // lost, even though funds moved the exact same way a happy-path
     // completion does.
-    await applyReleaseOutcomes(payload.tradeId, trade.buyerId, trade.sellerId)
+    await applyReleaseOutcomes(event.eventId, payload.tradeId, trade.buyerId, trade.sellerId)
 
     // RFC-018 — "released" always means the buyer got the asset, whether
     // via the happy path or a dispute RELEASE ruling; from the Intent's
