@@ -1419,7 +1419,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
       { participantId: 'seller-1', signedPsbtBase64: 'seller-signed' },
     ])
     mockFinalizeRelease.mockResolvedValue({ txId: 'real-release-txid' })
-    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', status: 'COMPLETED', txReleaseId: 'real-release-txid' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'COMPLETED', txReleaseId: 'real-release-txid' })
 
     const result = await escrowService.submitTransactionSignature('escrow-1', 'seller-1', 'seller-signed')
 
@@ -1429,7 +1429,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
       ['buyer-signed', 'seller-signed']
     )
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'PAYMENT_PENDING' }, data: { status: 'COMPLETED' } })
-    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-release-txid', releasedAt: expect.any(Date) } })
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', txReleaseId: null }, data: { txReleaseId: 'real-release-txid', releasedAt: expect.any(Date) } })
     expect(mockPendingTxDelete).toHaveBeenCalledWith({ where: { id: 'ptx-1' } })
     expect(result.complete).toBe(true)
   })
@@ -1442,13 +1442,13 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     })
     mockTxSignatureFindMany.mockResolvedValue([{ participantId: 'seller-1', signedPsbtBase64: 'seller-signed' }])
     mockFinalizeRefund.mockResolvedValue({ txId: 'real-refund-txid' })
-    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', status: 'REFUNDED', txReleaseId: 'real-refund-txid' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'REFUNDED', txReleaseId: 'real-refund-txid' })
 
     const result = await escrowService.submitTransactionSignature('escrow-1', 'seller-1', 'seller-signed')
 
     expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'])
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'REFUNDED' } })
-    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-refund-txid' } })
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', txReleaseId: null }, data: { txReleaseId: 'real-refund-txid' } })
     expect(result.complete).toBe(true)
   })
 
@@ -1465,7 +1465,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
       { participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
     ])
     mockFinalizeSplit.mockResolvedValue({ txId: 'real-split-txid' })
-    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', status: 'SPLIT', txReleaseId: 'real-split-txid' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'SPLIT', txReleaseId: 'real-split-txid' })
 
     const result = await escrowService.submitTransactionSignature('escrow-1', 'buyer-1', 'buyer-signed')
 
@@ -1475,7 +1475,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
       ['buyer-signed']
     )
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'DISPUTED' }, data: { status: 'SPLIT' } })
-    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-split-txid', releasedAt: expect.any(Date) } })
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', txReleaseId: null }, data: { txReleaseId: 'real-split-txid', releasedAt: expect.any(Date) } })
     expect(mockPendingTxDelete).toHaveBeenCalledWith({ where: { id: 'ptx-3' } })
     expect(result.complete).toBe(true)
   })
