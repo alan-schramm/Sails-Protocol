@@ -614,7 +614,7 @@ Recovery relationships also must not be confused with public identity relationsh
 
 ---
 
-# 19. Network and Market Topology
+## 18.1 Network and Market Topology
 
 Day-0 does not target one mandatory Satsails-controlled backend.
 
@@ -866,7 +866,7 @@ This paper uses those statuses rather than collapsing maturity into one word suc
 | General multi-candidate selection | **In Validation / not implemented** |
 | Settlement eligibility pipeline | **In Validation / incomplete** |
 | Provider availability / health model | **In Validation** |
-| Authority model | **Institutional discovery established; implementation varies by path** |
+| Capability Authority / Economic Disposition Authority | **ADR-004 / ADR-005 Frozen; path-specific enforcement and Day-0 hardening continue where separately owned** |
 | Assistive agents | **Implemented** |
 | Delegated agent authority | **Future Vision / not Day-0 authorized** |
 | Evidence mechanisms | **Implemented in OpenProof** |
