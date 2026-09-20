@@ -147,4 +147,34 @@ describe('#253 durable event projection claims — real Postgres', () => {
     }
   })
 
+
+  it('counts each participant dispute exactly once across replay', async () => {
+    requirePostgres('dispute count replay')
+    const disputeEvent = eventId + '-dispute-count'
+    const buyer = await prisma.user.create({ data: { publicKey: 'projection-dispute-buyer-' + suffix, disputeCount: 0 } })
+    const seller = await prisma.user.create({ data: { publicKey: 'projection-dispute-seller-' + suffix, disputeCount: 0 } })
+    const applyCount = async (participantId: string) => applyEventProjectionOnce(
+      disputeEvent, 'trade-dispute-count', participantId,
+      async (tx: any) => {
+        await tx.user.update({ where: { id: participantId }, data: { disputeCount: { increment: 1 } } })
+      }
+    )
+    try {
+      await expect(applyCount(buyer.id)).resolves.toBe(true)
+      await expect(applyCount(seller.id)).resolves.toBe(true)
+      await expect(applyCount(buyer.id)).resolves.toBe(false)
+      await expect(applyCount(seller.id)).resolves.toBe(false)
+      const [storedBuyer, storedSeller] = await Promise.all([
+        prisma.user.findUniqueOrThrow({ where: { id: buyer.id } }),
+        prisma.user.findUniqueOrThrow({ where: { id: seller.id } }),
+      ])
+      expect(storedBuyer.disputeCount).toBe(1)
+      expect(storedSeller.disputeCount).toBe(1)
+      expect(await prisma.eventProjectionClaim.count({ where: { eventId: disputeEvent, projectionKey: 'trade-dispute-count' } })).toBe(2)
+    } finally {
+      await prisma.eventProjectionClaim.deleteMany({ where: { eventId: disputeEvent } })
+      await prisma.user.deleteMany({ where: { id: { in: [buyer.id, seller.id] } } })
+    }
+  })
+
 })
