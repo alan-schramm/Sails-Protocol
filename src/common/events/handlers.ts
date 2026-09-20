@@ -155,16 +155,16 @@ async function fulfillIntent(intentId: string, escrowId: string, outcome: 'RELEA
  *
  *  Sequential, not Promise.all, for the same call-order contract
  *  recordTradeCompletion()'s own comment explains. */
-async function accrueFeeFloor(buyerId: string, sellerId: string, feeCharged: Prisma.Decimal | null | undefined): Promise<void> {
+async function accrueFeeFloor(eventId: string, buyerId: string, sellerId: string, feeCharged: Prisma.Decimal | null | undefined): Promise<void> {
   if (!feeCharged) return
-  await prisma.user.update({
-    where: { id: buyerId },
-    data: { cumulativeFeesObserved: { increment: feeCharged } },
-  })
-  await prisma.user.update({
-    where: { id: sellerId },
-    data: { cumulativeFeesObserved: { increment: feeCharged } },
-  })
+  for (const participantId of [buyerId, sellerId]) {
+    await applyEventProjectionOnce(eventId, 'trade-fee-floor', participantId, async (tx) => {
+      await tx.user.update({
+        where: { id: participantId },
+        data: { cumulativeFeesObserved: { increment: feeCharged } },
+      })
+    })
+  }
 }
 
 /** Outcome Engine for the released path (RFC-007 D8): a RELEASE ruling means
@@ -282,7 +282,7 @@ export function registerEventHandlers(): void {
 
     // RFC-021 D4, Phase 3 — the cost-to-fabricate-reputation floor.
     const releasedEscrow = await prisma.escrow.findUnique({ where: { id: payload.escrowId } })
-    await accrueFeeFloor(trade.buyerId, trade.sellerId, releasedEscrow?.feeCharged)
+    await accrueFeeFloor(event.eventId, trade.buyerId, trade.sellerId, releasedEscrow?.feeCharged)
 
     await eventBus.emit('openp2p.trade.completed', {
       tradeId: payload.tradeId,
