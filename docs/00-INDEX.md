@@ -61,6 +61,7 @@ These documents answer different semantic questions. Do not infer one universal 
 Use this path for software boundaries, implementation structure and visual architecture.
 
 - [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md) — current system-level technical synthesis and the shortest route across architecture, lifecycle, authority, settlement, evidence, runtime, network and product boundaries.
+- [`SAILS_PROTOCOL_ANATOMY.md`](SAILS_PROTOCOL_ANATOMY.md) — consolidated anatomy map: what composes Sails, where each part belongs, how the parts relate, and which canonical source governs each concept. It is a router/consolidator, not a competing architecture or protocol authority.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — broad/reference-system architecture and historical implementation topology; useful context, but not the current authority for the modern Pure Core macro-architecture.
 - [`CORE_ARCHITECTURE.md`](CORE_ARCHITECTURE.md) — canonical architecture for Pure Sails Core + Runtime + Modules + Providers, derived from the Semantic Kernel.
 - [`CORE_IMPLEMENTATION_ARCHITECTURE.md`](CORE_IMPLEMENTATION_ARCHITECTURE.md) — implementation derivation, boundary mechanics and migration design.
@@ -156,7 +157,7 @@ The router above is the preferred entry surface. Use this map when you already k
 |---|---|
 | Positioning / project context | [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`REFERENCE_IMPLEMENTATIONS.md`](REFERENCE_IMPLEMENTATIONS.md), [`ECOSYSTEM_INTEGRATIONS.md`](ECOSYSTEM_INTEGRATIONS.md) |
 | Protocol semantics | [`SEMANTIC_KERNEL.md`](SEMANTIC_KERNEL.md), [`PROTOCOL_INVARIANTS.md`](PROTOCOL_INVARIANTS.md), [`PROTOCOL_SPECIFICATION.md`](PROTOCOL_SPECIFICATION.md), [`rfcs/00-INDEX.md`](rfcs/00-INDEX.md) |
-| Architecture | [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md), [`CORE_ARCHITECTURE.md`](CORE_ARCHITECTURE.md), [`CORE_IMPLEMENTATION_ARCHITECTURE.md`](CORE_IMPLEMENTATION_ARCHITECTURE.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) *(broad/reference + historical topology)*, [`NODE_ARCHITECTURE.md`](NODE_ARCHITECTURE.md), [`architecture/`](architecture/) |
+| Architecture | [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md), [`SAILS_PROTOCOL_ANATOMY.md`](SAILS_PROTOCOL_ANATOMY.md) *(consolidated anatomy/router; non-normative)*, [`CORE_ARCHITECTURE.md`](CORE_ARCHITECTURE.md), [`CORE_IMPLEMENTATION_ARCHITECTURE.md`](CORE_IMPLEMENTATION_ARCHITECTURE.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) *(broad/reference + historical topology)*, [`NODE_ARCHITECTURE.md`](NODE_ARCHITECTURE.md), [`architecture/`](architecture/) |
 | Data / APIs | [`DATABASE.md`](DATABASE.md), [`API_REFERENCE.md`](API_REFERENCE.md), [`API_STABLE.md`](API_STABLE.md) |
 | SDK / developer journey | [`GETTING_STARTED.md`](GETTING_STARTED.md), [`SDK_GUIDE.md`](SDK_GUIDE.md), [`DEVELOPER_JOURNEY.md`](DEVELOPER_JOURNEY.md), [`TRANSACTION_WALKTHROUGH.md`](TRANSACTION_WALKTHROUGH.md), [`SDK_usecases.md`](SDK_usecases.md), [`SDK_FAMILY_RELEASE_GOVERNANCE.md`](SDK_FAMILY_RELEASE_GOVERNANCE.md), [`SDK_RELEASE.md`](SDK_RELEASE.md), [`SCHEMAS_RELEASE.md`](SCHEMAS_RELEASE.md) |
 | Security / trust / crypto | [`THREAT_MODEL.md`](THREAT_MODEL.md), [`SECURITY_MODEL.md`](SECURITY_MODEL.md), [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md), [`CRYPTOGRAPHIC_MODEL.md`](CRYPTOGRAPHIC_MODEL.md), [`security/`](security/) |
