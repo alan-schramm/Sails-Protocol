@@ -27,14 +27,20 @@ jest.mock('../src/common/database', () => ({
   prisma: {
     trade: { update: (...args: unknown[]) => mockTradeUpdate(...args) },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
-    user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
+    user: {
+      update: (...args: unknown[]) => mockUserUpdate(...args),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 }),
+    },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
     eventProjectionClaim: {
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     $transaction: async (fn: (tx: any) => Promise<any>) => fn({
       eventProjectionClaim: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
+      user: {
+        update: (...args: unknown[]) => mockUserUpdate(...args),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 }),
+      },
     }),
     vouch: {
       findMany: (...args: unknown[]) => mockVouchFindMany(...args),
