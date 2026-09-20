@@ -921,6 +921,12 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
+    // clearAllMocks() intentionally preserves queued/default mock
+    // implementations. Earlier provider-dispatch tests use
+    // mockResolvedValueOnce() on prisma.escrow.update; reset this shared
+    // DB mock here so submitParticipantKey() observes only the fixture
+    // configured by the current test.
+    mockEscrowUpdate.mockReset()
   })
 
   it('persists the first submitted key but does NOT derive an address until both arrive', async () => {
