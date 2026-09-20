@@ -58,6 +58,24 @@ export interface EvidenceProviderHealth {
   detail?: string
 }
 
+// CTO Delta — R1 Finding #4, completion. Object existence was previously
+// inferable only by calling `retrieve()` (downloading the full bytes) —
+// this is a narrow, provider-neutral object-METADATA capability that
+// answers the same "does this exist / can I learn about it" question
+// without requiring the bytes themselves. `size` is the only field both
+// providers can report without vendor-specific extensions
+// (`fs.Stats.size` / S3 `HeadObjectCommand`'s `ContentLength`) — no
+// speculative metadata (content-type, timestamps, ETags) added beyond
+// what's actually needed. This is storage-layer metadata ONLY: it says
+// nothing about whether the bytes match `EvidenceReference.sha256` —
+// `object metadata != evidence validity`, exactly as `retrieve()`'s own
+// byte-fetch already isn't verification either (proof.service.ts's
+// `retrieveVerifiedEvidence()` remains the only place hash verification
+// happens).
+export interface EvidenceObjectMetadata {
+  size: number
+}
+
 export interface EvidenceProvider {
   providerName: string
   store(media: Uint8Array, mimeType: string): Promise<StoredMedia>
@@ -70,6 +88,12 @@ export interface EvidenceProvider {
   // (positive confirmation of absence) or 'UNAVAILABLE' (the provider
   // could not answer at all) — the two are never collapsed together.
   retrieve(uri: string): Promise<Uint8Array>
+  // CTO Delta — R1 Finding #4, completion. The same NOT_FOUND/UNAVAILABLE
+  // separation as `retrieve()` above, but without fetching bytes — a
+  // provider failure (outage, credentials, network) must never be
+  // reported as "object doesn't exist"; the two failure modes stay
+  // distinct here exactly as everywhere else in this contract.
+  stat(uri: string): Promise<EvidenceObjectMetadata>
   // Issue #265 Step 9 — delete CAPABILITY only, not an automatic
   // retention/TTL policy (#234 has not frozen a retention duration or
   // erasure policy; this just makes deletion architecturally possible
@@ -111,6 +135,19 @@ export class LocalFilesystemEvidenceProvider implements EvidenceProvider {
   async retrieve(uri: string): Promise<Uint8Array> {
     try {
       return await fs.readFile(uri)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        throw new EvidenceStorageError(`Evidence not found at ${uri}`, 'NOT_FOUND')
+      }
+      throw new EvidenceStorageError(`Evidence storage unavailable for ${uri}: ${(err as Error).message}`, 'UNAVAILABLE')
+    }
+  }
+
+  async stat(uri: string): Promise<EvidenceObjectMetadata> {
+    try {
+      const stats = await fs.stat(uri)
+      return { size: stats.size }
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
       if (code === 'ENOENT') {

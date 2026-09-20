@@ -103,6 +103,53 @@ async function assertClaimEconomicScopeAccess(
   )
 }
 
+// CTO Delta — Durable Evidence Provenance (Issue #265). The ONE
+// sanctioned path for mutating an existing `EvidenceReference` row.
+// `provider`/`uri` are storage-location provenance, set once at
+// creation (`attachEvidence()`) — see that model's own header comment
+// in `prisma/schema.prisma`. This function is the executable form of
+// that comment: any caller (today, only `anchorEvidence()` below; any
+// future one too) that routes through it CANNOT rewrite `provider`/`uri`
+// in place, at runtime, regardless of what TypeScript's own `Omit<>`
+// type on `data` would separately have caught or missed at compile
+// time — the `hasOwnProperty` check below is real, unconditional,
+// defense against an `as any`/spread bypass, not merely a type hint.
+//
+// Enforcement boundary, stated precisely (never overclaimed): this is a
+// DOMAIN/SERVICE-level mutation invariant, not a database constraint. A
+// future direct `prisma.evidenceReference.update()` call written
+// elsewhere in the repository (bypassing this function entirely), or
+// raw SQL against the `evidence_references` table, is NOT prevented by
+// this guard — database-level immutability does not exist today. What
+// IS true: this is currently the ONLY `EvidenceReference` mutation call
+// site in the codebase (confirmed via `grep -rn
+// "evidenceReference.update"` src/`), so routing every mutation through
+// it (as `anchorEvidence()` already does) closes the gap for as long as
+// that remains true. A PostgreSQL trigger/constraint was deliberately
+// not added — no evidence in this codebase suggests application-level
+// enforcement is insufficient for #265's current scope, and one is not
+// required to make this property real and regression-tested today.
+export type EvidenceReferenceMutableFields = Omit<Prisma.EvidenceReferenceUpdateInput, 'provider' | 'uri' | 'id' | 'proofId' | 'proof'>
+
+// Exported (deliberately, as an exception to this file's own
+// "module-private helper" convention — assertClaimEconomicScopeAccess()
+// above is never exported and only exercised indirectly): the whole
+// point of this boundary is to be testable and reusable independent of
+// any ONE caller's own call shape, per this delta's own requirement
+// that a regression test "prove the property, not merely assert the
+// current shape of one call."
+export function updateEvidenceReferenceProvenanceGuarded(id: string, data: EvidenceReferenceMutableFields) {
+  if (Object.prototype.hasOwnProperty.call(data, 'provider') || Object.prototype.hasOwnProperty.call(data, 'uri')) {
+    throw new Error(
+      `Refusing to update EvidenceReference ${id}: 'provider'/'uri' are immutable storage-location provenance ` +
+      'once a reference is created (see prisma/schema.prisma\'s EvidenceReference model comment). A provider ' +
+      'migration must insert a new EvidenceReference row — Proof.evidenceReferences is already one-to-many — ' +
+      'never mutate an existing row\'s provider/uri.'
+    )
+  }
+  return prisma.evidenceReference.update({ where: { id }, data })
+}
+
 const NONCE_PREFIX = 'proof:verify-nonce:'
 
 // Canonical JSON — key order matters for a stable hash across identical
@@ -566,15 +613,11 @@ export class ProofService {
 
     const anchorProof = await timestampAnchor.anchor(reference.sha256)
 
-    // Issue #265 CTO Gate R2, CONTRACT DELTA 5 — this is the only
-    // mutation any EvidenceReference row ever undergoes. `data` must
-    // NEVER include `provider`/`uri` — see that model's own header
-    // comment in prisma/schema.prisma. A future provider migration
-    // belongs as a new row (Proof.evidenceReferences is already
-    // one-to-many), never an update here.
-    const updated = await prisma.evidenceReference.update({
-      where: { id: evidenceReferenceId },
-      data: { anchorProof: anchorProof as unknown as Prisma.InputJsonValue },
+    // CTO Delta — Durable Evidence Provenance. Routed through the one
+    // sanctioned mutation function (see its own header comment above) —
+    // never a direct `prisma.evidenceReference.update()` call.
+    const updated = await updateEvidenceReferenceProvenanceGuarded(evidenceReferenceId, {
+      anchorProof: anchorProof as unknown as Prisma.InputJsonValue,
     })
     return updated
   }

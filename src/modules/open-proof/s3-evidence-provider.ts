@@ -32,10 +32,12 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   NoSuchKey,
+  NotFound,
   type S3ClientConfig,
 } from '@aws-sdk/client-s3'
-import type { EvidenceProvider, EvidenceProviderHealth, StoredMedia } from './evidence-provider'
+import type { EvidenceProvider, EvidenceProviderHealth, EvidenceObjectMetadata, StoredMedia } from './evidence-provider'
 import { EvidenceStorageError } from '../../common/errors'
 
 export interface S3EvidenceProviderConfig {
@@ -101,6 +103,25 @@ export class S3EvidenceProvider implements EvidenceProvider {
     } catch (err) {
       if (err instanceof EvidenceStorageError) throw err
       if (err instanceof NoSuchKey || isNotFoundError(err)) {
+        throw new EvidenceStorageError(`Evidence not found at ${uri}`, 'NOT_FOUND')
+      }
+      throw new EvidenceStorageError(`Evidence storage unavailable for ${uri}: ${(err as Error).message}`, 'UNAVAILABLE')
+    }
+  }
+
+  // CTO Delta — R1 Finding #4, completion. `HeadObjectCommand` is S3's
+  // real object-metadata operation — it never downloads the body, only
+  // headers (Content-Length among them), the correct primitive for
+  // "does this exist / how big is it" without paying for retrieval.
+  // S3 returns a genuine 404 `NotFound` for HeadObject specifically
+  // (distinct from GetObject's `NoSuchKey`) — `isNotFoundError()` below
+  // already covers both names plus the raw status-code fallback.
+  async stat(uri: string): Promise<EvidenceObjectMetadata> {
+    try {
+      const result = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: uri }))
+      return { size: result.ContentLength ?? 0 }
+    } catch (err) {
+      if (err instanceof NotFound || isNotFoundError(err)) {
         throw new EvidenceStorageError(`Evidence not found at ${uri}`, 'NOT_FOUND')
       }
       throw new EvidenceStorageError(`Evidence storage unavailable for ${uri}: ${(err as Error).message}`, 'UNAVAILABLE')

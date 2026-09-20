@@ -17,7 +17,7 @@ import { createHash } from 'crypto'
 import { promises as fs } from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, NoSuchKey } from '@aws-sdk/client-s3'
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, HeadBucketCommand, NoSuchKey, NotFound } from '@aws-sdk/client-s3'
 import { LocalFilesystemEvidenceProvider } from '../src/modules/open-proof/evidence-provider'
 import type { EvidenceProvider } from '../src/modules/open-proof/evidence-provider'
 import { S3EvidenceProvider } from '../src/modules/open-proof/s3-evidence-provider'
@@ -41,6 +41,14 @@ function mockS3ClientSend() {
     }
     if (command instanceof DeleteObjectCommand) {
       objects.delete(command.input.Key as string)
+      return {}
+    }
+    if (command instanceof HeadObjectCommand) {
+      const body = objects.get(command.input.Key as string)
+      if (!body) throw new NotFound({ message: 'not found', $metadata: {} })
+      return { ContentLength: body.length }
+    }
+    if (command instanceof HeadBucketCommand) {
       return {}
     }
     throw new Error('unexpected command sent to mock S3 client')
@@ -125,6 +133,28 @@ describe.each<[string, () => Promise<ProviderHarness>]>([
 
   it('delete() is idempotent — deleting an already-absent object does not throw', async () => {
     await expect(provider.delete('already-absent-key.bin')).resolves.toBeUndefined()
+  })
+
+  // CTO Delta — R1 Finding #4, completion. Same contract-parity
+  // discipline as every test above, extended to the new stat()/health()
+  // capabilities: object existence is answerable without retrieving
+  // bytes, and identically across both providers.
+  it('stat() returns the real size of a stored object without retrieving its bytes', async () => {
+    const media = new Uint8Array(Buffer.from('stat me without reading my bytes'))
+    const stored = await provider.store(media, 'document')
+
+    const result = await provider.stat(stored.uri)
+
+    expect(result.size).toBe(media.length)
+  })
+
+  it('stat() on a reference that was never stored throws EvidenceStorageError with storageReason NOT_FOUND', async () => {
+    await expect(provider.stat('never-stored-key.bin')).rejects.toMatchObject({ storageReason: 'NOT_FOUND' })
+  })
+
+  it('health() reports the configured backend as healthy', async () => {
+    const health = await provider.health()
+    expect(health.healthy).toBe(true)
   })
 })
 

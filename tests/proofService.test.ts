@@ -97,7 +97,7 @@ jest.mock('../src/core/timeline', () => ({
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { ProofService } = require('../src/modules/open-proof/proof.service')
+const { ProofService, updateEvidenceReferenceProvenanceGuarded } = require('../src/modules/open-proof/proof.service')
 
 describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verification', () => {
   beforeEach(() => jest.clearAllMocks())
@@ -307,6 +307,49 @@ describe('ProofService.anchorEvidence() — RFC-008 D1', () => {
     const updateCallData = mockEvidenceReferenceUpdate.mock.calls[0][0].data
     expect(Object.keys(updateCallData)).not.toContain('provider')
     expect(Object.keys(updateCallData)).not.toContain('uri')
+  })
+})
+
+describe('updateEvidenceReferenceProvenanceGuarded() — CTO Delta, Durable Evidence Provenance', () => {
+  // Tests the mutation BOUNDARY itself, independent of anchorEvidence()'s
+  // own current call shape (the test above only proves what one caller
+  // happens to send today — it would not catch a DIFFERENT future
+  // caller that mutates provider/uri through this same table). This is
+  // the property that closes that gap: no payload containing
+  // provider/uri can reach Prisma through this function, from ANY
+  // caller, ever — proven directly, not inferred from one call site.
+  beforeEach(() => jest.clearAllMocks())
+
+  it("refuses a payload containing 'provider' — throws before Prisma is ever called (bypassing TypeScript's own Omit<> via 'as any', the real-world equivalent of a future caller that doesn't go through this function's own type)", () => {
+    expect(() =>
+      updateEvidenceReferenceProvenanceGuarded('ref-1', { provider: 'malicious-s3' } as never)
+    ).toThrow(/immutable storage-location provenance/)
+    expect(mockEvidenceReferenceUpdate).not.toHaveBeenCalled()
+  })
+
+  it("refuses a payload containing 'uri' — same guard, the other half of storage-location provenance", () => {
+    expect(() =>
+      updateEvidenceReferenceProvenanceGuarded('ref-1', { uri: '/attacker/controlled/path' } as never)
+    ).toThrow(/immutable storage-location provenance/)
+    expect(mockEvidenceReferenceUpdate).not.toHaveBeenCalled()
+  })
+
+  it("refuses a payload containing BOTH 'provider' and 'uri' at once — the exact shape a real provider-migration bug would attempt", () => {
+    expect(() =>
+      updateEvidenceReferenceProvenanceGuarded('ref-1', { provider: 's3', uri: 'new-key.bin' } as never)
+    ).toThrow(/immutable storage-location provenance/)
+    expect(mockEvidenceReferenceUpdate).not.toHaveBeenCalled()
+  })
+
+  it('allows a legitimate mutation (anchorProof) through to Prisma unmodified — the guard is narrow, not a blanket freeze of the row', async () => {
+    mockEvidenceReferenceUpdate.mockResolvedValue({ id: 'ref-1' })
+
+    await updateEvidenceReferenceProvenanceGuarded('ref-1', { anchorProof: { anchorType: 'opentimestamps' } } as never)
+
+    expect(mockEvidenceReferenceUpdate).toHaveBeenCalledWith({
+      where: { id: 'ref-1' },
+      data: { anchorProof: { anchorType: 'opentimestamps' } },
+    })
   })
 })
 

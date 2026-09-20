@@ -75,4 +75,53 @@ describe('LocalFilesystemEvidenceProvider', () => {
     const stat = await fs.stat(nestedDir)
     expect(stat.isDirectory()).toBe(true)
   })
+
+  // CTO Delta — R1 Finding #4, direct regression evidence for health().
+  describe('health()', () => {
+    it('reports healthy when the storage directory is writable', async () => {
+      const provider = new LocalFilesystemEvidenceProvider(tempDir)
+      const health = await provider.health()
+      expect(health.healthy).toBe(true)
+    })
+
+    it('reports unhealthy, with a detail, when the storage path cannot be created — deterministic failure via a file colliding with a required directory segment', async () => {
+      // A real, reproducible failure (not a mock): `blockingFile` is a
+      // FILE, so `mkdir(<blockingFile>/evidence, { recursive: true })`
+      // must fail on every OS (ENOTDIR/ENOENT depending on platform) —
+      // the same class of real, unmocked failure
+      // tests/evidenceProvider.test.ts's own store()/retrieve() tests
+      // already prefer over simulating one.
+      const blockingFile = path.join(tempDir, 'not-a-directory')
+      await fs.writeFile(blockingFile, 'x')
+      const provider = new LocalFilesystemEvidenceProvider(path.join(blockingFile, 'evidence'))
+
+      const health = await provider.health()
+
+      expect(health.healthy).toBe(false)
+      expect(health.detail).toBeTruthy()
+    })
+  })
+
+  // CTO Delta — R1 Finding #4, completion. stat() answers "does this
+  // exist / how big is it" without reading the bytes — never claims
+  // anything about hash/integrity (proof.service.ts's
+  // retrieveVerifiedEvidence() remains the only place that's checked).
+  describe('stat()', () => {
+    it('returns the real size of previously stored media, without reading its bytes', async () => {
+      const provider = new LocalFilesystemEvidenceProvider(tempDir)
+      const media = new Uint8Array(Buffer.from('some real evidence bytes for stat()'))
+      const { uri } = await provider.store(media, 'document')
+
+      const result = await provider.stat(uri)
+
+      expect(result.size).toBe(media.length)
+    })
+
+    it('throws EvidenceStorageError with storageReason NOT_FOUND for a uri that was never stored', async () => {
+      const provider = new LocalFilesystemEvidenceProvider(tempDir)
+      await expect(provider.stat(path.join(tempDir, 'never-stored.bin'))).rejects.toMatchObject({
+        storageReason: 'NOT_FOUND',
+      })
+    })
+  })
 })

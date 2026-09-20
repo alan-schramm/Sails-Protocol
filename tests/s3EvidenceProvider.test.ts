@@ -9,7 +9,7 @@
  * endpoint/region/path-style config mapping.
  */
 import { createHash } from 'crypto'
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, NoSuchKey } from '@aws-sdk/client-s3'
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadBucketCommand, HeadObjectCommand, NoSuchKey, NotFound } from '@aws-sdk/client-s3'
 import { S3EvidenceProvider } from '../src/modules/open-proof/s3-evidence-provider'
 import { EvidenceStorageError } from '../src/common/errors'
 
@@ -179,5 +179,76 @@ describe('S3EvidenceProvider — endpoint/config mapping', () => {
     // passed through as a literal (unusable) endpoint override.
     const endpoint = await client.config.endpoint?.()
     if (endpoint) expect(endpoint.hostname).not.toBe('')
+  })
+})
+
+// CTO Delta — R1 Finding #4, direct regression evidence for health().
+// Mocked-SDK-boundary only: proves the request S3EvidenceProvider sends
+// and how it maps outcomes, never a claim of live bucket reachability
+// (no real S3/R2/MinIO credentials are available in this environment).
+describe('S3EvidenceProvider — health()', () => {
+  it('sends a HeadBucketCommand for the configured bucket and reports healthy on success', async () => {
+    const sendMock = jest.fn().mockResolvedValue({})
+    jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
+    const provider = new S3EvidenceProvider(TEST_CONFIG)
+
+    const health = await provider.health()
+
+    expect(health.healthy).toBe(true)
+    const command = sendMock.mock.calls[0][0]
+    expect(command).toBeInstanceOf(HeadBucketCommand)
+    expect(command.input.Bucket).toBe('sails-evidence-test')
+  })
+
+  it('reports unhealthy, with a detail, when the bucket is unreachable — never throws out of health()', async () => {
+    const sendMock = jest.fn().mockRejectedValue(new Error('getaddrinfo ENOTFOUND'))
+    jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
+    const provider = new S3EvidenceProvider(TEST_CONFIG)
+
+    const health = await provider.health()
+
+    expect(health.healthy).toBe(false)
+    expect(health.detail).toBeTruthy()
+  })
+})
+
+// CTO Delta — R1 Finding #4, completion. `stat()` uses HeadObjectCommand
+// (never GetObjectCommand) — real object metadata without downloading
+// the body. Same error-taxonomy discipline as retrieve(): a provider
+// failure must never be reported as "object doesn't exist."
+describe('S3EvidenceProvider — stat()', () => {
+  it('sends a HeadObjectCommand for the correct bucket/key and returns the real ContentLength as size', async () => {
+    const sendMock = jest.fn().mockImplementation(async (command: unknown) => {
+      if (command instanceof HeadObjectCommand) {
+        expect(command.input.Bucket).toBe('sails-evidence-test')
+        expect(command.input.Key).toBe('some-key.bin')
+        return { ContentLength: 1234 }
+      }
+      throw new Error('unexpected command')
+    })
+    jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
+    const provider = new S3EvidenceProvider(TEST_CONFIG)
+
+    const result = await provider.stat('some-key.bin')
+
+    expect(result.size).toBe(1234)
+  })
+
+  it('maps a NotFound HeadObject response to EvidenceStorageError with storageReason NOT_FOUND', async () => {
+    const sendMock = jest.fn().mockRejectedValue(new NotFound({ message: 'not found', $metadata: {} }))
+    jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
+    const provider = new S3EvidenceProvider(TEST_CONFIG)
+
+    await expect(provider.stat('missing.bin')).rejects.toBeInstanceOf(EvidenceStorageError)
+    await expect(provider.stat('missing.bin')).rejects.toMatchObject({ storageReason: 'NOT_FOUND' })
+  })
+
+  it('maps a network/outage-style failure to storageReason UNAVAILABLE, never NOT_FOUND — a provider failure is never silently reported as object absence', async () => {
+    const outageError = Object.assign(new Error('connect ETIMEDOUT'), { name: 'TimeoutError' })
+    const sendMock = jest.fn().mockRejectedValue(outageError)
+    jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
+    const provider = new S3EvidenceProvider(TEST_CONFIG)
+
+    await expect(provider.stat('some-key.bin')).rejects.toMatchObject({ storageReason: 'UNAVAILABLE' })
   })
 })
