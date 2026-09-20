@@ -34,7 +34,7 @@
  * `config.proof.evidenceProviderType`.
  */
 import { createHash } from 'crypto'
-import { promises as fs } from 'fs'
+import { promises as fs, constants as fsConstants } from 'fs'
 import * as path from 'path'
 import { config } from '../../config'
 import { EvidenceStorageError } from '../../common/errors'
@@ -44,6 +44,18 @@ export interface StoredMedia {
   provider: string
   uri: string
   sha256: string // real hash of the bytes actually written, recomputed here — never trusted from the caller
+}
+
+// Issue #265 CTO Gate R2, CONTRACT DELTA 4 — the smallest observability
+// shape the frozen contract needs: "is the configured backend reachable
+// right now." Not a metrics/monitoring payload, not wired into
+// `app.ts`'s `/health` route (deliberately still static — no existing
+// dependency in this codebase gets a live health-check there; see
+// `EvidenceProvider.health()`'s own comment below) — a provider-level
+// primitive only, for whatever operational tooling needs it directly.
+export interface EvidenceProviderHealth {
+  healthy: boolean
+  detail?: string
 }
 
 export interface EvidenceProvider {
@@ -65,6 +77,13 @@ export interface EvidenceProvider {
   // must NOT throw NOT_FOUND — mirrors S3's own real `DeleteObject`
   // semantics, the vendor-neutral choice.
   delete(uri: string): Promise<void>
+  // Issue #265 CTO Gate R2, CONTRACT DELTA 4 — a real, minimal
+  // reachability check against the CONFIGURED backend (not any specific
+  // stored object): can this provider actually be reached right now.
+  // Never throws — a health check that itself throws is not one a
+  // caller can safely call without its own try/catch; failure is always
+  // reported via `healthy: false`.
+  health(): Promise<EvidenceProviderHealth>
 }
 
 export class LocalFilesystemEvidenceProvider implements EvidenceProvider {
@@ -110,6 +129,16 @@ export class LocalFilesystemEvidenceProvider implements EvidenceProvider {
       throw new EvidenceStorageError(`Evidence storage unavailable while deleting ${uri}: ${(err as Error).message}`, 'UNAVAILABLE')
     }
   }
+
+  async health(): Promise<EvidenceProviderHealth> {
+    try {
+      await fs.mkdir(this.storageDir, { recursive: true })
+      await fs.access(this.storageDir, fsConstants.W_OK)
+      return { healthy: true }
+    } catch (err) {
+      return { healthy: false, detail: (err as Error).message }
+    }
+  }
 }
 
 // Issue #265 — S3EvidenceProvider (s3-evidence-provider.ts) keeps its
@@ -143,3 +172,52 @@ function createEvidenceProvider(): EvidenceProvider {
 }
 
 export const evidenceProvider: EvidenceProvider = createEvidenceProvider()
+
+// Issue #265 CTO Gate R2, BLOCKER 3 — `evidenceProvider` above answers
+// "which backend should NEW evidence be written to" (this deployment's
+// current `EVIDENCE_PROVIDER` config). It must never be used to decide
+// how to READ AN EXISTING `EvidenceReference` — that reference already
+// names its own backend (`EvidenceReference.provider`), and a
+// deployment's write-side config can change (local-fs in early dev,
+// later switched to s3) while old references still point at whatever
+// they were actually stored under. Blindly reading every reference
+// through "whatever `evidenceProvider` currently is" would silently
+// query the wrong backend for anything written before a provider
+// switch — this resolver is the fix: dispatch strictly on the
+// reference's own recorded label.
+//
+// Deliberately NOT a general plugin registry — exactly the two labels
+// this codebase's own `EvidenceProvider` implementations can produce.
+// `LocalFilesystemEvidenceProvider` is always constructible (no external
+// credentials required — the same property that makes it the legitimate
+// dev/reference default); the s3 instance is only constructible when
+// `config.proof.evidenceS3` is actually populated — a deployment that
+// never configured `EVIDENCE_S3_*` (e.g. one still on `local-fs`) has no
+// way to serve an `'s3'`-labeled reference and must say so explicitly,
+// never silently substitute a different backend or crash with an
+// unrelated SDK error.
+const localFsProviderForRetrieval = new LocalFilesystemEvidenceProvider()
+let cachedS3ProviderForRetrieval: S3EvidenceProvider | undefined
+
+function isEvidenceS3Configured(): boolean {
+  const { bucket, accessKeyId, secretAccessKey } = config.proof.evidenceS3
+  return bucket !== '' && accessKeyId !== '' && secretAccessKey !== ''
+}
+
+export function resolveEvidenceProviderByLabel(providerLabel: string): EvidenceProvider {
+  if (providerLabel === 'local-fs') return localFsProviderForRetrieval
+  if (providerLabel === 's3') {
+    if (!isEvidenceS3Configured()) {
+      throw new EvidenceStorageError(
+        `EvidenceReference provider 's3' cannot be resolved: this deployment has no EVIDENCE_S3_* configuration`,
+        'UNAVAILABLE'
+      )
+    }
+    if (!cachedS3ProviderForRetrieval) cachedS3ProviderForRetrieval = new S3EvidenceProvider(config.proof.evidenceS3)
+    return cachedS3ProviderForRetrieval
+  }
+  throw new EvidenceStorageError(
+    `EvidenceReference provider '${providerLabel}' is not a recognized evidence storage backend — refusing to guess which one to read it from`,
+    'UNAVAILABLE'
+  )
+}

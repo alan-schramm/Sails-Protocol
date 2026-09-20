@@ -27,7 +27,7 @@ import { NotFoundError, ValidationError, ForbiddenError, EvidenceStorageError } 
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
 import { proofRegistry } from './proof-registry'
-import { evidenceProvider } from './evidence-provider'
+import { evidenceProvider, resolveEvidenceProviderByLabel } from './evidence-provider'
 import { timestampAnchor } from './timestamp-anchor'
 import { getTimeline } from '../../core/timeline'
 import { tradeService } from '../open-p2p/trade.service'
@@ -433,20 +433,33 @@ export class ProofService {
     }
 
     const stored = await evidenceProvider.store(media, mimeType)
-    // Real, disclosed limitation: this trusts evidenceProvider.store()'s
-    // own recomputed sha256 as authoritative for what actually got
-    // written to disk, but does not currently re-verify it matches
-    // digestHex (the pre-storage hash the signature covers) — the two
-    // are computed from the identical `media` bytes in the same call, so
-    // divergence would mean a bug in the provider itself, not an
-    // adversarial input; not re-checked here to avoid a redundant hash
-    // pass over potentially large media.
+    // Issue #265 CTO Gate R2, BLOCKER 2 — corrects the previous comment
+    // here, which claimed this divergence "would mean a bug in the
+    // provider itself, not an adversarial input" and left it unchecked.
+    // That reasoning assumed a well-behaved provider; it never actually
+    // enforced the frozen property "storage provider != source of
+    // evidence truth." `digestHex` is the hash `submittedBy`'s signature
+    // was verified against, above — the one thing this method already
+    // knows for certain is genuine. `stored.sha256` is whatever the
+    // provider itself claims to have written; a faulty or malicious
+    // provider (corrupting bytes in flight, or simply misreporting its
+    // own hash) must never get to silently become the canonical,
+    // caller-trusted `EvidenceReference.sha256`. Checked here, before
+    // persistence — the provider's own hash is used only to detect this
+    // mismatch, never stored.
+    if (stored.sha256 !== digestHex) {
+      throw new EvidenceStorageError(
+        `Evidence provider '${stored.provider}' returned sha256 ${stored.sha256} for stored media, ` +
+        `but ${submittedBy}'s signature covers ${digestHex} — refusing to persist a mismatched EvidenceReference`,
+        'CORRUPTED'
+      )
+    }
     const reference = await prisma.evidenceReference.create({
       data: {
         proofId,
         provider: stored.provider,
         uri: stored.uri,
-        sha256: stored.sha256,
+        sha256: digestHex, // canonical, service-computed, signer-bound digest — never the provider's own self-report
         mimeType,
         signature: signatureHex,
       },
@@ -481,6 +494,14 @@ export class ProofService {
    * strictly required for provider testability" as a non-goal. This
    * exists so the hash-verification contract is real, internally
    * callable, and testable without inventing that API surface.
+   *
+   * Issue #265 CTO Gate R2, BLOCKER 3 — dispatches on
+   * `reference.provider`, not the currently-configured global
+   * `evidenceProvider` singleton. A reference created under one backend
+   * (e.g. `local-fs` before this deployment switched to `s3`) must be
+   * read back through THAT backend, never whichever provider this
+   * deployment happens to be configured to WRITE new evidence to today
+   * — see `resolveEvidenceProviderByLabel()`'s own header comment.
    */
   async retrieveVerifiedEvidence(evidenceReferenceId: string, requestedBy: string): Promise<Uint8Array> {
     const reference = await prisma.evidenceReference.findUnique({
@@ -490,7 +511,8 @@ export class ProofService {
     if (!reference) throw new NotFoundError('EvidenceReference', evidenceReferenceId)
     await assertClaimEconomicScopeAccess(reference.proof.claim, requestedBy)
 
-    const bytes = await evidenceProvider.retrieve(reference.uri)
+    const provider = resolveEvidenceProviderByLabel(reference.provider)
+    const bytes = await provider.retrieve(reference.uri)
     const actualSha256 = createHash('sha256').update(bytes).digest('hex')
     if (actualSha256 !== reference.sha256) {
       throw new EvidenceStorageError(
@@ -544,6 +566,12 @@ export class ProofService {
 
     const anchorProof = await timestampAnchor.anchor(reference.sha256)
 
+    // Issue #265 CTO Gate R2, CONTRACT DELTA 5 — this is the only
+    // mutation any EvidenceReference row ever undergoes. `data` must
+    // NEVER include `provider`/`uri` — see that model's own header
+    // comment in prisma/schema.prisma. A future provider migration
+    // belongs as a new row (Proof.evidenceReferences is already
+    // one-to-many), never an update here.
     const updated = await prisma.evidenceReference.update({
       where: { id: evidenceReferenceId },
       data: { anchorProof: anchorProof as unknown as Prisma.InputJsonValue },

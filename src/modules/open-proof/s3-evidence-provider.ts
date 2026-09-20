@@ -31,10 +31,11 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  HeadBucketCommand,
   NoSuchKey,
   type S3ClientConfig,
 } from '@aws-sdk/client-s3'
-import type { EvidenceProvider, StoredMedia } from './evidence-provider'
+import type { EvidenceProvider, EvidenceProviderHealth, StoredMedia } from './evidence-provider'
 import { EvidenceStorageError } from '../../common/errors'
 
 export interface S3EvidenceProviderConfig {
@@ -116,6 +117,19 @@ export class S3EvidenceProvider implements EvidenceProvider {
       await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: uri }))
     } catch (err) {
       throw new EvidenceStorageError(`Evidence storage unavailable while deleting ${uri}: ${(err as Error).message}`, 'UNAVAILABLE')
+    }
+  }
+
+  // Issue #265 CTO Gate R2, CONTRACT DELTA 4 — `HeadBucketCommand` is
+  // the standard, cheap S3 reachability check: confirms the bucket
+  // exists and is reachable with these credentials, without listing or
+  // touching any object. Never throws — reported via `healthy: false`.
+  async health(): Promise<EvidenceProviderHealth> {
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }))
+      return { healthy: true }
+    } catch (err) {
+      return { healthy: false, detail: (err as Error).message }
     }
   }
 }

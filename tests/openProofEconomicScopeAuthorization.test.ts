@@ -56,8 +56,21 @@ jest.mock('../src/common/events/event-bus', () => ({
   },
 }))
 
+// Issue #265 CTO Gate R2, BLOCKER 2 — attachEvidence() now rejects when
+// the provider's returned sha256 doesn't match the signed digest, so
+// this fake provider must behave like a real one and recompute its own
+// hash from whatever bytes it's actually given, not return a fixed
+// fake value that would never match any real media this file sends.
 jest.mock('../src/modules/open-proof/evidence-provider', () => ({
-  evidenceProvider: { store: jest.fn().mockResolvedValue({ provider: 'local-fs', uri: '/tmp/fake', sha256: 'x'.repeat(64) }) },
+  evidenceProvider: {
+    store: jest.fn((media: Uint8Array) =>
+      Promise.resolve({
+        provider: 'local-fs',
+        uri: '/tmp/fake',
+        sha256: require('crypto').createHash('sha256').update(media).digest('hex'),
+      })
+    ),
+  },
 }))
 
 jest.mock('../src/modules/open-proof/timestamp-anchor', () => ({

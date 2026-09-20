@@ -141,6 +141,37 @@ function resolveMultisigRequiredConfirmations(): number {
   return parsed
 }
 
+// Issue #265 CTO Gate R2, BLOCKER 1 — EVIDENCE_PROVIDER used to be a bare
+// `(process.env.EVIDENCE_PROVIDER ?? 'local-fs') as 'local-fs' | 's3'`
+// cast, not real parsing: a genuinely unrecognized value (a typo, e.g.
+// 's33') was caught by neither the production 'local-fs' guard nor the
+// 's3' one below, fell through `createEvidenceProvider()`'s `else`
+// branch unexamined, and silently constructed
+// `LocalFilesystemEvidenceProvider` anyway — defeating the entire
+// fail-closed guarantee this file exists to provide. Same
+// NODE_ENV/MULTISIG_NETWORK shape used everywhere else in this file: an
+// explicitly WRONG value throws in EVERY environment (a typo is a typo
+// regardless of NODE_ENV), an entirely UNSET value defaults to
+// 'local-fs' (the legitimate dev/reference default) and is only
+// rejected by the production-only FATAL guard further down.
+const RECOGNIZED_EVIDENCE_PROVIDER_TYPES = ['local-fs', 's3'] as const
+type EvidenceProviderType = (typeof RECOGNIZED_EVIDENCE_PROVIDER_TYPES)[number]
+
+function resolveEvidenceProviderType(): EvidenceProviderType {
+  const raw = process.env.EVIDENCE_PROVIDER
+  if (raw === undefined) return 'local-fs'
+  if (!(RECOGNIZED_EVIDENCE_PROVIDER_TYPES as readonly string[]).includes(raw)) {
+    throw new Error(
+      `FATAL: EVIDENCE_PROVIDER is set to an unrecognized value '${raw}'. Expected one of: ` +
+      `${RECOGNIZED_EVIDENCE_PROVIDER_TYPES.join(', ')}. Refusing to boot — an unrecognized evidence storage ` +
+      'provider must never silently fall through to LocalFilesystemEvidenceProvider (see Issue #265).'
+    )
+  }
+  return raw as EvidenceProviderType
+}
+
+const resolvedEvidenceProviderType = resolveEvidenceProviderType()
+
 function parseArbitrationPolicyOverrides(raw: string | undefined): Record<string, ArbitrationMode> {
   if (!raw?.trim()) return {}
   const result: Record<string, ArbitrationMode> = {}
@@ -485,8 +516,9 @@ export const config = {
     // evidence-provider.ts's exported singleton wires up. 'local-fs'
     // remains the dev/reference default; production is fail-closed against
     // it (see the FATAL guard below) rather than allowed to silently
-    // inherit it.
-    evidenceProviderType: (process.env.EVIDENCE_PROVIDER ?? 'local-fs') as 'local-fs' | 's3',
+    // inherit it. Real validation, not a bare cast — see
+    // resolveEvidenceProviderType() above (CTO Gate R2, BLOCKER 1).
+    evidenceProviderType: resolvedEvidenceProviderType,
     // Generic S3-compatible object storage config (works unmodified
     // against AWS S3, Cloudflare R2, MinIO, or any other S3-compatible
     // vendor via `endpoint` — Issue #265's own mission explicitly rules

@@ -68,8 +68,17 @@ jest.mock('../src/common/events/event-bus', () => ({
 }))
 
 const mockStore = jest.fn()
+// Issue #265 CTO Gate R2, BLOCKER 3 — resolveEvidenceProviderByLabel()
+// is a separate export from the `evidenceProvider` singleton
+// (evidence-provider.ts); retrieveVerifiedEvidence() below dispatches
+// through it, never through `evidenceProvider` directly. Defaults to a
+// fake provider whose `retrieve()` just echoes back a fixed payload —
+// individual tests override this to exercise dispatch/mismatch/failure
+// paths specifically.
+const mockResolveEvidenceProviderByLabel = jest.fn()
 jest.mock('../src/modules/open-proof/evidence-provider', () => ({
   evidenceProvider: { store: (...args: unknown[]) => mockStore(...args) },
+  resolveEvidenceProviderByLabel: (...args: unknown[]) => mockResolveEvidenceProviderByLabel(...args),
 }))
 
 const mockAnchor = jest.fn()
@@ -155,6 +164,102 @@ describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verificatio
     const service = new ProofService()
     await expect(service.attachEvidence('proof-1', new Uint8Array(), 'image', 'nope', 'ab')).rejects.toThrow('User')
   })
+
+  // Issue #265 CTO Gate R2, BLOCKER 2 — a faulty (or malicious) storage
+  // provider that writes real bytes but misreports its own sha256 (here
+  // simulated directly — the concrete failure mode this test closes)
+  // must never get to define the canonical, caller-trusted
+  // EvidenceReference.sha256. The signature above was verified against
+  // `digestHex` (the service's own, pre-storage computation from the
+  // real `media`) — that must remain the source of truth.
+  it("rejects when the storage provider's returned sha256 does not match the signed digest — never persists a mismatched EvidenceReference", async () => {
+    const keypair = nacl.sign.keyPair()
+    const publicKeyHex = Buffer.from(keypair.publicKey).toString('hex')
+    const media = new Uint8Array(Buffer.from('real evidence bytes'))
+    const digest = require('crypto').createHash('sha256').update(media).digest()
+    const signature = nacl.sign.detached(digest, keypair.secretKey)
+    const signatureHex = Buffer.from(signature).toString('hex')
+
+    mockProofFindUnique.mockResolvedValue({ id: 'proof-1', claimId: 'claim-1', claim: { tradeId: null, claimedBy: 'user-1' } })
+    mockUserFindUnique.mockResolvedValue({ id: 'user-1', publicKey: publicKeyHex })
+    // A faulty provider: wrote SOMETHING, but self-reports a completely
+    // different hash than what it was actually given.
+    mockStore.mockResolvedValue({ provider: 'local-fs', uri: '/tmp/faulty', sha256: 'not-the-real-hash-at-all' })
+
+    const service = new ProofService()
+    await expect(
+      service.attachEvidence('proof-1', media, 'image', 'user-1', signatureHex)
+    ).rejects.toMatchObject({ storageReason: 'CORRUPTED' })
+    expect(mockEvidenceReferenceCreate).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProofService.retrieveVerifiedEvidence() — Issue #265', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  const REFERENCE_FIXTURE = {
+    id: 'ref-1',
+    provider: 's3',
+    uri: 's3-key.bin',
+    sha256: null as string | null, // set per-test to the real digest of `MEDIA`
+    proof: { claim: { tradeId: null, claimedBy: 'user-1' } },
+  }
+  const MEDIA = new Uint8Array(Buffer.from('verified evidence bytes'))
+  const MEDIA_SHA256 = require('crypto').createHash('sha256').update(MEDIA).digest('hex')
+
+  it("dispatches retrieval through resolveEvidenceProviderByLabel(reference.provider) — never a fixed global provider (BLOCKER 3)", async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue({ ...REFERENCE_FIXTURE, sha256: MEDIA_SHA256 })
+    mockResolveEvidenceProviderByLabel.mockReturnValue({ retrieve: jest.fn().mockResolvedValue(MEDIA) })
+
+    const service = new ProofService()
+    const bytes = await service.retrieveVerifiedEvidence('ref-1', 'user-1')
+
+    expect(mockResolveEvidenceProviderByLabel).toHaveBeenCalledWith('s3')
+    expect(Buffer.from(bytes).equals(Buffer.from(MEDIA))).toBe(true)
+  })
+
+  it('dispatches to whichever backend the reference actually names, not a hardcoded label', async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue({ ...REFERENCE_FIXTURE, provider: 'local-fs', uri: '/tmp/historical', sha256: MEDIA_SHA256 })
+    mockResolveEvidenceProviderByLabel.mockReturnValue({ retrieve: jest.fn().mockResolvedValue(MEDIA) })
+
+    const service = new ProofService()
+    await service.retrieveVerifiedEvidence('ref-1', 'user-1')
+
+    expect(mockResolveEvidenceProviderByLabel).toHaveBeenCalledWith('local-fs')
+  })
+
+  it('throws EvidenceStorageError with storageReason CORRUPTED when retrieved bytes do not match the recorded sha256', async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue({ ...REFERENCE_FIXTURE, sha256: 'a-completely-different-hash' })
+    mockResolveEvidenceProviderByLabel.mockReturnValue({ retrieve: jest.fn().mockResolvedValue(MEDIA) })
+
+    const service = new ProofService()
+    await expect(service.retrieveVerifiedEvidence('ref-1', 'user-1')).rejects.toMatchObject({ storageReason: 'CORRUPTED' })
+  })
+
+  it('propagates the resolver\'s own UNAVAILABLE failure for an unresolvable provider — never silently substitutes a different backend', async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue({ ...REFERENCE_FIXTURE, provider: 'retired-vendor', sha256: MEDIA_SHA256 })
+    const { EvidenceStorageError } = require('../src/common/errors')
+    mockResolveEvidenceProviderByLabel.mockImplementation(() => {
+      throw new EvidenceStorageError("EvidenceReference provider 'retired-vendor' is not a recognized evidence storage backend", 'UNAVAILABLE')
+    })
+
+    const service = new ProofService()
+    await expect(service.retrieveVerifiedEvidence('ref-1', 'user-1')).rejects.toMatchObject({ storageReason: 'UNAVAILABLE' })
+  })
+
+  it('throws NotFoundError for an unknown evidenceReferenceId', async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue(null)
+    const service = new ProofService()
+    await expect(service.retrieveVerifiedEvidence('nope', 'user-1')).rejects.toThrow('EvidenceReference')
+  })
+
+  it('enforces #261 economic-scope authorization before ever resolving a provider — an outsider is rejected, no dispatch attempted', async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue({ ...REFERENCE_FIXTURE, sha256: MEDIA_SHA256 })
+
+    const service = new ProofService()
+    await expect(service.retrieveVerifiedEvidence('ref-1', 'outsider')).rejects.toThrow()
+    expect(mockResolveEvidenceProviderByLabel).not.toHaveBeenCalled()
+  })
 })
 
 describe('ProofService.anchorEvidence() — RFC-008 D1', () => {
@@ -181,6 +286,27 @@ describe('ProofService.anchorEvidence() — RFC-008 D1', () => {
     mockEvidenceReferenceFindUnique.mockResolvedValue(null)
     const service = new ProofService()
     await expect(service.anchorEvidence('nope', 'user-1')).rejects.toThrow('EvidenceReference')
+  })
+
+  // Issue #265 CTO Gate R2, CONTRACT DELTA 5 — anchorEvidence() is the
+  // ONLY place any EvidenceReference row is ever updated after creation
+  // (see prisma/schema.prisma's own EvidenceReference model comment).
+  // This pins that guarantee explicitly, rather than leaving it as an
+  // implicit side effect of the exact-match assertion above: provider/uri
+  // (storage location provenance) must never appear in this — or any —
+  // update payload, or a future migration could silently overwrite a
+  // row's own storage attribution instead of adding a new one.
+  it('never includes provider or uri in its update payload — storage location provenance is immutable once a reference is created', async () => {
+    mockEvidenceReferenceFindUnique.mockResolvedValue({ id: 'ref-1', provider: 'local-fs', uri: '/tmp/original', sha256: 'abc123', proof: { claim: { tradeId: null, claimedBy: 'user-1' } } })
+    mockAnchor.mockResolvedValue({ anchorType: 'opentimestamps', anchorId: 'x', submittedAt: '2026-08-04T00:00:00.000Z', upgraded: false })
+    mockEvidenceReferenceUpdate.mockResolvedValue({ id: 'ref-1' })
+
+    const service = new ProofService()
+    await service.anchorEvidence('ref-1', 'user-1')
+
+    const updateCallData = mockEvidenceReferenceUpdate.mock.calls[0][0].data
+    expect(Object.keys(updateCallData)).not.toContain('provider')
+    expect(Object.keys(updateCallData)).not.toContain('uri')
   })
 })
 
