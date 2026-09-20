@@ -171,8 +171,8 @@ describe('WDK_USDT_EVM lockFunds() — unknown-outcome / retry-safety (Mission #
     // *why* the try block failed — it always reverts to the escrow's
     // pre-claim status, never inspecting whether the provider's side
     // effect already completed.
-    expect(mockEscrowUpdate).toHaveBeenCalledTimes(2)
-    expect(mockEscrowUpdate).toHaveBeenNthCalledWith(2, { where: { id: 'escrow-1' }, data: { status: 'CREATED' } })
+    expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'CREATED' } })
 
     // The dispositive check: the txId from the successful (simulated)
     // provider call (0xSIMULATED_TX_1) was NEVER successfully persisted
@@ -187,8 +187,8 @@ describe('WDK_USDT_EVM lockFunds() — unknown-outcome / retry-safety (Mission #
       where: { id: 'escrow-1' },
       data: expect.objectContaining({ txLockId: '0xSIMULATED_TX_1' }),
     })
-    const revertCallData = mockEscrowUpdate.mock.calls[1][0]?.data
-    expect(revertCallData).not.toHaveProperty('txLockId')
+    const rollbackCallData = mockEscrowUpdateMany.mock.calls.find((call: any[]) => call[0]?.where?.status === 'FUNDS_LOCKED')?.[0]?.data
+    expect(rollbackCallData).not.toHaveProperty('txLockId')
 
     // Retry: an operator or an automatic caller, seeing lockFunds() throw
     // and observing escrow.status is (once again) CREATED, does the only
@@ -250,8 +250,8 @@ describe('WDK_USDT_EVM lockFunds() — unknown-outcome / retry-safety (Mission #
     // by the fact that lockFunds() rejected at all, and by the revert
     // below carrying no txLockId.
     expect(externalEffects).toHaveLength(1)
-    expect(mockEscrowUpdate).toHaveBeenCalledTimes(1) // only the revert — updateLockResult() was never reached, since the provider call itself threw
-    expect(mockEscrowUpdate).toHaveBeenNthCalledWith(1, { where: { id: 'escrow-1' }, data: { status: 'CREATED' } })
+    expect(mockEscrowUpdate).not.toHaveBeenCalled() // updateLockResult() was never reached
+    expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'CREATED' } })
 
     // Retry: the same logical lock operation is invoked again. This time
     // the fake provider records a second side effect and succeeds.
