@@ -5871,3 +5871,34 @@ obligation" is defined anywhere in this repository.
     the durable institutional record.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+
+---
+
+## OpenProof Day-0 Timestamp Anchoring — Multi-Calendar Availability Invariant (2026-09-19)
+
+**Status: CURRENT / FROZEN ARCHITECTURAL DIRECTION — implementation/evidence delta remains open.**
+
+This entry corrects the current-truth interpretation of the earlier OpenProof history that records a successful TimestampAnchor.anchor() submission against a single live public OpenTimestamps calendar. That historical test remains valid provenance, but **single-calendar success is not the Day-0 availability model**.
+
+Day-0 requirements:
+
+- TimestampAnchor remains the Sails-owned abstraction boundary. OpenTimestamps is the Day-0 mechanism/provider behind that boundary; it is not Protocol Truth, OpenProof Truth, Economic Authority, or a mandatory dependency of Sails economic state.
+- The OpenTimestamps implementation MUST support **multiple public, free calendars** from the OpenTimestamps ecosystem. No individual calendar may become a single point of failure.
+- The same commitment MAY be submitted to the available configured calendars. Valid responses/proofs already obtained MUST be preserved independently of failures from other calendars.
+- Failure or unavailability of one calendar MUST NOT make OpenProof unavailable. Total timestamp-provider unavailability MUST degrade timestamp anchoring only; it MUST NOT regress, block, authorize, invalidate, or otherwise mutate Sails economic state.
+- Calendar/provider success is evidence availability, not economic finality or protocol authority.
+- Day-0 evidence MUST cover partial failure: one calendar unavailable, N-1 calendars unavailable, mixed success/failure responses, preservation of valid returned proofs, retry/recovery without duplicate economic effects, and total calendar unavailability without economic-state mutation.
+
+Canonical invariants:
+
+> **Sails defines the interface and invariants → OpenTimestamps supplies the mechanism → multiple calendars supply redundancy → no individual calendar becomes a single point of failure.**
+
+> TimestampAnchor ≠ OpenTimestamps ≠ Calendar Server  
+> Timestamp Evidence ≠ OpenProof Truth ≠ Economic Authority  
+> Calendar availability ≠ Economic availability  
+> Timestamp failure ≠ Economic failure
+
+**Roadmap boundary:** a Sails-operated OpenTimestamps-compatible aggregator/calendar is **OPTIONAL / FUTURE**, not a Day-0 requirement. If operated later, it is one additional participant in the same open ecosystem, never the mandatory calendar, central authority, or interoperability requirement.
+
+**BACKLOG DELTA: DETECTED AND SYNCED.** This entry freezes the required property only; it does not claim the existing single-calendar implementation already satisfies multi-calendar redundancy or the evidence obligations above.
