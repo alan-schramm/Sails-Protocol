@@ -188,6 +188,7 @@ describe('escrowService.releaseFunds — RFC-014 capability check (relocated fro
     mockEscrowFeatureFlag = true
     mockEscrowFindUnique.mockResolvedValue(baseEscrow)
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
+    mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
     // Gap-audit ownership check runs before the capability check — every
     // test in this block acts as 'seller-1', so the trade's sellerId
     // must match for these tests to exercise the capability check itself.
@@ -286,6 +287,7 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Me
     protocolFeeRate = 0.001
     mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
+    mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED', txReleaseId: 'tx-refund' })
     await escrowService.refundFunds('escrow-1', 'seller-1')
     expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
   })
@@ -441,6 +443,7 @@ describe('escrowService — disputed disposition authority', () => {
   it('keeps the current assigned arbiter authorized for disputed SPLIT', async () => {
     mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'SPLIT' })
+    mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'SPLIT', txReleaseId: 'tx-buyer,tx-seller' })
 
     const result = await escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 5000, 'arbiter-1')
 
