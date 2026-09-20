@@ -395,19 +395,24 @@ export function registerEventHandlers(): void {
   })
 
   // ── Sails OpenReputation reacts to disputes (penalize dispute count) ───────
-  eventBus.on('openp2p.trade.disputed', async (payload) => {
+  eventBus.onDurable('openp2p.trade.disputed', async (event) => {
+    const payload = event.payload
     const trade = await prisma.trade.findUnique({ where: { id: payload.tradeId } })
     if (!trade) return
-    // Sequential for the same call-order contract the helpers above
-    // preserve — tests/reputationOutcome.test.ts and tests/routes.test.ts
-    // both filter mockUserUpdate.mock.calls in the order they fire.
-    await prisma.user.update({
-      where: { id: trade.buyerId },
-      data: { disputeCount: { increment: 1 } },
+    // #253 — dispute counters are additive economic/reputation projections.
+    // Bind each participant increment to the immutable durable event identity
+    // so replay/recovery cannot count the same dispute twice.
+    await applyEventProjectionOnce(event.eventId, 'trade-dispute-count', trade.buyerId, async (tx) => {
+      await tx.user.update({
+        where: { id: trade.buyerId },
+        data: { disputeCount: { increment: 1 } },
+      })
     })
-    await prisma.user.update({
-      where: { id: trade.sellerId },
-      data: { disputeCount: { increment: 1 } },
+    await applyEventProjectionOnce(event.eventId, 'trade-dispute-count', trade.sellerId, async (tx) => {
+      await tx.user.update({
+        where: { id: trade.sellerId },
+        data: { disputeCount: { increment: 1 } },
+      })
     })
   })
 
