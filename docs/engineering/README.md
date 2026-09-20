@@ -63,6 +63,42 @@ Therefore:
 
 This is particularly relevant to repeated Day-0 audits: once a sufficiently broad audit owner exists, additional sweeps should be driven by new evidence, changed implementation, battle-tested failure modes or a concrete uncovered property — not by a standing incentive to manufacture more findings.
 
+## Goodhart's Law — proxy metrics are not the property
+
+A closely related guardrail is **Goodhart's Law**: when a measure becomes a target, it tends to stop being a good measure.
+
+In Sails engineering, a proxy may help us observe reality, but it must not silently replace the property we actually care about.
+
+Examples:
+
+- CI pass rate ≠ correctness;
+- test coverage ≠ meaningful behavioral coverage;
+- issue throughput ≠ engineering progress;
+- number of findings ≠ audit quality;
+- benchmark score ≠ production fitness;
+- gate verdict ≠ demonstrated property;
+- agent task completion ≠ mission success;
+- number of supported rails/providers ≠ interoperability or production readiness.
+
+The practical rule is:
+
+> **Metric → signal about a property. Metric ≠ property.**
+
+Whenever a metric becomes operationally important, pair it with the underlying property, adversarial checks and qualitative evidence. If optimizing the metric can improve the dashboard while making the real system worse, the metric is unsafe as a standalone target.
+
+### Cobra Effect vs Goodhart's Law
+
+They are related but not identical:
+
+- **Goodhart's Law** warns that a measurement loses reliability when optimized as a target.
+- **Cobra Effect** warns that an incentive intended to improve an outcome can induce behavior that makes the underlying outcome worse.
+
+Together they create a useful AI-engineering guardrail:
+
+> **Do not reward the proxy in a way that teaches humans or agents to defeat the purpose of the proxy.**
+
+For Sails this means gates, scores, coverage, issue counts, audit findings and AI mission-completion signals must remain diagnostic instruments — never substitute authorities for engineering reality.
+
 ## Historical character
 
 These documents emerged during construction rather than being written retrospectively after the architecture stabilized.
