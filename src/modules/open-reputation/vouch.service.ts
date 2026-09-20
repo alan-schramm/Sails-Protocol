@@ -31,6 +31,7 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, ValidationError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
+import { applyEventProjectionOnce } from '../../common/events/event-projection'
 import { reputationService } from './reputation.service'
 
 // A voucher needs real trade history before their attestation means
@@ -92,11 +93,28 @@ export class VouchService {
    * for them, the trust every one of them extended was equally
    * misplaced) — each burn independently penalizes its own voucher.
    */
-  async burnVouchesFor(voucheeId: string): Promise<void> {
+  async burnVouchesFor(voucheeId: string, sourceEventId?: string): Promise<void> {
     const vouches = await prisma.vouch.findMany({ where: { voucheeId, burnedAt: null } })
     for (const vouch of vouches) {
-      await prisma.vouch.update({ where: { id: vouch.id }, data: { burnedAt: new Date() } })
-      await reputationService.penalizeForBurnedVouch(vouch.voucherId)
+      if (sourceEventId) {
+        let burned = false
+        await applyEventProjectionOnce(sourceEventId, 'reputation-vouch-burn', vouch.id, async (tx) => {
+          const updated = await tx.vouch.updateMany({
+            where: { id: vouch.id, burnedAt: null },
+            data: { burnedAt: new Date() },
+          })
+          if (updated.count === 0) return
+          await tx.user.update({
+            where: { id: vouch.voucherId },
+            data: { reputationScore: { increment: -5 } },
+          })
+          burned = true
+        })
+        if (!burned) continue
+      } else {
+        await prisma.vouch.update({ where: { id: vouch.id }, data: { burnedAt: new Date() } })
+        await reputationService.penalizeForBurnedVouch(vouch.voucherId)
+      }
       await eventBus.emit('reputation.vouch.burned', { voucherId: vouch.voucherId, voucheeId, vouchId: vouch.id }, voucheeId)
     }
   }
