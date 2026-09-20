@@ -959,6 +959,8 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
       arbiterId: 'arb-1',
     })
     mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', multisigAddr: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' })
+    mockEscrowFindUnique.mockResolvedValueOnce({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: null })
+      .mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: 'tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' })
 
     const result = await escrowService.submitParticipantKey('escrow-1', 'seller-1', SELLER_PUBKEY)
 
