@@ -1996,6 +1996,28 @@ model DurableEventRecord {
   @@map("durable_events")
 }
 
+
+// #253 — durable identity for replay-safe downstream projections.
+//
+// A durable event proves that economic truth was published; it does not prove
+// every additive/read-model effect completed. Each semantic projection claims
+// its own immutable identity in the SAME transaction as the state mutation it
+// protects. A crash before commit leaves neither claim nor mutation; a replay
+// after commit sees the claim and no-ops. This is intentionally independent
+// from Redis/pub-sub delivery and from module-specific event tables.
+model EventProjectionClaim {
+  id            String   @id @default(uuid())
+  eventId       String
+  projectionKey String
+  subjectId     String
+  appliedAt     DateTime @default(now())
+
+  @@unique([eventId, projectionKey, subjectId], map: "event_projection_claim_identity_key")
+  @@index([eventId])
+  @@index([projectionKey, subjectId])
+  @@map("event_projection_claims")
+}
+
 model Message {
   id        String    @id @default(uuid())
   tradeId   String
