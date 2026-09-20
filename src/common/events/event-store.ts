@@ -472,6 +472,12 @@ export class PostgresEventStore implements EventStore {
     })
   }
 
+  // #253 — re-dispatch durable truth without inserting a duplicate event row.
+  // Recovery callers must pass an event previously read from Postgres.
+  replay(event: DurableEvent): void {
+    this.emitter.emit(event.eventName, event)
+  }
+
   async getEvents(correlationId: string): Promise<DurableEvent[]> {
     const rows = await this.client.durableEventRecord.findMany({
       where: { correlationId },
