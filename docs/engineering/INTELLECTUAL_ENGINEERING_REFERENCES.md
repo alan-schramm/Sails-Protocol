@@ -2,6 +2,9 @@
 
 Vale a pena relembrar isso porque esses autores não “criaram o Sails”, mas ajudaram a fortalecer áreas fundamentais que o Sails precisava resolver para não virar só mais uma implementação de marketplace P2P.
 
+> **Epistemic status:** this document records how the Sails team interpreted and used external ideas during its engineering process. It is not a claim that the referenced people or projects endorse Sails, participated in its design, or would agree with every interpretation below. Named references are inputs to questions and properties, never sources of protocol authority.
+
+
 Os três que você citou já tiveram papéis bem diferentes na evolução do nosso pensamento:
 
 - **John Carvalho** entrou muito forte na parte de soberania, self-custody, credible exit, confiança explícita, open source e coordenação P2P. O aprendizado mais útil para o Sails foi reforçar que a referência prática não pode virar autoridade do protocolo, que o usuário deve conseguir sair, que a infraestrutura precisa ser substituível e que reputação ou integração não podem virar uma nova forma de gatekeeping. Isso conversa diretamente com nossa separação entre reference implementation e protocol truth, além da tese de rail neutrality e independent implementation.
