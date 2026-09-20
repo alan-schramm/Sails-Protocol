@@ -557,7 +557,9 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ms-2', tradeId: 'trade-ms-2', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
+    mockEscrowFindUnique
+      .mockResolvedValueOnce({ id: 'escrow-ms-2', tradeId: 'trade-ms-2', type: 'MULTISIG', status: 'PAYMENT_PENDING', txReleaseId: null })
+      .mockResolvedValueOnce({ id: 'escrow-ms-2', tradeId: 'trade-ms-2', type: 'MULTISIG', status: 'COMPLETED', txReleaseId: 'real-release-txid' })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-2', buyerId: 'buyer-1', sellerId: 'seller-1' })
     multisigProvider.releaseFunds.mockResolvedValueOnce({ txId: 'real-release-txid' })
     mockEscrowUpdate.mockResolvedValueOnce({ id: 'escrow-ms-2', txReleaseId: 'real-release-txid' })
@@ -570,7 +572,9 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ms-3', tradeId: 'trade-ms-3', type: 'MULTISIG', status: 'FUNDS_LOCKED' })
+    mockEscrowFindUnique
+      .mockResolvedValueOnce({ id: 'escrow-ms-3', tradeId: 'trade-ms-3', type: 'MULTISIG', status: 'FUNDS_LOCKED', txReleaseId: null })
+      .mockResolvedValueOnce({ id: 'escrow-ms-3', tradeId: 'trade-ms-3', type: 'MULTISIG', status: 'REFUNDED', txReleaseId: 'real-refund-txid' })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-3', buyerId: 'buyer-1', sellerId: 'seller-1' })
     multisigProvider.refundFunds.mockResolvedValueOnce({ txId: 'real-refund-txid' })
     mockEscrowUpdate.mockResolvedValueOnce({ id: 'escrow-ms-3', txReleaseId: 'real-refund-txid' })
