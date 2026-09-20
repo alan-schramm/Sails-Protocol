@@ -744,6 +744,10 @@ model WdkTransferAttempt {
   txHash        String?
   createdAt     DateTime                 @default(now())
   updatedAt     DateTime                 @updatedAt
+  // Exactly one row per logical operation may own submission authority.
+  // Safely retryable terminal attempts remain as history but relinquish this
+  // nullable key before a replacement generation is created.
+  activeKey     String?                  @unique
 
   // The durable-identity query this table exists to answer: "is there
   // already an active (non-safely-retryable) attempt for this exact
