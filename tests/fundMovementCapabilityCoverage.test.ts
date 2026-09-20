@@ -187,7 +187,7 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
   it('2. release with capability — ALLOW', async () => {
     mockEscrowFindUnique
       .mockResolvedValueOnce(escrowRow({ status: 'PAYMENT_PENDING' }))
-      .mockResolvedValueOnce(escrowRow({ status: 'COMPLETED', txReleaseId: expect.anything() }))
+      .mockResolvedValueOnce(escrowRow({ status: 'COMPLETED' }))
     capabilityGrantFixtures = [grant('settlement', ['settlement.escrow.released'])]
     const result = await escrowService.releaseFunds(ESCROW_ID, 'addr-buyer', SELLER_ID)
     expect(result.status).toBe('COMPLETED')
