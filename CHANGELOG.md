@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+> **Current-truth note (2026-09-19):** This changelog is a historical change record, not an architecture or production-readiness authority. For current system truth, start with `README.md`, `docs/PROJECT_CONTEXT.md`, `docs/SYSTEM_DESIGN.md`, the governing ADR/RFC/specification documents, and live GitHub Issues/Project state. Older entries below may describe implementation states that were true when recorded but have since evolved.
+
+### September 2026 — current development highlights
+
+- Published the current pre-v1 SDK line at **0.2.0** for `@satsails/p2p-schemas`, `@satsails/p2p-trading-sdk`, and `@satsails/sdk-react`.
+- Added `docs/SYSTEM_DESIGN.md` as the consolidated current system-level technical map and aligned the repository entry path around it.
+- Reconciled the public Protocol Whitepaper, Technical Paper, and P2P Trading SDK Paper with current institutional truth.
+- Froze and implemented the current Capability Authority and Economic Disposition Authority architecture through ADR-004 / ADR-005 and subsequent hardening.
+- Hardened production eligibility so protocol-representable settlement types/providers cannot silently become deployment-eligible.
+- Hardened OpenProof/evidence authorization boundaries and direct trade-evidence bundle access.
+- Established explicit current distinctions between participant/economic identity, transport/communication identity, wallet funds authority, and optional external identity interoperability.
+- Institutionalized the Day-0 multi-operator/shared-market target and the distinction between open/public and private/permissioned market contexts without redefining protocol semantics.
+- Completed a repository current-truth reconciliation across primary and specialized documentation.
+- Added current `.github/CODEOWNERS` review routing and evidence-safe public security/compliance language.
+- Production EvidenceProvider durability/provenance, cross-evidence integrity, upload controls, and remaining Day-0 production owners continue under their dedicated Issues; this changelog does not round active work up to completed readiness.
+
+
 ### Added
 - `docs/PRODUCTION_READINESS_FIXES.md` — a complete document with 22 fixes
   organized by priority (P0/P1/P2), each with file, exact line, and
