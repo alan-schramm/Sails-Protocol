@@ -57,6 +57,7 @@ let durableSeq = 0
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: {
     emit: (...args: unknown[]) => mockEmit(...args),
+    emitDerivedOnce: (...args: unknown[]) => mockEmit(...args.slice(1)),
     on: (event: string, handler: (payload: unknown) => Promise<void>) => {
       handlers[event] = handler
     },
