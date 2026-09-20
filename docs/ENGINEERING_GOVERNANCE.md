@@ -18,6 +18,12 @@
 > One canonical source per concept. If you find the same rule stated
 > differently in two places, that is a bug in this documentation — file
 > it as such.
+>
+> **Engineering institutional context:** `docs/engineering/README.md` routes the
+> philosophy, principles, methodology and intellectual references that explain
+> how this engineering system emerged. Those documents provide context and
+> judgment criteria; this file remains the authority for repository engineering
+> governance and gates.
 
 ---
 
