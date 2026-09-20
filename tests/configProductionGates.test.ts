@@ -398,6 +398,51 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
       expect(load).not.toThrow()
       expect(load().proof.evidenceProviderType).toBe('local-fs')
     })
+
+    // CTO DELTA (Invalid Provider Regression Pin) — an independent
+    // micro-verification confirmed current runtime behavior is already
+    // fail-closed (resolveEvidenceProviderType() validates against a
+    // recognized allowlist BEFORE the 'local-fs' | 's3' cast is ever
+    // applied — config/index.ts's own RECOGNIZED_EVIDENCE_PROVIDER_TYPES),
+    // but found no test explicitly PINS it. These tests exist so that
+    // reintroducing the former unsafe pattern — an unchecked cast plus an
+    // `else`/default branch quietly resolving to 'local-fs' — fails the
+    // suite immediately, rather than only failing if someone happens to
+    // also delete this comment. Not a redesign: no new runtime behavior,
+    // no normalization added — 'S3' stays rejected exactly like 's33'.
+    describe('invalid/unrecognized EVIDENCE_PROVIDER values are rejected during config resolution, never silently normalized to local-fs', () => {
+      it("rejects 's33' (a plausible typo of a valid value) outside production — resolution itself throws, not a production-only gate", () => {
+        const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined, EVIDENCE_PROVIDER: 's33' })
+        expect(load).toThrow(/EVIDENCE_PROVIDER is set to an unrecognized value 's33'/)
+      })
+
+      it("rejects 'S3' (wrong case) — never case-folded or normalized to the valid 's3'", () => {
+        const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined, EVIDENCE_PROVIDER: 'S3' })
+        expect(load).toThrow(/EVIDENCE_PROVIDER is set to an unrecognized value 'S3'/)
+      })
+
+      it("rejects an unrecognized value even in production with fully valid EVIDENCE_S3_* configuration present — proves rejection happens at resolution, one gate BEFORE the S3-completeness check could otherwise mask it", () => {
+        const load = loadConfig({ ...REQUIRED_PROD_ENV, EVIDENCE_PROVIDER: 's33' })
+        expect(load).toThrow(/EVIDENCE_PROVIDER is set to an unrecognized value 's33'/)
+        // If this ever regressed to "unchecked cast + else -> local-fs",
+        // the failure would instead surface (if at all) as a missing-S3-
+        // config error, or no error at all outside production. Asserting
+        // the ACTUAL thrown message is what's being tested here.
+        expect(load).not.toThrow(/EVIDENCE_S3_BUCKET/)
+      })
+
+      it("accepts 's3' (the real, exact, lowercase value) and resolves it to itself — the positive control for the case-sensitivity tests above", () => {
+        const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined, EVIDENCE_PROVIDER: 's3' })
+        expect(load).not.toThrow()
+        expect(load().proof.evidenceProviderType).toBe('s3')
+      })
+
+      it("accepts 'local-fs' (the real, exact value) outside production and resolves it to itself — never coerced into anything else", () => {
+        const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined, EVIDENCE_PROVIDER: 'local-fs' })
+        expect(load).not.toThrow()
+        expect(load().proof.evidenceProviderType).toBe('local-fs')
+      })
+    })
   })
 
   describe('a fully correct production configuration boots cleanly', () => {
