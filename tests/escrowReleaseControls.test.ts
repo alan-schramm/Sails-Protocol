@@ -80,7 +80,7 @@ jest.mock('@arkade-os/sdk', () => ({
 jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 
 let mockEscrowCurrent: any = null
-const mockEscrowFindUnique = jest.fn(async () => mockEscrowCurrent)
+const mockEscrowFindUnique: jest.Mock<any, any[]> = jest.fn(async () => mockEscrowCurrent)
 const mockEscrowFindMany = jest.fn().mockResolvedValue([])
 const mockEscrowUpdate = jest.fn()
 // Robustness-audit fix (2026-07-20) — escrow.service.ts's mutating
@@ -126,15 +126,15 @@ const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
 // went through, exactly like a real Prisma transaction would.
 const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
   callback({
-    escrow: { updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args) },
-    escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
+    escrow: { updateMany: (...args: any[]) => (mockEscrowUpdateMany as any)(...args) },
+    escrowFundingEvidence: { findMany: (...args: any[]) => (mockEscrowFundingEvidenceFindMany as any)(...args) },
     // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
     // escrowEvent existence-check-then-create INSIDE withEscrowFundingLock(),
     // reusing the same mock functions the top-level prisma.escrowEvent
     // mock below already provides.
     escrowEvent: {
-      findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
-      create: (...args: unknown[]) => mockEscrowEventCreate(...args),
+      findFirst: (...args: any[]) => (mockEscrowEventFindFirst as any)(...args),
+      create: (...args: any[]) => (mockEscrowEventCreate as any)(...args),
     },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
@@ -143,31 +143,31 @@ const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknow
 jest.mock('../src/common/database', () => ({
   prisma: {
     escrow: {
-      findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
-      findMany: (...args: unknown[]) => mockEscrowFindMany(...args),
-      update: (...args: unknown[]) => mockEscrowUpdate(...args),
-      updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
-      create: (...args: unknown[]) => mockEscrowCreate(...args),
+      findUnique: (...args: any[]) => (mockEscrowFindUnique as any)(...args),
+      findMany: (...args: any[]) => (mockEscrowFindMany as any)(...args),
+      update: (...args: any[]) => (mockEscrowUpdate as any)(...args),
+      updateMany: (...args: any[]) => (mockEscrowUpdateMany as any)(...args),
+      create: (...args: any[]) => (mockEscrowCreate as any)(...args),
     },
     escrowEvent: {
-      create: (...args: unknown[]) => mockEscrowEventCreate(...args),
+      create: (...args: any[]) => (mockEscrowEventCreate as any)(...args),
       // Missão 05.5 — emitEscrowTransition() now reads the last event for
       // this escrowId to compute prevHash before creating the next one.
       // null (no prior event) is the correct default for every test here
       // that doesn't care about the chain specifically.
-      findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
+      findFirst: (...args: any[]) => (mockEscrowEventFindFirst as any)(...args),
     },
-    trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
-    capabilityGrant: { findMany: (...args: unknown[]) => mockCapabilityGrantFindMany(...args) },
+    trade: { findUnique: (...args: any[]) => (mockTradeFindUnique as any)(...args) },
+    capabilityGrant: { findMany: (...args: any[]) => (mockCapabilityGrantFindMany as any)(...args) },
     escrowReleaseApproval: {
-      upsert: (...args: unknown[]) => mockApprovalUpsert(...args),
-      findMany: (...args: unknown[]) => mockApprovalFindMany(...args),
-      count: (...args: unknown[]) => mockApprovalCount(...args),
+      upsert: (...args: any[]) => (mockApprovalUpsert as any)(...args),
+      findMany: (...args: any[]) => (mockApprovalFindMany as any)(...args),
+      count: (...args: any[]) => (mockApprovalCount as any)(...args),
     },
-    dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
-    escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
-    feeDistribution: { create: (...args: unknown[]) => mockFeeDistributionCreate(...args) },
-    escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
+    dispute: { findFirst: (...args: any[]) => (mockDisputeFindFirst as any)(...args) },
+    escrowParticipantKey: { findMany: (...args: any[]) => (mockParticipantKeyFindMany as any)(...args) },
+    feeDistribution: { create: (...args: any[]) => (mockFeeDistributionCreate as any)(...args) },
+    escrowFundingEvidence: { findMany: (...args: any[]) => (mockEscrowFundingEvidenceFindMany as any)(...args) },
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
