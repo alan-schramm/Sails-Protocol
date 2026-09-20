@@ -370,7 +370,7 @@ describe('RFC-021 D7 — vouch burned on the losing party of a resolved dispute'
     await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'COMPLETED' })
 
     expect(mockVouchFindMany).toHaveBeenCalledWith({ where: { voucheeId: 'seller-1', burnedAt: null } })
-    expect(mockVouchUpdate).toHaveBeenCalledWith({ where: { id: 'vouch-1' }, data: { burnedAt: expect.any(Date) } })
+    expect(mockVouchUpdateMany).toHaveBeenCalledWith({ where: { id: 'vouch-1', burnedAt: null }, data: { burnedAt: expect.any(Date) } })
     const voucherPenalty = mockUserUpdate.mock.calls.find((c) => c[0].where.id === 'voucher-1')
     expect(voucherPenalty?.[0].data.reputationScore).toEqual({ increment: -5 })
   })
