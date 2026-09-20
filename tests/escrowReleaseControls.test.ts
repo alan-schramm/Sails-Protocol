@@ -79,14 +79,20 @@ jest.mock('@arkade-os/sdk', () => ({
 // — this test never reaches those code paths, a bare stub is enough.
 jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 
-const mockEscrowFindUnique = jest.fn()
+let mockEscrowCurrent: any = null
+const mockEscrowFindUnique = jest.fn(async () => mockEscrowCurrent)
 const mockEscrowFindMany = jest.fn().mockResolvedValue([])
 const mockEscrowUpdate = jest.fn()
 // Robustness-audit fix (2026-07-20) — escrow.service.ts's mutating
 // methods now claim their status transition atomically via updateMany()
 // before touching the (possibly real, fund-moving) provider; see that
 // file's own comment. Defaults to a successful claim.
-const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
+const mockEscrowUpdateMany = jest.fn(async ({ where, data }: any) => {
+  if (where?.txReleaseId === null) {
+    mockEscrowCurrent = { ...(mockEscrowCurrent ?? baseEscrow), ...data }
+  }
+  return { count: 1 }
+})
 const mockEscrowCreate = jest.fn()
 const mockEscrowEventCreate = jest.fn()
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
@@ -186,7 +192,7 @@ describe('escrowService.releaseFunds — RFC-014 capability check (relocated fro
     enforceCapabilities = false
     requireDualApprovalForRelease = false
     mockEscrowFeatureFlag = true
-    mockEscrowFindUnique.mockResolvedValue(baseEscrow)
+    mockEscrowCurrent = baseEscrow
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
     // Gap-audit ownership check runs before the capability check — every
     // test in this block acts as 'seller-1', so the trade's sellerId
@@ -248,7 +254,7 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Me
     requireDualApprovalForRelease = false
     mockEscrowFeatureFlag = true
     protocolFeeRate = 0
-    mockEscrowFindUnique.mockResolvedValue(baseEscrow)
+    mockEscrowCurrent = baseEscrow
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
   })
@@ -273,7 +279,7 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Me
 
   it('a policy-aware escrow (feePolicyVersionId set) behaves identically — still no legacy FeeDistribution row, ever', async () => {
     protocolFeeRate = 0.004
-    mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, feePolicyVersionId: 'policy-1', snapshotProtocolFeeRate: '0.004' })
+    mockEscrowCurrent = { ...baseEscrow, feePolicyVersionId: 'policy-1', snapshotProtocolFeeRate: '0.004' }
     await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
 
     expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
@@ -299,7 +305,7 @@ describe('escrowService — RFC-015 two-person control', () => {
     enforceCapabilities = false
     requireDualApprovalForRelease = false
     mockEscrowFeatureFlag = true
-    mockEscrowFindUnique.mockResolvedValue(baseEscrow)
+    mockEscrowCurrent = baseEscrow
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
   })
@@ -371,7 +377,7 @@ describe('escrowService — RFC-015 two-person control', () => {
 
     it('bypasses the approval count entirely for an arbitrated (DISPUTED) release, even with zero approvals', async () => {
       requireDualApprovalForRelease = true
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
+      mockEscrowCurrent = { ...baseEscrow, status: 'DISPUTED' }
       mockApprovalCount.mockResolvedValue(0)
       // Gap-audit ownership check: 'arbiter-1' isn't the seller, so it
       // must be the assigned arbiter of an open dispute on this trade
@@ -391,7 +397,7 @@ describe('escrowService — disputed disposition authority', () => {
     enforceCapabilities = false
     requireDualApprovalForRelease = false
     mockEscrowFeatureFlag = true
-    mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
+    mockEscrowCurrent = { ...baseEscrow, status: 'DISPUTED' }
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockDisputeFindFirst.mockResolvedValue(null)
@@ -477,7 +483,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
 
   describe('lockFunds', () => {
     beforeEach(() => {
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'CREATED' })
+      mockEscrowCurrent = { ...baseEscrow, status: 'CREATED' }
       mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
     })
 
@@ -516,7 +522,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // the Arkade build) reliably throws with no ARKADE_SEED configured
       // (this file's config mock leaves it empty) — real, already-existing
       // behavior, reused here rather than fabricating a new failure mode.
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, type: 'LIGHTNING_HODL', status: 'CREATED' })
+      mockEscrowCurrent = { ...baseEscrow, type: 'LIGHTNING_HODL', status: 'CREATED' }
 
       await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/requires a submitted buyer pubkey/)
 
@@ -567,7 +573,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
 
   describe('markPaymentSent', () => {
     beforeEach(() => {
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+      mockEscrowCurrent = { ...baseEscrow, status: 'FUNDS_LOCKED' }
       mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'PAYMENT_PENDING' })
     })
 
@@ -594,7 +600,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
 
   describe('refundFunds', () => {
     beforeEach(() => {
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+      mockEscrowCurrent = { ...baseEscrow, status: 'FUNDS_LOCKED' }
       mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
     })
 
@@ -623,7 +629,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
   // unlike release/refund which also have a non-disputed happy path.
   describe('splitFunds', () => {
     beforeEach(() => {
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
+      mockEscrowCurrent = { ...baseEscrow, status: 'DISPUTED' }
       mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'SPLIT' })
     })
 
@@ -663,7 +669,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // actually reach the real safeGuardEvmProvider instance and its
       // (deliberately absent) splitFunds().
       mockEscrowFeatureFlag = false
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, type: 'SAFE_GUARD_EVM', status: 'DISPUTED' })
+      mockEscrowCurrent = { ...baseEscrow, type: 'SAFE_GUARD_EVM', status: 'DISPUTED' }
       mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
       await expect(escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')).rejects.toThrow(
         /does not support a SPLIT settlement action/
@@ -673,7 +679,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
 
   describe('openDispute', () => {
     beforeEach(() => {
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
+      mockEscrowCurrent = { ...baseEscrow, status: 'FUNDS_LOCKED' }
       mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
     })
 
