@@ -4,7 +4,8 @@
 > **Purpose:** Explain what composes Sails, where each part belongs, how the parts relate, and where each concept is governed.  
 > **Authority rule:** This document is a map, not a replacement for its governing sources. If a summary here conflicts with a canonical source, the canonical source wins.
 >
-> **Constitutional reading:** **New technologies should expand capability, not rewrite semantics.**
+> **Editorial synthesis:** **New technologies should expand capability, not rewrite semantics.**  
+> This sentence is an Anatomy-level synthesis of the governing extension rules below; it is **not** a new protocol invariant or Semantic Kernel property.
 
 ---
 
@@ -408,7 +409,7 @@ Pears/HyperDHT or another transport may be used by a reference implementation wi
 
 ## 14. Trade Lifecycle & State Machines
 
-A useful end-to-end economic journey is:
+A useful **conceptual** end-to-end economic journey is:
 
 ```mermaid
 flowchart LR
@@ -430,7 +431,9 @@ flowchart LR
     OUT --> REP["Reputation / Accounting / Projections"]
 ```
 
-State transition semantics are governed, not inferred from message arrival order or transport state.
+This is a reading aid, **not a canonical state-transition map**. The repository's lifecycle evidence shows different levels of transition rigor across stateful objects, and cross-object ordering can matter economically. Exact transition guards and lifecycle claims must therefore be taken from the governing lifecycle/specification sources rather than inferred from this linear diagram.
+
+State transition semantics are governed, not inferred from message arrival order, transport state or a UI journey.
 
 **Governing sources:** [STATE_LIFECYCLE_DISCOVERY.md](STATE_LIFECYCLE_DISCOVERY.md) · [TRANSACTION_WALKTHROUGH.md](TRANSACTION_WALKTHROUGH.md) · [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md)
 
@@ -614,6 +617,8 @@ See also [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) and [ARCHITECTURE.md](ARCHITECTURE
 
 Anatomical existence and implementation maturity are separate claims.
 
+> **Status warning:** this matrix is an orientation snapshot, not release authority. Do not copy a status claim from this table into product/marketing material without re-checking the linked live source at the time of publication.
+
 | Anatomical area | Meaning/source status | Implementation/maturity source |
 |---|---|---|
 | Semantic Kernel | Frozen semantic identity | [SEMANTIC_KERNEL.md](SEMANTIC_KERNEL.md) |
@@ -675,4 +680,5 @@ Open Extension may expand capability.
 It may not rewrite economic meaning.
 ```
 
-> **New technologies should expand capability, not rewrite semantics.**
+> **Anatomy synthesis:** **New technologies should expand capability, not rewrite semantics.**  
+> Governing meaning remains in the linked Kernel, invariants, specification, ADRs and extension documents.
