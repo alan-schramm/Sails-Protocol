@@ -22,6 +22,7 @@ const mockEscrowFindUnique = jest.fn()
 // unaffected; the dedicated D7 describe block below overrides these.
 const mockVouchFindMany = jest.fn().mockResolvedValue([])
 const mockVouchUpdate = jest.fn()
+const mockVouchUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -41,6 +42,7 @@ jest.mock('../src/common/database', () => ({
         update: (...args: unknown[]) => mockUserUpdate(...args),
         findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 }),
       },
+      vouch: { updateMany: (...args: unknown[]) => mockVouchUpdateMany(...args) },
     }),
     vouch: {
       findMany: (...args: unknown[]) => mockVouchFindMany(...args),
