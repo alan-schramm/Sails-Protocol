@@ -500,6 +500,16 @@ export class SailsEventBus {
     return this.store.getEvents(correlationId)
   }
 
+  // #253 — Postgres is the durable source of truth. This explicit replay
+  // surface lets the boot/recovery path re-dispatch an already-persisted
+  // event without publishing a second DurableEventRecord. Economic handlers
+  // remain responsible for eventId-keyed idempotency.
+  replayDurableEvent(event: import('./event-store').DurableEvent): void {
+    if ('replay' in this.store) {
+      (this.store as import('./event-store').PostgresEventStore).replay(event)
+    }
+  }
+
   // Additive — RFC-017's SocialEngineeringAgent.evaluate() needs the full
   // DurableEvent (eventId, publishedAt) to build a real TimelineEntry, not
   // just the bare payload on() gives every other handler. A new method
