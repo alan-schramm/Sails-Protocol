@@ -518,8 +518,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // catch block), not a leftover lock. "Unpersisted" means no lock
       // *fields* (txLockId/multisigAddr/lockedAt/expiresAt) were ever
       // set, not "update() was never called" — checked precisely below.
-      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
-      expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { status: 'CREATED' } })
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'CREATED' } })
       expect(eventBus.emit).not.toHaveBeenCalledWith('settlement.escrow.locked', expect.anything(), expect.anything())
     })
 
@@ -553,7 +552,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // update() call (the revert-back-to-CREATED — see the previous
       // test's identical comment), and this successful retry contributes
       // its own field-fill update() — both real, both expected.
-      expect(mockEscrowUpdate).toHaveBeenCalledTimes(2)
+      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
     })
   })
 
