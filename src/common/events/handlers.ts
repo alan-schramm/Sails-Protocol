@@ -2,6 +2,7 @@ import { prisma } from '../database'
 import type { Prisma } from '@prisma/client'
 import { eventBus } from './event-bus'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
+import { tradeRepository } from '../../modules/open-p2p/trade-repository'
 import { reputationService } from '../../modules/open-reputation/reputation.service'
 import { vouchService } from '../../modules/open-reputation/vouch.service'
 import { broadcastToTrade } from '../../modules/open-p2p/chat-room-registry'
@@ -244,10 +245,8 @@ export function registerEventHandlers(): void {
   })
 
   eventBus.on('settlement.escrow.locked', async (payload) => {
-    const trade = await prisma.trade.update({
-      where: { id: payload.tradeId },
-      data: { status: 'ACTIVE' },
-    })
+    const trade = await tradeRepository.projectEscrowStatus(payload.tradeId, payload.escrowId, 'FUNDS_LOCKED', 'ACTIVE')
+    if (!trade) return
 
     // RFC-018 — "05 ESCROW LOCKED" is PROTOCOL_SPECIFICATION.md §3.1's
     // own mapping for the Intent Engine's COMMITTED state ("terms
@@ -268,10 +267,8 @@ export function registerEventHandlers(): void {
   })
 
   eventBus.on('settlement.escrow.released', async (payload) => {
-    const trade = await prisma.trade.update({
-      where: { id: payload.tradeId },
-      data: { status: 'COMPLETED', completedAt: new Date() },
-    })
+    const trade = await tradeRepository.projectEscrowStatus(payload.tradeId, payload.escrowId, 'COMPLETED', 'COMPLETED', { completedAt: new Date() })
+    if (!trade) return
 
     escrowsReleasedTotal.inc()
 
@@ -309,10 +306,8 @@ export function registerEventHandlers(): void {
   })
 
   eventBus.on('settlement.escrow.disputed', async (payload) => {
-    await prisma.trade.update({
-      where: { id: payload.tradeId },
-      data: { status: 'DISPUTED' },
-    })
+    const trade = await tradeRepository.projectEscrowStatus(payload.tradeId, payload.escrowId, 'DISPUTED', 'DISPUTED')
+    if (!trade) return
 
     await eventBus.emit('openp2p.trade.disputed', {
       tradeId: payload.tradeId,
@@ -323,10 +318,8 @@ export function registerEventHandlers(): void {
   })
 
   eventBus.on('settlement.escrow.refunded', async (payload) => {
-    const trade = await prisma.trade.update({
-      where: { id: payload.tradeId },
-      data: { status: 'CANCELLED', cancelledAt: new Date() },
-    })
+    const trade = await tradeRepository.projectEscrowStatus(payload.tradeId, payload.escrowId, 'REFUNDED', 'CANCELLED', { cancelledAt: new Date() })
+    if (!trade) return
 
     escrowsRefundedTotal.inc()
 
@@ -368,10 +361,8 @@ export function registerEventHandlers(): void {
   // real settlement action, the same trigger released's own COMPLETED/
   // FULFILLED classification rests on.
   eventBus.on('settlement.escrow.split', async (payload) => {
-    const trade = await prisma.trade.update({
-      where: { id: payload.tradeId },
-      data: { status: 'COMPLETED', completedAt: new Date() },
-    })
+    const trade = await tradeRepository.projectEscrowStatus(payload.tradeId, payload.escrowId, 'SPLIT', 'COMPLETED', { completedAt: new Date() })
+    if (!trade) return
 
     await recordTradeCompletion(trade.buyerId, trade.sellerId, trade.amount)
 
