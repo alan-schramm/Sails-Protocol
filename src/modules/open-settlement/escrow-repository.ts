@@ -170,8 +170,8 @@ export interface EscrowRepository {
   /** submitTransactionSignature()'s own write (escrow-pending-tx.ts) — releasedAt present for release/split, absent for refund; the caller decides which, exactly as today. */
   updateSignatureCollectionResult(escrowId: string, data: { txReleaseId: string; releasedAt?: Date }): Promise<EscrowRow>
 
-  /** revertEscrowStatus()'s own write — a plain update, not the conditional claimTransition() above. Caller keeps its own .catch(() => {}). */
-  revertStatus(escrowId: string, status: string): Promise<EscrowRow>
+  /** Conditional rollback: restore fromStatus only while this invocation still owns claimedStatus. */
+  revertStatus(escrowId: string, claimedStatus: string, fromStatus: string): Promise<number>
 }
 
 class PrismaEscrowRepository implements EscrowRepository {
@@ -334,8 +334,12 @@ class PrismaEscrowRepository implements EscrowRepository {
     return prisma.escrow.update({ where: { id: escrowId }, data })
   }
 
-  async revertStatus(escrowId: string, status: string) {
-    return prisma.escrow.update({ where: { id: escrowId }, data: { status: status as any } })
+  async revertStatus(escrowId: string, claimedStatus: string, fromStatus: string) {
+    const reverted = await prisma.escrow.updateMany({
+      where: { id: escrowId, status: claimedStatus as any },
+      data: { status: fromStatus as any },
+    })
+    return reverted.count
   }
 }
 
