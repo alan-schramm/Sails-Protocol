@@ -22,6 +22,10 @@ const fakeClaims = new Map<string, any>()
 const fakeProofs = new Map<string, any>()
 let claimCounter = 0
 let proofCounter = 0
+// Issue #301 — named so the concurrency tests below can assert exactly
+// how many Verification rows a batch of racing verifyProof() calls
+// actually produced, not just each call's own resolved/rejected outcome.
+const mockVerificationCreate = jest.fn(async ({ data }: any) => ({ id: `verification-${data.proofId}-${data.verdict}-${Math.random()}`, ...data, verifiedAt: new Date() }))
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -62,7 +66,7 @@ jest.mock('../src/common/database', () => ({
       findUnique: jest.fn(async () => null), // attachEvidence()'s lookup — unused by this file's own tests
     },
     verification: {
-      create: jest.fn(async ({ data }: any) => ({ id: 'verification-1', ...data, verifiedAt: new Date() })),
+      create: (arg: any) => mockVerificationCreate(arg),
     },
     // Issue #261 — assertClaimEconomicScopeAccess()'s trade-participant-
     // or-current-arbiter check. 'buyer-1' (this file's own claimedBy/
@@ -87,9 +91,16 @@ jest.mock('../src/common/database', () => ({
 }))
 
 // A real, in-memory implementation of the exact Redis operations
-// proof.service.ts uses (set with EX, get, del) — not a trivial
-// always-succeeds stub, so the nonce tests actually exercise expiry/
-// single-use semantics rather than assuming the mock cooperates.
+// proof.service.ts uses (set with EX, get, del, and — Issue #301 —
+// eval, since verifyProof() now consumes its nonce via
+// atomicConsume()/redis.eval() rather than a separate get+del) — not a
+// trivial always-succeeds stub, so the nonce tests actually exercise
+// expiry/single-use semantics rather than assuming the mock cooperates.
+// `eval` genuinely reimplements common/redis/atomic-consume.ts's two
+// Lua scripts against this same store (discriminated by whether the
+// script references ARGV[1], the compare-and-consume script's own
+// tell) rather than always-succeeding — a real, if minimal, semantic
+// simulation, not a call-count stub.
 const fakeRedisStore = new Map<string, string>()
 jest.mock('../src/common/redis', () => ({
   redis: {
@@ -102,6 +113,21 @@ jest.mock('../src/common/redis', () => ({
       const existed = fakeRedisStore.has(key)
       fakeRedisStore.delete(key)
       return existed ? 1 : 0
+    }),
+    eval: jest.fn(async (script: string, _numKeys: number, ...args: unknown[]) => {
+      const key = args[0] as string
+      if (script.includes('ARGV[1]')) {
+        const expected = args[1] as string
+        if (fakeRedisStore.get(key) === expected) {
+          fakeRedisStore.delete(key)
+          return 1
+        }
+        return 0
+      }
+      const current = fakeRedisStore.get(key)
+      if (current === undefined) return null
+      fakeRedisStore.delete(key)
+      return current
     }),
   },
 }))
@@ -253,6 +279,65 @@ describe('OpenProof — nonce anti-replay', () => {
     await expect(
       proofService.verifyProof(proofB.id, 'arbiter-1', 'ACCEPTED', nonce)
     ).rejects.toThrow(/nonce/i)
+  })
+
+  // Issue #301, adversarial requirement 5 — same verification nonce x
+  // 10 concurrent verify calls -> exactly 1 Verification persisted. The
+  // shared fakeRedisStore + its real eval() reimplementation (this
+  // file's own header comment above) is what makes "exactly 1 winner"
+  // a genuine property of 10 simultaneously in-flight calls against the
+  // SAME nonce, not a scripted sequential result.
+  it('10 concurrent verifyProof() calls with the SAME nonce: exactly 1 Verification persisted, 9 rejected', async () => {
+    const { proof } = await makeClaimAndProof()
+    const { nonce } = await proofService.issueVerificationNonce(proof.id, 'arbiter-1')
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 10 }, () => proofService.verifyProof(proof.id, 'arbiter-1', 'ACCEPTED', nonce))
+    )
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled')
+    const rejected = results.filter((r) => r.status === 'rejected')
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(9)
+    expect(mockVerificationCreate).toHaveBeenCalledTimes(1)
+  })
+
+  // Issue #301, adversarial requirement 6 — conflicting ACCEPTED vs
+  // REJECTED calls racing the SAME nonce must still produce exactly one
+  // winning Verification row, whichever verdict actually wins the
+  // atomic consume — never both.
+  it('concurrent ACCEPTED vs REJECTED racing the SAME nonce: exactly one verdict persists', async () => {
+    const { proof } = await makeClaimAndProof()
+    const { nonce } = await proofService.issueVerificationNonce(proof.id, 'arbiter-1')
+
+    const results = await Promise.allSettled([
+      proofService.verifyProof(proof.id, 'arbiter-1', 'ACCEPTED', nonce),
+      proofService.verifyProof(proof.id, 'arbiter-1', 'REJECTED', nonce),
+    ])
+
+    const fulfilled = results.filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+    expect(fulfilled).toHaveLength(1)
+    expect(mockVerificationCreate).toHaveBeenCalledTimes(1)
+    // Whichever verdict actually won is internally consistent — the
+    // persisted row's verdict matches the one call that actually
+    // succeeded, never a mix of both.
+    expect(mockVerificationCreate.mock.calls[0][0].data.verdict).toBe(fulfilled[0].value.verdict)
+  })
+
+  // Issue #301, adversarial requirement 7 (OpenProof half) — a missing/
+  // already-expired nonce yields zero winners even under concurrency,
+  // not just sequentially (already covered by "rejects verifyProof with
+  // no nonce at all" above; this proves it holds under real concurrent
+  // pressure too).
+  it('10 concurrent verifyProof() calls with a nonce that was NEVER issued: zero winners', async () => {
+    const { proof } = await makeClaimAndProof()
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 10 }, () => proofService.verifyProof(proof.id, 'arbiter-1', 'ACCEPTED', 'never-issued-nonce'))
+    )
+
+    expect(results.every((r) => r.status === 'rejected')).toBe(true)
+    expect(mockVerificationCreate).not.toHaveBeenCalled()
   })
 })
 

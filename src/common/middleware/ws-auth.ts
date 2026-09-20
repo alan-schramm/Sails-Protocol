@@ -17,16 +17,22 @@
  * an authenticated POST /v1/identity/ws-ticket call): resolving one
  * here immediately burns it, so even a ticket that does leak into a log
  * is worthless within seconds and can never be replayed a second time.
+ *
+ * Issue #301 — "immediately burns it" above used to be a separate
+ * `GET` then `DEL`, which does not actually guarantee one-time
+ * consumption under concurrency: two simultaneous WS upgrades racing
+ * the same ticket could both complete the `GET` before either `DEL`
+ * ran, both resolving the same participantId. Replaced with
+ * `atomicConsume()` — a single Redis-server-side operation with exactly
+ * one winner across any number of concurrent callers, real across every
+ * process/instance sharing this Redis, not just within one.
  */
-import { redis } from '../redis'
+import { atomicConsume } from '../redis/atomic-consume'
 
 const WS_TICKET_PREFIX = 'auth:ws-ticket:'
 
 export async function resolveParticipantFromTicket(ticket: string | undefined): Promise<string | null> {
   if (!ticket) return null
   const key = `${WS_TICKET_PREFIX}${ticket}`
-  const participantId = await redis.get(key)
-  if (!participantId) return null
-  await redis.del(key)
-  return participantId
+  return atomicConsume(key)
 }
