@@ -483,6 +483,25 @@ export class SailsEventBus {
     await this.store.publish(event, payload, correlationId)
   }
 
+  // #253 — derived economic/lifecycle signals produced while handling a
+  // durable source event must not be appended again when that source is
+  // replayed after a crash.
+  async emitDerivedOnce<K extends SailsEventName>(
+    sourceEventId: string,
+    event: K,
+    payload: SailsEventMap[K],
+    correlationId: string
+  ): Promise<boolean> {
+    if (!('publishDerivedOnce' in this.store)) {
+      // Non-Postgres stores are explicit test/dev alternatives; preserve
+      // their existing behavior rather than pretending they provide the
+      // production dedupe guarantee.
+      await this.store.publish(event, payload, correlationId)
+      return true
+    }
+    return (this.store as PostgresEventStore).publishDerivedOnce(sourceEventId, event, payload, correlationId)
+  }
+
   // Legacy convenience surface: handlers that do not need durable identity
   // receive only the payload. Replay-sensitive economic projections must use
   // onDurable() so their idempotency claim is keyed by the immutable eventId.
