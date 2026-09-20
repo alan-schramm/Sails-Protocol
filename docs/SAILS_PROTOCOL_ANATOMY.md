@@ -184,7 +184,23 @@ These Modules are an organization of domain responsibilities. They are **not** t
 
 ## 6. Primitives
 
-Protocol primitives belong to the technology-independent contract and are governed normatively by [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md). Anatomy does not redefine their list or semantics.
+Protocol primitives belong to the technology-independent contract and are governed normatively by [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md). Anatomy does not redefine their semantics, but it should make the canonical vocabulary visible.
+
+The current specification defines **nine protocol primitives**:
+
+| Primitive | Canonical question |
+|---|---|
+| **Identity** | WHO is participating |
+| **Intent** | WHAT someone wants to happen |
+| **Discovery** | WHO ELSE this could happen with |
+| **Negotiation** | HOW terms get agreed |
+| **Settlement** | HOW value actually moves |
+| **Reputation** | WHY to trust a counterparty |
+| **Agent** | WHO (or what) acts on someone's behalf |
+| **Proof** | HOW a claim gets verified by someone else |
+| **Dispute** | HOW a disagreement gets formally resolved |
+
+Two nearby concepts are deliberately **not** protocol primitives: **Capability** and **Policy** are supporting coordination components. The specification also explicitly rejects **Participant**, **Offer**, and **Event** as primitives. In particular, `Participant` is the abstraction referenced by other primitives; `Identity` is the current concrete participant implementation described by the specification.
 
 The important anatomical distinction is:
 
@@ -262,9 +278,14 @@ A shared SDK or implementation does not collapse distinct rails into one capabil
 
 Providers are replaceable execution mechanisms. A provider may execute or report; it may not redefine the authorized economic outcome.
 
-A Sails node/runtime instance is an operator surface, not protocol identity. Multiple conformant operators may participate without making one operator the owner of shared semantics.
+Provider is a family of roles rather than one universal interface. Current architecture includes distinct provider classes such as settlement, evidence, transport, arbitration and liquidity-related providers. Their capability and maturity must be evaluated per contract and per scope.
 
-**Provider implementation ≠ Provider maturity ≠ Production eligibility.**
+A Sails node/runtime instance is an **operator surface**, not protocol identity and not a privileged semantic authority. Multiple conformant operators may participate without making one operator the owner of shared semantics.
+
+A crucial Day-0 distinction is that **conformance alone does not prove shared-market reachability**: three perfectly conformant nodes whose liquidity universes remain isolated still fail the shared-market property.
+
+**Provider implementation ≠ Provider maturity ≠ Production eligibility.**  
+**Sails Protocol ≠ Satsails server.**
 
 **Governing sources:** [CORE_ARCHITECTURE.md](CORE_ARCHITECTURE.md) · [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) · [ADR-001](adr/ADR-001-day0-multi-operator-network.md) · [Day-0 Multi-Operator Network Architecture Discovery](DAY0_MULTI_OPERATOR_NETWORK_ARCHITECTURE_DISCOVERY.md)
 
@@ -272,26 +293,51 @@ A Sails node/runtime instance is an operator surface, not protocol identity. Mul
 
 ## 12. Identity, Proof & Reputation
 
-Identity establishes attributable participants and interoperability context; it does not automatically grant authority.
+### 12.1 Participant and portable identity
 
-OpenProof handles evidence/proof concerns under explicit authorization and provenance boundaries. Evidence bytes are not truth, storage is not protocol authority, and availability is not integrity.
+The protocol specification's important boundary is **Participant before concrete identity technology**. Other primitives reference the abstract `Participant` contract rather than depending directly on one identity format. `Identity` is the current concrete implementation described by the specification.
 
-Reputation is downstream interpretation of attributable economic facts/evidence, not an alternate source of protocol truth.
+The positioning term is **Portable Identity Layer**, not “the DID layer.” DID, Nostr identity, Pubky-style identity or future formats may participate as interoperability choices without becoming protocol identity merely because an implementation supports them.
 
-**Governing sources:** [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) · [AUTHORITY_MODEL_DISCOVERY.md](AUTHORITY_MODEL_DISCOVERY.md) · [CRYPTOGRAPHIC_MODEL.md](CRYPTOGRAPHIC_MODEL.md) · [TRUST_BOUNDARY.md](TRUST_BOUNDARY.md)
+Identity establishes attributable participation and proof of control; it does **not** automatically grant authority.
+
+### 12.2 Proof and evidence
+
+OpenProof handles evidence/proof concerns under explicit authorization, provenance and economic-scope boundaries.
+
+**Evidence bytes ≠ truth.**  
+**Storage provider ≠ protocol authority.**  
+**Availability ≠ integrity.**  
+**Authentication ≠ evidence authorization.**
+
+A Proof/Assertion may become input to an evaluation; it does not acquire truth-status merely by existing or being cryptographically well-formed.
+
+### 12.3 Reputation
+
+Reputation is downstream interpretation of attributable economic facts and evidence, not an alternate source of protocol truth. Cross-node architecture should favor re-verifiable underlying facts/events over treating a precomputed reputation score as globally authoritative.
+
+**Governing sources:** [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md) · [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) · [AUTHORITY_MODEL_DISCOVERY.md](AUTHORITY_MODEL_DISCOVERY.md) · [CRYPTOGRAPHIC_MODEL.md](CRYPTOGRAPHIC_MODEL.md) · [TRUST_BOUNDARY.md](TRUST_BOUNDARY.md) · [Day-0 Multi-Operator Network Architecture Discovery](DAY0_MULTI_OPERATOR_NETWORK_ARCHITECTURE_DISCOVERY.md)
 
 ---
 
 ## 13. Discovery & Transport
 
-Discovery answers how participants/markets find relevant objects or peers. Transport answers how messages move.
+Discovery answers how participants and markets find relevant economic opportunities or peers. Transport answers how messages move. They are related but anatomically different.
 
 Neither transport nor discovery owns economic state.
 
 **Economic state ≠ transport state.**  
-**Connected ≠ Responsive ≠ Synchronized ≠ Economically Current.**
+**Connected ≠ Responsive ≠ Synchronized ≠ Economically Current.**  
+**Liquidity propagation authority ≠ Settlement authority ≠ Protocol authority.**
 
-Pears/HyperDHT or another transport may be used by a reference implementation without becoming protocol identity.
+The Day-0 multi-operator architecture separates at least four concerns:
+
+- **Discovery plane:** offers, liquidity advertisements, provider capabilities, availability and expiry must be economically reachable across conformant nodes.
+- **Coordination plane:** trade initiation and negotiation are primarily counterparty-scoped rather than globally replicated.
+- **Economic truth plane:** settlement/evidence/outcome need independent verifiability for the parties that need them; they do not become correct merely by being globally propagated.
+- **Identity/reputation plane:** identity assertions need cross-node verifiability; reputation may be derived from bounded, re-verifiable underlying facts rather than requiring a globally synchronized score.
+
+Pears/HyperDHT or another transport may be used by a reference implementation without becoming protocol identity or economic authority.
 
 **Governing sources:** [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [DAY0_MULTI_OPERATOR_NETWORK_ARCHITECTURE_DISCOVERY.md](DAY0_MULTI_OPERATOR_NETWORK_ARCHITECTURE_DISCOVERY.md)
 
@@ -330,6 +376,15 @@ State transition semantics are governed, not inferred from message arrival order
 ## 15. Public & Private Markets
 
 Sails can support shared/open markets and restricted/private market contexts without changing economic semantics.
+
+For the shared/open Day-0 topology, the frozen property is stronger than “multiple nodes run the same API”:
+
+**Node choice must not partition the economic market.**  
+**All conformant Sails Nodes must be able to participate in the same protocol-level liquidity universe.**  
+**Shared Market Universe ≠ Instantaneous Identical View.**  
+**Eventual propagation ≠ Economic fragmentation.**
+
+Private/closed contexts may restrict admission, discovery or visibility while preserving the same underlying economic semantics.
 
 **Market admission policy ≠ protocol truth.**  
 **Private market ≠ different economic semantics.**  
