@@ -237,3 +237,38 @@ Day 0 uses OpenTimestamps behind the Sails-owned TimestampAnchor abstraction wit
 If operational evidence later justifies it, Sails may operate an OpenTimestamps-compatible aggregator/calendar as **one additional availability option** within the same open ecosystem. Such infrastructure MUST NOT become the mandatory calendar, a central timestamp authority, an interoperability gate, or a prerequisite for OpenProof/Sails economic availability.
 
 This roadmap item does not replace the Day-0 multi-calendar requirement recorded in docs/BACKLOG.md; it deliberately keeps Sails-operated timestamp infrastructure outside the Day-0 critical path.
+
+
+---
+
+## Open Extension — External Market Interoperability / Market Bridges
+
+**Status: OPTIONAL / FUTURE — architectural openness, not a Day-0 dependency.**
+
+> **Open Extension. Stable semantics. Governed compatibility.**
+>
+> **Any team may plug capabilities into Sails. No integration may redefine Sails economic meaning.**
+
+Sails should preserve stable extension boundaries through which independent teams can connect wallets, P2P marketplaces, exchanges, liquidity sources, nodes, agents, settlement capabilities, and future economic systems without requiring those systems to surrender their own application architecture, custody model, identity model, settlement model, or governance.
+
+External Market Interoperability is a future application of the broader **Open Extension** principle. A future `MarketBridge` or equivalent compatible interface may expose only the capabilities an external system actually supports — for example discovery/liquidity, offers, contracts/orders, messaging, settlement coordination, evidence, identity signals, or reputation signals. Interoperability MUST be capability-scoped rather than inferred from the existence of a connection.
+
+Canonical boundaries:
+
+- Open Extension expands capabilities at the edges; it MUST NOT redefine Sails economic states, commitments, authorities, transitions, or canonical semantics.
+- External state reachable through a bridge does not become native Sails Protocol Truth merely because Sails can observe or coordinate with it.
+- Provenance and authority MUST remain explicit. External offers, contracts, identity signals, evidence, reputation, liquidity, and settlement remain attributable to their originating system and authority model.
+- `MarketBridge ≠ native Sails market participant ≠ Protocol Truth ≠ Economic Authority`.
+- External market sovereignty MUST be preserved: interoperability does not require an external market to adopt Sails internal product architecture.
+- Sails Market is a first-party/reference application, not a privileged protocol gateway. Compatible independent applications and bridges are governed by the same protocol capabilities and conformance boundaries.
+- Bridge implementations MAY be produced by Sails, the external ecosystem itself, or independent third parties. Compatibility depends on explicit interfaces, capabilities, conformance, and security requirements — not organizational ownership.
+
+Strategic consequence:
+
+> **Application competitors can become protocol participants.**
+
+Sails therefore does not require existing markets to disappear for an open interoperable P2P economic network to emerge. Independent markets may remain competitors or sovereign products at the application layer while participating, where technically and economically compatible, in Sails-coordinated liquidity and market activity at the protocol edge.
+
+This item intentionally does **not** name any external marketplace as a required integration and does not claim compatibility with any current third-party platform. Specific bridges require separate research, specification, conformance evidence, security review, and explicit implementation owners before they can move beyond roadmap status.
+
+Relationship to existing extension surfaces: the architectural pattern is analogous to the existing separation of Wallet Adapter contracts, Settlement Providers, connectors, and other capability boundaries: **Sails defines stable interfaces and invariants; replaceable edge implementations supply capabilities without acquiring authority to redefine the economic center.**
