@@ -7,6 +7,8 @@
 >
 > **Editorial rule:** The Sails Protocol Whitepaper, Sails Technical Paper, and Sails P2P Trading SDK Paper are parallel translations of the same Institutional Truth. None is a canonical source for the others.
 
+>
+> **Current system map:** `docs/SYSTEM_DESIGN.md` is the consolidated technical orientation path. It summarizes current architecture and routes readers to governing sources; it does not replace them.
 ---
 
 # Abstract
