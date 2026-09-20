@@ -158,7 +158,7 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
         externalEffects.push('release-attempt-2')
         return { txId: '0xSIMULATED_RELEASE_TX' }
       })
-      mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrowPaymentPending, status: 'COMPLETED', txReleaseId: '0xSIMULATED_RELEASE_TX' })
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowPaymentPending, status: 'COMPLETED', txReleaseId: '0xSIMULATED_RELEASE_TX' })
 
       const retried = await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
       expect(retried.status).toBe('COMPLETED')
@@ -200,7 +200,7 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
         externalEffects.push('refund-attempt-2')
         return { txId: '0xSIMULATED_REFUND_TX' }
       })
-      mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrowFundsLocked, status: 'REFUNDED', txReleaseId: '0xSIMULATED_REFUND_TX' })
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowFundsLocked, status: 'REFUNDED', txReleaseId: '0xSIMULATED_REFUND_TX' })
 
       const retried = await escrowService.refundFunds('escrow-1', 'seller-1')
       expect(retried.status).toBe('REFUNDED')
@@ -265,7 +265,7 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
         legEffects.push('leg2-attempt-1')
         return { txIds: ['0xSIMULATED_LEG1_TX', '0xSIMULATED_LEG2_TX'] }
       })
-      mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrowDisputed, status: 'SPLIT', txReleaseId: '0xSIMULATED_LEG1_TX,0xSIMULATED_LEG2_TX' })
+      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowDisputed, status: 'SPLIT', txReleaseId: '0xSIMULATED_LEG1_TX,0xSIMULATED_LEG2_TX' })
 
       const retried = await escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')
       expect(retried.status).toBe('SPLIT')
