@@ -78,29 +78,99 @@ describe('DisputeService.submitEvidence() — OpenProof cross-reference (Issue #
 
   const service = new DisputeService(fakeArbitrationProvider())
 
-  // Property 1 — historical raw descriptors still read correctly.
-  // (Read/serialization is untouched by #266 — settlement.routes.ts's
-  // GET /v1/settlement/disputes/:id returns prisma.dispute.findUnique()'s
-  // row as-is. This proves the WRITE side of the legacy shape is also
-  // completely unaffected: a raw {type, uri, note} descriptor persists
-  // exactly as it always did, no OpenProof lookup ever attempted.)
-  it('1/2 — a legacy raw/external descriptor (no evidenceReferenceId) persists unchanged, with no OpenProof lookup attempted', async () => {
+  // Property 1 (read side) — historical raw descriptors still read
+  // correctly. Read/serialization is untouched by #266 —
+  // settlement.routes.ts's GET /v1/settlement/disputes/:id returns
+  // prisma.dispute.findUnique()'s row as-is; getDispute() itself does
+  // no transformation. A pre-existing raw entry (predating even the
+  // `externalReference` discriminator) is never reinterpreted,
+  // upgraded, or stripped by any code path — this function
+  // (resolveEvidenceDescriptor) only ever runs on a NEW write, never on
+  // data already sitting in Dispute.evidence.
+  it('1 (read) — getDispute() returns a historical raw descriptor with neither evidenceReferenceId nor externalReference exactly as stored, never reinterpreted', async () => {
+    const legacyEntry = { type: 'chat_log', uri: 'https://example.com/old-receipt.png', note: 'from before this discriminator existed', submittedBy: 'buyer-1', submittedAt: '2026-01-01T00:00:00.000Z' }
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', evidence: [legacyEntry] })
+
+    const dispute = await service.getDispute('dispute-1')
+
+    expect(dispute.evidence).toEqual([legacyEntry])
+  })
+
+  // CTO Gate re-gate, adversarial test 3 — external/non-file raw
+  // reference remains supported for NEW writes, given the required
+  // explicit `externalReference: true` declaration.
+  it('3 — a NEW external/non-file reference, explicitly declared via externalReference:true, persists successfully with no OpenProof lookup', async () => {
     seedDispute()
 
-    const result = await service.submitEvidence('dispute-1', 'buyer-1', { type: 'chat_log', uri: 'https://example.com/receipt.png', note: 'see attached' })
+    const result = await service.submitEvidence('dispute-1', 'buyer-1', {
+      type: 'chat_log', uri: 'https://example.com/receipt.png', note: 'see attached', externalReference: true,
+    })
 
     expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
     const persistedEvidence = mockDisputeUpdate.mock.calls[0][0].data.evidence
-    expect(persistedEvidence[0]).toMatchObject({ type: 'chat_log', uri: 'https://example.com/receipt.png', note: 'see attached', submittedBy: 'buyer-1' })
+    expect(persistedEvidence[0]).toMatchObject({
+      type: 'chat_log', uri: 'https://example.com/receipt.png', note: 'see attached',
+      externalReference: true, submittedBy: 'buyer-1',
+    })
     expect(persistedEvidence[0].evidenceReferenceId).toBeUndefined()
     expect(result.status).toBe('EVIDENCE_SUBMITTED')
   })
 
-  // Property 3 — new file/media dispute evidence cannot be represented
-  // as production-eligible by raw URI alone: a raw uri-only descriptor
-  // is persisted, but never as an integrity-bound entry (no
-  // evidenceReferenceId is fabricated for it) — proven by the assertion
-  // above that `evidenceReferenceId` is absent from the persisted entry.
+  // CTO Gate re-gate, adversarial test 1 — the core delta this mission
+  // exists to close: a NEW raw-uri submission with NEITHER
+  // evidenceReferenceId NOR an explicit externalReference:true
+  // declaration is REJECTED outright, never silently accepted as
+  // production-eligible (regardless of what `type` says — 'screenshot',
+  // 'payment_receipt', anything). No partial state persists.
+  it("CTO Gate 1 — a NEW raw-uri-only submission with no explicit classification is rejected (production-ineligible), nothing persisted", async () => {
+    seedDispute()
+
+    await expect(
+      service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', uri: 'https://example.com/receipt.png' })
+    ).rejects.toThrow(/must either reference OpenProof.*or be explicitly declared as an external/)
+    expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
+  })
+
+  it('CTO Gate — evidenceReferenceId + externalReference together is rejected as a contradiction (the two classes are mutually exclusive)', async () => {
+    seedDispute()
+
+    await expect(
+      service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', evidenceReferenceId: 'ref-1', externalReference: true })
+    ).rejects.toThrow(/mutually exclusive/)
+    expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
+  })
+
+  // Codex addendum, matrix case C — externalReference:true without a uri
+  // is a meaningless declaration (nothing is being referenced) and must
+  // be rejected explicitly, not silently accepted as an ambiguous
+  // descriptor.
+  it('CTO Gate matrix C — externalReference:true with no uri is rejected as meaningless, nothing persisted', async () => {
+    seedDispute()
+
+    await expect(
+      service.submitEvidence('dispute-1', 'buyer-1', { type: 'verbal_confirmation', note: 'confirmed by phone', externalReference: true })
+    ).rejects.toThrow(/externalReference: true requires a uri/)
+    expect(mockDisputeUpdate).not.toHaveBeenCalled()
+  })
+
+  // A pure text note (no uri, no evidenceReferenceId, no
+  // externalReference) has nothing that could masquerade as file
+  // evidence — this legitimate, always-valid EvidenceDescriptor shape
+  // is untouched by #266's production-eligibility rule.
+  it('a pure note-only descriptor (no uri at all) remains valid with no explicit classification required — nothing to misrepresent as file evidence', async () => {
+    seedDispute()
+
+    const result = await service.submitEvidence('dispute-1', 'buyer-1', { type: 'verbal_confirmation', note: 'seller confirmed via phone call' })
+
+    expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
+    const persistedEvidence = mockDisputeUpdate.mock.calls[0][0].data.evidence
+    expect(persistedEvidence[0]).toMatchObject({ type: 'verbal_confirmation', note: 'seller confirmed via phone call', submittedBy: 'buyer-1' })
+    expect(persistedEvidence[0].uri).toBeUndefined()
+    expect(persistedEvidence[0].evidenceReferenceId).toBeUndefined()
+    expect(result.status).toBe('EVIDENCE_SUBMITTED')
+  })
 
   // Property 4 — valid OpenProof cross-reference attaches successfully.
   it('4 — a valid evidenceReferenceId attaches successfully after being scope-checked against the dispute\'s own trade', async () => {
@@ -230,12 +300,56 @@ describe('DisputeService.raiseDispute() — OpenProof cross-reference applies at
     expect(persistedEvidence[0]).toMatchObject({ type: 'payment_receipt', evidenceReferenceId: 'ref-1' })
   })
 
-  it('leaves a legacy raw descriptor at dispute-creation time completely untouched — no OpenProof lookup, unchanged pass-through', async () => {
-    const dispute = await service.raiseDispute('trade-1', 'buyer-1', 'payment never received', [{ type: 'chat_log', uri: 'https://example.com/x.png' }])
+  it('accepts a NEW external/non-file reference at dispute-creation time, given the explicit externalReference:true declaration', async () => {
+    const dispute = await service.raiseDispute('trade-1', 'buyer-1', 'payment never received', [
+      { type: 'chat_log', uri: 'https://example.com/x.png', externalReference: true },
+    ])
 
     expect(mockAssertEvidenceReferenceBelongsToTrade).not.toHaveBeenCalled()
     expect(dispute.id).toBe('dispute-1')
     const persistedEvidence = mockDisputeCreate.mock.calls[0][0].data.evidence
-    expect(persistedEvidence[0]).toMatchObject({ type: 'chat_log', uri: 'https://example.com/x.png' })
+    expect(persistedEvidence[0]).toMatchObject({ type: 'chat_log', uri: 'https://example.com/x.png', externalReference: true })
+  })
+
+  // CTO Gate re-gate, adversarial test 5 — the production-eligibility
+  // rule (not just the OpenProof-scope guard tested above) cannot be
+  // bypassed by submitting a raw, unclassified URI at dispute-creation
+  // time instead of via submitEvidence().
+  it('CTO Gate 5 — a NEW raw-uri-only descriptor with no explicit classification is rejected at dispute-creation time too, nothing persisted', async () => {
+    await expect(
+      service.raiseDispute('trade-1', 'buyer-1', 'payment never received', [{ type: 'payment_receipt', uri: 'https://example.com/x.png' }])
+    ).rejects.toThrow(/must either reference OpenProof.*or be explicitly declared as an external/)
+    expect(mockOpenDispute).not.toHaveBeenCalled()
+    expect(mockDisputeCreate).not.toHaveBeenCalled()
+  })
+})
+
+// Codex addendum, matrix case L — proves the REAL HTTP-boundary Zod
+// schema (the exact one settlement.routes.ts's routes call .parse()
+// with — imported here, not a hand-copied duplicate that could
+// silently drift) actually preserves `evidenceReferenceId`/
+// `externalReference` through parsing, closing the specific "Zod might
+// be silently stripping the new field" concern an independent review
+// raised. Deliberately imports the extracted, side-effect-free
+// evidence-descriptor-schema.ts module (only depends on `zod`) rather
+// than settlement.routes.ts itself, which would drag in escrow/dispute
+// services, Redis-backed rate limiting, and config just to reach two
+// schema consts.
+describe('evidenceDescriptorInputSchema — real HTTP-boundary Zod schema (Codex addendum, matrix L)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { evidenceDescriptorInputSchema } = require('../src/modules/open-settlement/evidence-descriptor-schema')
+
+  it('preserves evidenceReferenceId through .parse() — proves it reaches the service, not stripped as an unknown key', () => {
+    const parsed = evidenceDescriptorInputSchema.parse({ type: 'payment_receipt', evidenceReferenceId: 'ref-1' })
+    expect(parsed.evidenceReferenceId).toBe('ref-1')
+  })
+
+  it('preserves externalReference through .parse() — proves the explicit declaration reaches the service, not stripped', () => {
+    const parsed = evidenceDescriptorInputSchema.parse({ type: 'chat_log', uri: 'https://example.com/x.png', externalReference: true })
+    expect(parsed.externalReference).toBe(true)
+  })
+
+  it('rejects externalReference: false — the discriminator is a presence-only literal(true), never a general boolean', () => {
+    expect(() => evidenceDescriptorInputSchema.parse({ type: 'chat_log', uri: 'https://example.com/x.png', externalReference: false })).toThrow()
   })
 })

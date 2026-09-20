@@ -125,9 +125,7 @@ export class DisputeService {
   // single descriptor, so the SAME guarantee holds regardless of entry
   // point (a caller could otherwise bypass this check entirely simply
   // by submitting the cross-reference at dispute-creation time instead
-  // of via submitEvidence()). A descriptor WITHOUT evidenceReferenceId
-  // is returned unchanged — the original, legacy raw/external-reference
-  // behavior at both entry points is untouched by this mission.
+  // of via submitEvidence()).
   //
   // "Do not accept caller-supplied hash/provider/URI as authoritative
   // duplicates if OpenProof already owns those facts" (#266's own
@@ -136,35 +134,84 @@ export class DisputeService {
   // EvidenceReference already owns provider/uri/sha256 for this object,
   // so accepting a second, caller-supplied uri here would let a caller
   // forge or misrepresent it.
+  //
+  // CTO Gate re-gate — production eligibility for NEW writes. Absence
+  // of a fabricated evidenceReferenceId is not itself an eligibility
+  // rule: before this delta, ANY new `{type, uri, note}` descriptor
+  // (including one that is really integrity-bound file/media evidence,
+  // just submitted as a bare URI) was silently accepted and persisted.
+  // `type` is an arbitrary caller string ('screenshot', 'payment_receipt',
+  // whatever) — trusting it to infer "this is/isn't a file" would be
+  // exactly the heuristic classification the CTO Gate explicitly
+  // forbade (name/extension/URL-shape guessing, all fragile and
+  // trivially bypassed). So every NEW raw-uri descriptor now requires an
+  // EXPLICIT, non-inferred declaration instead: `externalReference: true`.
+  // No flag and no evidenceReferenceId -> rejected outright, never
+  // silently accepted as production-eligible. A HISTORICAL descriptor
+  // (already persisted before this delta existed) is never touched or
+  // reinterpreted by this rule — this function only ever runs on a NEW
+  // write, never on data already in `Dispute.evidence`.
   private async resolveEvidenceDescriptor(
-    descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId'>,
+    descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId' | 'externalReference'>,
     tradeId: string
-  ): Promise<Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId'>> {
-    if (!descriptor.evidenceReferenceId) return descriptor
-    if (descriptor.uri) {
+  ): Promise<Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId' | 'externalReference'>> {
+    if (descriptor.evidenceReferenceId) {
+      if (descriptor.uri) {
+        throw new ValidationError(
+          'Evidence descriptor cannot include both uri and evidenceReferenceId — an OpenProof cross-reference is ' +
+          'resolved server-side, never combined with a caller-supplied raw URI.'
+        )
+      }
+      if (descriptor.externalReference) {
+        throw new ValidationError(
+          'Evidence descriptor cannot include both evidenceReferenceId and externalReference — these are the two ' +
+          'mutually exclusive classes of new dispute evidence, never both at once.'
+        )
+      }
+      // Lazy require, not a static top-of-file import — proof.service.ts's
+      // module graph has real load-time side effects (a live Redis
+      // client construction among them, via evidence-provider.ts/
+      // timestamp-anchor.ts). A static import would drag that into
+      // every test/dev-tool that loads dispute.service.ts even when
+      // this cross-reference path is never exercised — the same
+      // reasoning common/events/handlers.ts's own QVAC/dispute-service
+      // requires already establish in this codebase.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { proofService } = require('../open-proof/proof.service') as typeof import('../open-proof/proof.service')
+      await proofService.assertEvidenceReferenceBelongsToTrade(descriptor.evidenceReferenceId, tradeId)
+      return { type: descriptor.type, note: descriptor.note, evidenceReferenceId: descriptor.evidenceReferenceId }
+    }
+
+    // The production-eligibility rule targets `uri` specifically — a raw
+    // pointer is the one shape that could be mistaken for (or used to
+    // smuggle in) file/media evidence. A uri-less descriptor (a pure
+    // text note, always a valid EvidenceDescriptor shape, unchanged by
+    // #266) has nothing that could masquerade as integrity-bound bytes,
+    // so it is untouched by this rule either way.
+    if (descriptor.uri && !descriptor.externalReference) {
       throw new ValidationError(
-        'Evidence descriptor cannot include both uri and evidenceReferenceId — an OpenProof cross-reference is ' +
-        'resolved server-side, never combined with a caller-supplied raw URI.'
+        'New dispute evidence with a raw uri must either reference OpenProof (evidenceReferenceId, for ' +
+        'integrity-bound file/media evidence) or be explicitly declared as an external/non-file reference ' +
+        '(externalReference: true) — a raw uri alone is not production-eligible.'
       )
     }
-    // Lazy require, not a static top-of-file import — proof.service.ts's
-    // module graph has real load-time side effects (a live Redis client
-    // construction among them, via evidence-provider.ts/timestamp-anchor.ts).
-    // A static import would drag that into every test/dev-tool that loads
-    // dispute.service.ts even when this cross-reference path is never
-    // exercised — the same reasoning common/events/handlers.ts's own
-    // QVAC/dispute-service requires already establish in this codebase.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { proofService } = require('../open-proof/proof.service') as typeof import('../open-proof/proof.service')
-    await proofService.assertEvidenceReferenceBelongsToTrade(descriptor.evidenceReferenceId, tradeId)
-    return { type: descriptor.type, note: descriptor.note, evidenceReferenceId: descriptor.evidenceReferenceId }
+    // `externalReference: true` with no `uri` is a meaningless
+    // declaration — there is nothing being referenced. Rejected
+    // explicitly rather than silently accepted as an ambiguous
+    // descriptor (CTO Gate re-gate, matrix case C).
+    if (descriptor.externalReference && !descriptor.uri) {
+      throw new ValidationError(
+        'externalReference: true requires a uri — there is nothing to declare as an external reference without one.'
+      )
+    }
+    return { type: descriptor.type, uri: descriptor.uri, note: descriptor.note, externalReference: descriptor.externalReference }
   }
 
   async raiseDispute(
     tradeId: string,
     raisedBy: string,
     reason: string,
-    evidence: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId'>[] = []
+    evidence: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId' | 'externalReference'>[] = []
   ) {
     const trade = await tradeRepository.findById(tradeId)
     if (!trade) throw new NotFoundError('Trade', tradeId)
@@ -1059,7 +1106,7 @@ export class DisputeService {
   async submitEvidence(
     disputeId: string,
     submittedBy: string,
-    descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId'>,
+    descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId' | 'externalReference'>,
     idempotencyKey?: string
   ) {
     return withIdempotency(
@@ -1070,13 +1117,14 @@ export class DisputeService {
         // Deliberately excludes submittedAt (assigned at execution time,
         // not part of the caller's own logical request) — a retry of the
         // identical descriptor must hash identically regardless of how
-        // long the retry took to arrive. evidenceReferenceId is included
-        // (Issue #266) — a retry that names a DIFFERENT cross-reference
-        // must never be treated as the same idempotent request as an
-        // earlier, different one.
+        // long the retry took to arrive. evidenceReferenceId/
+        // externalReference are included (Issue #266) — a retry that
+        // names a DIFFERENT cross-reference, or flips the explicit
+        // external-reference declaration, must never be treated as the
+        // same idempotent request as an earlier, different one.
         requestPayload: {
           disputeId, type: descriptor.type, uri: descriptor.uri, note: descriptor.note,
-          evidenceReferenceId: descriptor.evidenceReferenceId,
+          evidenceReferenceId: descriptor.evidenceReferenceId, externalReference: descriptor.externalReference,
         },
       },
       () => this.persistEvidence(disputeId, submittedBy, descriptor),
@@ -1098,7 +1146,7 @@ export class DisputeService {
   // NotFoundError/ForbiddenError/ValidationError guards) genuinely means
   // nothing durable happened, the only case safe to mark FAILED and
   // retry via a fresh `persistEvidence()` call.
-  private async persistEvidence(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId'>) {
+  private async persistEvidence(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId' | 'externalReference'>) {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
 

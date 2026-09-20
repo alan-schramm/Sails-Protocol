@@ -55,6 +55,38 @@ export interface EvidenceDescriptor {
   // Proofs and a Proof can have many EvidenceReferences, so anything
   // coarser would be ambiguous about which exact bytes are referenced.
   evidenceReferenceId?: string
+  // Issue #266 CTO Gate re-gate — explicit, non-heuristic discriminator
+  // for the OTHER branch of the hybrid model: a lightweight external/
+  // non-file reference. Only ever `true` when present (never `false`;
+  // absence carries the actual meaning) and never set alongside
+  // `evidenceReferenceId` — that field's own presence already
+  // unambiguously means "file/media, integrity-bound," a second,
+  // contradictory declaration would be meaningless (and is rejected
+  // server-side, see dispute.service.ts's own resolveEvidenceDescriptor()).
+  // dispute.service.ts requires ONE of `evidenceReferenceId` or
+  // `externalReference: true` on every NEW descriptor precisely so
+  // `type` (an arbitrary caller string like 'screenshot' or
+  // 'payment_receipt') is never trusted to imply which class a raw uri
+  // belongs to — the exact heuristic the CTO Gate explicitly forbade.
+  // Absent on every historical descriptor (predates this discriminator
+  // entirely) — read exactly as recorded, no reinterpretation, no
+  // fabricated classification. Requires `uri` to be present (a
+  // `uri`-less descriptor is a plain note — nothing that could
+  // masquerade as file evidence, so this discriminator does not apply
+  // to it either way; `externalReference: true` with no `uri` is
+  // rejected as meaningless — there would be nothing being referenced).
+  //
+  // IMPORTANT — this is a REFERENCE-MODE contract, not a factual claim
+  // about the remote content: `externalReference: true` records that
+  // the protocol is deliberately treating this uri as an unverified,
+  // non-integrity-bound external pointer. It does NOT prove, and must
+  // never be read as proving, that the bytes the uri actually resolves
+  // to are not media/a file — the server has no way to inspect or
+  // verify that. The property this discriminator establishes is
+  // narrower and fully mechanical: "was this NEW raw-uri descriptor
+  // explicitly declared as unverified/external," never "is the
+  // referenced content provably non-file."
+  externalReference?: true
   submittedBy: string
   submittedAt: string // ISO 8601
 }
