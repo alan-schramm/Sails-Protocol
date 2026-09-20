@@ -354,8 +354,10 @@ export async function claimEscrowTransition(escrowId: string, fromStatus: string
  *  the revert swallows the unlikely double-fault so the original provider
  *  error reaches the caller — they already saw the problem, a "revert
  *  also failed" chain would just bury the real failure. */
-export async function revertEscrowStatus(escrowId: string, status: string): Promise<void> {
-  await escrowRepository.revertStatus(escrowId, status).catch(() => {})
+export async function revertEscrowStatus(escrowId: string, claimedStatus: string, fromStatus: string): Promise<void> {
+  // #241 — rollback is ownership-sensitive. A delayed worker may restore
+  // the prior state only while it still owns the exact claimed state.
+  await escrowRepository.revertStatus(escrowId, claimedStatus, fromStatus).catch(() => {})
 }
 
 export function assertEscrowTransition(current: string, next: string) {
