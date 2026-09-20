@@ -42,6 +42,8 @@ Normative and institutional authority remains in the repository's governing sour
 - accepted ADRs
 - accepted RFCs
 
+For the consolidated current system-level technical map and reading path, use `docs/SYSTEM_DESIGN.md`. It is an orientation/consolidation surface, not a replacement for the governing sources above.
+
 ## Editorial positioning
 
 Current category:

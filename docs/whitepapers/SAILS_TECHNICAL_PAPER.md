@@ -5,7 +5,7 @@
 
 > **Document role:** Technical explanatory companion for Sails Protocol. This paper translates the same Institutional Truth used by the Sails Protocol Whitepaper and Sails P2P Trading SDK Paper. It is not a normative specification and does not govern either companion paper.
 >
-> **Normative and institutional authority remains in:** `docs/SEMANTIC_KERNEL.md`, `docs/PROTOCOL_INVARIANTS.md`, `docs/PROTOCOL_SPECIFICATION.md`, frozen architecture documents, accepted ADRs, and accepted RFCs.
+> **Normative and institutional authority remains in:** `docs/SEMANTIC_KERNEL.md`, `docs/PROTOCOL_INVARIANTS.md`, `docs/PROTOCOL_SPECIFICATION.md`, frozen architecture documents, accepted ADRs, and accepted RFCs. For the consolidated current system-level map and reading path, use `docs/SYSTEM_DESIGN.md`.
 
 ---
 
@@ -499,6 +499,21 @@ The broader Evidence / Auditability architecture is still being institutionalize
 
 OpenProof provides real implementation capability today, but the protocol does not yet claim a universal external-truth oracle.
 
+The current architecture also preserves several storage and authorization boundaries:
+
+```text
+Evidence bytes ≠ Evidence truth
+Evidence availability ≠ Evidence integrity
+Authentication ≠ Evidence Authorization
+Valid evidence ≠ authorized evidence placement
+Evidence storage provider ≠ protocol authority
+Can verify hash ≠ can read bytes
+UNAVAILABLE ≠ INVALID
+Missing bytes ≠ evidence never existed
+```
+
+Real media/file evidence belongs on the OpenProof path; lightweight dispute references are not a substitute for integrity-bound evidence storage. Production evidence storage is being hardened behind a provider-neutral contract with durability, private/scoped retrieval, integrity verification, outage semantics and provenance requirements. Adapter/contract evidence must not be rounded up into live production-provider evidence.
+
 **Current status: In Validation.**
 
 ---
@@ -577,24 +592,57 @@ Broader disappearance cases, including arbiter and signer unavailability, remain
 
 Sails distinguishes several identity concerns that older architectures often collapse.
 
-Current institutional work separates at least:
+Current architecture preserves:
 
-- Participant Economic Identity;
-- Participant Transport Identity;
-- future Operational Sails Node Identity;
-- future Operator Economic Recipient.
+```text
+Funds Authority ≠ Economic Identity ≠ Transport/Communication Identity
+Identity ≠ Authority
+Same recovery root ≠ same private key across protocols
+```
 
-These are not interchangeable.
+The **Sails Participant** is the economic participant in Sails semantics. In the current TypeScript Reference Implementation this is backed by a client-controlled public key / participant record.
 
-A transport peer identifier should not silently become economic identity.
+Pears/HyperDHT transport identity is separate. Current Pears usage is a transport/communication implementation detail and must not be treated as the participant's economic identity, a wallet spending identity, or protocol authority.
 
-A node operator identity should not automatically determine who receives economic compensation.
+External ecosystems such as Nostr and Pubky are interoperability candidates, not mandatory Sails identity layers. A future accepted binding may recognize an external identity assertion without converting that identity into economic authority.
+
+Sails also distinguishes future Operational Sails Node Identity and Operator Economic Recipient where those roles are required. A node operator identity should not automatically determine who receives economic compensation.
 
 An agent acts on behalf of a participant; it does not automatically become an independent economic principal.
 
-Recovery relationships also must not be confused with public identity relationships.
+Recovery relationships also must not be confused with public identity relationships. The exact recovery-root, rotation, revocation, multi-device and cross-protocol binding model remains a dedicated architecture concern where not already frozen.
 
-Some recovery and derivation questions remain open and are not decided by this paper.
+---
+
+## 18.1 Network and Market Topology
+
+Day-0 does not target one mandatory Satsails-controlled backend.
+
+The architectural target is multiple independent Sails node/runtime operators participating in a shared economic market universe. Node selection is a service-level choice; it must not become the definition of market membership.
+
+The current Reference Implementation has not yet fully demonstrated this target. Significant economic state remains node-local, and current Pears/HyperDHT transport must not be mistaken for complete cross-node liquidity, identity or state portability.
+
+Sails also supports more than one market-access model without creating different protocol semantics:
+
+```text
+Open/public market
+  → shared economic market universe across conformant operators
+
+Private / closed / permissioned market
+  → bounded admission/discovery policy for a business, OTC desk,
+     community or other restricted context
+```
+
+The preserved properties are:
+
+```text
+Node choice ≠ market membership
+Market admission policy ≠ protocol truth
+Private market ≠ different economic semantics
+Private visibility ≠ public identity requirement
+```
+
+Bootstrap, relay, transport, database and operator policy choices are implementation concerns unless a governing protocol decision explicitly promotes one.
 
 ---
 
@@ -818,11 +866,14 @@ This paper uses those statuses rather than collapsing maturity into one word suc
 | General multi-candidate selection | **In Validation / not implemented** |
 | Settlement eligibility pipeline | **In Validation / incomplete** |
 | Provider availability / health model | **In Validation** |
-| Authority model | **Institutional discovery established; implementation varies by path** |
+| Capability Authority / Economic Disposition Authority | **ADR-004 / ADR-005 Frozen; path-specific enforcement and Day-0 hardening continue where separately owned** |
 | Assistive agents | **Implemented** |
 | Delegated agent authority | **Future Vision / not Day-0 authorized** |
 | Evidence mechanisms | **Implemented in OpenProof** |
 | General Evidence / Auditability architecture | **In Validation** |
+| Production EvidenceProvider durability / provenance | **In Validation — implementation hardening active; live provider evidence not yet claimed** |
+| Multi-operator shared-market topology | **Frozen Day-0 target / external reality evidence incomplete** |
+| Open/private market semantics | **Frozen architecture direction; product/network implementation details remain bounded by current owners** |
 | Temporal / Concurrency model | **In Validation** |
 | Recovery for all disappearance cases | **Day-0 work remains** |
 | Human Interface Engineering | **In Validation** |
