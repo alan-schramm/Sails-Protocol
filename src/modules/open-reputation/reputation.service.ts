@@ -36,6 +36,7 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
+import { applyEventProjectionOnce } from '../../common/events/event-projection'
 
 export type ReputationOutcome = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL'
 
@@ -56,13 +57,27 @@ export class ReputationService {
   private readonly POSITIVE_DELTA = 2
   private readonly NEGATIVE_DELTA = -5
 
-  async recordOutcome(tradeId: string, participantId: string, outcome: ReputationOutcome) {
+  async recordOutcome(tradeId: string, participantId: string, outcome: ReputationOutcome, sourceEventId?: string) {
     const delta = outcome === 'POSITIVE' ? this.POSITIVE_DELTA : outcome === 'NEGATIVE' ? this.NEGATIVE_DELTA : 0
 
-    const user = await prisma.user.update({
-      where: { id: participantId },
-      data: { reputationScore: { increment: delta } },
-    })
+    let user
+    if (sourceEventId) {
+      await applyEventProjectionOnce(sourceEventId, 'reputation-trade-outcome', participantId, async (tx) => {
+        user = await tx.user.update({
+          where: { id: participantId },
+          data: { reputationScore: { increment: delta } },
+        })
+      })
+      if (!user) {
+        user = await prisma.user.findUniqueOrThrow({ where: { id: participantId } })
+        return user
+      }
+    } else {
+      user = await prisma.user.update({
+        where: { id: participantId },
+        data: { reputationScore: { increment: delta } },
+      })
+    }
 
     await eventBus.emit('reputation.score.updated', {
       userId: participantId,
