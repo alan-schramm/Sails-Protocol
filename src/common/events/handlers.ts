@@ -183,7 +183,7 @@ async function applyReleaseOutcomes(eventId: string, tradeId: string, buyerId: s
     // them and that vouch is still active (their first-ever trade), the
     // trust was misplaced and the voucher's own reputation takes the
     // real hit this file's own vouch.service.ts import exists for.
-    await vouchService.burnVouchesFor(sellerId)
+    await vouchService.burnVouchesFor(sellerId, eventId)
   } else {
     await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE', eventId)
     await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE', eventId)
@@ -204,10 +204,10 @@ async function applyRefundOutcomes(eventId: string, tradeId: string, buyerId: st
     where: { tradeId, status: 'RESOLVED', ruling: 'REFUND' },
   })
   if (resolvedRefund) {
-    await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE')
+    await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE', eventId)
     await reputationService.recordOutcome(tradeId, buyerId, 'NEGATIVE', eventId)
     // RFC-021 D7 — same reasoning as settlement.escrow.released above, for the buyer.
-    await vouchService.burnVouchesFor(buyerId)
+    await vouchService.burnVouchesFor(buyerId, eventId)
   } else {
     await reputationService.recordOutcome(tradeId, buyerId, 'NEUTRAL', eventId)
     await reputationService.recordOutcome(tradeId, sellerId, 'NEUTRAL', eventId)
