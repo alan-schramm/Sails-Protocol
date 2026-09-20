@@ -92,6 +92,25 @@ RUN('#236 Trade projection monotonicity (PostgreSQL)', () => {
     expect((await prisma.trade.findUniqueOrThrow({ where: { id: tradeId } })).status).toBe('COMPLETED')
   })
 
+  it('serializes a projection against a concurrent authoritative terminal transition', async () => {
+    // Both operations use the same escrow advisory lock. Whichever obtains it
+    // first is deterministic with respect to the state it sees; after the
+    // terminal transition commits, a delayed LOCKED projection must fail
+    // closed and must never regress the Trade.
+    const transition = prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+      await tx.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      await tx.trade.update({ where: { id: tradeId }, data: { status: 'COMPLETED', completedAt: new Date() } })
+    })
+
+    await transition
+    const delayed = await tradeRepository.projectEscrowStatus(tradeId, escrowId, 'FUNDS_LOCKED', 'ACTIVE')
+
+    expect(delayed).toBeNull()
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrowId } })).status).toBe('COMPLETED')
+    expect((await prisma.trade.findUniqueOrThrow({ where: { id: tradeId } })).status).toBe('COMPLETED')
+  })
+
   it('fails closed when escrow does not belong to the supplied trade', async () => {
     const projected = await tradeRepository.projectEscrowStatus('not-this-trade', escrowId, 'FUNDS_LOCKED', 'ACTIVE')
     expect(projected).toBeNull()
