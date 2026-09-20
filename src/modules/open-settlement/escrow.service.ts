@@ -610,7 +610,7 @@ export class EscrowService {
       // block every future lockFunds() attempt via assertEscrowTransition,
       // with no way to retry. Same revert-on-failure idiom
       // dispute.service.ts's resolveDispute() already established.
-      await revertEscrowStatus(escrowId, escrow.status)
+      await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status)
       throw err
     }
   }
@@ -788,7 +788,7 @@ export class EscrowService {
       // threw, e.g. RPC error) would leave the escrow permanently stuck
       // claiming COMPLETED with `txReleaseId: null` — funds neither
       // released nor recoverable through this service again.
-      await revertEscrowStatus(escrowId, escrow.status)
+      await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
       throw err
     }
   }
@@ -864,7 +864,7 @@ export class EscrowService {
 
       return updated
     } catch (err) {
-      await revertEscrowStatus(escrowId, escrow.status)
+      await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
       throw err
     }
   }
@@ -925,7 +925,7 @@ export class EscrowService {
 
       return updated
     } catch (err) {
-      await revertEscrowStatus(escrowId, escrow.status)
+      await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
       throw err
     }
   }
