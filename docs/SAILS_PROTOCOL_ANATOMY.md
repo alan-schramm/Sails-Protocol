@@ -82,9 +82,9 @@ flowchart TB
     PR --> RAIL
     PR --> INFRA
 
-    EXT -. "may expand capability" .-> AD
-    EXT -. "may expand capability" .-> PR
-    EXT -. "must not rewrite" .-> SK
+    EXT -. "governs participation at replaceable edges" .-> AD
+    EXT -. "governs participation at replaceable edges" .-> PR
+    SK -. "constrains all conformant extensions" .-> EXT
 ```
 
 **Governing sources:** [SEMANTIC_KERNEL.md](SEMANTIC_KERNEL.md) · [CORE_ARCHITECTURE.md](CORE_ARCHITECTURE.md) · [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) · [EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md](EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md)
@@ -159,22 +159,39 @@ The governed extension lifecycle is:
 
 ## 5. Open* Building Blocks
 
-The current reference organization includes:
+The reference architecture defines **eight official modules/capabilities**. Their names are not interchangeable with the nine protocol primitives: modules are service/domain boundaries that implement or orchestrate primitives.
 
-- **OpenP2P** — P2P trade coordination and lifecycle.
-- **OpenSettlement** — settlement and escrow coordination across eligible mechanisms.
-- **OpenIdentity** — identity-related protocol responsibilities.
-- **OpenReputation** — portable economic reputation/fact interpretation responsibilities.
-- **OpenProof** — evidence/proof responsibilities.
-- **OpenLiquidity** — liquidity-related coordination.
-- **OpenAgents** — agent/delegation-related capability surfaces.
-- **OpenFinance** — roadmap-scoped future module where explicitly applicable.
+| Module | Anatomical role | Important boundary |
+|---|---|---|
+| **OpenIdentity** | Portable participant identity and proof-of-control context | Identity/Participant ≠ Authority |
+| **OpenReputation** | Outcome-derived reputation and trust signals | Reputation ≠ Protocol Truth |
+| **OpenSettlement** | Settlement, escrow and today's Dispute implementation | Settlement mechanism ≠ economic meaning |
+| **OpenLiquidity** | Discovery and routing of liquidity; owns the `Offer` domain | Offer belongs here, **not** OpenP2P |
+| **OpenProof** | Cross-module Claim → Proof → Verification and evidence infrastructure | Proof/evidence ≠ truth; EvidenceProvider ≠ authority |
+| **OpenP2P** | Application module orchestrating the P2P Trade Lifecycle and negotiation | Orchestration does not make it owner of cross-module internals |
+| **OpenAgents** | Agent automation/risk/mediation assistance under delegated scope | Agent recommendation/action ≠ independent authority |
+| **OpenFinance** | Future Loan/Swap/Earn expansion reusing shared modules | **Aspirational / outside MVP**, not current capability to overclaim |
 
-These Modules are an organization of domain responsibilities. They are **not** the Semantic Kernel and are not individually protocol identity.
+The repository also groups these modules by present architectural role: OpenIdentity, OpenReputation, OpenSettlement, OpenLiquidity and OpenProof are cross-module services; OpenP2P and OpenAgents are application/cross-cutting capability consumers; OpenFinance is future-facing. This grouping is explanatory architecture, not a new protocol layer.
 
-**Governing sources:** [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) · [SEMANTIC_KERNEL.md](SEMANTIC_KERNEL.md) · [ROADMAP.md](ROADMAP.md)
+### 5.1 Primitive ↔ module relationship
 
-### 5.1 Open Extension is not another Open* module
+A primitive and a module are deliberately not one-to-one. Examples:
+
+- **Identity primitive → OpenIdentity** today.
+- **Discovery primitive → OpenLiquidity** for marketplace liquidity discovery.
+- **Settlement primitive → OpenSettlement** through rail/provider-specific execution.
+- **Reputation primitive → OpenReputation**.
+- **Proof primitive → OpenProof**.
+- **Dispute primitive → OpenSettlement today**, while the primitive remains reusable by future modules.
+- **Negotiation / Trade Lifecycle → OpenP2P orchestration**, consuming shared services rather than owning them all.
+- **Agent primitive → OpenAgents**, always under delegation/authority boundaries.
+
+This many-to-many distinction prevents a common anatomy error: treating the Open* names as aliases for primitives.
+
+**Governing sources:** [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) · [ROADMAP.md](ROADMAP.md)
+
+### 5.2 Open Extension is not another Open* module
 
 **Open Extension** is the cross-cutting extensibility principle under which new technologies can participate without rewriting Core meaning. It is not being classified here as an eighth/ninth peer module.
 
@@ -239,13 +256,22 @@ The current developer path and contract are documented in [SDK_GUIDE.md](SDK_GUI
 
 ## 9. Adapters
 
-Adapters translate between Sails-facing contracts and external implementation stacks. Wallet adapters are a key example.
+Adapters translate between stable Sails-facing contracts and replaceable external implementation stacks. They belong at the edge: an adapter can change *how* a capability is reached without changing *what* the authorized economic meaning is.
 
-**WalletAdapter ≠ SettlementProvider ≠ External Wallet Connector.**
+Important concrete distinctions include:
+
+**WalletAdapter ≠ SettlementProvider ≠ TransportProvider ≠ EvidenceProvider ≠ ArbitrationProvider ≠ External Wallet Connector.**
+
+- A **Wallet Adapter** bridges a wallet implementation into the wallet-facing Sails contract.
+- A **Settlement Provider** executes settlement/escrow mechanics for an eligible Asset × Rail scope.
+- A **Transport Provider** moves opaque communication payloads; transport is not economic state.
+- An **Evidence Provider** stores/retrieves evidence bytes or references for OpenProof; storage does not make the provider a truth authority.
+- An **Arbitration Provider** connects an application to an arbitration mechanism/actor; it does not make the protocol the arbiter.
+- An **External Wallet Connector** establishes access/session connectivity and is not thereby a Wallet Adapter or Settlement Provider.
 
 A wallet SDK/package existing in the ecosystem does not itself establish Sails support, maturity or production eligibility.
 
-**Governing sources:** [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) · [ROADMAP.md](ROADMAP.md) · [EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md](EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md)
+**Governing sources:** [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) · [PROTOCOL_SPECIFICATION.md](PROTOCOL_SPECIFICATION.md) · [ROADMAP.md](ROADMAP.md) · [EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md](EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md)
 
 ---
 
