@@ -571,6 +571,41 @@ export class ProofService {
   }
 
   /**
+   * Issue #266 — resolves and scope-checks an `EvidenceReference` for a
+   * cross-module caller (`dispute.service.ts`'s own evidence
+   * cross-reference path, the only consumer today). Deliberately a
+   * DIFFERENT question from `assertClaimEconomicScopeAccess()` above:
+   * that function asks "does this ACTOR have authority over this
+   * claim" (trade party or current arbiter); this one asks "does this
+   * EvidenceReference genuinely belong to THIS TRADE" — a scope-
+   * membership check, not an actor-authorization check. The caller-
+   * authorization question stays the calling module's own
+   * responsibility (`dispute.service.ts` already reuses its own
+   * existing trade-party check before ever calling this).
+   *
+   * `EvidenceReference` (not `Claim`/`Proof`) is the correct, most
+   * specific canonical identifier to cross-reference — a `Claim` can
+   * have many `Proof`s and a `Proof` can have many
+   * `EvidenceReference`s (Prisma's own one-to-many relations, RFC-007),
+   * so anything coarser would be ambiguous about which exact
+   * integrity-bound bytes are being referenced.
+   */
+  async assertEvidenceReferenceBelongsToTrade(evidenceReferenceId: string, tradeId: string) {
+    const reference = await prisma.evidenceReference.findUnique({
+      where: { id: evidenceReferenceId },
+      include: { proof: { include: { claim: true } } },
+    })
+    if (!reference) throw new NotFoundError('EvidenceReference', evidenceReferenceId)
+    if (reference.proof.claim.tradeId !== tradeId) {
+      throw new ForbiddenError(
+        `EvidenceReference ${evidenceReferenceId} does not belong to trade ${tradeId} — a dispute cross-reference must ` +
+        "point at evidence from the SAME trade's own Claim/Proof chain, never a different trade's or a non-trade-scoped Claim's."
+      )
+    }
+    return reference
+  }
+
+  /**
    * RFC-008 D1, closed 2026-08-04 — real submission to a live
    * OpenTimestamps calendar server (`timestamp-anchor.ts`). Policy-gated
    * per that RFC's own D1 ("Policy Engine decides when an anchor is

@@ -26,6 +26,7 @@ import { ForbiddenError, NotFoundError } from '../../common/errors'
 import { docsOnlySchema } from '../../common/openapi'
 import { MAX_PAGE_LIMIT } from '../../common/pagination'
 import { positiveDecimalString } from '../../common/validation'
+import { evidenceDescriptorInputSchema } from './evidence-descriptor-schema'
 
 // CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — see
 // config/index.ts's own comment on `rateLimit.criticalMax` for the full
@@ -118,13 +119,14 @@ const submitTransactionSignatureSchema = z.object({
   signedPsbtBase64: z.string().min(1),
 })
 
-const disputeSchema = z.object({
+// Exported — Issue #266 CTO Gate re-gate. Lets a test prove the real
+// HTTP-boundary schema (not a hand-copied duplicate that could silently
+// drift) actually preserves `externalReference`/`evidenceReferenceId`
+// through Zod's own parse, the same "export for direct testability"
+// precedent createEscrowSchema above already establishes in this file.
+export const disputeSchema = z.object({
   reason: z.string().min(1),
-  evidence: z.array(z.object({
-    type: z.string().min(1),
-    uri: z.string().optional(),
-    note: z.string().optional(),
-  })).optional(),
+  evidence: z.array(evidenceDescriptorInputSchema).optional(),
 })
 
 const resolveSchema = z.object({
@@ -146,10 +148,8 @@ const resolveSchema = z.object({
 })
 
 // RFC-021 D8
-const submitEvidenceSchema = z.object({
-  type: z.string().min(1),
-  uri: z.string().optional(),
-  note: z.string().optional(),
+// Exported — see disputeSchema's own identical comment above.
+export const submitEvidenceSchema = evidenceDescriptorInputSchema.extend({
   // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37) — optional; a caller
   // that omits it gets exactly today's behavior. See
   // src/common/idempotency.ts's own header for the full contract.
