@@ -152,12 +152,10 @@ describe('WDK_USDT_EVM lockFunds() — unknown-outcome / retry-safety (Mission #
     // dropped Postgres connection, a pool-exhaustion timeout — nothing
     // provider-specific).
     mockEscrowUpdate.mockRejectedValueOnce(new Error('simulated: Postgres connection lost mid-write'))
-    // The SECOND prisma.escrow.update() call is revertEscrowStatus() —
-    // escrow.service.ts's catch block reverting back to the pre-claim
-    // status. This one succeeds (a transient DB blip need not affect both
-    // calls identically, and even if it did, revertStatus()'s own
-    // .catch(() => {}) would swallow that — the point stands either way).
-    mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrow, status: 'CREATED' })
+    // #241: rollback no longer consumes prisma.escrow.update(); it is a
+    // status-bound updateMany(FUNDS_LOCKED -> CREATED). Do not enqueue an
+    // update() result for rollback here: doing so would leak into the retry's
+    // updateLockResult() mock and falsely make a successful retry look CREATED.
 
     await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(
       'simulated: Postgres connection lost mid-write'
@@ -295,7 +293,7 @@ describe('WDK_USDT_EVM lockFunds() — unknown-outcome / retry-safety (Mission #
   it('a pre-submission provider failure (no side effect at all) is safe to retry — contrast case', async () => {
     mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'CREATED' })
     mockWdkLockFunds.mockRejectedValueOnce(new Error('WDK_USDT_EVM provider requires WDK_SEED_PHRASE configured'))
-    mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrow, status: 'CREATED' })
+    // #241 rollback is updateMany(FUNDS_LOCKED -> CREATED), not update().
 
     await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow('WDK_SEED_PHRASE')
     expect(mockWdkLockFunds).toHaveBeenCalledTimes(1)
