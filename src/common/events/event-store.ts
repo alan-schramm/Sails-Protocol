@@ -458,6 +458,60 @@ export class PostgresEventStore implements EventStore {
     }
   }
 
+  // #253 — persist a derived event at most once for one immutable source
+  // event. The deterministic id is checked while holding the same
+  // correlation advisory lock as publish(), so replay never appends a second
+  // hash-chain entry and never dispatches a duplicate local signal.
+  async publishDerivedOnce<K extends SailsEventName>(
+    sourceEventId: string,
+    eventName: K,
+    payload: SailsEventMap[K],
+    correlationId: string
+  ): Promise<boolean> {
+    const eventId = createHash('sha256').update(`derived:\${sourceEventId}:\${eventName}`).digest('hex')
+    let event: DurableEvent<K> | null = null
+
+    const inserted = await this.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(\${correlationId})::bigint)`
+      const existing = await tx.durableEventRecord.findUnique({ where: { id: eventId } })
+      if (existing) return false
+
+      const last = await tx.durableEventRecord.findFirst({
+        where: { correlationId },
+        orderBy: { publishedAt: 'desc' },
+      })
+      const prevHash = last?.entryHash ?? GENESIS_HASH
+      let publishedAt = new Date().toISOString()
+      if (last && publishedAt <= last.publishedAt) {
+        publishedAt = new Date(new Date(last.publishedAt).getTime() + 1).toISOString()
+      }
+      const entryHash = computeEntryHash(eventName, publishedAt, payload, prevHash)
+      await tx.durableEventRecord.create({
+        data: {
+          id: eventId,
+          eventName,
+          correlationId,
+          payload: payload as unknown as Prisma.InputJsonValue,
+          publishedAt,
+          entryHash,
+          prevHash,
+        },
+      })
+      event = { eventId, eventName, correlationId, payload, publishedAt, entryHash, prevHash }
+      return true
+    })
+
+    if (!inserted || !event) return false
+    this.emitter.emit(eventName, event)
+    if (this.crossInstancePublisher) {
+      const message = JSON.stringify({ ...event, __originInstanceId: this.instanceId })
+      this.crossInstancePublisher.publish(CROSS_INSTANCE_CHANNEL, message).catch((err) => {
+        log.error({ msg: 'Cross-instance derived event publish failed (durable write already committed, unaffected)', eventName, eventId, err: err instanceof Error ? err.message : String(err) })
+      })
+    }
+    return true
+  }
+
   subscribe<K extends SailsEventName>(
     eventName: K,
     handler: (event: DurableEvent<K>) => void | Promise<void>
