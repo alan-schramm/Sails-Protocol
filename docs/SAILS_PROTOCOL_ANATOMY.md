@@ -231,16 +231,53 @@ A primitive is protocol meaning. A Module organizes domain responsibility. A Pro
 
 ## 7. Capabilities & Authority
 
-Capability describes what an actor/component can participate in; authority determines whether a particular action is authorized.
+Capability describes a functional category or a scoped permission to participate; it must not be collapsed into authority over an economic outcome. The protocol distinguishes several authority domains that may all need to be valid for one side effect.
 
 Mandatory separations include:
 
 **Authentication ≠ Authorization**  
 **Identity ≠ Authority**  
+**Capability / Eligibility Authority ≠ Execution Authority**  
 **Execution Authority ≠ Economic Disposition Authority**  
-**Recommendation ≠ Authority**
+**Destination Authority ≠ Economic Disposition Authority**  
+**Recommendation ≠ Authority**  
+**Past Authority ≠ Current Authority**
 
-Temporal capability authority is governed by [ADR-004](adr/ADR-004-capability-grant-temporal-authority.md). Economic disposition after rulings/appeals is governed by [ADR-005](adr/ADR-005-ruling-generation-economic-disposition-authority.md). Broader authority discovery is recorded in [AUTHORITY_MODEL_DISCOVERY.md](AUTHORITY_MODEL_DISCOVERY.md).
+### 7.1 Authority stack
+
+```mermaid
+flowchart LR
+    ID["Identity / Authentication<br/>who is acting"]
+    CAP["Capability / Eligibility<br/>may this actor invoke this scope now?"]
+    ECON["Economic Disposition Authority<br/>is this exact economic instruction current?"]
+    EXEC["Execution Authority<br/>can required signers/mechanism execute?"]
+    DEST["Destination Authority<br/>where may value validly go?"]
+    COMMIT["Durable execution commitment"]
+    SIDE["External economic side effect"]
+
+    ID --> CAP
+    CAP --> ECON
+    ECON --> EXEC
+    EXEC --> DEST
+    DEST --> COMMIT
+    COMMIT --> SIDE
+```
+
+The diagram is a **required-property stack**, not a claim that every rail evaluates these checks in one identical procedural order. No box can manufacture the authority represented by another box.
+
+### 7.2 Temporal authority
+
+[ADR-004](adr/ADR-004-capability-grant-temporal-authority.md) establishes two capability gates for asynchronous fund movement when capability enforcement is enabled: an **Admission Gate** and an **Execution Commit Gate**. Preparation does not permanently authorize later execution. Before the execution commitment, revocation/expiry can block execution; after a valid durable commitment, retry/recovery of the **same attempt** follows that operation-bound authorization rather than manufacturing fresh authority.
+
+[ADR-005](adr/ADR-005-ruling-generation-economic-disposition-authority.md) separately makes disputed economic disposition authority **operation-bound and ruling-generation-bound**. A technically executable pending transaction becomes economically stale when its authorizing ruling generation is superseded, unless the correct current-generation commit already won the required serialization boundary.
+
+Therefore:
+
+**Capability valid does not imply economic instruction current.**  
+**Valid signatures do not imply current Economic Disposition Authority.**  
+**Retry permission does not create a new economic action.**
+
+Broader authority discovery is recorded in [AUTHORITY_MODEL_DISCOVERY.md](AUTHORITY_MODEL_DISCOVERY.md).
 
 ---
 
@@ -450,14 +487,20 @@ Reference application control does not imply protocol control.
 
 ## 17. Trust & Failure Boundaries
 
-Sails treats failure semantics as part of correctness.
+Sails treats failure semantics as part of correctness. A system that collapses uncertainty, availability, validity or synchronization into one generic failure state can create incorrect economic behavior even when its code is mechanically healthy.
 
 Examples of required distinctions include:
 
 **UNKNOWN ≠ FAILED**  
 **UNAVAILABLE ≠ INVALID**  
 **Missing evidence bytes ≠ evidence never existed**  
-**State snapshot ≠ complete economic truth**
+**State snapshot ≠ complete economic truth**  
+**Economic state ≠ transport state**  
+**Connected ≠ Responsive ≠ Synchronized ≠ Economically Current**  
+**Notification ≠ protocol state**  
+**Indexer view ≠ protocol truth**
+
+The practical rule is fail-closed where authority/eligibility cannot be established, while preserving **UNKNOWN** where an external economic outcome is genuinely unresolved. Fail-closed must not be implemented by lying about reality.
 
 Trust boundaries and security assumptions are governed by [TRUST_BOUNDARY.md](TRUST_BOUNDARY.md), [SECURITY_MODEL.md](SECURITY_MODEL.md), [THREAT_MODEL.md](THREAT_MODEL.md), and specialized evidence/recovery documents.
 
@@ -467,33 +510,59 @@ Trust boundaries and security assumptions are governed by [TRUST_BOUNDARY.md](TR
 
 Economic safety requires authority, state, persistence and external side effects to preserve the authorized meaning across concurrency, retries, crashes and recovery.
 
-A retry does not create new authority. A provider does not acquire authority because it can execute. A later mechanism does not get to reinterpret an earlier authorized outcome.
+```mermaid
+flowchart LR
+    INT["Authorized economic intent / disposition"]
+    DUR["Durable operation identity + authority provenance"]
+    COM["Commit / serialization boundary"]
+    EXT["External side effect"]
+    OBS{"Outcome observable?"}
+    OK["Known outcome"]
+    UNK["UNKNOWN"]
+    REC["Reconcile same attempt"]
+
+    INT --> DUR --> COM --> EXT --> OBS
+    OBS -->|yes| OK
+    OBS -->|ambiguous| UNK --> REC
+    REC --> OBS
+```
+
+A retry does not create new authority. A provider does not acquire authority because it can execute. A later mechanism does not get to reinterpret an earlier authorized outcome. An ambiguous provider result must be reconciled as the **same attempt**, not converted into permission for a blind duplicate submission.
 
 **Governing sources:** [CORE_ARCHITECTURE.md](CORE_ARCHITECTURE.md) · [ADR-004](adr/ADR-004-capability-grant-temporal-authority.md) · [ADR-005](adr/ADR-005-ruling-generation-economic-disposition-authority.md) · [SECURITY_MODEL.md](SECURITY_MODEL.md)
 
 ---
 
-## 19. Conformance & Replaceability
+## 19. Conformance, Eligibility & Replaceability
 
-Replaceability is safe only when semantic compatibility is governed.
+Replaceability is safe only when semantic compatibility and deployment eligibility remain separate, governed questions.
 
 ```mermaid
 flowchart LR
-    CONTRACT["Stable contract"]
+    CONTRACT["Stable public contract"]
+    DECL["Capability declaration"]
     CONF["Conformance"]
     EVID["Evidence"]
-    ELIG["Eligibility"]
+    ELIG["Product / deployment eligibility"]
+    RUNTIME["Runtime participation"]
     EXEC["Replaceable implementation"]
     MEANING["Stable economic meaning"]
 
-    CONTRACT --> CONF --> EVID --> ELIG --> EXEC
     MEANING --> CONTRACT
+    CONTRACT --> DECL --> CONF --> EVID --> ELIG --> RUNTIME --> EXEC
     EXEC -. "must preserve" .-> MEANING
 ```
 
+This pipeline is deliberately **not an authority pipeline**. Passing conformance or eligibility does not authorize a particular economic disposition.
+
 **Compatible code ≠ trusted code.**  
+**Conformant ≠ production-eligible.**  
 **Protocol-representable ≠ Product/Deployment-eligible.**  
-**Implementation existence ≠ production evidence.**
+**Provider implementation ≠ Provider maturity ≠ Production eligibility.**  
+**Implementation existence ≠ production evidence.**  
+**CI green ≠ property proven ≠ production evidence ≠ production eligibility.**
+
+The evidence itself is also subject to scrutiny: [TEST_HARNESS_RELIABILITY.md](TEST_HARNESS_RELIABILITY.md) makes the harness part of the audit surface. A passing test is evidence only when the mechanism is reliable for the property being claimed.
 
 **Governing sources:** [EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md](EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md) · [ENGINEERING_GOVERNANCE.md](ENGINEERING_GOVERNANCE.md) · [TEST_HARNESS_RELIABILITY.md](TEST_HARNESS_RELIABILITY.md)
 
@@ -552,7 +621,7 @@ Anatomical existence and implementation maturity are separate claims.
 | Runtime | Current reference execution layer | [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md), [BACKLOG.md](BACKLOG.md) |
 | Open* Modules | Mixed current/roadmap maturity | [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md), [ROADMAP.md](ROADMAP.md), [BACKLOG.md](BACKLOG.md) |
 | SDK / API | Published/developer-facing surfaces with explicit release governance | [SDK_GUIDE.md](SDK_GUIDE.md), [API_STABLE.md](API_STABLE.md), [SDK_RELEASE.md](SDK_RELEASE.md) |
-| Adapters / Providers | Per-capability maturity; never infer eligibility from existence | [ROADMAP.md](ROADMAP.md), [BACKLOG.md](BACKLOG.md) |
+| Adapters / Providers | Per-capability maturity; existence/conformance does not imply production eligibility | [ROADMAP.md](ROADMAP.md), [BACKLOG.md](BACKLOG.md), [External Extensibility](EXTERNAL_EXTENSIBILITY_PRECEDENT_CONSOLIDATION.md) |
 | Multi-operator network | Architecture defined; Day-0 evidence gated | [ADR-001](adr/ADR-001-day0-multi-operator-network.md), [BACKLOG.md](BACKLOG.md) |
 | Production-open | **Not yet production-open** | [ROADMAP.md](ROADMAP.md), [BACKLOG.md](BACKLOG.md) |
 
