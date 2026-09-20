@@ -228,7 +228,13 @@ For current unresolved engineering obligations, use `BACKLOG.md` and the live Gi
 
 ---
 
-## Optional Future Infrastructure — Sails-operated OTS Aggregator / Calendar
+## Future / Optional Architecture Horizons
+
+This section groups architectural directions that are intentionally outside the Day-0 critical path. Entries here preserve future compatibility and strategic optionality; they are **not implementation commitments, support claims, Production Eligibility, or authorization to expand current mission scope**. Promotion from this section requires an explicit owner, specification, dependency/conflict review, conformance and security requirements, implementation evidence, and the applicable CTO gate.
+
+These horizons MUST remain subordinate to frozen protocol semantics and authority boundaries. A future integration may extend capabilities at the edges, but roadmap placement alone can never redefine economic meaning at the center.
+
+### Optional Infrastructure — Sails-operated OTS Aggregator / Calendar
 
 **Status: OPTIONAL / FUTURE — not a Day-0 dependency.**
 
@@ -241,7 +247,7 @@ This roadmap item does not replace the Day-0 multi-calendar requirement recorded
 
 ---
 
-## Open Extension — External Market Interoperability / Market Bridges
+### Open Extension — External Market Interoperability / Market Bridges
 
 **Status: OPTIONAL / FUTURE — architectural openness, not a Day-0 dependency.**
 
@@ -251,7 +257,7 @@ This roadmap item does not replace the Day-0 multi-calendar requirement recorded
 
 Sails should preserve stable extension boundaries through which independent teams can connect wallets, P2P marketplaces, exchanges, liquidity sources, nodes, agents, settlement capabilities, and future economic systems without requiring those systems to surrender their own application architecture, custody model, identity model, settlement model, or governance.
 
-External Market Interoperability is a future application of the broader **Open Extension** principle. A future `MarketBridge` or equivalent compatible interface may expose only the capabilities an external system actually supports — for example discovery/liquidity, offers, contracts/orders, messaging, settlement coordination, evidence, identity signals, or reputation signals. Interoperability MUST be capability-scoped rather than inferred from the existence of a connection.
+External Market Interoperability is a future application of the broader **Open Extension** principle and the **Third-Party Sails Modules & Developer Extension Ecosystem** already described in the Months 10–12 horizon above; it does not create a parallel extension architecture. A future `MarketBridge` or equivalent compatible interface may expose only the capabilities an external system actually supports — for example discovery/liquidity, offers, contracts/orders, messaging, settlement coordination, evidence, identity signals, or reputation signals. Interoperability MUST be capability-scoped rather than inferred from the existence of a connection.
 
 Canonical boundaries:
 
