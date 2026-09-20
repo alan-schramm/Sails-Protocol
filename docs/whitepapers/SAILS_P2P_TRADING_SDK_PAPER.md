@@ -6,6 +6,8 @@
 > **Document role:** Product and integration companion for the Sails P2P Trading SDK. This paper translates the same Institutional Truth used by the Sails Protocol Whitepaper and Sails Technical Paper. It does not govern the protocol or the SDK API contract.
 >
 > **API authority:** `docs/API_STABLE.md` governs the real frozen public SDK surface. `docs/SDK_GUIDE.md` is onboarding and integration guidance. If this paper ever disagrees with either on a concrete method or contract, `API_STABLE.md` wins.
+>
+> **Current system map:** `docs/SYSTEM_DESIGN.md` is the consolidated technical orientation path for how the SDK sits inside the wider Sails architecture. It summarizes current architecture and routes readers to governing sources; it does not replace them.
 
 ---
 
