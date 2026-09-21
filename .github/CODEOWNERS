@@ -6,7 +6,7 @@
 #
 # CODEOWNERS is a review-routing mechanism, not protocol authority.
 
-/* @alan-schramm
+* @alan-schramm
 
 # Protocol semantics and architecture
 /docs/SEMANTIC_KERNEL.md @alan-schramm

@@ -12,9 +12,10 @@ Start here if you are new to the project and want the shortest path to the core 
 
 1. [`../README.md`](../README.md) — repository homepage, current positioning, repository map, developer entry points.
 2. [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) — institutional project context, positioning history, v1 focus, product relationships, current project framing.
-3. [`whitepapers/SAILS_PROTOCOL_WHITEPAPER.md`](whitepapers/SAILS_PROTOCOL_WHITEPAPER.md) — broad explanatory paper covering the coordination problem, thesis, architecture, ecosystem, economics and long-term direction.
-4. [`PHILOSOPHY.md`](PHILOSOPHY.md) — why the protocol is designed around coordination, sovereignty, intent and replaceable execution edges.
-5. [`PRINCIPLES.md`](PRINCIPLES.md) — the standing rules used to evaluate architectural decisions.
+3. [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md) — consolidated current system-level technical map and routing surface; summarizes current architecture without replacing deeper governing owners.
+4. [`whitepapers/SAILS_PROTOCOL_WHITEPAPER.md`](whitepapers/SAILS_PROTOCOL_WHITEPAPER.md) — broad explanatory paper covering the coordination problem, thesis, architecture, ecosystem, economics and long-term direction.
+5. [`PHILOSOPHY.md`](PHILOSOPHY.md) — why the protocol is designed around coordination, sovereignty, intent and replaceable execution edges.
+6. [`PRINCIPLES.md`](PRINCIPLES.md) — the standing rules used to evaluate architectural decisions.
 
 Current positioning layers are intentionally distinct:
 

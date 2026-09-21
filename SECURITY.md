@@ -2,9 +2,11 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within Sails Protocol, please send an email to [security@sailsprotocol.io](mailto:security@sailsprotocol.io). All security vulnerabilities will be promptly addressed.
+If you discover a security vulnerability within Sails Protocol, **do not publish exploit details, secrets, personal data, or reproduction material in a public GitHub issue**.
 
-**Please do not report security vulnerabilities through public GitHub issues.**
+Send the report privately to [social@satsails.com](mailto:social@satsails.com). Do not include vulnerability details in a public GitHub issue.
+
+`social@satsails.com` is the project's current centralized public contact mailbox, including security reporting. This policy does not publish a fixed response-time SLA.
 
 ## Scope
 
@@ -21,11 +23,11 @@ This security policy applies to:
 - Physical attacks
 - Denial of service attacks
 
-## Response Timeline
+## Response Expectations
 
-- **Acknowledgment:** Within 48 hours
-- **Initial assessment:** Within 1 week
-- **Fix timeline:** Depends on severity (critical: 24h, high: 1 week, medium: 1 month)
+This repository does **not** currently publish fixed acknowledgment, assessment, or remediation SLAs. Response and remediation depend on maintainer availability, severity, reproducibility, affected release/deployment, and the evidence available.
+
+A future response-time commitment should be documented only after an actively monitored private reporting channel and operational security process are established.
 
 ## Security Best Practices
 
@@ -35,14 +37,14 @@ This security policy applies to:
 2. **Use environment variables** — All sensitive configuration via `.env`
 3. **Validate all inputs** — Zod schemas for all API endpoints
 4. **Sanitize outputs** — No XSS, no injection
-5. **Rate limiting** — All public endpoints rate-limited
-6. **HTTPS only** — No plaintext HTTP in production
+5. **Abuse controls** — Apply rate limits, quotas, idempotency and resource controls according to the exposed capability and deployment risk; do not assume every path is covered merely because some middleware exists.
+6. **TLS in production** — Treat HTTPS/TLS as a deployment requirement and verify it in the deployed environment rather than inferring it from application code.
 
 ### For Users
 
 1. **Never share your private key** — Not even with support; it's the only credential that exists, there's no password to fall back on
-2. **Verify URLs** — Only use official domains
-3. **Report suspicious activity** — Contact security@sailsprotocol.io
+2. **Verify distribution sources** — Use repository/package/release information that can be independently verified.
+3. **Report suspicious activity carefully** — Do not publish sensitive security details in a public issue; follow the reporting guidance above.
 
 ## Authentication
 
@@ -99,10 +101,10 @@ GDPR, other privacy regimes, financial-services obligations, record-retention ru
 
 SOC 2 Type II is not claimed by this repository.
 
-## Contact
+## Contact Status
 
-- **Security:** security@sailsprotocol.io
-- **General:** hello@sailsprotocol.io
+- **Security:** social@satsails.com
+- **General:** social@satsails.com
 
 ---
 
