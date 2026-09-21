@@ -311,6 +311,23 @@ export class WdkSettlementProvider implements SettlementProvider {
     const total = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
     const buyerAmount = (total * BigInt(buyerBps)) / 10000n
     const sellerAmount = total - buyerAmount
+    const sellerDecimalAmount = fromBaseUnits(sellerAmount, USDT_DECIMALS)
+
+    // Day-0 #250 — persist the SECOND leg's execution identity before the
+    // FIRST irreversible transfer. Without this, a crash after buyer
+    // confirmation but before seller executeTransfer() leaves no durable
+    // seller destination/amount from which restart can safely resume.
+    // PREPARED is exactly the state ensureAttempt() already treats as
+    // "identity exists, submission boundary not crossed".
+    const existingSellerAttempt = await wdkTransferAttemptRepository.findLatest(escrow.id, 'SPLIT_SELLER')
+    if (!existingSellerAttempt) {
+      await wdkTransferAttemptRepository.create({
+        escrowId: escrow.id,
+        operationType: 'SPLIT_SELLER',
+        destination: sellerAddress,
+        amount: sellerDecimalAmount,
+      })
+    }
 
     const buyerTxId = await this.executeTransfer(escrow.id, 'SPLIT_BUYER', escrowAcct, buyerAddress, fromBaseUnits(buyerAmount, USDT_DECIMALS), buyerAmount)
     // The seller leg is only ever attempted once the buyer leg above has
@@ -320,7 +337,7 @@ export class WdkSettlementProvider implements SettlementProvider {
     // above already threw and this code is never reached — the seller
     // leg's transfer() is never even attempted, let alone the buyer leg
     // repeated.
-    const sellerTxId = await this.executeTransfer(escrow.id, 'SPLIT_SELLER', escrowAcct, sellerAddress, fromBaseUnits(sellerAmount, USDT_DECIMALS), sellerAmount)
+    const sellerTxId = await this.executeTransfer(escrow.id, 'SPLIT_SELLER', escrowAcct, sellerAddress, sellerDecimalAmount, sellerAmount)
 
     return { txIds: [buyerTxId, sellerTxId] }
   }
