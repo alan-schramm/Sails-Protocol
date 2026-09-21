@@ -411,6 +411,42 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   })
 
 
+  it('#248 freezes direct-call actor atomically and PostgreSQL rejects provenance rewriting', async () => {
+    requirePostgres('#248 durable direct-call provenance')
+    const suffix = `direct-provenance-${Date.now()}`
+    const buyer = await registerTestParticipant(identityService, `${suffix}-buyer`)
+    const seller = await registerTestParticipant(identityService, `${suffix}-seller`)
+    const offer = await liquidityRouter.createOffer({
+      userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '1', maxAmount: '1', paymentMethod: 'CRYPTO_DIRECT',
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '1' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'WDK_USDT_EVM', lockedAmount: '1', asset: 'USDT_ERC20' }, seller.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+    await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'PAYMENT_PENDING' } })
+
+    const repo = require('../../src/modules/open-settlement/escrow-repository').escrowRepository
+    const actor = `agent:recovery:${seller.id}`
+    const [a, b] = await Promise.all([
+      repo.claimTransition(escrow.id, 'PAYMENT_PENDING', 'COMPLETED', undefined, actor),
+      repo.claimTransition(escrow.id, 'PAYMENT_PENDING', 'COMPLETED', undefined, seller.id),
+    ])
+    expect([a, b].sort()).toEqual([0, 1])
+
+    const frozen = await prisma.escrow.findUnique({ where: { id: escrow.id } })
+    expect([actor, seller.id]).toContain(frozen!.directExecutionTriggeredBy)
+
+    await expect(
+      prisma.escrow.update({
+        where: { id: escrow.id },
+        data: { directExecutionTriggeredBy: frozen!.directExecutionTriggeredBy === actor ? seller.id : actor },
+      })
+    ).rejects.toThrow()
+
+    const afterRejectedMutation = await prisma.escrow.findUnique({ where: { id: escrow.id } })
+    expect(afterRejectedMutation!.directExecutionTriggeredBy).toBe(frozen!.directExecutionTriggeredBy)
+  })
+
+
   it('#247 freezes direct SPLIT allocation atomically and PostgreSQL rejects divergent mutation', async () => {
     requirePostgres('#247 durable split allocation')
     const suffix = `split-allocation-${Date.now()}`
