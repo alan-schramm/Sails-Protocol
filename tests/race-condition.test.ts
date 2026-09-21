@@ -127,8 +127,9 @@ jest.mock('../src/common/database', () => ({
     escrow: {
       findUnique: jest.fn(async () => ({ ...fakeDb.escrow })),
       updateMany: jest.fn(async ({ where, data }: any) => {
-        if (fakeDb.escrow.status !== where.status) return { count: 0 }
-        fakeDb.escrow.status = data.status
+        const matches = Object.entries(where).every(([key, expected]) => (fakeDb.escrow as any)[key] === expected)
+        if (!matches) return { count: 0 }
+        Object.assign(fakeDb.escrow, data)
         return { count: 1 }
       }),
       update: jest.fn(async ({ data }: any) => {
@@ -202,6 +203,7 @@ describe('Race condition — concurrent releaseFunds() vs refundFunds() on the s
     // one specific interleaving rather than the guard itself.
     for (let i = 0; i < 20; i++) {
       fakeDb.escrow.status = 'DISPUTED'
+      fakeDb.escrow.txReleaseId = null
       const delayFirst = i % 2 === 0
       const release = (delayFirst ? Promise.resolve().then(() => null) : Promise.resolve()).then(() =>
         escrowService.releaseFunds('escrow-1', '0xbuyer', 'arbiter-1')

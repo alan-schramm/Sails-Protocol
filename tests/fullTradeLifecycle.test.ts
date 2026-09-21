@@ -124,7 +124,7 @@ offers.findMany = jest.fn(async (args: any) => {
   return rows.map((r: any) => ({ ...r, user: { reputationScore: users.rows.get(r.userId)?.reputationScore ?? 0 } }))
 })
 const trades = makeTable('trade', { status: 'PENDING', escrowId: null })
-const escrows = makeTable('escrow', { status: 'CREATED' })
+const escrows = makeTable('escrow', { status: 'CREATED', txReleaseId: null })
 const escrowEvents = makeTable('escrowEvent')
 // Missão 11 Fase 4.1 — createEscrow() now unguardedly calls
 // escrowFeeSnapshotService.computeSnapshotFields() (fail-closed) before

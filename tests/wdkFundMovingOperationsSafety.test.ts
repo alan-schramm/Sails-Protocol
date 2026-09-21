@@ -153,12 +153,12 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
       expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'COMPLETED' }, data: { status: 'PAYMENT_PENDING' } })
 
       // Retry: the same logical release is invoked again.
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowPaymentPending })
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrowPaymentPending })
       mockWdkReleaseFunds.mockImplementationOnce(async () => {
         externalEffects.push('release-attempt-2')
         return { txId: '0xSIMULATED_RELEASE_TX' }
       })
-      mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrowPaymentPending, status: 'COMPLETED', txReleaseId: '0xSIMULATED_RELEASE_TX' })
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrowPaymentPending, status: 'COMPLETED', txReleaseId: '0xSIMULATED_RELEASE_TX' })
 
       const retried = await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
       expect(retried.status).toBe('COMPLETED')
@@ -181,7 +181,7 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
   describe('refundFunds()', () => {
     it('a provider call that performs its (simulated) side effect and THEN throws still allows the same logical operation to reach the provider a second time', async () => {
       const externalEffects: string[] = []
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowFundsLocked })
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrowFundsLocked })
 
       mockWdkRefundFunds.mockImplementationOnce(async () => {
         externalEffects.push('refund-attempt-1')
@@ -195,12 +195,12 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
       expect(mockEscrowUpdate).not.toHaveBeenCalled()
       expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'REFUNDED' }, data: { status: 'FUNDS_LOCKED' } })
 
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowFundsLocked })
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrowFundsLocked })
       mockWdkRefundFunds.mockImplementationOnce(async () => {
         externalEffects.push('refund-attempt-2')
         return { txId: '0xSIMULATED_REFUND_TX' }
       })
-      mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrowFundsLocked, status: 'REFUNDED', txReleaseId: '0xSIMULATED_REFUND_TX' })
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrowFundsLocked, status: 'REFUNDED', txReleaseId: '0xSIMULATED_REFUND_TX' })
 
       const retried = await escrowService.refundFunds('escrow-1', 'seller-1')
       expect(retried.status).toBe('REFUNDED')
@@ -235,7 +235,7 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
     // failure specific to the second transfer).
     it('leg 1 succeeds (simulated) and leg 2 throws before its own side effect — retry repeats leg 1', async () => {
       const legEffects: string[] = []
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowDisputed })
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrowDisputed })
 
       mockWdkSplitFunds.mockImplementationOnce(async () => {
         legEffects.push('leg1-attempt-1') // leg 1's (simulated) transfer happens
@@ -259,13 +259,13 @@ describe('WDK_USDT_EVM releaseFunds()/refundFunds()/splitFunds() — fund-moving
       // never learned leg 1 already happened, the ONLY operation it can
       // request is the whole splitFunds() call again — there is no
       // "resume from leg 2" path anywhere in this orchestration.
-      mockEscrowFindUnique.mockResolvedValue({ ...baseEscrowDisputed })
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrowDisputed })
       mockWdkSplitFunds.mockImplementationOnce(async () => {
         legEffects.push('leg1-attempt-2') // leg 1's side effect happens AGAIN
         legEffects.push('leg2-attempt-1')
         return { txIds: ['0xSIMULATED_LEG1_TX', '0xSIMULATED_LEG2_TX'] }
       })
-      mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrowDisputed, status: 'SPLIT', txReleaseId: '0xSIMULATED_LEG1_TX,0xSIMULATED_LEG2_TX' })
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrowDisputed, status: 'SPLIT', txReleaseId: '0xSIMULATED_LEG1_TX,0xSIMULATED_LEG2_TX' })
 
       const retried = await escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')
       expect(retried.status).toBe('SPLIT')

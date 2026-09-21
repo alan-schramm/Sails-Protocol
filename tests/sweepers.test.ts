@@ -119,9 +119,9 @@ const mockEscrowFindUnique = jest.fn(async ({ where }: any) => {
 const mockEscrowUpdateMany = jest.fn(async ({ where, data }: any) => {
   const row = fakeDb.escrows.get(where.id)
   if (!row) return { count: 0 }
-  if (row.status !== where.status) return { count: 0 }
-  row.status = data.status
-  if (data.txReleaseId !== undefined) row.txReleaseId = data.txReleaseId
+  const matches = Object.entries(where).every(([key, expected]) => (row as any)[key] === expected)
+  if (!matches) return { count: 0 }
+  Object.assign(row, data)
   return { count: 1 }
 })
 const mockEscrowUpdate = jest.fn(async ({ where, data }: any) => {
