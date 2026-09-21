@@ -471,6 +471,13 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
     const obligations = await prisma.feeObligation.findMany({ where: { escrowId: escrow.id } })
     expect(obligations).toHaveLength(1)
 
+    // Prove the reconciler used the EXACT frozen allocation, not merely that
+    // it created some idempotent obligation. For buyerBps=3750, the seller
+    // fee basis must be exactly 62.5% of the locked amount.
+    if (obligations[0].basisAmount !== null) {
+      expect(obligations[0].basisAmount.toString()).toBe('0.625')
+    }
+
     const events = await prisma.escrowEvent.findMany({
       where: { escrowId: escrow.id, toStatus: 'SPLIT' },
     })
