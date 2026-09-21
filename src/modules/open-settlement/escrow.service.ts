@@ -911,22 +911,18 @@ export class EscrowService {
       throw new EscrowError(`Escrow ${escrowId} SPLIT transition was already claimed by another operation`)
     }
 
-    let result: Awaited<ReturnType<NonNullable<typeof provider.splitFunds>>>
-    try {
-      result = await provider.splitFunds(
-        { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
-        resolvedBuyerAddress,
-        resolvedSellerAddress,
-        buyerBps
-      )
-    } catch (err) {
-      // Preserve the pre-existing provider-failure behavior here only.
-      // Crucially, once the provider RETURNS success, no later local
-      // bookkeeping failure may roll SPLIT back: external money already
-      // moved and #247 recovery must converge from the frozen allocation.
-      await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
-      throw err
-    }
+    // Day-0 #250/#240 safety: after the atomic SPLIT claim freezes the
+    // economic allocation, provider failure is not evidence that no external
+    // side effect occurred. WDK can throw for SUBMITTED/PENDING or
+    // SUBMISSION_UNKNOWN after the submission boundary. Never roll the
+    // semantic state back to DISPUTED here; durable per-leg attempt truth +
+    // restart reconciliation own convergence. UNKNOWN != FAILED.
+    const result = await provider.splitFunds(
+      { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
+      resolvedBuyerAddress,
+      resolvedSellerAddress,
+      buyerBps
+    )
 
     const updated = await this.repo.updateSplitResult(escrowId, {
       txReleaseId: result.txIds.join(','), releasedAt: new Date(),
