@@ -366,9 +366,21 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     // mission's scope (see this file's own header comment) — fail
     // closed rather than guess. A real operator response requires a
     // human to inspect this escrow's actual provider-side state.
+    // Issue #291 hardening - the reconciler never re-runs the provider and never writes a result it cannot
+    // prove, so this state is an EXPLICIT uncertain one; surface any durable WDK attempt evidence so the
+    // operator (and the write-once primitive, once a human confirms) can act on facts rather than guess.
+    let evidence = ''
+    if (escrow.type === 'WDK_USDT_EVM') {
+      const attempts = await prisma.wdkTransferAttempt.findMany({
+        where: { escrowId: escrow.id, operationType: { in: ['RELEASE', 'REFUND', 'SPLIT_BUYER', 'SPLIT_SELLER'] } },
+        select: { operationType: true, status: true, txHash: true },
+        orderBy: { createdAt: 'asc' },
+      })
+      evidence = attempts.length ? ` Durable WDK attempts: ${attempts.map((a) => `${a.operationType}=${a.status}${a.txHash ? `(${a.txHash})` : ''}`).join(', ')}.` : ' No durable WDK attempt exists.'
+    }
     report.requiresManualReview.push({
       escrowId: escrow.id,
-      reason: `Escrow type '${escrow.type}' has no automated crash-recovery reconciliation primitive in this mission's scope — status is '${escrow.status}' with no txReleaseId. Manual review required.`,
+      reason: `Escrow type '${escrow.type}' has no automated crash-recovery reconciliation primitive in this mission's scope — status is '${escrow.status}' with no txReleaseId. Manual review required.${evidence}`,
     })
     return
   }
@@ -604,15 +616,28 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
 // mint two durable events (two delivery identities) for one transition.
 const PROJECTION_RECOVERY_GRACE_MS = 5 * 60 * 1000
 const PROJECTION_RECOVERY_BATCH = 200
+const PROJECTION_RECOVERY_MAX_PAGES = 50
 
 export async function reconcileIncompleteProjections(report: ReconciliationReport, graceMs: number): Promise<void> {
   const cutoff = new Date(Date.now() - graceMs)
-  const claimed = await prisma.eventProjectionClaim.findMany({
-    where: { projectionKey: TRANSITION_CLAIMED_KEY, appliedAt: { lt: cutoff } },
-    orderBy: { appliedAt: 'asc' },
-    take: PROJECTION_RECOVERY_BATCH,
-  })
-  if (claimed.length === 0) return
+  // Page through ALL claimed transitions (bounded), oldest first: a transition that can never complete
+  // (permanent anomaly) must not starve newer ones behind it in a fixed-size head-of-queue batch.
+  let cursor: string | undefined
+  for (let page = 0; page < PROJECTION_RECOVERY_MAX_PAGES; page++) {
+    const claimed = await prisma.eventProjectionClaim.findMany({
+      where: { projectionKey: TRANSITION_CLAIMED_KEY, appliedAt: { lt: cutoff } },
+      orderBy: [{ appliedAt: 'asc' }, { id: 'asc' }],
+      take: PROJECTION_RECOVERY_BATCH,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    })
+    if (claimed.length === 0) return
+    cursor = claimed[claimed.length - 1].id
+    await redriveClaimedPage(claimed, report)
+    if (claimed.length < PROJECTION_RECOVERY_BATCH) return
+  }
+}
+
+async function redriveClaimedPage(claimed: Array<{ id: string; eventId: string; subjectId: string }>, report: ReconciliationReport): Promise<void> {
 
   const projected = await prisma.eventProjectionClaim.findMany({
     where: { projectionKey: TRANSITION_PROJECTED_KEY, subjectId: { in: claimed.map((c) => c.eventId) } },

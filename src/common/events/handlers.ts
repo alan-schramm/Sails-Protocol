@@ -140,14 +140,20 @@ async function recordTradeCompletion(tx: ProjectionTx, buyerId: string, sellerId
  *  helper is safe to call from every completion path without a
  *  per-handler try/catch dance. */
 async function fulfillIntent(intentId: string, escrowId: string, outcome: 'RELEASED' | 'SPLIT'): Promise<void> {
-  await intentEngine.transition(
-    intentId, 'SETTLING', INTENT_LIFECYCLE_TRIGGER, 'intent.settling',
-    { intentId, settlementId: escrowId }
-  )
-  await intentEngine.transition(
-    intentId, 'FULFILLED', INTENT_LIFECYCLE_TRIGGER, 'intent.fulfilled',
-    { intentId, settlementId: escrowId, outcome }
-  )
+  // Each step tolerates only "already there/past it": a crash between the two steps must leave a retry able
+  // to finish FULFILLED (previously an already-SETTLING intent aborted the whole helper).
+  await ensureIntentCommitted(intentId, escrowId)
+  await advanceIntent(intentId, 'SETTLING', 'intent.settling', { intentId, settlementId: escrowId })
+  await advanceIntent(intentId, 'FULFILLED', 'intent.fulfilled', { intentId, settlementId: escrowId, outcome })
+}
+
+/**
+ * A released/refunded/split escrow proves the funds were locked, so the Intent is at least COMMITTED even if
+ * the (independent) 'locked' event has not been projected yet. Catching up here keeps the Intent progression
+ * monotonic and lets the settlement event complete instead of failing until 'locked' happens to arrive.
+ */
+async function ensureIntentCommitted(intentId: string, escrowId: string): Promise<void> {
+  await advanceIntent(intentId, 'COMMITTED', 'intent.committed', { intentId, settlementId: escrowId, terms: null })
 }
 
 /** RFC-021 D4, Phase 3 — split the cost-to-fabricate-reputation floor
@@ -219,7 +225,12 @@ async function applyRefundOutcomes(eventId: string, tradeId: string, buyerId: st
 /** Trade status projection: derived from the PERSISTED Escrow state (monotonic), never from the event payload. */
 async function projectTrade(event: { eventId: string }, tradeId: string, escrowId: string): Promise<boolean> {
   return applyEventProjectionOnce(event.eventId, 'trade.status', tradeId, async (tx) => {
-    await tradeRepository.projectEscrowStatus(tradeId, escrowId, { tx })
+    const r = await tradeRepository.projectEscrowStatus(tradeId, escrowId, { tx })
+    // An unresolvable (trade, escrow) pair is not "nothing to project": throwing rolls the claim back so the
+    // event is neither consumed nor marked projected while its projection was never applied.
+    if (!r.applied && (r.reason === 'ESCROW_NOT_FOUND' || r.reason === 'TRADE_MISMATCH')) {
+      throw new Error(`Trade projection impossible (${r.reason}) for trade ${tradeId} / escrow ${escrowId}`)
+    }
   })
 }
 
@@ -230,24 +241,33 @@ async function markTransitionProjected(event: { eventId: string; payload: { tran
   await applyEventProjectionOnce(event.eventId, TRANSITION_PROJECTED_KEY, transitionId, async () => {})
 }
 
-/**
- * An Intent transition whose target is already reached/passed (the state machine rejects it) is
- * an already-applied effect on redelivery, not a failure - so it must not leave the transition
- * looking "incompletely projected" forever.
- */
-async function tolerateAlreadyAdvanced(fn: () => Promise<unknown>): Promise<void> {
+// States at which an Intent transition to the key is already applied / superseded (nothing left to do).
+// An Intent still EARLIER than the target is NOT tolerated: the transition is not applied yet, so the event
+// must fail and be redelivered rather than be recorded as projected.
+const INTENT_AT_OR_PAST: Record<string, string[]> = {
+  COMMITTED: ['COMMITTED', 'SETTLING', 'FULFILLED', 'FAILED', 'CANCELLED', 'EXPIRED'],
+  SETTLING: ['SETTLING', 'FULFILLED', 'FAILED', 'CANCELLED', 'EXPIRED'],
+  FULFILLED: ['FULFILLED', 'FAILED', 'CANCELLED', 'EXPIRED'],
+  FAILED: ['FAILED', 'FULFILLED', 'CANCELLED', 'EXPIRED'],
+}
+
+async function advanceIntent(intentId: string, target: keyof typeof INTENT_AT_OR_PAST, eventName: string, payload: Record<string, unknown>): Promise<void> {
   try {
-    await fn()
+    await intentEngine.transition(intentId, target as never, INTENT_LIFECYCLE_TRIGGER, eventName as never, payload as never)
   } catch (err) {
-    if (err instanceof Error && /Invalid Intent transition/.test(err.message)) return
+    const m = err instanceof Error ? /Invalid Intent transition: (\w+) → (\w+)/.exec(err.message) : null
+    if (m && m[2] === target && INTENT_AT_OR_PAST[target].includes(m[1])) return
     throw err
   }
 }
 
-/** A notification emitted at most once per (event, key): claim first, emit after. */
+/**
+ * A notification emitted once per (event, key). The emit runs INSIDE the claim transaction: if it fails the
+ * claim rolls back and the redelivery emits again (at-least-once), instead of consuming the claim and losing
+ * the notification (at-most-once, the previous claim-first order).
+ */
 async function emitOnce(event: { eventId: string }, key: string, subjectId: string, emit: () => Promise<void>): Promise<void> {
-  const claimed = await applyEventProjectionOnce(event.eventId, key, subjectId, async () => {})
-  if (claimed) await emit()
+  await applyEventProjectionOnce(event.eventId, key, subjectId, async () => { await emit() })
 }
 
 export function registerEventHandlers(): void {
@@ -285,12 +305,7 @@ export function registerEventHandlers(): void {
     const trade = await prisma.trade.findUnique({ where: { id: payload.tradeId } })
 
     if (trade?.intentId) {
-      await tolerateAlreadyAdvanced(() =>
-        intentEngine.transition(
-          trade.intentId!, 'COMMITTED', INTENT_LIFECYCLE_TRIGGER, 'intent.committed',
-          { intentId: trade.intentId!, settlementId: payload.escrowId, terms: null }
-        )
-      )
+      await advanceIntent(trade.intentId, 'COMMITTED', 'intent.committed', { intentId: trade.intentId, settlementId: payload.escrowId, terms: null })
     }
     await markTransitionProjected(event)
   })
@@ -322,7 +337,7 @@ export function registerEventHandlers(): void {
     await applyReleaseOutcomes(eventId, payload.tradeId, trade.buyerId, trade.sellerId)
 
     if (trade.intentId) {
-      await tolerateAlreadyAdvanced(() => fulfillIntent(trade.intentId!, payload.escrowId, 'RELEASED'))
+      await fulfillIntent(trade.intentId, payload.escrowId, 'RELEASED')
     }
     await markTransitionProjected(event)
   })
@@ -351,12 +366,8 @@ export function registerEventHandlers(): void {
     const resolvedRefund = await applyRefundOutcomes(event.eventId, payload.tradeId, trade.buyerId, trade.sellerId)
 
     if (trade.intentId) {
-      await tolerateAlreadyAdvanced(() =>
-        intentEngine.transition(
-          trade.intentId!, 'FAILED', INTENT_LIFECYCLE_TRIGGER, 'intent.failed',
-          { intentId: trade.intentId!, reason: resolvedRefund ? 'Escrow refunded per dispute ruling' : 'Escrow refunded' }
-        )
-      )
+      await ensureIntentCommitted(trade.intentId, payload.escrowId)
+      await advanceIntent(trade.intentId, 'FAILED', 'intent.failed', { intentId: trade.intentId, reason: resolvedRefund ? 'Escrow refunded per dispute ruling' : 'Escrow refunded' })
     }
     await markTransitionProjected(event)
   })
@@ -384,7 +395,7 @@ export function registerEventHandlers(): void {
     )
 
     if (trade.intentId) {
-      await tolerateAlreadyAdvanced(() => fulfillIntent(trade.intentId!, payload.escrowId, 'SPLIT'))
+      await fulfillIntent(trade.intentId, payload.escrowId, 'SPLIT')
     }
     await markTransitionProjected(event)
   })

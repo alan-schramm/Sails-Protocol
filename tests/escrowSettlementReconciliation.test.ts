@@ -124,6 +124,8 @@ jest.mock('../src/common/database', () => ({
   prisma: {
     // Issue #298 - PASS 3 scans for claimed-but-unprojected transitions; none by default.
     eventProjectionClaim: { findMany: jest.fn().mockResolvedValue([]) },
+    // Issue #291 hardening - durable WDK attempt evidence attached to the manual-review reason.
+    wdkTransferAttempt: { findMany: jest.fn().mockResolvedValue([{ operationType: 'RELEASE', status: 'CONFIRMED', txHash: '0xabc' }]) },
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
     escrowPendingTransaction: {
       findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
@@ -314,6 +316,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(report.requiresManualReview).toHaveLength(1)
     expect(report.requiresManualReview[0].escrowId).toBe('escrow-1')
     expect(report.requiresManualReview[0].reason).toMatch(/no automated crash-recovery reconciliation primitive/)
+    expect(report.requiresManualReview[0].reason).toContain("RELEASE=CONFIRMED(0xabc)")
     expect(mockReconcilePendingSettlement).not.toHaveBeenCalled()
   })
 

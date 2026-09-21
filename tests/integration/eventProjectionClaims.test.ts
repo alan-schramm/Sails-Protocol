@@ -98,6 +98,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     }
     throw new Error('timed out waiting for condition')
   }
+  const projectedCount = (transitionId: string) => prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.projected', subjectId: transitionId } })
   const projected = (transitionId: string) => async () =>
     (await prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.projected', subjectId: transitionId } })) > 0
 
@@ -292,5 +293,78 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     const eventId = randomUUID()
     await prisma.eventProjectionClaim.create({ data: { eventId, projectionKey: 'k', subjectId: 's' } })
     await expect(prisma.eventProjectionClaim.create({ data: { eventId, projectionKey: 'k', subjectId: 's' } })).rejects.toThrow(/Unique constraint/)
+  })
+
+  // ── Hardening (PR #320 adversarial pass) ────────────────────────────────────────────────────────
+
+  it('ORDERING: an unresolvable Trade projection FAILS the handler - no projection claim, no counters, and transition.projected is NEVER recorded; redelivery does not consume the event either', async () => {
+    requirePostgres('projected marker requires committed projection')
+    const ctx = await makeCompletedEscrow()
+    const other = await makeCompletedEscrow('FUNDS_LOCKED') // a real trade that does NOT own ctx's escrow
+    const eventId = randomUUID()
+    const transition = await prisma.escrowEvent.create({
+      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h', prevHash: 'genesis' },
+    })
+    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
+    await prisma.durableEventRecord.create({
+      data: {
+        id: eventId, eventName: 'settlement.escrow.released', correlationId: other.tradeId,
+        // TRADE_MISMATCH: the payload pairs a trade with an escrow it does not own
+        payload: { escrowId: ctx.escrowId, tradeId: other.tradeId, from: 'PAYMENT_PENDING', to: 'COMPLETED', triggeredBy: ctx.sellerId, transitionId: transition.id },
+        publishedAt: new Date().toISOString(), entryHash: 'e', prevHash: 'genesis',
+      },
+    })
+    for (let i = 0; i < 2; i++) {
+      await eventBus.redeliver(eventId).catch(() => {})
+      await sleep(400)
+    }
+    expect(await claimCount(eventId, 'trade.status')).toBe(0)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId } })).toBe(0)
+    expect(await prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.projected', subjectId: transition.id } })).toBe(0)
+    expect((await userOf(other.buyerId))!.totalTrades).toBe(0)
+    expect((await tradeOf(other.tradeId))!.status).toBe('ACTIVE')
+    // this deliberately-unprojectable fixture must not linger as a permanently stuck transition in the shared DB
+    await prisma.eventProjectionClaim.deleteMany({ where: { eventId: transition.id } })
+  })
+
+  it('MONOTONIC under reversal: delivering the events of one escrow lifecycle in REVERSE order (released, then disputed, then locked) never regresses the Trade', async () => {
+    requirePostgres('reverse-order delivery')
+    const ctx = await makeCompletedEscrow() // persisted Escrow is already COMPLETED
+    const mk = async (name: string, toStatus: string) => {
+      const transition = await prisma.escrowEvent.create({
+        data: { escrowId: ctx.escrowId, fromStatus: 'CREATED', toStatus: toStatus as any, triggeredBy: ctx.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' },
+      })
+      await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
+      const id = randomUUID()
+      await prisma.durableEventRecord.create({
+        data: {
+          id, eventName: name, correlationId: ctx.tradeId,
+          payload: { escrowId: ctx.escrowId, tradeId: ctx.tradeId, from: 'CREATED', to: toStatus, triggeredBy: ctx.sellerId, transitionId: transition.id, txId: 'tx-' + id },
+          publishedAt: new Date().toISOString(), entryHash: 'e' + id, prevHash: 'genesis',
+        },
+      })
+      return { id, transitionId: transition.id }
+    }
+    const released = await mk('settlement.escrow.released', 'COMPLETED')
+    const disputed = await mk('settlement.escrow.disputed', 'DISPUTED')
+    const locked = await mk('settlement.escrow.locked', 'FUNDS_LOCKED')
+    for (const e of [released, disputed, locked]) {
+      await eventBus.redeliver(e.id)
+      await waitFor(projected(e.transitionId))
+      expect((await tradeOf(ctx.tradeId))!.status).toBe('COMPLETED')
+    }
+    expect((await userOf(ctx.buyerId))!.totalTrades).toBe(1)
+  })
+
+  it('RESTART: a fresh module graph re-running a fully projected durable event applies nothing a second time', async () => {
+    requirePostgres('restart replay')
+    const ctx = await makeCompletedEscrow()
+    const { eventId, transitionId } = await emitReleased(ctx)
+    await expectEffectsAppliedOnce(ctx)
+    // instance B is an independent module graph over the same database (a "restarted" process)
+    await instanceB!.eventBus.redeliver(eventId)
+    await sleep(600)
+    expect(await projectedCount(transitionId)).toBe(1)
+    await expectEffectsAppliedOnce(ctx)
   })
 })

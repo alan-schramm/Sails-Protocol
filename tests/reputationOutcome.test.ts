@@ -242,8 +242,10 @@ describe('settlement.escrow.split (RFC-021 D9) — NEUTRAL for both, no vouch bu
   it('walks the Intent through SETTLING then FULFILLED, in order', async () => {
     await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
 
-    expect(mockIntentTransition).toHaveBeenNthCalledWith(1, 'intent-1', 'SETTLING', 'system:trade-lifecycle', 'intent.settling', expect.objectContaining({ intentId: 'intent-1' }))
-    expect(mockIntentTransition).toHaveBeenNthCalledWith(2, 'intent-1', 'FULFILLED', 'system:trade-lifecycle', 'intent.fulfilled', expect.objectContaining({ intentId: 'intent-1', outcome: 'SPLIT' }))
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(2, 'intent-1', 'SETTLING', 'system:trade-lifecycle', 'intent.settling', expect.objectContaining({ intentId: 'intent-1' }))
+    // Issue #291 hardening: a settled escrow proves the funds were locked, so the Intent is first caught up to COMMITTED
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(1, 'intent-1', 'COMMITTED', 'system:trade-lifecycle', 'intent.committed', expect.objectContaining({ intentId: 'intent-1' }))
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(3, 'intent-1', 'FULFILLED', 'system:trade-lifecycle', 'intent.fulfilled', expect.objectContaining({ intentId: 'intent-1', outcome: 'SPLIT' }))
   })
 })
 
@@ -330,7 +332,7 @@ describe('RFC-018 — Intent lifecycle driven by settlement.escrow.* handlers', 
     await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'buyer-1', from: 'PAYMENT_PENDING', to: 'COMPLETED' })
 
     const calls = mockIntentTransition.mock.calls.map((c) => c[1]) // toStatus per call
-    expect(calls).toEqual(['SETTLING', 'FULFILLED'])
+    expect(calls).toEqual(['COMMITTED', 'SETTLING', 'FULFILLED'])
   })
 
   it('settlement.escrow.refunded transitions the Intent to FAILED', async () => {

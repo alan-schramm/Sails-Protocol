@@ -231,4 +231,68 @@ describe('Issue #291 - settlement result write-once integrity (real PostgreSQL)'
     expect(after.status).toBe('PAYMENT_PENDING')
     expect(after.txReleaseId).toBeNull()
   })
+
+  // ── Hardening (PR #320 adversarial pass) ────────────────────────────────────────────────────────
+
+  it('STATUS FREEZE: once the result exists the disposition cannot be converted (COMPLETED -> REFUNDED / SPLIT / back to a live state), even by a direct UPDATE; before a result, the claim is still revertible', async () => {
+    requirePostgres('status freeze')
+    const { escrowId } = await makeEscrow('COMPLETED')
+    // terminal claim WITHOUT a result is a transient claim: reverting it is legitimate
+    await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'PAYMENT_PENDING' } })
+    await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+    await escrowRepository.persistSettlementResult(escrowId, { txReleaseId: txidA(), releasedAt: new Date() })
+
+    for (const target of ['REFUNDED', 'SPLIT', 'PAYMENT_PENDING', 'FUNDS_LOCKED', 'DISPUTED']) {
+      await expect(prisma.$executeRawUnsafe(`UPDATE escrows SET status = '${target}' WHERE id = '${escrowId}'`)).rejects.toThrow(/status is frozen/)
+      await expect(prisma.escrow.updateMany({ where: { id: escrowId }, data: { status: target as any } })).rejects.toThrow(/status is frozen/)
+    }
+    expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.status).toBe('COMPLETED')
+    // the repository CAS-revert path cannot undo a persisted result either (it is a status-conditioned updateMany)
+    await expect(escrowRepository.revertStatus(escrowId, 'COMPLETED', 'PAYMENT_PENDING')).rejects.toThrow(/status is frozen/)
+  })
+
+  it('INDEPENDENT CONNECTIONS: two separate database connections writing DIFFERENT results by raw UPDATE at the same time - exactly one is authoritative, the loser fails without corrupting it', async () => {
+    requirePostgres('independent connections')
+    const { escrowId } = await makeEscrow('COMPLETED')
+    const { PrismaPg } = require('@prisma/adapter-pg')
+    const other = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) })
+    try {
+      const A = txidA(), B = txidB()
+      const results = await Promise.allSettled([
+        prisma.$executeRaw`UPDATE escrows SET "txReleaseId" = ${A} WHERE id = ${escrowId} AND "txReleaseId" IS NULL`,
+        other.$executeRaw`UPDATE escrows SET "txReleaseId" = ${B} WHERE id = ${escrowId} AND "txReleaseId" IS NULL`,
+      ])
+      // The IS NULL predicate makes the loser a 0-row no-op under READ COMMITTED; a predicate-less writer is
+      // rejected by the trigger. Either way exactly one value is authoritative afterwards.
+      const stored = (await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId
+      expect([A, B]).toContain(stored)
+      expect(results.filter((r) => r.status === 'fulfilled' && r.value === 1)).toHaveLength(1)
+      const loser = stored === A ? B : A
+      const loserClient = stored === A ? other : prisma
+      await expect(loserClient.$executeRaw`UPDATE escrows SET "txReleaseId" = ${loser} WHERE id = ${escrowId}`).rejects.toThrow(/write-once/)
+      expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId).toBe(stored)
+    } finally {
+      await other.$disconnect()
+    }
+  })
+
+  it('RESTART: a fresh module graph (new process context) sees the durable result and still refuses to overwrite it', async () => {
+    requirePostgres('restart write-once')
+    const { escrowId } = await makeEscrow('COMPLETED')
+    const A = txidA()
+    await escrowRepository.persistSettlementResult(escrowId, { txReleaseId: A, releasedAt: new Date() })
+    let freshRepo: typeof escrowRepository | undefined
+    let freshPrisma: PrismaClient | undefined
+    jest.isolateModules(() => {
+      freshRepo = require('../../src/modules/open-settlement/escrow-repository').escrowRepository
+      freshPrisma = require('../../src/common/database').prisma
+    })
+    try {
+      await expect(freshRepo!.persistSettlementResult(escrowId, { txReleaseId: txidB(), releasedAt: new Date() })).rejects.toThrow()
+      await freshRepo!.persistSettlementResult(escrowId, { txReleaseId: A, releasedAt: new Date() }) // same value: idempotent
+      expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId).toBe(A)
+    } finally {
+      await freshPrisma!.$disconnect()
+    }
+  })
 })
