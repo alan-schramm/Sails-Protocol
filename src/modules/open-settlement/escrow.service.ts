@@ -742,7 +742,7 @@ export class EscrowService {
     // lockFunds() above now is: atomically claim COMPLETED via a
     // conditional `updateMany` *before* ever calling the provider, so a
     // concurrent loser is rejected before touching real funds, not after.
-    await claimEscrowTransition(escrowId, escrow.status, 'COMPLETED')
+    await claimEscrowTransition(escrowId, escrow.status, 'COMPLETED', triggeredBy)
 
     try {
       const provider = getSettlementProvider(escrow.type)
@@ -843,7 +843,7 @@ export class EscrowService {
 
     // Same fix as releaseFunds() above, same reason: claim REFUNDED
     // atomically before ever calling the real, side-effecting provider.
-    await claimEscrowTransition(escrowId, escrow.status, 'REFUNDED')
+    await claimEscrowTransition(escrowId, escrow.status, 'REFUNDED', triggeredBy)
 
     try {
       const provider = getSettlementProvider(escrow.type)
@@ -900,7 +900,7 @@ export class EscrowService {
     // Day-0 #247 — freeze the economic allocation in the SAME Postgres CAS
     // that claims the terminal SPLIT state. No provider side effect may run
     // before this durable fact exists; recovery must never re-derive it.
-    const splitClaimed = await this.repo.claimSplitTransition(escrowId, escrow.status, buyerBps)
+    const splitClaimed = await this.repo.claimSplitTransition(escrowId, escrow.status, buyerBps, triggeredBy)
     if (splitClaimed !== 1) {
       const current = await this.repo.findById(escrowId)
       if (current?.status === 'SPLIT' && current.splitBuyerBps !== null && current.splitBuyerBps !== buyerBps) {
