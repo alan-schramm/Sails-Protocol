@@ -243,6 +243,7 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
   callback({
     durableEventRecord: durableEventRecords,
     eventProjectionClaim: eventProjectionClaims,
+    trade: trades,
     user: users,
     escrow: escrows,
     escrowFundingEvidence: escrowFundingEvidence,
