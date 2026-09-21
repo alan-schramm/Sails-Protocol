@@ -477,7 +477,23 @@ export class PostgresEventStore implements EventStore {
       // repository's lightweight EventStore test doubles already model the
       // former, while the database still enforces id uniqueness.
       const existing = await tx.durableEventRecord.findFirst({ where: { id: eventId } })
-      if (existing) return false
+      if (existing) {
+        // Deterministic derived identity means an existing row is a valid
+        // replay only when the immutable semantic content is identical.
+        // Silently accepting a different payload/correlation under the same
+        // sourceEventId + eventName would hide a split-brain projection bug.
+        const existingPayload = existing.payload as unknown
+        if (
+          existing.eventName !== eventName ||
+          existing.correlationId !== correlationId ||
+          JSON.stringify(existingPayload) !== JSON.stringify(payload)
+        ) {
+          throw new Error(
+            `Derived event identity collision for ${eventId}: existing durable event does not match replay`
+          )
+        }
+        return false
+      }
 
       const last = await tx.durableEventRecord.findFirst({
         where: { correlationId },
