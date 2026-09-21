@@ -911,35 +911,40 @@ export class EscrowService {
       throw new EscrowError(`Escrow ${escrowId} SPLIT transition was already claimed by another operation`)
     }
 
+    let result: Awaited<ReturnType<NonNullable<typeof provider.splitFunds>>>
     try {
-      const result = await provider.splitFunds(
+      result = await provider.splitFunds(
         { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
         resolvedBuyerAddress,
         resolvedSellerAddress,
         buyerBps
       )
-
-      const updated = await this.repo.updateSplitResult(escrowId, {
-        txReleaseId: result.txIds.join(','), releasedAt: new Date(),
-      })
-
-      // Missão 11 Fase 3 — SPLIT is OWED, basis = seller's bps-derived
-      // portion only (buyerBps out of 10000; seller gets the remainder —
-      // escrow-providers.ts's own SettlementProvider.splitFunds() comment).
-      await feeObligationService.recordObligationForEscrowSettlement(escrow, 'SPLIT', buyerBps)
-
-      // Joined into the shared txId?: string field (SettlementEscrowStatusChangedEvent)
-      // rather than widening that event's payload for the one settlement
-      // action that can produce two transaction hashes instead of one.
-      await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'SPLIT', triggeredBy, 'settlement.escrow.split', {
-        txId: result.txIds.join(','),
-      })
-
-      return updated
     } catch (err) {
+      // Preserve the pre-existing provider-failure behavior here only.
+      // Crucially, once the provider RETURNS success, no later local
+      // bookkeeping failure may roll SPLIT back: external money already
+      // moved and #247 recovery must converge from the frozen allocation.
       await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
       throw err
     }
+
+    const updated = await this.repo.updateSplitResult(escrowId, {
+      txReleaseId: result.txIds.join(','), releasedAt: new Date(),
+    })
+
+    // Missão 11 Fase 3 — SPLIT is OWED, basis = seller's bps-derived
+    // portion only (buyerBps out of 10000; seller gets the remainder —
+    // escrow-providers.ts's own SettlementProvider.splitFunds() comment).
+    await feeObligationService.recordObligationForEscrowSettlement(escrow, 'SPLIT', buyerBps)
+
+    // Joined into the shared txId?: string field (SettlementEscrowStatusChangedEvent)
+    // rather than widening that event's payload for the one settlement
+    // action that can produce two transaction hashes instead of one.
+    await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'SPLIT', triggeredBy, 'settlement.escrow.split', {
+      txId: result.txIds.join(','),
+    })
+
+    return updated
   }
 
   // ─── RFC-015 two-person control — thin delegates to escrow-dual-approval.ts ──
