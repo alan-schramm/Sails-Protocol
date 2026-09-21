@@ -327,6 +327,13 @@ export class WdkSettlementProvider implements SettlementProvider {
         destination: sellerAddress,
         amount: sellerDecimalAmount,
       })
+    } else if (
+      existingSellerAttempt.destination !== sellerAddress ||
+      toBaseUnits(existingSellerAttempt.amount.toString(), USDT_DECIMALS) !== sellerAmount
+    ) {
+      throw new EscrowError(
+        `WDK_USDT_EVM SPLIT_SELLER intent for escrow ${escrow.id} does not match the requested seller destination/amount — refusing to touch the buyer leg.`
+      )
     }
 
     const buyerTxId = await this.executeTransfer(escrow.id, 'SPLIT_BUYER', escrowAcct, buyerAddress, fromBaseUnits(buyerAmount, USDT_DECIMALS), buyerAmount)
