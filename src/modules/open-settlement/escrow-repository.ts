@@ -158,6 +158,9 @@ export interface EscrowRepository {
    *  every other existing caller, unchanged behavior. */
   claimTransition(escrowId: string, fromStatus: string, toStatus: string, tx?: Prisma.TransactionClient): Promise<number>
 
+  /** #247 — atomically freezes SPLIT allocation with the terminal-state claim. */
+  claimSplitTransition(escrowId: string, fromStatus: string, buyerBps: number): Promise<number>
+
   /** releaseFunds()'s own write. */
   updateReleaseResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date; feeCharged: Prisma.Decimal | null }): Promise<EscrowRow>
 
@@ -314,6 +317,14 @@ class PrismaEscrowRepository implements EscrowRepository {
     const claim = await client.escrow.updateMany({
       where: { id: escrowId, status: fromStatus as any },
       data: { status: toStatus as any },
+    })
+    return claim.count
+  }
+
+  async claimSplitTransition(escrowId: string, fromStatus: string, buyerBps: number): Promise<number> {
+    const claim = await prisma.escrow.updateMany({
+      where: { id: escrowId, status: fromStatus as any, splitBuyerBps: null },
+      data: { status: 'SPLIT', splitBuyerBps: buyerBps },
     })
     return claim.count
   }
