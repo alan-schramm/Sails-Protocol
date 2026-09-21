@@ -49,7 +49,7 @@ We love pull requests! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 For enterprise support, integration assistance, or custom development:
 
-- **Email:** enterprise@sailsprotocol.io
+- **Email:** social@satsails.com
 - **Website:** https://sailsprotocol.io/enterprise
 
 ## Response Times
