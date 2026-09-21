@@ -444,6 +444,45 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   })
 
 
+  it('#247 restart reconstructs exact direct-SPLIT accounting from frozen buyerBps exactly once', async () => {
+    requirePostgres('#247 split accounting restart convergence')
+    const suffix = `split-accounting-recovery-${Date.now()}`
+    const buyer = await registerTestParticipant(identityService, `${suffix}-buyer`)
+    const seller = await registerTestParticipant(identityService, `${suffix}-seller`)
+    const offer = await liquidityRouter.createOffer({
+      userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '1', maxAmount: '1', paymentMethod: 'CRYPTO_DIRECT',
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '1' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'WDK_USDT_EVM', lockedAmount: '1', asset: 'USDT_ERC20' }, seller.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+
+    // Crash window #247: the direct-call split already persisted its exact
+    // allocation and tx ids, but the process died before FeeObligation/event.
+    const buyerBps = 3750
+    await prisma.escrow.update({
+      where: { id: escrow.id },
+      data: { status: 'SPLIT', splitBuyerBps: buyerBps, txReleaseId: `split-buyer-${suffix},split-seller-${suffix}`, releasedAt: new Date() },
+    })
+
+    const [a, b] = await Promise.all([reconcilePendingSettlements(), reconcilePendingSettlements()])
+    const reports = [a, b]
+    expect(reports.flatMap((x: any) => x.completionEffectsRecovered).filter((x: any) => x.escrowId === escrow.id).length).toBeGreaterThanOrEqual(1)
+
+    const obligations = await prisma.feeObligation.findMany({ where: { escrowId: escrow.id } })
+    expect(obligations).toHaveLength(1)
+
+    const events = await prisma.escrowEvent.findMany({
+      where: { escrowId: escrow.id, toStatus: 'SPLIT' },
+    })
+    expect(events).toHaveLength(1)
+
+    // A later restart remains a no-op for accounting/event identity.
+    await reconcilePendingSettlements()
+    expect(await prisma.feeObligation.count({ where: { escrowId: escrow.id } })).toBe(1)
+    expect(await prisma.escrowEvent.count({ where: { escrowId: escrow.id, toStatus: 'SPLIT' } })).toBe(1)
+  })
+
+
   it('WDK CONFIRMED restart converges through the real reconciler exactly once under repeated/concurrent PostgreSQL recovery', async () => {
     requirePostgres('WDK full restart reconciliation composition')
     const suffix = `wdk-full-recovery-${Date.now()}`
