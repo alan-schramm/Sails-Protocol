@@ -4,63 +4,56 @@
 
 ### Documentation
 
-- [README](README.md) — Quick start and overview
-- [SDK Guide](docs/SDK_GUIDE.md) — Comprehensive SDK documentation
-- [Architecture](docs/ARCHITECTURE.md) — System design and principles
-- [API Reference](docs/API_REFERENCE.md) — Endpoint documentation
-- [Contributing](CONTRIBUTING.md) — How to contribute
+- [README](README.md) — quick start and repository overview
+- [System Design](docs/SYSTEM_DESIGN.md) — consolidated current system-level technical map
+- [SDK Guide](docs/SDK_GUIDE.md) — SDK onboarding and integration guidance
+- [API Reference](docs/API_REFERENCE.md) — endpoint and API documentation
+- [Stable API](docs/API_STABLE.md) — pre-v1 compatibility contract for the public SDK
+- [Contributing](CONTRIBUTING.md) — contribution workflow and architecture discipline
 
-### Community
+### Repository Support Channels
 
-- **GitHub Discussions** — Ask questions, share ideas
-- **Discord** — Real-time chat with the community
-- **Twitter** — Follow for updates
+Use the public repository surfaces that are actually part of this project:
 
-### Issues
+- **GitHub Issues** — reproducible bugs, bounded feature requests, and tracked engineering problems
+- **Pull Requests** — proposed code/documentation changes
+- **Security reports** — follow [SECURITY.md](SECURITY.md); do not disclose sensitive vulnerabilities in a public issue
 
-- **Bug Reports** — Use GitHub Issues with bug report template
-- **Feature Requests** — Use GitHub Issues with feature request template
-- **Security Issues** — See [SECURITY.md](SECURITY.md)
+This file intentionally does not advertise chat communities, social accounts, commercial-support channels, or response-time SLAs unless those channels are explicitly maintained and verifiable. The project's current centralized public contact mailbox is **social@satsails.com**.
 
 ## Reporting Bugs
 
-When reporting bugs, please include:
+When reporting a bug, include where possible:
 
 1. **Environment** — OS, Node.js version, npm version
-2. **Steps to Reproduce** — Minimal code to reproduce the issue
-3. **Expected Behavior** — What you expected to happen
-4. **Actual Behavior** — What actually happened
-5. **Error Messages** — Full error output if applicable
+2. **Steps to reproduce** — minimal reproducible path
+3. **Expected behavior**
+4. **Actual behavior**
+5. **Error output / relevant logs**, with secrets and personal data removed
+6. **Affected package, module, rail/provider, or commit** when known
+
+Before opening a new issue, search existing open and closed issues for the same failure mode.
 
 ## Feature Requests
 
-We welcome feature requests! Please:
+Feature requests are useful when they are tied to a concrete integration, product, protocol, security, interoperability, or operational need.
 
-1. **Search existing issues** — Avoid duplicates
-2. **Describe the use case** — Why is this needed?
-3. **Provide examples** — How would you use it?
-4. **Consider alternatives** — Have you tried other approaches?
+Please include:
+
+1. the problem or use case;
+2. who needs it;
+3. why the current surface is insufficient;
+4. important compatibility/security constraints;
+5. alternatives already considered.
+
+A feature request does not itself change protocol scope or production eligibility. Architectural and protocol-sensitive changes remain subject to the repository's normal review/gate process.
 
 ## Pull Requests
 
-We love pull requests! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Commercial Support
-
-For enterprise support, integration assistance, or custom development:
-
-- **Email:** social@satsails.com
-- **Website:** https://sailsprotocol.io/enterprise
-
-## Response Times
-
-| Priority | Response Time |
-|----------|---------------|
-| Critical (security) | 24 hours |
-| High (blocking) | 1 week |
-| Medium (enhancement) | 2 weeks |
-| Low (question) | 1 month |
+For protocol-sensitive or security-sensitive changes, also follow the governing architecture, ADR/RFC, evidence, and review requirements linked from [docs/00-INDEX.md](docs/00-INDEX.md).
 
 ---
 
-> **Last updated:** 2026-08-07
+> **Last updated:** 2026-09-19
