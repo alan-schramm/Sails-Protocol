@@ -359,6 +359,22 @@ async function reconcileWdkSingleLegTxReleaseId(
     report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} escrow is terminal with no txReleaseId and no durable WdkTransferAttempt. Manual review required.` })
     return true
   }
+  const expectedAmount = escrow.lockedAmount.toString()
+  if (attempt.amount !== expectedAmount) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} attempt ${attempt.id} amount ${attempt.amount} does not match escrow lockedAmount ${expectedAmount} — durable execution truth is mismatched.` })
+    return true
+  }
+  if (!attempt.destination?.trim()) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} attempt ${attempt.id} has no durable destination — execution truth is corrupt.` })
+    return true
+  }
+  if (operationType === 'REFUND') {
+    const treasuryAddress = await (await wdkSettlementProvider.getTreasuryAccountForReconciliation()).getAddress()
+    if (attempt.destination.toLowerCase() !== treasuryAddress.toLowerCase()) {
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK REFUND attempt ${attempt.id} destination does not match the configured treasury destination — refusing automatic convergence.` })
+      return true
+    }
+  }
   if (!attempt.txHash && attempt.status === 'CONFIRMED') {
     report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} attempt ${attempt.id} is CONFIRMED without txHash — integrity anomaly.` })
     return true
