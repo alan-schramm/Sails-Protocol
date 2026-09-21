@@ -31,7 +31,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at [conduct@sailsprotocol.io](mailto:conduct@sailsprotocol.io).
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at [social@satsails.com](mailto:social@satsails.com).
 
 All complaints will be reviewed and investigated promptly and fairly.
 
