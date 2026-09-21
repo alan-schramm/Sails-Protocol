@@ -490,6 +490,51 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   })
 
 
+  it('#250 fully CONFIRMED WDK split converges exactly once after restart on real PostgreSQL', async () => {
+    requirePostgres('#250 WDK split restart convergence')
+    const suffix = `wdk-split-recovery-${Date.now()}`
+    const buyer = await registerTestParticipant(identityService, `${suffix}-buyer`)
+    const seller = await registerTestParticipant(identityService, `${suffix}-seller`)
+    const offer = await liquidityRouter.createOffer({
+      userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '1', maxAmount: '1', paymentMethod: 'CRYPTO_DIRECT',
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '1' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'WDK_USDT_EVM', lockedAmount: '1', asset: 'USDT_ERC20' }, seller.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+
+    await prisma.escrow.update({
+      where: { id: escrow.id },
+      data: { status: 'SPLIT', splitBuyerBps: 4000, txReleaseId: null, releasedAt: null },
+    })
+    await prisma.wdkTransferAttempt.createMany({
+      data: [
+        {
+          escrowId: escrow.id, operationType: 'SPLIT_BUYER', status: 'CONFIRMED',
+          destination: `0x${createHash('sha256').update(`${suffix}-buyer-dest`).digest('hex').slice(0, 40)}`,
+          amount: '0.4', txHash: `0x${createHash('sha256').update(`${suffix}-buyer-tx`).digest('hex')}`,
+          activeKey: `${escrow.id}:SPLIT_BUYER`,
+        },
+        {
+          escrowId: escrow.id, operationType: 'SPLIT_SELLER', status: 'CONFIRMED',
+          destination: `0x${createHash('sha256').update(`${suffix}-seller-dest`).digest('hex').slice(0, 40)}`,
+          amount: '0.6', txHash: `0x${createHash('sha256').update(`${suffix}-seller-tx`).digest('hex')}`,
+          activeKey: `${escrow.id}:SPLIT_SELLER`,
+        },
+      ],
+    })
+
+    await Promise.all([reconcilePendingSettlements(), reconcilePendingSettlements()])
+
+    const persisted = await prisma.escrow.findUnique({ where: { id: escrow.id } })
+    expect(persisted?.txReleaseId).toMatch(/^0x[0-9a-f]{64},0x[0-9a-f]{64}$/)
+    expect(persisted?.splitBuyerBps).toBe(4000)
+    expect(await prisma.escrowEvent.count({ where: { escrowId: escrow.id, toStatus: 'SPLIT' } })).toBe(1)
+
+    await reconcilePendingSettlements()
+    expect(await prisma.escrowEvent.count({ where: { escrowId: escrow.id, toStatus: 'SPLIT' } })).toBe(1)
+  })
+
+
   it('WDK CONFIRMED restart converges through the real reconciler exactly once under repeated/concurrent PostgreSQL recovery', async () => {
     requirePostgres('WDK full restart reconciliation composition')
     const suffix = `wdk-full-recovery-${Date.now()}`
