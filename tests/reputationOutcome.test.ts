@@ -231,8 +231,8 @@ describe('settlement.escrow.split (RFC-021 D9) — NEUTRAL for both, no vouch bu
   it('walks the Intent through SETTLING then FULFILLED, in order', async () => {
     await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
 
-    expect(mockIntentTransition).toHaveBeenNthCalledWith(1, 'intent-1', 'SETTLING', 'system:trade-lifecycle', 'intent.settling', expect.objectContaining({ intentId: 'intent-1' }))
-    expect(mockIntentTransition).toHaveBeenNthCalledWith(2, 'intent-1', 'FULFILLED', 'system:trade-lifecycle', 'intent.fulfilled', expect.objectContaining({ intentId: 'intent-1', outcome: 'SPLIT' }))
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(1, 'intent-1', 'SETTLING', 'system:trade-lifecycle', 'intent.settling', expect.objectContaining({ intentId: 'intent-1' }), undefined, new Date(0))
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(2, 'intent-1', 'FULFILLED', 'system:trade-lifecycle', 'intent.fulfilled', expect.objectContaining({ intentId: 'intent-1', outcome: 'SPLIT' }), undefined, new Date(0))
   })
 })
 
@@ -319,7 +319,7 @@ describe('RFC-018 — Intent lifecycle driven by settlement.escrow.* handlers', 
 
     expect(mockIntentTransition).toHaveBeenCalledWith(
       'intent-1', 'FAILED', 'system:trade-lifecycle', 'intent.failed',
-      expect.objectContaining({ intentId: 'intent-1' })
+      expect.objectContaining({ intentId: 'intent-1' }), undefined, new Date(0)
     )
   })
 })
