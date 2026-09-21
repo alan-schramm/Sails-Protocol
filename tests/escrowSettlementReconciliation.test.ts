@@ -54,6 +54,10 @@ jest.mock('../src/modules/open-settlement/wdk-transfer-attempt-repository', () =
   },
 }))
 jest.mock('../src/modules/open-settlement/wdk-settlement.provider', () => ({
+  toBaseUnits: (value: string, decimals: number) => {
+    const [whole, fraction = ''] = value.split('.')
+    return BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(fraction.slice(0, decimals).padEnd(decimals, '0') || '0')
+  },
   wdkSettlementProvider: {
     getEscrowAccountForReconciliation: jest.fn().mockResolvedValue({
       getTransactionReceipt: (...args: unknown[]) => mockWdkGetReceipt(...args),
