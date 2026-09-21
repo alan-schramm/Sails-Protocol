@@ -325,7 +325,7 @@ export async function loadParticipantPubkeys(escrowId: string): Promise<{ buyerP
 /** Atomic escrow.status transition — the same conditional updateMany +
  *  count === 0 → throw + revert idiom every mutating method below uses
  *  (the robustness-audit fix from 2026-07-20). */
-export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string): Promise<void> {
+export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string, directExecutionTriggeredBy?: string): Promise<void> {
   // 2026-08-15 — checked first and cheaply, before any real work: once
   // this escrow's circuit is open, every further attempt should fail
   // fast, not pay for an authorization check + DB round trip first. See
@@ -339,7 +339,7 @@ export async function claimEscrowTransition(escrowId: string, fromStatus: string
   if (!allowed.includes(toStatus)) {
     throw new EscrowError(`Invalid escrow transition: ${fromStatus} → ${toStatus}. Allowed: ${allowed.join(', ') || 'none'}`)
   }
-  const claimedCount = await escrowRepository.claimTransition(escrowId, fromStatus, toStatus)
+  const claimedCount = await escrowRepository.claimTransition(escrowId, fromStatus, toStatus, undefined, directExecutionTriggeredBy)
   if (claimedCount === 0) {
     // A real, concrete anomaly on this specific escrow — not a heuristic
     // guess — so it feeds the circuit breaker directly.
