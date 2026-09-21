@@ -405,7 +405,16 @@ async function reconcileWdkSingleLegTxReleaseId(
       report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} tx ${txHash} is proven REVERTED while escrow is terminal; local lifecycle requires operator repair, no automatic retry.` })
       return true
     }
-    await wdkTransferAttemptRepository.updateStatus(attempt.id, 'CONFIRMED', undefined, ['SUBMITTED'])
+    try {
+      await wdkTransferAttemptRepository.updateStatus(attempt.id, 'CONFIRMED', undefined, ['SUBMITTED'])
+    } catch (error) {
+      // A live completion may win the SUBMITTED -> CONFIRMED CAS while
+      // restart reconciliation is reading the same authoritative receipt.
+      // Accept that race only when durable truth converged to the exact same
+      // CONFIRMED txHash; every other ownership loss remains fail-closed.
+      const current = await wdkTransferAttemptRepository.findLatest(escrow.id, operationType)
+      if (current?.id !== attempt.id || current.status !== 'CONFIRMED' || current.txHash !== txHash) throw error
+    }
   }
 
   if (!txHash) {
