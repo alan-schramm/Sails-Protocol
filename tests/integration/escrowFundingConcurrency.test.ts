@@ -406,4 +406,42 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       expect(evidence.map((e: any) => e.kind)).toEqual(['OBSERVED_CONFIRMED']) // no new row from either sweep run
     })
   })
+
+  it('WDK recovery lock serializes competing txReleaseId identities and preserves the first durable winner', async () => {
+    requirePostgres('WDK txReleaseId reconciliation identity race')
+    const suffix = `wdk-recovery-${Date.now()}`
+    const buyer = await identityService.register({ publicKey: `${suffix}-buyer` })
+    const seller = await identityService.register({ publicKey: `${suffix}-seller` })
+    const offer = await liquidityRouter.createOffer({
+      userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '1', maxAmount: '1', paymentMethod: 'CRYPTO_DIRECT',
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '1' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'WDK_USDT_EVM', lockedAmount: '1', asset: 'USDT_ERC20' }, seller.id)
+
+    const contenders = ['0xaaa', '0xbbb']
+    const results = await Promise.allSettled(contenders.map((txHash) =>
+      withEscrowFundingLock(escrow.id, async (tx) => {
+        const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+        if (!fresh) throw new Error('escrow disappeared')
+        if (fresh.txReleaseId !== null) {
+          if (fresh.txReleaseId !== txHash) throw new Error(`conflicting txReleaseId ${fresh.txReleaseId} vs ${txHash}`)
+          return false
+        }
+        await tx.escrow.update({ where: { id: escrow.id }, data: { txReleaseId: txHash } })
+        return true
+      })
+    ))
+
+    expect(results.filter((x) => x.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((x) => x.status === 'rejected')).toHaveLength(1)
+
+    const persisted = await prisma.escrow.findUnique({ where: { id: escrow.id } })
+    expect(contenders).toContain(persisted?.txReleaseId)
+    const loser = contenders.find((x) => x !== persisted?.txReleaseId)!
+    await expect(withEscrowFundingLock(escrow.id, async (tx) => {
+      const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+      if (fresh?.txReleaseId !== loser) throw new Error(`conflicting txReleaseId ${fresh?.txReleaseId} vs ${loser}`)
+    })).rejects.toThrow(/conflicting txReleaseId/)
+  })
+
 })
