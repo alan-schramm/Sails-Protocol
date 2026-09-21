@@ -164,11 +164,13 @@ describe('PostgresEventStore - replay-safe derived events (#253)', () => {
       tradeId: correlationId,
       from: 'ACTIVE',
       to: 'COMPLETED',
+      triggeredBy: 'SETTLEMENT',
     }, correlationId)
     const replay = await store.publishDerivedOnce(sourceEventId, 'openp2p.trade.completed', {
       tradeId: correlationId,
       from: 'ACTIVE',
       to: 'COMPLETED',
+      triggeredBy: 'SETTLEMENT',
     }, correlationId)
 
     expect(first).toBe(true)
