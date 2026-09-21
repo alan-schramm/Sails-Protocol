@@ -67,8 +67,8 @@ const EXPIRABLE_STATES: readonly IntentStatus[] = [
 // (no route/handler acts on an Intent without reading it first) but does
 // not, by itself, guarantee an abandoned Intent flips to EXPIRED the
 // instant its window closes if nothing ever reads it again.
-export function isExpired(intent: { status: IntentStatus; expiresAt?: Date | null }): boolean {
+export function isExpired(intent: { status: IntentStatus; expiresAt?: Date | null }, effectiveAt: Date = new Date()): boolean {
   if (!EXPIRABLE_STATES.includes(intent.status)) return false
   if (!intent.expiresAt) return false
-  return intent.expiresAt.getTime() <= Date.now()
+  return intent.expiresAt.getTime() <= effectiveAt.getTime()
 }

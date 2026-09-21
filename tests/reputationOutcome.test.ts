@@ -22,13 +22,33 @@ const mockEscrowFindUnique = jest.fn()
 // unaffected; the dedicated D7 describe block below overrides these.
 const mockVouchFindMany = jest.fn().mockResolvedValue([])
 const mockVouchUpdate = jest.fn()
+const mockVouchUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 
 jest.mock('../src/common/database', () => ({
   prisma: {
-    trade: { update: (...args: unknown[]) => mockTradeUpdate(...args) },
+    trade: {
+      update: (...args: unknown[]) => mockTradeUpdate(...args),
+      findUniqueOrThrow: jest.fn(async ({ where }: any) => ({ ...(await mockTradeUpdate({ where, data: {} })) })),
+    },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
-    user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
+    user: {
+      update: (...args: unknown[]) => mockUserUpdate(...args),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 }),
+    },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
+    intent: { findUnique: (...args: unknown[]) => mockIntentFindUnique(...args) },
+    eventProjectionClaim: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    $transaction: async (fn: (tx: any) => Promise<any>) => fn({
+      eventProjectionClaim: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      trade: { update: (...args: unknown[]) => mockTradeUpdate(...args) },
+      user: {
+        update: (...args: unknown[]) => mockUserUpdate(...args),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 }),
+      },
+      vouch: { updateMany: (...args: unknown[]) => mockVouchUpdateMany(...args) },
+    }),
     vouch: {
       findMany: (...args: unknown[]) => mockVouchFindMany(...args),
       update: (...args: unknown[]) => mockVouchUpdate(...args),
@@ -37,14 +57,26 @@ jest.mock('../src/common/database', () => ({
 }))
 
 const mockEmit = jest.fn().mockResolvedValue(undefined)
-const handlers: Record<string, (payload: unknown) => Promise<void>> = {}
+const handlers: Record<string, (payload: any) => Promise<void>> = {}
+let durableSeq = 0
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: {
     emit: (...args: unknown[]) => mockEmit(...args),
+    emitDerivedOnce: (...args: unknown[]) => mockEmit(...args.slice(1)),
     on: (event: string, handler: (payload: unknown) => Promise<void>) => {
       handlers[event] = handler
     },
-    onDurable: jest.fn(),
+    onDurable: (event: string, handler: (durableEvent: any) => Promise<void>) => {
+      handlers[event] = (payload: any) => handler({
+        eventId: 'test-durable-' + event + '-' + (++durableSeq),
+        eventName: event,
+        correlationId: payload.tradeId ?? payload.escrowId ?? 'test-correlation',
+        payload,
+        publishedAt: new Date(0).toISOString(),
+        entryHash: 'test-entry-hash',
+        prevHash: 'genesis',
+      })
+    },
   },
 }))
 
@@ -58,6 +90,7 @@ jest.mock('../src/modules/open-p2p/reconciliation.service', () => ({
 // on the call without re-deriving that chain — that internal mechanism
 // is already covered by tests/intentFlow.test.ts.
 const mockIntentTransition = jest.fn().mockResolvedValue(undefined)
+const mockIntentFindUnique = jest.fn().mockResolvedValue({ status: 'COMMITTED' })
 jest.mock('../src/core/intent-engine', () => ({
   intentEngine: { transition: (...args: unknown[]) => mockIntentTransition(...args) },
 }))
@@ -198,8 +231,8 @@ describe('settlement.escrow.split (RFC-021 D9) — NEUTRAL for both, no vouch bu
   it('walks the Intent through SETTLING then FULFILLED, in order', async () => {
     await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
 
-    expect(mockIntentTransition).toHaveBeenNthCalledWith(1, 'intent-1', 'SETTLING', 'system:trade-lifecycle', 'intent.settling', expect.objectContaining({ intentId: 'intent-1' }))
-    expect(mockIntentTransition).toHaveBeenNthCalledWith(2, 'intent-1', 'FULFILLED', 'system:trade-lifecycle', 'intent.fulfilled', expect.objectContaining({ intentId: 'intent-1', outcome: 'SPLIT' }))
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(1, 'intent-1', 'SETTLING', 'system:trade-lifecycle', 'intent.settling', expect.objectContaining({ intentId: 'intent-1' }), undefined, new Date(0))
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(2, 'intent-1', 'FULFILLED', 'system:trade-lifecycle', 'intent.fulfilled', expect.objectContaining({ intentId: 'intent-1', outcome: 'SPLIT' }), undefined, new Date(0))
   })
 })
 
@@ -286,7 +319,7 @@ describe('RFC-018 — Intent lifecycle driven by settlement.escrow.* handlers', 
 
     expect(mockIntentTransition).toHaveBeenCalledWith(
       'intent-1', 'FAILED', 'system:trade-lifecycle', 'intent.failed',
-      expect.objectContaining({ intentId: 'intent-1' })
+      expect.objectContaining({ intentId: 'intent-1' }), undefined, new Date(0)
     )
   })
 })
@@ -344,7 +377,7 @@ describe('RFC-021 D7 — vouch burned on the losing party of a resolved dispute'
     await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'COMPLETED' })
 
     expect(mockVouchFindMany).toHaveBeenCalledWith({ where: { voucheeId: 'seller-1', burnedAt: null } })
-    expect(mockVouchUpdate).toHaveBeenCalledWith({ where: { id: 'vouch-1' }, data: { burnedAt: expect.any(Date) } })
+    expect(mockVouchUpdateMany).toHaveBeenCalledWith({ where: { id: 'vouch-1', burnedAt: null }, data: { burnedAt: expect.any(Date) } })
     const voucherPenalty = mockUserUpdate.mock.calls.find((c) => c[0].where.id === 'voucher-1')
     expect(voucherPenalty?.[0].data.reputationScore).toEqual({ increment: -5 })
   })

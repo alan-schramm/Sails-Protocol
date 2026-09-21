@@ -123,7 +123,18 @@ offers.findMany = jest.fn(async (args: any) => {
   const rows = await originalOffersFindMany(args)
   return rows.map((r: any) => ({ ...r, user: { reputationScore: users.rows.get(r.userId)?.reputationScore ?? 0 } }))
 })
-const trades = makeTable('trade', { status: 'PENDING', escrowId: null })
+const tradesBase = makeTable('trade', { status: 'PENDING', escrowId: null })
+// #253 — terminal handlers now reload the Trade after the transactional
+// state projection. Prisma's real delegate exposes findUniqueOrThrow;
+// this in-memory delegate must preserve the same contract.
+const trades = {
+  ...tradesBase,
+  findUniqueOrThrow: jest.fn(async ({ where }: any) => {
+    const row = tradesBase.rows.get(where.id)
+    if (!row) throw new Error(`Trade not found: ${where.id}`)
+    return { ...row }
+  }),
+}
 const escrows = makeTable('escrow', { status: 'CREATED' })
 const escrowEvents = makeTable('escrowEvent')
 // Missão 11 Fase 4.1 — createEscrow() now unguardedly calls
@@ -216,6 +227,19 @@ const durableEventRecords = {
   }),
 }
 
+// #253 — semantic projection claim fake. createMany(skipDuplicates) mirrors
+// the unique (eventId, projectionKey, subjectId) identity used by Postgres.
+const eventProjectionClaimKeys = new Set<string>()
+const eventProjectionClaims = {
+  createMany: jest.fn(async ({ data }: any) => {
+    const row = Array.isArray(data) ? data[0] : data
+    const key = row.eventId + ':' + row.projectionKey + ':' + row.subjectId
+    if (eventProjectionClaimKeys.has(key)) return { count: 0 }
+    eventProjectionClaimKeys.add(key)
+    return { count: 1 }
+  }),
+}
+
 // PostgresEventStore.publish() (Missão 05.8) wraps its write in a real
 // Postgres transaction (pg_advisory_xact_lock-serialized per
 // correlationId) — a trivial passthrough is enough here since this file
@@ -229,6 +253,9 @@ const durableEventRecords = {
 const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
   callback({
     durableEventRecord: durableEventRecords,
+    eventProjectionClaim: eventProjectionClaims,
+    trade: trades,
+    user: users,
     escrow: escrows,
     escrowFundingEvidence: escrowFundingEvidence,
     // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
@@ -264,6 +291,7 @@ jest.mock('../src/common/database', () => ({
     intentEvent: intentEvents,
     vouch: vouches,
     durableEventRecord: durableEventRecords,
+    eventProjectionClaim: eventProjectionClaims,
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
@@ -402,6 +430,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents].forEach((t) => t.rows.clear())
   intentEventRows.length = 0
+  eventProjectionClaimKeys.clear()
   seedUsers()
 })
 

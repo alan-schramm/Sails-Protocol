@@ -73,7 +73,8 @@ export interface IntentEngine {
     triggeredBy: string,
     eventName: K,
     eventPayload: SailsEventMap[K],
-    note?: string
+    note?: string,
+    effectiveAt?: Date
   ): Promise<Intent>
 }
 
@@ -126,7 +127,8 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
     triggeredBy: string,
     eventName: K,
     eventPayload: SailsEventMap[K],
-    note?: string
+    note?: string,
+    effectiveAt?: Date
   ): Promise<Intent> {
     const record = await repo.findById(intentId)
     if (!record) throw new NotFoundError('Intent', intentId)
@@ -136,7 +138,7 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
     // CISO Byzantine Rule, applied to lifecycle too: an Intent whose window
     // has closed is EXPIRED regardless of what transition was requested —
     // this is the hard-timeout enforcement (state-machine.ts's isExpired()).
-    if (isExpired({ status: currentStatus, expiresAt: record.expiresAt }) && toStatus !== 'EXPIRED') {
+    if (isExpired({ status: currentStatus, expiresAt: record.expiresAt }, effectiveAt) && toStatus !== 'EXPIRED') {
       await transition(intentId, 'EXPIRED', 'system:expiry-check', 'intent.expired', {
         intentId,
         reason: 'expiresAt window closed before this transition was requested',

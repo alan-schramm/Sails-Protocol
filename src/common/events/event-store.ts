@@ -458,6 +458,80 @@ export class PostgresEventStore implements EventStore {
     }
   }
 
+  // #253 — persist a derived event at most once for one immutable source
+  // event. The deterministic id is checked while holding the same
+  // correlation advisory lock as publish(), so replay never appends a second
+  // hash-chain entry and never dispatches a duplicate local signal.
+  async publishDerivedOnce<K extends SailsEventName>(
+    sourceEventId: string,
+    eventName: K,
+    payload: SailsEventMap[K],
+    correlationId: string
+  ): Promise<boolean> {
+    const eventId = createHash('sha256').update(`derived:\${sourceEventId}:\${eventName}`).digest('hex')
+    let derivedEvent: DurableEvent<K> | undefined
+
+    const inserted = await this.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(\${correlationId})::bigint)`
+      // findFirst is intentionally used instead of findUnique here: the
+      // repository's lightweight EventStore test doubles already model the
+      // former, while the database still enforces id uniqueness.
+      const existing = await tx.durableEventRecord.findFirst({ where: { id: eventId } })
+      if (existing) {
+        // Deterministic derived identity means an existing row is a valid
+        // replay only when the immutable semantic content is identical.
+        // Silently accepting a different payload/correlation under the same
+        // sourceEventId + eventName would hide a split-brain projection bug.
+        const existingPayload = existing.payload as unknown
+        if (
+          existing.eventName !== eventName ||
+          existing.correlationId !== correlationId ||
+          JSON.stringify(existingPayload) !== JSON.stringify(payload)
+        ) {
+          throw new Error(
+            `Derived event identity collision for ${eventId}: existing durable event does not match replay`
+          )
+        }
+        return false
+      }
+
+      const last = await tx.durableEventRecord.findFirst({
+        where: { correlationId },
+        orderBy: { publishedAt: 'desc' },
+      })
+      const prevHash = last?.entryHash ?? GENESIS_HASH
+      let publishedAt = new Date().toISOString()
+      if (last && publishedAt <= last.publishedAt) {
+        publishedAt = new Date(new Date(last.publishedAt).getTime() + 1).toISOString()
+      }
+      const entryHash = computeEntryHash(eventName, publishedAt, payload, prevHash)
+      await tx.durableEventRecord.create({
+        data: {
+          id: eventId,
+          eventName,
+          correlationId,
+          payload: payload as unknown as Prisma.InputJsonValue,
+          publishedAt,
+          entryHash,
+          prevHash,
+        },
+      })
+      derivedEvent = { eventId, eventName, correlationId, payload, publishedAt, entryHash, prevHash }
+      return true
+    })
+
+    if (!inserted || !derivedEvent) return false
+    const committedEvent = derivedEvent as DurableEvent<K>
+    this.emitter.emit(eventName, committedEvent)
+    if (this.crossInstancePublisher) {
+      const message = JSON.stringify({ ...committedEvent, __originInstanceId: this.instanceId })
+      this.crossInstancePublisher.publish(CROSS_INSTANCE_CHANNEL, message).catch((err) => {
+        log.error({ msg: 'Cross-instance derived event publish failed (durable write already committed, unaffected)', eventName, eventId, err: err instanceof Error ? err.message : String(err) })
+      })
+    }
+    return true
+  }
+
   subscribe<K extends SailsEventName>(
     eventName: K,
     handler: (event: DurableEvent<K>) => void | Promise<void>
@@ -470,6 +544,12 @@ export class PostgresEventStore implements EventStore {
         })
       }
     })
+  }
+
+  // #253 — re-dispatch durable truth without inserting a duplicate event row.
+  // Recovery callers must pass an event previously read from Postgres.
+  replay(event: DurableEvent): void {
+    this.emitter.emit(event.eventName, event)
   }
 
   async getEvents(correlationId: string): Promise<DurableEvent[]> {

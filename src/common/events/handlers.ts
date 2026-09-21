@@ -1,6 +1,9 @@
 import { prisma } from '../database'
 import type { Prisma } from '@prisma/client'
+import type { DurableEvent } from './event-store'
+import type { SailsEventName } from './event-bus'
 import { eventBus } from './event-bus'
+import { applyEventProjectionOnce } from './event-projection'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
 import { reputationService } from '../../modules/open-reputation/reputation.service'
 import { vouchService } from '../../modules/open-reputation/vouch.service'
@@ -121,30 +124,55 @@ const INTENT_LIFECYCLE_TRIGGER = 'system:trade-lifecycle'
  *  `mockUserUpdate.mock.calls.filter(...)`, and matching the original
  *  implementation's call sequence keeps that contract visible. With one
  *  real DB query per side this isn't a hot enough path to need parallelism. */
-async function recordTradeCompletion(buyerId: string, sellerId: string, amount: Prisma.Decimal): Promise<void> {
-  await prisma.user.update({
-    where: { id: buyerId },
-    data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: amount } },
-  })
-  await prisma.user.update({
-    where: { id: sellerId },
-    data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: amount } },
-  })
+async function recordTradeCompletion(eventId: string, buyerId: string, sellerId: string, amount: Prisma.Decimal): Promise<void> {
+  for (const participantId of [buyerId, sellerId]) {
+    await applyEventProjectionOnce(eventId, 'trade-completion-volume', participantId, async (tx) => {
+      await tx.user.update({
+        where: { id: participantId },
+        data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: amount } },
+      })
+    })
+  }
 }
 
-/** Walks a successful Intent through SETTLING → FULFILLED in one place.
- *  Idempotent against both legs — a re-delivered durable event hits a
- *  state-machine guard inside intent-engine.ts and no-ops, so this
- *  helper is safe to call from every completion path without a
- *  per-handler try/catch dance. */
-async function fulfillIntent(intentId: string, escrowId: string, outcome: 'RELEASED' | 'SPLIT'): Promise<void> {
-  await intentEngine.transition(
-    intentId, 'SETTLING', INTENT_LIFECYCLE_TRIGGER, 'intent.settling',
-    { intentId, settlementId: escrowId }
-  )
-  await intentEngine.transition(
+/** #253 — transition an Intent idempotently under duplicate/recovery delivery.
+ *  intent-engine.transition() correctly rejects same-state transitions; that
+ *  means callers must first recognize an already-applied terminal state.
+ *  The catch/re-read closes the race where two processes observe the same
+ *  pre-state and one wins the engine's CAS before the other. */
+async function transitionIntentOnce<K extends SailsEventName>(
+  intentId: string,
+  targetStatus: string,
+  triggeredBy: string,
+  eventName: K,
+  payload: Parameters<typeof intentEngine.transition<K>>[4],
+  effectiveAt?: Date,
+): Promise<void> {
+  const before = await prisma.intent.findUnique({ where: { id: intentId }, select: { status: true } })
+  if (before?.status === targetStatus) return
+  try {
+    await intentEngine.transition(intentId, targetStatus as any, triggeredBy, eventName, payload as any, undefined, effectiveAt)
+  } catch (err) {
+    const after = await prisma.intent.findUnique({ where: { id: intentId }, select: { status: true } })
+    if (after?.status === targetStatus) return
+    throw err
+  }
+}
+
+/** Walks a successful Intent through SETTLING → FULFILLED and is safe to
+ *  call again after a crash between either leg. */
+async function fulfillIntent(intentId: string, escrowId: string, outcome: 'RELEASED' | 'SPLIT', effectiveAt?: Date): Promise<void> {
+  const current = await prisma.intent.findUnique({ where: { id: intentId }, select: { status: true } })
+  if (current?.status === 'FULFILLED') return
+  if (current?.status !== 'SETTLING') {
+    await transitionIntentOnce(
+      intentId, 'SETTLING', INTENT_LIFECYCLE_TRIGGER, 'intent.settling',
+      { intentId, settlementId: escrowId }, effectiveAt
+    )
+  }
+  await transitionIntentOnce(
     intentId, 'FULFILLED', INTENT_LIFECYCLE_TRIGGER, 'intent.fulfilled',
-    { intentId, settlementId: escrowId, outcome }
+    { intentId, settlementId: escrowId, outcome }, effectiveAt
   )
 }
 
@@ -154,16 +182,16 @@ async function fulfillIntent(intentId: string, escrowId: string, outcome: 'RELEA
  *
  *  Sequential, not Promise.all, for the same call-order contract
  *  recordTradeCompletion()'s own comment explains. */
-async function accrueFeeFloor(buyerId: string, sellerId: string, feeCharged: Prisma.Decimal | null | undefined): Promise<void> {
+async function accrueFeeFloor(eventId: string, buyerId: string, sellerId: string, feeCharged: Prisma.Decimal | null | undefined): Promise<void> {
   if (!feeCharged) return
-  await prisma.user.update({
-    where: { id: buyerId },
-    data: { cumulativeFeesObserved: { increment: feeCharged } },
-  })
-  await prisma.user.update({
-    where: { id: sellerId },
-    data: { cumulativeFeesObserved: { increment: feeCharged } },
-  })
+  for (const participantId of [buyerId, sellerId]) {
+    await applyEventProjectionOnce(eventId, 'trade-fee-floor', participantId, async (tx) => {
+      await tx.user.update({
+        where: { id: participantId },
+        data: { cumulativeFeesObserved: { increment: feeCharged } },
+      })
+    })
+  }
 }
 
 /** Outcome Engine for the released path (RFC-007 D8): a RELEASE ruling means
@@ -171,21 +199,21 @@ async function accrueFeeFloor(buyerId: string, sellerId: string, feeCharged: Pri
  *  both parties completed cleanly. RFC-021 D7 — the losing seller's active
  *  vouches (if any) get burned via vouchService, applying the same
  *  "skin-in-the-game" reasoning D3 uses for arbiters to peer vouches. */
-async function applyReleaseOutcomes(tradeId: string, buyerId: string, sellerId: string): Promise<void> {
+async function applyReleaseOutcomes(eventId: string, tradeId: string, buyerId: string, sellerId: string): Promise<void> {
   const resolvedRelease = await prisma.dispute.findFirst({
     where: { tradeId, status: 'RESOLVED', ruling: 'RELEASE' },
   })
   if (resolvedRelease) {
-    await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE')
-    await reputationService.recordOutcome(tradeId, sellerId, 'NEGATIVE')
+    await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE', eventId)
+    await reputationService.recordOutcome(tradeId, sellerId, 'NEGATIVE', eventId)
     // RFC-021 D7 — the seller lost this dispute; if a peer vouched for
     // them and that vouch is still active (their first-ever trade), the
     // trust was misplaced and the voucher's own reputation takes the
     // real hit this file's own vouch.service.ts import exists for.
-    await vouchService.burnVouchesFor(sellerId)
+    await vouchService.burnVouchesFor(sellerId, eventId)
   } else {
-    await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE')
-    await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE')
+    await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE', eventId)
+    await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE', eventId)
   }
 }
 
@@ -198,20 +226,119 @@ async function applyReleaseOutcomes(tradeId: string, buyerId: string, sellerId: 
  *  Returns the resolved Dispute row (or null) so the caller can branch on
  *  "did this come from a dispute ruling?" for the Intent FAILED transition's
  *  `reason` field — same as the original inline implementation did. */
-async function applyRefundOutcomes(tradeId: string, buyerId: string, sellerId: string): Promise<{ id: string } | null> {
+async function applyRefundOutcomes(eventId: string, tradeId: string, buyerId: string, sellerId: string): Promise<{ id: string } | null> {
   const resolvedRefund = await prisma.dispute.findFirst({
     where: { tradeId, status: 'RESOLVED', ruling: 'REFUND' },
   })
   if (resolvedRefund) {
-    await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE')
-    await reputationService.recordOutcome(tradeId, buyerId, 'NEGATIVE')
+    await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE', eventId)
+    await reputationService.recordOutcome(tradeId, buyerId, 'NEGATIVE', eventId)
     // RFC-021 D7 — same reasoning as settlement.escrow.released above, for the buyer.
-    await vouchService.burnVouchesFor(buyerId)
+    await vouchService.burnVouchesFor(buyerId, eventId)
   } else {
-    await reputationService.recordOutcome(tradeId, buyerId, 'NEUTRAL')
-    await reputationService.recordOutcome(tradeId, sellerId, 'NEUTRAL')
+    await reputationService.recordOutcome(tradeId, buyerId, 'NEUTRAL', eventId)
+    await reputationService.recordOutcome(tradeId, sellerId, 'NEUTRAL', eventId)
   }
   return resolvedRefund
+}
+
+const TERMINAL_HANDLER_COMPLETION_KEY = 'terminal-settlement-handler-complete'
+const TERMINAL_SETTLEMENT_EVENTS = [
+  'settlement.escrow.released',
+  'settlement.escrow.refunded',
+  'settlement.escrow.split',
+] as const
+
+async function markTerminalHandlerComplete(eventId: string, tradeId: string): Promise<void> {
+  await applyEventProjectionOnce(eventId, TERMINAL_HANDLER_COMPLETION_KEY, tradeId, async () => {})
+}
+
+export async function handleEscrowReleased(event: DurableEvent<'settlement.escrow.released'>): Promise<void> {
+  const payload = event.payload
+  const stateApplied = await applyEventProjectionOnce(event.eventId, 'terminal-trade-state', payload.tradeId, async (tx) => {
+    await tx.trade.update({ where: { id: payload.tradeId }, data: { status: 'COMPLETED', completedAt: new Date(event.publishedAt) } })
+  })
+  if (stateApplied) escrowsReleasedTotal.inc()
+  const trade = await prisma.trade.findUniqueOrThrow({ where: { id: payload.tradeId } })
+
+  await recordTradeCompletion(event.eventId, trade.buyerId, trade.sellerId, trade.amount)
+  const releasedEscrow = await prisma.escrow.findUnique({ where: { id: payload.escrowId } })
+  await accrueFeeFloor(event.eventId, trade.buyerId, trade.sellerId, releasedEscrow?.feeCharged)
+  await eventBus.emitDerivedOnce(event.eventId, 'openp2p.trade.completed', {
+    tradeId: payload.tradeId, from: 'ACTIVE', to: 'COMPLETED', triggeredBy: payload.triggeredBy,
+  }, payload.tradeId)
+  await applyReleaseOutcomes(event.eventId, payload.tradeId, trade.buyerId, trade.sellerId)
+  if (trade.intentId) await fulfillIntent(trade.intentId, payload.escrowId, 'RELEASED', new Date(event.publishedAt))
+  await markTerminalHandlerComplete(event.eventId, payload.tradeId)
+}
+
+export async function handleEscrowRefunded(event: DurableEvent<'settlement.escrow.refunded'>): Promise<void> {
+  const payload = event.payload
+  const stateApplied = await applyEventProjectionOnce(event.eventId, 'terminal-trade-state', payload.tradeId, async (tx) => {
+    await tx.trade.update({ where: { id: payload.tradeId }, data: { status: 'CANCELLED', cancelledAt: new Date(event.publishedAt) } })
+  })
+  if (stateApplied) escrowsRefundedTotal.inc()
+  const trade = await prisma.trade.findUniqueOrThrow({ where: { id: payload.tradeId } })
+  const resolvedRefund = await applyRefundOutcomes(event.eventId, payload.tradeId, trade.buyerId, trade.sellerId)
+  if (trade.intentId) {
+    await transitionIntentOnce(
+      trade.intentId, 'FAILED', INTENT_LIFECYCLE_TRIGGER, 'intent.failed',
+      { intentId: trade.intentId, reason: resolvedRefund ? 'Escrow refunded per dispute ruling' : 'Escrow refunded' }, new Date(event.publishedAt)
+    )
+  }
+  await markTerminalHandlerComplete(event.eventId, payload.tradeId)
+}
+
+export async function handleEscrowSplit(event: DurableEvent<'settlement.escrow.split'>): Promise<void> {
+  const payload = event.payload
+  await applyEventProjectionOnce(event.eventId, 'terminal-trade-state', payload.tradeId, async (tx) => {
+    await tx.trade.update({ where: { id: payload.tradeId }, data: { status: 'COMPLETED', completedAt: new Date() } })
+  })
+  const trade = await prisma.trade.findUniqueOrThrow({ where: { id: payload.tradeId } })
+  await recordTradeCompletion(event.eventId, trade.buyerId, trade.sellerId, trade.amount)
+  await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEUTRAL', event.eventId)
+  await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEUTRAL', event.eventId)
+  await eventBus.emitDerivedOnce(event.eventId, 'openp2p.trade.completed', {
+    tradeId: payload.tradeId, from: 'DISPUTED', to: 'COMPLETED', triggeredBy: payload.triggeredBy,
+  }, payload.tradeId)
+  if (trade.intentId) await fulfillIntent(trade.intentId, payload.escrowId, 'SPLIT', new Date(event.publishedAt))
+  await markTerminalHandlerComplete(event.eventId, payload.tradeId)
+}
+
+/** #253 — boot recovery reads Postgres durable truth directly and awaits the
+ *  exact same handler used for live delivery. No EventEmitter replay is used,
+ *  because EventEmitter cannot represent async handler completion. */
+export async function recoverIncompleteTerminalSettlementEvents(): Promise<number> {
+  const rows = await prisma.durableEventRecord.findMany({
+    where: { eventName: { in: [...TERMINAL_SETTLEMENT_EVENTS] } },
+    orderBy: { publishedAt: 'asc' },
+  })
+  if (rows.length === 0) return 0
+
+  const completed = await prisma.eventProjectionClaim.findMany({
+    where: { eventId: { in: rows.map((row) => row.id) }, projectionKey: TERMINAL_HANDLER_COMPLETION_KEY },
+    select: { eventId: true },
+  })
+  const completedIds = new Set(completed.map((row) => row.eventId))
+  let recovered = 0
+
+  for (const row of rows) {
+    if (completedIds.has(row.id)) continue
+    const event = {
+      eventId: row.id,
+      eventName: row.eventName,
+      correlationId: row.correlationId,
+      payload: row.payload,
+      publishedAt: row.publishedAt,
+      entryHash: row.entryHash,
+      prevHash: row.prevHash,
+    } as unknown as DurableEvent
+    if (row.eventName === 'settlement.escrow.released') await handleEscrowReleased(event as DurableEvent<'settlement.escrow.released'>)
+    else if (row.eventName === 'settlement.escrow.refunded') await handleEscrowRefunded(event as DurableEvent<'settlement.escrow.refunded'>)
+    else if (row.eventName === 'settlement.escrow.split') await handleEscrowSplit(event as DurableEvent<'settlement.escrow.split'>)
+    recovered += 1
+  }
+  return recovered
 }
 
 export function registerEventHandlers(): void {
@@ -267,46 +394,7 @@ export function registerEventHandlers(): void {
     }
   })
 
-  eventBus.on('settlement.escrow.released', async (payload) => {
-    const trade = await prisma.trade.update({
-      where: { id: payload.tradeId },
-      data: { status: 'COMPLETED', completedAt: new Date() },
-    })
-
-    escrowsReleasedTotal.inc()
-
-    // ── Sails OpenReputation reacts to a completed trade ──────────────────────
-    await recordTradeCompletion(trade.buyerId, trade.sellerId, trade.amount)
-
-    // RFC-021 D4, Phase 3 — the cost-to-fabricate-reputation floor.
-    const releasedEscrow = await prisma.escrow.findUnique({ where: { id: payload.escrowId } })
-    await accrueFeeFloor(trade.buyerId, trade.sellerId, releasedEscrow?.feeCharged)
-
-    await eventBus.emit('openp2p.trade.completed', {
-      tradeId: payload.tradeId,
-      from: 'ACTIVE',
-      to: 'COMPLETED',
-      triggeredBy: payload.triggeredBy,
-    }, payload.tradeId)   // correlationId (RFC-010)
-
-    // RFC-007 D8 Outcome Engine — dispute-aware, per this file's own doc
-    // comment above. A RELEASE ruling means the buyer won and the seller
-    // lost, even though funds moved the exact same way a happy-path
-    // completion does.
-    await applyReleaseOutcomes(payload.tradeId, trade.buyerId, trade.sellerId)
-
-    // RFC-018 — "released" always means the buyer got the asset, whether
-    // via the happy path or a dispute RELEASE ruling; from the Intent's
-    // own perspective (did this Intent's goal get fulfilled?) that's
-    // always a success, independent of who Reputation credits/penalizes
-    // above. SETTLING is walked through immediately before FULFILLED
-    // rather than at markPaymentSent() time — a real, scoped
-    // refinement, not this pass's scope (see RFC-018's own
-    // Implementation Impact).
-    if (trade.intentId) {
-      await fulfillIntent(trade.intentId, payload.escrowId, 'RELEASED')
-    }
-  })
+  eventBus.onDurable('settlement.escrow.released', handleEscrowReleased)
 
   eventBus.on('settlement.escrow.disputed', async (payload) => {
     await prisma.trade.update({
@@ -319,91 +407,31 @@ export function registerEventHandlers(): void {
       from: 'ACTIVE',
       to: 'DISPUTED',
       triggeredBy: payload.triggeredBy,
-    }, payload.tradeId)   // correlationId (RFC-010)
-  })
-
-  eventBus.on('settlement.escrow.refunded', async (payload) => {
-    const trade = await prisma.trade.update({
-      where: { id: payload.tradeId },
-      data: { status: 'CANCELLED', cancelledAt: new Date() },
-    })
-
-    escrowsRefundedTotal.inc()
-
-    // Same dispute-aware check as settlement.escrow.released above. A
-    // REFUND ruling means the seller won and the buyer lost; a plain
-    // refund with no dispute ever raised is a mutual cancellation —
-    // RFC-007 D9's rule: always Neutral, never Negative, for either party.
-    // The helper resolves the Dispute once and owns the per-outcome branch
-    // (including the vouch-burn on a real dispute) — see its own doc.
-    const resolvedRefund = await applyRefundOutcomes(payload.tradeId, trade.buyerId, trade.sellerId)
-
-    // RFC-018 — a refund, disputed or not, means the buyer never got the
-    // asset: the Intent's own goal was not fulfilled. FAILED is a valid
-    // direct transition from both COMMITTED and SETTLING
-    // (core/state-machine.ts), so this doesn't need to know which one
-    // the Intent is currently in.
-    if (trade.intentId) {
-      await intentEngine.transition(
-        trade.intentId, 'FAILED', INTENT_LIFECYCLE_TRIGGER, 'intent.failed',
-        { intentId: trade.intentId, reason: resolvedRefund ? 'Escrow refunded per dispute ruling' : 'Escrow refunded' }
-      )
-    }
-  })
-
-  // RFC-021 D9 (2026-08-02) — SPLIT only ever reaches an escrow via a
-  // dispute ruling (§1.9's third option), unlike released/refunded above
-  // which each also have a happy, non-disputed path — so there's no
-  // "was this actually disputed?" branch to make here, and no clean
-  // winner/loser to score: the arbiter decided both parties share the
-  // outcome, not that one of them lost. Reputation is NEUTRAL for both
-  // (same "always Neutral, never Negative" precedent RFC-007 D9 already
-  // sets for a plain refund) and no vouch is burned on either side —
-  // burning one would misapply RFC-021 D7's "the vouched-for party
-  // clearly lost" reasoning to an outcome that isn't a clear loss.
-  // Trade/Intent classification (a real, disclosed judgment call, made
-  // with the project owner 2026-08-02 — TradeStatus/IntentStatus only
-  // have binary terminal states, no partial-outcome value exists):
-  // COMPLETED/FULFILLED, since real funds did leave the escrow via a
-  // real settlement action, the same trigger released's own COMPLETED/
-  // FULFILLED classification rests on.
-  eventBus.on('settlement.escrow.split', async (payload) => {
-    const trade = await prisma.trade.update({
-      where: { id: payload.tradeId },
-      data: { status: 'COMPLETED', completedAt: new Date() },
-    })
-
-    await recordTradeCompletion(trade.buyerId, trade.sellerId, trade.amount)
-
-    await reputationService.recordOutcome(payload.tradeId, trade.buyerId, 'NEUTRAL')
-    await reputationService.recordOutcome(payload.tradeId, trade.sellerId, 'NEUTRAL')
-
-    await eventBus.emit('openp2p.trade.completed', {
-      tradeId: payload.tradeId,
-      from: 'DISPUTED',
-      to: 'COMPLETED',
-      triggeredBy: payload.triggeredBy,
     }, payload.tradeId)
-
-    if (trade.intentId) {
-      await fulfillIntent(trade.intentId, payload.escrowId, 'SPLIT')
-    }
   })
+
+  eventBus.onDurable('settlement.escrow.refunded', handleEscrowRefunded)
+  eventBus.onDurable('settlement.escrow.split', handleEscrowSplit)
 
   // ── Sails OpenReputation reacts to disputes (penalize dispute count) ───────
-  eventBus.on('openp2p.trade.disputed', async (payload) => {
+  eventBus.onDurable('openp2p.trade.disputed', async (event) => {
+    const payload = event.payload
     const trade = await prisma.trade.findUnique({ where: { id: payload.tradeId } })
     if (!trade) return
-    // Sequential for the same call-order contract the helpers above
-    // preserve — tests/reputationOutcome.test.ts and tests/routes.test.ts
-    // both filter mockUserUpdate.mock.calls in the order they fire.
-    await prisma.user.update({
-      where: { id: trade.buyerId },
-      data: { disputeCount: { increment: 1 } },
+    // #253 — dispute counters are additive economic/reputation projections.
+    // Bind each participant increment to the immutable durable event identity
+    // so replay/recovery cannot count the same dispute twice.
+    await applyEventProjectionOnce(event.eventId, 'trade-dispute-count', trade.buyerId, async (tx) => {
+      await tx.user.update({
+        where: { id: trade.buyerId },
+        data: { disputeCount: { increment: 1 } },
+      })
     })
-    await prisma.user.update({
-      where: { id: trade.sellerId },
-      data: { disputeCount: { increment: 1 } },
+    await applyEventProjectionOnce(event.eventId, 'trade-dispute-count', trade.sellerId, async (tx) => {
+      await tx.user.update({
+        where: { id: trade.sellerId },
+        data: { disputeCount: { increment: 1 } },
+      })
     })
   })
 

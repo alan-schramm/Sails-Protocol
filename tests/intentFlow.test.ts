@@ -82,6 +82,15 @@ describe('State Machine (pure functions, no mocking needed)', () => {
     expect(isExpired(pastWindow)).toBe(true)
   })
 
+  it('evaluates expiry against an explicit durable economic time during recovery', () => {
+    const expiresAt = new Date('2026-09-21T00:10:00.000Z')
+    const settlementTime = new Date('2026-09-21T00:09:59.000Z')
+    const restartTime = new Date('2026-09-21T00:20:00.000Z')
+    const intent = { status: 'COMMITTED' as const, expiresAt }
+    expect(isExpired(intent, settlementTime)).toBe(false)
+    expect(isExpired(intent, restartTime)).toBe(true)
+  })
+
   it('does not flag a terminal-state Intent as expired even past its window', () => {
     const fulfilled = { status: 'FULFILLED' as const, expiresAt: new Date(Date.now() - 1000) }
     expect(isExpired(fulfilled)).toBe(false)

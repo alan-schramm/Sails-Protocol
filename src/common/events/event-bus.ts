@@ -483,11 +483,28 @@ export class SailsEventBus {
     await this.store.publish(event, payload, correlationId)
   }
 
-  // Handler signature is unchanged from pre-RFC-010 (still receives the bare
-  // payload) — this is what let every existing eventBus.on(...) call site in
-  // handlers.ts stay untouched. correlationId is available on the event as
-  // published (DurableEvent), not threaded into the handler signature, since
-  // no handler in this codebase needs it inside the handler body today.
+  // #253 — derived economic/lifecycle signals produced while handling a
+  // durable source event must not be appended again when that source is
+  // replayed after a crash.
+  async emitDerivedOnce<K extends SailsEventName>(
+    sourceEventId: string,
+    event: K,
+    payload: SailsEventMap[K],
+    correlationId: string
+  ): Promise<boolean> {
+    if (!('publishDerivedOnce' in this.store)) {
+      // Non-Postgres stores are explicit test/dev alternatives; preserve
+      // their existing behavior rather than pretending they provide the
+      // production dedupe guarantee.
+      await this.store.publish(event, payload, correlationId)
+      return true
+    }
+    return (this.store as PostgresEventStore).publishDerivedOnce(sourceEventId, event, payload, correlationId)
+  }
+
+  // Legacy convenience surface: handlers that do not need durable identity
+  // receive only the payload. Replay-sensitive economic projections must use
+  // onDurable() so their idempotency claim is keyed by the immutable eventId.
   on<K extends SailsEventName>(
     event: K,
     listener: (payload: SailsEventMap[K]) => void | Promise<void>
@@ -500,6 +517,16 @@ export class SailsEventBus {
   // needs to know which store implementation is active.
   getEvents(correlationId: string): Promise<import('./event-store').DurableEvent[]> {
     return this.store.getEvents(correlationId)
+  }
+
+  // #253 — Postgres is the durable source of truth. This explicit replay
+  // surface lets the boot/recovery path re-dispatch an already-persisted
+  // event without publishing a second DurableEventRecord. Economic handlers
+  // remain responsible for eventId-keyed idempotency.
+  replayDurableEvent(event: import('./event-store').DurableEvent): void {
+    if ('replay' in this.store) {
+      (this.store as import('./event-store').PostgresEventStore).replay(event)
+    }
   }
 
   // Additive — RFC-017's SocialEngineeringAgent.evaluate() needs the full
