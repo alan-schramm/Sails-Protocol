@@ -224,3 +224,16 @@ Do not present the roadmap above as starting from zero. As of this handoff:
   users (`PearNode`/`PearNodeRegistry` — see `NODE_ARCHITECTURE.md`)
 
 For current unresolved engineering obligations, use `BACKLOG.md` and the live GitHub Issues/Project as the primary operational sources. `TODO.md` is retained as an audited historical/category-oriented implementation-gap inventory with limited authority and may contain resolved or superseded material. Do not infer current remaining work from this roadmap or `TODO.md` alone.
+
+
+---
+
+## Future / Optional Infrastructure — Sails-operated OTS Aggregator / Calendar
+
+**Status: OPTIONAL / FUTURE — not a Day-0 dependency.**
+
+Day 0 uses OpenTimestamps behind the Sails-owned `TimestampAnchor` abstraction with multiple public/free OpenTimestamps calendars for availability redundancy. No individual calendar is Protocol Truth, Economic Authority, or a required dependency for Sails economic-state progression.
+
+If operational evidence later justifies it, Sails may operate an OpenTimestamps-compatible aggregator/calendar as one additional availability option within the same open ecosystem. Such infrastructure MUST NOT become the mandatory calendar, a central timestamp authority, an interoperability gate, or a prerequisite for OpenProof/Sails economic availability.
+
+This roadmap item does not replace the Day-0 multi-calendar requirement in `docs/BACKLOG.md`; it deliberately keeps Sails-operated timestamp infrastructure outside the Day-0 critical path.
