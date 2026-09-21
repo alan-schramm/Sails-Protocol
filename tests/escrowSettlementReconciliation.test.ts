@@ -42,6 +42,23 @@ jest.mock('../src/modules/open-p2p/trade-repository', () => ({
   tradeRepository: { findById: (...args: unknown[]) => mockTradeFindById(...args) },
 }))
 
+const mockWdkFindLatest = jest.fn()
+const mockWdkUpdateStatus = jest.fn()
+const mockWdkGetReceipt = jest.fn()
+jest.mock('../src/modules/open-settlement/wdk-transfer-attempt-repository', () => ({
+  wdkTransferAttemptRepository: {
+    findLatest: (...args: unknown[]) => mockWdkFindLatest(...args),
+    updateStatus: (...args: unknown[]) => mockWdkUpdateStatus(...args),
+  },
+}))
+jest.mock('../src/modules/open-settlement/wdk-settlement.provider', () => ({
+  wdkSettlementProvider: {
+    getEscrowAccountForReconciliation: jest.fn().mockResolvedValue({
+      getTransactionReceipt: (...args: unknown[]) => mockWdkGetReceipt(...args),
+    }),
+  },
+}))
+
 const mockReconcilePendingSettlement = jest.fn()
 jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
   multisigProvider: { reconcilePendingSettlement: (...args: unknown[]) => mockReconcilePendingSettlement(...args) },
@@ -177,6 +194,9 @@ beforeEach(() => {
   // (Fase 9.6) test below exercises exactly the scenario it names —
   // tests that specifically want a PASS 2 candidate set it explicitly.
   mockFindTerminalWithTxReleaseId.mockResolvedValue([])
+  mockWdkFindLatest.mockResolvedValue(null)
+  mockWdkUpdateStatus.mockResolvedValue({})
+  mockWdkGetReceipt.mockResolvedValue(null)
 })
 
 // Sails Core Implementation Program M9-R (Recovery Closure, Part 3) —
@@ -304,12 +324,12 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [] })
   })
 
-  it('a non-MULTISIG rail has no automated recovery primitive in scope — fails closed, flagged for manual review, no chain calls attempted', async () => {
+  it('a WDK terminal escrow with no durable attempt fails closed instead of guessing external truth', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM' })])
     const report = await reconcilePendingSettlements()
     expect(report.requiresManualReview).toHaveLength(1)
     expect(report.requiresManualReview[0].escrowId).toBe('escrow-1')
-    expect(report.requiresManualReview[0].reason).toMatch(/no automated crash-recovery reconciliation primitive/)
+    expect(report.requiresManualReview[0].reason).toMatch(/no durable WdkTransferAttempt/)
     expect(mockReconcilePendingSettlement).not.toHaveBeenCalled()
   })
 
