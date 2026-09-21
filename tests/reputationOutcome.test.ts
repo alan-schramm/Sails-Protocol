@@ -36,6 +36,7 @@ jest.mock('../src/common/database', () => ({
       findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 }),
     },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
+    intent: { findUnique: (...args: unknown[]) => mockIntentFindUnique(...args) },
     eventProjectionClaim: {
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
@@ -89,6 +90,7 @@ jest.mock('../src/modules/open-p2p/reconciliation.service', () => ({
 // on the call without re-deriving that chain — that internal mechanism
 // is already covered by tests/intentFlow.test.ts.
 const mockIntentTransition = jest.fn().mockResolvedValue(undefined)
+const mockIntentFindUnique = jest.fn().mockResolvedValue({ status: 'COMMITTED' })
 jest.mock('../src/core/intent-engine', () => ({
   intentEngine: { transition: (...args: unknown[]) => mockIntentTransition(...args) },
 }))
