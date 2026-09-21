@@ -648,6 +648,21 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       expect(updateCall.data.txReleaseId).toMatch(/mock-split-.*,mock-split-/)
     })
 
+    it('#247 rejects a retry whose buyerBps diverges from the already-frozen allocation', async () => {
+      mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+      mockEscrowFindUnique
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED' })
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'SPLIT', splitBuyerBps: 4000 })
+      mockEscrowUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+      await expect(
+        escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')
+      ).rejects.toThrow(/already froze SPLIT allocation at buyerBps=4000.*buyerBps=6000/)
+
+      // Ownership was lost before provider dispatch; no tx result write occurs.
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    })
+
     it('#247 never rolls SPLIT back after provider success when downstream completion bookkeeping fails', async () => {
       mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
       mockEscrowEventCreate.mockRejectedValueOnce(new Error('simulated crash after provider success'))
