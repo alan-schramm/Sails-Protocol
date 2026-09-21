@@ -12,7 +12,7 @@ import { childLogger } from '../../common/logger'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
-import { wdkSettlementProvider } from './wdk-settlement.provider'
+import { wdkSettlementProvider, toBaseUnits } from './wdk-settlement.provider'
 
 const log = childLogger('escrow-settlement-reconciliation')
 
@@ -381,24 +381,49 @@ async function reconcileWdkSplitTxReleaseId(
     return true
   }
 
-  // Re-enter the provider only with DURABLE intent. Its per-leg
-  // ensureAttempt() state machine guarantees CONFIRMED buyer is resumed,
-  // SUBMITTED is receipt-queried, UNKNOWN blocks, and a seller transfer is
-  // never started until buyer truth is CONFIRMED. No leg is blindly retried.
-  let result: { txIds: string[] }
-  try {
-    result = await wdkSettlementProvider.splitFunds(
-      { id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() },
-      buyerAttempt.destination,
-      sellerAttempt.destination,
-      escrow.splitBuyerBps
-    )
-  } catch (err) {
-    report.requiresManualReview.push({
-      escrowId: escrow.id,
-      reason: `WDK SPLIT restart did not prove both legs complete: ${err instanceof Error ? err.message : String(err)}`,
-    })
+  // Validate durable per-leg amounts against the frozen #247 allocation
+  // before trusting either attempt as the economic operation we intend to
+  // recover. WDK USDT uses six base-unit decimals (provider invariant).
+  const totalBaseUnits = toBaseUnits(escrow.lockedAmount.toString(), 6)
+  const expectedBuyerBaseUnits = (totalBaseUnits * BigInt(escrow.splitBuyerBps)) / 10000n
+  const expectedSellerBaseUnits = totalBaseUnits - expectedBuyerBaseUnits
+  if (
+    toBaseUnits(buyerAttempt.amount.toString(), 6) !== expectedBuyerBaseUnits ||
+    toBaseUnits(sellerAttempt.amount.toString(), 6) !== expectedSellerBaseUnits
+  ) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: 'WDK SPLIT durable leg amounts contradict frozen splitBuyerBps/lockedAmount; refusing convergence.' })
     return true
+  }
+
+  let result: { txIds: string[] }
+  if (buyerAttempt.status === 'CONFIRMED' && sellerAttempt.status === 'CONFIRMED') {
+    if (!buyerAttempt.txHash || !sellerAttempt.txHash) {
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: 'WDK SPLIT has a CONFIRMED leg without txHash; durable execution truth is corrupt.' })
+      return true
+    }
+    // Both external effects are already proven. Converge local state
+    // directly; do not instantiate/call a wallet merely to rediscover the
+    // same immutable attempt truth after restart.
+    result = { txIds: [buyerAttempt.txHash, sellerAttempt.txHash] }
+  } else {
+    // Re-enter the provider only with DURABLE intent. Its per-leg
+    // ensureAttempt() state machine guarantees CONFIRMED buyer is resumed,
+    // SUBMITTED is receipt-queried, UNKNOWN blocks, and a seller transfer is
+    // never started until buyer truth is CONFIRMED. No leg is blindly retried.
+    try {
+      result = await wdkSettlementProvider.splitFunds(
+        { id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() },
+        buyerAttempt.destination,
+        sellerAttempt.destination,
+        escrow.splitBuyerBps
+      )
+    } catch (err) {
+      report.requiresManualReview.push({
+        escrowId: escrow.id,
+        reason: `WDK SPLIT restart did not prove both legs complete: ${err instanceof Error ? err.message : String(err)}`,
+      })
+      return true
+    }
   }
 
   if (result.txIds.length !== 2 || !result.txIds[0] || !result.txIds[1]) {
