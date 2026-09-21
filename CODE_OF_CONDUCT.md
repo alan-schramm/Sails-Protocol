@@ -31,9 +31,11 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at [social@satsails.com](mailto:social@satsails.com).
+Instances of abusive, harassing, or otherwise unacceptable behavior should be reported privately to **social@satsails.com**, the project's current centralized public contact mailbox.
 
-All complaints will be reviewed and investigated promptly and fairly.
+Do not post sensitive conduct reports, personal information, or harassment evidence in a public GitHub issue.
+
+Reports should be handled consistently, with appropriate confidentiality and without retaliation. This repository does not publish a response-time SLA unless an actively monitored enforcement channel and service commitment are explicitly established.
 
 ## Attribution
 
@@ -41,4 +43,4 @@ This Code of Conduct is adapted from the [Contributor Covenant](https://www.cont
 
 ---
 
-> **Last updated:** 2026-08-07
+> **Last updated:** 2026-09-19
