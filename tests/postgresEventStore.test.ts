@@ -50,6 +50,9 @@ const mockCreate = jest.fn(async (args: any) => {
   return row
 })
 const mockFindFirst = jest.fn(async (args: any) => {
+  if (args.where.id) {
+    return durableEvents.find((e) => e.id === args.where.id) ?? null
+  }
   const matching = durableEvents.filter((e) => e.correlationId === args.where.correlationId)
   if (matching.length === 0) return null
   return sortByPublishedAt(matching)[matching.length - 1]
@@ -146,6 +149,32 @@ describe('PostgresEventStore - identity and metadata (Missao 05.7)', () => {
   it('reports durable: true and storeName: "postgres" - the default eventBus now inherits this', () => {
     expect(eventBus.durable).toBe(true)
     expect(eventBus.storeName).toBe('postgres')
+  })
+})
+
+describe('PostgresEventStore - replay-safe derived events (#253)', () => {
+  it('persists and dispatches a derived event only once for the same source identity', async () => {
+    const store = new PostgresEventStore()
+    const correlationId = `pg-derived-${Date.now()}`
+    const sourceEventId = 'source-settlement-1'
+    const handler = jest.fn()
+    store.subscribe('openp2p.trade.completed', handler)
+
+    const first = await store.publishDerivedOnce(sourceEventId, 'openp2p.trade.completed', {
+      tradeId: correlationId,
+      from: 'ACTIVE',
+      to: 'COMPLETED',
+    }, correlationId)
+    const replay = await store.publishDerivedOnce(sourceEventId, 'openp2p.trade.completed', {
+      tradeId: correlationId,
+      from: 'ACTIVE',
+      to: 'COMPLETED',
+    }, correlationId)
+
+    expect(first).toBe(true)
+    expect(replay).toBe(false)
+    expect(durableEvents).toHaveLength(1)
+    expect(handler).toHaveBeenCalledTimes(1)
   })
 })
 
