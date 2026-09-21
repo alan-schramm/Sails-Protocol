@@ -13,7 +13,7 @@ import { connectDatabase } from './common/database'
 import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
 import { AppError, ERROR_DOCS_URL } from './common/errors'
-import { registerEventHandlers } from './common/events/handlers'
+import { registerEventHandlers, recoverIncompleteTerminalSettlementEvents } from './common/events/handlers'
 import { eventBus } from './common/events/event-bus'
 import { intentEngine } from './core/intent-engine'
 import { OpenP2PTradeIntentHandler } from './modules/open-p2p/intent-handler'
@@ -393,6 +393,16 @@ export async function startServer() {
 
   // ── Connect dependencies ───────────────────────────────────────────────────
   await connectDatabase()
+
+  // #253 — converge any terminal settlement event that was durably committed
+  // before a prior process died mid-handler. Handlers were registered by
+  // buildApp(); recovery awaits those same named handlers directly and runs
+  // before listen(), so external traffic cannot observe boot as ready first.
+  const recoveredTerminalSettlements = await recoverIncompleteTerminalSettlementEvents()
+  if (recoveredTerminalSettlements > 0) {
+    app.log.info({ msg: 'Recovered incomplete terminal settlement projections', count: recoveredTerminalSettlements })
+  }
+
   await connectRedis()
 
   // Missão 08B — cross-instance event fan-out. Deliberately only wired
