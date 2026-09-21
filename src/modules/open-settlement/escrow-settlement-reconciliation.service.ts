@@ -11,6 +11,8 @@ import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
+import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+import { wdkSettlementProvider } from './wdk-settlement.provider'
 
 const log = childLogger('escrow-settlement-reconciliation')
 
@@ -345,7 +347,79 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
 // multisig.provider.ts's reconcilePendingSettlement() for the full
 // on-chain-truth procedure) and, once known, runs the shared downstream
 // completion effects above.
+async function reconcileWdkSingleLegTxReleaseId(
+  escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>,
+  report: ReconciliationReport
+): Promise<boolean> {
+  if (escrow.type !== 'WDK_USDT_EVM' || (escrow.status !== 'COMPLETED' && escrow.status !== 'REFUNDED')) return false
+
+  const operationType = escrow.status === 'COMPLETED' ? 'RELEASE' as const : 'REFUND' as const
+  const attempt = await wdkTransferAttemptRepository.findLatest(escrow.id, operationType)
+  if (!attempt) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} escrow is terminal with no txReleaseId and no durable WdkTransferAttempt. Manual review required.` })
+    return true
+  }
+  if (!attempt.txHash && attempt.status === 'CONFIRMED') {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} attempt ${attempt.id} is CONFIRMED without txHash — integrity anomaly.` })
+    return true
+  }
+  if (attempt.status === 'SUBMISSION_UNKNOWN') {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} attempt ${attempt.id} is SUBMISSION_UNKNOWN — UNKNOWN != FAILED; blind retry/convergence is forbidden.` })
+    return true
+  }
+  if (attempt.status === 'PREPARED' || attempt.status === 'FAILED_BEFORE_SUBMISSION' || attempt.status === 'REVERTED') {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} escrow is terminal but latest attempt ${attempt.id} is ${attempt.status}; external completion is not proven.` })
+    return true
+  }
+
+  let txHash = attempt.txHash
+  if (attempt.status === 'SUBMITTED') {
+    if (!txHash) {
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} attempt ${attempt.id} is SUBMITTED without txHash — integrity anomaly.` })
+      return true
+    }
+    const account = await wdkSettlementProvider.getEscrowAccountForReconciliation(escrow.tradeId)
+    const receipt = await account.getTransactionReceipt(txHash)
+    if (!receipt) {
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} tx ${txHash} remains SUBMITTED/pending; no second transfer attempted.` })
+      return true
+    }
+    if (receipt.status !== 1) {
+      await wdkTransferAttemptRepository.updateStatus(attempt.id, 'REVERTED', undefined, ['SUBMITTED'])
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} tx ${txHash} is proven REVERTED while escrow is terminal; local lifecycle requires operator repair, no automatic retry.` })
+      return true
+    }
+    await wdkTransferAttemptRepository.updateStatus(attempt.id, 'CONFIRMED', undefined, ['SUBMITTED'])
+  }
+
+  if (!txHash) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} attempt ${attempt.id} has no authoritative txHash.` })
+    return true
+  }
+
+  const wrote = await withEscrowFundingLock(escrow.id, async (tx) => {
+    const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+    if (!fresh) throw new EscrowError(`Escrow ${escrow.id} disappeared during WDK reconciliation`)
+    if (fresh.txReleaseId !== null) {
+      if (fresh.txReleaseId !== txHash) throw new EscrowError(`Escrow ${escrow.id} already converged to conflicting txReleaseId ${fresh.txReleaseId}; WDK recovery proved ${txHash}`)
+      return false
+    }
+    await tx.escrow.update({
+      where: { id: escrow.id },
+      data: escrow.status === 'REFUNDED' ? { txReleaseId: txHash } : { txReleaseId: txHash, releasedAt: new Date() },
+    })
+    return true
+  })
+
+  log.info({ msg: 'WDK restart reconciliation converged durable execution truth', escrowId: escrow.id, operationType, txId: txHash, wroteTxReleaseId: wrote })
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, escrow.status, 'system:wdk-reconciliation', txHash, escrow, null, undefined)
+  report.recovered.push({ escrowId: escrow.id, txId: txHash, outcome: 'ALREADY_BROADCAST' })
+  return true
+}
+
 async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  if (await reconcileWdkSingleLegTxReleaseId(escrow, report)) return
+
   if (escrow.type !== 'MULTISIG') {
     // No authoritative-truth primitive exists for this rail in this
     // mission's scope (see this file's own header comment) — fail
