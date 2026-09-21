@@ -497,6 +497,16 @@ simple-wallet proves the SDK path; wallet-integration proves that a wallet
 can keep its own signing/key ownership while plugging into Sails through
 `WalletAdapter`.
 
+Before reading the compatibility table, keep the taxonomy precise:
+**a Sails adapter is not a wallet**. It is the bridge through which an
+existing wallet exposes selected capabilities to Sails while retaining its
+own keys/custody model, signing, storage and UX. Wallet-building kits (for
+example BDK/WDK/Breez/Spark/LDK), chain/ecosystem SDKs (for example
+EVM/TRON/Solana/TON libraries), wallet-connection protocols (for example
+WalletConnect), and settlement rails/providers are distinct integration
+classes. A product may use several of them simultaneously. See
+`ROADMAP.md` “Adapter taxonomy” for the canonical classification.
+
 This table is a roadmap/positioning reference for what that looks like
 across common wallet toolkits — **only the interface itself, the explicit
 non-mock examples above, and the reference implementation's documented
