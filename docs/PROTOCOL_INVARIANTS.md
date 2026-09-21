@@ -460,22 +460,35 @@ already held).
 
 ### INV-08. Capability-Bound Settlement
 
-**RULE.** *When capability enforcement is active* (`ENFORCE_
-CAPABILITIES=true` — production deployments must set this variable
-explicitly, one way or the other, per RFC-014's own boot-time guard;
-it is not silently on by default anywhere), a fund-movement action
-(release, refund, split) requires the triggering actor to hold an
-active `CapabilityGrant` covering that exact action's scope.
+**RULE.** A fund-movement action (release, refund, split) requires the
+triggering actor to hold an active `CapabilityGrant` covering that
+exact action's scope. In a **production** process this is unconditional:
+`NODE_ENV=production` refuses to boot unless `ENFORCE_CAPABILITIES` is
+exactly `true` (Issue #303). Development, test and reference
+environments may run with enforcement disabled, and there the invariant
+is conditional, stated and not hidden.
 
-**WHY.** Stated conditionally on purpose, not weakened by the
-condition: RFC-014's own capability-onboarding prerequisite genuinely
-isn't ready for every deployment on day one (Missão 02.5's own
-finding), so *mandating* `true` everywhere would invent a policy this
-document has no standing to invent. What the invariant actually
-guarantees is that the choice is never accidental — a production boot
-with the variable unset fails closed (refuses to start), matching this
-document's own established "conditional enforcement is stated, not
-hidden" convention (see the Operational Invariants section's intro).
+**WHY.** *Amended 2026-09-21 (Issue #303).* The earlier text made
+enforcement conditional even in production ("an explicit choice, true or
+false") because capability onboarding was not ready. It is now: the SDK's
+`capabilities.ensureCanonicalGrants()` (run by the reference UI on every
+login) issues the canonical grants the gates consume, and only canonical
+(capabilityName, scope) pairs can be registered. What the invariant
+guarantees is that Capability Authority cannot be disabled in a
+production-eligible deployment. What it does NOT claim: grants are
+self-issued (`issuedBy = grantedTo`), so a CapabilityGrant is the
+participant's own revocable, expiring, auditable consent - **not
+independent third-party authorization**, and not a defense against an
+already-authorized participant acting maliciously. Independent issuance is
+a separate architectural evolution.
+
+**EVIDENCE.** `checkFundMovementCapability()` (`escrow-lifecycle.ts`);
+`config/index.ts`'s production boot guard (`FATAL: NODE_ENV=production
+requires ENFORCE_CAPABILITIES=true`); `tests/configProductionGates.test.ts`;
+`tests/fundMovementCapabilityCoverage.test.ts`;
+`tests/capabilityCanonicalOnboarding.test.ts`;
+`tests/integration/capabilityAuthorityEnforced.test.ts` (real Postgres +
+Redis, enforcement on).
 
 **DERIVES / DERIVED BY.** Sibling of `INV-01` (both gate *who* may
 move funds) at a different granularity — INV-01 asks "are you a real,

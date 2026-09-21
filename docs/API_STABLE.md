@@ -210,7 +210,8 @@ converse with a counterparty, or hold state across calls.
 - `register(input)` → `CapabilityGrant`
 - `list(participantId)` → `CapabilityGrant[]`
 - `revoke(grantId)` → `void`
-- `registerFromWallet(wallet)` → `CapabilityGrant`
+- `ensureCanonicalGrants(participantId)` → `CapabilityGrant[]` *(Issue #303, additive: idempotent self-issued onboarding of the canonical `trade-coordination` + `settlement` grants)*
+- `registerFromWallet(wallet)` → `CapabilityGrant` *(**deprecated 2026-09-21, Issue #303**: ignores the wallet's technical capabilities and self-issues both canonical grants; returns the `trade-coordination` one)*
 
 ### Top-level (Intent facade, delegated straight off `SailsClient`)
 🔒 `createIntent`, `cancelIntent`, `dispute`, `submitProof(intentId,

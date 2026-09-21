@@ -2141,7 +2141,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const res = await app.inject({
         method: 'POST',
         url: '/v1/capabilities/register',
-        payload: { capabilityName: 'trade-coordination', scope: ['openp2p.trade.created'] },
+        payload: { capabilityName: 'trade-coordination', scope: ['intent.created'] },
       })
       expect(res.statusCode).toBe(401)
     })
@@ -2152,7 +2152,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         id: 'grant-1',
         grantedTo: 'buyer-1',
         capabilityName: 'trade-coordination',
-        scope: ['openp2p.trade.created'],
+        scope: ['intent.created'],
         constraints: null,
         issuedBy: 'buyer-1',
       })
@@ -2161,7 +2161,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         method: 'POST',
         url: '/v1/capabilities/register',
         headers: { authorization: `Bearer ${token}` },
-        payload: { capabilityName: 'trade-coordination', scope: ['openp2p.trade.created'] },
+        payload: { capabilityName: 'trade-coordination', scope: ['intent.created'] },
       })
 
       expect(res.statusCode).toBe(201)
@@ -2173,6 +2173,25 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
           data: expect.objectContaining({ grantedTo: 'buyer-1', issuedBy: 'buyer-1', capabilityName: 'trade-coordination' }),
         })
       )
+    })
+
+    it('rejects an unknown capabilityName and a mismatched scope with 400 - nothing is persisted (Issue #303)', async () => {
+      const token = await authedSession('buyer-1')
+      for (const payload of [
+        { capabilityName: 'anything', scope: ['intent.created'] },
+        { capabilityName: 'settlement', scope: ['intent.created'] },
+        { capabilityName: 'trade-coordination', scope: ['trade-coordination'] },
+      ]) {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/capabilities/register',
+          headers: { authorization: `Bearer ${token}` },
+          payload,
+        })
+        expect(res.statusCode).toBe(400)
+        expect(JSON.parse(res.body).error).toBe('VALIDATION_ERROR')
+      }
+      expect(mockCapabilityGrantCreate).not.toHaveBeenCalled()
     })
 
     it('lists active grants for a participant, no auth required', async () => {
