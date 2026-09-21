@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within Sails Protocol, please send an email to [security@sailsprotocol.io](mailto:security@sailsprotocol.io). All security vulnerabilities will be promptly addressed.
+If you discover a security vulnerability within Sails Protocol, please send an email to [social@satsails.com](mailto:social@satsails.com). All security vulnerabilities will be promptly addressed.
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
@@ -42,7 +42,7 @@ This security policy applies to:
 
 1. **Never share your private key** — Not even with support; it's the only credential that exists, there's no password to fall back on
 2. **Verify URLs** — Only use official domains
-3. **Report suspicious activity** — Contact security@sailsprotocol.io
+3. **Report suspicious activity** — Contact social@satsails.com
 
 ## Authentication
 
@@ -101,8 +101,8 @@ SOC 2 Type II is not claimed by this repository.
 
 ## Contact
 
-- **Security:** security@sailsprotocol.io
-- **General:** hello@sailsprotocol.io
+- **Security:** social@satsails.com
+- **General:** social@satsails.com
 
 ---
 
