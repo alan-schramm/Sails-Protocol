@@ -123,10 +123,9 @@ type PendingRow = {
 // (only reachable after emitEscrowTransition() already succeeded once —
 // meaning this call would be a safe no-op via the idempotency claim
 // anyway). A SPLIT outcome with pending === null cannot recover its
-// buyerBps (the direct-call splitFunds() path never persists it
-// anywhere durable, unlike EscrowPendingTransaction.buyerBps for the
-// signature-collection path) — obligation recording is skipped and
-// reported, not guessed.
+// buyerBps from Escrow.splitBuyerBps (#247), frozen atomically with the
+// direct-call SPLIT claim. Signature-collection rails continue to use
+// EscrowPendingTransaction.buyerBps. Missing truth still fails closed.
 async function applyDownstreamCompletionEffects(
   escrowId: string,
   tradeId: string,
@@ -149,17 +148,18 @@ async function applyDownstreamCompletionEffects(
   const feeOutcome = targetStatus === 'COMPLETED' ? 'RELEASE' as const : targetStatus === 'REFUNDED' ? 'FULL_REFUND' as const : 'SPLIT' as const
 
   let obligationSkipped = false
-  if (targetStatus === 'SPLIT' && !pending) {
+  const durableBuyerBps = pending?.buyerBps ?? escrowRow.splitBuyerBps ?? undefined
+  if (targetStatus === 'SPLIT' && durableBuyerBps === undefined) {
     obligationSkipped = true
     log.error({
-      msg: 'Reconciliation: SPLIT completion effects recovered, but buyerBps is unrecoverable for a direct-call-rail escrow with no surviving pending-transaction row — fee obligation NOT recorded, flagged for manual review',
+      msg: 'Reconciliation: SPLIT completion effects cannot recover buyerBps from either pending-transaction or frozen escrow allocation — fee obligation NOT recorded, flagged for manual review',
       escrowId,
     })
   } else {
     const actualCollection = pending?.feeCollectionSats !== null && pending?.feeCollectionSats !== undefined
       ? { feeSats: pending.feeCollectionSats, waived: pending.feeCollectionWaived ?? false }
       : undefined
-    await feeObligationService.recordObligationForEscrowSettlement(escrowRow, feeOutcome, pending?.buyerBps ?? undefined, actualCollection)
+    await feeObligationService.recordObligationForEscrowSettlement(escrowRow, feeOutcome, durableBuyerBps, actualCollection)
 
     // Same broadcast-evidence recording escrow-pending-tx.ts's own
     // submitTransactionSignature() runs, same non-throwing failure
