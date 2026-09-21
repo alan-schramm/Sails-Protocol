@@ -46,6 +46,7 @@ const mockWdkFindLatest = jest.fn()
 const mockWdkUpdateStatus = jest.fn()
 const mockWdkGetReceipt = jest.fn()
 const mockWdkGetTreasuryAddress = jest.fn()
+const mockWdkSplitFunds = jest.fn()
 jest.mock('../src/modules/open-settlement/wdk-transfer-attempt-repository', () => ({
   wdkTransferAttemptRepository: {
     findLatest: (...args: unknown[]) => mockWdkFindLatest(...args),
@@ -60,6 +61,7 @@ jest.mock('../src/modules/open-settlement/wdk-settlement.provider', () => ({
     getTreasuryAccountForReconciliation: jest.fn().mockResolvedValue({
       getAddress: (...args: unknown[]) => mockWdkGetTreasuryAddress(...args),
     }),
+    splitFunds: (...args: unknown[]) => mockWdkSplitFunds(...args),
   },
 }))
 
@@ -202,6 +204,7 @@ beforeEach(() => {
   mockWdkUpdateStatus.mockResolvedValue({})
   mockWdkGetReceipt.mockResolvedValue(null)
   mockWdkGetTreasuryAddress.mockResolvedValue('0xtreasury')
+  mockWdkSplitFunds.mockReset()
 })
 
 // Sails Core Implementation Program M9-R (Recovery Closure, Part 3) —
@@ -336,6 +339,64 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(report.requiresManualReview[0].escrowId).toBe('escrow-1')
     expect(report.requiresManualReview[0].reason).toMatch(/no durable WdkTransferAttempt/)
     expect(mockReconcilePendingSettlement).not.toHaveBeenCalled()
+  })
+
+  it('#250 WDK SPLIT resumes only from durable buyer+seller intent and converges both proven tx ids', async () => {
+    const escrow = multisigEscrowFixture({ type: 'WDK_USDT_EVM', status: 'SPLIT', splitBuyerBps: 4000 })
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([escrow])
+    mockWdkFindLatest.mockImplementation(async (_id: string, op: string) =>
+      op === 'SPLIT_BUYER'
+        ? { id: 'buyer-attempt', status: 'CONFIRMED', txHash: '0xbuyerTx', destination: '0xbuyer', amount: { toString: () => '0.0004' } }
+        : { id: 'seller-attempt', status: 'PREPARED', txHash: null, destination: '0xseller', amount: { toString: () => '0.0006' } }
+    )
+    mockWdkSplitFunds.mockResolvedValue({ txIds: ['0xbuyerTx', '0xsellerTx'] })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockWdkSplitFunds).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'escrow-1', tradeId: 'trade-1' }),
+      '0xbuyer', '0xseller', 4000
+    )
+    expect(mockEscrowUpdate).toHaveBeenCalledWith({
+      where: { id: 'escrow-1' },
+      data: { txReleaseId: '0xbuyerTx,0xsellerTx', releasedAt: expect.any(Date) },
+    })
+    expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'SPLIT', 4000, undefined)
+    expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xbuyerTx,0xsellerTx', outcome: 'ALREADY_BROADCAST' }])
+  })
+
+  it('#250 WDK SPLIT with seller SUBMISSION_UNKNOWN fails closed and never fabricates terminal txReleaseId', async () => {
+    const escrow = multisigEscrowFixture({ type: 'WDK_USDT_EVM', status: 'SPLIT', splitBuyerBps: 4000 })
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([escrow])
+    mockWdkFindLatest.mockImplementation(async (_id: string, op: string) =>
+      op === 'SPLIT_BUYER'
+        ? { id: 'buyer-attempt', status: 'CONFIRMED', txHash: '0xbuyerTx', destination: '0xbuyer', amount: { toString: () => '0.0004' } }
+        : { id: 'seller-attempt', status: 'SUBMISSION_UNKNOWN', txHash: null, destination: '0xseller', amount: { toString: () => '0.0006' } }
+    )
+    mockWdkSplitFunds.mockRejectedValue(new Error('SPLIT_SELLER outcome is UNKNOWN'))
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.requiresManualReview[0].reason).toMatch(/UNKNOWN/)
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    expect(mockRecordObligation).not.toHaveBeenCalled()
+    expect(report.recovered).toEqual([])
+  })
+
+  it('#250 legacy buyer-confirmed split with no durable seller intent fails closed rather than using a mutable payout address', async () => {
+    const escrow = multisigEscrowFixture({ type: 'WDK_USDT_EVM', status: 'SPLIT', splitBuyerBps: 4000 })
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([escrow])
+    mockWdkFindLatest.mockImplementation(async (_id: string, op: string) =>
+      op === 'SPLIT_BUYER'
+        ? { id: 'buyer-attempt', status: 'CONFIRMED', txHash: '0xbuyerTx', destination: '0xbuyer', amount: { toString: () => '0.0004' } }
+        : null
+    )
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.requiresManualReview[0].reason).toMatch(/seller intent is absent/)
+    expect(mockWdkSplitFunds).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
   })
 
   it('WDK CONFIRMED RELEASE converges the durable txHash without a provider transfer', async () => {
