@@ -37,23 +37,20 @@ relevant to P2P markets. The objective is not to make every integrator adopt
 the Reference Wallet's stack; it is to let existing wallets join the Sails
 network with minimal replacement cost.
 
-Initial **planned** first-party adapter targets:
+### Adapter taxonomy — do not confuse adapters, wallets, kits, connectors, and rails
 
-- `@sails/adapter-bdk`
-- `@sails/adapter-wdk`
-- `@sails/adapter-breez`
-- `@sails/adapter-spark`
-- `@sails/adapter-ldk`
-- `@sails/adapter-ethers` — EVM family, including BNB Smart Chain
-- `@sails/adapter-tron`
-- `@sails/adapter-solana`
-- `@sails/adapter-ton`
+> **A Sails adapter is not a wallet.** It is a compatibility bridge between Sails' stable capability contracts and a wallet, wallet-development kit/stack, chain SDK, or connection protocol. The wallet remains the wallet: it owns its keys/custody model, signing, storage, user experience, and the capabilities it chooses to expose.
 
-These package names are roadmap targets, not published/support claims yet.
-Additional adapters are added by ecosystem relevance and integrator demand.
-Settlement-network expansion remains property-gated: a network is eligible
-because its primitives can satisfy the required Sails settlement semantics,
-not merely because an SDK or smart-contract platform exists.
+Keep these categories separate:
+
+1. **Wallet-building kits/stacks** — planned bridges: `@sails/adapter-bdk` (Bitcoin/BDK), `@sails/adapter-wdk` (Tether WDK/multi-chain), `@sails/adapter-breez` (Breez/Lightning), `@sails/adapter-spark` (Spark/Bitcoin), and `@sails/adapter-ldk` (LDK/Lightning).
+2. **Chain/ecosystem SDK bridges** — planned targets: `@sails/adapter-ethers` (EVM family, including BNB Smart Chain), `@sails/adapter-tron`, `@sails/adapter-solana`, and `@sails/adapter-ton`. A chain SDK is not automatically a wallet-building kit.
+3. **Wallet-connection protocols/connectors** — mechanisms such as WalletConnect or ecosystem-specific connectors connect an application to an already-existing wallet/session. They are a separate integration class, not wallet-building kits and not settlement rails; targets require separate specification and evidence.
+4. **Settlement rails/providers** — Bitcoin L1, Lightning, Spark, Arkade, Liquid, EVM-family rails, Solana, TRON, TON, and other execution surfaces. A rail is **not** a wallet adapter. Arkade, for example, is modeled as a settlement rail/capability even where Arkade SDK code participates in an implementation.
+
+A single wallet may use several layers at once: a wallet-building kit for keys/signing, a chain SDK for network access, a connector for sessions, and multiple settlement rails. Conversely, a toolkit such as WDK may expose several networks behind one integration. **Shared implementation never collapses wallet capability, connector, adapter, settlement rail, and settlement provider into the same concept.**
+
+These package names are roadmap targets, not published/support claims. Additional adapters are added by ecosystem relevance and integrator demand. An adapter becomes supported/production-eligible only after implementation evidence and applicable Sails conformance gates; catalog presence, package existence, or a green unit test is insufficient. Settlement-network expansion remains property-gated: a network is eligible because its primitives satisfy required Sails settlement semantics, not merely because an SDK or smart-contract platform exists.
 
 **Full Reference Wallet Day-0 Capability Target (added 2026-09-10,
 Product Direction freeze — Gate B; existing product/reference-wallet
