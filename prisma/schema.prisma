@@ -422,6 +422,10 @@ model Escrow {
   // Frozen atomically with the DISPUTED -> SPLIT claim, before any provider
   // side effect. Null for non-SPLIT and legacy rows; recovery must never guess it.
   splitBuyerBps                         Int?
+  // Day-0 #248 — immutable provenance for direct-call economic execution.
+  // Frozen in the same CAS that claims the terminal state, before provider
+  // dispatch, so restart never substitutes a different actor in audit history.
+  directExecutionTriggeredBy            String?
   timelockHours                         Int               @default(24)
   // RFC-021 Phase 0 — real fee collection (PROTOCOL_ECONOMY.md §6.2).
   // Nullable, not defaulted to 0: null means "no fee was computed for
