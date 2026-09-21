@@ -897,7 +897,19 @@ export class EscrowService {
       )
     }
 
-    await claimEscrowTransition(escrowId, escrow.status, 'SPLIT')
+    // Day-0 #247 — freeze the economic allocation in the SAME Postgres CAS
+    // that claims the terminal SPLIT state. No provider side effect may run
+    // before this durable fact exists; recovery must never re-derive it.
+    const splitClaimed = await this.repo.claimSplitTransition(escrowId, escrow.status, buyerBps)
+    if (splitClaimed !== 1) {
+      const current = await this.repo.findById(escrowId)
+      if (current?.status === 'SPLIT' && current.splitBuyerBps !== null && current.splitBuyerBps !== buyerBps) {
+        throw new EscrowError(
+          `Escrow ${escrowId} already froze SPLIT allocation at buyerBps=${current.splitBuyerBps}; refusing divergent retry with buyerBps=${buyerBps}.`
+        )
+      }
+      throw new EscrowError(`Escrow ${escrowId} SPLIT transition was already claimed by another operation`)
+    }
 
     try {
       const result = await provider.splitFunds(
