@@ -124,6 +124,14 @@ offers.findMany = jest.fn(async (args: any) => {
   return rows.map((r: any) => ({ ...r, user: { reputationScore: users.rows.get(r.userId)?.reputationScore ?? 0 } }))
 })
 const trades = makeTable('trade', { status: 'PENDING', escrowId: null })
+// #253 — terminal handlers now reload the Trade after the transactional
+// state projection. Prisma's real delegate exposes findUniqueOrThrow;
+// this in-memory delegate must preserve the same contract.
+trades.findUniqueOrThrow = jest.fn(async ({ where }: any) => {
+  const row = trades.rows.get(where.id)
+  if (!row) throw new Error(`Trade not found: ${where.id}`)
+  return { ...row }
+})
 const escrows = makeTable('escrow', { status: 'CREATED' })
 const escrowEvents = makeTable('escrowEvent')
 // Missão 11 Fase 4.1 — createEscrow() now unguardedly calls
