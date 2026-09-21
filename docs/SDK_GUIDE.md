@@ -282,7 +282,8 @@ interface SailsClient {
     // Convenience: derives scope directly from a WalletAdapter's own
     // getCapabilities() declaration instead of the caller re-assembling
     // it into a register() call by hand.
-    registerFromWallet(wallet: WalletAdapter): Promise<CapabilityGrant>
+    ensureCanonicalGrants(participantId: string): Promise<CapabilityGrant[]>   // Issue #303 - idempotent onboarding
+    registerFromWallet(wallet: WalletAdapter): Promise<CapabilityGrant>   // deprecated, Issue #303
   }
 
   // Sails OpenProof (RFC-006, RFC-007) — advanced/direct use; submitProof()

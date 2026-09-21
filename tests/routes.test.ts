@@ -75,7 +75,14 @@ const mockCapabilityGrantExecuteRaw = jest.fn().mockResolvedValue(0)
 const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     $executeRaw: mockCapabilityGrantExecuteRaw,
-    capabilityGrant: { update: (...args: unknown[]) => mockCapabilityGrantUpdate(...args) },
+    // Issue #303 delta - CapabilityGrantRepository.create() now runs inside this
+    // transaction (advisory lock + equivalent-live-grant lookup + insert), so the
+    // tx client must expose findMany/create too; findMany defaults to "no live grants".
+    capabilityGrant: {
+      update: (...args: unknown[]) => mockCapabilityGrantUpdate(...args),
+      findMany: async (...args: unknown[]) => (await mockCapabilityGrantFindMany(...args)) ?? [],
+      create: (...args: unknown[]) => mockCapabilityGrantCreate(...args),
+    },
   })
 )
 const mockIntentCreate = jest.fn()
@@ -2141,7 +2148,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const res = await app.inject({
         method: 'POST',
         url: '/v1/capabilities/register',
-        payload: { capabilityName: 'trade-coordination', scope: ['openp2p.trade.created'] },
+        payload: { capabilityName: 'trade-coordination', scope: ['intent.created'] },
       })
       expect(res.statusCode).toBe(401)
     })
@@ -2152,7 +2159,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         id: 'grant-1',
         grantedTo: 'buyer-1',
         capabilityName: 'trade-coordination',
-        scope: ['openp2p.trade.created'],
+        scope: ['intent.created'],
         constraints: null,
         issuedBy: 'buyer-1',
       })
@@ -2161,7 +2168,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         method: 'POST',
         url: '/v1/capabilities/register',
         headers: { authorization: `Bearer ${token}` },
-        payload: { capabilityName: 'trade-coordination', scope: ['openp2p.trade.created'] },
+        payload: { capabilityName: 'trade-coordination', scope: ['intent.created'] },
       })
 
       expect(res.statusCode).toBe(201)
@@ -2173,6 +2180,25 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
           data: expect.objectContaining({ grantedTo: 'buyer-1', issuedBy: 'buyer-1', capabilityName: 'trade-coordination' }),
         })
       )
+    })
+
+    it('rejects an unknown capabilityName and a mismatched scope with 400 - nothing is persisted (Issue #303)', async () => {
+      const token = await authedSession('buyer-1')
+      for (const payload of [
+        { capabilityName: 'anything', scope: ['intent.created'] },
+        { capabilityName: 'settlement', scope: ['intent.created'] },
+        { capabilityName: 'trade-coordination', scope: ['trade-coordination'] },
+      ]) {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/v1/capabilities/register',
+          headers: { authorization: `Bearer ${token}` },
+          payload,
+        })
+        expect(res.statusCode).toBe(400)
+        expect(JSON.parse(res.body).error).toBe('VALIDATION_ERROR')
+      }
+      expect(mockCapabilityGrantCreate).not.toHaveBeenCalled()
     })
 
     it('lists active grants for a participant, no auth required', async () => {

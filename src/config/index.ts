@@ -771,29 +771,20 @@ if (config.isProduction && config.features.mockEscrow) {
   )
 }
 
-// Missão 06.5 — structural guard against ENFORCE_CAPABILITIES silently
-// resolving to "no enforcement" in production. Deliberately narrower
-// than RT-001's rule above: Missão 02.5 already found automatic
-// CapabilityGrant issuance isn't ready for real users yet, so this does
-// NOT mandate enforceCapabilities=true in production (that would invent
-// a policy this mission was explicitly told not to invent, and would
-// break every deployment that hasn't done capability onboarding). It
-// mandates only that the operator set the variable EXPLICITLY — 'true'
-// once grants are issued, or 'false' to consciously acknowledge running
-// without capability enforcement — rather than a production boot
-// silently inheriting the exact same unset-default a forgotten .env
-// file would give a throwaway dev environment. Reads
-// `process.env.ENFORCE_CAPABILITIES` directly, not
-// `config.features.enforceCapabilities` — that field has already
-// collapsed "unset" and "explicitly false" into the same `false`,
-// which is precisely the distinction this guard exists to preserve.
-if (config.isProduction && process.env.ENFORCE_CAPABILITIES === undefined) {
+// Issue #303 - Capability Authority is a production-eligibility invariant.
+// Supersedes Missao 06.5's "explicitly set, true or false" rule: a production
+// process may boot ONLY with ENFORCE_CAPABILITIES exactly 'true'. Unset,
+// 'false', or any other value is fatal. Dev/test/reference environments are
+// unaffected and may still run with enforcement disabled (ADR-004 s9 remains
+// true outside production). Reads process.env directly so a typo such as
+// 'TRUE' or '1' is rejected instead of silently collapsing to false.
+if (config.isProduction && process.env.ENFORCE_CAPABILITIES !== 'true') {
   throw new Error(
-    'FATAL: NODE_ENV=production but ENFORCE_CAPABILITIES is not set. ' +
-    'Refusing to boot — see docs/rfcs/RFC-014-capability-registry-enforcement.md. ' +
-    "Set ENFORCE_CAPABILITIES=true once this deployment's participants have " +
-    'real CapabilityGrants issued, or explicitly set ENFORCE_CAPABILITIES=false ' +
-    'to acknowledge running without capability enforcement for now.'
+    'FATAL: NODE_ENV=production requires ENFORCE_CAPABILITIES=true (got ' +
+    (process.env.ENFORCE_CAPABILITIES === undefined ? 'unset' : `'${process.env.ENFORCE_CAPABILITIES}'`) +
+    '). Capability Authority cannot be disabled in production - see ' +
+    'docs/adr/ADR-004-capability-grant-temporal-authority.md (Issue #303 amendment). ' +
+    'Participants obtain the canonical grants through the SDK (capabilities.ensureCanonicalGrants).'
   )
 }
 

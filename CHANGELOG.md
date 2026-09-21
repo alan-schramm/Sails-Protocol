@@ -19,6 +19,16 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **Issue #303 - Capability Authority is a production-eligibility invariant.** A
+  `NODE_ENV=production` process now refuses to boot unless
+  `ENFORCE_CAPABILITIES=true` exactly (dev/test/reference unchanged). Only canonical
+  `(capabilityName, scope)` pairs (`trade-coordination`: `intent.created`,
+  `intent.discovering`; `settlement`: `settlement.escrow.{released,refunded,split}`)
+  can be registered; anything else is 400. SDK `capabilities.ensureCanonicalGrants()`
+  added (run by the reference UI on login); `registerFromWallet()` deprecated
+  (its old grant shape matched no gate). Self-issued grants remain the participant's
+  own consent, not independent authorization. ADR-004/INV-08 amended.
+
 - **Issue #302 — registration now requires proof of possession.** `POST
   /v1/identity/participants` requires `signature`: an Ed25519 signature over
   `sails-registration-proof-of-possession:v1:<challenge>:<displayName>` for a

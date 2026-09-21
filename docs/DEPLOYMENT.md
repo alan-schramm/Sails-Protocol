@@ -406,14 +406,22 @@ Do not proceed with a restore, and escalate instead, if:
 - [x] **Ed25519 auth middleware is in place** — real challenge-response
       (`common/middleware/auth.ts`), not a placeholder. There is no
       `JWT_SECRET` to configure; nothing here needs one.
-- [x] **Capability Registry has real enforcement callers** (RFC-014,
-      `ENFORCE_CAPABILITIES`) and **escrow release has a two-person
-      control option** (RFC-015, `REQUIRE_DUAL_APPROVAL_RELEASE`) — both
-      real, both off by default (no `CapabilityGrant`/approval exists
-      anywhere by default, so enforcing unconditionally would reject
-      everything). Turning `REQUIRE_DUAL_APPROVAL_RELEASE` on changes the
-      required calling pattern for a release — read RFC-015's Decision §5
-      before enabling it, it is not a drop-in flag flip.
+- [x] **Capability Authority is mandatory in production** (RFC-014,
+      ADR-004, Issue #303): `NODE_ENV=production` refuses to boot unless
+      `ENFORCE_CAPABILITIES=true` exactly (unset, `false`, or any other
+      value is fatal). Participants self-issue the canonical grants
+      (`trade-coordination`, `settlement`) via the SDK's
+      `capabilities.ensureCanonicalGrants()` - the reference UI does it on
+      every login. **Arbiters and sellers need the `settlement` grant
+      too**: an assigned arbiter without it cannot execute a ruling, and
+      the expiry sweeper refunds as the seller, so a seller without it is
+      reported in `failed[]` until it onboards (no system exemption).
+      Self-issued grants are the participant's own consent, **not
+      independent third-party authorization**. **Escrow release has a
+      two-person control option** (RFC-015, `REQUIRE_DUAL_APPROVAL_RELEASE`),
+      real and off by default; turning it on changes the required calling
+      pattern for a release - read RFC-015's Decision §5 before enabling it,
+      it is not a drop-in flag flip.
 - [x] **`MULTISIG`'s release/refund/split fee is a real rate lookup**
       (`mempool.space /v1/fees/recommended`, 2026-08-02) — the flat
       1000-sat placeholder this file previously left as future work is
