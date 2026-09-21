@@ -177,4 +177,52 @@ describe('#253 durable event projection claims — real Postgres', () => {
     }
   })
 
+
+  it('converges an incomplete terminal projection exactly once across restart-style replay and concurrent recovery', async () => {
+    requirePostgres('terminal projection restart recovery')
+    const recoveryEvent = eventId + '-terminal-recovery'
+    const tradeId = 'trade-' + suffix
+    const terminalAt = new Date('2026-09-21T03:59:59.000Z')
+    const before = await prisma.user.findUniqueOrThrow({ where: { id: userId } })
+
+    // Simulate the durable-event-before-handler crash boundary: durable truth
+    // exists, but no projection claim/effect has landed yet.
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: recoveryEvent } })).toBe(0)
+
+    const recover = async () => {
+      const stateApplied = await applyEventProjectionOnce(recoveryEvent, 'terminal-trade-state', tradeId, async () => {
+        // The real terminal handler writes Trade here. This focused Postgres
+        // proof uses the participant row as an observable state projection so
+        // the claim/effect atomicity and concurrency boundary are exercised
+        // against real MVCC without constructing unrelated Offer/Trade fixtures.
+        await prisma.user.update({ where: { id: userId }, data: { verified: true } })
+      })
+      const counterApplied = await applyEventProjectionOnce(recoveryEvent, 'trade-completion-volume', userId, async (tx: any) => {
+        await tx.user.update({ where: { id: userId }, data: { totalTrades: { increment: 1 } } })
+      })
+      const completionApplied = await applyEventProjectionOnce(recoveryEvent, 'terminal-settlement-handler-complete', tradeId, async () => {})
+      return { stateApplied, counterApplied, completionApplied, terminalAt }
+    }
+
+    // Two restart workers racing the same incomplete durable event must converge:
+    // each semantic projection has one winner, never two additive effects.
+    const results = await Promise.all([recover(), recover()])
+    expect(results.filter((r) => r.stateApplied)).toHaveLength(1)
+    expect(results.filter((r) => r.counterApplied)).toHaveLength(1)
+    expect(results.filter((r) => r.completionApplied)).toHaveLength(1)
+
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: userId } })
+    expect(after.verified).toBe(true)
+    expect(after.totalTrades).toBe(before.totalTrades + 1)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: recoveryEvent } })).toBe(3)
+
+    // A later restart sees every projection already claimed and is a no-op.
+    await expect(recover()).resolves.toMatchObject({
+      stateApplied: false,
+      counterApplied: false,
+      completionApplied: false,
+    })
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: userId } })).totalTrades).toBe(before.totalTrades + 1)
+  })
+
 })
