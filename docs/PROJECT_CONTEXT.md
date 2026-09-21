@@ -1792,6 +1792,18 @@ Canonical adoption principle:
 
 > **Keep your wallet stack. Plug into Sails.**
 
+> **Terminology guardrail:** a Sails adapter is **not a wallet**. It is a
+> compatibility bridge. The external wallet remains responsible for its own
+> keys/custody model, signing, storage and UX. Also keep four integration
+> classes distinct: **wallet-building kits/stacks** (BDK, WDK, Breez, Spark,
+> LDK), **chain/ecosystem SDK bridges** (EVM/ethers-compatible, TRON, Solana,
+> TON), **wallet-connection protocols/connectors** (for example WalletConnect,
+> when separately specified), and **settlement rails/providers** (Bitcoin L1,
+> Lightning, Spark, Arkade, Liquid, EVM-family rails, Solana, TRON, TON).
+> One wallet may use several classes simultaneously; shared implementation
+> does not make the concepts interchangeable. See `ROADMAP.md` “Adapter
+> taxonomy” for the canonical classification.
+
 The protocol/Core remains wallet-kit agnostic. The SDK's existing
 `WalletAdapter` boundary is the generic contract; first-party adapters reduce
 integration cost for the stacks wallets already use. Initial visible adapter
