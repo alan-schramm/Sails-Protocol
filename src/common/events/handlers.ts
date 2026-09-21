@@ -146,11 +146,12 @@ async function transitionIntentOnce<K extends SailsEventName>(
   triggeredBy: string,
   eventName: K,
   payload: Parameters<typeof intentEngine.transition<K>>[4],
+  effectiveAt?: Date,
 ): Promise<void> {
   const before = await prisma.intent.findUnique({ where: { id: intentId }, select: { status: true } })
   if (before?.status === targetStatus) return
   try {
-    await intentEngine.transition(intentId, targetStatus as any, triggeredBy, eventName, payload as any)
+    await intentEngine.transition(intentId, targetStatus as any, triggeredBy, eventName, payload as any, undefined, effectiveAt)
   } catch (err) {
     const after = await prisma.intent.findUnique({ where: { id: intentId }, select: { status: true } })
     if (after?.status === targetStatus) return
@@ -160,18 +161,18 @@ async function transitionIntentOnce<K extends SailsEventName>(
 
 /** Walks a successful Intent through SETTLING → FULFILLED and is safe to
  *  call again after a crash between either leg. */
-async function fulfillIntent(intentId: string, escrowId: string, outcome: 'RELEASED' | 'SPLIT'): Promise<void> {
+async function fulfillIntent(intentId: string, escrowId: string, outcome: 'RELEASED' | 'SPLIT', effectiveAt?: Date): Promise<void> {
   const current = await prisma.intent.findUnique({ where: { id: intentId }, select: { status: true } })
   if (current?.status === 'FULFILLED') return
   if (current?.status !== 'SETTLING') {
     await transitionIntentOnce(
       intentId, 'SETTLING', INTENT_LIFECYCLE_TRIGGER, 'intent.settling',
-      { intentId, settlementId: escrowId }
+      { intentId, settlementId: escrowId }, effectiveAt
     )
   }
   await transitionIntentOnce(
     intentId, 'FULFILLED', INTENT_LIFECYCLE_TRIGGER, 'intent.fulfilled',
-    { intentId, settlementId: escrowId, outcome }
+    { intentId, settlementId: escrowId, outcome }, effectiveAt
   )
 }
 
@@ -267,7 +268,7 @@ export async function handleEscrowReleased(event: DurableEvent<'settlement.escro
     tradeId: payload.tradeId, from: 'ACTIVE', to: 'COMPLETED', triggeredBy: payload.triggeredBy,
   }, payload.tradeId)
   await applyReleaseOutcomes(event.eventId, payload.tradeId, trade.buyerId, trade.sellerId)
-  if (trade.intentId) await fulfillIntent(trade.intentId, payload.escrowId, 'RELEASED')
+  if (trade.intentId) await fulfillIntent(trade.intentId, payload.escrowId, 'RELEASED', new Date(event.publishedAt))
   await markTerminalHandlerComplete(event.eventId, payload.tradeId)
 }
 
@@ -282,7 +283,7 @@ export async function handleEscrowRefunded(event: DurableEvent<'settlement.escro
   if (trade.intentId) {
     await transitionIntentOnce(
       trade.intentId, 'FAILED', INTENT_LIFECYCLE_TRIGGER, 'intent.failed',
-      { intentId: trade.intentId, reason: resolvedRefund ? 'Escrow refunded per dispute ruling' : 'Escrow refunded' }
+      { intentId: trade.intentId, reason: resolvedRefund ? 'Escrow refunded per dispute ruling' : 'Escrow refunded' }, new Date(event.publishedAt)
     )
   }
   await markTerminalHandlerComplete(event.eventId, payload.tradeId)
@@ -300,7 +301,7 @@ export async function handleEscrowSplit(event: DurableEvent<'settlement.escrow.s
   await eventBus.emitDerivedOnce(event.eventId, 'openp2p.trade.completed', {
     tradeId: payload.tradeId, from: 'DISPUTED', to: 'COMPLETED', triggeredBy: payload.triggeredBy,
   }, payload.tradeId)
-  if (trade.intentId) await fulfillIntent(trade.intentId, payload.escrowId, 'SPLIT')
+  if (trade.intentId) await fulfillIntent(trade.intentId, payload.escrowId, 'SPLIT', new Date(event.publishedAt))
   await markTerminalHandlerComplete(event.eventId, payload.tradeId)
 }
 
