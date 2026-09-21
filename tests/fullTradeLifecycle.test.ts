@@ -230,6 +230,7 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
   callback({
     durableEventRecord: durableEventRecords,
     escrow: escrows,
+    trade: trades,
     escrowFundingEvidence: escrowFundingEvidence,
     // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
     // escrowEvent existence-check-then-create INSIDE withEscrowFundingLock()

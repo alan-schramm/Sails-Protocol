@@ -97,6 +97,9 @@ export interface TradeRepository {
 
   /** updateStatus()'s own write — cancelledAt is the caller's job to compute (status === 'CANCELLED' ? new Date() : undefined), same as today. */
   updateStatus(tradeId: string, status: TradeStatus, cancelledAt: Date | undefined): Promise<TradeRow>
+
+  /** #236 — project an escrow lifecycle event only while the persisted Escrow still has the state that event claims. The Escrow row, not delivery order, is authoritative. Returns null for a stale/reordered event. */
+  projectEscrowStatus(tradeId: string, escrowId: string, escrowStatus: string, status: TradeStatus, timestamps?: { completedAt?: Date; cancelledAt?: Date }): Promise<TradeRow | null>
 }
 
 const ACTIVE_TRADE_STATUSES = ['PENDING', 'ACTIVE'] as const
@@ -175,6 +178,23 @@ class PrismaTradeRepository implements TradeRepository {
 
   async updateStatus(tradeId: string, status: TradeStatus, cancelledAt: Date | undefined) {
     return prisma.trade.update({ where: { id: tradeId }, data: { status, cancelledAt } })
+  }
+
+  async projectEscrowStatus(tradeId: string, escrowId: string, escrowStatus: string, status: TradeStatus, timestamps: { completedAt?: Date; cancelledAt?: Date } = {}) {
+    return prisma.$transaction(async (tx) => {
+      // Lock the authoritative Escrow row so its lifecycle cannot move between
+      // validation and projection. This deliberately uses the existing
+      // escrow-scoped Postgres advisory-lock convention rather than adding a
+      // second concurrency primitive.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+      const escrow = await tx.escrow.findUnique({ where: { id: escrowId } })
+      if (!escrow || escrow.tradeId !== tradeId || escrow.status !== escrowStatus) return null
+
+      return tx.trade.update({
+        where: { id: tradeId },
+        data: { status, ...timestamps },
+      })
+    })
   }
 }
 
