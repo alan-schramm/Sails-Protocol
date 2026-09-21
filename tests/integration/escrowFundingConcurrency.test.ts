@@ -58,6 +58,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   let escrowFundingEvidenceRepository: typeof import('../../src/modules/open-settlement/escrow-funding-evidence-repository').escrowFundingEvidenceRepository
   let sweepMultisigFundingReorgs: typeof import('../../src/modules/open-settlement/multisig-funding-reorg-sweep').sweepMultisigFundingReorgs
   let withEscrowFundingLock: typeof import('../../src/modules/open-settlement/escrow-lifecycle').withEscrowFundingLock
+  let reconcilePendingSettlements: typeof import('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements
 
   const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
   const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
@@ -113,6 +114,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
     ;({ escrowFundingEvidenceRepository } = require('../../src/modules/open-settlement/escrow-funding-evidence-repository'))
     ;({ sweepMultisigFundingReorgs } = require('../../src/modules/open-settlement/multisig-funding-reorg-sweep'))
     ;({ withEscrowFundingLock } = require('../../src/modules/open-settlement/escrow-lifecycle'))
+    ;({ reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
   })
 
@@ -406,6 +408,54 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       const evidence = await escrowFundingEvidenceRepository.listForEscrow(escrowId)
       expect(evidence.map((e: any) => e.kind)).toEqual(['OBSERVED_CONFIRMED']) // no new row from either sweep run
     })
+  })
+
+
+  it('WDK CONFIRMED restart converges through the real reconciler exactly once under repeated/concurrent PostgreSQL recovery', async () => {
+    requirePostgres('WDK full restart reconciliation composition')
+    const suffix = `wdk-full-recovery-${Date.now()}`
+    const buyer = await registerTestParticipant(identityService, `${suffix}-buyer`)
+    const seller = await registerTestParticipant(identityService, `${suffix}-seller`)
+    const offer = await liquidityRouter.createOffer({
+      userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '1', maxAmount: '1', paymentMethod: 'CRYPTO_DIRECT',
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '1' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'WDK_USDT_EVM', lockedAmount: '1', asset: 'USDT_ERC20' }, seller.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+
+    // Reproduce the crash window: external execution truth is durable and
+    // CONFIRMED, local terminal state is durable, but txReleaseId and all
+    // downstream completion effects were never persisted.
+    await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'COMPLETED', txReleaseId: null, releasedAt: null } })
+    await prisma.wdkTransferAttempt.create({
+      data: {
+        escrowId: escrow.id,
+        operationType: 'RELEASE',
+        status: 'CONFIRMED',
+        destination: `0x${createHash('sha256').update(suffix).digest('hex').slice(0, 40)}`,
+        amount: '1',
+        txHash: `0x${createHash('sha256').update(`${suffix}-tx`).digest('hex')}`,
+        activeKey: `${escrow.id}:RELEASE`,
+      },
+    })
+
+    const [a, b] = await Promise.all([reconcilePendingSettlements(), reconcilePendingSettlements()])
+    const recovered = [...a.recovered, ...b.recovered].filter((x) => x.escrowId === escrow.id)
+    expect(recovered.length).toBeGreaterThanOrEqual(1)
+
+    const persisted = await prisma.escrow.findUnique({ where: { id: escrow.id } })
+    expect(persisted?.txReleaseId).toMatch(/^0x[0-9a-f]{64}$/)
+
+    const eventCountAfterRace = await prisma.escrowEvent.count({ where: { escrowId: escrow.id, toStatus: 'COMPLETED' } })
+    const obligationCountAfterRace = await prisma.feeObligation.count({ where: { escrowId: escrow.id } })
+    expect(eventCountAfterRace).toBe(1)
+    expect(obligationCountAfterRace).toBeLessThanOrEqual(1)
+
+    // A later restart/sweep is a no-op economically: no duplicate event or
+    // obligation may be produced after convergence.
+    await reconcilePendingSettlements()
+    expect(await prisma.escrowEvent.count({ where: { escrowId: escrow.id, toStatus: 'COMPLETED' } })).toBe(1)
+    expect(await prisma.feeObligation.count({ where: { escrowId: escrow.id } })).toBe(obligationCountAfterRace)
   })
 
   it('WDK recovery lock serializes competing txReleaseId identities and preserves the first durable winner', async () => {
