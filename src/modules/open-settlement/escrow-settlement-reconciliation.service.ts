@@ -632,17 +632,19 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
     where: { escrowId: escrow.id },
     select: { id: true, kind: true, feeCollectionSats: true, feeCollectionWaived: true, buyerBps: true, unsignedPsbtBase64: true, triggeredBy: true },
   })
-  // triggeredBy fallback: for a direct-call-rail escrow with no pending
-  // row, the original triggeredBy was never durably persisted anywhere
-  // this module can read back (escrow.service.ts's direct-call
-  // releaseFunds()/refundFunds()/splitFunds() don't store it on the
-  // Escrow row itself) — the seller is the only party this codebase's
-  // own existing precedent (sweepExpiredEscrows()'s own
-  // "triggeredBy is always the trade's own sellerId, never a fabricated
-  // system actor" comment) already treats as a safe, real stand-in for
-  // an escrow-level action, so the same choice is reused here rather
-  // than inventing a new one.
-  const triggeredBy = pendingRow?.triggeredBy ?? trade.sellerId
+  // #248 — provenance is economic/audit truth, never a value recovery
+  // may substitute. Signature-collection rows already persist triggeredBy;
+  // direct-call paths now freeze it on Escrow in the same terminal CAS that
+  // precedes provider dispatch. Legacy direct-call rows without either
+  // source must fail closed instead of attributing the action to seller.
+  const triggeredBy = pendingRow?.triggeredBy ?? escrow.directExecutionTriggeredBy
+  if (!triggeredBy) {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: 'Completion effects cannot recover the original execution actor (#248); refusing to fabricate audit provenance.',
+    })
+    return
+  }
 
   log.info({ msg: 'Reconciliation: recovering missing downstream completion effects (C5)', escrowId: escrow.id, targetStatus })
   // rawTxHex: undefined here — this call's own job is bookkeeping
