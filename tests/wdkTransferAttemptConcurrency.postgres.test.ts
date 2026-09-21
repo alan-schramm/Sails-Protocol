@@ -185,6 +185,25 @@ describe('WDK active generation ownership — PostgreSQL', () => {
     expect(persisted?.activeKey).toBe(`${escrowId}:${operationType}`)
   })
 
+  it('lets exactly one concurrent restart worker promote SUBMITTED to CONFIRMED while preserving the same txHash', async () => {
+    const first = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
+    await wdkTransferAttemptRepository.updateStatus(first.id, 'SUBMISSION_UNKNOWN', undefined, ['PREPARED'])
+    await wdkTransferAttemptRepository.updateStatus(first.id, 'SUBMITTED', { txHash: '0xconcurrent-restart' }, ['SUBMISSION_UNKNOWN'])
+
+    const workers = await Promise.allSettled([
+      wdkTransferAttemptRepository.updateStatus(first.id, 'CONFIRMED', undefined, ['SUBMITTED']),
+      wdkTransferAttemptRepository.updateStatus(first.id, 'CONFIRMED', undefined, ['SUBMITTED']),
+    ])
+
+    expect(workers.filter((x) => x.status === 'fulfilled')).toHaveLength(1)
+    expect(workers.filter((x) => x.status === 'rejected')).toHaveLength(1)
+
+    const persisted = await wdkTransferAttemptRepository.findLatest(escrowId, operationType)
+    expect(persisted?.status).toBe('CONFIRMED')
+    expect(persisted?.txHash).toBe('0xconcurrent-restart')
+    expect(persisted?.activeKey).toBe(`${escrowId}:${operationType}`)
+  })
+
   it('persists SUBMISSION_UNKNOWN across restart and refuses generation replacement', async () => {
     const first = await wdkTransferAttemptRepository.create({ escrowId, operationType, destination, amount })
     await wdkTransferAttemptRepository.updateStatus(first.id, 'SUBMISSION_UNKNOWN', undefined, ['PREPARED'])
