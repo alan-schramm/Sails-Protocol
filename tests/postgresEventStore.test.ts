@@ -178,6 +178,52 @@ describe('PostgresEventStore - replay-safe derived events (#253)', () => {
     expect(durableEvents).toHaveLength(1)
     expect(handler).toHaveBeenCalledTimes(1)
   })
+
+  it('fails closed when the same derived identity is replayed with divergent payload', async () => {
+    const store = new PostgresEventStore()
+    const correlationId = `pg-derived-divergent-payload-${Date.now()}`
+    const sourceEventId = 'source-settlement-divergent-payload'
+
+    await store.publishDerivedOnce(sourceEventId, 'openp2p.trade.completed', {
+      tradeId: correlationId,
+      from: 'ACTIVE',
+      to: 'COMPLETED',
+      triggeredBy: 'SETTLEMENT',
+    }, correlationId)
+
+    await expect(store.publishDerivedOnce(sourceEventId, 'openp2p.trade.completed', {
+      tradeId: correlationId,
+      from: 'DISPUTED',
+      to: 'COMPLETED',
+      triggeredBy: 'SETTLEMENT',
+    }, correlationId)).rejects.toThrow('Derived event identity collision')
+
+    expect(durableEvents).toHaveLength(1)
+  })
+
+  it('fails closed when the same derived identity is replayed under a different correlationId', async () => {
+    const store = new PostgresEventStore()
+    const sourceEventId = 'source-settlement-divergent-correlation'
+    const firstCorrelationId = `pg-derived-correlation-a-${Date.now()}`
+    const secondCorrelationId = `pg-derived-correlation-b-${Date.now()}`
+    const payload = {
+      tradeId: firstCorrelationId,
+      from: 'ACTIVE',
+      to: 'COMPLETED',
+      triggeredBy: 'SETTLEMENT',
+    }
+
+    await store.publishDerivedOnce(sourceEventId, 'openp2p.trade.completed', payload, firstCorrelationId)
+
+    await expect(store.publishDerivedOnce(
+      sourceEventId,
+      'openp2p.trade.completed',
+      payload,
+      secondCorrelationId
+    )).rejects.toThrow('Derived event identity collision')
+
+    expect(durableEvents).toHaveLength(1)
+  })
 })
 
 describe('PostgresEventStore - write path', () => {
