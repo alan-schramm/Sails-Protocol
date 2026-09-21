@@ -255,7 +255,7 @@ async function markTerminalHandlerComplete(eventId: string, tradeId: string): Pr
 export async function handleEscrowReleased(event: DurableEvent<'settlement.escrow.released'>): Promise<void> {
   const payload = event.payload
   const stateApplied = await applyEventProjectionOnce(event.eventId, 'terminal-trade-state', payload.tradeId, async (tx) => {
-    await tx.trade.update({ where: { id: payload.tradeId }, data: { status: 'COMPLETED', completedAt: new Date() } })
+    await tx.trade.update({ where: { id: payload.tradeId }, data: { status: 'COMPLETED', completedAt: new Date(event.publishedAt) } })
   })
   if (stateApplied) escrowsReleasedTotal.inc()
   const trade = await prisma.trade.findUniqueOrThrow({ where: { id: payload.tradeId } })
@@ -274,7 +274,7 @@ export async function handleEscrowReleased(event: DurableEvent<'settlement.escro
 export async function handleEscrowRefunded(event: DurableEvent<'settlement.escrow.refunded'>): Promise<void> {
   const payload = event.payload
   const stateApplied = await applyEventProjectionOnce(event.eventId, 'terminal-trade-state', payload.tradeId, async (tx) => {
-    await tx.trade.update({ where: { id: payload.tradeId }, data: { status: 'CANCELLED', cancelledAt: new Date() } })
+    await tx.trade.update({ where: { id: payload.tradeId }, data: { status: 'CANCELLED', cancelledAt: new Date(event.publishedAt) } })
   })
   if (stateApplied) escrowsRefundedTotal.inc()
   const trade = await prisma.trade.findUniqueOrThrow({ where: { id: payload.tradeId } })
