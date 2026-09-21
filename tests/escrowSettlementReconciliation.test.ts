@@ -45,6 +45,7 @@ jest.mock('../src/modules/open-p2p/trade-repository', () => ({
 const mockWdkFindLatest = jest.fn()
 const mockWdkUpdateStatus = jest.fn()
 const mockWdkGetReceipt = jest.fn()
+const mockWdkGetTreasuryAddress = jest.fn()
 jest.mock('../src/modules/open-settlement/wdk-transfer-attempt-repository', () => ({
   wdkTransferAttemptRepository: {
     findLatest: (...args: unknown[]) => mockWdkFindLatest(...args),
@@ -55,6 +56,9 @@ jest.mock('../src/modules/open-settlement/wdk-settlement.provider', () => ({
   wdkSettlementProvider: {
     getEscrowAccountForReconciliation: jest.fn().mockResolvedValue({
       getTransactionReceipt: (...args: unknown[]) => mockWdkGetReceipt(...args),
+    }),
+    getTreasuryAccountForReconciliation: jest.fn().mockResolvedValue({
+      getAddress: (...args: unknown[]) => mockWdkGetTreasuryAddress(...args),
     }),
   },
 }))
@@ -197,6 +201,7 @@ beforeEach(() => {
   mockWdkFindLatest.mockResolvedValue(null)
   mockWdkUpdateStatus.mockResolvedValue({})
   mockWdkGetReceipt.mockResolvedValue(null)
+  mockWdkGetTreasuryAddress.mockResolvedValue('0xtreasury')
 })
 
 // Sails Core Implementation Program M9-R (Recovery Closure, Part 3) —
@@ -335,7 +340,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
   it('WDK CONFIRMED RELEASE converges the durable txHash without a provider transfer', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM' })])
-    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-1', status: 'CONFIRMED', txHash: '0xconfirmed' })
+    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-1', status: 'CONFIRMED', txHash: '0xconfirmed', amount: { toString: () => '0.001' }, destination: '0xbuyer' })
 
     const report = await reconcilePendingSettlements()
 
@@ -347,7 +352,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
   it('WDK SUBMITTED consults receipt and only converges after confirmed chain truth', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM' })])
-    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-2', status: 'SUBMITTED', txHash: '0xsubmitted' })
+    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-2', status: 'SUBMITTED', txHash: '0xsubmitted', amount: { toString: () => '0.001' }, destination: '0xbuyer' })
     mockWdkGetReceipt.mockResolvedValue({ status: 1 })
 
     const report = await reconcilePendingSettlements()
@@ -359,7 +364,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
   it('WDK SUBMISSION_UNKNOWN remains fail-closed and never consults receipt or mutates escrow truth', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM' })])
-    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-3', status: 'SUBMISSION_UNKNOWN', txHash: null })
+    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-3', status: 'SUBMISSION_UNKNOWN', txHash: null, amount: { toString: () => '0.001' }, destination: '0xbuyer' })
 
     const report = await reconcilePendingSettlements()
 
@@ -371,7 +376,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
   it('WDK REFUND converges txReleaseId without inventing releasedAt', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM', status: 'REFUNDED' })])
-    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-4', status: 'CONFIRMED', txHash: '0xrefund' })
+    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-4', status: 'CONFIRMED', txHash: '0xrefund', amount: { toString: () => '0.001' }, destination: '0xtreasury' })
 
     const report = await reconcilePendingSettlements()
 
