@@ -411,6 +411,39 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   })
 
 
+  it('#247 freezes direct SPLIT allocation atomically and PostgreSQL rejects divergent mutation', async () => {
+    requirePostgres('#247 durable split allocation')
+    const suffix = `split-allocation-${Date.now()}`
+    const buyer = await registerTestParticipant(identityService, `${suffix}-buyer`)
+    const seller = await registerTestParticipant(identityService, `${suffix}-seller`)
+    const offer = await liquidityRouter.createOffer({
+      userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '1', maxAmount: '1', paymentMethod: 'CRYPTO_DIRECT',
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '1' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'WDK_USDT_EVM', lockedAmount: '1', asset: 'USDT_ERC20' }, seller.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+    await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED' } })
+
+    const repo = require('../../src/modules/open-settlement/escrow-repository').escrowRepository
+    const [a, b] = await Promise.all([
+      repo.claimSplitTransition(escrow.id, 'DISPUTED', 4000),
+      repo.claimSplitTransition(escrow.id, 'DISPUTED', 6000),
+    ])
+    expect([a, b].sort()).toEqual([0, 1])
+
+    const frozen = await prisma.escrow.findUnique({ where: { id: escrow.id } })
+    expect(frozen!.status).toBe('SPLIT')
+    expect([4000, 6000]).toContain(frozen!.splitBuyerBps)
+
+    await expect(
+      prisma.escrow.update({ where: { id: escrow.id }, data: { splitBuyerBps: frozen!.splitBuyerBps === 4000 ? 6000 : 4000 } })
+    ).rejects.toThrow()
+
+    const afterRejectedMutation = await prisma.escrow.findUnique({ where: { id: escrow.id } })
+    expect(afterRejectedMutation!.splitBuyerBps).toBe(frozen!.splitBuyerBps)
+  })
+
+
   it('WDK CONFIRMED restart converges through the real reconciler exactly once under repeated/concurrent PostgreSQL recovery', async () => {
     requirePostgres('WDK full restart reconciliation composition')
     const suffix = `wdk-full-recovery-${Date.now()}`
