@@ -35,6 +35,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 bitcoin.initEccLib(ecc)
@@ -410,8 +411,8 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   it('WDK recovery lock serializes competing txReleaseId identities and preserves the first durable winner', async () => {
     requirePostgres('WDK txReleaseId reconciliation identity race')
     const suffix = `wdk-recovery-${Date.now()}`
-    const buyer = await identityService.register({ publicKey: `${suffix}-buyer` })
-    const seller = await identityService.register({ publicKey: `${suffix}-seller` })
+    const buyer = await registerTestParticipant(identityService, `${suffix}-buyer`)
+    const seller = await registerTestParticipant(identityService, `${suffix}-seller`)
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '1', maxAmount: '1', paymentMethod: 'CRYPTO_DIRECT',
     })
