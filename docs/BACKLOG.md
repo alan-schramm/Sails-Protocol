@@ -5871,3 +5871,33 @@ obligation" is defined anywhere in this repository.
     the durable institutional record.
 
 **BACKLOG DELTA: DETECTED AND SYNCED.**
+
+
+---
+
+## OpenProof Day-0 Timestamp Anchoring — Multi-Calendar Availability Invariant (2026-09-20)
+
+**Status: CURRENT / FROZEN ARCHITECTURAL DIRECTION — implementation/evidence delta remains open.**
+
+Single-calendar OpenTimestamps success is valid historical evidence, but it is not the Day-0 availability model.
+
+Day-0 requirements:
+
+- `TimestampAnchor` remains the Sails-owned abstraction boundary. OpenTimestamps is a replaceable Day-0 mechanism behind that boundary, not Protocol Truth, OpenProof Truth, Economic Authority, or a prerequisite for Sails economic-state progression.
+- The OpenTimestamps implementation MUST support multiple public/free calendars. No individual calendar may become a single point of failure.
+- The same commitment MAY be submitted to multiple configured calendars. Valid responses/proofs already obtained MUST survive failures from other calendars.
+- Failure of one calendar MUST NOT make OpenProof unavailable. Total timestamp-provider unavailability MUST degrade timestamp anchoring only; it MUST NOT regress, block, authorize, invalidate, or otherwise mutate Sails economic state.
+- Calendar/provider success is evidence availability, not economic finality or protocol authority.
+- Day-0 evidence MUST cover one-calendar failure, N-1 failure, mixed success/failure, preservation of valid returned proofs, retry/recovery, and total provider unavailability with zero economic-state mutation.
+
+Canonical invariants:
+
+> **Timestamp Evidence ≠ OpenProof Truth ≠ Economic Authority.**
+>
+> **Calendar availability ≠ Economic availability.**
+>
+> **Timestamp failure ≠ Economic failure.**
+
+A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONAL / FUTURE only. If operated later, it is one additional ecosystem participant, never a mandatory calendar, central timestamp authority, interoperability gate, or Day-0 dependency.
+
+**Implementation/evidence remains open.** This entry freezes the required property; it does not claim the current implementation already satisfies multi-calendar redundancy.
