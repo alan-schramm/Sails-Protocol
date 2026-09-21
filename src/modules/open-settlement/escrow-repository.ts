@@ -156,10 +156,10 @@ export interface EscrowRepository {
    *  update through the same locked transaction as its authoritative
    *  funding-uncertainty re-check (escrow-funding-lock.ts). Omitted by
    *  every other existing caller, unchanged behavior. */
-  claimTransition(escrowId: string, fromStatus: string, toStatus: string, tx?: Prisma.TransactionClient): Promise<number>
+  claimTransition(escrowId: string, fromStatus: string, toStatus: string, tx?: Prisma.TransactionClient, directExecutionTriggeredBy?: string): Promise<number>
 
   /** #247 — atomically freezes SPLIT allocation with the terminal-state claim. */
-  claimSplitTransition(escrowId: string, fromStatus: string, buyerBps: number): Promise<number>
+  claimSplitTransition(escrowId: string, fromStatus: string, buyerBps: number, directExecutionTriggeredBy?: string): Promise<number>
 
   /** releaseFunds()'s own write. */
   updateReleaseResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date; feeCharged: Prisma.Decimal | null }): Promise<EscrowRow>
@@ -312,19 +312,35 @@ class PrismaEscrowRepository implements EscrowRepository {
     }
   }
 
-  async claimTransition(escrowId: string, fromStatus: string, toStatus: string, tx?: Prisma.TransactionClient): Promise<number> {
+  async claimTransition(escrowId: string, fromStatus: string, toStatus: string, tx?: Prisma.TransactionClient, directExecutionTriggeredBy?: string): Promise<number> {
     const client = tx ?? prisma
     const claim = await client.escrow.updateMany({
-      where: { id: escrowId, status: fromStatus as any },
-      data: { status: toStatus as any },
+      where: {
+        id: escrowId,
+        status: fromStatus as any,
+        ...(directExecutionTriggeredBy !== undefined ? { directExecutionTriggeredBy: null } : {}),
+      },
+      data: {
+        status: toStatus as any,
+        ...(directExecutionTriggeredBy !== undefined ? { directExecutionTriggeredBy } : {}),
+      },
     })
     return claim.count
   }
 
-  async claimSplitTransition(escrowId: string, fromStatus: string, buyerBps: number): Promise<number> {
+  async claimSplitTransition(escrowId: string, fromStatus: string, buyerBps: number, directExecutionTriggeredBy?: string): Promise<number> {
     const claim = await prisma.escrow.updateMany({
-      where: { id: escrowId, status: fromStatus as any, splitBuyerBps: null },
-      data: { status: 'SPLIT', splitBuyerBps: buyerBps },
+      where: {
+        id: escrowId,
+        status: fromStatus as any,
+        splitBuyerBps: null,
+        ...(directExecutionTriggeredBy !== undefined ? { directExecutionTriggeredBy: null } : {}),
+      },
+      data: {
+        status: 'SPLIT',
+        splitBuyerBps: buyerBps,
+        ...(directExecutionTriggeredBy !== undefined ? { directExecutionTriggeredBy } : {}),
+      },
     })
     return claim.count
   }
