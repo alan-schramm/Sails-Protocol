@@ -338,6 +338,43 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(mockReconcilePendingSettlement).not.toHaveBeenCalled()
   })
 
+  it('#248 recovers direct-call completion effects with the exact frozen execution actor', async () => {
+    const escrow = multisigEscrowFixture({
+      type: 'WDK_USDT_EVM',
+      status: 'COMPLETED',
+      txReleaseId: '0xdurable-release',
+      directExecutionTriggeredBy: 'agent:ops:seller-1',
+    })
+    mockFindTerminalWithTxReleaseId.mockResolvedValue([escrow])
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+
+    await reconcilePendingSettlements()
+
+    expect(mockRecordObligation).toHaveBeenCalled()
+    expect(mockEmitTransition).toHaveBeenCalledWith(
+      'escrow-1', 'trade-1', 'PAYMENT_PENDING', 'COMPLETED',
+      'agent:ops:seller-1', 'settlement.escrow.released',
+      expect.objectContaining({ txId: '0xdurable-release' })
+    )
+  })
+
+  it('#248 legacy direct-call completion with no durable actor fails closed instead of substituting seller', async () => {
+    const escrow = multisigEscrowFixture({
+      type: 'WDK_USDT_EVM',
+      status: 'COMPLETED',
+      txReleaseId: '0xdurable-release',
+      directExecutionTriggeredBy: null,
+    })
+    mockFindTerminalWithTxReleaseId.mockResolvedValue([escrow])
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.requiresManualReview[0].reason).toMatch(/original execution actor/)
+    expect(mockEmitTransition).not.toHaveBeenCalled()
+    expect(mockRecordObligation).not.toHaveBeenCalled()
+  })
+
   it('WDK CONFIRMED RELEASE converges the durable txHash without a provider transfer', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM' })])
     mockWdkFindLatest.mockResolvedValue({ id: 'attempt-1', status: 'CONFIRMED', txHash: '0xconfirmed', amount: { toString: () => '0.001' }, destination: '0xbuyer' })
