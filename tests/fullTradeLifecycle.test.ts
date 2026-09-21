@@ -419,6 +419,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents].forEach((t) => t.rows.clear())
   intentEventRows.length = 0
+  eventProjectionClaimKeys.clear()
   seedUsers()
 })
 
