@@ -360,7 +360,7 @@ async function reconcileWdkSingleLegTxReleaseId(
     return true
   }
   const expectedAmount = escrow.lockedAmount.toString()
-  if (attempt.amount !== expectedAmount) {
+  if (attempt.amount.toString() !== expectedAmount) {
     report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK ${operationType} attempt ${attempt.id} amount ${attempt.amount} does not match escrow lockedAmount ${expectedAmount} — durable execution truth is mismatched.` })
     return true
   }
