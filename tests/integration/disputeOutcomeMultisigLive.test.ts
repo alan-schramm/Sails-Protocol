@@ -18,6 +18,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import { createHash } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
 // NOTE: recordLiveCorrespondenceIfApplicable is NOT statically imported
@@ -141,8 +142,8 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
   })
 
   async function makeDisputedMultisigEscrow(suffix: string) {
-    const seller = await identityService.register({ publicKey: `m8r-seller-${suffix}-${Date.now()}`, displayName: 'Seller' })
-    const buyer = await identityService.register({ publicKey: `m8r-buyer-${suffix}-${Date.now()}`, displayName: 'Buyer' })
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })

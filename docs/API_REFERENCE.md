@@ -133,7 +133,8 @@ left undocumented once it was corrected.
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/v1/identity/participants` | Register a new identity via Ed25519 public key |
+| POST | `/v1/identity/register-challenge` | Issue a one-time registration challenge for a public key (unauthenticated; Issue #302) |
+| POST | `/v1/identity/participants` | Register a new identity — requires `{ publicKey, signature, displayName? }`: proof of possession of the key over the registration challenge, signed message `sails-registration-proof-of-possession:v1:<challenge>:<displayName or empty>` (UTF-8). Already-registered keys are rejected (400); missing/invalid/stale/consumed proof is 401 (Issue #302) |
 | GET | `/v1/identity/participants/:id` | Fetch a participant's profile |
 | POST | `/v1/identity/challenge` | Issue an auth challenge |
 | POST | `/v1/identity/authenticate` | Verify the signed challenge, issue session token |

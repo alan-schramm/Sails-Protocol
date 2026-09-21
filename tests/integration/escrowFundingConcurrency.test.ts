@@ -35,6 +35,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 bitcoin.initEccLib(ecc)
@@ -131,8 +132,8 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   }
 
   async function makeLockedMultisigEscrow(suffix: string) {
-    const seller = await identityService.register({ publicKey: `funding-concurrency-seller-${suffix}-${Date.now()}`, displayName: 'Seller' })
-    const buyer = await identityService.register({ publicKey: `funding-concurrency-buyer-${suffix}-${Date.now()}`, displayName: 'Buyer' })
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })

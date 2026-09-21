@@ -14,6 +14,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
@@ -94,8 +95,8 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
   })
 
   async function makeMultisigEscrow(suffix: string, buyerPubkey: string, sellerPubkey: string) {
-    const seller = await identityService.register({ publicKey: `outpoint-seller-${suffix}-${Date.now()}`, displayName: 'Seller' })
-    const buyer = await identityService.register({ publicKey: `outpoint-buyer-${suffix}-${Date.now()}`, displayName: 'Buyer' })
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })

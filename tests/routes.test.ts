@@ -27,6 +27,7 @@
 process.env.RATE_LIMIT_MAX = '10000'
 
 import type { FastifyInstance } from 'fastify'
+import nacl from 'tweetnacl'
 import { redis } from '../src/common/redis'
 
 // Valid 64-character hex-encoded Ed25519 public key for testing
@@ -357,6 +358,13 @@ jest.mock('@qvac/sdk', () => ({
 // dependencies, not the real Prisma/Redis/eventBus/pearNodeRegistry.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { buildApp } = require('../src/app')
+// Issue #302 — real, unmocked module (only redis.ts above is mocked, not
+// auth.ts itself): reused as the single source of truth for the
+// registration signed-message construction, so these tests sign exactly
+// what verifyRegistrationProof() reconstructs and compares against —
+// never a hand-duplicated copy that could silently drift.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { registrationProofMessage } = require('../src/common/middleware/auth')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { config } = require('../src/config')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -373,6 +381,20 @@ async function authedSession(participantId: string): Promise<string> {
   const token = `session-${participantId}`
   redisStore.set(`auth:session:${token}`, participantId)
   return token
+}
+
+// Issue #302 — the real registration-challenge round trip (not a
+// pre-seeded redisStore value), so these tests exercise the actual
+// wire protocol a real SDK caller goes through: request a registration
+// challenge, sign it with the domain-separated construction, submit.
+async function registerProof(app: FastifyInstance, publicKey: string, secretKey: Uint8Array, displayName?: string): Promise<string> {
+  const challengeRes = await app.inject({
+    method: 'POST',
+    url: '/v1/identity/register-challenge',
+    payload: { publicKey },
+  })
+  const { challenge } = JSON.parse(challengeRes.body).data
+  return Buffer.from(nacl.sign.detached(registrationProofMessage(challenge, displayName), secretKey)).toString('hex')
 }
 
 // Security review migration, 2026-08-15 (P1) — chat.routes.ts's WS route
@@ -420,31 +442,112 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
   })
 
   describe('open-identity', () => {
+    // Issue #302 — registration now requires proof of possession: a real
+    // Ed25519 keypair, a real registration-challenge round trip, and a
+    // real signature over the domain-separated message, not just a bare
+    // publicKey string. See registerProof() above.
     it('registers a participant', async () => {
+      const keypair = nacl.sign.keyPair()
+      const publicKey = Buffer.from(keypair.publicKey).toString('hex')
       mockUserFindUnique.mockResolvedValueOnce(null) // no existing user for this publicKey
-      mockUserCreate.mockResolvedValueOnce({ id: 'user-1', publicKey: TEST_PUBLIC_KEY })
+      mockUserCreate.mockResolvedValueOnce({ id: 'user-1', publicKey })
+
+      const signature = await registerProof(app, publicKey, keypair.secretKey, 'Alice')
 
       const res = await app.inject({
         method: 'POST',
         url: '/v1/identity/participants',
-        payload: { publicKey: TEST_PUBLIC_KEY, displayName: 'Alice' },
+        payload: { publicKey, signature, displayName: 'Alice' },
       })
 
       expect(res.statusCode).toBe(201)
-      expect(JSON.parse(res.body)).toEqual(expect.objectContaining({ success: true, data: { id: 'user-1', publicKey: TEST_PUBLIC_KEY } }))
+      expect(JSON.parse(res.body)).toEqual(expect.objectContaining({ success: true, data: { id: 'user-1', publicKey } }))
     })
 
+    // Issue #302 — strengthened: a VALID proof of possession (real
+    // challenge, real signature) is presented, and the request is still
+    // rejected purely because the public key is already registered.
+    // identity.service.ts's register() checks this BEFORE ever touching
+    // verifyRegistrationProof(), so this also proves that ordering: an
+    // attacker who already knows a registered key's public half cannot
+    // rely on missing/invalid proof being the only thing standing in
+    // their way.
     it('rejects registering a public key that already has a participant', async () => {
-      mockUserFindUnique.mockResolvedValueOnce({ id: 'user-1', publicKey: TEST_PUBLIC_KEY })
+      const keypair = nacl.sign.keyPair()
+      const publicKey = Buffer.from(keypair.publicKey).toString('hex')
+      mockUserFindUnique.mockResolvedValueOnce({ id: 'user-1', publicKey })
+
+      const signature = await registerProof(app, publicKey, keypair.secretKey)
 
       const res = await app.inject({
         method: 'POST',
         url: '/v1/identity/participants',
-        payload: { publicKey: TEST_PUBLIC_KEY },
+        payload: { publicKey, signature },
       })
 
       expect(res.statusCode).toBe(400)
       expect(JSON.parse(res.body).error).toBe('VALIDATION_ERROR')
+    })
+
+    it('issues a registration challenge for an unregistered public key', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/register-challenge',
+        payload: { publicKey: TEST_PUBLIC_KEY },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body)
+      expect(body.data.challenge).toEqual(expect.any(String))
+    })
+
+    it('rejects registration with no registration challenge previously issued', async () => {
+      const keypair = nacl.sign.keyPair()
+      const publicKey = Buffer.from(keypair.publicKey).toString('hex')
+      mockUserFindUnique.mockResolvedValueOnce(null)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/participants',
+        payload: { publicKey, signature: 'deadbeef' },
+      })
+
+      expect(res.statusCode).toBe(401)
+      expect(mockUserCreate).not.toHaveBeenCalled()
+    })
+
+    // Issue #302 requirement B — an invalid signature against a
+    // legitimate outstanding challenge must NOT burn that challenge; the
+    // legitimate holder must still be able to complete registration
+    // with a correct signature afterward.
+    it('an invalid signature does not consume the registration challenge — the legitimate holder can still register afterward', async () => {
+      const keypair = nacl.sign.keyPair()
+      const publicKey = Buffer.from(keypair.publicKey).toString('hex')
+      mockUserFindUnique.mockResolvedValue(null)
+
+      const challengeRes = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/register-challenge',
+        payload: { publicKey },
+      })
+      const { challenge } = JSON.parse(challengeRes.body).data
+
+      const badRes = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/participants',
+        payload: { publicKey, signature: 'a'.repeat(128) },
+      })
+      expect(badRes.statusCode).toBe(401)
+      expect(mockUserCreate).not.toHaveBeenCalled()
+
+      const goodSignature = Buffer.from(nacl.sign.detached(registrationProofMessage(challenge), keypair.secretKey)).toString('hex')
+      mockUserCreate.mockResolvedValueOnce({ id: 'user-2', publicKey })
+      const goodRes = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/participants',
+        payload: { publicKey, signature: goodSignature },
+      })
+      expect(goodRes.statusCode).toBe(201)
     })
 
     it('issues a challenge', async () => {

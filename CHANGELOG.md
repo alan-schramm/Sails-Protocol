@@ -18,6 +18,18 @@ All notable changes to this project will be documented in this file.
 - Production EvidenceProvider durability/provenance, cross-evidence integrity, upload controls, and remaining Day-0 production owners remain active under dedicated Issues; this changelog does not round active work up to completed readiness.
 
 
+### Security
+- **Issue #302 — registration now requires proof of possession.** `POST
+  /v1/identity/participants` requires `signature`: an Ed25519 signature over
+  `sails-registration-proof-of-possession:v1:<challenge>:<displayName>` for a
+  challenge from the new `POST /v1/identity/register-challenge`. Knowledge of a
+  public key no longer allows squatting its canonical `User` row. Verification
+  precedes consumption; the exact verified challenge is consumed atomically
+  (reusing #301's `atomicCompareAndConsume`); `User.publicKey @unique` remains
+  the independent final barrier. SDK: `create()` signs transparently;
+  `createWithWallet()` and `registerChallenge()` added; `createWithPublicKey()`
+  deprecated (cannot produce a proof). React: `useSailsIdentity().createWithWallet`.
+
 ### Added
 - `docs/PRODUCTION_READINESS_FIXES.md` — a complete document with 22 fixes
   organized by priority (P0/P1/P2), each with file, exact line, and

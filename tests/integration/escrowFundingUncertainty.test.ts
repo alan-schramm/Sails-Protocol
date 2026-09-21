@@ -9,6 +9,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', () => {
@@ -77,8 +78,8 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
   afterEach(() => { global.fetch = realFetch })
 
   async function makeLockedMultisigEscrow(suffix: string) {
-    const seller = await identityService.register({ publicKey: `funding-uncertainty-seller-${suffix}-${Date.now()}`, displayName: 'Seller' })
-    const buyer = await identityService.register({ publicKey: `funding-uncertainty-buyer-${suffix}-${Date.now()}`, displayName: 'Buyer' })
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })
