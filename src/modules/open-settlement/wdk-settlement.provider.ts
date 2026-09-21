@@ -142,6 +142,10 @@ export class WdkSettlementProvider implements SettlementProvider {
     return this.escrowAccount(tradeId)
   }
 
+  async getTreasuryAccountForReconciliation(): Promise<WalletAccountEvm> {
+    return this.treasuryAccount()
+  }
+
   private async escrowAccount(tradeId: string): Promise<WalletAccountEvm> {
     const index = escrowIndexFor(tradeId)
     return this.getWallet().getAccountByPath(`0'/0/${index}`)
