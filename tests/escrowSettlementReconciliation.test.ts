@@ -369,6 +369,39 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xbuyerTx,0xsellerTx', outcome: 'ALREADY_BROADCAST' }])
   })
 
+  it('#250 fully CONFIRMED WDK SPLIT converges directly from durable attempt truth without touching the provider', async () => {
+    const escrow = multisigEscrowFixture({ type: 'WDK_USDT_EVM', status: 'SPLIT', splitBuyerBps: 4000 })
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([escrow])
+    mockWdkFindLatest.mockImplementation(async (_id: string, op: string) =>
+      op === 'SPLIT_BUYER'
+        ? { id: 'buyer-attempt', status: 'CONFIRMED', txHash: '0xbuyerTx', destination: '0xbuyer', amount: { toString: () => '0.0004' } }
+        : { id: 'seller-attempt', status: 'CONFIRMED', txHash: '0xsellerTx', destination: '0xseller', amount: { toString: () => '0.0006' } }
+    )
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockWdkSplitFunds).not.toHaveBeenCalled()
+    expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xbuyerTx,0xsellerTx', outcome: 'ALREADY_BROADCAST' }])
+    expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'SPLIT', 4000, undefined)
+  })
+
+  it('#250 refuses CONFIRMED split attempts whose durable amounts contradict frozen buyerBps', async () => {
+    const escrow = multisigEscrowFixture({ type: 'WDK_USDT_EVM', status: 'SPLIT', splitBuyerBps: 4000 })
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([escrow])
+    mockWdkFindLatest.mockImplementation(async (_id: string, op: string) =>
+      op === 'SPLIT_BUYER'
+        ? { id: 'buyer-attempt', status: 'CONFIRMED', txHash: '0xbuyerTx', destination: '0xbuyer', amount: { toString: () => '0.0005' } }
+        : { id: 'seller-attempt', status: 'CONFIRMED', txHash: '0xsellerTx', destination: '0xseller', amount: { toString: () => '0.0005' } }
+    )
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.requiresManualReview[0].reason).toMatch(/contradict frozen splitBuyerBps/)
+    expect(mockWdkSplitFunds).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    expect(mockRecordObligation).not.toHaveBeenCalled()
+  })
+
   it('#250 WDK SPLIT with seller SUBMISSION_UNKNOWN fails closed and never fabricates terminal txReleaseId', async () => {
     const escrow = multisigEscrowFixture({ type: 'WDK_USDT_EVM', status: 'SPLIT', splitBuyerBps: 4000 })
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([escrow])
