@@ -648,6 +648,27 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       expect(updateCall.data.txReleaseId).toMatch(/mock-split-.*,mock-split-/)
     })
 
+    it('#247 never rolls SPLIT back after provider success when downstream completion bookkeeping fails', async () => {
+      mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+      mockEscrowEventCreate.mockRejectedValueOnce(new Error('simulated crash after provider success'))
+
+      await expect(
+        escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6250, 'arbiter-1')
+      ).rejects.toThrow(/simulated crash after provider success/)
+
+      // First updateMany is the atomic DISPUTED -> SPLIT + buyerBps claim.
+      // There must be NO second updateMany reverting SPLIT -> DISPUTED after
+      // the provider has already returned successful external tx ids.
+      expect(mockEscrowUpdateMany).toHaveBeenCalledTimes(1)
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({
+        where: { id: 'escrow-1', status: 'DISPUTED', splitBuyerBps: null },
+        data: { status: 'SPLIT', splitBuyerBps: 6250 },
+      })
+      expect(mockEscrowUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ txReleaseId: expect.stringMatching(/mock-split-.*,mock-split-/) }) })
+      )
+    })
+
     it('rejects a SAFE_GUARD_EVM escrow — that provider has no direct splitFunds() (signature-collection type, use initiateSplit instead)', async () => {
       // getProvider() short-circuits to MOCK whenever config.features.mockEscrow
       // is true (this file's own header comment) — must disable it here to
