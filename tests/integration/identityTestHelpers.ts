@@ -37,3 +37,25 @@ export async function registerTestParticipant(
   ).toString('hex')
   return identityService.register({ publicKey, signature, displayName })
 }
+
+// Root cause of Jest failing to exit: registerTestParticipant() loads
+// src/common/middleware/auth.ts, which imports the application's shared
+// ioredis singleton (src/common/redis) — opened at import, never closed
+// by any test. Every file that uses the helper must call this in afterAll.
+export async function closeTestRedis(): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { redis } = require('../../src/common/redis')
+  if (redis.status !== 'end') await redis.quit().catch(() => redis.disconnect())
+}
+
+// jest.resetModules() (used by "simulated restart" tests) rebuilds the whole
+// module graph, and with it a NEW ioredis singleton each time; the old ones
+// could never be closed and kept Jest alive. Call this right before a
+// resetModules(): every fresh graph then reuses the SAME Redis client, so
+// one closeTestRedis() in afterAll closes it, and code still holding
+// pre-reset service references keeps working.
+export function preserveTestRedis(): void {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const original = require('../../src/common/redis')
+  jest.doMock('../../src/common/redis', () => original)
+}

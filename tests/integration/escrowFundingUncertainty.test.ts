@@ -9,7 +9,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
-import { registerTestParticipant } from './identityTestHelpers'
+import { registerTestParticipant, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', () => {
@@ -67,7 +67,10 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
   })
 
   afterAll(async () => {
-    if (dbAvailable) await prisma.$disconnect()
+    if (dbAvailable) {
+      await prisma.$disconnect()
+      await closeTestRedis()
+    }
   })
 
   function requirePostgres(name: string): void {
@@ -115,6 +118,7 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
     // Simulated restart: a completely fresh require() of the repository
     // module reads the SAME row back from Postgres — proving this is real,
     // persisted history, not in-process state that a restart would lose.
+    preserveTestRedis() // keep ONE Redis client across resetModules() so afterAll can close it
     jest.resetModules()
     const freshRepo = require('../../src/modules/open-settlement/escrow-funding-evidence-repository').escrowFundingEvidenceRepository
     const afterRestart = await freshRepo.listForEscrow(escrowId)

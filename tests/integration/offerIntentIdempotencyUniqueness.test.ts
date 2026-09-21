@@ -28,7 +28,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
-import { registerTestParticipant } from './identityTestHelpers'
+import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 
 describe('Offer/Intent idempotency uniqueness — real Postgres (CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5)', () => {
   jest.setTimeout(30_000)
@@ -59,7 +59,10 @@ describe('Offer/Intent idempotency uniqueness — real Postgres (CROSS-LAYER-SEM
   })
 
   afterAll(async () => {
-    if (dbAvailable) await prisma.$disconnect()
+    if (dbAvailable) {
+      await prisma.$disconnect()
+      await closeTestRedis()
+    }
   })
 
   function requirePostgres(name: string): void {
