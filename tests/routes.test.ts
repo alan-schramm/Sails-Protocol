@@ -75,7 +75,14 @@ const mockCapabilityGrantExecuteRaw = jest.fn().mockResolvedValue(0)
 const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     $executeRaw: mockCapabilityGrantExecuteRaw,
-    capabilityGrant: { update: (...args: unknown[]) => mockCapabilityGrantUpdate(...args) },
+    // Issue #303 delta - CapabilityGrantRepository.create() now runs inside this
+    // transaction (advisory lock + equivalent-live-grant lookup + insert), so the
+    // tx client must expose findMany/create too; findMany defaults to "no live grants".
+    capabilityGrant: {
+      update: (...args: unknown[]) => mockCapabilityGrantUpdate(...args),
+      findMany: async (...args: unknown[]) => (await mockCapabilityGrantFindMany(...args)) ?? [],
+      create: (...args: unknown[]) => mockCapabilityGrantCreate(...args),
+    },
   })
 )
 const mockIntentCreate = jest.fn()
