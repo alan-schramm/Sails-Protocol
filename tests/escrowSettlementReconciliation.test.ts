@@ -333,6 +333,52 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(mockReconcilePendingSettlement).not.toHaveBeenCalled()
   })
 
+  it('WDK CONFIRMED RELEASE converges the durable txHash without a provider transfer', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM' })])
+    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-1', status: 'CONFIRMED', txHash: '0xconfirmed' })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xconfirmed', outcome: 'ALREADY_BROADCAST' }])
+    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: '0xconfirmed', releasedAt: expect.any(Date) } })
+    expect(mockWdkGetReceipt).not.toHaveBeenCalled()
+    expect(mockReconcilePendingSettlement).not.toHaveBeenCalled()
+  })
+
+  it('WDK SUBMITTED consults receipt and only converges after confirmed chain truth', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM' })])
+    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-2', status: 'SUBMITTED', txHash: '0xsubmitted' })
+    mockWdkGetReceipt.mockResolvedValue({ status: 1 })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockWdkGetReceipt).toHaveBeenCalledWith('0xsubmitted')
+    expect(mockWdkUpdateStatus).toHaveBeenCalledWith('attempt-2', 'CONFIRMED', undefined, ['SUBMITTED'])
+    expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xsubmitted', outcome: 'ALREADY_BROADCAST' }])
+  })
+
+  it('WDK SUBMISSION_UNKNOWN remains fail-closed and never consults receipt or mutates escrow truth', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM' })])
+    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-3', status: 'SUBMISSION_UNKNOWN', txHash: null })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.requiresManualReview[0].reason).toMatch(/UNKNOWN != FAILED/)
+    expect(mockWdkGetReceipt).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    expect(report.recovered).toEqual([])
+  })
+
+  it('WDK REFUND converges txReleaseId without inventing releasedAt', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM', status: 'REFUNDED' })])
+    mockWdkFindLatest.mockResolvedValue({ id: 'attempt-4', status: 'CONFIRMED', txHash: '0xrefund' })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xrefund', outcome: 'ALREADY_BROADCAST' }])
+    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: '0xrefund' } })
+  })
+
   it('a MULTISIG escrow with no surviving pending-transaction row — nothing to reconstruct from, fails closed', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
     mockPendingTxFindUnique.mockResolvedValue(null)
