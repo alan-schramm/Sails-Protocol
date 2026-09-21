@@ -347,6 +347,85 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
 // multisig.provider.ts's reconcilePendingSettlement() for the full
 // on-chain-truth procedure) and, once known, runs the shared downstream
 // completion effects above.
+async function reconcileWdkSplitTxReleaseId(
+  escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>,
+  report: ReconciliationReport
+): Promise<boolean> {
+  if (escrow.type !== 'WDK_USDT_EVM' || escrow.status !== 'SPLIT') return false
+
+  if (escrow.splitBuyerBps === null) {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: 'WDK SPLIT has no frozen splitBuyerBps (#247); restart cannot reconstruct economic intent without guessing.',
+    })
+    return true
+  }
+
+  const [buyerAttempt, sellerAttempt] = await Promise.all([
+    wdkTransferAttemptRepository.findLatest(escrow.id, 'SPLIT_BUYER'),
+    wdkTransferAttemptRepository.findLatest(escrow.id, 'SPLIT_SELLER'),
+  ])
+
+  if (!buyerAttempt) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: 'WDK SPLIT has no durable SPLIT_BUYER attempt; external execution truth is missing.' })
+    return true
+  }
+  if (!sellerAttempt) {
+    // Legacy pre-#250 partial splits can reach this state. The seller
+    // destination was never persisted before the buyer side effect, so
+    // automatic recovery would have to guess from mutable current state.
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: 'WDK SPLIT buyer attempt exists but seller intent is absent (legacy pre-#250 crash window); seller destination/amount cannot be reconstructed safely.',
+    })
+    return true
+  }
+
+  // Re-enter the provider only with DURABLE intent. Its per-leg
+  // ensureAttempt() state machine guarantees CONFIRMED buyer is resumed,
+  // SUBMITTED is receipt-queried, UNKNOWN blocks, and a seller transfer is
+  // never started until buyer truth is CONFIRMED. No leg is blindly retried.
+  let result: { txIds: string[] }
+  try {
+    result = await wdkSettlementProvider.splitFunds(
+      { id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() },
+      buyerAttempt.destination,
+      sellerAttempt.destination,
+      escrow.splitBuyerBps
+    )
+  } catch (err) {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `WDK SPLIT restart did not prove both legs complete: ${err instanceof Error ? err.message : String(err)}`,
+    })
+    return true
+  }
+
+  if (result.txIds.length !== 2 || !result.txIds[0] || !result.txIds[1]) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: 'WDK SPLIT provider returned incomplete transaction identity after restart reconciliation.' })
+    return true
+  }
+  const joinedTxIds = result.txIds.join(',')
+
+  await withEscrowFundingLock(escrow.id, async (tx) => {
+    const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+    if (!fresh) throw new EscrowError(`Escrow ${escrow.id} disappeared during WDK SPLIT reconciliation`)
+    if (fresh.txReleaseId !== null && fresh.txReleaseId !== joinedTxIds) {
+      throw new EscrowError(`Escrow ${escrow.id} already converged to conflicting txReleaseId ${fresh.txReleaseId}; WDK SPLIT recovery proved ${joinedTxIds}`)
+    }
+    if (fresh.txReleaseId === null) {
+      await tx.escrow.update({ where: { id: escrow.id }, data: { txReleaseId: joinedTxIds, releasedAt: new Date() } })
+    }
+  })
+
+  await applyDownstreamCompletionEffects(
+    escrow.id, escrow.tradeId, 'SPLIT', 'system:wdk-split-reconciliation',
+    joinedTxIds, escrow, null, undefined
+  )
+  report.recovered.push({ escrowId: escrow.id, txId: joinedTxIds, outcome: 'ALREADY_BROADCAST' })
+  return true
+}
+
 async function reconcileWdkSingleLegTxReleaseId(
   escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>,
   report: ReconciliationReport
@@ -443,6 +522,7 @@ async function reconcileWdkSingleLegTxReleaseId(
 }
 
 async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  if (await reconcileWdkSplitTxReleaseId(escrow, report)) return
   if (await reconcileWdkSingleLegTxReleaseId(escrow, report)) return
 
   if (escrow.type !== 'MULTISIG') {
