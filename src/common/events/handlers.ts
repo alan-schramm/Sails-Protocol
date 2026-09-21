@@ -331,7 +331,7 @@ export async function recoverIncompleteTerminalSettlementEvents(): Promise<numbe
       publishedAt: row.publishedAt,
       entryHash: row.entryHash,
       prevHash: row.prevHash,
-    } as DurableEvent
+    } as unknown as DurableEvent
     if (row.eventName === 'settlement.escrow.released') await handleEscrowReleased(event as DurableEvent<'settlement.escrow.released'>)
     else if (row.eventName === 'settlement.escrow.refunded') await handleEscrowRefunded(event as DurableEvent<'settlement.escrow.refunded'>)
     else if (row.eventName === 'settlement.escrow.split') await handleEscrowSplit(event as DurableEvent<'settlement.escrow.split'>)
