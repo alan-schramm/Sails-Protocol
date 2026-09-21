@@ -171,6 +171,8 @@ interface SailsClient {
   // Sails OpenIdentity (alias: auth)
   identity: {
     create(keypair?: Ed25519Keypair, displayName?: string): Promise<{ participant: Participant; keypair: Ed25519Keypair }>
+    createWithWallet(publicKeyHex: string, wallet: { signMessage(m: Uint8Array): Promise<Uint8Array> }, displayName?: string): Promise<Participant>   // registration with proof of possession (Issue #302)
+    registerChallenge(publicKeyHex: string): Promise<{ challenge: string; expiresIn: number }>   // Issue #302
     createWithPublicKey(publicKeyHex: string, displayName?: string): Promise<Participant>   // wallet-backed registration — no keypair object, no secretKey (2026-08-02)
     challenge(publicKeyHex: string): Promise<{ challenge: string; expiresIn: number }>
     authenticate(keypair: Ed25519Keypair): Promise<{ participantId: string; sessionToken: string }>
