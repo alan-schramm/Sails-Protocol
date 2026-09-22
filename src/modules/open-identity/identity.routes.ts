@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { identityService } from './identity.service'
 import { issueChallenge, verifySignedChallenge, requireAuth, issueWsTicket, issueRegistrationChallenge } from '../../common/middleware/auth'
+import { revokeCurrentSession } from '../../common/middleware/session-revocation'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { createSharedRateLimit } from '../../common/middleware/redis-rate-limit'
 import { config } from '../../config'
@@ -143,6 +144,17 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const participant = await identityService.getParticipant((request as AuthenticatedRequest).participantId)
     return reply.code(200).send({ success: true, data: participant })
+  })
+
+  // Issue #312 — authenticated logout revokes only the bearer session
+  // presented on this request. requireAuth proves it is live first; the
+  // handler then deletes that exact authoritative Redis session key.
+  app.post('/v1/identity/logout', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-identity'] },
+  }, async (request, reply) => {
+    await revokeCurrentSession(request)
+    return reply.code(204).send()
   })
 
   // Security review finding, 2026-08-15 (P1) — see auth.ts's issueWsTicket()
