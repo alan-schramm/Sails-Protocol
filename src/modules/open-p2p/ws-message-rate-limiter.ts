@@ -39,8 +39,17 @@ export async function checkSharedWsMessageRateLimit(participantId: string, frame
       redis.incr(messageKey),
       redis.incrby(byteKey, frameBytes),
     ])
-    if (messageCount === 1) await redis.pexpire(messageKey, config.rateLimit.wsMessageWindowMs)
-    if (byteCount === frameBytes) await redis.pexpire(byteKey, config.rateLimit.wsMessageWindowMs)
+    if (messageCount === 1) {
+      // Both keys are created by this first admitted attempt. Expire them
+      // together rather than inferring byte-key creation from
+      // byteCount===frameBytes: a zero-length WebSocket frame would make
+      // that equality true forever and could otherwise keep extending the
+      // byte window / leave a zero-valued key with the wrong lifecycle.
+      await Promise.all([
+        redis.pexpire(messageKey, config.rateLimit.wsMessageWindowMs),
+        redis.pexpire(byteKey, config.rateLimit.wsMessageWindowMs),
+      ])
+    }
     return messageCount <= config.rateLimit.wsMessageMax && byteCount <= byteMax
   } catch {
     return false
