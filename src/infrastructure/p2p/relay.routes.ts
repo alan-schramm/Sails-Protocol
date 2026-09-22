@@ -57,7 +57,7 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
       // post-upgrade work. Reuse chat's participant-scoped WS budget so
       // multiple sockets share one allowance. The limiter sees only actor
       // identity + frame occurrence; Blind Relay still never parses payload.
-      if (!(await checkSharedWsMessageRateLimit(participantId))) {
+      if (!(await checkSharedWsMessageRateLimit(participantId, raw.length))) {
         recordSuspiciousActivity('RATE_LIMITED', participantId, request.log)
         socket.close(1008, 'Relay message rate limit exceeded')
         return
