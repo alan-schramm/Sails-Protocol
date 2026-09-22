@@ -74,4 +74,13 @@ describe('ws-message-rate-limiter', () => {
     await expect(checkSharedWsMessageRateLimit('p-bytes', 3 * 1024 * 1024 + 1)).resolves.toBe(false)
   })
 
+  it('#307 gives an empty first frame a bounded byte-key lifetime instead of leaving/resetting it indefinitely', async () => {
+    incr.mockResolvedValueOnce(1)
+    incrby.mockResolvedValueOnce(0)
+    pexpire.mockResolvedValue(1)
+    await expect(checkSharedWsMessageRateLimit('p-empty', 0)).resolves.toBe(true)
+    expect(pexpire).toHaveBeenCalledWith('ratelimit:ws-relay:p-empty', 50)
+    expect(pexpire).toHaveBeenCalledWith('ratelimit:ws-relay-bytes:p-empty', 50)
+  })
+
 })
