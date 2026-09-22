@@ -174,8 +174,18 @@ export class WdkSettlementProvider implements SettlementProvider {
   // authority.
   async reconcileTerminalTransfer(
     escrow: { id: string; tradeId: string; lockedAmount: string },
-    operationType: 'RELEASE' | 'REFUND',
-    expectedDestination: string
+    operationType: 'RELEASE' | 'REFUND' | 'SPLIT_BUYER' | 'SPLIT_SELLER',
+    expectedDestination: string,
+    // Issue #250 - RELEASE/REFUND always transfer the FULL escrow.lockedAmount, so callers always pass
+    // it here and get a real, independent anti-corruption check. A SPLIT leg transfers only its own
+    // bps-derived share, and buyerBps is not durably recoverable for this direct-call rail (no
+    // EscrowPendingTransaction row exists for it) - there is no independently-known expected amount
+    // for ONE leg alone to check against. Passing `undefined` skips this check HONESTLY rather than
+    // fabricating a value that would make it vacuously pass; reconcileWdkSplitTransfer() (the only
+    // SPLIT_BUYER/SPLIT_SELLER caller) instead verifies the one invariant that IS independently true
+    // regardless of bps - both legs' own recorded amounts sum to escrow.lockedAmount - before this
+    // method is ever called for either leg.
+    expectedAmount?: string
   ): Promise<WdkTerminalReconciliationResult> {
     const latest = await wdkTransferAttemptRepository.findLatest(escrow.id, operationType)
     if (!latest) {
@@ -183,10 +193,10 @@ export class WdkSettlementProvider implements SettlementProvider {
     }
     // Case D - fail closed on any mismatch rather than guessing which attempt/value is the real one.
     // escrowId/operationType mismatches are already excluded by findLatest()'s own WHERE clause.
-    if (!decimalAmountsEqual(latest.amount.toString(), escrow.lockedAmount)) {
+    if (expectedAmount !== undefined && !decimalAmountsEqual(latest.amount.toString(), expectedAmount)) {
       return {
         outcome: 'MISMATCH',
-        reason: `WdkTransferAttempt ${latest.id} amount ${latest.amount.toString()} does not match escrow ${escrow.id}'s lockedAmount ${escrow.lockedAmount} — refusing to treat it as this escrow's ${operationType} evidence.`,
+        reason: `WdkTransferAttempt ${latest.id} amount ${latest.amount.toString()} does not match the expected ${operationType} amount ${expectedAmount} for escrow ${escrow.id} — refusing to treat it as authoritative evidence.`,
       }
     }
     if (latest.destination !== expectedDestination) {

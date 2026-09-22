@@ -31,6 +31,7 @@ const mockUpdateSignatureCollectionResult = jest.fn()
 // Issue #251 - reconcileWdkTerminalTransfer()'s own write-once path.
 const mockUpdateReleaseResult = jest.fn()
 const mockUpdateRefundResult = jest.fn()
+const mockUpdateSplitResult = jest.fn()
 jest.mock('../src/modules/open-settlement/escrow-repository', () => ({
   escrowRepository: {
     findTerminalWithoutTxReleaseId: (...args: unknown[]) => mockFindTerminalWithoutTxReleaseId(...args),
@@ -39,6 +40,7 @@ jest.mock('../src/modules/open-settlement/escrow-repository', () => ({
     updateSignatureCollectionResult: (...args: unknown[]) => mockUpdateSignatureCollectionResult(...args),
     updateReleaseResult: (...args: unknown[]) => mockUpdateReleaseResult(...args),
     updateRefundResult: (...args: unknown[]) => mockUpdateRefundResult(...args),
+    updateSplitResult: (...args: unknown[]) => mockUpdateSplitResult(...args),
   },
 }))
 
@@ -53,6 +55,14 @@ jest.mock('../src/modules/open-settlement/wdk-settlement.provider', () => ({
     getAccountAddress: (...args: unknown[]) => mockGetAccountAddress(...args),
     reconcileTerminalTransfer: (...args: unknown[]) => mockReconcileTerminalTransfer(...args),
   },
+}))
+
+// Issue #250 - reconcileWdkSplitTransfer()'s own amount-sum verification reads both leg attempts
+// directly (reconcileTerminalTransfer()'s result deliberately carries no amount for a SPLIT leg - see
+// that method's own comment on why).
+const mockWdkFindLatest = jest.fn()
+jest.mock('../src/modules/open-settlement/wdk-transfer-attempt-repository', () => ({
+  wdkTransferAttemptRepository: { findLatest: (...args: unknown[]) => mockWdkFindLatest(...args) },
 }))
 
 // resolvePayoutAddress() (the REAL, unmocked escrow-lifecycle.ts function) reads this for RELEASE's
@@ -214,8 +224,12 @@ beforeEach(() => {
   mockUpdateSignatureCollectionResult.mockResolvedValue({ id: 'escrow-1' })
   mockUpdateReleaseResult.mockResolvedValue({ id: 'escrow-1' })
   mockUpdateRefundResult.mockResolvedValue({ id: 'escrow-1' })
+  mockUpdateSplitResult.mockResolvedValue({ id: 'escrow-1' })
   mockGetAccountAddress.mockResolvedValue('treasury-address')
-  mockGetPayoutAddress.mockResolvedValue({ address: 'buyer-payout-address' })
+  mockGetPayoutAddress.mockImplementation(async (participantId: string) =>
+    participantId === 'seller-1' ? { address: 'seller-payout-address' } : { address: 'buyer-payout-address' }
+  )
+  mockWdkFindLatest.mockResolvedValue(null)
   mockReconcileTerminalTransfer.mockResolvedValue({ outcome: 'NO_ATTEMPT', reason: 'no attempt' })
   // PASS 0 (M9-R, C8) candidates default to none — tests that specifically
   // want one set mockPendingTxFindMany explicitly.
@@ -374,7 +388,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
       expect(mockGetPayoutAddress).toHaveBeenCalledWith('buyer-1', 'USDT_ERC20')
       expect(mockReconcileTerminalTransfer).toHaveBeenCalledWith(
-        { id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'RELEASE', 'buyer-payout-address'
+        { id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'RELEASE', 'buyer-payout-address', '0.001'
       )
       expect(mockUpdateReleaseResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: '0xconfirmed', releasedAt: expect.any(Date), feeCharged: null }, { tx: expect.anything() })
       expect(mockUpdateRefundResult).not.toHaveBeenCalled()
@@ -392,7 +406,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
       expect(mockGetAccountAddress).toHaveBeenCalledWith(0)
       expect(mockGetPayoutAddress).not.toHaveBeenCalled()
       expect(mockReconcileTerminalTransfer).toHaveBeenCalledWith(
-        { id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'REFUND', 'treasury-address'
+        { id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'REFUND', 'treasury-address', '0.001'
       )
       expect(mockUpdateRefundResult).toHaveBeenCalledWith('escrow-1', '0xrefund', { tx: expect.anything() })
       expect(mockUpdateReleaseResult).not.toHaveBeenCalled()
@@ -429,16 +443,90 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
       expect(report.requiresManualReview[0].reason).toMatch(/could not independently derive the expected destination/)
     })
 
-    it('SPLIT is out of this mission\'s scope (Issue #250) — falls to manual review without ever calling the provider', async () => {
-      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+    // Issue #250 - WDK SPLIT restart convergence (two independent legs).
+    describe('SPLIT (Issue #250)', () => {
+      function mockLegs(buyer: any, seller: any) {
+        mockWdkFindLatest.mockImplementation(async (_escrowId: string, operationType: string) =>
+          operationType === 'SPLIT_BUYER' ? buyer : seller
+        )
+      }
 
-      const report = await reconcilePendingSettlements()
+      it('both legs CONFIRMED and sum to lockedAmount: persists the joined txHash (buyer,seller order) through the write-once path', async () => {
+        mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+        mockReconcileTerminalTransfer.mockImplementation(async (_escrow: any, operationType: string) =>
+          operationType === 'SPLIT_BUYER' ? { outcome: 'CONFIRMED', txHash: '0xbuyer' } : { outcome: 'CONFIRMED', txHash: '0xseller' }
+        )
+        mockLegs({ id: 'a-1', amount: { toString: () => '0.0004' } }, { id: 'a-2', amount: { toString: () => '0.0006' } })
 
-      expect(mockReconcileTerminalTransfer).not.toHaveBeenCalled()
-      expect(mockGetAccountAddress).not.toHaveBeenCalled()
-      expect(mockGetPayoutAddress).not.toHaveBeenCalled()
-      expect(report.requiresManualReview).toHaveLength(1)
-      expect(report.requiresManualReview[0].reason).toMatch(/SPLIT recovery is Issue #250/)
+        const report = await reconcilePendingSettlements()
+
+        expect(mockGetPayoutAddress).toHaveBeenCalledWith('buyer-1', 'USDT_ERC20')
+        expect(mockGetPayoutAddress).toHaveBeenCalledWith('seller-1', 'USDT_ERC20')
+        expect(mockReconcileTerminalTransfer).toHaveBeenCalledWith({ id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'SPLIT_BUYER', 'buyer-payout-address')
+        expect(mockReconcileTerminalTransfer).toHaveBeenCalledWith({ id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'SPLIT_SELLER', 'seller-payout-address')
+        expect(mockUpdateReleaseResult).not.toHaveBeenCalled()
+        expect(mockUpdateRefundResult).not.toHaveBeenCalled()
+        expect(mockUpdateSplitResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: '0xbuyer,0xseller', releasedAt: expect.any(Date) }, { tx: expect.anything() })
+        expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xbuyer,0xseller', outcome: 'ALREADY_CONFIRMED' }])
+        expect(report.requiresManualReview).toEqual([])
+      })
+
+      it('buyer CONFIRMED, seller not started: neither resubmitted, no result written, surfaced with both legs\' status', async () => {
+        mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+        mockReconcileTerminalTransfer.mockImplementation(async (_escrow: any, operationType: string) =>
+          operationType === 'SPLIT_BUYER'
+            ? { outcome: 'CONFIRMED', txHash: '0xbuyer' }
+            : { outcome: 'NO_ATTEMPT', reason: 'no attempt yet' }
+        )
+
+        const report = await reconcilePendingSettlements()
+
+        expect(report.recovered).toEqual([])
+        expect(report.requiresManualReview).toHaveLength(1)
+        expect(report.requiresManualReview[0].reason).toContain('buyer leg CONFIRMED (0xbuyer)')
+        expect(report.requiresManualReview[0].reason).toContain('seller leg NO_ATTEMPT - no attempt yet')
+      })
+
+      it('legs CONFIRMED but amounts do not sum to lockedAmount: fails closed, never writes a result', async () => {
+        mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+        mockReconcileTerminalTransfer.mockImplementation(async (_escrow: any, operationType: string) =>
+          operationType === 'SPLIT_BUYER' ? { outcome: 'CONFIRMED', txHash: '0xbuyer' } : { outcome: 'CONFIRMED', txHash: '0xseller' }
+        )
+        mockLegs({ id: 'a-1', amount: { toString: () => '0.0004' } }, { id: 'a-2', amount: { toString: () => '0.0004' } }) // sums to 0.0008, not 0.001
+
+        const report = await reconcilePendingSettlements()
+
+        expect(report.recovered).toEqual([])
+        expect(mockUpdateReleaseResult).not.toHaveBeenCalled()
+        expect(report.requiresManualReview).toHaveLength(1)
+        expect(report.requiresManualReview[0].reason).toMatch(/does not equal escrow.lockedAmount/)
+      })
+
+      it('Trade not found: fails closed without ever calling the provider', async () => {
+        mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+        mockTradeFindById.mockResolvedValue(null)
+
+        const report = await reconcilePendingSettlements()
+
+        expect(mockReconcileTerminalTransfer).not.toHaveBeenCalled()
+        expect(report.requiresManualReview).toHaveLength(1)
+        expect(report.requiresManualReview[0].reason).toMatch(/Trade trade-1 not found/)
+      })
+
+      it('a settlement result conflict from a concurrent writer is surfaced, not swallowed — the persisted evidence is never overwritten', async () => {
+        mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+        mockReconcileTerminalTransfer.mockImplementation(async (_escrow: any, operationType: string) =>
+          operationType === 'SPLIT_BUYER' ? { outcome: 'CONFIRMED', txHash: '0xbuyer' } : { outcome: 'CONFIRMED', txHash: '0xseller' }
+        )
+        mockLegs({ id: 'a-1', amount: { toString: () => '0.0004' } }, { id: 'a-2', amount: { toString: () => '0.0006' } })
+        mockUpdateSplitResult.mockRejectedValue(new SettlementResultConflictError('conflict: already 0xother,0xother2'))
+
+        const report = await reconcilePendingSettlements()
+
+        expect(report.requiresManualReview).toHaveLength(1)
+        expect(report.requiresManualReview[0].reason).toMatch(/conflict: already 0xother,0xother2/)
+        expect(mockEscrowEventCreate).not.toHaveBeenCalled()
+      })
     })
 
     it('Trade not found: fails closed without ever calling the provider', async () => {

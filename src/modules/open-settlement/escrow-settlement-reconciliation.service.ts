@@ -1,4 +1,5 @@
 import { prisma } from '../../common/database'
+import { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
 import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, EVENT_NAME_BY_TARGET_STATUS, resolvePayoutAddress } from './escrow-lifecycle'
@@ -10,6 +11,7 @@ import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
 import { multisigProvider, identifyFeeOutput, networkFor, type MultisigEscrowInput } from './multisig.provider'
 import { wdkSettlementProvider } from './wdk-settlement.provider'
+import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
 import { authorizePendingExecution } from './capability-execution-authorization'
@@ -496,10 +498,14 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
 // WdkTransferAttempt or calls transfer()). SPLIT is explicitly out of this mission's scope (Issue
 // #250 owns it) and falls through to the generic manual-review path below unchanged.
 async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  if (escrow.status === 'SPLIT') {
+    await reconcileWdkSplitTransfer(escrow, report)
+    return
+  }
   if (escrow.status !== 'COMPLETED' && escrow.status !== 'REFUNDED') {
     report.requiresManualReview.push({
       escrowId: escrow.id,
-      reason: `WDK_USDT_EVM escrow ${escrow.id} is terminal ('${escrow.status}') with no txReleaseId, but automated restart convergence in this mission is scoped to RELEASE/REFUND only (SPLIT recovery is Issue #250). Manual review required.`,
+      reason: `WDK_USDT_EVM escrow ${escrow.id} is terminal ('${escrow.status}') with no txReleaseId, but automated restart convergence in this mission is scoped to RELEASE/REFUND/SPLIT only. Manual review required.`,
     })
     return
   }
@@ -534,7 +540,8 @@ async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnTy
   const result = await wdkSettlementProvider.reconcileTerminalTransfer(
     { id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() },
     operationType,
-    expectedDestination
+    expectedDestination,
+    escrow.lockedAmount.toString() // RELEASE/REFUND always transfer the full locked amount
   )
 
   if (result.outcome !== 'CONFIRMED') {
@@ -574,6 +581,107 @@ async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnTy
   // idempotency claim is what actually prevents a double-fire, exactly as the MULTISIG path above.
   await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, escrow.status as 'COMPLETED' | 'REFUNDED', trade.sellerId, result.txHash, escrow, null, undefined)
   report.recovered.push({ escrowId: escrow.id, txId: result.txHash, outcome: 'ALREADY_CONFIRMED' })
+}
+
+// Issue #250 - WDK_USDT_EVM SPLIT restart convergence. A SPLIT is two INDEPENDENT external transfers
+// (SPLIT_BUYER, SPLIT_SELLER - distinct WdkTransferAttempt operationType, distinct activeKey, distinct
+// durable identity: see wdk-transfer-attempt-repository.ts's own schema comment). The live path
+// (wdk-settlement.provider.ts's splitFunds()) never attempts the seller leg until the buyer leg is
+// durably CONFIRMED, so "buyer CONFIRMED, seller not started/pending/unknown" is a real, expected crash
+// window, not a corruption. The FINAL settlement result is a SINGLE joined string
+// (`${buyerTxHash},${sellerTxHash}` - escrow.service.ts's own splitFunds() `result.txIds.join(',')`,
+// unchanged here, see persistSettlementResult()'s own write-once comparison of it) and becomes
+// authoritative ONLY once BOTH legs independently classify as CONFIRMED - an externally confirmed
+// PARTIAL effect (one leg) never by itself authorizes declaring the split complete, nor resubmitting
+// the other leg.
+async function reconcileWdkSplitTransfer(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  const trade = await tradeRepository.findById(escrow.tradeId)
+  if (!trade) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `Trade ${escrow.tradeId} not found (WDK SPLIT terminal recovery).` })
+    return
+  }
+
+  let buyerDestination: string
+  let sellerDestination: string
+  try {
+    // Same "explicit trusted-internal-caller only" resolution the live splitFunds() call itself uses
+    // for the cooperative (non-arbitrated) case - see reconcileWdkTerminalTransfer()'s own comment on
+    // this same disclosed, pre-existing residual for an arbitrated destination override.
+    buyerDestination = await resolvePayoutAddress(undefined, trade.buyerId, escrow.asset)
+    sellerDestination = await resolvePayoutAddress(undefined, trade.sellerId, escrow.asset)
+  } catch (err) {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `WDK SPLIT terminal recovery for escrow ${escrow.id}: could not independently derive the expected buyer/seller destinations (${err instanceof Error ? err.message : String(err)}) — cannot corroborate the durable attempts; manual review required.`,
+    })
+    return
+  }
+
+  // No amount check inside reconcileTerminalTransfer() for either leg (see that method's own comment
+  // on why buyerBps is not durably recoverable here) - classify both legs first, then apply the one
+  // amount invariant that IS independently true regardless of bps, below.
+  const [buyerResult, sellerResult] = await Promise.all([
+    wdkSettlementProvider.reconcileTerminalTransfer({ id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() }, 'SPLIT_BUYER', buyerDestination),
+    wdkSettlementProvider.reconcileTerminalTransfer({ id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() }, 'SPLIT_SELLER', sellerDestination),
+  ])
+
+  if (buyerResult.outcome !== 'CONFIRMED' || sellerResult.outcome !== 'CONFIRMED') {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `WDK SPLIT terminal recovery for escrow ${escrow.id}: buyer leg ${buyerResult.outcome === 'CONFIRMED' ? `CONFIRMED (${buyerResult.txHash})` : `${buyerResult.outcome} - ${buyerResult.reason}`}; seller leg ${sellerResult.outcome === 'CONFIRMED' ? `CONFIRMED (${sellerResult.txHash})` : `${sellerResult.outcome} - ${sellerResult.reason}`}. The split is not yet fully proven — no result written, neither leg resubmitted.`,
+    })
+    return
+  }
+
+  // Case D - the one amount invariant independently true regardless of buyerBps: both legs' own
+  // durably-recorded amounts must sum to the escrow's full locked amount. Re-reads each attempt's
+  // recorded amount fresh (not trusted from the classification result above, which deliberately
+  // carries no amount) so this check is against the same durable row reconcileTerminalTransfer() itself
+  // just validated the destination/status of.
+  const [buyerAttempt, sellerAttempt] = await Promise.all([
+    wdkTransferAttemptRepository.findLatest(escrow.id, 'SPLIT_BUYER'),
+    wdkTransferAttemptRepository.findLatest(escrow.id, 'SPLIT_SELLER'),
+  ])
+  if (!buyerAttempt || !sellerAttempt) {
+    // Structurally shouldn't happen immediately after both legs classified CONFIRMED above - fail
+    // closed rather than assume.
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK SPLIT terminal recovery for escrow ${escrow.id}: a leg attempt disappeared between classification and amount verification. Manual review required.` })
+    return
+  }
+  const sum = new Prisma.Decimal(buyerAttempt.amount.toString()).plus(sellerAttempt.amount.toString())
+  if (!sum.equals(new Prisma.Decimal(escrow.lockedAmount.toString()))) {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `WDK SPLIT terminal recovery for escrow ${escrow.id}: buyer leg amount ${buyerAttempt.amount.toString()} + seller leg amount ${sellerAttempt.amount.toString()} = ${sum.toString()}, which does not equal escrow.lockedAmount ${escrow.lockedAmount.toString()} — refusing to treat these attempts as authoritative evidence.`,
+    })
+    return
+  }
+
+  // Buyer leg first, then seller — the exact order escrow.service.ts's own splitFunds() joins
+  // result.txIds.join(',') in, so this recovered value compares byte-for-byte equal to what the live
+  // path would have written, under the same write-once primitive.
+  const joinedTxHash = `${buyerResult.txHash},${sellerResult.txHash}`
+
+  let wroteTxReleaseId = false
+  try {
+    wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
+      const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+      if (!fresh) return false
+      await escrowRepository.updateSplitResult(escrow.id, { txReleaseId: joinedTxHash, releasedAt: new Date() }, { tx })
+      return fresh.txReleaseId === null
+    })
+  } catch (writeErr) {
+    if (writeErr instanceof SettlementResultConflictError) {
+      log.error({ msg: 'WDK SPLIT terminal recovery: settlement result integrity conflict - persisted evidence NOT overwritten, downstream effects NOT run', escrowId: escrow.id, err: writeErr.message })
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: writeErr.message })
+      return
+    }
+    throw writeErr
+  }
+
+  log.info({ msg: 'WDK SPLIT terminal recovery: convergence path determined', escrowId: escrow.id, buyerTxHash: buyerResult.txHash, sellerTxHash: sellerResult.txHash, wroteTxReleaseId })
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, 'SPLIT', trade.sellerId, joinedTxHash, escrow, null, undefined)
+  report.recovered.push({ escrowId: escrow.id, txId: joinedTxHash, outcome: 'ALREADY_CONFIRMED' })
 }
 
 // NOTE (Issue #298): the EscrowEvent existence peek below decides ONLY whether the (idempotent)

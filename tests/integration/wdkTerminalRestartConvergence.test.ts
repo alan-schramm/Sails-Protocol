@@ -389,7 +389,7 @@ describe('Issue #251 - WDK_USDT_EVM RELEASE/REFUND restart convergence (real Pos
 
     const report = await reconcilePendingSettlements({ projectionGraceMs: 0 })
     expect(report.recovered).toEqual([])
-    expect(report.requiresManualReview.some((m) => m.escrowId === c.escrowId && /does not match escrow/.test(m.reason))).toBe(true)
+    expect(report.requiresManualReview.some((m) => m.escrowId === c.escrowId && /does not match the expected RELEASE amount/.test(m.reason))).toBe(true)
     expect(mockTransfer).not.toHaveBeenCalled()
     expect((await escrowOf(c.escrowId))!.txReleaseId).toBeNull()
   })
@@ -448,15 +448,20 @@ describe('Issue #251 - WDK_USDT_EVM RELEASE/REFUND restart convergence (real Pos
     await expectConvergedOnce(c, 'COMPLETED', txHash)
   })
 
-  // ── SPLIT out of scope (Issue #250) ────────────────────────────────────────────────────────────
+  // ── SPLIT (Issue #250) ──────────────────────────────────────────────────────────────────────────
+  // SPLIT restart convergence itself (two independent legs) is implemented and proven in
+  // tests/integration/wdkSplitRestartConvergence.test.ts, not this file. This file only keeps a
+  // minimal cross-check that reconcileWdkTerminalTransfer() still dispatches a SPLIT escrow somewhere
+  // sane (fails closed with no attempts at all) rather than silently doing nothing, so a future change
+  // to the RELEASE/REFUND branch above can't accidentally swallow SPLIT without any test noticing.
 
-  it('SPLIT is explicitly out of this mission\'s scope: never touches the WDK reconciliation path, stays manual review', async () => {
-    pg.requirePostgres('split out of scope')
+  it('SPLIT with no attempts at all: fails closed, zero transfer() calls (full SPLIT coverage lives in wdkSplitRestartConvergence.test.ts)', async () => {
+    pg.requirePostgres('split no attempts')
     const c = await makeWdkEscrow('SPLIT')
 
     const report = await reconcilePendingSettlements({ projectionGraceMs: 0 })
     expect(report.recovered).toEqual([])
-    expect(report.requiresManualReview.some((m) => m.escrowId === c.escrowId && /SPLIT recovery is Issue #250/.test(m.reason))).toBe(true)
+    expect(report.requiresManualReview.some((m) => m.escrowId === c.escrowId)).toBe(true)
     expect(mockTransfer).not.toHaveBeenCalled()
     expect(mockGetTransactionReceipt).not.toHaveBeenCalled()
   })
