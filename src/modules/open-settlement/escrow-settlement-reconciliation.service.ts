@@ -156,6 +156,10 @@ async function applyDownstreamCompletionEffects(
 ): Promise<{ obligationSkipped: boolean; emitted: boolean }> {
   const feeOutcome = targetStatus === 'COMPLETED' ? 'RELEASE' as const : targetStatus === 'REFUNDED' ? 'FULL_REFUND' as const : 'SPLIT' as const
 
+  // Issue #245 - set true only when the fee-broadcast-evidence sub-step below fails to complete;
+  // guards the pending-row deletion at this function's own end so the PSBT survives for a later
+  // independent retry (reconcileMissingCompletionEffects()'s own fee-recovery check).
+  let feeRecordingFailed = false
   let obligationSkipped = false
   if (targetStatus === 'SPLIT' && !pending) {
     obligationSkipped = true
@@ -174,6 +178,14 @@ async function applyDownstreamCompletionEffects(
     // handling — this is strictly secondary accounting, never allowed to
     // undo a settlement whose funds already moved (real, before this
     // module ever ran, in every case this function is called for).
+    //
+    // Issue #245 - feeRecordingFailed tracks whether this block below
+    // actually completed. If it didn't, the pending row (the only durable
+    // source of the PSBT identifyFeeOutput() needs to re-derive this
+    // evidence) is kept alive rather than deleted at this function's own
+    // end below — reconcileMissingCompletionEffects() has its own
+    // INDEPENDENT retry for exactly this residual, mirroring the M9
+    // correspondence-recovery check it already runs the same way.
     if (pending && pending.kind !== 'refund' && actualCollection && !actualCollection.waived) {
       try {
         const obligation = await feeObligationService.findByEscrowId(escrowId)
@@ -183,8 +195,11 @@ async function applyDownstreamCompletionEffects(
           await feeCollectionRecognitionService.recordBroadcastAndAdvance(obligation.id, {
             txid: txId, vout: evidence.vout, scriptPubKey: evidence.scriptPubKeyHex, amountSats: evidence.amountSats,
           })
+        } else if (!obligation) {
+          feeRecordingFailed = true
         }
       } catch (err) {
+        feeRecordingFailed = true
         log.error({
           msg: 'Reconciliation: broadcast-evidence recording failed after a successful settlement — FeeObligation remains PENDING_COLLECTION, not silently advanced',
           escrowId, err: err instanceof Error ? err.message : err,
@@ -221,7 +236,11 @@ async function applyDownstreamCompletionEffects(
   // remaining source of the signed PSBT.
   await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, escrowRow.type, rawTxHex)
 
-  if (pending) {
+  // Issue #245 - kept alive when fee-broadcast-evidence recording failed above: it is the only
+  // durable source of the PSBT a later retry needs to re-derive that evidence. Every other
+  // downstream effect (EscrowEvent, Trade projection, counters, reputation, correspondence) has
+  // already run unconditionally above, exactly as before this fix - only the cleanup is deferred.
+  if (pending && !feeRecordingFailed) {
     await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
   }
 
@@ -857,6 +876,41 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
     // result and safely no-ops (MULTISIG+RESOLVED-dispute check) for
     // every escrow this mission does not migrate.
     await recordLiveCorrespondenceIfApplicable(escrow.id, escrow.tradeId, escrow.type, rawTxHex)
+  }
+
+  // Issue #245 - closes the crash window where the settlement itself fully completed
+  // (EscrowEvent/Trade/counters/reputation already ran, alreadyEmitted below would otherwise skip
+  // straight past this) but broadcast-evidence recording for the fee output failed and left its
+  // FeeObligation at PENDING_COLLECTION with the pending row deliberately kept alive (see
+  // applyDownstreamCompletionEffects()'s own comment) specifically for this retry. Checked and
+  // repaired INDEPENDENTLY of the alreadyEmitted gate below, same discipline the M9 correspondence
+  // check immediately above already established for the identical class of problem — an early
+  // return on that gate must never also skip this. recordBroadcastAndAdvance() itself (Issue #245)
+  // is what makes a retry here safe/idempotent: it never re-broadcasts anything (this reconciler
+  // never calls a provider), it only records what the settlement transaction already broadcast.
+  if (escrow.type === 'MULTISIG' && escrow.txReleaseId) {
+    const pendingForFee = await prisma.escrowPendingTransaction.findUnique({
+      where: { escrowId: escrow.id },
+      select: { id: true, kind: true, feeCollectionSats: true, feeCollectionWaived: true, unsignedPsbtBase64: true },
+    })
+    if (pendingForFee && pendingForFee.kind !== 'refund' && pendingForFee.feeCollectionSats !== null && pendingForFee.feeCollectionSats !== undefined && !pendingForFee.feeCollectionWaived) {
+      try {
+        const obligation = await feeObligationService.findByEscrowId(escrow.id)
+        if (obligation && obligation.collectionStatus === 'PENDING_COLLECTION' && escrow.snapshotFeeCollectionAddress) {
+          const network = networkFor(config.multisig.network)
+          const evidence = identifyFeeOutput(pendingForFee.unsignedPsbtBase64, escrow.snapshotFeeCollectionAddress, pendingForFee.feeCollectionSats, network)
+          await feeCollectionRecognitionService.recordBroadcastAndAdvance(obligation.id, {
+            txid: escrow.txReleaseId, vout: evidence.vout, scriptPubKey: evidence.scriptPubKeyHex, amountSats: evidence.amountSats,
+          })
+          // Only now, once the fee side has also durably converged, is the pending row's last
+          // remaining purpose (surviving as the PSBT source for exactly this retry) fulfilled.
+          await prisma.escrowPendingTransaction.delete({ where: { id: pendingForFee.id } }).catch(() => {})
+          report.completionEffectsRecovered.push({ escrowId: escrow.id, obligationSkipped: false })
+        }
+      } catch (err) {
+        log.error({ msg: 'Reconciliation: fee-broadcast-evidence retry failed — FeeObligation remains PENDING_COLLECTION, not silently advanced', escrowId: escrow.id, err: err instanceof Error ? err.message : String(err) })
+      }
+    }
   }
 
   if (alreadyEmitted) return // nothing missing for the completion-effects concern — the overwhelmingly common case
