@@ -11,7 +11,8 @@ jest.mock('../src/common/redis', () => ({
 jest.mock('../src/common/database', () => ({ prisma: {} }))
 
 import type { FastifyRequest } from 'fastify'
-import { requireAuth, revokeCurrentSession } from '../src/common/middleware/auth'
+import { requireAuth } from '../src/common/middleware/auth'
+import { revokeCurrentSession } from '../src/common/middleware/session-revocation'
 
 function request(token?: string): FastifyRequest {
   return {
