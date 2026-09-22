@@ -401,9 +401,9 @@ export async function submitTransactionSignature(escrowId: string, participantId
       (id: string) => signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)!.signedPsbtBase64
     )
     result = pending.kind === 'release'
-      ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList)
+      ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : pending.kind === 'refund'
-      ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList)
+      ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
   } catch (err) {
     await revertEscrowStatus(escrowId, targetStatus, escrow.status)

@@ -1432,7 +1432,8 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     expect(mockFinalizeRelease).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'escrow-1' }),
       'unsigned-psbt',
-      ['buyer-signed', 'seller-signed']
+      ['buyer-signed', 'seller-signed'],
+      'ptx-1'
     )
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'PAYMENT_PENDING' }, data: { status: 'COMPLETED' } })
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-release-txid', releasedAt: expect.any(Date) } })
@@ -1452,7 +1453,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
 
     const result = await escrowService.submitTransactionSignature('escrow-1', 'seller-1', 'seller-signed')
 
-    expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'])
+    expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'], 'ptx-2')
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'REFUNDED' } })
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-refund-txid' } })
     expect(result.complete).toBe(true)
