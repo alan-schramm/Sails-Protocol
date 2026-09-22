@@ -1235,6 +1235,33 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     })
   })
 
+  describe('p2p — authenticated Blind Relay resource bounds (#307)', () => {
+    it('closes /ws/relay once the participant exceeds the shared post-upgrade frame budget', async () => {
+      const token = await authedSession('relay-user-1')
+      const ticket = await wsTicketFor(app, token)
+      const ws = await app.injectWS(`/ws/relay?ticket=${ticket}`)
+
+      // The limiter is Redis-backed and participant-scoped. Use tiny frames:
+      // this test targets the message-count boundary while the dedicated
+      // limiter tests cover aggregate byte accounting independently.
+      for (let i = 0; i <= config.rateLimit.wsMessageMax; i++) ws.send('x')
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      expect(ws.readyState).toBe(ws.CLOSED)
+    })
+
+    it('rejects a reused relay ticket, preserving single-use admission under reconnect churn', async () => {
+      const token = await authedSession('relay-user-2')
+      const ticket = await wsTicketFor(app, token)
+      const firstWs = await app.injectWS(`/ws/relay?ticket=${ticket}`)
+      firstWs.terminate()
+
+      const secondWs = await app.injectWS(`/ws/relay?ticket=${ticket}`)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(secondWs.readyState).toBe(secondWs.CLOSED)
+    })
+  })
+
   describe('open-p2p — chat WS best-effort Pears relay (chat-unification follow-up)', () => {
     it('relays a WS-sent message onto Pears when the sender has an active PearNode', async () => {
       const token = await authedSession('buyer-1')
