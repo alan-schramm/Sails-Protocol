@@ -27,12 +27,21 @@ export function checkWsMessageRateLimit(participantId: string): boolean {
  * channel is not authority to become unbounded when the shared budget
  * store is unavailable.
  */
-export async function checkSharedWsMessageRateLimit(participantId: string): Promise<boolean> {
-  const key = `ratelimit:ws-relay:${participantId}`
+export async function checkSharedWsMessageRateLimit(participantId: string, frameBytes = 0): Promise<boolean> {
+  const messageKey = `ratelimit:ws-relay:${participantId}`
+  const byteKey = `ratelimit:ws-relay-bytes:${participantId}`
+  // Keep the byte ceiling proportional to the already-configured frame
+  // count and Fastify's 1 MiB hard maxPayload: the participant cannot
+  // consume more than one maximum-size frame per allowed message.
+  const byteMax = config.rateLimit.wsMessageMax * 1024 * 1024
   try {
-    const count = await redis.incr(key)
-    if (count === 1) await redis.pexpire(key, config.rateLimit.wsMessageWindowMs)
-    return count <= config.rateLimit.wsMessageMax
+    const [messageCount, byteCount] = await Promise.all([
+      redis.incr(messageKey),
+      redis.incrby(byteKey, frameBytes),
+    ])
+    if (messageCount === 1) await redis.pexpire(messageKey, config.rateLimit.wsMessageWindowMs)
+    if (byteCount === frameBytes) await redis.pexpire(byteKey, config.rateLimit.wsMessageWindowMs)
+    return messageCount <= config.rateLimit.wsMessageMax && byteCount <= byteMax
   } catch {
     return false
   }
