@@ -124,6 +124,8 @@ jest.mock('../src/common/database', () => ({
   prisma: {
     // Issue #298 - PASS 3 scans for claimed-but-unprojected transitions; none by default.
     eventProjectionClaim: { findMany: jest.fn().mockResolvedValue([]) },
+    // PASS 3 now pages incomplete claimed transitions with one raw anti-join query; none by default.
+    $queryRaw: jest.fn().mockResolvedValue([]),
     // Issue #291 hardening - durable WDK attempt evidence attached to the manual-review reason.
     wdkTransferAttempt: { findMany: jest.fn().mockResolvedValue([{ operationType: 'RELEASE', status: 'CONFIRMED', txHash: '0xabc' }]) },
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),

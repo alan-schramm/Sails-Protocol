@@ -618,23 +618,37 @@ const PROJECTION_RECOVERY_GRACE_MS = 5 * 60 * 1000
 const PROJECTION_RECOVERY_BATCH = 200
 const PROJECTION_RECOVERY_MAX_PAGES = 50
 
-export async function reconcileIncompleteProjections(report: ReconciliationReport, graceMs: number): Promise<void> {
+// Bound per invocation: BATCH x MAX_PAGES = 10,000 INCOMPLETE transitions. Only incomplete ones (claimed and NOT yet
+// projected) are paged - completed history never consumes the budget. Because a permanently stuck transition stays
+// incomplete forever, every invocation resumes AFTER where the previous one stopped (a per-process rotating cursor)
+// and wraps to the oldest only after a short page, so a backlog larger than the bound is worked through across ticks
+// instead of the same first 10,000 stuck rows being revisited forever. The cursor is a pure optimization: correctness
+// of each re-drive comes from the per-transition advisory lock and the projection-claim identity, not from it.
+let projectionRecoveryCursor: { appliedAt: Date; id: string } | null = null
+
+export async function reconcileIncompleteProjections(report: ReconciliationReport, graceMs: number, opts: { maxPages?: number } = {}): Promise<void> {
   const cutoff = new Date(Date.now() - graceMs)
-  // Page through ALL claimed transitions (bounded), oldest first: a transition that can never complete
-  // (permanent anomaly) must not starve newer ones behind it in a fixed-size head-of-queue batch.
-  let cursor: string | undefined
-  for (let page = 0; page < PROJECTION_RECOVERY_MAX_PAGES; page++) {
-    const claimed = await prisma.eventProjectionClaim.findMany({
-      where: { projectionKey: TRANSITION_CLAIMED_KEY, appliedAt: { lt: cutoff } },
-      orderBy: [{ appliedAt: 'asc' }, { id: 'asc' }],
-      take: PROJECTION_RECOVERY_BATCH,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    })
-    if (claimed.length === 0) return
-    cursor = claimed[claimed.length - 1].id
+  const maxPages = opts.maxPages ?? PROJECTION_RECOVERY_MAX_PAGES
+  for (let page = 0; page < maxPages; page++) {
+    const after = projectionRecoveryCursor
+    const claimed = await prisma.$queryRaw<Array<{ id: string; eventId: string; subjectId: string; appliedAt: Date }>>`
+      SELECT c.id, c."eventId", c."subjectId", c."appliedAt"
+      FROM event_projection_claims c
+      WHERE c."projectionKey" = ${TRANSITION_CLAIMED_KEY}
+        AND c."appliedAt" < ${cutoff}
+        AND (${after === null} OR (c."appliedAt", c.id) > (${after?.appliedAt ?? new Date(0)}, ${after?.id ?? ''}))
+        AND NOT EXISTS (
+          SELECT 1 FROM event_projection_claims p
+          WHERE p."projectionKey" = ${TRANSITION_PROJECTED_KEY} AND p."subjectId" = c."eventId")
+      ORDER BY c."appliedAt" ASC, c.id ASC
+      LIMIT ${PROJECTION_RECOVERY_BATCH}`
+    if (claimed.length === 0) { projectionRecoveryCursor = null; return }
+    const last = claimed[claimed.length - 1]
+    projectionRecoveryCursor = { appliedAt: last.appliedAt, id: last.id }
     await redriveClaimedPage(claimed, report)
-    if (claimed.length < PROJECTION_RECOVERY_BATCH) return
+    if (claimed.length < PROJECTION_RECOVERY_BATCH) { projectionRecoveryCursor = null; return }
   }
+  // Bound reached: keep the cursor so the next invocation continues from here.
 }
 
 async function redriveClaimedPage(claimed: Array<{ id: string; eventId: string; subjectId: string }>, report: ReconciliationReport): Promise<void> {
