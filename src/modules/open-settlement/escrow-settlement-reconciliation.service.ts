@@ -372,10 +372,16 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     return
   }
 
+  if (escrow.type === 'LIGHTNING_HODL' || escrow.type === 'SAFE_GUARD_EVM') {
+    await reconcileSignatureCollectionTerminalTransfer(escrow, report)
+    return
+  }
+
   if (escrow.type !== 'MULTISIG') {
     // No authoritative-truth primitive exists for this rail in this mission's scope (LIGHTNING_HODL/
-    // SAFE_GUARD_EVM - see this file's own header comment; WDK_USDT_EVM RELEASE/REFUND is handled
-    // above by reconcileWdkTerminalTransfer(), so this branch is never reached for it) — fail closed
+    // SAFE_GUARD_EVM are handled above by reconcileSignatureCollectionTerminalTransfer();
+    // WDK_USDT_EVM RELEASE/REFUND is handled above by reconcileWdkTerminalTransfer() - neither branch
+    // is ever reached for those types) — fail closed
     // rather than guess. A real operator response requires a human to inspect this escrow's actual
     // provider-side state.
     report.requiresManualReview.push({
@@ -682,6 +688,103 @@ async function reconcileWdkSplitTransfer(escrow: NonNullable<Awaited<ReturnType<
   log.info({ msg: 'WDK SPLIT terminal recovery: convergence path determined', escrowId: escrow.id, buyerTxHash: buyerResult.txHash, sellerTxHash: sellerResult.txHash, wroteTxReleaseId })
   await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, 'SPLIT', trade.sellerId, joinedTxHash, escrow, null, undefined)
   report.recovered.push({ escrowId: escrow.id, txId: joinedTxHash, outcome: 'ALREADY_CONFIRMED' })
+}
+
+// Issue #240 - LIGHTNING_HODL/SAFE_GUARD_EVM RELEASE/REFUND restart convergence. Unlike WDK_USDT_EVM
+// (a self-initiated direct-call transfer with a real receipt-query primitive) or MULTISIG (Bitcoin
+// broadcast is idempotent by construction and has a real explorer-based reconciliation primitive),
+// neither Ark's submission protocol nor an ERC-4337 bundler's resubmission behavior is proven
+// idempotent anywhere in this codebase, and neither provider exposes a verified, live-tested external
+// query. This function therefore consumes ONLY the durable pre/post-submission evidence
+// signature-collection-finalization-truth.ts's own ensureFinalizationAttempt()/recordFinalizationOutcome()
+// already write (see that file's own header comment) - it never queries anything external itself, and
+// it NEVER converges a SUBMITTED (SAFE_GUARD_EVM's bundler-accepted-but-not-chain-confirmed case) or
+// SUBMISSION_UNKNOWN attempt automatically: that is this mission's own disclosed, honest limitation
+// ("IMPLEMENTED but NOT PRODUCTION-ELIGIBLE for automated convergence" - Issue #240), not a gap this
+// function silently papers over.
+async function reconcileSignatureCollectionTerminalTransfer(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  if (escrow.status !== 'COMPLETED' && escrow.status !== 'REFUNDED') {
+    // Neither provider implements SPLIT (both throw UNSUPPORTED - buildUnsignedSplit()'s own comment
+    // in each provider file) - structurally unreachable, but fail closed rather than assume.
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `${escrow.type} escrow ${escrow.id} is terminal ('${escrow.status}') with no txReleaseId, but automated restart convergence for this rail is scoped to RELEASE/REFUND only. Manual review required.`,
+    })
+    return
+  }
+
+  const [pending, attempt] = await Promise.all([
+    prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } }),
+    prisma.signatureCollectionFinalizationAttempt.findUnique({ where: { escrowId: escrow.id } }),
+  ])
+
+  if (!attempt) {
+    // The finalize call was never reached - a crash strictly between claimEscrowTransition() and
+    // ensureFinalizationAttempt() ever running (or before claimEscrowTransition() itself, though
+    // that leaves the escrow non-terminal and never reaches this reconciler at all). No external
+    // effect could possibly have happened yet, but this function has no authority to un-claim the
+    // escrow's terminal status either (the same disclosed, out-of-scope residual #251/#250 already
+    // carry for their own NOT_STARTED case) - surfaced for manual review.
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `${escrow.type} escrow ${escrow.id} is terminal ('${escrow.status}') with no txReleaseId and no durable finalization attempt exists — the finalize call was never reached. Manual review required.`,
+    })
+    return
+  }
+
+  if (!pending || attempt.pendingTxId !== pending.id) {
+    // Case D - fail closed on any mismatch. A missing pending row here (unlike MULTISIG's own PASS 1,
+    // which reconstructs from it) means this function has nothing left to bind the durable attempt to.
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `${escrow.type} escrow ${escrow.id}: SignatureCollectionFinalizationAttempt ${attempt.id} is bound to pending operation ${attempt.pendingTxId}, which is not the escrow's current pending transaction (${pending?.id ?? 'none'}) — refusing to treat it as authoritative evidence. Manual review required.`,
+    })
+    return
+  }
+
+  if (attempt.status !== 'CONFIRMED') {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `${escrow.type} ${attempt.kind} finalization attempt (${attempt.id}) is ${attempt.status} — no automated external reconciliation exists for this provider (Issue #240)${attempt.txHash ? `; durable evidence so far: ${attempt.txHash}` : ''}. Manual review required.`,
+    })
+    return
+  }
+  if (!attempt.txHash) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `${escrow.type} finalization attempt ${attempt.id} is CONFIRMED but has no persisted txHash — data integrity violation, refusing to resume. Manual review required.` })
+    return
+  }
+
+  const trade = await tradeRepository.findById(escrow.tradeId)
+  if (!trade) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `Trade ${escrow.tradeId} not found (${escrow.type} terminal recovery).` })
+    return
+  }
+
+  // Same write-once wrapper the LIVE submitTransactionSignature() path itself uses for every
+  // signature-collection rail (updateSignatureCollectionResult -> persistSettlementResult, bound to
+  // the exact live pending operation, Issue #291), and the same idempotent completion-effects path
+  // PASS 1's MULTISIG branch and reconcileWdkTerminalTransfer() above already use.
+  let wroteTxReleaseId = false
+  try {
+    wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
+      const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+      if (!fresh) return false
+      const updateData = attempt.kind === 'refund' ? { txReleaseId: attempt.txHash! } : { txReleaseId: attempt.txHash!, releasedAt: new Date() }
+      await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { tx, operation: { pendingOperationId: pending.id } })
+      return fresh.txReleaseId === null
+    })
+  } catch (writeErr) {
+    if (writeErr instanceof SettlementResultConflictError) {
+      log.error({ msg: `${escrow.type} terminal recovery: settlement result integrity conflict - persisted evidence NOT overwritten, downstream effects NOT run`, escrowId: escrow.id, err: writeErr.message })
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: writeErr.message })
+      return
+    }
+    throw writeErr
+  }
+
+  log.info({ msg: `${escrow.type} terminal recovery: convergence path determined`, escrowId: escrow.id, kind: attempt.kind, txHash: attempt.txHash, wroteTxReleaseId })
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, escrow.status as 'COMPLETED' | 'REFUNDED', pending.triggeredBy, attempt.txHash, escrow, pending, undefined)
+  report.recovered.push({ escrowId: escrow.id, txId: attempt.txHash, outcome: 'ALREADY_CONFIRMED' })
 }
 
 // NOTE (Issue #298): the EscrowEvent existence peek below decides ONLY whether the (idempotent)

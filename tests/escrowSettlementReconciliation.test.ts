@@ -133,6 +133,8 @@ const mockEscrowUpdate = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
 const mockEscrowEventFindFirst = jest.fn()
 const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
+// Issue #240
+const mockFinalizationAttemptFindUnique = jest.fn()
 // Same passthrough shape multisigFundingReorgSweep.test.ts's own
 // withEscrowFundingLock() mock uses — no real transactional semantics
 // needed for a unit-level proof of the orchestration; the real locked
@@ -173,6 +175,8 @@ jest.mock('../src/common/database', () => ({
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
     },
+    // Issue #240 - reconcileSignatureCollectionTerminalTransfer()'s own durable evidence lookup.
+    signatureCollectionFinalizationAttempt: { findUnique: (...args: unknown[]) => mockFinalizationAttemptFindUnique(...args) },
   },
 }))
 
@@ -231,6 +235,7 @@ beforeEach(() => {
   )
   mockWdkFindLatest.mockResolvedValue(null)
   mockReconcileTerminalTransfer.mockResolvedValue({ outcome: 'NO_ATTEMPT', reason: 'no attempt' })
+  mockFinalizationAttemptFindUnique.mockResolvedValue(null)
   // PASS 0 (M9-R, C8) candidates default to none — tests that specifically
   // want one set mockPendingTxFindMany explicitly.
   mockPendingTxFindMany.mockResolvedValue([])
@@ -365,8 +370,8 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [] })
   })
 
-  it('a rail with no automated recovery primitive at all (e.g. LIGHTNING_HODL) fails closed, flagged for manual review, no chain calls attempted', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'LIGHTNING_HODL' })])
+  it('a rail with no automated recovery primitive at all (e.g. a legacy/unregistered type) fails closed, flagged for manual review, no chain calls attempted', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'LIQUID_COVENANT' })])
     const report = await reconcilePendingSettlements()
     expect(report.requiresManualReview).toHaveLength(1)
     expect(report.requiresManualReview[0].escrowId).toBe('escrow-1')
@@ -685,6 +690,91 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
     expect(report.failed).toEqual([{ escrowId: 'escrow-broken', error: 'DB unavailable' }])
     expect(report.recovered).toEqual([{ escrowId: 'escrow-ok', txId: 'ok-txid', outcome: 'ALREADY_BROADCAST' }])
+  })
+
+  // Issue #240 - LIGHTNING_HODL/SAFE_GUARD_EVM terminal recovery orchestration. The real, read-only
+  // ensureFinalizationAttempt()/recordFinalizationOutcome() primitive and the reconciler dispatch are
+  // proven against real PostgreSQL (plus the real provider entrypoint for the external-boundary
+  // proof) in tests/integration/signatureCollectionRestartConvergence.test.ts; this suite only proves
+  // reconcileTxReleaseId() dispatches to reconcileSignatureCollectionTerminalTransfer() correctly.
+  describe.each(['LIGHTNING_HODL', 'SAFE_GUARD_EVM'] as const)('%s terminal recovery (Issue #240)', (type) => {
+    function wdkishFixture(overrides: Record<string, any> = {}) {
+      return { id: 'escrow-1', tradeId: 'trade-1', type, status: 'COMPLETED', txReleaseId: null, lockedAmount: { toString: () => '0.001' }, asset: 'BTC', ...overrides }
+    }
+
+    it('no durable attempt: fails closed without ever touching updateSignatureCollectionResult', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkishFixture()])
+      mockFinalizationAttemptFindUnique.mockResolvedValue(null)
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockUpdateSignatureCollectionResult).not.toHaveBeenCalled()
+      expect(report.recovered).toEqual([])
+      expect(report.requiresManualReview).toHaveLength(1)
+      expect(report.requiresManualReview[0].reason).toMatch(/no durable finalization attempt exists/)
+    })
+
+    it('SUBMISSION_UNKNOWN: never inferred as FAILED, never converges', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkishFixture()])
+      mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', triggeredBy: 'seller-1' })
+      mockFinalizationAttemptFindUnique.mockResolvedValue({ id: 'att-1', pendingTxId: 'ptx-1', kind: 'release', status: 'SUBMISSION_UNKNOWN', txHash: null })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockUpdateSignatureCollectionResult).not.toHaveBeenCalled()
+      expect(report.recovered).toEqual([])
+      expect(report.requiresManualReview[0].reason).toContain('is SUBMISSION_UNKNOWN')
+    })
+
+    it('pendingTxId mismatch (stale attempt): fails closed', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkishFixture()])
+      mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-current', escrowId: 'escrow-1', kind: 'release', triggeredBy: 'seller-1' })
+      mockFinalizationAttemptFindUnique.mockResolvedValue({ id: 'att-1', pendingTxId: 'ptx-stale', kind: 'release', status: 'CONFIRMED', txHash: '0xabc' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockUpdateSignatureCollectionResult).not.toHaveBeenCalled()
+      expect(report.requiresManualReview[0].reason).toMatch(/is bound to pending operation ptx-stale/)
+    })
+
+    it('CONFIRMED RELEASE converges through the same write-once path every other rail uses', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkishFixture()])
+      mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', triggeredBy: 'seller-1' })
+      mockFinalizationAttemptFindUnique.mockResolvedValue({ id: 'att-1', pendingTxId: 'ptx-1', kind: 'release', status: 'CONFIRMED', txHash: '0xconfirmed' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith(
+        'escrow-1', { txReleaseId: '0xconfirmed', releasedAt: expect.any(Date) }, { tx: expect.anything(), operation: { pendingOperationId: 'ptx-1' } }
+      )
+      expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xconfirmed', outcome: 'ALREADY_CONFIRMED' }])
+      expect(report.requiresManualReview).toEqual([])
+    })
+
+    it('CONFIRMED REFUND converges without releasedAt', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkishFixture({ status: 'REFUNDED' })])
+      mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-2', escrowId: 'escrow-1', kind: 'refund', triggeredBy: 'seller-1' })
+      mockFinalizationAttemptFindUnique.mockResolvedValue({ id: 'att-2', pendingTxId: 'ptx-2', kind: 'refund', status: 'CONFIRMED', txHash: '0xrefund' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith(
+        'escrow-1', { txReleaseId: '0xrefund' }, { tx: expect.anything(), operation: { pendingOperationId: 'ptx-2' } }
+      )
+      expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xrefund', outcome: 'ALREADY_CONFIRMED' }])
+    })
+
+    it('a settlement result conflict from a concurrent writer is surfaced, not swallowed', async () => {
+      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkishFixture()])
+      mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', triggeredBy: 'seller-1' })
+      mockFinalizationAttemptFindUnique.mockResolvedValue({ id: 'att-1', pendingTxId: 'ptx-1', kind: 'release', status: 'CONFIRMED', txHash: '0xconfirmed' })
+      mockUpdateSignatureCollectionResult.mockRejectedValue(new SettlementResultConflictError('conflict: already 0xother'))
+
+      const report = await reconcilePendingSettlements()
+
+      expect(report.requiresManualReview[0].reason).toMatch(/conflict: already 0xother/)
+      expect(mockEscrowEventCreate).not.toHaveBeenCalled()
+    })
   })
 })
 
