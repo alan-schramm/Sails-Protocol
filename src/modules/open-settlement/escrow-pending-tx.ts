@@ -452,6 +452,12 @@ export async function submitTransactionSignature(escrowId: string, participantId
     //     self-documenting guard against that ever changing silently).
     // Broadcast success != confirmed revenue — this never marks COLLECTED
     // itself (see fee-collection-recognition.service.ts's own contract).
+    //
+    // Issue #245 - feeRecordingFailed guards the pending-row deletion below so the PSBT (the only
+    // durable source identifyFeeOutput() needs) survives for reconcileMissingCompletionEffects()'s
+    // own independent retry — same fix, same reasoning, as applyDownstreamCompletionEffects()'s own
+    // header comment in escrow-settlement-reconciliation.service.ts.
+    let feeRecordingFailed = false
     if (pending.kind !== 'refund' && escrow.type === 'MULTISIG' && actualCollection && !actualCollection.waived) {
       try {
         const obligation = await feeObligationService.findByEscrowId(escrowId)
@@ -475,6 +481,7 @@ export async function submitTransactionSignature(escrowId: string, participantId
         // thrown; the obligation simply remains PENDING_COLLECTION,
         // exactly the safe/honest state when evidence couldn't be recorded
         // (detectable later via reconciliation, never silently masked).
+        feeRecordingFailed = true
         log.error({
           msg: 'Broadcast-evidence recording failed after a successful settlement — FeeObligation remains PENDING_COLLECTION, not silently advanced',
           escrowId, err: err instanceof Error ? err.message : err,
@@ -504,7 +511,11 @@ export async function submitTransactionSignature(escrowId: string, participantId
 
     // Cascade-deletes its EscrowTransactionSignature rows (schema.prisma's
     // onDelete: Cascade) — a completed round leaves no pending row behind.
-    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+    // Issue #245 - kept alive when feeRecordingFailed above, so its PSBT survives for
+    // reconcileMissingCompletionEffects()'s own independent fee-recovery retry.
+    if (!feeRecordingFailed) {
+      await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+    }
 
     return { escrow: updated, complete: true }
   } catch (err) {

@@ -75,18 +75,60 @@ function evidenceRow(kind: FeeCollectionEvidenceKind, overrides: Record<string, 
 }
 
 describe('FeeCollectionRecognitionService.recordBroadcastAndAdvance() — §6', () => {
+  // Issue #245 - the evidence insert and the status transition now commit inside ONE injected
+  // transaction (atomicity fix - see that method's own header comment); the real Postgres proof of
+  // the crash window this closes lives in tests/integration/feeCollectionRecognitionIntegration.test.ts
+  // and tests/integration/feeBroadcastCrashConsistency.test.ts. This file stays a genuine unit test
+  // (no real database) via the same fakeRunInTransaction this file already uses for recognizeConfirmation().
   it('records BROADCAST evidence and transitions PENDING_COLLECTION -> IN_PROGRESS', async () => {
     const evidenceRepo = fakeEvidenceRepo()
-    const obligationRepo = fakeObligationRepo()
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'PENDING_COLLECTION' }) })
     const obligationService = new FeeObligationService(obligationRepo)
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService)
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, fakeDistributionPolicyService(), fakeRunInTransaction)
 
     await service.recordBroadcastAndAdvance('obligation-1', { txid: 'a'.repeat(64), vout: 1, scriptPubKey: 'deadbeef', amountSats: 4000 })
 
-    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ feeObligationId: 'obligation-1', kind: 'BROADCAST', txid: 'a'.repeat(64), vout: 1, scriptPubKey: 'deadbeef' }))
+    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ feeObligationId: 'obligation-1', kind: 'BROADCAST', txid: 'a'.repeat(64), vout: 1, scriptPubKey: 'deadbeef' }), undefined)
     const call = evidenceRepo.record.mock.calls[0][0]
     expect((call.amount as Prisma.Decimal).toString()).toBe('0.00004')
     expect(obligationRepo.claimCollectionStatusTransition).toHaveBeenCalledWith('obligation-1', 'PENDING_COLLECTION', 'IN_PROGRESS')
+  })
+
+  it('FeeObligation not found: fails closed', async () => {
+    const evidenceRepo = fakeEvidenceRepo()
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue(null) })
+    const obligationService = new FeeObligationService(obligationRepo)
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, fakeDistributionPolicyService(), fakeRunInTransaction)
+
+    await expect(service.recordBroadcastAndAdvance('obligation-1', { txid: 'a'.repeat(64), vout: 1, scriptPubKey: 'deadbeef', amountSats: 4000 }))
+      .rejects.toThrow('FeeObligation obligation-1 not found')
+    expect(evidenceRepo.record).not.toHaveBeenCalled()
+  })
+
+  it('a retry of the EXACT same broadcast (already advanced past PENDING_COLLECTION) is an idempotent no-op — never re-records evidence, never re-transitions', async () => {
+    const txid = 'a'.repeat(64)
+    const priorBroadcast = evidenceRow('BROADCAST', { feeObligationId: 'obligation-1', txid, vout: 1 })
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([priorBroadcast]) })
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
+    const obligationService = new FeeObligationService(obligationRepo)
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, fakeDistributionPolicyService(), fakeRunInTransaction)
+
+    await service.recordBroadcastAndAdvance('obligation-1', { txid, vout: 1, scriptPubKey: 'deadbeef', amountSats: 4000 })
+
+    expect(evidenceRepo.record).not.toHaveBeenCalled()
+    expect(obligationRepo.claimCollectionStatusTransition).not.toHaveBeenCalled()
+  })
+
+  it('a retry with CONTRADICTORY evidence (different txid than what is already durably recorded) fails closed', async () => {
+    const priorBroadcast = evidenceRow('BROADCAST', { feeObligationId: 'obligation-1', txid: 'a'.repeat(64), vout: 1 })
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([priorBroadcast]) })
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
+    const obligationService = new FeeObligationService(obligationRepo)
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, fakeDistributionPolicyService(), fakeRunInTransaction)
+
+    await expect(service.recordBroadcastAndAdvance('obligation-1', { txid: 'b'.repeat(64), vout: 1, scriptPubKey: 'deadbeef', amountSats: 4000 }))
+      .rejects.toThrow(/refusing to record contradictory evidence/)
+    expect(evidenceRepo.record).not.toHaveBeenCalled()
   })
 })
 

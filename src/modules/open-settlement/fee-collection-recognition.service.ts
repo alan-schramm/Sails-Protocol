@@ -74,20 +74,76 @@ export class FeeCollectionRecognitionService {
    * Broadcast success != confirmed revenue — this method NEVER, under any
    * circumstance, transitions an obligation to COLLECTED. Callers must
    * never invoke this for a waived, refund, or legacy outcome (there is
-   * no fee output to have evidence for in any of those cases) — the one
-   * real call site (escrow-pending-tx.ts) only reaches this method when a
-   * real, non-waived Sails output was actually constructed.
+   * no fee output to have evidence for in any of those cases) — the two
+   * real call sites (escrow-pending-tx.ts's live path,
+   * escrow-settlement-reconciliation.service.ts's own recovery paths)
+   * only reach this method when a real, non-waived Sails output was
+   * actually constructed.
+   *
+   * Issue #245 (CTO corrective mission) — the evidence insert and the
+   * status transition used to be two separate, non-atomic top-level
+   * writes. A crash strictly between them left a durable BROADCAST row
+   * with the obligation still PENDING_COLLECTION — evidence proving the
+   * fee-bearing transaction was already broadcast, coexisting with a
+   * state restart/reconciliation reads as "never collected." Reproduced
+   * directly, the same adversarial discipline recognizeConfirmation()'s
+   * own header comment already documents for the identical class of
+   * problem (two separate writes, a crash between them, and the real
+   * periodic retry this obligation's own callers already perform —
+   * reconcileMissingCompletionEffects() re-derives and re-calls this
+   * exact method). Closed the same way that fix was: BOTH writes commit
+   * inside ONE transaction. No explicit advisory lock is needed (unlike
+   * persistSettlementResult()/withEscrowFundingLock()) — the atomic
+   * transaction plus the EXISTING CAS transitionCollectionStatus() already
+   * performs (an UPDATE ... WHERE collectionStatus = 'PENDING_COLLECTION')
+   * is sufficient by itself: under Postgres's own row-level locking, a
+   * second concurrent transaction's UPDATE blocks on the row, then
+   * re-evaluates its WHERE clause once the first commits, affects 0 rows,
+   * throws, and rolls its OWN evidence insert back too — never leaving a
+   * second, competing evidence row committed. This mirrors
+   * recognizeConfirmation()'s own proven shape exactly (same class of fix,
+   * same absence of an explicit lock, same reasoning).
+   *
+   * A retry after a crash (or a concurrent caller — two fee workers, a
+   * live collector racing a reconciler, two reconcilers) either finds
+   * nothing committed (safe to proceed fresh) or finds this EXACT
+   * broadcast already durably recorded (safe, idempotent no-op — never
+   * re-broadcasts anything itself; this method never calls a provider,
+   * only records what the caller already broadcast). A retry whose
+   * txid/vout genuinely differs from the already-recorded evidence is
+   * contradictory (Case D) and fails closed rather than being silently
+   * accepted or silently ignored.
    */
   async recordBroadcastAndAdvance(feeObligationId: string, evidence: BroadcastEvidenceInput): Promise<void> {
-    await this.evidenceRepo.record({
-      feeObligationId,
-      kind: 'BROADCAST',
-      txid: evidence.txid,
-      vout: evidence.vout,
-      scriptPubKey: evidence.scriptPubKey,
-      amount: new Prisma.Decimal(evidence.amountSats).dividedBy(1e8),
+    await this.runInTransaction(async (tx) => {
+      const obligation = await this.obligationRepo.findById(feeObligationId, tx)
+      if (!obligation) {
+        throw new EscrowError(`recordBroadcastAndAdvance: FeeObligation ${feeObligationId} not found`)
+      }
+
+      if (obligation.collectionStatus !== 'PENDING_COLLECTION') {
+        const existingEvidence = await this.evidenceRepo.listForObligation(feeObligationId, tx)
+        const priorBroadcast = [...existingEvidence].reverse().find((e) => e.kind === 'BROADCAST')
+        if (priorBroadcast && priorBroadcast.txid === evidence.txid && priorBroadcast.vout === evidence.vout) {
+          return // Idempotent convergence: this exact broadcast was already durably recorded and advanced.
+        }
+        throw new EscrowError(
+          `recordBroadcastAndAdvance: FeeObligation ${feeObligationId} is '${obligation.collectionStatus}' (not PENDING_COLLECTION) and its durable evidence ` +
+          `${priorBroadcast ? `(txid ${priorBroadcast.txid}, vout ${priorBroadcast.vout})` : '(none found)'} does not match this call's txid ${evidence.txid}/vout ${evidence.vout} — ` +
+          'refusing to record contradictory evidence or transition an obligation that already moved.'
+        )
+      }
+
+      await this.evidenceRepo.record({
+        feeObligationId,
+        kind: 'BROADCAST',
+        txid: evidence.txid,
+        vout: evidence.vout,
+        scriptPubKey: evidence.scriptPubKey,
+        amount: new Prisma.Decimal(evidence.amountSats).dividedBy(1e8),
+      }, tx)
+      await this.obligationService.transitionCollectionStatus(feeObligationId, 'PENDING_COLLECTION', 'IN_PROGRESS', tx)
     })
-    await this.obligationService.transitionCollectionStatus(feeObligationId, 'PENDING_COLLECTION', 'IN_PROGRESS')
   }
 
   /**
