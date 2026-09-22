@@ -892,15 +892,16 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
   })
 
   it('contestAutoResolution reverts to EVIDENCE_SUBMITTED and clears the auto-resolution fields', async () => {
+    const deadline = new Date(Date.now() + 3600_000)
     mockDisputeFindUnique.mockResolvedValue({
       id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
-      autoResolutionDeadline: new Date(Date.now() + 3600_000),
+      autoResolutionDeadline: deadline,
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
     mockDisputeFindUnique.mockResolvedValueOnce({
       id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
-      autoResolutionDeadline: expect.anything(),
+      autoResolutionDeadline: deadline,
     }).mockResolvedValueOnce({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
 
     await service.contestAutoResolution('dispute-1', 'seller-1')
