@@ -37,6 +37,8 @@
 import type { FastifyInstance } from 'fastify'
 import { resolveParticipantFromTicket } from '../../common/middleware/ws-auth'
 import { webSocketRelayTransportProvider } from './websocket-relay.service'
+import { checkSharedWsMessageRateLimit } from '../../modules/open-p2p/ws-message-rate-limiter'
+import { recordSuspiciousActivity } from '../../common/security/suspicious-activity'
 
 export async function relayRoutes(app: FastifyInstance): Promise<void> {
   app.get('/ws/relay', { websocket: true }, async (socket, request) => {
@@ -50,7 +52,17 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
 
     webSocketRelayTransportProvider.registerSocket(participantId, socket)
 
-    socket.on('message', (raw: Buffer) => {
+    socket.on('message', async (raw: Buffer) => {
+      // #307 — a valid relay ticket authorizes the channel, not unlimited
+      // post-upgrade work. Reuse chat's participant-scoped WS budget so
+      // multiple sockets share one allowance. The limiter sees only actor
+      // identity + frame occurrence; Blind Relay still never parses payload.
+      if (!(await checkSharedWsMessageRateLimit(participantId, raw.length))) {
+        recordSuspiciousActivity('RATE_LIMITED', participantId, request.log)
+        socket.close(1008, 'Relay message rate limit exceeded')
+        return
+      }
+
       // Blind forward, same rule sendToPeer() follows (CISO Privacy Rule,
       // "Blind Relay") — this route never parses the frame, it only hands
       // the raw bytes to whichever onMessage() handler the participant

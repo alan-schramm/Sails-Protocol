@@ -6,7 +6,12 @@
  * expiry, using real timers since the window is a few tens of
  * milliseconds here, not the production default.
  */
-import { checkWsMessageRateLimit, resetWsMessageRateLimiter } from '../src/modules/open-p2p/ws-message-rate-limiter'
+import { checkWsMessageRateLimit, checkSharedWsMessageRateLimit, resetWsMessageRateLimiter } from '../src/modules/open-p2p/ws-message-rate-limiter'
+
+const incr = jest.fn()
+const incrby = jest.fn()
+const pexpire = jest.fn()
+jest.mock('../src/common/redis', () => ({ redis: { incr: (...args: unknown[]) => incr(...args), incrby: (...args: unknown[]) => incrby(...args), pexpire: (...args: unknown[]) => pexpire(...args) } }))
 
 jest.mock('../src/config', () => ({
   config: { rateLimit: { wsMessageMax: 3, wsMessageWindowMs: 50 } },
@@ -44,4 +49,38 @@ describe('ws-message-rate-limiter', () => {
 
     expect(checkWsMessageRateLimit('p1')).toBe(true)
   })
+  it('#307 shares the relay budget through Redis and fails closed after the configured ceiling', async () => {
+    incr.mockResolvedValueOnce(1).mockResolvedValueOnce(2).mockResolvedValueOnce(3).mockResolvedValueOnce(4)
+    incrby.mockResolvedValueOnce(10).mockResolvedValueOnce(20).mockResolvedValueOnce(30).mockResolvedValueOnce(40)
+    pexpire.mockResolvedValue(1)
+    await expect(checkSharedWsMessageRateLimit('p-shared', 10)).resolves.toBe(true)
+    await expect(checkSharedWsMessageRateLimit('p-shared', 10)).resolves.toBe(true)
+    await expect(checkSharedWsMessageRateLimit('p-shared', 10)).resolves.toBe(true)
+    await expect(checkSharedWsMessageRateLimit('p-shared', 10)).resolves.toBe(false)
+    expect(pexpire).toHaveBeenCalledWith('ratelimit:ws-relay:p-shared', 50)
+    expect(pexpire).toHaveBeenCalledWith('ratelimit:ws-relay-bytes:p-shared', 50)
+  })
+
+  it('#307 fails the public relay budget closed when Redis is unavailable', async () => {
+    incr.mockRejectedValueOnce(new Error('redis unavailable'))
+    incrby.mockResolvedValueOnce(1)
+    await expect(checkSharedWsMessageRateLimit('p-outage', 1)).resolves.toBe(false)
+  })
+
+  it('#307 rejects when aggregate relay bytes exceed the shared window budget even below message count', async () => {
+    incr.mockResolvedValueOnce(1)
+    incrby.mockResolvedValueOnce(3 * 1024 * 1024 + 1)
+    pexpire.mockResolvedValue(1)
+    await expect(checkSharedWsMessageRateLimit('p-bytes', 3 * 1024 * 1024 + 1)).resolves.toBe(false)
+  })
+
+  it('#307 gives an empty first frame a bounded byte-key lifetime instead of leaving/resetting it indefinitely', async () => {
+    incr.mockResolvedValueOnce(1)
+    incrby.mockResolvedValueOnce(0)
+    pexpire.mockResolvedValue(1)
+    await expect(checkSharedWsMessageRateLimit('p-empty', 0)).resolves.toBe(true)
+    expect(pexpire).toHaveBeenCalledWith('ratelimit:ws-relay:p-empty', 50)
+    expect(pexpire).toHaveBeenCalledWith('ratelimit:ws-relay-bytes:p-empty', 50)
+  })
+
 })

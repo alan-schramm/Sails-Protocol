@@ -275,6 +275,13 @@ jest.mock('../src/common/redis', () => ({
       redisStore.set(key, String(next))
       return Promise.resolve(next)
     }),
+    // #307 — /ws/relay now also accounts aggregate bytes in Redis.
+    // Keep this route-level fake semantically aligned with real INCRBY.
+    incrby: jest.fn((key: string, amount: number) => {
+      const next = (parseInt(redisStore.get(key) ?? '0', 10) || 0) + amount
+      redisStore.set(key, String(next))
+      return Promise.resolve(next)
+    }),
     pexpire: jest.fn(() => Promise.resolve(1)),
     pttl: jest.fn(() => Promise.resolve(60000)),
   },
@@ -1225,6 +1232,33 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         hasMore: false,
         nextOffset: null,
       })
+    })
+  })
+
+  describe('p2p — authenticated Blind Relay resource bounds (#307)', () => {
+    it('closes /ws/relay once the participant exceeds the shared post-upgrade frame budget', async () => {
+      const token = await authedSession('relay-user-1')
+      const ticket = await wsTicketFor(app, token)
+      const ws = await app.injectWS(`/ws/relay?ticket=${ticket}`)
+
+      // The limiter is Redis-backed and participant-scoped. Use tiny frames:
+      // this test targets the message-count boundary while the dedicated
+      // limiter tests cover aggregate byte accounting independently.
+      for (let i = 0; i <= config.rateLimit.wsMessageMax; i++) ws.send('x')
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      expect(ws.readyState).toBe(ws.CLOSED)
+    })
+
+    it('rejects a reused relay ticket, preserving single-use admission under reconnect churn', async () => {
+      const token = await authedSession('relay-user-2')
+      const ticket = await wsTicketFor(app, token)
+      const firstWs = await app.injectWS(`/ws/relay?ticket=${ticket}`)
+      firstWs.terminate()
+
+      const secondWs = await app.injectWS(`/ws/relay?ticket=${ticket}`)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(secondWs.readyState).toBe(secondWs.CLOSED)
     })
   })
 

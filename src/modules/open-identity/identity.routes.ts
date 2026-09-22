@@ -152,7 +152,10 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
   // single-use ticket the caller then passes as chat.routes.ts/
   // relay.routes.ts's `?ticket=` — never the raw session token itself.
   app.post('/v1/identity/ws-ticket', {
-    preHandler: requireAuth,
+    // #307 — ticket issuance is the reconnect/churn admission boundary for
+    // both authenticated WebSocket surfaces. Reuse the Redis-shared auth
+    // limiter so reconnect abuse cannot multiply with process count.
+    preHandler: [requireAuth, authRateLimit],
     schema: { tags: ['open-identity'] },
   }, async (request, reply) => {
     const result = await issueWsTicket((request as AuthenticatedRequest).participantId)
