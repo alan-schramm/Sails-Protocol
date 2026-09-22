@@ -40,6 +40,26 @@ function requiredPositiveInt(name: string, fallback: number): number {
   return parsed
 }
 
+function requiredUnitInterval(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error(`Environment variable ${name} must be a finite number in [0,1], got: ${raw}`)
+  }
+  return parsed
+}
+
+function requiredPositiveNumber(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Environment variable ${name} must be a finite positive number, got: ${raw}`)
+  }
+  return parsed
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -588,10 +608,11 @@ export const config = {
     // proposed — anything lower falls straight through to the human
     // arbiter, unchanged. Starting conservative (high bar), tunable per
     // deployment as real-world calibration data accumulates.
-    qvacAutoResolutionConfidenceThreshold: parseFloat(process.env.QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD ?? '0.85'),
+    qvacAutoResolutionConfidenceThreshold: requiredUnitInterval('QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD', 0.85),
     // How long either trade party has to contest a proposed automated
-    // ruling before sweepExpiredAutoResolutions() applies it.
-    qvacAutoResolutionWindowHours: parseFloat(process.env.QVAC_AUTO_RESOLUTION_WINDOW_HOURS ?? '24'),
+    // recommendation before it expires back to human review. Expiry never
+    // applies the QVAC recommendation as economic authority.
+    qvacAutoResolutionWindowHours: requiredPositiveNumber('QVAC_AUTO_RESOLUTION_WINDOW_HOURS', 24),
   },
 
   // WDK_USDT_EVM SettlementProvider (wdk-settlement.provider.ts) — real
