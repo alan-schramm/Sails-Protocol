@@ -104,7 +104,9 @@ describe('/health/ready', () => {
       expect(body.status).toBe('not_ready')
       expect(body.checks.postgres.ok).toBe(true)
       expect(body.checks.redis.ok).toBe(false)
-      expect(body.checks.redis.error).toContain('ECONNREFUSED')
+      // Issue #306 - unauthenticated /health/ready must not disclose raw dependency exception text.
+      expect(body.checks.redis.error).toBeUndefined()
+      expect(res.body).not.toContain('ECONNREFUSED')
     } finally {
       await app.close()
     }
@@ -120,7 +122,31 @@ describe('/health/ready', () => {
       expect(res.statusCode).toBe(503)
       const body = JSON.parse(res.body)
       expect(body.checks.redis.ok).toBe(false)
-      expect(body.checks.redis.error).toContain('WEIRD')
+      // Issue #306 - unauthenticated /health/ready must not disclose the unexpected PING reply contents.
+      expect(body.checks.redis.error).toBeUndefined()
+      expect(res.body).not.toContain('WEIRD')
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('reports 503 not_ready when postgres is unreachable, without disclosing raw exception text (#306)', async () => {
+    const secretBearingError = 'ECONNREFUSED postgres.internal.example:5432 provider=private-rds'
+    jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn().mockRejectedValue(new Error(secretBearingError)) } }))
+    jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn().mockResolvedValue('PONG') } }))
+    const { buildApp } = require('../src/app')
+    const app = await buildApp({ registerSwaggerUi: false })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/health/ready' })
+      expect(res.statusCode).toBe(503)
+      const body = JSON.parse(res.body)
+      expect(body.status).toBe('not_ready')
+      expect(body.checks.postgres.ok).toBe(false)
+      expect(body.checks.redis.ok).toBe(true)
+      expect(body.checks.postgres.error).toBeUndefined()
+      expect(res.body).not.toContain(secretBearingError)
+      expect(res.body).not.toContain('postgres.internal.example')
+      expect(res.body).not.toContain('private-rds')
     } finally {
       await app.close()
     }

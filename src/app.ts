@@ -311,7 +311,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }))
 
   app.get('/health/ready', async (_request, reply) => {
-    const checks: Record<string, { ok: boolean; latencyMs: number; error?: string }> = {}
+    // Issue #306 - unauthenticated readiness may disclose only ok/latencyMs per dependency, never the
+    // raw exception (hostnames, ports, provider identifiers, connection strings, an unexpected Redis
+    // PING reply, stack traces). Detailed failure information is logged server-side only, below.
+    const checks: Record<string, { ok: boolean; latencyMs: number }> = {}
 
     const timed = async <T,>(label: string, fn: () => Promise<T>) => {
       const start = Date.now()
@@ -319,11 +322,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         await fn()
         checks[label] = { ok: true, latencyMs: Date.now() - start }
       } catch (err) {
-        checks[label] = {
-          ok: false,
-          latencyMs: Date.now() - start,
-          error: err instanceof Error ? err.message : String(err),
-        }
+        checks[label] = { ok: false, latencyMs: Date.now() - start }
+        app.log.warn({ msg: 'Readiness check failed', module: 'health', check: label, err: err instanceof Error ? err.message : String(err) })
       }
     }
 
