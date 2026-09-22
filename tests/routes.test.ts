@@ -275,6 +275,13 @@ jest.mock('../src/common/redis', () => ({
       redisStore.set(key, String(next))
       return Promise.resolve(next)
     }),
+    // #307 — /ws/relay now also accounts aggregate bytes in Redis.
+    // Keep this route-level fake semantically aligned with real INCRBY.
+    incrby: jest.fn((key: string, amount: number) => {
+      const next = (parseInt(redisStore.get(key) ?? '0', 10) || 0) + amount
+      redisStore.set(key, String(next))
+      return Promise.resolve(next)
+    }),
     pexpire: jest.fn(() => Promise.resolve(1)),
     pttl: jest.fn(() => Promise.resolve(60000)),
   },
