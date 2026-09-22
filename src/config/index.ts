@@ -491,7 +491,7 @@ export const config = {
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.
-    disputeAutoResolutionSweepIntervalMs: requiredInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
+    disputeAutoResolutionSweepIntervalMs: requiredPositiveInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
     // How often the Fase 5 confirmation sweeper (when enabled) checks
     // IN_PROGRESS MULTISIG fee obligations against the chain. Same
     // 5-minute default as the other two sweepers — confirmation depth
