@@ -55,6 +55,8 @@ export interface TimestampAnchor {
 
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i
 
+export const OTS_CALENDAR_TIMEOUT_MS = 30_000
+
 export class OpenTimestampsAnchor implements TimestampAnchor {
   anchorType = 'opentimestamps' as const
 
@@ -66,10 +68,12 @@ export class OpenTimestampsAnchor implements TimestampAnchor {
     }
     const digest = Buffer.from(sha256Hex, 'hex')
 
-    const res = await fetch(`${this.calendarUrl}/digest`, {
+    const res = await boundedFetch(`${this.calendarUrl}/digest`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/vnd.opentimestamps.v1' },
       body: digest,
+    }, {
+      timeoutMs: OTS_CALENDAR_TIMEOUT_MS,
     })
     if (!res.ok) {
       throw new Error(`OpenTimestamps calendar server (${this.calendarUrl}) returned ${res.status} — refusing to fabricate an anchor`)
