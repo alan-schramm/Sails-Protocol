@@ -1292,6 +1292,55 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(secondWs.readyState).toBe(secondWs.CLOSED)
     })
 
+    it('rejects malformed JSON and unsupported message types without closing a valid socket', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const frames: Array<{ type: string; payload?: { message?: string } }> = []
+      ws.on('message', (data: Buffer) => frames.push(JSON.parse(data.toString())))
+
+      ws.send('{')
+      ws.send(JSON.stringify({ type: 'NOT_SUPPORTED', payload: {} }))
+      await new Promise<void>((resolve) => {
+        const check = () => frames.length === 2 ? resolve() : setImmediate(check)
+        check()
+      })
+
+      expect(frames.map((frame) => frame.payload?.message)).toEqual(['Malformed JSON', 'Unknown message type: NOT_SUPPORTED'])
+      expect(ws.readyState).toBe(ws.OPEN)
+      ws.terminate()
+    })
+
+    it('rejects binary frames and closes the socket deterministically', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()))
+
+      ws.send(Buffer.from('{"type":"PING"}'))
+      await closed
+
+      expect(ws.readyState).toBe(ws.CLOSED)
+    })
+
+    it('closes when queued work exceeds the per-socket bound', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      let releaseTradeLookup!: () => void
+      const tradeLookupBlocked = new Promise<void>((resolve) => { releaseTradeLookup = resolve })
+      mockTradeFindUnique.mockImplementation(() => tradeLookupBlocked)
+
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()))
+      const joinFrame = JSON.stringify({ type: 'JOIN_TRADE', payload: { tradeId: 'trade-1' } })
+      for (let i = 0; i < 34; i++) ws.send(joinFrame)
+
+      await closed
+      releaseTradeLookup()
+      mockTradeFindUnique.mockReset()
+      expect(ws.readyState).toBe(ws.CLOSED)
+    })
+
     // Security review, 2026-08-15 (P1) — closes the gap the Codex threat
     // report flagged and this session verified was real: @fastify/rate-limit
     // never sees WS `message` frames, so SEND_MESSAGE had no ceiling at all
