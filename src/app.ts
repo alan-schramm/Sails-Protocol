@@ -46,6 +46,7 @@ import packageJson from '../package.json'
 // stale (package.json is 0.1.1). Reading it from the one real source
 // means this can't silently drift again.
 const API_VERSION = packageJson.version
+export const HTTP_BODY_LIMIT_BYTES = 1024 * 1024
 
 export interface BuildAppOptions {
   // Technical Debt #57 bounded remediation (2026-09-10). @fastify/swagger
@@ -80,6 +81,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   )
 
   const app = Fastify({
+    bodyLimit: HTTP_BODY_LIMIT_BYTES,
     logger: {
       level: config.app.logLevel,
       transport:
