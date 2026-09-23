@@ -58,6 +58,9 @@ export interface SettlementEscrowStatusChangedEvent {
   triggeredBy: string
   txId?: string
   note?: string
+  // Issue #254 — immutable provenance captured by emitEscrowTransition().
+  dispositionOrigin?: 'COOPERATIVE' | 'DISPUTE'
+  dispositionAppealRound?: number
 }
 
 
