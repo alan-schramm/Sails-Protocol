@@ -428,11 +428,18 @@ export async function emitEscrowTransition(
   let dispositionOrigin: 'COOPERATIVE' | 'DISPUTE' | undefined
   let dispositionAppealRound: number | undefined
   if (to === 'COMPLETED' || to === 'REFUNDED' || to === 'SPLIT') {
-    const rulingRecord = await prisma.semanticTransitionRecord.findFirst({
-      where: { interactionId: escrowId, transitionType: 'escrow.dispute.rule' },
-      orderBy: { appealRound: 'desc' },
-      select: { appealRound: true, outcomeContent: true },
-    })
+    // Some focused unit suites intentionally mock only the Prisma models
+    // exercised by their subject. Missing semanticTransitionRecord in such a
+    // mock means "no ruling record supplied by this test", not a production
+    // database condition. Real Prisma always exposes this model.
+    const semanticRecords = prisma.semanticTransitionRecord
+    const rulingRecord = semanticRecords
+      ? await semanticRecords.findFirst({
+          where: { interactionId: escrowId, transitionType: 'escrow.dispute.rule' },
+          orderBy: { appealRound: 'desc' },
+          select: { appealRound: true, outcomeContent: true },
+        })
+      : null
     const expectedRuling = to === 'COMPLETED' ? 'RELEASE' : to === 'REFUNDED' ? 'REFUND' : 'SPLIT'
     const recordedRuling = rulingRecord?.outcomeContent && typeof rulingRecord.outcomeContent === 'object' && !Array.isArray(rulingRecord.outcomeContent)
       ? (rulingRecord.outcomeContent as Record<string, unknown>).ruling
