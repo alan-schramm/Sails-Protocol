@@ -45,7 +45,7 @@ function requiredFiniteNumber(name: string, fallback: number, validate: (value: 
   if (raw === undefined) return fallback
   const parsed = Number(raw)
   if (raw.trim() === '' || !Number.isFinite(parsed) || !validate(parsed)) {
-    throw new Error(`Environment variable ${name} must be ${expectation}, got: ${raw}`)
+    throw new Error(`Invalid ${name}: must be ${expectation}, got: ${raw}`)
   }
   return parsed
 }
