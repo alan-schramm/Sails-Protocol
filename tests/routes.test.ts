@@ -640,7 +640,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       redisStore.set('auth:session:malformed', '')
       const res = await app.inject({
         method: 'GET',
-        url: '/v1/identity/me',
+        url: '/v1/openp2p/trades',
         headers: { authorization: 'Bearer malformed' },
       })
 
@@ -653,7 +653,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       const res = await app.inject({
         method: 'GET',
-        url: '/v1/identity/me',
+        url: '/v1/openp2p/trades',
         headers: { authorization: 'Bearer unavailable-store' },
       })
 
@@ -1358,9 +1358,11 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const token = await authedSession('buyer-1')
       const ticket = await wsTicketFor(app, token)
 
+      mockTradeFindMany.mockResolvedValueOnce([])
+      mockTradeCount.mockResolvedValueOnce(0)
       const beforeLogout = await app.inject({
         method: 'GET',
-        url: '/v1/identity/me',
+        url: '/v1/openp2p/trades',
         headers: { authorization: `Bearer ${token}` },
       })
       expect(beforeLogout.statusCode).toBe(200)
@@ -1374,7 +1376,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       const afterLogout = await app.inject({
         method: 'GET',
-        url: '/v1/identity/me',
+        url: '/v1/openp2p/trades',
         headers: { authorization: `Bearer ${token}` },
       })
       expect(afterLogout.statusCode).toBe(401)
