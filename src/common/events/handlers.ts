@@ -171,11 +171,10 @@ async function accrueFeeFloor(buyerId: string, sellerId: string, feeCharged: Pri
  *  both parties completed cleanly. RFC-021 D7 — the losing seller's active
  *  vouches (if any) get burned via vouchService, applying the same
  *  "skin-in-the-game" reasoning D3 uses for arbiters to peer vouches. */
-async function applyReleaseOutcomes(tradeId: string, buyerId: string, sellerId: string): Promise<void> {
-  const resolvedRelease = await prisma.dispute.findFirst({
-    where: { tradeId, status: 'RESOLVED', ruling: 'RELEASE' },
-  })
-  if (resolvedRelease) {
+async function applyReleaseOutcomes(tradeId: string, buyerId: string, sellerId: string, dispositionOrigin: 'COOPERATIVE' | 'DISPUTE' | undefined): Promise<void> {
+  // Issue #254 — historical classification comes from the immutable terminal
+  // EscrowEvent provenance, never from the mutable current Dispute row.
+  if (dispositionOrigin === 'DISPUTE') {
     await reputationService.recordOutcome(tradeId, buyerId, 'POSITIVE')
     await reputationService.recordOutcome(tradeId, sellerId, 'NEGATIVE')
     // RFC-021 D7 — the seller lost this dispute; if a peer vouched for
@@ -198,11 +197,9 @@ async function applyReleaseOutcomes(tradeId: string, buyerId: string, sellerId: 
  *  Returns the resolved Dispute row (or null) so the caller can branch on
  *  "did this come from a dispute ruling?" for the Intent FAILED transition's
  *  `reason` field — same as the original inline implementation did. */
-async function applyRefundOutcomes(tradeId: string, buyerId: string, sellerId: string): Promise<{ id: string } | null> {
-  const resolvedRefund = await prisma.dispute.findFirst({
-    where: { tradeId, status: 'RESOLVED', ruling: 'REFUND' },
-  })
-  if (resolvedRefund) {
+async function applyRefundOutcomes(tradeId: string, buyerId: string, sellerId: string, dispositionOrigin: 'COOPERATIVE' | 'DISPUTE' | undefined): Promise<boolean> {
+  // Issue #254 — same immutable provenance rule as release above.
+  if (dispositionOrigin === 'DISPUTE') {
     await reputationService.recordOutcome(tradeId, sellerId, 'POSITIVE')
     await reputationService.recordOutcome(tradeId, buyerId, 'NEGATIVE')
     // RFC-021 D7 — same reasoning as settlement.escrow.released above, for the buyer.
@@ -211,7 +208,7 @@ async function applyRefundOutcomes(tradeId: string, buyerId: string, sellerId: s
     await reputationService.recordOutcome(tradeId, buyerId, 'NEUTRAL')
     await reputationService.recordOutcome(tradeId, sellerId, 'NEUTRAL')
   }
-  return resolvedRefund
+  return dispositionOrigin === 'DISPUTE'
 }
 
 export function registerEventHandlers(): void {
@@ -293,7 +290,7 @@ export function registerEventHandlers(): void {
     // comment above. A RELEASE ruling means the buyer won and the seller
     // lost, even though funds moved the exact same way a happy-path
     // completion does.
-    await applyReleaseOutcomes(payload.tradeId, trade.buyerId, trade.sellerId)
+    await applyReleaseOutcomes(payload.tradeId, trade.buyerId, trade.sellerId, payload.dispositionOrigin)
 
     // RFC-018 — "released" always means the buyer got the asset, whether
     // via the happy path or a dispute RELEASE ruling; from the Intent's
@@ -336,7 +333,7 @@ export function registerEventHandlers(): void {
     // RFC-007 D9's rule: always Neutral, never Negative, for either party.
     // The helper resolves the Dispute once and owns the per-outcome branch
     // (including the vouch-burn on a real dispute) — see its own doc.
-    const resolvedRefund = await applyRefundOutcomes(payload.tradeId, trade.buyerId, trade.sellerId)
+    const resolvedRefund = await applyRefundOutcomes(payload.tradeId, trade.buyerId, trade.sellerId, payload.dispositionOrigin)
 
     // RFC-018 — a refund, disputed or not, means the buyer never got the
     // asset: the Intent's own goal was not fulfilled. FAILED is a valid
