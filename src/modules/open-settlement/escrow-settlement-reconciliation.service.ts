@@ -98,6 +98,7 @@ type PendingRow = {
   id: string; kind: string
   feeCollectionSats: number | null; feeCollectionWaived: boolean | null
   buyerBps: number | null; unsignedPsbtBase64: string
+  disputeId?: string | null; rulingAppealRound?: number | null
 } | null
 
 // Missão 11 Fase 9.7 — the ONE shared downstream-completion-effects
@@ -187,9 +188,16 @@ async function applyDownstreamCompletionEffects(
     : targetStatus === 'REFUNDED' ? 'settlement.escrow.refunded' as const
     : 'settlement.escrow.split' as const
   const fromStatus = await lastKnownStatus(escrowId, targetStatus)
+  // #254 temporal consistency — recovery must preserve the exact ruling
+  // generation captured on the pending operation. Re-reading the mutable
+  // Dispute here could bind a historical settlement to a later appeal.
+  const recoveredDisposition = pending?.disputeId
+    ? { origin: 'DISPUTE' as const, appealRound: pending.rulingAppealRound ?? undefined }
+    : undefined
   const emitted = await emitEscrowTransition(
     escrowId, tradeId, fromStatus, targetStatus, triggeredBy, eventName, { txId },
-    'Recovered by settlement reconciliation after a process crash — see escrow-settlement-reconciliation.service.ts'
+    'Recovered by settlement reconciliation after a process crash — see escrow-settlement-reconciliation.service.ts',
+    recoveredDisposition
   )
 
   // Sails Core Implementation Program M9 (Recovery) — closes crash window
