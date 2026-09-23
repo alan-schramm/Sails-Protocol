@@ -138,6 +138,7 @@ left undocumented once it was corrected.
 | GET | `/v1/identity/participants/:id` | Fetch a participant's profile |
 | POST | `/v1/identity/challenge` | Issue an auth challenge |
 | POST | `/v1/identity/authenticate` | Verify the signed challenge, issue session token |
+| POST | `/v1/identity/logout` | Requires auth; revokes the current bearer session in Redis |
 
 Legacy equivalents (pre-namespacing): `POST /identity/create`, `GET
 /identity/:id`, `POST /identity/challenge`, `POST /identity/authenticate`,

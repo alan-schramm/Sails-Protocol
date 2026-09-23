@@ -599,6 +599,31 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(JSON.parse(res.body).data.id).toBe('user-1')
     })
 
+    it('rejects an empty session record instead of treating malformed state as authenticated', async () => {
+      redisStore.set('auth:session:malformed', '')
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/identity/me',
+        headers: { authorization: 'Bearer malformed' },
+      })
+
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('fails closed when the session store errors', async () => {
+      const redisGet = redis.get as jest.Mock
+      redisGet.mockRejectedValueOnce(new Error('redis.internal socket failure'))
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/identity/me',
+        headers: { authorization: 'Bearer unavailable-store' },
+      })
+
+      expect(res.statusCode).toBe(500)
+      expect(JSON.parse(res.body).success).toBe(false)
+    })
+
     // Missão 11 Fase 9.3.5 — INV-OP-10: GET /v1/identity/participants/:id
     // is a public, unauthenticated lookup of ANY participant. It must
     // never leak reputation stats (their own canonical home is
@@ -1290,6 +1315,43 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const secondWs = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(secondWs.readyState).toBe(secondWs.CLOSED)
+    })
+
+    it('revokes the HTTP session and invalidates new and pre-issued WS authority', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+
+      const beforeLogout = await app.inject({
+        method: 'GET',
+        url: '/v1/identity/me',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(beforeLogout.statusCode).toBe(200)
+
+      const logout = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/logout',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(logout.statusCode).toBe(204)
+
+      const afterLogout = await app.inject({
+        method: 'GET',
+        url: '/v1/identity/me',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(afterLogout.statusCode).toBe(401)
+
+      const newTicket = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/ws-ticket',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(newTicket.statusCode).toBe(401)
+
+      const oldTicketSocket = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      await new Promise<void>((resolve) => oldTicketSocket.once('close', () => resolve()))
+      expect(oldTicketSocket.readyState).toBe(oldTicketSocket.CLOSED)
     })
 
     it('rejects malformed JSON and unsupported message types without closing a valid socket', async () => {
