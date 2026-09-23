@@ -155,6 +155,7 @@ function pendingTxFixture(overrides: Record<string, any> = {}) {
       { participantId: 'seller-1', signedPsbtBase64: 'seller-signed' },
     ],
     triggeredBy: 'seller-1', feeCollectionSats: null, feeCollectionWaived: null, buyerBps: null,
+    disputeId: null, rulingAppealRound: null,
     ...overrides,
   }
 }
@@ -231,6 +232,27 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
     expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'c8-txid-1', outcome: 'NEWLY_BROADCAST' }])
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
     expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', 'c8-raw-hex')
+  })
+
+  it('#254 preserves the exact disputed appeal generation when C8 recovery emits the terminal event', async () => {
+    mockPendingTxFindMany.mockResolvedValue([{
+      ...pendingTxFixture({ disputeId: 'dispute-1', rulingAppealRound: 3 }),
+      escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
+    }])
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockReconcilePendingSettlement.mockResolvedValue({
+      outcome: 'ALREADY_BROADCAST', txId: 'historical-tx', detail: 'already known', rawTxHex: 'historical-raw',
+    })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'historical-tx', outcome: 'ALREADY_BROADCAST' }])
+    expect(mockEscrowEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        dispositionOrigin: 'DISPUTE',
+        dispositionAppealRound: 3,
+      }),
+    }))
   })
 
   it('ALREADY_BROADCAST recovery converges external truth without asking for fresh execution authority', async () => {
