@@ -508,4 +508,26 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
       expect(cfg.trade.disputeAutoResolutionSweepIntervalMs).toBe(300000)
     })
   })
+
+  describe('production observability posture', () => {
+    it('disables metrics by default in production', () => {
+      const load = loadConfig(REQUIRED_PROD_ENV)
+      expect(load().observability.metricsEnabled).toBe(false)
+    })
+
+    it('requires explicit opt-in to expose production metrics', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, METRICS_ENABLED: 'true' })
+      expect(load().observability.metricsEnabled).toBe(true)
+    })
+
+    it.each(['TRUE', '1', 'yes', ''])('rejects malformed metrics configuration %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, METRICS_ENABLED: value })
+      expect(load).toThrow(/METRICS_ENABLED/)
+    })
+
+    it('keeps metrics enabled by default outside production', () => {
+      const load = loadConfig({ NODE_ENV: 'test', DATABASE_URL: undefined, REDIS_URL: undefined })
+      expect(load().observability.metricsEnabled).toBe(true)
+    })
+  })
 })
