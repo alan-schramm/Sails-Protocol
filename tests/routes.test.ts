@@ -364,7 +364,7 @@ jest.mock('@qvac/sdk', () => ({
 // Imported after the mocks above so every route file picks up the mocked
 // dependencies, not the real Prisma/Redis/eventBus/pearNodeRegistry.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { buildApp } = require('../src/app')
+const { buildApp, HTTP_BODY_LIMIT_BYTES } = require('../src/app')
 // Issue #302 — real, unmocked module (only redis.ts above is mocked, not
 // auth.ts itself): reused as the single source of truth for the
 // registration signed-message construction, so these tests sign exactly
@@ -567,6 +567,43 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.body)
       expect(body.data.challenge).toEqual(expect.any(String))
+    })
+
+    it('rejects a JSON body above the global Fastify limit before the handler runs', async () => {
+      const redisSet = redis.set as jest.Mock
+      const baseBody = JSON.stringify({ publicKey: TEST_PUBLIC_KEY, padding: '' })
+      const bodyAtLimit = JSON.stringify({ publicKey: TEST_PUBLIC_KEY, padding: 'x'.repeat(HTTP_BODY_LIMIT_BYTES - baseBody.length) })
+      const accepted = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/challenge',
+        headers: { 'content-type': 'application/json' },
+        payload: bodyAtLimit,
+      })
+      expect(accepted.statusCode).toBe(200)
+      expect(redisSet).toHaveBeenCalled()
+
+      redisSet.mockClear()
+      const rejected = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/challenge',
+        headers: { 'content-type': 'application/json' },
+        payload: `${bodyAtLimit} `,
+      })
+
+      expect(rejected.statusCode).toBe(413)
+      expect(redisSet).not.toHaveBeenCalled()
+    })
+
+    it('rejects malformed JSON with a controlled client error', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/challenge',
+        headers: { 'content-type': 'application/json' },
+        payload: '{"publicKey":',
+      })
+
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).success).toBe(false)
     })
 
     it('rejects authenticate with no challenge previously issued', async () => {
@@ -2310,6 +2347,40 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         expect(JSON.parse(res.body).error).toBe('VALIDATION_ERROR')
       }
       expect(mockCapabilityGrantCreate).not.toHaveBeenCalled()
+    })
+
+    it('rejects an oversized scope collection before capability persistence', async () => {
+      const token = await authedSession('buyer-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/register',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { capabilityName: 'trade-coordination', scope: ['intent.created', 'intent.discovering', 'intent.extra', 'intent.too_many'] },
+      })
+
+      expect(res.statusCode).toBe(400)
+      expect(mockCapabilityGrantCreate).not.toHaveBeenCalled()
+    })
+
+    it('accepts the canonical settlement grant with its three scopes', async () => {
+      const token = await authedSession('buyer-1')
+      mockCapabilityGrantCreate.mockResolvedValueOnce({
+        id: 'grant-settlement-1',
+        grantedTo: 'buyer-1',
+        capabilityName: 'settlement',
+        scope: ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split'],
+        constraints: null,
+        issuedBy: 'buyer-1',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/register',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { capabilityName: 'settlement', scope: ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split'] },
+      })
+
+      expect(res.statusCode).toBe(201)
     })
 
     it('lists active grants for a participant, no auth required', async () => {
