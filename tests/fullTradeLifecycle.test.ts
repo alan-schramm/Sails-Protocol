@@ -134,6 +134,7 @@ const escrowEvents = makeTable('escrowEvent')
 // file already uses for the vouch table below).
 const feePolicyVersions = makeTable('feePolicyVersion')
 const disputes = makeTable('dispute', { status: 'OPENED' })
+const semanticTransitionRecords = makeTable('semanticTransitionRecord')
 const intents = makeTable('intent', { expiresAt: null })
 // RFC-021 D7 — vouch.service.ts's burnVouchesFor() (called from
 // handlers.ts's settlement.escrow.released/refunded reactions) needs a
@@ -236,6 +237,7 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     // — same real fake-table object already used for prisma.escrowEvent
     // below, this file's own "every table round-trips for real" discipline.
     escrowEvent: escrowEvents,
+    semanticTransitionRecord: semanticTransitionRecords,
     // ADR-005 / #218 — dispute.service.ts's applyRuling()/appeal() now run
     // their resolve-write / authority-reassignment write inside
     // prisma.$transaction() (economic-disposition:<disputeId> advisory
@@ -260,6 +262,7 @@ jest.mock('../src/common/database', () => ({
     feePolicyVersion: feePolicyVersions,
     payoutAddress: payoutAddresses,
     dispute: disputes,
+    semanticTransitionRecord: semanticTransitionRecords,
     intent: intents,
     intentEvent: intentEvents,
     vouch: vouches,
