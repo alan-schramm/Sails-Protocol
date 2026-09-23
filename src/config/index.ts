@@ -54,6 +54,14 @@ function requiredStrictPositiveInt(name: string, fallback: number): number {
   return requiredFiniteNumber(name, fallback, (value) => Number.isInteger(value) && value > 0, 'a positive integer')
 }
 
+function parseStrictBoolean(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  throw new Error(`Environment variable ${name} must be exactly 'true' or 'false', got: ${raw}`)
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -349,6 +357,12 @@ export const config = {
     notFoundClusterWindowMs: requiredInt('SUSPICIOUS_NOT_FOUND_WINDOW_MS', 5 * 60 * 1000),
     rateLimitedMax: requiredInt('SUSPICIOUS_RATE_LIMITED_MAX', 3),
     rateLimitedWindowMs: requiredInt('SUSPICIOUS_RATE_LIMITED_WINDOW_MS', 5 * 60 * 1000),
+  },
+
+  observability: {
+    // Keep aggregate metrics available to local tooling while requiring an
+    // explicit production opt-in before exposing operational activity.
+    metricsEnabled: parseStrictBoolean('METRICS_ENABLED', !isProductionEnv),
   },
 
   // 2026-08-15 security review — escrow-circuit-breaker.ts. Deliberately

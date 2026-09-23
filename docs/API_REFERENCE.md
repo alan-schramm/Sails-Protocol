@@ -497,3 +497,10 @@ GET /health   → { status, timestamp, version, protocol: "Sails Protocol",
                    features: { mockEscrow, mockSettlement } }
 GET /         → { name, protocol, referenceImplementation, docs, ws, version }
 ```
+
+`/health/live` is a process-only liveness probe and does not query PostgreSQL
+or Redis. `/health/ready` checks both dependencies and returns only their
+availability and latency; dependency error details stay in server logs. In
+production, `/health` omits the internal `features` object. `/metrics` is
+disabled in production unless `METRICS_ENABLED=true` is explicitly set; it
+remains enabled by default outside production.
