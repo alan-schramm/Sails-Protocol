@@ -483,7 +483,9 @@ export async function submitTransactionSignature(escrowId: string, participantId
       : 'settlement.escrow.split'
     await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, targetStatus, pending.triggeredBy, eventName, {
       txId: result.txId,
-    })
+    }, undefined, pending.disputeId
+      ? { origin: 'DISPUTE', appealRound: pending.rulingAppealRound ?? undefined }
+      : undefined)
 
     // Cascade-deletes its EscrowTransactionSignature rows (schema.prisma's
     // onDelete: Cascade) — a completed round leaves no pending row behind.
