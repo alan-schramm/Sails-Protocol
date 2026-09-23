@@ -1623,6 +1623,14 @@ model EscrowEvent {
   // not a break in it).
   entryHash   String?
   prevHash    String? // prior EscrowEvent.entryHash for this escrowId; 'genesis' for the first post-migration entry
+  // Issue #254 — immutable disposition provenance for reputation/history.
+  // COOPERATIVE means no dispute-ruling generation authorized this terminal
+  // movement; DISPUTE binds the event to the exact Core-authoritative
+  // escrow.dispute.rule generation that existed when the disposition was
+  // committed. Nullable only for historical/pre-migration rows.
+  dispositionOrigin      String?
+  dispositionAppealRound Int?
+
 
   // Same hot-path reasoning RELATORIO_PERFORMANCE.md already established
   // for intent_events: the chain's write path does
