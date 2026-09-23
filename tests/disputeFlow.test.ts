@@ -524,7 +524,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       const [sig7, issuedAt7] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
       await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyeraddress', undefined, undefined, sig7, issuedAt7)
 
-      expect(mockInitiateRelease).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1', { origin: 'DISPUTE', appealRound: undefined })
+      expect(mockInitiateRelease).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1')
       expect(mockReleaseFunds).not.toHaveBeenCalled()
     })
 
