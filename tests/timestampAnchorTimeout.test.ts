@@ -56,11 +56,13 @@ describe('OpenTimestampsAnchor outbound timeout policy (#314A)', () => {
 
     const anchor = new OpenTimestampsAnchor('https://calendar.example')
     const digestHex = createHash('sha256').update('never-resolves').digest('hex')
-    const pending = anchor.anchor(digestHex)
+    // Attach the rejection assertion before advancing fake timers so the
+    // intentional timeout rejection is observed immediately by Jest/Node.
+    const pending = expect(anchor.anchor(digestHex)).rejects.toBeInstanceOf(BoundedRpcTimeoutError)
 
     await jest.advanceTimersByTimeAsync(OTS_CALENDAR_TIMEOUT_MS)
 
-    await expect(pending).rejects.toBeInstanceOf(BoundedRpcTimeoutError)
+    await pending
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
