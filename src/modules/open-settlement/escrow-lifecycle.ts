@@ -420,6 +420,31 @@ export async function emitEscrowTransition(
   eventExtra: Record<string, unknown> = {},
   note?: string
 ): Promise<boolean> {
+  // Issue #254 — derive immutable provenance before claiming the EscrowEvent.
+  // For a terminal disposition, a Core-authoritative dispute ruling record is
+  // the historical source of truth. The mutable Dispute row is deliberately
+  // not consulted here. SPLIT is dispute-only by VALID_TRANSITIONS; RELEASE /
+  // REFUND without a ruling record are cooperative.
+  let dispositionOrigin: 'COOPERATIVE' | 'DISPUTE' | undefined
+  let dispositionAppealRound: number | undefined
+  if (to === 'COMPLETED' || to === 'REFUNDED' || to === 'SPLIT') {
+    const rulingRecord = await prisma.semanticTransitionRecord.findFirst({
+      where: { interactionId: escrowId, transitionType: 'escrow.dispute.rule' },
+      orderBy: { appealRound: 'desc' },
+      select: { appealRound: true, outcomeContent: true },
+    })
+    const expectedRuling = to === 'COMPLETED' ? 'RELEASE' : to === 'REFUNDED' ? 'REFUND' : 'SPLIT'
+    const recordedRuling = rulingRecord?.outcomeContent && typeof rulingRecord.outcomeContent === 'object' && !Array.isArray(rulingRecord.outcomeContent)
+      ? (rulingRecord.outcomeContent as Record<string, unknown>).ruling
+      : undefined
+    if (rulingRecord && recordedRuling === expectedRuling) {
+      dispositionOrigin = 'DISPUTE'
+      dispositionAppealRound = rulingRecord.appealRound
+    } else {
+      dispositionOrigin = 'COOPERATIVE'
+    }
+  }
+
   // entryHash/prevHash are never accepted from a caller — this function's
   // own signature has no such parameters, so they can only ever be what
   // the server itself derives here.
@@ -432,7 +457,7 @@ export async function emitEscrowTransition(
     const entryHash = computeEscrowEventHash(from, to, triggeredBy, prevHash)
 
     await tx.escrowEvent.create({
-      data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note, entryHash, prevHash },
+      data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note, entryHash, prevHash, dispositionOrigin, dispositionAppealRound },
     })
     return true
   })
@@ -452,6 +477,7 @@ export async function emitEscrowTransition(
     from,
     to,
     triggeredBy,
+    ...(dispositionOrigin ? { dispositionOrigin, dispositionAppealRound } : {}),
     ...eventExtra,
   }, tradeId)
   return true
