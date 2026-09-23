@@ -37,6 +37,8 @@
  * genuine submission to a live calendar server, not a stub.
  */
 
+import { boundedFetch } from '../open-settlement/bounded-rpc'
+
 export interface AnchorProof {
   anchorType: 'opentimestamps'
   // Base64 of the raw pending proof blob the calendar server returned —
