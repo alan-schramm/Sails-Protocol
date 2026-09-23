@@ -135,6 +135,16 @@ const escrowEvents = makeTable('escrowEvent')
 const feePolicyVersions = makeTable('feePolicyVersion')
 const disputes = makeTable('dispute', { status: 'OPENED' })
 const semanticTransitionRecords = makeTable('semanticTransitionRecord')
+// SemanticTransitionRecord uses a compound generation identity. The generic
+// fake's findFirst ignores orderBy, so make the production query deterministic
+// here: filter by interaction/transition and return the highest appeal round.
+semanticTransitionRecords.findFirst = jest.fn(async ({ where = {} }: any = {}) => {
+  const rows = [...semanticTransitionRecords.rows.values()].filter((r: any) =>
+    Object.entries(where).every(([k, v]) => r[k] === v)
+  )
+  rows.sort((a: any, b: any) => (b.appealRound ?? -1) - (a.appealRound ?? -1))
+  return rows.length ? { ...rows[0] } : null
+})
 const intents = makeTable('intent', { expiresAt: null })
 // RFC-021 D7 — vouch.service.ts's burnVouchesFor() (called from
 // handlers.ts's settlement.escrow.released/refunded reactions) needs a
