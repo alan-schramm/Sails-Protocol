@@ -418,7 +418,8 @@ export async function emitEscrowTransition(
   triggeredBy: string,
   eventName: Parameters<typeof eventBus.emit>[0],
   eventExtra: Record<string, unknown> = {},
-  note?: string
+  note?: string,
+  explicitDisposition?: { origin: 'COOPERATIVE' | 'DISPUTE'; appealRound?: number }
 ): Promise<boolean> {
   // Issue #254 — derive immutable provenance before claiming the EscrowEvent.
   // For a terminal disposition, a Core-authoritative dispute ruling record is
@@ -428,6 +429,10 @@ export async function emitEscrowTransition(
   let dispositionOrigin: 'COOPERATIVE' | 'DISPUTE' | undefined
   let dispositionAppealRound: number | undefined
   if (to === 'COMPLETED' || to === 'REFUNDED' || to === 'SPLIT') {
+    if (explicitDisposition) {
+      dispositionOrigin = explicitDisposition.origin
+      dispositionAppealRound = explicitDisposition.appealRound
+    } else {
     // Some focused unit suites intentionally mock only the Prisma models
     // exercised by their subject. Missing semanticTransitionRecord in such a
     // mock means "no ruling record supplied by this test", not a production
@@ -449,6 +454,7 @@ export async function emitEscrowTransition(
       dispositionAppealRound = rulingRecord.appealRound
     } else {
       dispositionOrigin = 'COOPERATIVE'
+    }
     }
   }
 
