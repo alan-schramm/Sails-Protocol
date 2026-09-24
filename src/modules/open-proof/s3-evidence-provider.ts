@@ -36,6 +36,8 @@ import {
   NoSuchKey,
   NotFound,
   type S3ClientConfig,
+  type GetObjectCommandOutput,
+  type HeadObjectCommandOutput,
 } from '@aws-sdk/client-s3'
 import type { EvidenceProvider, EvidenceProviderHealth, EvidenceObjectMetadata, StoredMedia } from './evidence-provider'
 import { EvidenceStorageError } from '../../common/errors'
@@ -121,7 +123,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
 
   async retrieve(uri: string): Promise<Uint8Array> {
     try {
-      const result = await this.send(new GetObjectCommand({ Bucket: this.bucket, Key: uri }))
+      const result = await this.send<GetObjectCommandOutput>(new GetObjectCommand({ Bucket: this.bucket, Key: uri }))
       if (!result.Body) {
         throw new EvidenceStorageError(`Evidence storage returned no body for ${uri}`, 'UNAVAILABLE')
       }
@@ -144,7 +146,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
   // already covers both names plus the raw status-code fallback.
   async stat(uri: string): Promise<EvidenceObjectMetadata> {
     try {
-      const result = await this.send(new HeadObjectCommand({ Bucket: this.bucket, Key: uri }))
+      const result = await this.send<HeadObjectCommandOutput>(new HeadObjectCommand({ Bucket: this.bucket, Key: uri }))
       return { size: result.ContentLength ?? 0 }
     } catch (err) {
       if (err instanceof NotFound || isNotFoundError(err)) {
