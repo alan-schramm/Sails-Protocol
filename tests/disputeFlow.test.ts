@@ -962,7 +962,10 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
       where: {
         id: 'dispute-1',
         status: 'AUTO_PROPOSED',
-        autoResolutionDeadline: expect.any(Date),
+        autoResolutionDeadline: {
+          equals: expect.any(Date),
+          gte: expect.any(Date),
+        },
       },
       data: {
         status: 'EVIDENCE_SUBMITTED',
