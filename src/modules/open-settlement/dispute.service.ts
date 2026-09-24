@@ -1153,24 +1153,33 @@ export class DisputeService {
     // A generation conflict is retryable; an ineligible status is not.
     const MAX_EVIDENCE_CAS_ATTEMPTS = 16
 
+    // Resolve/validate the submitted descriptor exactly once. CAS contention
+    // is a storage race, not a new logical submission: retrying must not
+    // repeat provider/network resolution or mint a new submittedAt identity.
+    const initial = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!initial) throw new NotFoundError('Dispute', disputeId)
+    const initialTrade = await tradeRepository.findById(initial.tradeId)
+    if (!initialTrade) throw new NotFoundError('Trade', initial.tradeId)
+    if (submittedBy !== initialTrade.buyerId && submittedBy !== initialTrade.sellerId) {
+      throw new ForbiddenError(`${submittedBy} is not a party to trade ${initial.tradeId}`)
+    }
+    if (initial.status !== 'OPENED' && initial.status !== 'EVIDENCE_SUBMITTED') {
+      throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${initial.status}`)
+    }
+    const resolved = await this.resolveEvidenceDescriptor(descriptor, initial.tradeId)
+    const entry: EvidenceDescriptor = { ...resolved, submittedBy, submittedAt: new Date().toISOString() }
+
     for (let attempt = 0; attempt < MAX_EVIDENCE_CAS_ATTEMPTS; attempt++) {
       const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
       if (!dispute) throw new NotFoundError('Dispute', disputeId)
 
-      const trade = await tradeRepository.findById(dispute.tradeId)
-      if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
-      if (submittedBy !== trade.buyerId && submittedBy !== trade.sellerId) {
-        throw new ForbiddenError(`${submittedBy} is not a party to trade ${dispute.tradeId}`)
+      if (dispute.tradeId !== initial.tradeId) {
+        throw new ValidationError(`Dispute ${disputeId} changed trade identity while evidence was being appended`)
       }
-
       if (dispute.status !== 'OPENED' && dispute.status !== 'EVIDENCE_SUBMITTED') {
         throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${dispute.status}`)
       }
 
-      // Resolve once per attempt against current durable state. This is
-      // validation only; it grants no economic authority.
-      const resolved = await this.resolveEvidenceDescriptor(descriptor, dispute.tradeId)
-      const entry: EvidenceDescriptor = { ...resolved, submittedBy, submittedAt: new Date().toISOString() }
       const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
 
       const claim = await prisma.dispute.updateMany({
