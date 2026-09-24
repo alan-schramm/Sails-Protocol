@@ -1147,59 +1147,54 @@ export class DisputeService {
   // nothing durable happened, the only case safe to mark FAILED and
   // retry via a fresh `persistEvidence()` call.
   private async persistEvidence(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId' | 'externalReference'>) {
-    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
-    if (!dispute) throw new NotFoundError('Dispute', disputeId)
+    // #309 — a bounded optimistic-CAS loop preserves every legitimate
+    // concurrent evidence append without ever retrying through a human/state
+    // advancement. Each retry re-reads BOTH evidenceGeneration and status.
+    // A generation conflict is retryable; an ineligible status is not.
+    const MAX_EVIDENCE_CAS_ATTEMPTS = 16
 
-    const trade = await tradeRepository.findById(dispute.tradeId)
-    if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
-    if (submittedBy !== trade.buyerId && submittedBy !== trade.sellerId) {
-      throw new ForbiddenError(`${submittedBy} is not a party to trade ${dispute.tradeId}`)
+    for (let attempt = 0; attempt < MAX_EVIDENCE_CAS_ATTEMPTS; attempt++) {
+      const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+      if (!dispute) throw new NotFoundError('Dispute', disputeId)
+
+      const trade = await tradeRepository.findById(dispute.tradeId)
+      if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
+      if (submittedBy !== trade.buyerId && submittedBy !== trade.sellerId) {
+        throw new ForbiddenError(`${submittedBy} is not a party to trade ${dispute.tradeId}`)
+      }
+
+      if (dispute.status !== 'OPENED' && dispute.status !== 'EVIDENCE_SUBMITTED') {
+        throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${dispute.status}`)
+      }
+
+      // Resolve once per attempt against current durable state. This is
+      // validation only; it grants no economic authority.
+      const resolved = await this.resolveEvidenceDescriptor(descriptor, dispute.tradeId)
+      const entry: EvidenceDescriptor = { ...resolved, submittedBy, submittedAt: new Date().toISOString() }
+      const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
+
+      const claim = await prisma.dispute.updateMany({
+        where: {
+          id: disputeId,
+          evidenceGeneration: dispute.evidenceGeneration,
+          status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] },
+        },
+        data: {
+          evidence: [...existing, entry] as unknown as object,
+          evidenceGeneration: { increment: 1 },
+          status: 'EVIDENCE_SUBMITTED',
+        },
+      })
+      if (claim.count === 0) continue
+
+      const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
+      if (!updated) throw new NotFoundError('Dispute', disputeId)
+      return { ...dispute, ...updated }
     }
 
-    if (dispute.status !== 'OPENED' && dispute.status !== 'EVIDENCE_SUBMITTED') {
-      throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${dispute.status}`)
-    }
-
-    // Issue #266 — validates/resolves an OpenProof cross-reference
-    // before it is ever persisted; a no-op for a legacy raw/external
-    // descriptor (see resolveEvidenceDescriptor()'s own header comment).
-    const resolved = await this.resolveEvidenceDescriptor(descriptor, dispute.tradeId)
-    const entry: EvidenceDescriptor = { ...resolved, submittedBy, submittedAt: new Date().toISOString() }
-    const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
-
-    // #309 — evidence is a JSON aggregate, so a plain read/append/update
-    // loses one writer when two parties submit concurrently. The monotonic
-    // evidenceGeneration turns this into an optimistic CAS. Status is part
-    // of the same predicate: a stale writer can never drag a dispute that a
-    // human advanced meanwhile back to EVIDENCE_SUBMITTED.
-    const claim = await prisma.dispute.updateMany({
-      where: {
-        id: disputeId,
-        evidenceGeneration: dispute.evidenceGeneration,
-        status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] },
-      },
-      data: {
-        evidence: [...existing, entry] as unknown as object,
-        evidenceGeneration: { increment: 1 },
-        status: 'EVIDENCE_SUBMITTED',
-      },
-    })
-    if (claim.count === 0) {
-      throw new ValidationError(
-        `Dispute ${disputeId} changed while evidence was being appended — retry against the current evidence generation/status`
-      )
-    }
-    const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
-    if (!updated) throw new NotFoundError('Dispute', disputeId)
-
-    // `tradeId`/`escrowId` never change in this update (only `evidence`/
-    // `status` do) — merging over the already-validated pre-update
-    // `dispute` guarantees `postPersistEvidence()` below always has them,
-    // matching this method's pre-R2 behavior (which read them from this
-    // same pre-update fetch, never from `prisma.dispute.update()`'s own
-    // return value) regardless of whether a given Prisma client/mock/
-    // future `select` clause happens to return the full row.
-    return { ...dispute, ...updated }
+    throw new ValidationError(
+      `Dispute ${disputeId} evidence changed too frequently to append safely after ${MAX_EVIDENCE_CAS_ATTEMPTS} attempts`
+    )
   }
 
   // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — runs AFTER the evidence is
