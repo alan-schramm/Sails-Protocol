@@ -797,12 +797,10 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
   beforeEach(() => jest.clearAllMocks())
 
   it('appends evidence, transitions OPENED -> EVIDENCE_SUBMITTED, and emits the event finally reachable after this pass', async () => {
-    mockDisputeFindUnique.mockResolvedValue({
-      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [], evidenceGeneration: 0,
-    })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
     mockDisputeFindUnique
+      .mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [], evidenceGeneration: 0 })
       .mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [], evidenceGeneration: 0 })
       .mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'EVIDENCE_SUBMITTED', evidenceGeneration: 1 })
 
