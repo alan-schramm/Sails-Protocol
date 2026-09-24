@@ -177,6 +177,7 @@ jest.mock('../src/common/database', () => {
       escrowParticipantKey: { findMany: ((...args: unknown[]) => (mockParticipantKeyFindMany as any)(...args)) as any },
       semanticTransitionRecord: {
         create: ((...args: unknown[]) => (mockSemanticTransitionRecordCreate as any)(...args)) as any,
+        findFirst: jest.fn().mockResolvedValue(null),
       },
       // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
       // escrowEvent existence-check-then-create INSIDE withEscrowFundingLock()

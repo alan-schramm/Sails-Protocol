@@ -153,6 +153,9 @@ const mockDurableEventFindFirst = jest.fn().mockResolvedValue(null)
 // mockEscrowUpdateMany/mockPendingTxCreate/mockEscrowFundingEvidenceFindMany
 // sees the call whether it went through the mocked prisma singleton or
 // through this tx passthrough, exactly like a real Prisma transaction).
+const mockEconomicDispositionAuthorizationFindUnique = jest.fn()
+const mockEconomicDispositionAuthorizationCreate = jest.fn()
+const mockEconomicDispositionDisputeFindUnique = jest.fn()
 const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
   callback({
     durableEventRecord: {
@@ -174,6 +177,13 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     escrowEvent: {
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
+    },
+    economicDispositionAuthorization: {
+      findUnique: (...args: unknown[]) => mockEconomicDispositionAuthorizationFindUnique(...args),
+      create: (...args: unknown[]) => mockEconomicDispositionAuthorizationCreate(...args),
+    },
+    dispute: {
+      findUnique: (...args: unknown[]) => mockEconomicDispositionDisputeFindUnique(...args),
     },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
@@ -230,6 +240,7 @@ jest.mock('../src/common/database', () => ({
 import { escrowService, recommendedEscrowType, resolveEscrowType } from '../src/modules/open-settlement/escrow.service'
 import { MULTISIG_CAPABILITY_PROFILE_V1, ESCROW_TYPE_VALUES } from '@satsails/p2p-schemas'
 import { EscrowError } from '../src/common/errors'
+import { economicDispositionOperationDigest } from '../src/modules/open-settlement/economic-disposition-authority'
 import { getSettlementProvider, assertDeploymentEligible, getSignatureCollectionProvider } from '../src/modules/open-settlement/escrow-providers'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -1478,6 +1489,53 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-split-txid', releasedAt: expect.any(Date) } })
     expect(mockPendingTxDelete).toHaveBeenCalledWith({ where: { id: 'ptx-3' } })
     expect(result.complete).toBe(true)
+  })
+
+  it('#254 emits the pending ruling generation even if the mutable dispute has already advanced to N+1', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'DISPUTED' })
+    const historicalPending = {
+      id: 'ptx-historical', escrowId: 'escrow-1', kind: 'release',
+      toAddress: 'historical-buyer-destination', toAddressSecondary: null,
+      buyerBps: null, feeCollectionSats: null, feeCollectionWaived: null,
+      minerFeeSats: null, requiredSigners: ['buyer-1'],
+      unsignedPsbtBase64: 'unsigned-historical-psbt', triggeredBy: 'arbiter-1',
+      disputeId: 'dispute-1', rulingAppealRound: 3,
+      rulingArbiterId: 'arbiter-1', rulingOutcome: 'RELEASE',
+      rulingAuthoritySignature: 'authority-signature-n',
+      rulingAuthorityIssuedAt: new Date('2026-09-24T00:00:00.000Z'),
+    }
+    mockPendingTxFindUnique.mockResolvedValue(historicalPending)
+    mockTxSignatureFindMany.mockResolvedValue([
+      { participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
+    ])
+    // Mutable/current semantic state has advanced to N+1. The historical
+    // settlement event must still bind to the generation snapshotted on
+    // the pending operation, never this later Dispute generation.
+    mockDisputeFindFirst.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED',
+      appealRound: 4, arbiterId: 'arbiter-2', ruling: 'REFUND',
+    })
+    // Economic authority for generation N was already durably committed
+    // before the later appeal. ADR-005 deliberately reuses that immutable
+    // authorization without re-checking mutable current Dispute state.
+    mockEconomicDispositionAuthorizationFindUnique.mockResolvedValue({
+      pendingOperationId: 'ptx-historical', escrowId: 'escrow-1',
+      disputeId: 'dispute-1', appealRound: 3, arbiterId: 'arbiter-1',
+      ruling: 'RELEASE',
+      operationDigest: economicDispositionOperationDigest(historicalPending),
+    })
+    mockFinalizeRelease.mockResolvedValue({ txId: 'historical-release-txid' })
+    mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', status: 'COMPLETED', txReleaseId: 'historical-release-txid' })
+
+    const result = await escrowService.submitTransactionSignature('escrow-1', 'buyer-1', 'buyer-signed')
+
+    expect(result.complete).toBe(true)
+    expect(mockEscrowEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        dispositionOrigin: 'DISPUTE',
+        dispositionAppealRound: 3,
+      }),
+    }))
   })
 
   it('rejects a signature from someone who is not a required signer for this pending transaction', async () => {

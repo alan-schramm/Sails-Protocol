@@ -501,13 +501,13 @@ export class DisputeService {
         if (needsSignatureCollection) {
           await escrowService.initiateRelease(dispute.escrowId, undefined, triggeredBy)
         } else {
-          await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy)
+          await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy, { origin: 'DISPUTE', appealRound: updated.appealRound })
         }
       } else if (ruling === 'REFUND') {
         if (needsSignatureCollection) {
           await escrowService.initiateRefund(dispute.escrowId, triggeredBy, undefined)
         } else {
-          await escrowService.refundFunds(dispute.escrowId, triggeredBy)
+          await escrowService.refundFunds(dispute.escrowId, triggeredBy, { origin: 'DISPUTE', appealRound: updated.appealRound })
         }
       } else if (ruling === 'SPLIT') {
         // RFC-021 D9 — the third §1.9 option finally has a real settlement
@@ -527,7 +527,7 @@ export class DisputeService {
         if (needsSignatureCollection) {
           await escrowService.initiateSplit(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
         } else {
-          await escrowService.splitFunds(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
+          await escrowService.splitFunds(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy, { origin: 'DISPUTE', appealRound: updated.appealRound })
         }
       }
     } catch (err) {

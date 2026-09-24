@@ -155,6 +155,7 @@ function pendingTxFixture(overrides: Record<string, any> = {}) {
       { participantId: 'seller-1', signedPsbtBase64: 'seller-signed' },
     ],
     triggeredBy: 'seller-1', feeCollectionSats: null, feeCollectionWaived: null, buyerBps: null,
+    disputeId: null, rulingAppealRound: null,
     ...overrides,
   }
 }
@@ -231,6 +232,48 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
     expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'c8-txid-1', outcome: 'NEWLY_BROADCAST' }])
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
     expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', 'c8-raw-hex')
+  })
+
+  it('#254 preserves the exact disputed appeal generation when C8 recovery emits the terminal event', async () => {
+    mockPendingTxFindMany.mockResolvedValue([{
+      ...pendingTxFixture({ disputeId: 'dispute-1', rulingAppealRound: 3 }),
+      escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
+    }])
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockReconcilePendingSettlement.mockResolvedValue({
+      outcome: 'ALREADY_BROADCAST', txId: 'historical-tx', detail: 'already known', rawTxHex: 'historical-raw',
+    })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'historical-tx', outcome: 'ALREADY_BROADCAST' }])
+    expect(mockEscrowEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        dispositionOrigin: 'DISPUTE',
+        dispositionAppealRound: 3,
+      }),
+    }))
+  })
+
+  it('#254 preserves the exact disputed appeal generation when PASS 2 recovers missing completion effects after txReleaseId was persisted', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockFindTerminalWithTxReleaseId.mockResolvedValue([
+      multisigEscrowFixture({ txReleaseId: 'confirmed-historical-tx', status: 'COMPLETED' }),
+    ])
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+    mockPendingTxFindUnique.mockResolvedValue(
+      pendingTxFixture({ disputeId: 'dispute-1', rulingAppealRound: 4 })
+    )
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.completionEffectsRecovered).toEqual([{ escrowId: 'escrow-1', obligationSkipped: false }])
+    expect(mockEscrowEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        dispositionOrigin: 'DISPUTE',
+        dispositionAppealRound: 4,
+      }),
+    }))
   })
 
   it('ALREADY_BROADCAST recovery converges external truth without asking for fresh execution authority', async () => {
@@ -553,6 +596,25 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
     expect(mockEscrowEventCreate).toHaveBeenCalledTimes(1)
     expect(mockPendingTxDelete).toHaveBeenCalledWith({ where: { id: 'pending-1' } })
+  })
+
+  it('#254 C5 recovery preserves the surviving pending row\'s exact disputed appeal generation', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-historical-tx', status: 'COMPLETED' })])
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+    mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture({
+      kind: 'release', disputeId: 'dispute-1', rulingAppealRound: 3,
+    }))
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.completionEffectsRecovered).toEqual([{ escrowId: 'escrow-1', obligationSkipped: false }])
+    expect(mockEscrowEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        dispositionOrigin: 'DISPUTE',
+        dispositionAppealRound: 3,
+      }),
+    }))
   })
 
   it('C5 recovery for a direct-call-rail escrow (MOCK/WDK_USDT_EVM — no pending-transaction concept) still catches up RELEASE/REFUND obligations and the completion event', async () => {

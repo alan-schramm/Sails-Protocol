@@ -685,7 +685,7 @@ export class EscrowService {
   // SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK disputes, unmigrated) still passes
   // the arbiter's own releaseToAddress here — a disclosed residual gap,
   // not fixed by M8-R2 (out of that mission's bounded scope).
-  async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
+  async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string, disposition?: { origin: 'COOPERATIVE' | 'DISPUTE'; appealRound?: number }) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'COMPLETED')
     const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.buyerId, escrow.asset)
@@ -779,7 +779,7 @@ export class EscrowService {
       // their respective modules, triggered by the event emitted below.
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'COMPLETED', triggeredBy, 'settlement.escrow.released', {
         txId: result.txId,
-      })
+      }, undefined, disposition)
 
       return updated
     } catch (err) {
@@ -831,7 +831,7 @@ export class EscrowService {
     return updated
   }
 
-  async refundFunds(escrowId: string, triggeredBy: string) {
+  async refundFunds(escrowId: string, triggeredBy: string, disposition?: { origin: 'COOPERATIVE' | 'DISPUTE'; appealRound?: number }) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'REFUNDED')
 
@@ -860,7 +860,7 @@ export class EscrowService {
 
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'REFUNDED', triggeredBy, 'settlement.escrow.refunded', {
         txId: result.txId,
-      })
+      }, undefined, disposition)
 
       return updated
     } catch (err) {
@@ -880,7 +880,7 @@ export class EscrowService {
   // since SPLIT has no non-disputed happy path. See initiateSplit()
   // (escrow-pending-tx.ts) for the client-signature-collection
   // equivalent (MULTISIG).
-  async splitFunds(escrowId: string, buyerAddress: string | undefined, sellerAddress: string | undefined, buyerBps: number, triggeredBy: string) {
+  async splitFunds(escrowId: string, buyerAddress: string | undefined, sellerAddress: string | undefined, buyerBps: number, triggeredBy: string, disposition?: { origin: 'COOPERATIVE' | 'DISPUTE'; appealRound?: number }) {
     if (!(buyerBps > 0 && buyerBps < 10000)) {
       throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
     }
@@ -921,7 +921,7 @@ export class EscrowService {
       // action that can produce two transaction hashes instead of one.
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'SPLIT', triggeredBy, 'settlement.escrow.split', {
         txId: result.txIds.join(','),
-      })
+      }, undefined, disposition)
 
       return updated
     } catch (err) {
