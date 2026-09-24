@@ -1300,7 +1300,10 @@ export class DisputeService {
     if (dispute.status !== 'AUTO_PROPOSED') {
       throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${dispute.status})`)
     }
-    if (dispute.autoResolutionDeadline && dispute.autoResolutionDeadline.getTime() < Date.now()) {
+    const contestEvaluationTime = new Date()
+    // The sweeper owns deadlines strictly before its evaluation instant.
+    // Contest owns the complementary interval: deadline >= evaluation time.
+    if (dispute.autoResolutionDeadline && dispute.autoResolutionDeadline.getTime() < contestEvaluationTime.getTime()) {
       throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
     }
 
@@ -1311,7 +1314,9 @@ export class DisputeService {
       where: {
         id: disputeId,
         status: 'AUTO_PROPOSED',
-        autoResolutionDeadline: dispute.autoResolutionDeadline,
+        autoResolutionDeadline: dispute.autoResolutionDeadline
+          ? { equals: dispute.autoResolutionDeadline, gte: contestEvaluationTime }
+          : null,
       },
       data: {
         status: 'EVIDENCE_SUBMITTED',
