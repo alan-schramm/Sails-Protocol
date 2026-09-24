@@ -598,6 +598,25 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     expect(mockPendingTxDelete).toHaveBeenCalledWith({ where: { id: 'pending-1' } })
   })
 
+  it('#254 C5 recovery preserves the surviving pending row\'s exact disputed appeal generation', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-historical-tx', status: 'COMPLETED' })])
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+    mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture({
+      kind: 'release', disputeId: 'dispute-1', rulingAppealRound: 3,
+    }))
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.completionEffectsRecovered).toEqual([{ escrowId: 'escrow-1', obligationSkipped: false }])
+    expect(mockEscrowEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        dispositionOrigin: 'DISPUTE',
+        dispositionAppealRound: 3,
+      }),
+    }))
+  })
+
   it('C5 recovery for a direct-call-rail escrow (MOCK/WDK_USDT_EVM — no pending-transaction concept) still catches up RELEASE/REFUND obligations and the completion event', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
     mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-mock-1', type: 'MOCK', txReleaseId: 'mock-txid-1', status: 'COMPLETED' })])
