@@ -427,9 +427,14 @@ export function registerEventHandlers(): void {
     if (!config.settlement.qvacAutoResolutionEnabled) return
 
     try {
-      const payload = event.payload as { disputeId: string; tradeId: string }
+      const payload = event.payload as { disputeId: string; tradeId: string; evidenceGeneration?: number }
       const dispute = await prisma.dispute.findUnique({ where: { id: payload.disputeId } })
       if (!dispute || dispute.status === 'RESOLVED' || dispute.status === 'AUTO_PROPOSED' || dispute.status === 'APPEALED') return
+      // #309 — a durable event represents the evidence snapshot committed by
+      // that submission. If newer evidence already exists, this event is stale:
+      // do not assess a newer snapshot while attributing the result to an older
+      // trigger. Legacy events without a generation retain prior behavior.
+      if (payload.evidenceGeneration !== undefined && dispute.evidenceGeneration !== payload.evidenceGeneration) return
 
       // paymentMethod lives on Offer, not Trade — Trade only copies
       // asset/amount at creation time (this model's own field list).
@@ -464,7 +469,8 @@ export function registerEventHandlers(): void {
         payload.disputeId,
         assessment.recommendation,
         assessment.confidence,
-        assessment.reasoning
+        assessment.reasoning,
+        payload.evidenceGeneration ?? dispute.evidenceGeneration
       )
     } catch (err) {
       log.error({ msg: 'qvacAutoResolution failed', eventId: event.eventId, err: err instanceof Error ? err.message : err })

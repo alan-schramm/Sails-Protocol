@@ -1147,39 +1147,63 @@ export class DisputeService {
   // nothing durable happened, the only case safe to mark FAILED and
   // retry via a fresh `persistEvidence()` call.
   private async persistEvidence(disputeId: string, submittedBy: string, descriptor: Pick<EvidenceDescriptor, 'type' | 'uri' | 'note' | 'evidenceReferenceId' | 'externalReference'>) {
-    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
-    if (!dispute) throw new NotFoundError('Dispute', disputeId)
+    // #309 — a bounded optimistic-CAS loop preserves every legitimate
+    // concurrent evidence append without ever retrying through a human/state
+    // advancement. Each retry re-reads BOTH evidenceGeneration and status.
+    // A generation conflict is retryable; an ineligible status is not.
+    const MAX_EVIDENCE_CAS_ATTEMPTS = 16
 
-    const trade = await tradeRepository.findById(dispute.tradeId)
-    if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
-    if (submittedBy !== trade.buyerId && submittedBy !== trade.sellerId) {
-      throw new ForbiddenError(`${submittedBy} is not a party to trade ${dispute.tradeId}`)
+    // Resolve/validate the submitted descriptor exactly once. CAS contention
+    // is a storage race, not a new logical submission: retrying must not
+    // repeat provider/network resolution or mint a new submittedAt identity.
+    const initial = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!initial) throw new NotFoundError('Dispute', disputeId)
+    const initialTrade = await tradeRepository.findById(initial.tradeId)
+    if (!initialTrade) throw new NotFoundError('Trade', initial.tradeId)
+    if (submittedBy !== initialTrade.buyerId && submittedBy !== initialTrade.sellerId) {
+      throw new ForbiddenError(`${submittedBy} is not a party to trade ${initial.tradeId}`)
     }
-
-    if (dispute.status !== 'OPENED' && dispute.status !== 'EVIDENCE_SUBMITTED') {
-      throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${dispute.status}`)
+    if (initial.status !== 'OPENED' && initial.status !== 'EVIDENCE_SUBMITTED') {
+      throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${initial.status}`)
     }
-
-    // Issue #266 — validates/resolves an OpenProof cross-reference
-    // before it is ever persisted; a no-op for a legacy raw/external
-    // descriptor (see resolveEvidenceDescriptor()'s own header comment).
-    const resolved = await this.resolveEvidenceDescriptor(descriptor, dispute.tradeId)
+    const resolved = await this.resolveEvidenceDescriptor(descriptor, initial.tradeId)
     const entry: EvidenceDescriptor = { ...resolved, submittedBy, submittedAt: new Date().toISOString() }
-    const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
-      data: { evidence: [...existing, entry] as unknown as object, status: 'EVIDENCE_SUBMITTED' },
-    })
+    for (let attempt = 0; attempt < MAX_EVIDENCE_CAS_ATTEMPTS; attempt++) {
+      const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+      if (!dispute) throw new NotFoundError('Dispute', disputeId)
 
-    // `tradeId`/`escrowId` never change in this update (only `evidence`/
-    // `status` do) — merging over the already-validated pre-update
-    // `dispute` guarantees `postPersistEvidence()` below always has them,
-    // matching this method's pre-R2 behavior (which read them from this
-    // same pre-update fetch, never from `prisma.dispute.update()`'s own
-    // return value) regardless of whether a given Prisma client/mock/
-    // future `select` clause happens to return the full row.
-    return { ...dispute, ...updated }
+      if (dispute.tradeId !== initial.tradeId) {
+        throw new ValidationError(`Dispute ${disputeId} changed trade identity while evidence was being appended`)
+      }
+      if (dispute.status !== 'OPENED' && dispute.status !== 'EVIDENCE_SUBMITTED') {
+        throw new ValidationError(`Dispute ${disputeId} cannot accept new evidence from status ${dispute.status}`)
+      }
+
+      const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
+
+      const claim = await prisma.dispute.updateMany({
+        where: {
+          id: disputeId,
+          evidenceGeneration: dispute.evidenceGeneration,
+          status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] },
+        },
+        data: {
+          evidence: [...existing, entry] as unknown as object,
+          evidenceGeneration: { increment: 1 },
+          status: 'EVIDENCE_SUBMITTED',
+        },
+      })
+      if (claim.count === 0) continue
+
+      const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
+      if (!updated) throw new NotFoundError('Dispute', disputeId)
+      return { ...dispute, ...updated }
+    }
+
+    throw new ValidationError(
+      `Dispute ${disputeId} evidence changed too frequently to append safely after ${MAX_EVIDENCE_CAS_ATTEMPTS} attempts`
+    )
   }
 
   // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — runs AFTER the evidence is
@@ -1199,6 +1223,7 @@ export class DisputeService {
       settlementId: dispute.escrowId,
       tradeId: dispute.tradeId,
       triggeredBy: submittedBy,
+      evidenceGeneration: dispute.evidenceGeneration,
     }, dispute.tradeId)
   }
 
@@ -1214,14 +1239,23 @@ export class DisputeService {
    * this never overwrites a real decision, it can only ever act on a
    * dispute still genuinely open.
    */
-  async proposeAutoResolution(disputeId: string, recommendation: 'RELEASE' | 'REFUND', confidence: number, reasoning: string) {
+  async proposeAutoResolution(disputeId: string, recommendation: 'RELEASE' | 'REFUND', confidence: number, reasoning: string, assessedEvidenceGeneration?: number) {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
 
     const deadline = new Date(Date.now() + config.settlement.qvacAutoResolutionWindowHours * 3600 * 1000)
 
     const claim = await prisma.dispute.updateMany({
-      where: { id: disputeId, status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] }, ruling: null },
+      where: {
+        id: disputeId,
+        status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] },
+        ruling: null,
+        // #309 — when QVAC assessed a specific evidence snapshot, that
+        // recommendation may only affect that exact durable generation.
+        // Direct/manual callers that predate generation binding preserve
+        // their existing advisory-only behavior by omitting this argument.
+        ...(assessedEvidenceGeneration === undefined ? {} : { evidenceGeneration: assessedEvidenceGeneration }),
+      },
       data: {
         status: 'AUTO_PROPOSED',
         autoResolutionRecommendation: recommendation,
@@ -1266,12 +1300,24 @@ export class DisputeService {
     if (dispute.status !== 'AUTO_PROPOSED') {
       throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${dispute.status})`)
     }
-    if (dispute.autoResolutionDeadline && dispute.autoResolutionDeadline.getTime() < Date.now()) {
+    const contestEvaluationTime = new Date()
+    // The sweeper owns deadlines strictly before its evaluation instant.
+    // Contest owns the complementary interval: deadline >= evaluation time.
+    if (dispute.autoResolutionDeadline && dispute.autoResolutionDeadline.getTime() < contestEvaluationTime.getTime()) {
       throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
     }
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
+    // Claim the exact AUTO_PROPOSED snapshot we authorized above. A
+    // concurrent arbiter/state transition must win rather than being
+    // overwritten by this stale contest writer.
+    const claim = await prisma.dispute.updateMany({
+      where: {
+        id: disputeId,
+        status: 'AUTO_PROPOSED',
+        autoResolutionDeadline: dispute.autoResolutionDeadline
+          ? { equals: dispute.autoResolutionDeadline, gte: contestEvaluationTime }
+          : null,
+      },
       data: {
         status: 'EVIDENCE_SUBMITTED',
         autoResolutionRecommendation: null,
@@ -1280,6 +1326,11 @@ export class DisputeService {
         autoResolutionDeadline: null,
       },
     })
+    if (claim.count === 0) {
+      throw new ValidationError(`Dispute ${disputeId} changed while the automated resolution was being contested`)
+    }
+    const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!updated) throw new NotFoundError('Dispute', disputeId)
 
     await eventBus.emit('dispute.auto_resolution_contested', {
       disputeId,
@@ -1335,10 +1386,18 @@ export class DisputeService {
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const dispute of expired) {
       try {
-        await prisma.dispute.update({
-          where: { id: dispute.id },
+        // #309 / CSC-F02 — the discovery read above is not authority to
+        // overwrite a newer state. Claim the exact expired AUTO_PROPOSED
+        // snapshot; a concurrent contest/human ruling wins cleanly.
+        const claim = await prisma.dispute.updateMany({
+          where: {
+            id: dispute.id,
+            status: 'AUTO_PROPOSED',
+            autoResolutionDeadline: dispute.autoResolutionDeadline,
+          },
           data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
         })
+        if (claim.count === 0) continue
         await eventBus.emit('dispute.auto_resolution_contested', {
           disputeId: dispute.id,
           settlementId: dispute.escrowId,
