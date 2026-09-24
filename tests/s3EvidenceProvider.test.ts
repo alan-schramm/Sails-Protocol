@@ -271,10 +271,16 @@ describe('S3EvidenceProvider — bounded request / cancellation truth', () => {
   it('aborts a hung SDK operation at the configured bound and reports mutation outcome as UNAVAILABLE, never as a proven failed write', async () => {
     const sendMock = jest.fn((_command: unknown, options?: { abortSignal?: AbortSignal }) =>
       new Promise((_resolve, reject) => {
-        options?.abortSignal?.addEventListener('abort', () => {
+        const signal = options?.abortSignal
+        const rejectAborted = () => {
           const err = Object.assign(new Error('request aborted at local deadline'), { name: 'AbortError' })
           reject(err)
-        }, { once: true })
+        }
+        if (signal?.aborted) {
+          rejectAborted()
+          return
+        }
+        signal?.addEventListener('abort', rejectAborted, { once: true })
       })
     )
     jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
