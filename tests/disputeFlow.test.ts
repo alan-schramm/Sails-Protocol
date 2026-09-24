@@ -798,17 +798,21 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
 
   it('appends evidence, transitions OPENED -> EVIDENCE_SUBMITTED, and emits the event finally reachable after this pass', async () => {
     mockDisputeFindUnique.mockResolvedValue({
-      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [],
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [], evidenceGeneration: 0,
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
+    mockDisputeFindUnique
+      .mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [], evidenceGeneration: 0 })
+      .mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'EVIDENCE_SUBMITTED', evidenceGeneration: 1 })
 
     await service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', note: 'bank confirmation' })
 
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'dispute-1', evidenceGeneration: 0, status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] } },
       data: {
         evidence: [expect.objectContaining({ type: 'payment_receipt', note: 'bank confirmation', submittedBy: 'buyer-1' })],
+        evidenceGeneration: { increment: 1 },
         status: 'EVIDENCE_SUBMITTED',
       },
     })
@@ -821,15 +825,19 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
 
   it('appends to existing evidence rather than overwriting it', async () => {
     mockDisputeFindUnique.mockResolvedValue({
-      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'EVIDENCE_SUBMITTED',
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'EVIDENCE_SUBMITTED', evidenceGeneration: 4,
       evidence: [{ type: 'chat_log', submittedBy: 'seller-1', submittedAt: '2026-01-01T00:00:00.000Z' }],
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({})
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
+    mockDisputeFindUnique.mockResolvedValueOnce({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'EVIDENCE_SUBMITTED', evidenceGeneration: 5,
+      evidence: [{ type: 'chat_log' }, { type: 'payment_receipt' }],
+    })
 
     await service.submitEvidence('dispute-1', 'seller-1', { type: 'payment_receipt' })
 
-    const call = mockDisputeUpdate.mock.calls[0][0]
+    const call = mockDisputeUpdateMany.mock.calls[0][0]
     expect(call.data.evidence).toHaveLength(2)
     expect(call.data.evidence[0].type).toBe('chat_log')
     expect(call.data.evidence[1].type).toBe('payment_receipt')
