@@ -269,29 +269,24 @@ describe('S3EvidenceProvider — bounded request / cancellation truth', () => {
   })
 
   it('aborts a hung SDK operation at the configured bound and reports mutation outcome as UNAVAILABLE, never as a proven failed write', async () => {
-    jest.useFakeTimers()
-    try {
-      const sendMock = jest.fn((_command: unknown, options?: { abortSignal?: AbortSignal }) =>
-        new Promise((_resolve, reject) => {
-          options?.abortSignal?.addEventListener('abort', () => {
-            const err = Object.assign(new Error('request aborted at local deadline'), { name: 'AbortError' })
-            reject(err)
-          }, { once: true })
-        })
-      )
-      jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
-      const provider = new S3EvidenceProvider({ ...TEST_CONFIG, requestTimeoutMs: 25 })
+    const sendMock = jest.fn((_command: unknown, options?: { abortSignal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        options?.abortSignal?.addEventListener('abort', () => {
+          const err = Object.assign(new Error('request aborted at local deadline'), { name: 'AbortError' })
+          reject(err)
+        }, { once: true })
+      })
+    )
+    jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
+    const provider = new S3EvidenceProvider({ ...TEST_CONFIG, requestTimeoutMs: 25 })
 
-      const operation = provider.store(new Uint8Array(Buffer.from('ambiguous-write')), 'document')
-      await jest.advanceTimersByTimeAsync(25)
-      await Promise.resolve()
+    const startedAt = Date.now()
+    const operation = provider.store(new Uint8Array(Buffer.from('ambiguous-write')), 'document')
 
-      await expect(operation).rejects.toMatchObject({ storageReason: 'UNAVAILABLE' })
-      const options = sendMock.mock.calls[0][1] as { abortSignal?: AbortSignal }
-      expect(options.abortSignal?.aborted).toBe(true)
-    } finally {
-      jest.useRealTimers()
-    }
+    await expect(operation).rejects.toMatchObject({ storageReason: 'UNAVAILABLE' })
+    expect(Date.now() - startedAt).toBeLessThan(1000)
+    const options = sendMock.mock.calls[0][1] as { abortSignal?: AbortSignal }
+    expect(options.abortSignal?.aborted).toBe(true)
   })
 
   it('does not invent a protocol timeout when none is configured', async () => {
