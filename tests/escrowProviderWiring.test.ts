@@ -240,6 +240,7 @@ jest.mock('../src/common/database', () => ({
 import { escrowService, recommendedEscrowType, resolveEscrowType } from '../src/modules/open-settlement/escrow.service'
 import { MULTISIG_CAPABILITY_PROFILE_V1, ESCROW_TYPE_VALUES } from '@satsails/p2p-schemas'
 import { EscrowError } from '../src/common/errors'
+import { economicDispositionOperationDigest } from '../src/modules/open-settlement/economic-disposition-authority'
 import { getSettlementProvider, assertDeploymentEligible, getSignatureCollectionProvider } from '../src/modules/open-settlement/escrow-providers'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -1492,12 +1493,18 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
 
   it('#254 emits the pending ruling generation even if the mutable dispute has already advanced to N+1', async () => {
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'DISPUTED' })
-    mockPendingTxFindUnique.mockResolvedValue({
-      id: 'ptx-historical', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1'],
+    const historicalPending = {
+      id: 'ptx-historical', escrowId: 'escrow-1', kind: 'release',
+      toAddress: 'historical-buyer-destination', toAddressSecondary: null,
+      buyerBps: null, feeCollectionSats: null, feeCollectionWaived: null,
+      minerFeeSats: null, requiredSigners: ['buyer-1'],
       unsignedPsbtBase64: 'unsigned-historical-psbt', triggeredBy: 'arbiter-1',
       disputeId: 'dispute-1', rulingAppealRound: 3,
       rulingArbiterId: 'arbiter-1', rulingOutcome: 'RELEASE',
-    })
+      rulingAuthoritySignature: 'authority-signature-n',
+      rulingAuthorityIssuedAt: new Date('2026-09-24T00:00:00.000Z'),
+    }
+    mockPendingTxFindUnique.mockResolvedValue(historicalPending)
     mockTxSignatureFindMany.mockResolvedValue([
       { participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
     ])
@@ -1514,7 +1521,8 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     mockEconomicDispositionAuthorizationFindUnique.mockResolvedValue({
       pendingOperationId: 'ptx-historical', escrowId: 'escrow-1',
       disputeId: 'dispute-1', appealRound: 3, arbiterId: 'arbiter-1',
-      ruling: 'RELEASE', operationDigest: expect.any(String),
+      ruling: 'RELEASE',
+      operationDigest: economicDispositionOperationDigest(historicalPending),
     })
     mockFinalizeRelease.mockResolvedValue({ txId: 'historical-release-txid' })
     mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', status: 'COMPLETED', txReleaseId: 'historical-release-txid' })
