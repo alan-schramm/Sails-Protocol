@@ -979,6 +979,25 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
     )
   })
 
+  it('binds contest authorization to one evaluation instant including exact deadline equality', async () => {
+    const deadline = new Date(Date.now() + 60_000)
+    mockDisputeFindUnique
+      .mockResolvedValueOnce({
+        id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1',
+        status: 'AUTO_PROPOSED', autoResolutionDeadline: deadline,
+      })
+      .mockResolvedValueOnce({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
+
+    await service.contestAutoResolution('dispute-1', 'buyer-1')
+
+    const claim = mockDisputeUpdateMany.mock.calls[0][0]
+    expect(claim.where.autoResolutionDeadline.equals).toEqual(deadline)
+    expect(claim.where.autoResolutionDeadline.gte).toBeInstanceOf(Date)
+    expect(claim.where.autoResolutionDeadline.gte.getTime()).toBeLessThanOrEqual(deadline.getTime())
+  })
+
   it('does not emit a contest event when a concurrent state transition wins the claim', async () => {
     mockDisputeFindUnique.mockResolvedValue({
       id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
