@@ -18,6 +18,7 @@
 const mockDisputeFindUnique = jest.fn()
 const mockDisputeCreate = jest.fn()
 const mockDisputeUpdate = jest.fn()
+const mockDisputeUpdateMany = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockEscrowParticipantKeyFindUnique = jest.fn()
 const mockEmit = jest.fn().mockResolvedValue(undefined)
@@ -30,6 +31,7 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
       create: (...args: unknown[]) => mockDisputeCreate(...args),
       update: (...args: unknown[]) => mockDisputeUpdate(...args),
+      updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),
     },
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
     escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },
@@ -57,16 +59,18 @@ function fakeArbitrationProvider(pick = 'arb-configured'): ArbitrationProvider {
 
 const TRADE_1 = { id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: 'escrow-1' }
 
-function seedDispute(overrides: Partial<{ id: string; tradeId: string; status: string; evidence: unknown }> = {}) {
+function seedDispute(overrides: Partial<{ id: string; tradeId: string; status: string; evidence: unknown; evidenceGeneration: number }> = {}) {
   const dispute = {
     id: overrides.id ?? 'dispute-1',
     tradeId: overrides.tradeId ?? 'trade-1',
     escrowId: 'escrow-1',
     status: overrides.status ?? 'OPENED',
     evidence: overrides.evidence ?? [],
+    evidenceGeneration: overrides.evidenceGeneration ?? 0,
   }
   mockDisputeFindUnique.mockResolvedValue(dispute)
   mockDisputeUpdate.mockImplementation(async ({ data }: any) => ({ ...dispute, ...data }))
+  mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
   return dispute
 }
 
