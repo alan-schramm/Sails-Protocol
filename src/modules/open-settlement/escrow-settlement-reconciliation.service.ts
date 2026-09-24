@@ -539,7 +539,7 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
   const targetStatus = escrow.status as 'COMPLETED' | 'REFUNDED' | 'SPLIT'
   const pendingRow = await prisma.escrowPendingTransaction.findUnique({
     where: { escrowId: escrow.id },
-    select: { id: true, kind: true, feeCollectionSats: true, feeCollectionWaived: true, buyerBps: true, unsignedPsbtBase64: true, triggeredBy: true },
+    select: { id: true, kind: true, feeCollectionSats: true, feeCollectionWaived: true, buyerBps: true, unsignedPsbtBase64: true, triggeredBy: true, disputeId: true, rulingAppealRound: true },
   })
   // triggeredBy fallback: for a direct-call-rail escrow with no pending
   // row, the original triggeredBy was never durably persisted anywhere
