@@ -153,6 +153,9 @@ const mockDurableEventFindFirst = jest.fn().mockResolvedValue(null)
 // mockEscrowUpdateMany/mockPendingTxCreate/mockEscrowFundingEvidenceFindMany
 // sees the call whether it went through the mocked prisma singleton or
 // through this tx passthrough, exactly like a real Prisma transaction).
+const mockEconomicDispositionAuthorizationFindUnique = jest.fn()
+const mockEconomicDispositionAuthorizationCreate = jest.fn()
+const mockEconomicDispositionDisputeFindUnique = jest.fn()
 const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
   callback({
     durableEventRecord: {
@@ -174,6 +177,13 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     escrowEvent: {
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
+    },
+    economicDispositionAuthorization: {
+      findUnique: (...args: unknown[]) => mockEconomicDispositionAuthorizationFindUnique(...args),
+      create: (...args: unknown[]) => mockEconomicDispositionAuthorizationCreate(...args),
+    },
+    dispute: {
+      findUnique: (...args: unknown[]) => mockEconomicDispositionDisputeFindUnique(...args),
     },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
@@ -1497,6 +1507,14 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     mockDisputeFindFirst.mockResolvedValue({
       id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED',
       appealRound: 4, arbiterId: 'arbiter-2', ruling: 'REFUND',
+    })
+    // Economic authority for generation N was already durably committed
+    // before the later appeal. ADR-005 deliberately reuses that immutable
+    // authorization without re-checking mutable current Dispute state.
+    mockEconomicDispositionAuthorizationFindUnique.mockResolvedValue({
+      pendingOperationId: 'ptx-historical', escrowId: 'escrow-1',
+      disputeId: 'dispute-1', appealRound: 3, arbiterId: 'arbiter-1',
+      ruling: 'RELEASE', operationDigest: expect.any(String),
     })
     mockFinalizeRelease.mockResolvedValue({ txId: 'historical-release-txid' })
     mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1', status: 'COMPLETED', txReleaseId: 'historical-release-txid' })
