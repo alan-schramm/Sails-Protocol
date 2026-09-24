@@ -889,6 +889,24 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
     expect(result).toEqual({ id: 'dispute-1', status: 'AUTO_PROPOSED' })
   })
 
+  it('rejects a stale QVAC recommendation when evidence advanced after assessment', async () => {
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1',
+      status: 'EVIDENCE_SUBMITTED', evidenceGeneration: 8,
+    })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 0 })
+
+    const result = await service.proposeAutoResolution(
+      'dispute-1', 'RELEASE', 0.95, 'assessed generation 7', 7
+    )
+
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'dispute-1', evidenceGeneration: 7 }),
+    }))
+    expect(result).toBeNull()
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
+
   it('loses the race cleanly (returns null, no event) when a human arbiter already resolved/appealed the dispute', async () => {
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'RESOLVED' })
     mockDisputeUpdateMany.mockResolvedValue({ count: 0 })
