@@ -255,6 +255,27 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
     }))
   })
 
+  it('#254 preserves the exact disputed appeal generation when PASS 2 recovers missing completion effects after txReleaseId was persisted', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockFindTerminalWithTxReleaseId.mockResolvedValue([
+      multisigEscrowFixture({ txReleaseId: 'confirmed-historical-tx', status: 'COMPLETED' }),
+    ])
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+    mockPendingTxFindUnique.mockResolvedValue(
+      pendingTxFixture({ disputeId: 'dispute-1', rulingAppealRound: 4 })
+    )
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.completionEffectsRecovered).toEqual([{ escrowId: 'escrow-1', obligationSkipped: false }])
+    expect(mockEscrowEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        dispositionOrigin: 'DISPUTE',
+        dispositionAppealRound: 4,
+      }),
+    }))
+  })
+
   it('ALREADY_BROADCAST recovery converges external truth without asking for fresh execution authority', async () => {
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
