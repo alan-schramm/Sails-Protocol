@@ -1167,10 +1167,30 @@ export class DisputeService {
     const entry: EvidenceDescriptor = { ...resolved, submittedBy, submittedAt: new Date().toISOString() }
     const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
-      data: { evidence: [...existing, entry] as unknown as object, status: 'EVIDENCE_SUBMITTED' },
+    // #309 — evidence is a JSON aggregate, so a plain read/append/update
+    // loses one writer when two parties submit concurrently. The monotonic
+    // evidenceGeneration turns this into an optimistic CAS. Status is part
+    // of the same predicate: a stale writer can never drag a dispute that a
+    // human advanced meanwhile back to EVIDENCE_SUBMITTED.
+    const claim = await prisma.dispute.updateMany({
+      where: {
+        id: disputeId,
+        evidenceGeneration: dispute.evidenceGeneration,
+        status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] },
+      },
+      data: {
+        evidence: [...existing, entry] as unknown as object,
+        evidenceGeneration: { increment: 1 },
+        status: 'EVIDENCE_SUBMITTED',
+      },
     })
+    if (claim.count === 0) {
+      throw new ValidationError(
+        `Dispute ${disputeId} changed while evidence was being appended — retry against the current evidence generation/status`
+      )
+    }
+    const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!updated) throw new NotFoundError('Dispute', disputeId)
 
     // `tradeId`/`escrowId` never change in this update (only `evidence`/
     // `status` do) — merging over the already-validated pre-update
