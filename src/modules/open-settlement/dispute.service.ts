@@ -1381,10 +1381,18 @@ export class DisputeService {
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const dispute of expired) {
       try {
-        await prisma.dispute.update({
-          where: { id: dispute.id },
+        // #309 / CSC-F02 — the discovery read above is not authority to
+        // overwrite a newer state. Claim the exact expired AUTO_PROPOSED
+        // snapshot; a concurrent contest/human ruling wins cleanly.
+        const claim = await prisma.dispute.updateMany({
+          where: {
+            id: dispute.id,
+            status: 'AUTO_PROPOSED',
+            autoResolutionDeadline: dispute.autoResolutionDeadline,
+          },
           data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
         })
+        if (claim.count === 0) continue
         await eventBus.emit('dispute.auto_resolution_contested', {
           disputeId: dispute.id,
           settlementId: dispute.escrowId,
