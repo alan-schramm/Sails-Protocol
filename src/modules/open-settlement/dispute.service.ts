@@ -1294,8 +1294,15 @@ export class DisputeService {
       throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
     }
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
+    // Claim the exact AUTO_PROPOSED snapshot we authorized above. A
+    // concurrent arbiter/state transition must win rather than being
+    // overwritten by this stale contest writer.
+    const claim = await prisma.dispute.updateMany({
+      where: {
+        id: disputeId,
+        status: 'AUTO_PROPOSED',
+        autoResolutionDeadline: dispute.autoResolutionDeadline,
+      },
       data: {
         status: 'EVIDENCE_SUBMITTED',
         autoResolutionRecommendation: null,
@@ -1304,6 +1311,11 @@ export class DisputeService {
         autoResolutionDeadline: null,
       },
     })
+    if (claim.count === 0) {
+      throw new ValidationError(`Dispute ${disputeId} changed while the automated resolution was being contested`)
+    }
+    const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!updated) throw new NotFoundError('Dispute', disputeId)
 
     await eventBus.emit('dispute.auto_resolution_contested', {
       disputeId,
