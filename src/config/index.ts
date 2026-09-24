@@ -534,6 +534,12 @@ export const config = {
       accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID ?? '',
       secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY ?? '',
       forcePathStyle: process.env.EVIDENCE_S3_FORCE_PATH_STYLE === 'true',
+      // No protocol-wide timeout is invented here. Operators must choose
+      // a bound appropriate to their S3-compatible backend; the provider
+      // treats expiry as local cancellation/UNKNOWN remote mutation outcome.
+      requestTimeoutMs: process.env.EVIDENCE_S3_REQUEST_TIMEOUT_MS
+        ? Number(process.env.EVIDENCE_S3_REQUEST_TIMEOUT_MS)
+        : undefined,
     },
   },
 
