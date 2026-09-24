@@ -301,7 +301,11 @@ jobs:
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git tag -a "$TAG" "$SOURCE_SHA" -m "$PACKAGE_NAME@$VERSION from $SOURCE_SHA"
-            git push origin "refs/tags/$TAG"
+            # checkout credentials are intentionally disabled. Cross the
+            # tag-mutation boundary with the job-scoped token only for
+            # this single explicit push, rather than persisting credentials
+            # in the repository's git config for later steps.
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$TAG"
           fi
 
       - name: Reconcile registry before publish
