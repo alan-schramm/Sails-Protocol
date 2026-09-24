@@ -1229,14 +1229,23 @@ export class DisputeService {
    * this never overwrites a real decision, it can only ever act on a
    * dispute still genuinely open.
    */
-  async proposeAutoResolution(disputeId: string, recommendation: 'RELEASE' | 'REFUND', confidence: number, reasoning: string) {
+  async proposeAutoResolution(disputeId: string, recommendation: 'RELEASE' | 'REFUND', confidence: number, reasoning: string, assessedEvidenceGeneration?: number) {
     const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new NotFoundError('Dispute', disputeId)
 
     const deadline = new Date(Date.now() + config.settlement.qvacAutoResolutionWindowHours * 3600 * 1000)
 
     const claim = await prisma.dispute.updateMany({
-      where: { id: disputeId, status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] }, ruling: null },
+      where: {
+        id: disputeId,
+        status: { in: ['OPENED', 'EVIDENCE_SUBMITTED'] },
+        ruling: null,
+        // #309 — when QVAC assessed a specific evidence snapshot, that
+        // recommendation may only affect that exact durable generation.
+        // Direct/manual callers that predate generation binding preserve
+        // their existing advisory-only behavior by omitting this argument.
+        ...(assessedEvidenceGeneration === undefined ? {} : { evidenceGeneration: assessedEvidenceGeneration }),
+      },
       data: {
         status: 'AUTO_PROPOSED',
         autoResolutionRecommendation: recommendation,
