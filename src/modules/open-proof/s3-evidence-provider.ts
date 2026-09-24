@@ -90,11 +90,16 @@ export class S3EvidenceProvider implements EvidenceProvider {
       return this.client.send(command as never) as Promise<T>
     }
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs)
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      return this.client.send(command as never, { abortSignal: controller.signal }) as Promise<T>
+      // Invoke the SDK first so the request has installed its abort listener
+      // before the deadline can fire. This also keeps very small configured
+      // bounds deterministic under scheduler pressure.
+      const operation = this.client.send(command as never, { abortSignal: controller.signal }) as Promise<T>
+      timer = setTimeout(() => controller.abort(), this.requestTimeoutMs)
+      return await operation
     } finally {
-      clearTimeout(timer)
+      if (timer !== undefined) clearTimeout(timer)
     }
   }
 
