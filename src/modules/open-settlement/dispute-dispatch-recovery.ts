@@ -95,16 +95,17 @@ export async function reconcileMissingDispatch(): Promise<DispatchRecoveryReport
   const candidates = await prisma.dispute.findMany({
     where: {
       status: 'RESOLVED',
-      escrow: { type: 'MULTISIG', status: { notIn: [...TERMINAL_ESCROW_STATUSES] } },
+      escrow: {
+        type: 'MULTISIG',
+        status: { notIn: [...TERMINAL_ESCROW_STATUSES] },
+        pendingTransaction: null,
+      },
     },
     include: { escrow: true },
   })
 
   for (const dispute of candidates) {
     try {
-      const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: dispute.escrowId } })
-      if (existingPending) continue // not a C4 case at all — dispatch already happened; a different reconciler owns whatever state it's in
-
       const row = await loadDisputeRulingRecord(dispute.escrowId, dispute.appealRound)
       if (!row || !row.outcomeContent) continue // not a Core-authoritative-path ruling (legacy applyRuling()) — out of this module's scope, not a gap
 

@@ -283,6 +283,28 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
     expect(pendingRows).toHaveLength(1)
   })
 
+  it('#343 candidate discovery is DB-bounded: resolved MULTISIG disputes that already have pending work never reach per-candidate recovery', async () => {
+    requirePostgres('#343 bounded candidate discovery')
+    const { escrowId } = await makeUndispatchedDisputedEscrow('bounded-candidate', 'RELEASE')
+
+    // First pass turns the genuine C4 row into ordinary pending work.
+    const first = await reconcileMissingDispatch()
+    expect(first.resumed.find((r) => r.escrowId === escrowId)).toBeDefined()
+    const pendingBefore = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
+    expect(pendingBefore).not.toBeNull()
+
+    // A second pass must exclude it in the database relation filter,
+    // rather than discovering it broadly and filtering with an N+1 read.
+    const second = await reconcileMissingDispatch()
+    expect(second.resumed.find((r) => r.escrowId === escrowId)).toBeUndefined()
+    expect(second.alreadyResumedConcurrently).not.toContain(escrowId)
+    expect(second.notEligible.find((r) => r.escrowId === escrowId)).toBeUndefined()
+    expect(second.failed.find((r) => r.escrowId === escrowId)).toBeUndefined()
+
+    const pendingAfter = await prisma.escrowPendingTransaction.findMany({ where: { escrowId } })
+    expect(pendingAfter).toHaveLength(1)
+  })
+
   it('a dispute whose ruling took the LEGACY (non-Core-authoritative) path is not a candidate at all — no durable Outcome exists for it', async () => {
     requirePostgres('legacy dispute is not a C4 candidate')
     // A RESOLVED dispute with no SemanticTransitionRecord at all (never
