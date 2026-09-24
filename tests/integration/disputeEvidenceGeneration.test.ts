@@ -117,13 +117,18 @@ describe('#309 dispute evidence generation — real Postgres', () => {
     const key = `#309-evidence-${dispute.id}`
     const descriptor = { type: 'chat_log' as const, note: 'one logical request' }
 
-    const [a, b] = await Promise.all([
+    const attempts = await Promise.allSettled([
       service.submitEvidence(dispute.id, buyer.id, descriptor, key),
       service.submitEvidence(dispute.id, buyer.id, descriptor, key),
     ])
 
-    expect(a.id).toBe(dispute.id)
-    expect(b.id).toBe(dispute.id)
+    const fulfilled = attempts.filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof service.submitEvidence>>> => result.status === 'fulfilled')
+    const rejected = attempts.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    expect(fulfilled).toHaveLength(1)
+    expect(fulfilled[0].value.id).toBe(dispute.id)
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0].reason?.name).toBe('IdempotencyKeyConflictError')
+
     const row = await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
     const evidence = Array.isArray(row.evidence) ? row.evidence as Array<{ note?: string }> : []
     expect(row.evidenceGeneration).toBe(1)
