@@ -234,10 +234,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // same expectation DEPLOYMENT.md already sets for the Postgres/Redis
   // ports. Contains only aggregate counters, never per-user data — safe
   // under this protocol's own no-platform-operator-visibility principle.
-  app.get('/metrics', async (_request, reply) => {
-    reply.header('content-type', metricsRegistry.contentType)
-    return metricsRegistry.metrics()
-  })
+  // The public production listener must not become the network control
+  // that protects operational telemetry. Non-production keeps the local
+  // scrape endpoint for development; production requires a separately
+  // controlled observability surface.
+  if (!config.isProduction) {
+    app.get('/metrics', async (_request, reply) => {
+      reply.header('content-type', metricsRegistry.contentType)
+      return metricsRegistry.metrics()
+    })
+  }
 
   // ── Error Handler ─────────────────────────────────────────────────────────
   app.setErrorHandler((error, request, reply) => {
@@ -311,7 +317,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }))
 
   app.get('/health/ready', async (_request, reply) => {
-    const checks: Record<string, { ok: boolean; latencyMs: number; error?: string }> = {}
+    // Issue #306 - unauthenticated readiness may disclose only ok/latencyMs per dependency, never the
+    // raw exception (hostnames, ports, provider identifiers, connection strings, an unexpected Redis
+    // PING reply, stack traces). Detailed failure information is logged server-side only, below.
+    const checks: Record<string, { ok: boolean; latencyMs: number }> = {}
 
     const timed = async <T,>(label: string, fn: () => Promise<T>) => {
       const start = Date.now()
@@ -319,11 +328,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         await fn()
         checks[label] = { ok: true, latencyMs: Date.now() - start }
       } catch (err) {
-        checks[label] = {
-          ok: false,
-          latencyMs: Date.now() - start,
-          error: err instanceof Error ? err.message : String(err),
-        }
+        checks[label] = { ok: false, latencyMs: Date.now() - start }
+        app.log.warn({ msg: 'Readiness check failed', module: 'health', check: label, err: err instanceof Error ? err.message : String(err) })
       }
     }
 
@@ -341,6 +347,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     })
   })
 
+  // Public liveness alias. Production posture (mock/provider/config state)
+  // is intentionally not disclosed here; /health/ready exposes only
+  // sanitized dependency readiness.
   app.get('/health', async () => ({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -348,10 +357,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     protocol: 'Sails Protocol',
     module: 'Sails OpenP2P',
     referenceImplementation: 'Satsails Wallet',
-    features: {
-      mockEscrow: config.features.mockEscrow,
-      mockSettlement: config.features.mockSettlement,
-    },
   }))
 
   app.get('/', async () => ({
