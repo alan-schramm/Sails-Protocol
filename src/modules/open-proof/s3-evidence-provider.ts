@@ -83,7 +83,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
    * write/delete did not commit. Callers therefore still receive UNAVAILABLE
    * and must reconcile ambiguous mutation outcomes rather than safe-retry them.
    */
-  private async send<T>(command: Parameters<S3Client['send']>[0]): Promise<T> {
+  private async send<T>(command: unknown): Promise<T> {
     if (this.requestTimeoutMs === undefined) {
       return this.client.send(command as never) as Promise<T>
     }
