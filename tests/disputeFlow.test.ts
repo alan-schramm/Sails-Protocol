@@ -1033,11 +1033,16 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
 
   beforeEach(() => jest.clearAllMocks())
 
-  it('reverts an expired, uncontested AUTO_PROPOSED dispute to EVIDENCE_SUBMITTED without calling any settlement function', async () => {
-    mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
-    ])
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+  const expired = (id = 'dispute-1') => ({
+    id, tradeId: id.replace('dispute', 'trade'), escrowId: id.replace('dispute', 'escrow'),
+    status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1',
+    autoResolutionRecommendation: 'REFUND',
+    autoResolutionDeadline: new Date('2026-01-01T00:00:00.000Z'),
+  })
+
+  it('CAS-reverts an expired uncontested proposal without calling settlement', async () => {
+    mockDisputeFindMany.mockResolvedValue([expired()])
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
 
     const result = await service.sweepExpiredAutoResolutions()
 
@@ -1045,45 +1050,45 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
     expect(mockReleaseFunds).not.toHaveBeenCalled()
     expect(mockInitiateRefund).not.toHaveBeenCalled()
     expect(mockInitiateRelease).not.toHaveBeenCalled()
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'dispute-1',
+        status: 'AUTO_PROPOSED',
+        autoResolutionDeadline: new Date('2026-01-01T00:00:00.000Z'),
+      },
       data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
     })
-    expect(mockEmit).toHaveBeenCalledWith(
-      'dispute.auto_resolution_contested',
-      expect.objectContaining({
-        disputeId: 'dispute-1',
-        tradeId: 'trade-1',
-        contestedBy: 'window-expired-advisory-only',
-        triggeredBy: 'window-expired-advisory-only',
-      }),
-      'trade-1'
-    )
+    expect(mockEmit).toHaveBeenCalledTimes(1)
     expect(result.revertedToHuman).toEqual(['dispute-1'])
     expect(result.failed).toEqual([])
   })
 
-  it('reverts a RELEASE recommendation identically — the ruling itself is irrelevant once execution is advisory-only, not automated', async () => {
-    mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'RELEASE' },
-    ])
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+  it('a concurrent contest or human transition wins over a stale sweeper snapshot', async () => {
+    mockDisputeFindMany.mockResolvedValue([expired()])
+    mockDisputeUpdateMany.mockResolvedValue({ count: 0 })
+
+    const result = await service.sweepExpiredAutoResolutions()
+
+    expect(mockEmit).not.toHaveBeenCalled()
+    expect(result.revertedToHuman).toEqual([])
+    expect(result.failed).toEqual([])
+  })
+
+  it('reverts a RELEASE recommendation identically because the recommendation has no execution authority', async () => {
+    mockDisputeFindMany.mockResolvedValue([{ ...expired(), autoResolutionRecommendation: 'RELEASE' }])
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
 
     const result = await service.sweepExpiredAutoResolutions()
 
     expect(mockReleaseFunds).not.toHaveBeenCalled()
     expect(result.revertedToHuman).toEqual(['dispute-1'])
-    expect(result.failed).toEqual([])
   })
 
-  it('collects failures per-dispute without letting one bad row\'s revert failure stop the rest of the sweep', async () => {
-    mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
-      { id: 'dispute-2', tradeId: 'trade-2', escrowId: 'escrow-2', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
-    ])
-    mockDisputeUpdate
+  it('isolates a real CAS failure without blocking later rows', async () => {
+    mockDisputeFindMany.mockResolvedValue([expired('dispute-1'), expired('dispute-2')])
+    mockDisputeUpdateMany
       .mockRejectedValueOnce(new Error('row-1 update failed'))
-      .mockResolvedValueOnce({ id: 'dispute-2', status: 'EVIDENCE_SUBMITTED' })
+      .mockResolvedValueOnce({ count: 1 })
 
     const result = await service.sweepExpiredAutoResolutions()
 
