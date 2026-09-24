@@ -1214,6 +1214,7 @@ export class DisputeService {
       settlementId: dispute.escrowId,
       tradeId: dispute.tradeId,
       triggeredBy: submittedBy,
+      evidenceGeneration: dispute.evidenceGeneration,
     }, dispute.tradeId)
   }
 
