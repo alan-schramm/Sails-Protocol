@@ -624,7 +624,10 @@ process. What makes this true, and what still doesn't:
   set `EVIDENCE_PROVIDER=s3` plus `EVIDENCE_S3_BUCKET`/
   `EVIDENCE_S3_ACCESS_KEY_ID`/`EVIDENCE_S3_SECRET_ACCESS_KEY` (and
   `EVIDENCE_S3_ENDPOINT`/`EVIDENCE_S3_REGION`/`EVIDENCE_S3_FORCE_PATH_STYLE`
-  for a non-AWS S3-compatible vendor).
+  for a non-AWS S3-compatible vendor). `EVIDENCE_S3_REQUEST_TIMEOUT_MS` is an optional
+  operator-selected per-request cancellation bound; there is intentionally no protocol
+  default. For mutating S3 operations, expiry means the local request was cancelled and
+  the remote outcome remains unknown — it is not proof that a write/delete did not commit.
 
 None of the above requires sticky sessions at the load balancer — any
 instance can serve any HTTP request or accept any new WebSocket
