@@ -464,7 +464,8 @@ export function registerEventHandlers(): void {
         payload.disputeId,
         assessment.recommendation,
         assessment.confidence,
-        assessment.reasoning
+        assessment.reasoning,
+        dispute.evidenceGeneration
       )
     } catch (err) {
       log.error({ msg: 'qvacAutoResolution failed', eventId: event.eventId, err: err instanceof Error ? err.message : err })
