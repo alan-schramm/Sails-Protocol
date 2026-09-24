@@ -105,7 +105,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
     const extension = mimeTypeExtension(mimeType)
     const key = `${sha256}${extension}`
     try {
-      await this.send<any>(
+      await this.send(
         new PutObjectCommand({
           Bucket: this.bucket,
           Key: key,
@@ -121,7 +121,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
 
   async retrieve(uri: string): Promise<Uint8Array> {
     try {
-      const result = await this.send<any>(new GetObjectCommand({ Bucket: this.bucket, Key: uri }))
+      const result = await this.send(new GetObjectCommand({ Bucket: this.bucket, Key: uri }))
       if (!result.Body) {
         throw new EvidenceStorageError(`Evidence storage returned no body for ${uri}`, 'UNAVAILABLE')
       }
@@ -144,7 +144,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
   // already covers both names plus the raw status-code fallback.
   async stat(uri: string): Promise<EvidenceObjectMetadata> {
     try {
-      const result = await this.send<any>(new HeadObjectCommand({ Bucket: this.bucket, Key: uri }))
+      const result = await this.send(new HeadObjectCommand({ Bucket: this.bucket, Key: uri }))
       return { size: result.ContentLength ?? 0 }
     } catch (err) {
       if (err instanceof NotFound || isNotFoundError(err)) {
@@ -161,7 +161,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
       // NOT_FOUND special-casing is needed here, matching
       // LocalFilesystemEvidenceProvider's own idempotent delete()
       // contract.
-      await this.send<any>(new DeleteObjectCommand({ Bucket: this.bucket, Key: uri }))
+      await this.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: uri }))
     } catch (err) {
       throw new EvidenceStorageError(`Evidence storage unavailable while deleting ${uri}: ${(err as Error).message}`, 'UNAVAILABLE')
     }
@@ -173,7 +173,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
   // touching any object. Never throws — reported via `healthy: false`.
   async health(): Promise<EvidenceProviderHealth> {
     try {
-      await this.send<any>(new HeadBucketCommand({ Bucket: this.bucket }))
+      await this.send(new HeadBucketCommand({ Bucket: this.bucket }))
       return { healthy: true }
     } catch (err) {
       return { healthy: false, detail: (err as Error).message }
