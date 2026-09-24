@@ -105,6 +105,26 @@ describe('#309 dispute evidence generation — real Postgres', () => {
     )
   })
 
+  it('one idempotency key produces one evidence generation under concurrent retries', async () => {
+    requirePostgres('idempotent concurrent evidence')
+    const { dispute, buyer } = await fixture('idempotent')
+    const service = getDisputeService()
+    const key = `#309-evidence-${dispute.id}`
+    const descriptor = { type: 'chat_log' as const, note: 'one logical request' }
+
+    const [a, b] = await Promise.all([
+      service.submitEvidence(dispute.id, buyer.id, descriptor, key),
+      service.submitEvidence(dispute.id, buyer.id, descriptor, key),
+    ])
+
+    expect(a.id).toBe(dispute.id)
+    expect(b.id).toBe(dispute.id)
+    const row = await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
+    const evidence = Array.isArray(row.evidence) ? row.evidence as Array<{ note?: string }> : []
+    expect(row.evidenceGeneration).toBe(1)
+    expect(evidence.filter((entry) => entry.note === 'one logical request')).toHaveLength(1)
+  })
+
   it('a stale evidence writer cannot restore EVIDENCE_SUBMITTED after human/state advancement', async () => {
     requirePostgres('stale evidence writer')
     const { dispute } = await fixture('stale')
