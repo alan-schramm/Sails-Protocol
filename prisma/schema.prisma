@@ -1376,6 +1376,11 @@ model Dispute {
   openedBy                     String // participantId who raised the dispute
   reason                       String
   evidence                     Json               @default("[]") // array of evidence descriptors
+  // #309 — monotonic version for optimistic concurrency on evidence append.
+  // Every accepted append increments this in the same CAS write as the JSON
+  // replacement, preventing two concurrent read/append writers from silently
+  // dropping one another's evidence.
+  evidenceGeneration           Int                @default(0)
   arbiterId                    String? // populated by ArbitrationProvider.assign()
   status                       DisputeStatus      @default(OPENED)
   ruling                       DisputeRuling?
