@@ -843,6 +843,36 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
     expect(call.data.evidence[1].type).toBe('payment_receipt')
   })
 
+  it('reuses one semantic evidence entry across a CAS conflict retry', async () => {
+    const opened = {
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1',
+      status: 'EVIDENCE_SUBMITTED', evidenceGeneration: 4,
+      evidence: [{ type: 'chat_log', submittedBy: 'seller-1', submittedAt: '2026-01-01T00:00:00.000Z' }],
+    }
+    const afterWinner = {
+      ...opened, evidenceGeneration: 5,
+      evidence: [...opened.evidence, { type: 'chat_log', submittedBy: 'seller-1', submittedAt: '2026-01-02T00:00:00.000Z' }],
+    }
+    mockDisputeFindUnique
+      .mockResolvedValueOnce(opened)
+      .mockResolvedValueOnce(opened)
+      .mockResolvedValueOnce(afterWinner)
+      .mockResolvedValueOnce({ ...afterWinner, evidenceGeneration: 6 })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockDisputeUpdateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 })
+
+    await service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', note: 'same logical submission' })
+
+    expect(mockDisputeUpdateMany).toHaveBeenCalledTimes(2)
+    const firstEntry = mockDisputeUpdateMany.mock.calls[0][0].data.evidence.at(-1)
+    const retryEntry = mockDisputeUpdateMany.mock.calls[1][0].data.evidence.at(-1)
+    expect(retryEntry).toEqual(firstEntry)
+    expect(retryEntry.submittedAt).toBe(firstEntry.submittedAt)
+    expect(mockDisputeUpdateMany.mock.calls[1][0].where.evidenceGeneration).toBe(5)
+  })
+
   it('rejects a submitter who is not a party to the trade', async () => {
     mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [] })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
