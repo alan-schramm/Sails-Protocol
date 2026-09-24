@@ -129,6 +129,12 @@ describe('#309 dispute evidence generation — real Postgres', () => {
     expect(rejected).toHaveLength(1)
     expect(rejected[0].reason?.name).toBe('IdempotencyKeyConflictError')
 
+    // IN_PROGRESS is intentionally not replay success. After the winning
+    // request commits, the same logical request must reconcile to its
+    // durable result without appending another evidence generation.
+    const replay = await service.submitEvidence(dispute.id, buyer.id, descriptor, key)
+    expect(replay.id).toBe(dispute.id)
+
     const row = await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
     const evidence = Array.isArray(row.evidence) ? row.evidence as Array<{ note?: string }> : []
     expect(row.evidenceGeneration).toBe(1)
