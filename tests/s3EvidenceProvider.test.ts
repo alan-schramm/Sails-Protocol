@@ -284,6 +284,7 @@ describe('S3EvidenceProvider — bounded request / cancellation truth', () => {
 
       const operation = provider.store(new Uint8Array(Buffer.from('ambiguous-write')), 'document')
       await jest.advanceTimersByTimeAsync(25)
+      await Promise.resolve()
 
       await expect(operation).rejects.toMatchObject({ storageReason: 'UNAVAILABLE' })
       const options = sendMock.mock.calls[0][1] as { abortSignal?: AbortSignal }
