@@ -16,6 +16,8 @@ describe('#309 dispute evidence generation — real Postgres', () => {
   let liquidityRouter: typeof import('../../src/modules/open-liquidity/liquidity.service').liquidityRouter
   let tradeService: typeof import('../../src/modules/open-p2p/trade.service').tradeService
   let getDisputeService: typeof import('../../src/modules/open-settlement/dispute.service').getDisputeService
+  let intentEngine: typeof import('../../src/core/intent-engine').intentEngine
+  let OpenP2PTradeIntentHandler: typeof import('../../src/modules/open-p2p/intent-handler').OpenP2PTradeIntentHandler
 
   beforeAll(async () => {
     process.env.MOCK_ESCROW = 'true'
@@ -29,6 +31,9 @@ describe('#309 dispute evidence generation — real Postgres', () => {
     ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
     ;({ tradeService } = require('../../src/modules/open-p2p/trade.service'))
     ;({ getDisputeService } = require('../../src/modules/open-settlement/dispute.service'))
+    ;({ intentEngine } = require('../../src/core/intent-engine'))
+    ;({ OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler'))
+    intentEngine.registerHandler(OpenP2PTradeIntentHandler)
   })
 
   afterAll(async () => {
